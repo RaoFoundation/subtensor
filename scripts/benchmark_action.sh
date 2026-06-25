@@ -425,7 +425,7 @@ mkdir -p "$PATCH_DIR"
 
 # Build if needed
 [[ -x "$NODE_BIN" ]] || cargo build --profile production -p node-subtensor --features runtime-benchmarks
-[[ -x "$WEIGHT_CMP" ]] || cargo build --profile production -p subtensor-weight-tools --bin weight-compare
+cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 [[ -x "$NODE_BIN" ]] || die "node binary not found"
 [[ -f "$RUNTIME_WASM" ]] || die "runtime WASM not found"
 [[ -x "$WEIGHT_CMP" ]] || die "weight-compare not found"

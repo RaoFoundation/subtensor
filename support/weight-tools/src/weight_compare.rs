@@ -1,28 +1,31 @@
-//! Compare two weights.rs files and report drift.
+//! Compare two weights.rs files and report benchmark-level drift.
 //!
 //! Parses both files with `syn`, extracts per-function weight data including
-//! base values and per-component (parameterized) slopes, then compares with
-//! a configurable percentage threshold.
+//! base values and parameterized slopes, then compares the whole generated
+//! weight across the benchmarked component ranges with a configurable
+//! percentage threshold.
 //!
 //! Exit codes:
-//!   0 — all within threshold
-//!   1 — error
-//!   2 — drift exceeds threshold
+//! 0 — all within threshold
+//! 1 — error
+//! 2 — drift exceeds threshold
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
-use syn::{Expr, File, ImplItem, Item, Lit, ReturnType, Stmt};
+use syn::{Attribute, Expr, File, ImplItem, Item, Lit, ReturnType, Stmt};
 
 #[derive(Parser)]
 #[command(about = "Compare two weights.rs files and report drift")]
 struct Cli {
     #[arg(long)]
     old: PathBuf,
+
     #[arg(long)]
     new: PathBuf,
+
     #[arg(long, default_value = "40")]
     threshold: f64,
 }
@@ -34,16 +37,32 @@ struct WeightValues {
     proof_size: u64,
     base_reads: u64,
     base_writes: u64,
-    /// Per-component slopes, ordered by appearance in the chain.
-    component_weights: Vec<u64>,
-    component_reads: Vec<u64>,
-    component_writes: Vec<u64>,
-    component_proof: Vec<u64>,
+    /// Per-component ref-time slopes, keyed by benchmark component name.
+    component_weights: BTreeMap<String, u64>,
+    component_reads: BTreeMap<String, u64>,
+    component_writes: BTreeMap<String, u64>,
+    component_proof: BTreeMap<String, u64>,
+    /// Component ranges from generated docs, keyed by benchmark component name.
+    component_ranges: BTreeMap<String, (u64, u64)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Drift {
+    signed_pct: f64,
+    abs_pct: f64,
+}
+
+impl Drift {
+    fn new(signed_pct: f64) -> Self {
+        Self {
+            signed_pct,
+            abs_pct: signed_pct.abs(),
+        }
+    }
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
     let old_weights = parse_file(&cli.old)?;
     let new_weights = parse_file(&cli.new)?;
 
@@ -53,41 +72,40 @@ fn main() -> Result<()> {
         let ow = old_weights.get(name).cloned().unwrap_or_default();
         let mut reasons: Vec<String> = Vec::new();
 
-        // Base weight: threshold-based
-        check_pct(
-            ow.base_weight,
-            nw.base_weight,
-            cli.threshold,
-            "base_weight",
-            &mut reasons,
-        );
+        let weight_drift = max_ref_time_drift(&ow, nw);
+        if weight_drift.abs_pct > cli.threshold {
+            reasons.push(format!("max_weight {:+.1}%", weight_drift.signed_pct));
+        }
 
-        // Base reads/writes: exact
+        let old_components: Vec<_> = ow.component_ranges.keys().cloned().collect();
+        let new_components: Vec<_> = nw.component_ranges.keys().cloned().collect();
+        if !old_components.is_empty()
+            && !new_components.is_empty()
+            && old_components != new_components
+        {
+            reasons.push(format!(
+                "components {:?} -> {:?}",
+                old_components, new_components
+            ));
+        }
+
+        // Storage I/O changes are structural, not percent drift, so keep them exact.
         if nw.base_reads != ow.base_reads {
             reasons.push(format!("reads {} -> {}", ow.base_reads, nw.base_reads));
         }
         if nw.base_writes != ow.base_writes {
             reasons.push(format!("writes {} -> {}", ow.base_writes, nw.base_writes));
         }
-
-        // Component slopes: threshold-based for weights, exact for reads/writes
-        check_vec_pct(
-            &ow.component_weights,
-            &nw.component_weights,
-            cli.threshold,
-            "comp_weight",
-            &mut reasons,
-        );
-        check_vec_exact(
+        check_map_exact(
             &ow.component_reads,
             &nw.component_reads,
-            "comp_reads",
+            "component_reads",
             &mut reasons,
         );
-        check_vec_exact(
+        check_map_exact(
             &ow.component_writes,
             &nw.component_writes,
-            "comp_writes",
+            "component_writes",
             &mut reasons,
         );
 
@@ -96,33 +114,33 @@ fn main() -> Result<()> {
             any_drift = true;
         }
 
-        let pct = if ow.base_weight > 0 {
-            (nw.base_weight as f64 - ow.base_weight as f64) / ow.base_weight as f64 * 100.0
-        } else if nw.base_weight > 0 {
-            100.0
+        let base_pct = signed_pct(ow.base_weight as u128, nw.base_weight as u128);
+        let icon = if drifted { "\u{274c}" } else { "\u{2705}" };
+        let reason_suffix = if reasons.is_empty() {
+            String::new()
         } else {
-            0.0
+            format!(" reasons: {}", reasons.join(", "))
         };
 
-        let icon = if drifted { "\u{274c}" } else { "\u{2705}" };
-
         println!(
-            "  {} {:<40} {:>12} -> {:<12} ({:>+.1}%)  reads {:>4} -> {:<4}  writes {:>4} -> {:<4}",
+            " {} {:<40} {:>12} -> {:<12} ({:>+.1}%; max {:>+.1}%) reads {:>4} -> {:<4} writes {:>4} -> {:<4}{}",
             icon,
             name,
             ow.base_weight,
             nw.base_weight,
-            pct,
+            base_pct,
+            weight_drift.signed_pct,
             ow.base_reads,
             nw.base_reads,
             ow.base_writes,
             nw.base_writes,
+            reason_suffix,
         );
     }
 
     for name in old_weights.keys() {
         if !new_weights.contains_key(name) {
-            println!("  \u{274c} {:<40} REMOVED", name);
+            println!(" \u{274c} {:<40} REMOVED", name);
             any_drift = true;
         }
     }
@@ -134,33 +152,125 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn check_pct(old: u64, new: u64, threshold: f64, label: &str, reasons: &mut Vec<String>) {
-    let drift = if old > 0 {
-        ((new as f64 - old as f64) / old as f64 * 100.0).abs()
-    } else if new > 0 {
-        100.0
-    } else {
-        return;
-    };
-    if drift > threshold {
-        reasons.push(format!("{label} {drift:.1}%"));
-    }
-}
-
-fn check_vec_pct(old: &[u64], new: &[u64], threshold: f64, label: &str, reasons: &mut Vec<String>) {
-    if old.len() != new.len() {
-        reasons.push(format!("{label} count {} -> {}", old.len(), new.len()));
-        return;
-    }
-    for (i, (o, n)) in old.iter().zip(new.iter()).enumerate() {
-        check_pct(*o, *n, threshold, &format!("{label}[{i}]"), reasons);
-    }
-}
-
-fn check_vec_exact(old: &[u64], new: &[u64], label: &str, reasons: &mut Vec<String>) {
+fn check_map_exact(
+    old: &BTreeMap<String, u64>,
+    new: &BTreeMap<String, u64>,
+    label: &str,
+    reasons: &mut Vec<String>,
+) {
     if old != new {
         reasons.push(format!("{label} {:?} -> {:?}", old, new));
     }
+}
+
+fn signed_pct(old: u128, new: u128) -> f64 {
+    if old > 0 {
+        (new as f64 - old as f64) / old as f64 * 100.0
+    } else if new > 0 {
+        100.0
+    } else {
+        0.0
+    }
+}
+
+fn max_ref_time_drift(old: &WeightValues, new: &WeightValues) -> Drift {
+    let ranges = comparison_ranges(old, new);
+    if ranges.is_empty() {
+        return Drift::new(signed_pct(old.base_weight as u128, new.base_weight as u128));
+    }
+
+    let mut values = Vec::with_capacity(ranges.len());
+    let mut max_drift = Drift::new(0.0);
+    visit_range_corners(&ranges, 0, &mut values, old, new, &mut max_drift);
+    max_drift
+}
+
+fn visit_range_corners(
+    ranges: &[(String, u64, u64)],
+    idx: usize,
+    values: &mut Vec<u64>,
+    old: &WeightValues,
+    new: &WeightValues,
+    max_drift: &mut Drift,
+) {
+    if idx == ranges.len() {
+        let old_total = total_ref_time_at(old, ranges, values);
+        let new_total = total_ref_time_at(new, ranges, values);
+        let drift = Drift::new(signed_pct(old_total, new_total));
+        if drift.abs_pct > max_drift.abs_pct {
+            *max_drift = drift;
+        }
+        return;
+    }
+
+    let (_, min, max) = &ranges[idx];
+    values.push(*min);
+    visit_range_corners(ranges, idx + 1, values, old, new, max_drift);
+    values.pop();
+
+    if max != min {
+        values.push(*max);
+        visit_range_corners(ranges, idx + 1, values, old, new, max_drift);
+        values.pop();
+    }
+}
+
+fn comparison_ranges(old: &WeightValues, new: &WeightValues) -> Vec<(String, u64, u64)> {
+    let mut names = BTreeSet::new();
+    names.extend(old.component_ranges.keys().cloned());
+    names.extend(new.component_ranges.keys().cloned());
+    names.extend(old.component_weights.keys().cloned());
+    names.extend(new.component_weights.keys().cloned());
+
+    names
+        .into_iter()
+        .map(|name| {
+            let old_range = range_for_component(old, &name);
+            let new_range = range_for_component(new, &name);
+            let min = old_range.0.min(new_range.0);
+            let max = old_range.1.max(new_range.1).max(min);
+            (name, min, max)
+        })
+        .filter(|(_, min, max)| *min != 0 || *max != 0)
+        .collect()
+}
+
+fn range_for_component(values: &WeightValues, name: &str) -> (u64, u64) {
+    values
+        .component_ranges
+        .get(name)
+        .copied()
+        .unwrap_or_else(|| {
+            if values.component_weights.contains_key(name) {
+                // Generated files should include ranges. Fall back to a one-unit
+                // multiplier if a legacy file does not, so slope-only changes are
+                // still represented in the benchmark-level total.
+                (0, 1)
+            } else {
+                (0, 0)
+            }
+        })
+}
+
+fn total_ref_time_at(
+    values: &WeightValues,
+    ranges: &[(String, u64, u64)],
+    component_values: &[u64],
+) -> u128 {
+    let mut total = values.base_weight as u128;
+
+    for (name, slope) in &values.component_weights {
+        let multiplier = ranges
+            .iter()
+            .position(|(range_name, _, _)| range_name == name)
+            .and_then(|idx| component_values.get(idx))
+            .copied()
+            .unwrap_or(0);
+
+        total = total.saturating_add((*slope as u128).saturating_mul(multiplier as u128));
+    }
+
+    total
 }
 
 // ── Parsing ─────────────────────────────────────────────────────────────────
@@ -168,6 +278,7 @@ fn check_vec_exact(old: &[u64], new: &[u64], label: &str, reasons: &mut Vec<Stri
 fn parse_file(path: &PathBuf) -> Result<BTreeMap<String, WeightValues>> {
     let src = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let file: File = syn::parse_str(&src).with_context(|| format!("parsing {}", path.display()))?;
+
     let mut result = BTreeMap::new();
 
     for item in &file.items {
@@ -177,6 +288,7 @@ fn parse_file(path: &PathBuf) -> Result<BTreeMap<String, WeightValues>> {
         if !is_substrate_weight_impl(impl_block) {
             continue;
         }
+
         for impl_item in &impl_block.items {
             let ImplItem::Fn(method) = impl_item else {
                 continue;
@@ -184,12 +296,18 @@ fn parse_file(path: &PathBuf) -> Result<BTreeMap<String, WeightValues>> {
             if !matches!(&method.sig.output, ReturnType::Type(..)) {
                 continue;
             }
-            let mut wv = WeightValues::default();
+
+            let mut wv = WeightValues {
+                component_ranges: parse_component_ranges(&method.attrs),
+                ..WeightValues::default()
+            };
+
             for stmt in &method.block.stmts {
                 if let Stmt::Expr(expr, _) = stmt {
-                    walk(expr, &mut wv, false);
+                    walk(expr, &mut wv, None);
                 }
             }
+
             result.insert(method.sig.ident.to_string(), wv);
         }
         break;
@@ -208,9 +326,11 @@ fn is_substrate_weight_impl(impl_block: &syn::ItemImpl) -> bool {
             .collect::<String>(),
         _ => return false,
     };
+
     if !self_ty.contains("SubstrateWeight") {
         return false;
     }
+
     impl_block
         .trait_
         .as_ref()
@@ -219,74 +339,77 @@ fn is_substrate_weight_impl(impl_block: &syn::ItemImpl) -> bool {
         .unwrap_or(false)
 }
 
-/// Walk a method-call chain. `in_mul` tracks whether we're inside `.saturating_mul()`,
-/// which means values are per-component slopes rather than base values.
-fn walk(expr: &Expr, wv: &mut WeightValues, in_mul: bool) {
+/// Walk a method-call chain. `component` is set while walking the receiver of
+/// `.saturating_mul(component.into())`, which means the extracted values are
+/// per-component slopes rather than base values.
+fn walk(expr: &Expr, wv: &mut WeightValues, component: Option<&str>) {
     match expr {
         Expr::Call(call) => {
             if is_from_parts(&call.func) && call.args.len() >= 2 {
                 let v = expr_to_u64(&call.args[0]).unwrap_or(0);
                 let p = expr_to_u64(&call.args[1]).unwrap_or(0);
-                if in_mul {
-                    if v > 0 {
-                        wv.component_weights.push(v);
-                    }
-                    if p > 0 {
-                        wv.component_proof.push(p);
-                    }
+
+                if let Some(name) = component {
+                    add_component(&mut wv.component_weights, Some(name), v);
+                    add_component(&mut wv.component_proof, Some(name), p);
                 } else {
                     wv.base_weight = v;
                     wv.proof_size = p;
                 }
             }
         }
-        Expr::MethodCall(mc) => {
-            match mc.method.to_string().as_str() {
-                "saturating_add" => {
-                    walk(&mc.receiver, wv, in_mul);
-                    if let Some(arg) = mc.args.first() {
-                        walk(arg, wv, in_mul);
-                    }
+        Expr::MethodCall(mc) => match mc.method.to_string().as_str() {
+            "saturating_add" => {
+                walk(&mc.receiver, wv, component);
+                if let Some(arg) = mc.args.first() {
+                    walk(arg, wv, component);
                 }
-                "saturating_mul" => {
-                    // Receiver is the component slope value
-                    walk(&mc.receiver, wv, true);
-                }
-                "reads" => {
-                    extract_rw(
-                        mc.args.first(),
-                        in_mul,
-                        &mut wv.base_reads,
-                        &mut wv.component_reads,
-                    );
-                    walk(&mc.receiver, wv, in_mul);
-                }
-                "writes" => {
-                    extract_rw(
-                        mc.args.first(),
-                        in_mul,
-                        &mut wv.base_writes,
-                        &mut wv.component_writes,
-                    );
-                    walk(&mc.receiver, wv, in_mul);
-                }
-                _ => walk(&mc.receiver, wv, in_mul),
             }
-        }
-        Expr::Paren(p) => walk(&p.expr, wv, in_mul),
+            "saturating_mul" => {
+                // Receiver is the component slope value; the first argument is
+                // usually the benchmark component, e.g. `a.into()`.
+                let name = mc.args.first().and_then(component_name);
+                walk(&mc.receiver, wv, name.as_deref());
+            }
+            "reads" => {
+                extract_rw(
+                    mc.args.first(),
+                    component,
+                    &mut wv.base_reads,
+                    &mut wv.component_reads,
+                );
+                walk(&mc.receiver, wv, component);
+            }
+            "writes" => {
+                extract_rw(
+                    mc.args.first(),
+                    component,
+                    &mut wv.base_writes,
+                    &mut wv.component_writes,
+                );
+                walk(&mc.receiver, wv, component);
+            }
+            _ => walk(&mc.receiver, wv, component),
+        },
+        Expr::Paren(p) => walk(&p.expr, wv, component),
         _ => {}
     }
 }
 
 /// Extract a reads/writes value from the argument to `.reads()` / `.writes()`.
 /// Handles both plain literals and `(N_u64).saturating_mul(k.into())` patterns.
-fn extract_rw(arg: Option<&Expr>, in_mul: bool, base: &mut u64, components: &mut Vec<u64>) {
+fn extract_rw(
+    arg: Option<&Expr>,
+    component: Option<&str>,
+    base: &mut u64,
+    components: &mut BTreeMap<String, u64>,
+) {
     let Some(arg) = arg else { return };
 
     // Direct literal: .reads(2_u64)
     if let Some(n) = expr_to_u64(arg) {
-        if in_mul {
-            components.push(n);
+        if let Some(name) = component {
+            add_component(components, Some(name), n);
         } else {
             *base += n;
         }
@@ -298,7 +421,73 @@ fn extract_rw(arg: Option<&Expr>, in_mul: bool, base: &mut u64, components: &mut
         && inner_mc.method == "saturating_mul"
         && let Some(n) = expr_to_u64(&inner_mc.receiver)
     {
-        components.push(n);
+        let name = inner_mc.args.first().and_then(component_name);
+        add_component(components, name.as_deref(), n);
+    }
+}
+
+fn add_component(map: &mut BTreeMap<String, u64>, component: Option<&str>, value: u64) {
+    if value == 0 {
+        return;
+    }
+
+    let key = component
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("__unknown_{}", map.len()));
+    *map.entry(key).or_default() += value;
+}
+
+fn parse_component_ranges(attrs: &[Attribute]) -> BTreeMap<String, (u64, u64)> {
+    attrs
+        .iter()
+        .filter_map(doc_attr_value)
+        .filter_map(|doc| parse_component_range(&doc))
+        .collect()
+}
+
+fn doc_attr_value(attr: &Attribute) -> Option<String> {
+    if !attr.path().is_ident("doc") {
+        return None;
+    }
+
+    let syn::Meta::NameValue(meta) = &attr.meta else {
+        return None;
+    };
+    let Expr::Lit(expr_lit) = &meta.value else {
+        return None;
+    };
+    let Lit::Str(lit) = &expr_lit.lit else {
+        return None;
+    };
+
+    Some(lit.value())
+}
+
+fn parse_component_range(doc: &str) -> Option<(String, (u64, u64))> {
+    let doc = doc.trim();
+    let rest = doc.strip_prefix("The range of component `")?;
+    let (name, rest) = rest.split_once("` is `[")?;
+    let (range, _) = rest.split_once(']')?;
+    let (min, max) = range.split_once(',')?;
+
+    Some((
+        name.to_owned(),
+        (parse_doc_u64(min.trim())?, parse_doc_u64(max.trim())?),
+    ))
+}
+
+fn parse_doc_u64(raw: &str) -> Option<u64> {
+    raw.replace('_', "").parse().ok()
+}
+
+fn component_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Path(path) => path.path.segments.last().map(|s| s.ident.to_string()),
+        Expr::MethodCall(mc) if mc.method == "into" => component_name(&mc.receiver),
+        Expr::Paren(p) => component_name(&p.expr),
+        Expr::Reference(r) => component_name(&r.expr),
+        Expr::Cast(c) => component_name(&c.expr),
+        _ => None,
     }
 }
 
