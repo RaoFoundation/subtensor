@@ -23,6 +23,15 @@ fn main() {
 
     // Collect all Rust source files in the workspace
     let rust_files = collect_rust_files(workspace_root);
+    let extrinsic_benchmark_errors = RequireExtrinsicBenchmarks::lint_workspace(workspace_root);
+    for error in &extrinsic_benchmark_errors {
+        println!("cargo:warning={error}");
+    }
+    assert!(
+        extrinsic_benchmark_errors.is_empty(),
+        "extrinsic benchmark lint failed: {} dispatchable extrinsic(s) are missing benchmarks",
+        extrinsic_benchmark_errors.len()
+    );
 
     // Channel used to communicate errors back to the main thread from the parallel processing
     // as we process each Rust file
