@@ -104,54 +104,125 @@ mod pallet_benchmarks {
         frame_system::Pallet::<T>::set_block_number(block_number);
     }
 
+    /// Seed a mainnet-like block_step state without measuring registration costs.
+    ///
+    /// The measured block_step path iterates over subnets repeatedly: burn-price
+    /// updates, coinbase, moving prices, root proportion, pending children,
+    /// root dividend auto-claims, and root coldkey map population. Keep the setup
+    /// intentionally large so this hook benchmark reflects a 128-subnet mainnet
+    /// state instead of a one-subnet toy state.
     fn setup_block_step_benchmark<T: Config>() {
-        let netuid = NetUid::from(1);
-        let tempo: u16 = 1;
+        const MAINNET_SUBNETS: u16 = 128;
+        const MAINNET_NEURONS_PER_SUBNET: u16 = 256;
+        const MAINNET_VALIDATORS_PER_SUBNET: u16 = 128;
+        const TEMPO: u16 = 1;
+        const CURRENT_BLOCK: u64 = 7_200;
+        const SUBNET_TAO_RESERVE: u64 = 1_000_000_000_000_000;
+        const SUBNET_ALPHA_RESERVE: u64 = 1_000_000_000_000_000_000;
+        const VALIDATOR_ALPHA_STAKE: u64 = 1_000_000_000;
 
-        set_benchmark_block_number::<T>(1);
+        set_benchmark_block_number::<T>(CURRENT_BLOCK);
+        MaxEpochsPerBlock::<T>::put(128_u8);
 
-        Subtensor::<T>::init_new_network(NetUid::ROOT, tempo);
+        let dense_weights = (0..MAINNET_NEURONS_PER_SUBNET)
+            .map(|dest_uid| (dest_uid, u16::MAX))
+            .collect::<Vec<_>>();
+
+        Subtensor::<T>::init_new_network(NetUid::ROOT, TEMPO);
         Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
-        Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, 4096);
-        FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
+        Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, MAINNET_NEURONS_PER_SUBNET);
+        FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, CURRENT_BLOCK);
         LastEpochBlock::<T>::insert(NetUid::ROOT, 0);
+        LastMechansimStepBlock::<T>::insert(NetUid::ROOT, 0);
+        BlocksSinceLastStep::<T>::insert(NetUid::ROOT, CURRENT_BLOCK);
         SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
-
-        Subtensor::<T>::init_new_network(netuid, tempo);
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Subtensor::<T>::set_network_registration_allowed(netuid, true);
-        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
-        Subtensor::<T>::set_max_registrations_per_block(netuid, 4096);
-        Subtensor::<T>::set_target_registrations_per_interval(netuid, 4096);
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
+        SubnetEmissionEnabled::<T>::insert(NetUid::ROOT, true);
         set_reserves::<T>(
-            netuid,
-            TaoBalance::from(1_000_000_000_000_u64),
-            AlphaBalance::from(1_000_000_000_000_000_u64),
+            NetUid::ROOT,
+            TaoBalance::from(SUBNET_TAO_RESERVE),
+            AlphaBalance::from(SUBNET_ALPHA_RESERVE),
         );
+        SubnetAlphaOut::<T>::insert(NetUid::ROOT, AlphaBalance::from(SUBNET_ALPHA_RESERVE));
 
-        let mut seed: u32 = 1;
-        for _ in 0..4096 {
-            let hotkey: T::AccountId = account("block_step_hot", 0, seed);
-            let coldkey: T::AccountId = account("block_step_cold", 0, seed);
-            seed = seed.saturating_add(1);
+        // Root is also populated because block_step ends by rebuilding root coldkey
+        // staking maps. These root neurons mirror the high-cardinality account map
+        // shape seen on a populated mainnet chain.
+        let root_index = NetUidStorageIndex::from(NetUid::ROOT);
+        for uid in 0..MAINNET_NEURONS_PER_SUBNET {
+            let hotkey: T::AccountId = account("block_step_root_hot", 0, u32::from(uid));
+            let coldkey: T::AccountId = account("block_step_root_cold", 0, u32::from(uid));
 
-            Burn::<T>::insert(netuid, benchmark_registration_burn());
-            RegistrationsThisInterval::<T>::insert(netuid, 0);
-            fund_for_registration::<T>(netuid, &coldkey);
+            Owner::<T>::insert(&hotkey, &coldkey);
+            Subtensor::<T>::append_neuron(NetUid::ROOT, &hotkey, 0);
+            Subtensor::<T>::set_validator_permit_for_uid(NetUid::ROOT, uid, true);
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
+            );
 
-            assert_ok!(Subtensor::<T>::burned_register(
-                RawOrigin::Signed(coldkey.clone()).into(),
-                netuid,
-                hotkey.clone()
-            ));
-
-            let uid = Subtensor::<T>::get_uid_for_net_and_hotkey(netuid, &hotkey).unwrap();
-            Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+            if uid < MAINNET_VALIDATORS_PER_SUBNET {
+                Weights::<T>::insert(root_index, uid, dense_weights.clone());
+                Bonds::<T>::insert(root_index, uid, dense_weights.clone());
+            }
         }
 
-        FirstEmissionBlockNumber::<T>::insert(netuid, 1);
-        LastEpochBlock::<T>::insert(netuid, 0);
+        // 128 live non-root subnets, each with 256 registered neurons. The first 128
+        // neurons per subnet are validator-permit neurons with dense weight and bond
+        // rows, which makes the epoch/coinbase path exercise the high-cardinality
+        // storage shape needed for conservative block-weight accounting.
+        for subnet_index in 1..=MAINNET_SUBNETS {
+            let netuid = NetUid::from(subnet_index);
+            let netuid_index = NetUidStorageIndex::from(netuid);
+            let subnet_owner: T::AccountId =
+                account("block_step_subnet_owner", u32::from(subnet_index), 0);
+
+            Subtensor::<T>::init_new_network(netuid, TEMPO);
+            SubtokenEnabled::<T>::insert(netuid, true);
+            SubnetEmissionEnabled::<T>::insert(netuid, true);
+            SubnetOwner::<T>::insert(netuid, subnet_owner);
+            Subtensor::<T>::set_network_registration_allowed(netuid, true);
+            Subtensor::<T>::set_max_allowed_uids(netuid, MAINNET_NEURONS_PER_SUBNET);
+            Subtensor::<T>::set_max_registrations_per_block(netuid, MAINNET_NEURONS_PER_SUBNET);
+            Subtensor::<T>::set_target_registrations_per_interval(
+                netuid,
+                MAINNET_NEURONS_PER_SUBNET,
+            );
+            Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
+            set_reserves::<T>(
+                netuid,
+                TaoBalance::from(SUBNET_TAO_RESERVE),
+                AlphaBalance::from(SUBNET_ALPHA_RESERVE),
+            );
+            SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::from(SUBNET_ALPHA_RESERVE));
+            FirstEmissionBlockNumber::<T>::insert(netuid, CURRENT_BLOCK);
+            LastEpochBlock::<T>::insert(netuid, 0);
+            LastMechansimStepBlock::<T>::insert(netuid, 0);
+            BlocksSinceLastStep::<T>::insert(netuid, CURRENT_BLOCK);
+
+            for uid in 0..MAINNET_NEURONS_PER_SUBNET {
+                let hotkey: T::AccountId =
+                    account("block_step_hot", u32::from(subnet_index), u32::from(uid));
+                let coldkey: T::AccountId =
+                    account("block_step_cold", u32::from(subnet_index), u32::from(uid));
+
+                Owner::<T>::insert(&hotkey, &coldkey);
+                Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &coldkey,
+                    netuid,
+                    AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
+                );
+
+                if uid < MAINNET_VALIDATORS_PER_SUBNET {
+                    Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+                    Weights::<T>::insert(netuid_index, uid, dense_weights.clone());
+                    Bonds::<T>::insert(netuid_index, uid, dense_weights.clone());
+                }
+            }
+        }
     }
 
     fn runtime_call<T: Config>(call: Call<T>) -> <T as frame_system::Config>::RuntimeCall {
