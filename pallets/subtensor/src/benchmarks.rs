@@ -2716,7 +2716,6 @@ mod pallet_benchmarks {
             commit_hash,
         );
     }
-
     #[benchmark]
     fn reveal_mechanism_weights(n: Linear<1, 4096>) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
@@ -2732,15 +2731,19 @@ mod pallet_benchmarks {
             version_key,
         );
 
-        assert_ok!(Subtensor::<T>::commit_mechanism_weights(
-            RawOrigin::Signed(hotkey.clone()).into(),
-            netuid,
-            mecid,
-            commit_hash,
-        ));
-
-        let reveal_period = Subtensor::<T>::get_reveal_period(netuid);
-        SubnetEpochIndex::<T>::mutate(netuid, |e| *e = e.saturating_add(reveal_period));
+        // Seed a valid, non-expired commit directly. Calling the commit
+        // extrinsic and then advancing the epoch was brittle because
+        // current_epoch_with_lookahead() already offsets the stateful epoch;
+        // on CI it pushed the commit past the reveal window and produced
+        // ExpiredWeightCommit before the measured reveal path was reached.
+        let reveal_period = Subtensor::<T>::get_reveal_period(netuid).max(1);
+        SubnetEpochIndex::<T>::insert(netuid, reveal_period);
+        let current_epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        let commit_epoch = current_epoch.saturating_sub(reveal_period);
+        let commit_block = Subtensor::<T>::get_current_block_as_u64();
+        let mut commits = VecDeque::new();
+        commits.push_back((commit_hash, commit_epoch, commit_block, 0));
+        WeightCommits::<T>::insert(netuid_index, &hotkey, commits);
 
         #[extrinsic_call]
         _(
