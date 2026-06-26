@@ -1,6 +1,7 @@
 //! Benchmarking setup
 #![cfg(feature = "runtime-benchmarks")]
 #![allow(clippy::arithmetic_side_effects)]
+#![allow(clippy::unwrap_used)]
 
 extern crate alloc;
 use alloc::vec::Vec;

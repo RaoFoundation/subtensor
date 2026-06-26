@@ -1,3 +1,10 @@
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::collapsible_if,
+    clippy::indexing_slicing,
+    clippy::question_mark
+)]
+
 use super::*;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use std::{
