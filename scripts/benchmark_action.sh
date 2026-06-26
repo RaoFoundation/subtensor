@@ -468,7 +468,7 @@ for pallet in "${!OUTPUTS[@]}"; do
     else
         rc=${PIPESTATUS[0]}
     fi
-    
+
     if (( rc == 2 )); then
         drifted_benchmarks=()
         while IFS= read -r benchmark_name; do
@@ -491,7 +491,7 @@ with open(sys.argv[1], encoding="utf-8", errors="replace") as handle:
         print(name)
 PY_DRIFTED_BENCHMARKS
         )
-    
+
         if (( ${#drifted_benchmarks[@]} == 0 )); then
             SUMMARY+=("$pallet: COMPARE FAILED"); FAILED=1
         else
