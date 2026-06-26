@@ -986,6 +986,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(12_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
+
+	/// Benchmarks the per-block `block_step` body used by `on_initialize`.
+	fn block_step() -> Weight {
+		Weight::from_parts(110_634_229_000, 0)
+			.saturating_add(T::DbWeight::get().reads(8304_u64))
+			.saturating_add(T::DbWeight::get().writes(110_u64))
+	}
+
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
@@ -998,14 +1006,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::StartCallDelay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-
-	/// Benchmarks the per-block `block_step` body used by `on_initialize`.
-	fn block_step() -> Weight {
-		Weight::from_parts(110_634_229_000, 0)
-			.saturating_add(T::DbWeight::get().reads(8304_u64))
-			.saturating_add(T::DbWeight::get().writes(110_u64))
-	}
-
 	fn start_call() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1118`
@@ -3486,6 +3486,14 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(12_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
+
+	/// Benchmarks the per-block `block_step` body used by `on_initialize`.
+	fn block_step() -> Weight {
+		Weight::from_parts(110_634_229_000, 0)
+			.saturating_add(RocksDbWeight::get().reads(8304_u64))
+			.saturating_add(RocksDbWeight::get().writes(110_u64))
+	}
+
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
@@ -3498,14 +3506,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::StartCallDelay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-
-	/// Benchmarks the per-block `block_step` body used by `on_initialize`.
-	fn block_step() -> Weight {
-		Weight::from_parts(110_634_229_000, 0)
-			.saturating_add(RocksDbWeight::get().reads(8304_u64))
-			.saturating_add(RocksDbWeight::get().writes(110_u64))
-	}
-
 	fn start_call() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1118`
