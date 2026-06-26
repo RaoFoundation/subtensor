@@ -811,21 +811,26 @@ mod benchmarks {
         #[extrinsic_call]
         _(RawOrigin::Root, u64::MAX);
     }
-
     #[benchmark]
     fn sudo_set_mechanism_count() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        let mechanism_count = 16u8.into();
+        assert!(pallet_subtensor::Pallet::<T>::do_set_max_mechanism_count(mechanism_count).is_ok());
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(owner), netuid, 16u8.into());
+        _(RawOrigin::Signed(owner), netuid, mechanism_count);
     }
 
     #[benchmark]
     fn sudo_set_mechanism_emission_split() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);
-        pallet_subtensor::Pallet::<T>::do_set_mechanism_count(netuid, 16u8.into()).unwrap();
+        let mechanism_count = 16u8.into();
+        assert!(pallet_subtensor::Pallet::<T>::do_set_max_mechanism_count(mechanism_count).is_ok());
+        assert!(
+            pallet_subtensor::Pallet::<T>::do_set_mechanism_count(netuid, mechanism_count).is_ok()
+        );
 
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, Some(max_emission_split()));
