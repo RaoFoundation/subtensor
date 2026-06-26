@@ -2731,17 +2731,35 @@ mod pallet_benchmarks {
             version_key,
         );
 
-        // Seed a valid, non-expired commit directly. Calling the commit
-        // extrinsic and then advancing the epoch was brittle because
-        // current_epoch_with_lookahead() already offsets the stateful epoch;
-        // on CI it pushed the commit past the reveal window and produced
-        // ExpiredWeightCommit before the measured reveal path was reached.
-        let reveal_period = Subtensor::<T>::get_reveal_period(netuid).max(1);
-        SubnetEpochIndex::<T>::insert(netuid, reveal_period);
+        // The reveal code reads the reveal period from storage. The benchmark
+        // genesis can leave that storage at zero, so using `.max(1)` locally is
+        // not enough: the dispatch would still see a zero reveal period and
+        // classify the seeded commit as expired. Seed the actual storage value.
+        let reveal_period: u64 = 1;
+        assert_ok!(Subtensor::<T>::set_reveal_period(netuid, reveal_period));
+
+        // Put the subnet exactly in the reveal epoch for the valid commit.
+        // current_epoch_with_lookahead() may add one when the benchmark block is
+        // a fire block, so derive commit_epoch from the final observed value.
+        SubnetEpochIndex::<T>::insert(netuid, reveal_period.saturating_add(2));
         let current_epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
         let commit_epoch = current_epoch.saturating_sub(reveal_period);
+        debug_assert!(Subtensor::<T>::is_reveal_block_range(netuid, commit_epoch));
+        debug_assert!(!Subtensor::<T>::is_commit_expired(netuid, commit_epoch));
+
+        // Worst-case the bounded CR-v2 queue: clear nine expired commits before
+        // revealing the valid one at the back of the queue.
+        let expired_epoch = commit_epoch.saturating_sub(reveal_period.saturating_add(1));
         let commit_block = Subtensor::<T>::get_current_block_as_u64();
         let mut commits = VecDeque::new();
+        for i in 0..9u8 {
+            commits.push_back((
+                H256::repeat_byte(i.saturating_add(1)),
+                expired_epoch,
+                commit_block,
+                0,
+            ));
+        }
         commits.push_back((commit_hash, commit_epoch, commit_block, 0));
         WeightCommits::<T>::insert(netuid_index, &hotkey, commits);
 
