@@ -1,6 +1,7 @@
 //! Benchmarking setup for pallet-subtensor-swap
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::multiple_bound_locations)]
+#![allow(deprecated)]
 
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;

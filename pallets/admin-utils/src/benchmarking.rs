@@ -9,10 +9,11 @@ use alloc::vec::Vec;
 use crate::Pallet as AdminUtils;
 use frame_benchmarking::v1::account;
 use frame_benchmarking::v2::*;
-use frame_support::dispatch::UnfilteredDispatchable;
-use frame_support::{BoundedVec, assert_noop};
+use frame_support::{BoundedVec, assert_noop, dispatch::UnfilteredDispatchable};
 use frame_system::RawOrigin;
 use pallet_subtensor::SubnetworkN;
+use scale_info::prelude::vec;
+use sp_runtime::traits::Get;
 
 use super::*;
 
@@ -23,7 +24,7 @@ mod benchmarks {
     use crate::tests::mock;
     use sp_runtime::PerU16;
     use substrate_fixed::types::{I64F64, U64F64};
-    use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
+    use subtensor_runtime_common::{NetUid, TaoBalance};
 
     #[benchmark]
     fn swap_authorities(a: Linear<0, 32>) {

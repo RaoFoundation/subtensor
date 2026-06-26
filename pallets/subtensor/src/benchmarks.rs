@@ -1,6 +1,7 @@
 //! Subtensor pallet benchmarking.
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 #![cfg(feature = "runtime-benchmarks")]
+#![allow(deprecated)]
 
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
@@ -2662,7 +2663,7 @@ mod pallet_benchmarks {
     }
 
     fn setup_mechanism_weight_benchmark<T: Config>(
-        mecid: subtensor_runtime_common::MechId,
+        _mecid: subtensor_runtime_common::MechId,
         uid_count: u32,
     ) -> (NetUid, T::AccountId, Vec<u16>, Vec<u16>, Vec<u16>, u64) {
         let netuid = NetUid::from(1);
@@ -2671,10 +2672,6 @@ mod pallet_benchmarks {
             setup_worst_case_registered_subnet::<T>("mechanism", netuid, uid_count);
         let salt: Vec<u16> = vec![u16::MAX; uid_count.clamp(1, 4096) as usize];
         Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, true);
-
-        if mecid != subtensor_runtime_common::MechId::MAIN {
-            SubnetMechanism::<T>::insert(netuid, mecid);
-        }
 
         (netuid, hotkey, uids, weight_values, salt, version_key)
     }
@@ -2864,25 +2861,6 @@ mod pallet_benchmarks {
     fn sudo_set_max_childkey_take() {
         #[extrinsic_call]
         _(RawOrigin::Root, u16::MAX);
-    }
-
-    #[cfg(feature = "pow-faucet")]
-    #[benchmark]
-    fn faucet() {
-        let hotkey: T::AccountId = whitelisted_caller();
-        let block_number: u64 = Subtensor::<T>::get_current_block_as_u64();
-        let (nonce, work): (u64, Vec<u8>) =
-            Subtensor::<T>::create_work_for_block_number(NetUid::ROOT, block_number, 3, &hotkey);
-
-        #[block]
-        {
-            let _ = Subtensor::<T>::faucet(
-                RawOrigin::Signed(hotkey.clone()).into(),
-                block_number,
-                nonce,
-                work,
-            );
-        }
     }
 
     #[benchmark]
