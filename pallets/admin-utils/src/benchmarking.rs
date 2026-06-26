@@ -22,7 +22,8 @@ mod benchmarks {
     #[cfg(test)]
     use crate::tests::mock;
     use sp_runtime::PerU16;
-    use subtensor_runtime_common::NetUid;
+    use substrate_fixed::types::{I64F64, U64F64};
+    use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
     #[benchmark]
     fn swap_authorities(a: Linear<0, 32>) {
@@ -707,6 +708,198 @@ mod benchmarks {
             pallet_subtensor::Pallet::<T>::get_max_epochs_per_block(),
             8u8
         );
+    }
+
+    fn setup_worst_case_admin_subnet<T: Config>(netuid: NetUid) -> T::AccountId {
+        let owner: T::AccountId = whitelisted_caller();
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, 1u16);
+        pallet_subtensor::Pallet::<T>::set_max_allowed_uids(netuid, 1);
+        pallet_subtensor::SubnetOwner::<T>::insert(netuid, owner.clone());
+        owner
+    }
+
+    fn max_emission_split() -> Vec<u16> {
+        let mut split = vec![4096u16; 15];
+        split.push(4095u16);
+        split
+    }
+
+    #[benchmark]
+    fn sudo_set_adjustment_alpha() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_network_pow_registration_allowed() {
+        #[block]
+        {
+            assert!(
+                AdminUtils::<T>::sudo_set_network_pow_registration_allowed(
+                    RawOrigin::Root.into(),
+                    NetUid::from(u16::MAX),
+                    true,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_owner_cut() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u16::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_network_rate_limit() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_network_immunity_period() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_network_min_lock_cost() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, TaoBalance::from(u64::MAX));
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_limit() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u16::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_lock_reduction_interval() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_evm_chain_id() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_recycle_or_burn() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(owner),
+            netuid,
+            pallet_subtensor::RecycleOrBurnEnum::Burn,
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_ck_burn() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_mechanism_count() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, 16u8.into());
+    }
+
+    #[benchmark]
+    fn sudo_set_mechanism_emission_split() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        pallet_subtensor::Pallet::<T>::do_set_mechanism_count(netuid, 16u8.into()).unwrap();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, Some(max_emission_split()));
+    }
+
+    #[benchmark]
+    fn sudo_set_tao_flow_cutoff() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, I64F64::from_num(i64::MAX));
+    }
+
+    #[benchmark]
+    fn sudo_set_tao_flow_normalization_exponent() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, U64F64::from_num(2));
+    }
+
+    #[benchmark]
+    fn sudo_set_tao_flow_smoothing_factor() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_net_tao_flow_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_max_mechanism_count() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 16u8.into());
+    }
+
+    #[benchmark]
+    fn sudo_set_start_call_delay() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, u64::MAX);
+    }
+
+    #[benchmark]
+    fn sudo_set_burn_half_life() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        let max_half_life = pallet_subtensor::MaxBurnHalfLife::<T>::get();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, max_half_life);
+    }
+
+    #[benchmark]
+    fn sudo_set_burn_increase_mult() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, U64F64::from_num(3));
+    }
+
+    #[benchmark]
+    fn sudo_set_owner_cut_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_owner_cut_auto_lock_enabled() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, true);
     }
 
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);

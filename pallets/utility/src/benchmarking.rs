@@ -117,6 +117,23 @@ mod benchmark {
         _(RawOrigin::Signed(caller), main_call, fallback_call);
     }
 
+    #[benchmark]
+    fn with_weight() {
+        // `with_weight` trusts the supplied weight witness and dispatches the
+        // inner call as root. Use the largest supplied witness and a real inner
+        // dispatch so this benchmark measures the root bypass dispatch path.
+        let call = Box::new(
+            frame_system::Call::remark {
+                remark: vec![0u8; 1024],
+            }
+            .into(),
+        );
+        let weight = frame_support::weights::Weight::from_parts(u64::MAX, u64::MAX);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, call, weight);
+    }
+
     impl_benchmark_test_suite! {
         Pallet,
         tests::new_test_ext(),
