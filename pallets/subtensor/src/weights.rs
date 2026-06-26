@@ -57,6 +57,7 @@ pub trait WeightInfo {
 	fn batch_reveal_weights() -> Weight;
 	fn recycle_alpha() -> Weight;
 	fn burn_alpha() -> Weight;
+	fn block_step() -> Weight;
 	fn start_call() -> Weight;
 	fn add_stake_limit() -> Weight;
 	fn move_stake() -> Weight;
@@ -997,6 +998,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::StartCallDelay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+
+	/// Benchmarks the per-block `block_step` body used by `on_initialize`.
+	fn block_step() -> Weight {
+		Weight::from_parts(110_634_229_000, 0)
+			.saturating_add(T::DbWeight::get().reads(8304_u64))
+			.saturating_add(T::DbWeight::get().writes(110_u64))
+	}
+
 	fn start_call() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1118`
@@ -3489,6 +3498,14 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::StartCallDelay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+
+	/// Benchmarks the per-block `block_step` body used by `on_initialize`.
+	fn block_step() -> Weight {
+		Weight::from_parts(110_634_229_000, 0)
+			.saturating_add(RocksDbWeight::get().reads(8304_u64))
+			.saturating_add(RocksDbWeight::get().writes(110_u64))
+	}
+
 	fn start_call() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1118`

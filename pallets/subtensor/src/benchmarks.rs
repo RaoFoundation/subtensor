@@ -104,6 +104,56 @@ mod pallet_benchmarks {
         frame_system::Pallet::<T>::set_block_number(block_number);
     }
 
+    fn setup_block_step_benchmark<T: Config>() {
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 1;
+
+        set_benchmark_block_number::<T>(1);
+
+        Subtensor::<T>::init_new_network(NetUid::ROOT, tempo);
+        Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
+        Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, 4096);
+        FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
+        LastEpochBlock::<T>::insert(NetUid::ROOT, 0);
+        SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
+
+        Subtensor::<T>::init_new_network(netuid, tempo);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
+        Subtensor::<T>::set_max_registrations_per_block(netuid, 4096);
+        Subtensor::<T>::set_target_registrations_per_interval(netuid, 4096);
+        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_000_u64),
+        );
+
+        let mut seed: u32 = 1;
+        for _ in 0..4096 {
+            let hotkey: T::AccountId = account("block_step_hot", 0, seed);
+            let coldkey: T::AccountId = account("block_step_cold", 0, seed);
+            seed = seed.saturating_add(1);
+
+            Burn::<T>::insert(netuid, benchmark_registration_burn());
+            RegistrationsThisInterval::<T>::insert(netuid, 0);
+            fund_for_registration::<T>(netuid, &coldkey);
+
+            assert_ok!(Subtensor::<T>::burned_register(
+                RawOrigin::Signed(coldkey.clone()).into(),
+                netuid,
+                hotkey.clone()
+            ));
+
+            let uid = Subtensor::<T>::get_uid_for_net_and_hotkey(netuid, &hotkey).unwrap();
+            Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+        }
+
+        FirstEmissionBlockNumber::<T>::insert(netuid, 1);
+        LastEpochBlock::<T>::insert(netuid, 0);
+    }
+
     fn runtime_call<T: Config>(call: Call<T>) -> <T as frame_system::Config>::RuntimeCall {
         <T as Config>::RuntimeCall::from(call).into()
     }
@@ -890,6 +940,15 @@ mod pallet_benchmarks {
         );
     }
 
+    #[benchmark]
+    fn block_step() {
+        setup_block_step_benchmark::<T>();
+
+        #[block]
+        {
+            assert_ok!(Subtensor::<T>::block_step());
+        }
+    }
     #[benchmark]
     fn start_call() {
         let netuid = NetUid::from(1);
