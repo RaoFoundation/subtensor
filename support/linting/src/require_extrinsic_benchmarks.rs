@@ -369,6 +369,7 @@ fn is_non_runtime_cfg_attr(attr: &str) -> bool {
     };
 
     cfg == "test"
+        || cfg.contains("feature=")
         || cfg.starts_with("all(test,")
         || cfg.starts_with("any(test,")
         || cfg.contains(",test,")
@@ -824,6 +825,27 @@ mod tests {
             impl<T: Config> Pallet<T> {
                 #[cfg(test)]
                 pub fn mock_only(origin: OriginFor<T>) -> DispatchResult {
+                    Ok(())
+                }
+
+                pub fn real_call(origin: OriginFor<T>) -> DispatchResult {
+                    Ok(())
+                }
+            }
+        "#;
+
+        let dispatchables = collect_dispatchables_from_source(input);
+        assert_eq!(dispatchables.len(), 1);
+        assert_eq!(dispatchables[0].name, "real_call");
+    }
+
+    #[test]
+    fn ignores_feature_gated_dispatchable_fns_inside_real_call_impls() {
+        let input = r#"
+            #[pallet::call]
+            impl<T: Config> Pallet<T> {
+                #[cfg(feature = "pow-faucet")]
+                pub fn faucet(origin: OriginFor<T>) -> DispatchResult {
                     Ok(())
                 }
 
