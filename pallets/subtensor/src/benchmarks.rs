@@ -2719,9 +2719,65 @@ mod pallet_benchmarks {
     #[benchmark]
     fn reveal_mechanism_weights(n: Linear<1, 4096>) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
-        let (netuid, hotkey, uids, weight_values, salt, version_key) =
-            setup_mechanism_weight_benchmark::<T>(mecid, n);
+        let netuid = NetUid::from(1);
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        let version_key: u64 = 0;
+        let uid_count = n.clamp(1, 4096);
+
+        // Use a non-firing benchmark subnet. This mirrors the existing
+        // `reveal_weights` benchmark and removes the stateful scheduler
+        // look-ahead from this extrinsic benchmark's setup. The measured code is
+        // still the real reveal dispatch below; tempo is only used here to keep
+        // current_epoch_with_lookahead() pinned to SubnetEpochIndex.
+        Subtensor::<T>::init_new_network(netuid, 0);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
+        Subtensor::<T>::set_max_registrations_per_block(netuid, 4096);
+        Subtensor::<T>::set_target_registrations_per_interval(netuid, 4096);
+        Subtensor::<T>::set_weights_set_rate_limit(netuid, 0);
+        Subtensor::<T>::set_stake_threshold(0);
+        Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, true);
+        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_000_u64),
+        );
+
+        let reveal_period = core::cmp::max(MIN_COMMIT_REVEAL_PEROIDS, 1_u64);
+        assert_ok!(Subtensor::<T>::set_reveal_period(netuid, reveal_period));
+
+        let mut uids = Vec::with_capacity(uid_count as usize);
+        let mut weight_values = Vec::with_capacity(uid_count as usize);
+        let mut signer_hotkey: Option<T::AccountId> = None;
+
+        for seed in 0..uid_count {
+            let hotkey: T::AccountId = account("mechanism_reveal_hot", seed, 1);
+            let coldkey: T::AccountId = account("mechanism_reveal_cold", seed, 2);
+
+            Burn::<T>::insert(netuid, benchmark_registration_burn());
+            RegistrationsThisInterval::<T>::insert(netuid, 0);
+            fund_for_registration::<T>(netuid, &coldkey);
+
+            assert_ok!(Subtensor::<T>::burned_register(
+                RawOrigin::Signed(coldkey.clone()).into(),
+                netuid,
+                hotkey.clone(),
+            ));
+
+            let uid = Subtensor::<T>::get_uid_for_net_and_hotkey(netuid, &hotkey).unwrap();
+            Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+
+            if signer_hotkey.is_none() {
+                signer_hotkey = Some(hotkey.clone());
+            }
+            uids.push(uid);
+            weight_values.push(uid.saturating_add(1));
+        }
+
+        let hotkey = signer_hotkey.expect("at least one benchmark neuron is registered");
+        let salt: Vec<u16> = vec![u16::MAX; uid_count as usize];
         let commit_hash = Subtensor::<T>::get_commit_hash(
             &hotkey,
             netuid_index,
@@ -2731,37 +2787,37 @@ mod pallet_benchmarks {
             version_key,
         );
 
-        // The reveal code reads the reveal period from storage. The benchmark
-        // genesis can leave that storage at zero, so using `.max(1)` locally is
-        // not enough: the dispatch would still see a zero reveal period and
-        // classify the seeded commit as expired. Seed the actual storage value.
-        let reveal_period: u64 = 1;
-        assert_ok!(Subtensor::<T>::set_reveal_period(netuid, reveal_period));
-
-        // Put the subnet exactly in the reveal epoch for the valid commit.
-        // current_epoch_with_lookahead() may add one when the benchmark block is
-        // a fire block, so derive commit_epoch from the final observed value.
-        SubnetEpochIndex::<T>::insert(netuid, reveal_period.saturating_add(2));
-        let current_epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
-        let commit_epoch = current_epoch.saturating_sub(reveal_period);
-        debug_assert!(Subtensor::<T>::is_reveal_block_range(netuid, commit_epoch));
-        debug_assert!(!Subtensor::<T>::is_commit_expired(netuid, commit_epoch));
-
-        // Worst-case the bounded CR-v2 queue: clear nine expired commits before
-        // revealing the valid one at the back of the queue.
-        let expired_epoch = commit_epoch.saturating_sub(reveal_period.saturating_add(1));
+        // Worst-case the successful CR-v2 reveal queue. The valid commit is at
+        // the back of the bounded 10-entry queue, so reveal scans and drains the
+        // maximum prefix. These commits are intentionally non-expired: expired
+        // front entries are a failure path for this dispatch when the provided
+        // hash is among the drained hashes.
+        let commit_epoch = 0_u64;
         let commit_block = Subtensor::<T>::get_current_block_as_u64();
         let mut commits = VecDeque::new();
-        for i in 0..9u8 {
-            commits.push_back((
-                H256::repeat_byte(i.saturating_add(1)),
-                expired_epoch,
-                commit_block,
-                0,
-            ));
+        for i in 0..9_u8 {
+            let mut dummy_hash = H256::repeat_byte(i.saturating_add(1));
+            if dummy_hash == commit_hash {
+                dummy_hash = H256::repeat_byte(i.saturating_add(11));
+            }
+            commits.push_back((dummy_hash, commit_epoch, commit_block, 0));
         }
         commits.push_back((commit_hash, commit_epoch, commit_block, 0));
         WeightCommits::<T>::insert(netuid_index, &hotkey, commits);
+
+        // With tempo 0, should_run_epoch() is false and current_epoch_with_lookahead()
+        // equals SubnetEpochIndex. Put the subnet exactly in the reveal epoch.
+        LastEpochBlock::<T>::insert(netuid, 0);
+        BlocksSinceLastStep::<T>::insert(netuid, 0);
+        PendingEpochAt::<T>::insert(netuid, 0);
+        SubnetEpochIndex::<T>::insert(netuid, reveal_period);
+
+        assert_eq!(
+            Subtensor::<T>::current_epoch_with_lookahead(netuid),
+            reveal_period
+        );
+        assert!(Subtensor::<T>::is_reveal_block_range(netuid, commit_epoch));
+        assert!(!Subtensor::<T>::is_commit_expired(netuid, commit_epoch));
 
         #[extrinsic_call]
         _(
