@@ -310,17 +310,20 @@ fn weight_attr_calls_weight_info_for(name: &str, weight_attr: &str) -> bool {
         return false;
     }
 
-    // Accept the common valid forms used across pallets, including:
-    //   T::WeightInfo::foo(...)
-    //   <T as Config>::WeightInfo::foo(...)
-    //   ::WeightInfo::foo(...)
-    //   WeightInfo::<T>::foo(...)
-    let direct = format!("WeightInfo::{name}");
-    let associated = format!("::{name}");
-    normalized.contains(&direct)
-        || normalized.split("WeightInfo").skip(1).any(|suffix| {
-            suffix.contains(&associated) || suffix.contains(&format!("::<T>{associated}"))
-        })
+    // Accept only exact WeightInfo method calls. A dispatchable named
+    // `swap_coldkey` must not be considered plugged by
+    // `WeightInfo::swap_coldkey_announced()`. After the method name, require a
+    // call boundary: either `(` for a normal call or `::<` for turbofish.
+    normalized.split("WeightInfo").skip(1).any(|suffix| {
+        [format!("::{name}"), format!("::<T>::{name}")]
+            .iter()
+            .any(|needle| {
+                suffix
+                    .split(needle.as_str())
+                    .skip(1)
+                    .any(|rest| rest.starts_with('(') || rest.starts_with("::<"))
+            })
+    })
 }
 
 fn is_benchmarked_weight_plugged(name: &str, weight_attr: Option<&str>) -> bool {
@@ -939,6 +942,36 @@ fn display_path(path: &Path, workspace_root: &Path) -> String {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
+
+    #[test]
+    fn weight_info_matcher_requires_complete_method_name() {
+        assert!(weight_attr_calls_weight_info_for(
+            "swap_coldkey",
+            "#[pallet::weight(T::WeightInfo::swap_coldkey())]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "swap_coldkey",
+            "#[pallet::weight(T::WeightInfo::swap_coldkey::<T>())]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "proxy",
+            "#[pallet::weight(WeightInfo::<T>::proxy(p.into()))]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "set_weights",
+            "#[pallet::weight(::WeightInfo::set_weights())]",
+        ));
+
+        assert!(!weight_attr_calls_weight_info_for(
+            "swap_coldkey",
+            "#[pallet::weight(T::WeightInfo::swap_coldkey_announced())]",
+        ));
+        assert!(!weight_attr_calls_weight_info_for(
+            "set_weight",
+            "#[pallet::weight(T::WeightInfo::set_weights())]",
+        ));
+    }
+
 
     #[test]
     fn source_fallback_accepts_valid_complex_weight_attrs() {
