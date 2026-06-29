@@ -52,19 +52,36 @@ impl RequireExtrinsicBenchmarks {
             let file_path = display_path(&file, workspace_root);
 
             for dispatchable in dispatchables {
-                if benchmarks.contains(&dispatchable.name) || dispatchable.name.starts_with('_') {
+                if dispatchable.name.starts_with('_') {
                     continue;
                 }
 
-                errors.push(format!(
-                    "{}:{}:{}: dispatchable extrinsic `{}` is missing a matching benchmark; add `#[benchmark] fn {}(...)` to {}",
-                    file_path,
-                    dispatchable.line,
-                    dispatchable.column,
-                    dispatchable.name,
-                    dispatchable.name,
-                    benchmark_hint,
-                ));
+                if !benchmarks.contains(&dispatchable.name) {
+                    errors.push(format!(
+                        "{}:{}:{}: dispatchable extrinsic `{}` is missing a matching benchmark; add `#[benchmark] fn {}(...)` to {}",
+                        file_path,
+                        dispatchable.line,
+                        dispatchable.column,
+                        dispatchable.name,
+                        dispatchable.name,
+                        benchmark_hint,
+                    ));
+                    continue;
+                }
+
+                if !is_benchmarked_weight_plugged(
+                    &dispatchable.name,
+                    dispatchable.weight_attr.as_deref(),
+                ) {
+                    errors.push(format!(
+                        "{}:{}:{}: dispatchable extrinsic `{}` has a matching benchmark but its #[pallet::weight] does not call WeightInfo::{}(...); plug the generated benchmark weight into the dispatch annotation",
+                        file_path,
+                        dispatchable.line,
+                        dispatchable.column,
+                        dispatchable.name,
+                        dispatchable.name,
+                    ));
+                }
             }
         }
 
@@ -77,6 +94,7 @@ struct Dispatchable {
     name: String,
     line: usize,
     column: usize,
+    weight_attr: Option<String>,
 }
 
 fn collect_dispatchables_from_source(source: &str) -> Vec<Dispatchable> {
@@ -166,7 +184,13 @@ fn collect_pub_fns_in_impl(
                     cursor = skip_ws(masked, cursor + 2);
                     if let Some((name, _name_end)) = parse_ident(masked, cursor) {
                         let (line, column) = line_column(source, cursor);
-                        dispatchables.push(Dispatchable { name, line, column });
+                        let weight_attr = preceding_weight_attr(source, masked, idx, start);
+                        dispatchables.push(Dispatchable {
+                            name,
+                            line,
+                            column,
+                            weight_attr,
+                        });
                     }
                 }
 
@@ -175,6 +199,43 @@ fn collect_pub_fns_in_impl(
             _ => idx += 1,
         }
     }
+}
+
+fn preceding_weight_attr(
+    source: &str,
+    masked: &str,
+    item_start: usize,
+    scope_start: usize,
+) -> Option<String> {
+    let mut cursor = item_start;
+
+    loop {
+        let trimmed_end = rtrim_ws(masked, scope_start, cursor)?;
+        if masked.as_bytes().get(trimmed_end) != Some(&b']') {
+            return None;
+        }
+
+        let attr_start = masked[scope_start..=trimmed_end].rfind("#[")? + scope_start;
+        let attr = &masked[attr_start..=trimmed_end];
+        let normalized = normalize_attr(attr);
+        if normalized.starts_with("#[pallet::weight") {
+            return source.get(attr_start..=trimmed_end).map(ToOwned::to_owned);
+        }
+
+        cursor = attr_start;
+    }
+}
+
+fn is_benchmarked_weight_plugged(name: &str, weight_attr: Option<&str>) -> bool {
+    let Some(weight_attr) = weight_attr else {
+        return false;
+    };
+
+    normalize_attr(weight_attr).contains(&format!("WeightInfo::{name}"))
+}
+
+fn normalize_attr(attr: &str) -> String {
+    attr.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 
 fn collect_benchmarks_for_pallet(pallet_root: &Path) -> BTreeSet<String> {
