@@ -112,18 +112,30 @@ mod pallet_benchmarks {
     /// root dividend auto-claims, and root coldkey map population. Keep the setup
     /// intentionally large so this hook benchmark reflects a 128-subnet mainnet
     /// state instead of a one-subnet toy state.
+    ///
+    /// Only the runtime-capped number of subnet epochs are made due in the measured
+    /// block. The remaining subnets are fully populated and live, but not eligible
+    /// for epoch execution in this block. This mirrors production behavior where
+    /// `MaxEpochsPerBlock` bounds the number of Yuma epochs that can execute in a
+    /// single block.
     fn setup_block_step_benchmark<T: Config>() {
         const MAINNET_SUBNETS: u16 = 128;
         const MAINNET_NEURONS_PER_SUBNET: u16 = 256;
         const MAINNET_VALIDATORS_PER_SUBNET: u16 = 128;
-        const TEMPO: u16 = 1;
-        const CURRENT_BLOCK: u64 = 7_200;
+        const TEMPO: u16 = 360;
+        const CURRENT_BLOCK: u64 = 7_000;
         const SUBNET_TAO_RESERVE: u64 = 1_000_000_000_000_000;
         const SUBNET_ALPHA_RESERVE: u64 = 1_000_000_000_000_000_000;
         const VALIDATOR_ALPHA_STAKE: u64 = 1_000_000_000;
 
         set_benchmark_block_number::<T>(CURRENT_BLOCK);
-        MaxEpochsPerBlock::<T>::put(128_u8);
+
+        let max_epochs_this_block =
+            u16::from(Subtensor::<T>::get_max_epochs_per_block()).min(MAINNET_SUBNETS);
+        assert!(
+            max_epochs_this_block > 0,
+            "block_step benchmark requires MaxEpochsPerBlock > 0"
+        );
 
         let dense_weights = (0..MAINNET_NEURONS_PER_SUBNET)
             .map(|dest_uid| (dest_uid, u16::MAX))
@@ -133,9 +145,10 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
         Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, MAINNET_NEURONS_PER_SUBNET);
         FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, CURRENT_BLOCK);
-        LastEpochBlock::<T>::insert(NetUid::ROOT, 0);
-        LastMechansimStepBlock::<T>::insert(NetUid::ROOT, 0);
-        BlocksSinceLastStep::<T>::insert(NetUid::ROOT, CURRENT_BLOCK);
+        LastEpochBlock::<T>::insert(NetUid::ROOT, CURRENT_BLOCK);
+        LastMechansimStepBlock::<T>::insert(NetUid::ROOT, CURRENT_BLOCK);
+        BlocksSinceLastStep::<T>::insert(NetUid::ROOT, 0);
+        PendingEpochAt::<T>::insert(NetUid::ROOT, 0);
         SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
         SubnetEmissionEnabled::<T>::insert(NetUid::ROOT, true);
         set_reserves::<T>(
@@ -171,13 +184,14 @@ mod pallet_benchmarks {
 
         // 128 live non-root subnets, each with 256 registered neurons. The first 128
         // neurons per subnet are validator-permit neurons with dense weight and bond
-        // rows, which makes the epoch/coinbase path exercise the high-cardinality
-        // storage shape needed for conservative block-weight accounting.
+        // rows. Only the first `MaxEpochsPerBlock` subnets are scheduled to run their
+        // epoch in this measured block; the rest remain live ambient state.
         for subnet_index in 1..=MAINNET_SUBNETS {
             let netuid = NetUid::from(subnet_index);
             let netuid_index = NetUidStorageIndex::from(netuid);
             let subnet_owner: T::AccountId =
                 account("block_step_subnet_owner", u32::from(subnet_index), 0);
+            let epoch_is_due_this_block = subnet_index <= max_epochs_this_block;
 
             Subtensor::<T>::init_new_network(netuid, TEMPO);
             SubtokenEnabled::<T>::insert(netuid, true);
@@ -198,9 +212,18 @@ mod pallet_benchmarks {
             );
             SubnetAlphaOut::<T>::insert(netuid, AlphaBalance::from(SUBNET_ALPHA_RESERVE));
             FirstEmissionBlockNumber::<T>::insert(netuid, CURRENT_BLOCK);
-            LastEpochBlock::<T>::insert(netuid, 0);
-            LastMechansimStepBlock::<T>::insert(netuid, 0);
-            BlocksSinceLastStep::<T>::insert(netuid, CURRENT_BLOCK);
+
+            if epoch_is_due_this_block {
+                PendingEpochAt::<T>::insert(netuid, CURRENT_BLOCK);
+                LastEpochBlock::<T>::insert(netuid, 0);
+                LastMechansimStepBlock::<T>::insert(netuid, 0);
+                BlocksSinceLastStep::<T>::insert(netuid, CURRENT_BLOCK);
+            } else {
+                PendingEpochAt::<T>::insert(netuid, 0);
+                LastEpochBlock::<T>::insert(netuid, CURRENT_BLOCK);
+                LastMechansimStepBlock::<T>::insert(netuid, CURRENT_BLOCK);
+                BlocksSinceLastStep::<T>::insert(netuid, 0);
+            }
 
             for uid in 0..MAINNET_NEURONS_PER_SUBNET {
                 let hotkey: T::AccountId =
