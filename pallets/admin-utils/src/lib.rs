@@ -421,10 +421,7 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the adjustment alpha.
         #[pallet::call_index(9)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1))
-        )]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_adjustment_alpha())]
         pub fn sudo_set_adjustment_alpha(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -702,10 +699,7 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network PoW registration allowed.
         #[pallet::call_index(20)]
-        #[pallet::weight(
-			Weight::from_parts(14_000_000, 0)
-				.saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1))
-		)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed())]
         pub fn sudo_set_network_pow_registration_allowed(
             _origin: OriginFor<T>,
             _netuid: NetUid,
@@ -973,8 +967,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the subnet owner cut.
         #[pallet::call_index(28)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_owner_cut())]
         pub fn sudo_set_subnet_owner_cut(
             origin: OriginFor<T>,
             subnet_owner_cut: u16,
@@ -989,8 +982,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the network rate limit.
         #[pallet::call_index(29)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_rate_limit())]
         pub fn sudo_set_network_rate_limit(
             origin: OriginFor<T>,
             rate_limit: u64,
@@ -1037,8 +1029,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the immunity period for the network.
         #[pallet::call_index(35)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_immunity_period())]
         pub fn sudo_set_network_immunity_period(
             origin: OriginFor<T>,
             immunity_period: u64,
@@ -1056,8 +1047,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the min lock cost for the network.
         #[pallet::call_index(36)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_min_lock_cost())]
         pub fn sudo_set_network_min_lock_cost(
             origin: OriginFor<T>,
             lock_cost: TaoBalance,
@@ -1075,8 +1065,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the subnet limit.
         #[pallet::call_index(37)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_limit())]
         pub fn sudo_set_subnet_limit(origin: OriginFor<T>, max_subnets: u16) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_max_subnets(max_subnets);
@@ -1088,8 +1077,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the lock reduction interval.
         #[pallet::call_index(38)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_lock_reduction_interval())]
         pub fn sudo_set_lock_reduction_interval(
             origin: OriginFor<T>,
             interval: u64,
@@ -1406,9 +1394,7 @@ pub mod pallet {
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
         #[pallet::call_index(58)]
-        #[pallet::weight(Weight::from_parts(27_199_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_evm_chain_id())]
         pub fn sudo_set_evm_chain_id(origin: OriginFor<T>, chain_id: u64) -> DispatchResult {
             // Ensure the call is made by the root account
             ensure_root(origin)?;
@@ -1488,9 +1474,7 @@ pub mod pallet {
         /// * `recycle_or_burn`: The desired behaviour of the "burn" UID(s) for the subnet.
         ///
         #[pallet::call_index(80)]
-        #[pallet::weight(Weight::from_parts(20_000_000, 0)
-        .saturating_add(T::DbWeight::get().reads(2_u64))
-        .saturating_add(T::DbWeight::get().writes(2_u64)))] // TODO: add benchmarks
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_recycle_or_burn())] // TODO: add benchmarks
         pub fn sudo_set_recycle_or_burn(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1830,9 +1814,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the childkey burn.
         #[pallet::call_index(73)]
-        #[pallet::weight(Weight::from_parts(15_650_000, 0)
-		.saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-		.saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_ck_burn())]
         pub fn sudo_set_ck_burn(origin: OriginFor<T>, burn: u64) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_ck_burn(burn);
@@ -1867,9 +1849,7 @@ pub mod pallet {
 
         /// Sets the desired number of mechanisms in a subnet
         #[pallet::call_index(76)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_count())]
         pub fn sudo_set_mechanism_count(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1894,9 +1874,7 @@ pub mod pallet {
 
         /// Sets the emission split between mechanisms in a subnet
         #[pallet::call_index(77)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_emission_split())]
         pub fn sudo_set_mechanism_emission_split(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1983,9 +1961,7 @@ pub mod pallet {
 
         /// Sets TAO flow cutoff value (A)
         #[pallet::call_index(81)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_cutoff())]
         pub fn sudo_set_tao_flow_cutoff(
             origin: OriginFor<T>,
             flow_cutoff: I64F64,
@@ -1998,9 +1974,7 @@ pub mod pallet {
 
         /// Sets TAO flow normalization exponent (p)
         #[pallet::call_index(82)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_normalization_exponent())]
         pub fn sudo_set_tao_flow_normalization_exponent(
             origin: OriginFor<T>,
             exponent: U64F64,
@@ -2021,9 +1995,7 @@ pub mod pallet {
 
         /// Sets TAO flow smoothing factor (alpha)
         #[pallet::call_index(83)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_smoothing_factor())]
         pub fn sudo_set_tao_flow_smoothing_factor(
             origin: OriginFor<T>,
             smoothing_factor: u64,
@@ -2038,9 +2010,7 @@ pub mod pallet {
         /// When enabled, emission shares use net flow = user flow - protocol cost.
         /// When disabled, emission shares use gross user flow only (current behavior).
         #[pallet::call_index(91)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_net_tao_flow_enabled())]
         pub fn sudo_set_net_tao_flow_enabled(
             origin: OriginFor<T>,
             enabled: bool,
@@ -2053,9 +2023,7 @@ pub mod pallet {
 
         /// Sets the global maximum number of mechanisms in a subnet
         #[pallet::call_index(88)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_mechanism_count())]
         pub fn sudo_set_max_mechanism_count(
             origin: OriginFor<T>,
             max_mechanism_count: MechId,
@@ -2080,8 +2048,7 @@ pub mod pallet {
 
         /// Sets the delay before a subnet can call start
         #[pallet::call_index(85)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_start_call_delay())]
         pub fn sudo_set_start_call_delay(origin: OriginFor<T>, delay: u64) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_start_call_delay(delay);
@@ -2118,13 +2085,7 @@ pub mod pallet {
         /// Set BurnHalfLife for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(89)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_burn_half_life(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_burn_half_life(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2166,13 +2127,7 @@ pub mod pallet {
         /// Set BurnIncreaseMult for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(90)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_burn_increase_mult(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_burn_increase_mult(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2216,13 +2171,7 @@ pub mod pallet {
         /// Set whether the subnet owner cut is enabled for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(92)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_owner_cut_enabled(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_owner_cut_enabled(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2246,13 +2195,7 @@ pub mod pallet {
         /// Set whether subnet owner cut is auto-locked for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(95)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_owner_cut_auto_lock_enabled(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_owner_cut_auto_lock_enabled(
             origin: OriginFor<T>,
             netuid: NetUid,
