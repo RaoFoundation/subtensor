@@ -43,6 +43,7 @@ pub trait WeightInfo {
 	fn force_batch(c: u32, ) -> Weight;
 	fn dispatch_as_fallible() -> Weight;
 	fn if_else() -> Weight;
+	fn with_weight() -> Weight;
 }
 
 /// Weights for `pallet_subtensor_utility` using the Substrate node and recommended hardware.
@@ -131,6 +132,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(22_742_000, 3983)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 	}
+	fn with_weight() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_595_000 picoseconds.
+		Weight::from_parts(3_766_000, 0)
+	}
 }
 
 // For backwards compatibility and tests.
@@ -217,5 +225,12 @@ impl WeightInfo for () {
 		// Minimum execution time: 21_991_000 picoseconds.
 		Weight::from_parts(22_742_000, 3983)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
+	}
+	fn with_weight() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_595_000 picoseconds.
+		Weight::from_parts(3_766_000, 0)
 	}
 }
