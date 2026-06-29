@@ -1,5 +1,9 @@
 //! Subtensor pallet benchmarking.
-#![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 #![cfg(feature = "runtime-benchmarks")]
 #![allow(deprecated)]
 
