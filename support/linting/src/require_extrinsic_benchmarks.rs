@@ -69,10 +69,16 @@ impl RequireExtrinsicBenchmarks {
                     continue;
                 }
 
-                if !is_benchmarked_weight_plugged(
+                let uses_matching_weight_info = is_benchmarked_weight_plugged(
                     &dispatchable.name,
                     dispatchable.weight_attr.as_deref(),
-                ) {
+                )
+                    || source_has_matching_weight_info_for_dispatchable(
+                        &source,
+                        &dispatchable.name,
+                    );
+
+                if !uses_matching_weight_info {
                     errors.push(format!(
                         "{}:{}:{}: dispatchable extrinsic `{}` has a matching benchmark but its #[pallet::weight] does not call WeightInfo::{}(...); plug the generated benchmark weight into the dispatch annotation",
                         file_path,
@@ -95,6 +101,53 @@ struct Dispatchable {
     line: usize,
     column: usize,
     weight_attr: Option<String>,
+}
+
+fn source_has_matching_weight_info_for_dispatchable(source: &str, name: &str) -> bool {
+    // If weight_attr capture failed, fall back to the source text around the
+    // dispatchable itself. We intentionally keep this as a fallback instead of
+    // replacing the structured collection path: the lint is a source scanner
+    // over FRAME macro input, and complex #[pallet::weight({ ... })] blocks can
+    // confuse the backwards attribute walk even though the dispatch is valid.
+    for needle in [format!("pub fn {name}"), format!("pub(crate) fn {name}")] {
+        let mut search_from = 0usize;
+
+        while let Some(offset) = source
+            .get(search_from..)
+            .and_then(|tail| tail.find(&needle))
+        {
+            let fn_pos = search_from.saturating_add(offset);
+            let Some(prefix) = source.get(..fn_pos) else {
+                break;
+            };
+            let Some(attr_start) = prefix.rfind("#[pallet::weight") else {
+                search_from = fn_pos.saturating_add(needle.len());
+                continue;
+            };
+            let Some(attr) = source.get(attr_start..fn_pos) else {
+                search_from = fn_pos.saturating_add(needle.len());
+                continue;
+            };
+
+            // If another dispatchable starts between that attr and this function,
+            // the attr belongs to the earlier dispatchable, not this one.
+            if attr.contains("pub fn ") || attr.contains("pub(crate) fn ") {
+                search_from = fn_pos.saturating_add(needle.len());
+                continue;
+            }
+
+            let normalized = normalize_attr(attr);
+            if normalized.contains("benchmarked_weight_not_plugged")
+                || weight_attr_calls_weight_info_for(name, attr)
+            {
+                return true;
+            }
+
+            search_from = fn_pos.saturating_add(needle.len());
+        }
+    }
+
+    false
 }
 
 fn collect_dispatchables_from_source(source: &str) -> Vec<Dispatchable> {
@@ -208,22 +261,66 @@ fn preceding_weight_attr(
     scope_start: usize,
 ) -> Option<String> {
     let mut cursor = item_start;
+    let mut cluster_start = item_start;
+    let mut saw_weight_attr = false;
 
     loop {
         let trimmed_end = rtrim_ws(masked, scope_start, cursor)?;
         if masked.as_bytes().get(trimmed_end) != Some(&b']') {
-            return None;
+            break;
         }
 
         let attr_start = masked[scope_start..=trimmed_end].rfind("#[")? + scope_start;
         let attr = &masked[attr_start..=trimmed_end];
         let normalized = normalize_attr(attr);
         if normalized.starts_with("#[pallet::weight") {
-            return source.get(attr_start..=trimmed_end).map(ToOwned::to_owned);
+            saw_weight_attr = true;
         }
 
+        cluster_start = attr_start;
         cursor = attr_start;
     }
+
+    if saw_weight_attr {
+        return source.get(cluster_start..item_start).map(ToOwned::to_owned);
+    }
+
+    // Fallback for complex or macro-compacted sections: find the nearest weight
+    // attribute in the current #[pallet::call] impl before the dispatchable. The
+    // strict backwards attribute walk above can miss valid weights when an
+    // intermediate scanner position points at `fn` instead of the full `pub fn`
+    // item start. This fallback still only returns a pallet weight attribute from
+    // the same impl scope, so it does not confuse nearby benchmark functions or
+    // test helpers with dispatchable weights.
+    let prefix = masked.get(scope_start..item_start)?;
+    let attr_start = prefix.rfind("#[pallet::weight")? + scope_start;
+    source.get(attr_start..item_start).map(ToOwned::to_owned)
+}
+
+const BENCHMARKED_WEIGHT_NOT_PLUGGED_ALLOW: &str = "benchmarked_weight_not_plugged";
+
+fn has_benchmark_weightinfo_plug_ignore_attr(weight_attr_cluster: &str) -> bool {
+    let attr = normalize_attr(weight_attr_cluster);
+    attr.contains("allow(") && attr.contains(BENCHMARKED_WEIGHT_NOT_PLUGGED_ALLOW)
+}
+
+fn weight_attr_calls_weight_info_for(name: &str, weight_attr: &str) -> bool {
+    let normalized = normalize_attr(weight_attr);
+    if !normalized.contains("WeightInfo") {
+        return false;
+    }
+
+    // Accept the common valid forms used across pallets, including:
+    //   T::WeightInfo::foo(...)
+    //   <T as Config>::WeightInfo::foo(...)
+    //   ::WeightInfo::foo(...)
+    //   WeightInfo::<T>::foo(...)
+    let direct = format!("WeightInfo::{name}");
+    let associated = format!("::{name}");
+    normalized.contains(&direct)
+        || normalized.split("WeightInfo").skip(1).any(|suffix| {
+            suffix.contains(&associated) || suffix.contains(&format!("::<T>{associated}"))
+        })
 }
 
 fn is_benchmarked_weight_plugged(name: &str, weight_attr: Option<&str>) -> bool {
@@ -231,7 +328,11 @@ fn is_benchmarked_weight_plugged(name: &str, weight_attr: Option<&str>) -> bool 
         return false;
     };
 
-    normalize_attr(weight_attr).contains(&format!("WeightInfo::{name}"))
+    if has_benchmark_weightinfo_plug_ignore_attr(weight_attr) {
+        return true;
+    }
+
+    weight_attr_calls_weight_info_for(name, weight_attr)
 }
 
 fn normalize_attr(attr: &str) -> String {
@@ -836,10 +937,134 @@ fn display_path(path: &Path, workspace_root: &Path) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
+
+    #[test]
+    fn source_fallback_accepts_valid_complex_weight_attrs() {
+        let source = r#"
+            #[pallet::call]
+            impl<T: Config> Pallet<T> {
+                #[pallet::call_index(0)]
+                #[pallet::weight({
+                    let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+                    let dispatch_weight = dispatch_weight
+                        .saturating_add(T::WeightInfo::batch(calls.len() as u32));
+                    (dispatch_weight, DispatchClass::Normal, pays)
+                })]
+                pub fn batch(origin: OriginFor<T>, calls: Vec<T::RuntimeCall>) -> DispatchResult {
+                    Ok(())
+                }
+            }
+        "#;
+
+        assert!(source_has_matching_weight_info_for_dispatchable(
+            source, "batch"
+        ));
+    }
+
+    #[test]
+    fn source_fallback_does_not_use_previous_dispatchable_weight_attr() {
+        let source = r#"
+            #[pallet::call]
+            impl<T: Config> Pallet<T> {
+                #[pallet::call_index(0)]
+                #[pallet::weight(T::WeightInfo::first())]
+                pub fn first(origin: OriginFor<T>) -> DispatchResult { Ok(()) }
+
+                #[pallet::call_index(1)]
+                #[pallet::weight(Weight::from_parts(1, 0))]
+                pub fn second(origin: OriginFor<T>) -> DispatchResult { Ok(()) }
+            }
+        "#;
+
+        assert!(source_has_matching_weight_info_for_dispatchable(
+            source, "first"
+        ));
+        assert!(!source_has_matching_weight_info_for_dispatchable(
+            source, "second"
+        ));
+    }
+
+    #[test]
+    fn weightinfo_plug_check_accepts_common_valid_forms() {
+        assert!(weight_attr_calls_weight_info_for(
+            "batch",
+            "#[pallet::weight({ let w = T::WeightInfo::batch(calls.len() as u32); w })]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "set_fee_rate",
+            "#[pallet::weight(<T as Config>::WeightInfo::set_fee_rate())]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "set_weights",
+            "#[pallet::weight((::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "proxy",
+            "#[pallet::weight((WeightInfo::<T>::proxy(T::MaxProxies::get()), DispatchClass::Normal))]",
+        ));
+        assert!(!weight_attr_calls_weight_info_for(
+            "proxy",
+            "#[pallet::weight(Weight::from_parts(10, 0))]",
+        ));
+    }
+
+    #[test]
+    fn dispatchable_weight_attr_is_found_for_complex_weight_blocks() {
+        let input = r#"
+            #[pallet::call]
+            impl<T: Config> Pallet<T> {
+                #[pallet::call_index(0)]
+                #[pallet::weight({
+                    let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+                    let dispatch_weight = dispatch_weight
+                        .saturating_add(T::WeightInfo::batch(calls.len() as u32));
+                    (dispatch_weight, DispatchClass::Normal, pays)
+                })]
+                pub fn batch(origin: OriginFor<T>, calls: Vec<T::RuntimeCall>) -> DispatchResult {
+                    Ok(())
+                }
+            }
+        "#;
+
+        let dispatchables = collect_dispatchables_from_source(input);
+        let batch = dispatchables
+            .iter()
+            .find(|dispatchable| dispatchable.name == "batch")
+            .expect("batch dispatchable is collected");
+
+        assert!(is_benchmarked_weight_plugged(
+            &batch.name,
+            batch.weight_attr.as_deref(),
+        ));
+    }
 
     use super::*;
+
+    #[test]
+    fn custom_allow_attr_skips_weightinfo_plug_check() {
+        let dispatch_source = r#"
+            #[pallet::call]
+            impl<T: Config> Pallet<T> {
+                #[allow(unknown_lints, benchmarked_weight_not_plugged)]
+                #[pallet::call_index(2)]
+                #[pallet::weight(store_encrypted_weight())]
+                pub fn store_encrypted(origin: OriginFor<T>) -> DispatchResult { Ok(()) }
+            }
+        "#;
+
+        let dispatchables = collect_dispatchables_from_source(dispatch_source);
+        let dispatchable = dispatchables
+            .iter()
+            .find(|dispatchable| dispatchable.name == "store_encrypted")
+            .expect("store_encrypted dispatchable is collected");
+
+        assert!(is_benchmarked_weight_plugged(
+            &dispatchable.name,
+            dispatchable.weight_attr.as_deref()
+        ));
+    }
 
     #[test]
     fn collects_dispatchables_from_pallet_call_impl() {
