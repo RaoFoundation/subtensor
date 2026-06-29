@@ -47,6 +47,8 @@ struct WeightValues {
     component_ranges: BTreeMap<String, (u64, u64)>,
 }
 
+type ComponentRange = (String, u64, u64);
+
 #[derive(Debug, Clone, Copy)]
 struct Drift {
     signed_pct: f64,
@@ -58,6 +60,26 @@ impl Drift {
         Self {
             signed_pct,
             abs_pct: signed_pct.abs(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DriftMetric {
+    RefTime,
+    ProofSize,
+}
+
+impl DriftMetric {
+    fn total_at(
+        self,
+        values: &WeightValues,
+        ranges: &[ComponentRange],
+        component_values: &[u64],
+    ) -> u128 {
+        match self {
+            Self::RefTime => total_ref_time_at(values, ranges, component_values),
+            Self::ProofSize => total_proof_size_at(values, ranges, component_values),
         }
     }
 }
@@ -185,41 +207,40 @@ fn signed_pct(old: u128, new: u128) -> f64 {
 }
 
 fn max_ref_time_drift(old: &WeightValues, new: &WeightValues) -> Drift {
-    max_benchmark_drift(old, new, total_ref_time_at)
+    max_benchmark_drift(old, new, DriftMetric::RefTime)
 }
 
 fn max_proof_size_drift(old: &WeightValues, new: &WeightValues) -> Drift {
-    max_benchmark_drift(old, new, total_proof_size_at)
+    max_benchmark_drift(old, new, DriftMetric::ProofSize)
 }
 
-fn max_benchmark_drift(
-    old: &WeightValues,
-    new: &WeightValues,
-    total_fn: fn(&WeightValues, &[(String, u64, u64)], &[u64]) -> u128,
-) -> Drift {
+fn max_benchmark_drift(old: &WeightValues, new: &WeightValues, metric: DriftMetric) -> Drift {
     let ranges = comparison_ranges(old, new);
     if ranges.is_empty() {
-        return Drift::new(signed_pct(total_fn(old, &[], &[]), total_fn(new, &[], &[])));
+        return Drift::new(signed_pct(
+            metric.total_at(old, &[], &[]),
+            metric.total_at(new, &[], &[]),
+        ));
     }
 
     let mut values = Vec::with_capacity(ranges.len());
     let mut max_drift = Drift::new(0.0);
-    visit_range_corners(&ranges, 0, &mut values, old, new, total_fn, &mut max_drift);
+    visit_range_corners(&ranges, 0, &mut values, old, new, metric, &mut max_drift);
     max_drift
 }
 
 fn visit_range_corners(
-    ranges: &[(String, u64, u64)],
+    ranges: &[ComponentRange],
     idx: usize,
     values: &mut Vec<u64>,
     old: &WeightValues,
     new: &WeightValues,
-    total_fn: fn(&WeightValues, &[(String, u64, u64)], &[u64]) -> u128,
+    metric: DriftMetric,
     max_drift: &mut Drift,
 ) {
     if idx == ranges.len() {
-        let old_total = total_fn(old, ranges, values);
-        let new_total = total_fn(new, ranges, values);
+        let old_total = metric.total_at(old, ranges, values);
+        let new_total = metric.total_at(new, ranges, values);
         let drift = Drift::new(signed_pct(old_total, new_total));
         if drift.abs_pct > max_drift.abs_pct {
             *max_drift = drift;
@@ -229,17 +250,17 @@ fn visit_range_corners(
 
     let (_, min, max) = &ranges[idx];
     values.push(*min);
-    visit_range_corners(ranges, idx + 1, values, old, new, total_fn, max_drift);
+    visit_range_corners(ranges, idx + 1, values, old, new, metric, max_drift);
     values.pop();
 
     if max != min {
         values.push(*max);
-        visit_range_corners(ranges, idx + 1, values, old, new, total_fn, max_drift);
+        visit_range_corners(ranges, idx + 1, values, old, new, metric, max_drift);
         values.pop();
     }
 }
 
-fn comparison_ranges(old: &WeightValues, new: &WeightValues) -> Vec<(String, u64, u64)> {
+fn comparison_ranges(old: &WeightValues, new: &WeightValues) -> Vec<ComponentRange> {
     let mut names = BTreeSet::new();
     names.extend(old.component_ranges.keys().cloned());
     names.extend(new.component_ranges.keys().cloned());
@@ -282,7 +303,7 @@ fn range_for_component(values: &WeightValues, name: &str) -> (u64, u64) {
 
 fn total_ref_time_at(
     values: &WeightValues,
-    ranges: &[(String, u64, u64)],
+    ranges: &[ComponentRange],
     component_values: &[u64],
 ) -> u128 {
     total_at(
@@ -295,7 +316,7 @@ fn total_ref_time_at(
 
 fn total_proof_size_at(
     values: &WeightValues,
-    ranges: &[(String, u64, u64)],
+    ranges: &[ComponentRange],
     component_values: &[u64],
 ) -> u128 {
     total_at(
@@ -309,7 +330,7 @@ fn total_proof_size_at(
 fn total_at(
     base: u64,
     components: &BTreeMap<String, u64>,
-    ranges: &[(String, u64, u64)],
+    ranges: &[ComponentRange],
     component_values: &[u64],
 ) -> u128 {
     let mut total = base as u128;
