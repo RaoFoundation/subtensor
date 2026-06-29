@@ -363,6 +363,7 @@ pub mod pallet {
         }
 
         /// Store an encrypted extrinsic for later execution in on_initialize.
+        #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(2)]
         #[pallet::weight(store_encrypted_weight())]
         pub fn store_encrypted(
