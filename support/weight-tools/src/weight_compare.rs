@@ -1,9 +1,9 @@
 //! Compare two weights.rs files and report benchmark-level drift.
 //!
 //! Parses both files with `syn`, extracts per-function weight data including
-//! base values and parameterized slopes, then compares the whole generated
-//! weight across the benchmarked component ranges with a configurable
-//! percentage threshold.
+//! base values, proof sizes, and parameterized slopes, then compares the whole
+//! generated weight/proof across the benchmarked component ranges with a
+//! configurable percentage threshold.
 //!
 //! Exit codes:
 //! 0 — all within threshold
@@ -41,6 +41,7 @@ struct WeightValues {
     component_weights: BTreeMap<String, u64>,
     component_reads: BTreeMap<String, u64>,
     component_writes: BTreeMap<String, u64>,
+    /// Per-component proof-size slopes, keyed by benchmark component name.
     component_proof: BTreeMap<String, u64>,
     /// Component ranges from generated docs, keyed by benchmark component name.
     component_ranges: BTreeMap<String, (u64, u64)>,
@@ -75,6 +76,11 @@ fn main() -> Result<()> {
         let weight_drift = max_ref_time_drift(&ow, nw);
         if weight_drift.abs_pct > cli.threshold {
             reasons.push(format!("max_weight {:+.1}%", weight_drift.signed_pct));
+        }
+
+        let proof_drift = max_proof_size_drift(&ow, nw);
+        if proof_drift.abs_pct > cli.threshold {
+            reasons.push(format!("max_proof_size {:+.1}%", proof_drift.signed_pct));
         }
 
         let old_components: Vec<_> = ow.component_ranges.keys().cloned().collect();
@@ -115,6 +121,7 @@ fn main() -> Result<()> {
         }
 
         let base_pct = signed_pct(ow.base_weight as u128, nw.base_weight as u128);
+        let proof_pct = signed_pct(ow.proof_size as u128, nw.proof_size as u128);
         let icon = if drifted { "\u{274c}" } else { "\u{2705}" };
         let reason_suffix = if reasons.is_empty() {
             String::new()
@@ -123,13 +130,17 @@ fn main() -> Result<()> {
         };
 
         println!(
-            " {} {:<40} {:>12} -> {:<12} ({:>+.1}%; max {:>+.1}%) reads {:>4} -> {:<4} writes {:>4} -> {:<4}{}",
+            " {} {:<40} {:>12} -> {:<12} ({:>+.1}%; max {:>+.1}%) proof {:>8} -> {:<8} ({:>+.1}%; max {:>+.1}%) reads {:>4} -> {:<4} writes {:>4} -> {:<4}{}",
             icon,
             name,
             ow.base_weight,
             nw.base_weight,
             base_pct,
             weight_drift.signed_pct,
+            ow.proof_size,
+            nw.proof_size,
+            proof_pct,
+            proof_drift.signed_pct,
             ow.base_reads,
             nw.base_reads,
             ow.base_writes,
@@ -174,14 +185,26 @@ fn signed_pct(old: u128, new: u128) -> f64 {
 }
 
 fn max_ref_time_drift(old: &WeightValues, new: &WeightValues) -> Drift {
+    max_benchmark_drift(old, new, total_ref_time_at)
+}
+
+fn max_proof_size_drift(old: &WeightValues, new: &WeightValues) -> Drift {
+    max_benchmark_drift(old, new, total_proof_size_at)
+}
+
+fn max_benchmark_drift(
+    old: &WeightValues,
+    new: &WeightValues,
+    total_fn: fn(&WeightValues, &[(String, u64, u64)], &[u64]) -> u128,
+) -> Drift {
     let ranges = comparison_ranges(old, new);
     if ranges.is_empty() {
-        return Drift::new(signed_pct(old.base_weight as u128, new.base_weight as u128));
+        return Drift::new(signed_pct(total_fn(old, &[], &[]), total_fn(new, &[], &[])));
     }
 
     let mut values = Vec::with_capacity(ranges.len());
     let mut max_drift = Drift::new(0.0);
-    visit_range_corners(&ranges, 0, &mut values, old, new, &mut max_drift);
+    visit_range_corners(&ranges, 0, &mut values, old, new, total_fn, &mut max_drift);
     max_drift
 }
 
@@ -191,11 +214,12 @@ fn visit_range_corners(
     values: &mut Vec<u64>,
     old: &WeightValues,
     new: &WeightValues,
+    total_fn: fn(&WeightValues, &[(String, u64, u64)], &[u64]) -> u128,
     max_drift: &mut Drift,
 ) {
     if idx == ranges.len() {
-        let old_total = total_ref_time_at(old, ranges, values);
-        let new_total = total_ref_time_at(new, ranges, values);
+        let old_total = total_fn(old, ranges, values);
+        let new_total = total_fn(new, ranges, values);
         let drift = Drift::new(signed_pct(old_total, new_total));
         if drift.abs_pct > max_drift.abs_pct {
             *max_drift = drift;
@@ -205,12 +229,12 @@ fn visit_range_corners(
 
     let (_, min, max) = &ranges[idx];
     values.push(*min);
-    visit_range_corners(ranges, idx + 1, values, old, new, max_drift);
+    visit_range_corners(ranges, idx + 1, values, old, new, total_fn, max_drift);
     values.pop();
 
     if max != min {
         values.push(*max);
-        visit_range_corners(ranges, idx + 1, values, old, new, max_drift);
+        visit_range_corners(ranges, idx + 1, values, old, new, total_fn, max_drift);
         values.pop();
     }
 }
@@ -221,6 +245,8 @@ fn comparison_ranges(old: &WeightValues, new: &WeightValues) -> Vec<(String, u64
     names.extend(new.component_ranges.keys().cloned());
     names.extend(old.component_weights.keys().cloned());
     names.extend(new.component_weights.keys().cloned());
+    names.extend(old.component_proof.keys().cloned());
+    names.extend(new.component_proof.keys().cloned());
 
     names
         .into_iter()
@@ -241,7 +267,9 @@ fn range_for_component(values: &WeightValues, name: &str) -> (u64, u64) {
         .get(name)
         .copied()
         .unwrap_or_else(|| {
-            if values.component_weights.contains_key(name) {
+            if values.component_weights.contains_key(name)
+                || values.component_proof.contains_key(name)
+            {
                 // Generated files should include ranges. Fall back to a one-unit
                 // multiplier if a legacy file does not, so slope-only changes are
                 // still represented in the benchmark-level total.
@@ -257,9 +285,36 @@ fn total_ref_time_at(
     ranges: &[(String, u64, u64)],
     component_values: &[u64],
 ) -> u128 {
-    let mut total = values.base_weight as u128;
+    total_at(
+        values.base_weight,
+        &values.component_weights,
+        ranges,
+        component_values,
+    )
+}
 
-    for (name, slope) in &values.component_weights {
+fn total_proof_size_at(
+    values: &WeightValues,
+    ranges: &[(String, u64, u64)],
+    component_values: &[u64],
+) -> u128 {
+    total_at(
+        values.proof_size,
+        &values.component_proof,
+        ranges,
+        component_values,
+    )
+}
+
+fn total_at(
+    base: u64,
+    components: &BTreeMap<String, u64>,
+    ranges: &[(String, u64, u64)],
+    component_values: &[u64],
+) -> u128 {
+    let mut total = base as u128;
+
+    for (name, slope) in components {
         let multiplier = ranges
             .iter()
             .position(|(range_name, _, _)| range_name == name)
