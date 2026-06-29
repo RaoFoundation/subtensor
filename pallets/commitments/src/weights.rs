@@ -36,8 +36,24 @@ pub trait WeightInfo {
 /// Weights for `pallet_commitments` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
+	/// Storage: `Commitments::UsedSpaceOf` (r:1 w:1)
+	/// Proof: `Commitments::UsedSpaceOf` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetEpochIndex` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetEpochIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::MaxSpace` (r:1 w:0)
+	/// Proof: `Commitments::MaxSpace` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::CommitmentOf` (r:1 w:1)
+	/// Proof: `Commitments::CommitmentOf` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::TimelockedIndex` (r:1 w:1)
+	/// Proof: `Commitments::TimelockedIndex` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::LastCommitment` (r:0 w:1)
+	/// Proof: `Commitments::LastCommitment` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_commitment() -> Weight {
-		Weight::from_parts(33_480_000, 0)
+		// Proof Size summary in bytes:
+		//  Measured:  `504`
+		//  Estimated: `3969`
+		// Minimum execution time: 25_938_000 picoseconds.
+		Weight::from_parts(26_900_000, 3969)
 			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
@@ -49,8 +65,24 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
+	/// Storage: `Commitments::UsedSpaceOf` (r:1 w:1)
+	/// Proof: `Commitments::UsedSpaceOf` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetEpochIndex` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetEpochIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::MaxSpace` (r:1 w:0)
+	/// Proof: `Commitments::MaxSpace` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::CommitmentOf` (r:1 w:1)
+	/// Proof: `Commitments::CommitmentOf` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::TimelockedIndex` (r:1 w:1)
+	/// Proof: `Commitments::TimelockedIndex` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Commitments::LastCommitment` (r:0 w:1)
+	/// Proof: `Commitments::LastCommitment` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_commitment() -> Weight {
-		Weight::from_parts(33_480_000, 0)
+		// Proof Size summary in bytes:
+		//  Measured:  `504`
+		//  Estimated: `3969`
+		// Minimum execution time: 25_938_000 picoseconds.
+		Weight::from_parts(26_900_000, 3969)
 			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
