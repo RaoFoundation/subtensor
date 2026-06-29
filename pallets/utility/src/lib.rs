@@ -463,7 +463,7 @@ pub mod pallet {
         ///
         /// The dispatch origin for this call must be _Root_.
         #[pallet::call_index(5)]
-        #[pallet::weight((*weight, DispatchClass::Normal))]
+        #[pallet::weight((<T as Config>::WeightInfo::with_weight().saturating_add(*weight), DispatchClass::Normal))]
         pub fn with_weight(
             origin: OriginFor<T>,
             call: Box<<T as Config>::RuntimeCall>,
