@@ -599,6 +599,14 @@ pub mod pallet {
 
             Ok(())
         }
+
+        #[cfg(feature = "runtime-benchmarks")]
+        #[pallet::call_index(255)]
+        #[pallet::weight(frame_support::weights::Weight::zero())]
+        pub fn benchmark_noop(origin: OriginFor<T>) -> DispatchResult {
+            ensure_signed(origin)?;
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {

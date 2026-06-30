@@ -33,6 +33,10 @@ fn assert_last_event<T: frame_system::pallet::Config>(
     frame_system::Pallet::<T>::assert_last_event(generic_event.into());
 }
 
+fn stable_batch_calls<T: Config>(count: u32) -> alloc::vec::Vec<T::RuntimeCall> {
+    vec![Call::<T>::benchmark_noop {}.into(); count as usize]
+}
+
 #[benchmarks]
 mod benchmark {
     use super::*;
@@ -59,11 +63,12 @@ mod benchmark {
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), SEED as u16, call);
     }
-
     #[benchmark]
-    fn batch_all(c: Linear<0, 1000>) {
-        let calls = vec![frame_system::Call::remark { remark: vec![] }.into(); c as usize];
+    fn batch_all(c: Linear<1, 1000>) {
+        let calls = stable_batch_calls::<T>(c);
         let caller = whitelisted_caller();
+
+        frame_system::Pallet::<T>::reset_events();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), calls);
@@ -82,11 +87,12 @@ mod benchmark {
         #[extrinsic_call]
         _(RawOrigin::Root, Box::new(pallets_origin), call);
     }
-
     #[benchmark]
-    fn force_batch(c: Linear<0, 1000>) {
-        let calls = vec![frame_system::Call::remark { remark: vec![] }.into(); c as usize];
+    fn force_batch(c: Linear<1, 1000>) {
+        let calls = stable_batch_calls::<T>(c);
         let caller = whitelisted_caller();
+
+        frame_system::Pallet::<T>::reset_events();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), calls);
