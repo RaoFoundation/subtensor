@@ -260,41 +260,38 @@ fn preceding_weight_attr(
     item_start: usize,
     scope_start: usize,
 ) -> Option<String> {
-    let mut cursor = item_start;
-    let mut cluster_start = item_start;
-    let mut saw_weight_attr = false;
+    // `item_start` is the beginning of the dispatchable item as found by the
+    // source scanner, normally the `pub` in `pub fn`. Find the nearest
+    // #[pallet::weight(...)] before that item, then expand backward over the
+    // contiguous attribute cluster that belongs to the same dispatchable.
+    let prefix = masked.get(scope_start..item_start)?;
+    let attr_start = prefix.rfind("#[pallet::weight")? + scope_start;
 
-    loop {
-        let trimmed_end = rtrim_ws(masked, scope_start, cursor)?;
+    // Do not accidentally reuse a previous dispatchable's weight attr when the
+    // current item has no weight. If another function begins between the attr
+    // and this item, this attr is not for the current dispatchable.
+    let attr_to_item = masked.get(attr_start..item_start)?;
+    if attr_to_item.contains("pub fn ") || attr_to_item.contains("pub(crate) fn ") {
+        return None;
+    }
+
+    let mut cluster_start = attr_start;
+    let mut cursor = attr_start;
+    while let Some(trimmed_end) = rtrim_ws(masked, scope_start, cursor) {
         if masked.as_bytes().get(trimmed_end) != Some(&b']') {
             break;
         }
-
-        let attr_start = masked[scope_start..=trimmed_end].rfind("#[")? + scope_start;
-        let attr = &masked[attr_start..=trimmed_end];
-        let normalized = normalize_attr(attr);
-        if normalized.starts_with("#[pallet::weight") {
-            saw_weight_attr = true;
-        }
-
-        cluster_start = attr_start;
-        cursor = attr_start;
+        let Some(prev_attr_start) = masked
+            .get(scope_start..=trimmed_end)
+            .and_then(|section| section.rfind("#["))
+        else {
+            break;
+        };
+        cluster_start = scope_start + prev_attr_start;
+        cursor = cluster_start;
     }
 
-    if saw_weight_attr {
-        return source.get(cluster_start..item_start).map(ToOwned::to_owned);
-    }
-
-    // Fallback for complex or macro-compacted sections: find the nearest weight
-    // attribute in the current #[pallet::call] impl before the dispatchable. The
-    // strict backwards attribute walk above can miss valid weights when an
-    // intermediate scanner position points at `fn` instead of the full `pub fn`
-    // item start. This fallback still only returns a pallet weight attribute from
-    // the same impl scope, so it does not confuse nearby benchmark functions or
-    // test helpers with dispatchable weights.
-    let prefix = masked.get(scope_start..item_start)?;
-    let attr_start = prefix.rfind("#[pallet::weight")? + scope_start;
-    source.get(attr_start..item_start).map(ToOwned::to_owned)
+    source.get(cluster_start..item_start).map(ToOwned::to_owned)
 }
 
 const BENCHMARKED_WEIGHT_NOT_PLUGGED_ALLOW: &str = "benchmarked_weight_not_plugged";
@@ -310,20 +307,89 @@ fn weight_attr_calls_weight_info_for(name: &str, weight_attr: &str) -> bool {
         return false;
     }
 
-    // Accept only exact WeightInfo method calls. A dispatchable named
-    // `swap_coldkey` must not be considered plugged by
-    // `WeightInfo::swap_coldkey_announced()`. After the method name, require a
-    // call boundary: either `(` for a normal call or `::<` for turbofish.
-    normalized.split("WeightInfo").skip(1).any(|suffix| {
-        [format!("::{name}"), format!("::<T>::{name}")]
-            .iter()
-            .any(|needle| {
-                suffix
-                    .split(needle.as_str())
-                    .skip(1)
-                    .any(|rest| rest.starts_with('(') || rest.starts_with("::<"))
-            })
-    })
+    let mut search_from = 0usize;
+    while let Some(relative_method_start) = normalized
+        .get(search_from..)
+        .and_then(|tail| tail.find(name))
+    {
+        let method_start = search_from + relative_method_start;
+
+        // Method name must be reached through `::name`, not as part of another
+        // identifier. This rejects `WeightInfo::swap_coldkey_announced()` for a
+        // dispatchable named `swap_coldkey`.
+        if method_start < 2 || normalized.get(method_start - 2..method_start) != Some("::") {
+            search_from = method_start.saturating_add(name.len());
+            continue;
+        }
+
+        let after_name = method_start.saturating_add(name.len());
+        if !is_call_boundary_after_method(&normalized, after_name) {
+            search_from = after_name;
+            continue;
+        }
+
+        let before_method = &normalized[..method_start - 2];
+        let Some(weight_info_start) = before_method.rfind("WeightInfo") else {
+            search_from = after_name;
+            continue;
+        };
+        let after_weight_info = weight_info_start.saturating_add("WeightInfo".len());
+        let between = &before_method[after_weight_info..];
+
+        // Accept:
+        //   T::WeightInfo::foo(...)
+        //   <T as Config>::WeightInfo::foo(...)
+        //   ::WeightInfo::foo(...)
+        //   WeightInfo::<T>::foo(...)
+        if between.is_empty() || turbofish_suffix_consumes_all(between) {
+            return true;
+        }
+
+        search_from = after_name;
+    }
+
+    false
+}
+
+fn is_call_boundary_after_method(source: &str, after_name: usize) -> bool {
+    match source.get(after_name..) {
+        Some(rest) if rest.starts_with('(') => true,
+        Some(rest) if rest.starts_with("::<") => skip_turbofish_generics(source, after_name)
+            .and_then(|call_start| source.get(call_start..))
+            .is_some_and(|rest| rest.starts_with('(')),
+        _ => false,
+    }
+}
+
+fn turbofish_suffix_consumes_all(suffix: &str) -> bool {
+    suffix.starts_with("::<")
+        && skip_turbofish_generics(suffix, 0).is_some_and(|end| end == suffix.len())
+}
+
+fn skip_turbofish_generics(source: &str, start: usize) -> Option<usize> {
+    if !source.get(start..)?.starts_with("::<") {
+        return None;
+    }
+
+    let bytes = source.as_bytes();
+    let mut idx = start.checked_add(3)?;
+    let mut angle_depth = 1usize;
+
+    while let Some(byte) = bytes.get(idx).copied() {
+        match byte {
+            b'<' => angle_depth = angle_depth.saturating_add(1),
+            b'>' => {
+                angle_depth = angle_depth.saturating_sub(1);
+                if angle_depth == 0 {
+                    return idx.checked_add(1);
+                }
+            }
+            _ => {}
+        }
+        idx = idx.checked_add(1)?;
+    }
+
+    None
 }
 
 fn is_benchmarked_weight_plugged(name: &str, weight_attr: Option<&str>) -> bool {
@@ -331,11 +397,15 @@ fn is_benchmarked_weight_plugged(name: &str, weight_attr: Option<&str>) -> bool 
         return false;
     };
 
-    if has_benchmark_weightinfo_plug_ignore_attr(weight_attr) {
+    // This is our custom-lint allow marker. It intentionally uses an unknown
+    // lint name plus `unknown_lints` so rustc accepts the attribute while this
+    // source scanner can still recognize it.
+    if normalize_attr(weight_attr).contains("benchmarked_weight_not_plugged") {
         return true;
     }
 
-    weight_attr_calls_weight_info_for(name, weight_attr)
+    has_benchmark_weightinfo_plug_ignore_attr(weight_attr)
+        || weight_attr_calls_weight_info_for(name, weight_attr)
 }
 
 fn normalize_attr(attr: &str) -> String {
@@ -944,14 +1014,33 @@ fn display_path(path: &Path, workspace_root: &Path) -> String {
 mod tests {
 
     #[test]
-    fn weight_info_matcher_requires_complete_method_name() {
-        assert!(weight_attr_calls_weight_info_for(
-            "swap_coldkey",
-            "#[pallet::weight(T::WeightInfo::swap_coldkey())]",
+    fn weightinfo_plug_helper_accepts_captured_attrs_and_custom_allow() {
+        let batch_attr = r#"
+            #[pallet::call_index(0)]
+            #[pallet::weight({
+                let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+                let dispatch_weight = dispatch_weight
+                    .saturating_add(T::WeightInfo::batch(calls.len() as u32));
+                (dispatch_weight, DispatchClass::Normal, pays)
+            })]
+        "#;
+        assert!(is_benchmarked_weight_plugged("batch", Some(batch_attr)));
+
+        let allow_attr = r#"
+            #[allow(unknown_lints, benchmarked_weight_not_plugged)]
+            #[pallet::weight(store_encrypted_weight())]
+        "#;
+        assert!(is_benchmarked_weight_plugged(
+            "store_encrypted",
+            Some(allow_attr),
         ));
+    }
+
+    #[test]
+    fn weightinfo_plug_matcher_accepts_exact_methods_and_rejects_prefixes() {
         assert!(weight_attr_calls_weight_info_for(
-            "swap_coldkey",
-            "#[pallet::weight(T::WeightInfo::swap_coldkey::<T>())]",
+            "batch",
+            "#[pallet::weight(T::WeightInfo::batch(calls.len() as u32))]",
         ));
         assert!(weight_attr_calls_weight_info_for(
             "proxy",
@@ -960,6 +1049,14 @@ mod tests {
         assert!(weight_attr_calls_weight_info_for(
             "set_weights",
             "#[pallet::weight(::WeightInfo::set_weights())]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "set_fee_rate",
+            "#[pallet::weight(<T as Config>::WeightInfo::set_fee_rate())]",
+        ));
+        assert!(weight_attr_calls_weight_info_for(
+            "swap_coldkey",
+            "#[pallet::weight(T::WeightInfo::swap_coldkey::<T>())]",
         ));
 
         assert!(!weight_attr_calls_weight_info_for(
