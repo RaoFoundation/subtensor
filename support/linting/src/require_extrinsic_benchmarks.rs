@@ -972,7 +972,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn source_fallback_accepts_valid_complex_weight_attrs() {
         let source = r#"
