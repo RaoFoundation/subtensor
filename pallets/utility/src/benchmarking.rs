@@ -36,17 +36,20 @@ fn assert_last_event<T: frame_system::pallet::Config>(
 fn stable_batch_calls<T>(count: u32) -> alloc::vec::Vec<<T as crate::pallet::Config>::RuntimeCall>
 where
     T: crate::pallet::Config,
-    <T as crate::pallet::Config>::RuntimeCall: From<crate::pallet::Call<T>>,
+    <T as crate::pallet::Config>::RuntimeCall: From<frame_system::Call<T>>,
 {
-    let call = <T as crate::pallet::Config>::RuntimeCall::from(
-        crate::pallet::Call::<T>::benchmark_noop {},
-    );
-    vec![call; count as usize]
+    (0..count)
+        .map(|_| {
+            <T as crate::pallet::Config>::RuntimeCall::from(frame_system::Call::<T>::remark {
+                remark: alloc::vec::Vec::new(),
+            })
+        })
+        .collect()
 }
 
 #[benchmarks(
 	where
-		<T as crate::pallet::Config>::RuntimeCall: From<crate::pallet::Call<T>>,
+		<T as crate::pallet::Config>::RuntimeCall: From<frame_system::Call<T>>,
 )]
 mod benchmark {
     use super::*;
