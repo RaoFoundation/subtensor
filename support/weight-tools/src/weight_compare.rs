@@ -145,43 +145,27 @@ fn main() -> Result<()> {
         let base_pct = signed_pct(ow.base_weight as u128, nw.base_weight as u128);
         let proof_pct = signed_pct(ow.proof_size as u128, nw.proof_size as u128);
         let icon = if drifted { "\u{274c}" } else { "\u{2705}" };
-        let mut detail_parts: Vec<String> = Vec::new();
-        if ow.proof_size != nw.proof_size || proof_drift.abs_pct > cli.threshold {
-            detail_parts.push(format!(
-                "proof {} -> {} ({:+.1}%; max {:+.1}%)",
-                ow.proof_size, nw.proof_size, proof_pct, proof_drift.signed_pct,
-            ));
-        }
-        if ow.base_reads != nw.base_reads || ow.base_writes != nw.base_writes {
-            detail_parts.push(format!(
-                "io reads {} -> {} writes {} -> {}",
-                ow.base_reads, nw.base_reads, ow.base_writes, nw.base_writes,
-            ));
-        }
-        if !reasons.is_empty() {
-            detail_parts.push(format!("reasons: {}", reasons.join(", ")));
-        }
-        let detail_suffix = if detail_parts.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", detail_parts.join(" "))
-        };
 
         println!(
-            " {} {:<40} {:>12} -> {:<12} ({:>+.1}%; max {:>+.1}%){}",
-            icon,
-            name,
-            ow.base_weight,
-            nw.base_weight,
-            base_pct,
-            weight_drift.signed_pct,
-            detail_suffix,
+            "{}",
+            format_compare_row(CompareRow {
+                icon,
+                name,
+                old: &ow,
+                new: nw,
+                base_pct,
+                weight_drift,
+                proof_pct,
+                proof_drift,
+                threshold: cli.threshold,
+                reasons: &reasons,
+            })
         );
     }
 
     for name in old_weights.keys() {
         if !new_weights.contains_key(name) {
-            println!(" \u{274c} {:<40} REMOVED", name);
+            println!(" ❌ {name:<40} removed from generated weights");
             any_drift = true;
         }
     }
@@ -191,6 +175,83 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+struct CompareRow<'a> {
+    icon: &'a str,
+    name: &'a str,
+    old: &'a WeightValues,
+    new: &'a WeightValues,
+    base_pct: f64,
+    weight_drift: Drift,
+    proof_pct: f64,
+    proof_drift: Drift,
+    threshold: f64,
+    reasons: &'a [String],
+}
+
+fn format_compare_row(row: CompareRow<'_>) -> String {
+    let old_weight = format_u64(row.old.base_weight);
+    let new_weight = format_u64(row.new.base_weight);
+    let old_reads = format_u64(row.old.base_reads);
+    let new_reads = format_u64(row.new.base_reads);
+    let old_writes = format_u64(row.old.base_writes);
+    let new_writes = format_u64(row.new.base_writes);
+
+    let mut details = Vec::new();
+    if row.old.proof_size != row.new.proof_size || row.proof_drift.abs_pct > row.threshold {
+        details.push(format!(
+            "proof {} → {} {}",
+            format_u64(row.old.proof_size),
+            format_u64(row.new.proof_size),
+            format_delta(row.proof_pct, row.proof_drift.signed_pct),
+        ));
+    }
+    if !row.reasons.is_empty() {
+        details.push(format!("reasons: {}", row.reasons.join(", ")));
+    }
+
+    let detail_suffix = if details.is_empty() {
+        String::new()
+    } else {
+        format!(" | {}", details.join(" | "))
+    };
+
+    format!(
+        " {icon} {name:<40} weight {old_weight:>16} → {new_weight:<16} {weight_delta:<20} | io r {old_reads:>8} → {new_reads:<8} w {old_writes:>8} → {new_writes:<8}{detail_suffix}",
+        icon = row.icon,
+        name = row.name,
+        weight_delta = format_delta(row.base_pct, row.weight_drift.signed_pct),
+    )
+}
+
+fn format_delta(base_pct: f64, max_pct: f64) -> String {
+    if (base_pct - max_pct).abs() < 0.05 {
+        format!("Δ {}", format_pct(base_pct))
+    } else {
+        format!("Δ {} max {}", format_pct(base_pct), format_pct(max_pct))
+    }
+}
+
+fn format_pct(value: f64) -> String {
+    format!("{value:+.1}%")
+}
+
+fn format_u64(value: u64) -> String {
+    let digits = value.to_string();
+    let mut reversed = String::with_capacity(digits.len() + digits.len() / 3);
+    let mut group_len = 0usize;
+
+    for ch in digits.chars().rev() {
+        if group_len == 3 {
+            reversed.push('_');
+            group_len = 0;
+        }
+        reversed.push(ch);
+        group_len += 1;
+    }
+
+    reversed.chars().rev().collect()
 }
 
 fn check_map_exact(
