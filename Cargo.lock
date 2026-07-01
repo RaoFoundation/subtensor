@@ -10101,6 +10101,7 @@ dependencies = [
 name = "pallet-limit-orders"
 version = "0.1.0"
 dependencies = [
+ "bs58",
  "frame-benchmarking",
  "frame-support",
  "frame-system",

@@ -301,6 +301,7 @@ pallet-shield = { path = "pallets/shield", default-features = false }
 ml-kem = { version = "0.2.2", default-features = false }
 chacha20poly1305 = { version = "0.10", default-features = false }
 blake2 = "0.10.6"
+bs58 = { version = "0.5.1", default-features = false }
 
 # Primitives
 

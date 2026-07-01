@@ -206,9 +206,24 @@ pub mod pallet {
         transactional,
     };
     use frame_system::pallet_prelude::*;
+    use alloc::format;
+    use alloc::string::String;
     use sp_runtime::traits::AccountIdConversion;
     use sp_std::collections::btree_set::BTreeSet;
     use sp_std::vec::Vec;
+
+    /// SS58 address format prefix used when rendering an `AccountId` into the
+    /// human-readable ("clear-signing") message that hardware wallets display.
+    ///
+    /// This is Bittensor's registered SS58 prefix (42). It fits in a single byte
+    /// because it is ≤ 63, which lets `render_account` use the simple single-byte
+    /// SS58 encoding path.
+    ///
+    /// INVARIANT: this MUST match the SS58 prefix constant used by the
+    /// frontend/wallet that produces the readable signing payload; otherwise the
+    /// rendered account strings — and therefore the whole signed message — will
+    /// differ and signature verification will fail.
+    const SS58_PREFIX: u8 = 42;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -637,6 +652,116 @@ pub mod pallet {
                 .verify(payload.as_slice(), &order.signer)
         }
 
+        /// Render `who` into its SS58 (base58check) string using Bittensor's
+        /// [`SS58_PREFIX`], reproducing `Ss58Codec::to_ss58check_with_version` for a
+        /// single-byte prefix.
+        ///
+        /// We do the encoding manually rather than calling `to_ss58check` because that
+        /// method is gated behind sp-core's `serde` (`full_crypto`/`std`) feature and is
+        /// not reliably available in the no_std/wasm runtime build.
+        ///
+        /// `who.encode()` on `AccountId32` yields exactly 32 bytes; with the 1-byte
+        /// prefix and 2-byte checksum the output buffer is 35 bytes.
+        pub(crate) fn render_account(who: &T::AccountId) -> String {
+            let raw = who.encode(); // 32 bytes (AccountId32)
+            let mut buf = Vec::with_capacity(35);
+            buf.push(SS58_PREFIX);
+            buf.extend_from_slice(&raw);
+            let h = sp_core::hashing::blake2_512(
+                &[b"SS58PRE".as_slice(), buf.as_slice()].concat(),
+            );
+            buf.extend_from_slice(&h[0..2]); // 2-byte checksum
+            bs58::encode(buf).into_string()
+        }
+
+        /// Build the canonical, single-line, all-printable-ASCII "clear-signing"
+        /// message for a versioned order.
+        ///
+        /// This is a PURE function of the order's fields: every token is a
+        /// deterministic rendering of a runtime field, so a TS frontend can rebuild
+        /// the exact same bytes and have a hardware wallet display and sign them.
+        ///
+        /// The `none` vs `[]` distinction for the relayer field is deliberate and
+        /// load-bearing: it prevents a signature produced for an "any relayer" order
+        /// from being transplanted onto an "empty relayer list" order (or vice versa).
+        pub(crate) fn render_order(order: &VersionedOrder<T::AccountId>) -> Vec<u8> {
+            let (version, o) = match order {
+                VersionedOrder::V1(o) => ("v1", o),
+            };
+
+            let label = match o.order_type {
+                OrderType::LimitBuy => "Limit buy",
+                OrderType::TakeProfit => "Take-profit",
+                OrderType::StopLoss => "Stop-loss",
+            };
+            let price_word = match o.order_type {
+                OrderType::LimitBuy => "limit price",
+                OrderType::TakeProfit | OrderType::StopLoss => "trigger price",
+            };
+
+            let netuid: u16 = u16::from(o.netuid);
+
+            let max_slippage = match o.max_slippage {
+                None => String::from("none"),
+                Some(p) => format!("{}", p.deconstruct()),
+            };
+
+            let relayer = match &o.relayer {
+                None => String::from("none"),
+                Some(list) if list.is_empty() => String::from("[]"),
+                Some(list) => {
+                    let mut acc = String::new();
+                    for (i, r) in list.iter().enumerate() {
+                        if i > 0 {
+                            acc.push('+');
+                        }
+                        acc.push_str(&Self::render_account(r));
+                    }
+                    acc
+                }
+            };
+
+            let msg = format!(
+                "TAO.com order {version}: {label} {amount} on subnet {netuid}, \
+{price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
+fee {fee_rate} to {fee_recipient}, relayer {relayer}, \
+max slippage {max_slippage}, chain {chain_id}, \
+partial fills {partial}, signer {signer}",
+                version = version,
+                label = label,
+                amount = o.amount,
+                netuid = netuid,
+                price_word = price_word,
+                limit_price = o.limit_price,
+                expiry = o.expiry,
+                hotkey = Self::render_account(&o.hotkey),
+                fee_rate = o.fee_rate.deconstruct(),
+                fee_recipient = Self::render_account(&o.fee_recipient),
+                relayer = relayer,
+                max_slippage = max_slippage,
+                chain_id = o.chain_id,
+                partial = o.partial_fills_enabled,
+                signer = Self::render_account(&o.signer),
+            );
+
+            msg.into_bytes()
+        }
+
+        /// Verify the signature over the **human-readable** ("clear-signing") message —
+        /// the form a hardware wallet (Ledger) can display to the user field-by-field
+        /// and sign. The signed payload is the `<Bytes>`-wrapped canonical message built
+        /// by [`render_order`] (the `signRaw`/Ledger envelope). Accepts sr25519 and
+        /// ed25519; rejects ecdsa.
+        pub(crate) fn verify_readable(signed_order: &SignedOrder<T::AccountId>) -> bool {
+            let order = signed_order.order.inner();
+            let msg = Self::render_order(&signed_order.order);
+            let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+            matches!(
+                signed_order.signature,
+                MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
+            ) && signed_order.signature.verify(payload.as_slice(), &order.signer)
+        }
+
         /// Validates all execution preconditions for a signed order.
         /// Checks that the order's netuid is not root (0), that the signature is valid,
         /// the order has not been processed, is not expired, and the price condition is met.
@@ -660,10 +785,15 @@ pub mod pallet {
             // hash). Both are checked so software wallets signing raw bytes and hardware
             // wallets that can only sign wrapped messages are simultaneously supported.
             // The raw form is checked first: it short-circuits the common relayer flow,
-            // and an order signed in the wrapped form falls through to a second verify,
-            // which is the two-verification worst case the weights must account for.
+            // and an order signed in the wrapped form falls through to a second verify.
+            // The human-readable ("clear-signing") form is checked LAST: it is the least
+            // common and involves the SS58/format rendering work, so it should only run
+            // on fall-through. Exercising all three verifications is the worst case the
+            // weights must account for.
             ensure!(
-                Self::verify_order(signed_order) || Self::verify_wrapped(signed_order, order_id),
+                Self::verify_order(signed_order)
+                    || Self::verify_wrapped(signed_order, order_id)
+                    || Self::verify_readable(signed_order),
                 Error::<T>::InvalidSignature
             );
             let order_status = Orders::<T>::get(order_id);

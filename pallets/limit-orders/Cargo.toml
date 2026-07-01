@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+bs58 = { workspace = true, default-features = false, features = ["alloc"] }
 codec = { workspace = true, features = ["derive"] }
 frame-benchmarking = { workspace = true, optional = true }
 sp-io = { workspace = true, optional = true }
@@ -31,6 +32,7 @@ workspace = true
 [features]
 default = ["std"]
 std = [
+    "bs58/std",
     "codec/std",
     "frame-benchmarking?/std",
     "frame-support/std",

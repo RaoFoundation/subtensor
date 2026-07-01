@@ -11,20 +11,25 @@ use sp_core::{Get, H256};
 use sp_runtime::{AccountId32, MultiSignature, Perbill, traits::AccountIdConversion};
 extern crate alloc;
 use crate::{Call, Config, Pallet};
-use codec::Encode;
 
 /// Sign a versioned order using the runtime keystore (no `full_crypto` required).
 ///
 /// The key identified by `public` must already be registered in the keystore
 /// (e.g. via `sp_io::crypto::sr25519_generate`) before calling this.
+///
+/// The order is signed in the **human-readable ("clear-signing") form** on
+/// purpose: it is the worst case for `is_order_valid`, which tries
+/// `verify_order` (raw) and `verify_wrapped` (hash) first and only succeeds on
+/// the final `verify_readable`. Signing this form forces all three signature
+/// verifications to run, so the measured weight reflects the true worst case.
 fn sign_order<T: crate::Config>(
     public: sp_core::sr25519::Public,
     order: &crate::VersionedOrder<T::AccountId>,
 ) -> crate::SignedOrder<T::AccountId> {
-    // Mirror the on-chain check in `is_order_valid`: the signed message is the
-    // `<Bytes>…</Bytes>`-wrapped blake2_256 hash of the SCALE-encoded order.
-    let order_hash = sp_io::hashing::blake2_256(&order.encode());
-    let payload = [b"<Bytes>".as_slice(), &order_hash, b"</Bytes>".as_slice()].concat();
+    // Mirror the on-chain check in `verify_readable`: the signed message is the
+    // `<Bytes>…</Bytes>`-wrapped canonical readable rendering of the order.
+    let msg = crate::pallet::Pallet::<T>::render_order(order);
+    let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
     let sig = sp_io::crypto::sr25519_sign(sp_core::crypto::key_types::ACCOUNT, &public, &payload)
         .unwrap();
     crate::SignedOrder {
