@@ -145,29 +145,37 @@ fn main() -> Result<()> {
         let base_pct = signed_pct(ow.base_weight as u128, nw.base_weight as u128);
         let proof_pct = signed_pct(ow.proof_size as u128, nw.proof_size as u128);
         let icon = if drifted { "\u{274c}" } else { "\u{2705}" };
-        let reason_suffix = if reasons.is_empty() {
+        let mut detail_parts: Vec<String> = Vec::new();
+        if ow.proof_size != nw.proof_size || proof_drift.abs_pct > cli.threshold {
+            detail_parts.push(format!(
+                "proof {} -> {} ({:+.1}%; max {:+.1}%)",
+                ow.proof_size, nw.proof_size, proof_pct, proof_drift.signed_pct,
+            ));
+        }
+        if ow.base_reads != nw.base_reads || ow.base_writes != nw.base_writes {
+            detail_parts.push(format!(
+                "io reads {} -> {} writes {} -> {}",
+                ow.base_reads, nw.base_reads, ow.base_writes, nw.base_writes,
+            ));
+        }
+        if !reasons.is_empty() {
+            detail_parts.push(format!("reasons: {}", reasons.join(", ")));
+        }
+        let detail_suffix = if detail_parts.is_empty() {
             String::new()
         } else {
-            format!(" reasons: {}", reasons.join(", "))
+            format!(" {}", detail_parts.join(" "))
         };
 
         println!(
-            " {} {:<40} {:>12} -> {:<12} ({:>+.1}%; max {:>+.1}%) proof {:>8} -> {:<8} ({:>+.1}%; max {:>+.1}%) reads {:>4} -> {:<4} writes {:>4} -> {:<4}{}",
+            " {} {:<40} {:>12} -> {:<12} ({:>+.1}%; max {:>+.1}%){}",
             icon,
             name,
             ow.base_weight,
             nw.base_weight,
             base_pct,
             weight_drift.signed_pct,
-            ow.proof_size,
-            nw.proof_size,
-            proof_pct,
-            proof_drift.signed_pct,
-            ow.base_reads,
-            nw.base_reads,
-            ow.base_writes,
-            nw.base_writes,
-            reason_suffix,
+            detail_suffix,
         );
     }
 
