@@ -56,10 +56,10 @@ pub fn order_id<T: crate::Config>(order: &crate::VersionedOrder<T::AccountId>) -
 /// - constructs a worst-case `LimitBuy` order (amount = 1 TAO, price = u64::MAX,
 ///   expiry = u64::MAX, fee 1 %, distinct fee recipient), and
 /// - signs it with the generated key.
-// Keep per-order execution stable across benchmark repeats. The amount
-// is small but non-zero so each valid buy follows the same pool and
-// non-zero-fee path without pushing reserves into edge cases.
-const BENCHMARK_ORDER_AMOUNT: u64 = 1_000_000;
+// Keep per-order execution stable across benchmark repeats. Use one TAO
+// so every order clears the pallet/subtensor minimum amount checks while
+// avoiding the reserve-draining edge cases caused by very large orders.
+const BENCHMARK_ORDER_AMOUNT: u64 = 1_000_000_000;
 
 fn make_benchmark_orders<T: crate::Config>(
     n: u32,
