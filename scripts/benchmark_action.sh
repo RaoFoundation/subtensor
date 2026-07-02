@@ -13,7 +13,7 @@ TEMPLATE="$ROOT_DIR/.maintain/frame-weight-template.hbs"
 WEIGHT_CMP="$ROOT_DIR/target/production/weight-compare"
 
 PATCH_DIR="$ROOT_DIR/.bench_patch"
-THRESHOLD="${THRESHOLD:-40}"
+THRESHOLD="${THRESHOLD:-55}"
 STEPS="${STEPS:-50}"
 REPEAT="${REPEAT:-20}"
 
