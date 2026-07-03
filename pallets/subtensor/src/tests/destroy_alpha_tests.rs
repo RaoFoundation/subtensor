@@ -342,3 +342,104 @@ fn test_destroy_alpha_clean_alpha_resumes_with_limited_weight() {
         }
     });
 }
+
+#[test]
+fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
+    new_test_ext(0).execute_with(|| {
+        // Create 3 independent stakers to force multi-block settle.
+        let cold_base = U256::from(2000);
+        let hot_base = U256::from(3000);
+        let netuid = add_dynamic_network(&hot_base, &cold_base);
+
+        let stake_tao: u64 = 1000;
+        setup_reserves(
+            netuid,
+            (stake_tao * 1_000_000).into(),
+            (stake_tao * 10_000_000).into(),
+        );
+        let amount: TaoBalance = stake_tao.into();
+
+        for index in 1..=10 {
+            let cold = U256::from(cold_base + index);
+            let hot = U256::from(hot_base + index);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(&cold, &hot));
+            add_balance_to_coldkey_account(&cold, amount);
+            assert_ok!(SubtensorModule::stake_into_subnet(
+                &hot,
+                &cold,
+                netuid,
+                amount,
+                <Test as Config>::SwapInterface::max_price(),
+                false,
+            ));
+        }
+
+        let w = Weight::from_parts(u64::MAX, u64::MAX);
+        let mut weight_meter = WeightMeter::with_limit(w);
+        let mut status = dissolve_cleanup_status(netuid);
+
+        // Phase 1: Get total alpha (prerequisite for settle_stakes)
+        assert!(run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut weight_meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ));
+
+        status.subnet_distributed_tao = Some(0);
+        status.last_key = None;
+
+        let total_issuance_before = TotalIssuance::<Test>::get();
+
+        // Phase 2: settle_stakes with per-call weight enough for 2 out of 10 stakers.
+        //
+        // Each hotkey+coldkey consumes:
+        //   reads(1) outer  +  reads(2) inner  +  writes(1) value  +
+        //   reads_writes(11, 3) transfer  =  reads(14) + writes(4)
+        // Weight for two hotkeys = reads(28) + writes(8)
+        // Plus reads(1) to attempt the third outer iteration  →  reads(29) + writes(8)
+        let per_call = <Test as frame_system::Config>::DbWeight::get()
+            .reads(29)
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().writes(8));
+
+        let mut last_key = status.last_key.clone();
+        let mut completed = false;
+        let mut iterations = 0u32;
+
+        for block in 1..=10 {
+            let mut meter = WeightMeter::with_limit(per_call);
+            let (done, new_key) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+                netuid,
+                &mut meter,
+                last_key.clone(),
+                &mut status,
+            );
+            last_key = new_key;
+
+            assert_eq!(
+                TotalIssuance::<Test>::get(),
+                total_issuance_before,
+                "TotalIssuance unchanged after block {block}"
+            );
+
+            if done {
+                completed = true;
+                iterations = block;
+                break;
+            }
+        }
+
+        assert!(completed, "settle_stakes should finish");
+        assert!(
+            iterations >= 5,
+            "should need multiple blocks, completed in {iterations}"
+        );
+    });
+}
