@@ -313,7 +313,7 @@ impl<T: Config> Pallet<T> {
         let mut id: frame_support::traits::LockIdentifier = [0; 8];
         id[..4].copy_from_slice(&TAO_REGISTRATION_LOCK_PREFIX);
         id[4..8].copy_from_slice(&lock_id.to_le_bytes());
-        return id;
+        id
     }
 
     pub fn lock_network_registration_cost(

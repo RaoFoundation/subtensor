@@ -241,7 +241,7 @@ impl<T: Config> Pallet<T> {
                 lock_amount,
                 median_subnet_alpha_price,
                 registration_block: current_block,
-                lock_id: lock_id,
+                lock_id,
             };
             NetworkRegistrationQueue::<T>::mutate(|queue| queue.push(info));
             Self::deposit_event(Event::NetworkRegistrationQueued {
