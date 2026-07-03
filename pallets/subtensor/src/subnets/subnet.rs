@@ -7,7 +7,7 @@ use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
 /// Data structure for a pending network registration in the execution queue.
-#[crate::freeze_struct("93f81374b91abeff")]
+#[crate::freeze_struct("c47fe93995c89025")]
 #[derive(Encode, Decode, Default, TypeInfo, Clone, PartialEq, Eq, Debug)]
 pub struct NetworkRegistrationInfo<AccountId> {
     /// The account that registered the network.
@@ -24,6 +24,8 @@ pub struct NetworkRegistrationInfo<AccountId> {
     pub median_subnet_alpha_price: U64F64,
     /// The block at which the network was registered.
     pub registration_block: u64,
+    /// The lock id that registered the network.
+    pub lock_id: u32,
 }
 
 impl<T: Config> Pallet<T> {
@@ -221,7 +223,15 @@ impl<T: Config> Pallet<T> {
 
         // can't get a netuid to register, so queue the registration
         if wait_to_cleanup || prune_netuid.is_some() {
-            Self::lock_network_registration_cost(&coldkey, lock_amount.into())?;
+            ensure!(
+                NetworkRegistrationLockId::<T>::get(&coldkey) != u32::MAX,
+                Error::<T>::ColdkeyRegisterTooManySubnets
+            );
+            let lock_id = NetworkRegistrationLockId::<T>::get(&coldkey);
+
+            Self::lock_network_registration_cost(&coldkey, lock_amount.into(), lock_id)?;
+            NetworkRegistrationLockId::<T>::set(&coldkey, lock_id.saturating_add(1));
+
             let median_subnet_alpha_price = Self::get_median_subnet_alpha_price();
             let info = NetworkRegistrationInfo::<T::AccountId> {
                 coldkey: coldkey.clone(),
@@ -231,6 +241,7 @@ impl<T: Config> Pallet<T> {
                 lock_amount,
                 median_subnet_alpha_price,
                 registration_block: current_block,
+                lock_id: lock_id,
             };
             NetworkRegistrationQueue::<T>::mutate(|queue| queue.push(info));
             Self::deposit_event(Event::NetworkRegistrationQueued {
@@ -253,7 +264,7 @@ impl<T: Config> Pallet<T> {
             identity,
             lock_amount,
             Self::get_median_subnet_alpha_price(),
-            false,
+            None,
         )
         .map(|_| ())
         .map_err(|e| e.error)
@@ -266,7 +277,7 @@ impl<T: Config> Pallet<T> {
         identity: Option<SubnetIdentityOfV3>,
         lock_amount: TaoBalance,
         median_subnet_alpha_price: U64F64,
-        fund_locked: bool,
+        lock_id: Option<u32>,
     ) -> DispatchResultWithPostInfo {
         let db_weight = T::DbWeight::get();
         let mut weight = Weight::from_parts(0, 0);
@@ -301,8 +312,8 @@ impl<T: Config> Pallet<T> {
         };
 
         // --- 2. Unlock the registration cost if the fund is locked.
-        if fund_locked {
-            Self::unlock_network_registration_cost(coldkey)?;
+        if let Some(lock_id) = lock_id {
+            Self::unlock_network_registration_cost(coldkey, lock_id)?;
         }
 
         let default_tempo = DefaultTempo::<T>::get();

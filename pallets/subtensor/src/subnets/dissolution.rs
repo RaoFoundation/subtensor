@@ -320,6 +320,10 @@ impl<T: Config> Pallet<T> {
         LoadedEmission::<T>::remove(netuid);
         OwnerLock::<T>::remove(netuid);
         DecayingOwnerLock::<T>::remove(netuid);
+        ActivityCutoffFactorMilli::<T>::remove(netuid);
+        LastEpochBlock::<T>::remove(netuid);
+        PendingEpochAt::<T>::remove(netuid);
+        SubnetEpochIndex::<T>::remove(netuid);
 
         if SubnetIdentitiesV3::<T>::contains_key(netuid) {
             SubnetIdentitiesV3::<T>::remove(netuid);
@@ -967,7 +971,7 @@ impl<T: Config> Pallet<T> {
                 info.identity.clone(),
                 info.lock_amount,
                 info.median_subnet_alpha_price,
-                true,
+                Some(info.lock_id),
             ) {
                 Ok(post_info) => {
                     NetworkRegistrationQueue::<T>::mutate(|queue| queue.remove(index));

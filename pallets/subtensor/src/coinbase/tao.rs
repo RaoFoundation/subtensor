@@ -26,7 +26,7 @@ pub type CreditOf<T> = Credit<<T as frame_system::Config>::AccountId, <T as Conf
 pub const MAX_TAO_ISSUANCE: u64 = 21_000_000_000_000_000_u64;
 
 /// Balances lock id for TAO locked during network registration.
-const TAO_REGISTRATION_LOCK: frame_support::traits::LockIdentifier = *b"subnetlk";
+const TAO_REGISTRATION_LOCK_PREFIX: [u8; 4] = *b"rglk";
 
 impl<T: Config> Pallet<T> {
     /// Returns Subnet TAO reserve using SubnetTAO map.
@@ -309,17 +309,27 @@ impl<T: Config> Pallet<T> {
         TotalIssuance::<T>::get()
     }
 
+    fn get_network_registration_lock_identifier(lock_id: u32) -> [u8; 8] {
+        let mut id: frame_support::traits::LockIdentifier = [0; 8];
+        id[..4].copy_from_slice(&TAO_REGISTRATION_LOCK_PREFIX);
+        id[4..8].copy_from_slice(&lock_id.to_le_bytes());
+        return id;
+    }
+
     pub fn lock_network_registration_cost(
         coldkey: &T::AccountId,
         amount: BalanceOf<T>,
+        lock_id: u32,
     ) -> DispatchResult {
         ensure!(
             Self::can_remove_balance_from_coldkey_account(coldkey, amount),
             Error::<T>::InsufficientBalance
         );
 
+        let identifier = Self::get_network_registration_lock_identifier(lock_id);
+
         <<T as Config>::Currency as LockableCurrency<<T as frame_system::Config>::AccountId>>::set_lock(
-            TAO_REGISTRATION_LOCK,
+            identifier,
             coldkey,
             amount,
             WithdrawReasons::all(),
@@ -328,9 +338,13 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn unlock_network_registration_cost(coldkey: &T::AccountId) -> DispatchResult {
+    pub fn unlock_network_registration_cost(
+        coldkey: &T::AccountId,
+        lock_id: u32,
+    ) -> DispatchResult {
+        let identifier = Self::get_network_registration_lock_identifier(lock_id);
         <<T as Config>::Currency as LockableCurrency<<T as frame_system::Config>::AccountId>>::remove_lock(
-            TAO_REGISTRATION_LOCK,
+            identifier,
             coldkey,
         );
 

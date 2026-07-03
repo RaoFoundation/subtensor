@@ -3312,7 +3312,7 @@ fn set_new_network_state_registers_subnet_with_expected_state() {
             None,
             lock_amount,
             median_price,
-            false,
+            None,
         ));
 
         assert!(SubtensorModule::if_subnet_exist(netuid));
@@ -3450,7 +3450,7 @@ fn set_new_network_state_fails_when_subnet_limit_reached() {
                 None,
                 lock_amount,
                 SubtensorModule::get_median_subnet_alpha_price(),
-                false,
+                None,
             ),
             Error::<Test>::SubnetLimitReached
         );
@@ -3490,7 +3490,7 @@ fn set_new_network_state_stores_identity_and_emits_events() {
             Some(identity.clone()),
             lock_amount,
             SubtensorModule::get_median_subnet_alpha_price(),
-            false,
+            None,
         ));
 
         assert_eq!(SubnetIdentitiesV3::<Test>::get(netuid), Some(identity));
@@ -3527,7 +3527,7 @@ fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
             None,
             lock_amount,
             price,
-            false,
+            None,
         ));
 
         // Pool TAO equals the actual lock; alpha reserve is tao / price.
@@ -3558,7 +3558,7 @@ fn set_new_network_state_seeds_pool_with_min_lock_floor() {
             None,
             TaoBalance::ZERO,
             U64F64::from_num(1),
-            false,
+            None,
         ));
 
         assert_eq!(SubnetTAO::<Test>::get(netuid), min_lock);
@@ -3580,7 +3580,8 @@ fn set_new_network_state_fund_locked_releases_balance_lock() {
 
         assert_ok!(SubtensorModule::lock_network_registration_cost(
             &cold,
-            lock_amount.into()
+            lock_amount.into(),
+            0
         ));
         assert!(
             pallet_balances::Locks::<Test>::get(cold)
@@ -3598,7 +3599,7 @@ fn set_new_network_state_fund_locked_releases_balance_lock() {
             None,
             lock_amount,
             SubtensorModule::get_median_subnet_alpha_price(),
-            true,
+            Some(0),
         ));
 
         assert!(
@@ -3730,6 +3731,10 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
         let cold = U256::from(11_501);
         let hot = U256::from(11_502);
         let lock_amount = SubtensorModule::get_network_lock_cost();
+        let lock_id = NetworkRegistrationLockId::<Test>::get(&cold);
+        let mut identifier = [0u8; 8];
+        identifier[..4].copy_from_slice(b"rglk");
+        identifier[4..8].copy_from_slice(&lock_id.to_le_bytes());
         add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(3.into()).into());
 
         assert_ok!(SubtensorModule::do_register_network(
@@ -3743,7 +3748,7 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
         assert!(
             pallet_balances::Locks::<Test>::get(cold)
                 .iter()
-                .any(|l| l.id == *b"subnetlk")
+                .any(|l| l.id == identifier)
         );
         let queued_lock = NetworkRegistrationQueue::<Test>::get()[0].lock_amount;
         // Use free balance: the reducible balance is already reduced by the lock.
@@ -3756,7 +3761,7 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
         assert!(
             pallet_balances::Locks::<Test>::get(cold)
                 .iter()
-                .all(|l| l.id != *b"subnetlk")
+                .all(|l| l.id != identifier)
         );
         let balance_after = pallet_balances::Pallet::<Test>::free_balance(cold);
         assert_eq!(balance_before.saturating_sub(balance_after), queued_lock);

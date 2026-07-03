@@ -325,5 +325,7 @@ mod errors {
         DynamicTempoBlockedByCommitReveal,
         /// The destination coldkey rejects incoming locked alpha.
         AccountRejectsLockedAlpha,
+        /// The coldkey has already registered too many subnets
+        ColdkeyRegisterTooManySubnets,
     }
 }
