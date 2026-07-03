@@ -100,12 +100,11 @@ mod benchmark {
         #[extrinsic_call]
         _(RawOrigin::Root, Box::new(pallets_origin), call);
     }
-    #[benchmark]
-    fn force_batch(c: Linear<1, 1000>) {
-        let calls = stable_batch_calls::<T>(c);
-        let caller = whitelisted_caller();
 
-        frame_system::Pallet::<T>::reset_events();
+    #[benchmark]
+    fn force_batch(c: Linear<0, 1000>) {
+        let calls = vec![frame_system::Call::remark { remark: vec![] }.into(); c as usize];
+        let caller = whitelisted_caller();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), calls);
