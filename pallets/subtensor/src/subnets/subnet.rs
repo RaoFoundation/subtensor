@@ -224,10 +224,7 @@ impl<T: Config> Pallet<T> {
         // can't get a netuid to register, so queue the registration
         if wait_to_cleanup || prune_netuid.is_some() {
             let lock_id = NetworkRegistrationLockId::<T>::get();
-            ensure!(
-                lock_id != u32::MAX,
-                Error::<T>::ColdkeyRegisterTooManySubnets
-            );
+            ensure!(lock_id != u32::MAX, Error::<T>::LockIdOverFlow);
 
             Self::lock_network_registration_cost(&coldkey, lock_amount.into(), lock_id)?;
             NetworkRegistrationLockId::<T>::set(lock_id.saturating_add(1));

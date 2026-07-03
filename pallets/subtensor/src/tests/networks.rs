@@ -3731,7 +3731,7 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
         let cold = U256::from(11_501);
         let hot = U256::from(11_502);
         let lock_amount = SubtensorModule::get_network_lock_cost();
-        let lock_id = NetworkRegistrationLockId::<Test>::get(cold);
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
         let mut identifier = [0u8; 8];
         identifier[..4].copy_from_slice(b"rglk");
         identifier[4..8].copy_from_slice(&lock_id.to_le_bytes());
