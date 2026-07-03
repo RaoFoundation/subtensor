@@ -373,7 +373,6 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
                 false,
             ));
         }
-
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
         let mut status = dissolve_cleanup_status(netuid);
@@ -422,6 +421,8 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
                 &mut status,
             );
             last_key = new_key;
+
+            next_block();
 
             assert_eq!(
                 TotalIssuance::<Test>::get(),
