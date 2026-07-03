@@ -3578,6 +3578,11 @@ fn set_new_network_state_fund_locked_releases_balance_lock() {
         let lock_amount = SubtensorModule::get_network_lock_cost();
         add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
 
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
+        let mut identifier = [0u8; 8];
+        identifier[..4].copy_from_slice(b"rglk");
+        identifier[4..8].copy_from_slice(&lock_id.to_le_bytes());
+
         assert_ok!(SubtensorModule::lock_network_registration_cost(
             &cold,
             lock_amount.into(),
@@ -3586,7 +3591,7 @@ fn set_new_network_state_fund_locked_releases_balance_lock() {
         assert!(
             pallet_balances::Locks::<Test>::get(cold)
                 .iter()
-                .any(|l| l.id == *b"subnetlk"),
+                .any(|l| l.id == identifier),
             "registration lock must exist before processing"
         );
 
@@ -3599,13 +3604,13 @@ fn set_new_network_state_fund_locked_releases_balance_lock() {
             None,
             lock_amount,
             SubtensorModule::get_median_subnet_alpha_price(),
-            Some(0),
+            Some(lock_id),
         ));
 
         assert!(
             pallet_balances::Locks::<Test>::get(cold)
                 .iter()
-                .all(|l| l.id != *b"subnetlk"),
+                .all(|l| l.id != identifier),
             "registration lock must be released after processing"
         );
         assert!(SubtensorModule::if_subnet_exist(netuid));
