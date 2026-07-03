@@ -48,8 +48,6 @@ impl<T: Config> Pallet<T> {
             "do_remove_stake( origin:{coldkey:?} hotkey:{hotkey:?}, netuid: {netuid:?}, alpha_unstaked:{alpha_unstaked:?} )"
         );
 
-        Self::ensure_subtoken_enabled(netuid)?;
-
         // 1.1. Cap the alpha_unstaked at available Alpha because user might be paying transaxtion fees
         // in Alpha and their total is already reduced by now.
         let alpha_available =

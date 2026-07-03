@@ -4006,6 +4006,85 @@ fn test_remove_stake_limit_ok() {
 }
 
 #[test]
+fn test_remove_stake_limit_blocked_when_subtoken_disabled() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey_account_id = U256::from(533453);
+        let coldkey_account_id = U256::from(55453);
+        let stake_amount = TaoBalance::from(300_000_000_000_u64);
+
+        let netuid = add_dynamic_network(&hotkey_account_id, &coldkey_account_id);
+        add_balance_to_coldkey_account(
+            &coldkey_account_id,
+            stake_amount + ExistentialDeposit::get(),
+        );
+
+        // Force-set sufficient reserves so a swap would otherwise fill.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(100_000_000_000_u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(100_000_000_000_u64));
+
+        // Stake while subtoken trading is still enabled.
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(coldkey_account_id),
+            hotkey_account_id,
+            netuid,
+            stake_amount
+        ));
+        let alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey_account_id,
+            &coldkey_account_id,
+            netuid,
+        );
+        let subnet_tao_before = SubnetTAO::<Test>::get(netuid);
+
+        // Admin freezes subtoken trading on the live subnet.
+        SubtokenEnabled::<Test>::insert(netuid, false);
+
+        // A permissive limit price that the current pool would otherwise satisfy.
+        let limit_price = TaoBalance::from(1_u64);
+
+        // Every remove path must be rejected uniformly while the freeze is active.
+        assert_noop!(
+            SubtensorModule::remove_stake(
+                RuntimeOrigin::signed(coldkey_account_id),
+                hotkey_account_id,
+                netuid,
+                alpha_before / 2.into(),
+            ),
+            Error::<Test>::SubtokenDisabled
+        );
+        assert_noop!(
+            SubtensorModule::remove_stake_limit(
+                RuntimeOrigin::signed(coldkey_account_id),
+                hotkey_account_id,
+                netuid,
+                alpha_before / 2.into(),
+                limit_price,
+                true
+            ),
+            Error::<Test>::SubtokenDisabled
+        );
+        assert_noop!(
+            SubtensorModule::remove_stake_full_limit(
+                RuntimeOrigin::signed(coldkey_account_id),
+                hotkey_account_id,
+                netuid,
+                Some(limit_price),
+            ),
+            Error::<Test>::SubtokenDisabled
+        );
+
+        // Nothing was drawn down: the staker's alpha and the subnet reserve are untouched.
+        let alpha_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey_account_id,
+            &coldkey_account_id,
+            netuid,
+        );
+        assert_eq!(alpha_after, alpha_before);
+        assert_eq!(SubnetTAO::<Test>::get(netuid), subnet_tao_before);
+    });
+}
+
+#[test]
 fn test_remove_stake_limit_fill_or_kill() {
     new_test_ext(1).execute_with(|| {
         let hotkey_account_id = U256::from(533453);

@@ -1144,7 +1144,7 @@ impl<T: Config> Pallet<T> {
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
         // Ensure that the subnet is enabled.
-        // Self::ensure_subtoken_enabled(netuid)?;
+        Self::ensure_subtoken_enabled(netuid)?;
 
         // Do not allow zero unstake amount
         ensure!(!alpha_unstaked.is_zero(), Error::<T>::AmountTooLow);
