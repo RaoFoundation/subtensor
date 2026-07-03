@@ -2215,8 +2215,7 @@ pub mod pallet {
 
     /// --- MAP ( coldkey ) --> lock_id
     #[pallet::storage]
-    pub type NetworkRegistrationLockId<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+    pub type NetworkRegistrationLockId<T: Config> = StorageValue<_, u32, ValueQuery>;
 
     // =======================================
     // ==== VotingPower Storage  ====

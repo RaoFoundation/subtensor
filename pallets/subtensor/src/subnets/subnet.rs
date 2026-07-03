@@ -223,14 +223,14 @@ impl<T: Config> Pallet<T> {
 
         // can't get a netuid to register, so queue the registration
         if wait_to_cleanup || prune_netuid.is_some() {
+            let lock_id = NetworkRegistrationLockId::<T>::get();
             ensure!(
-                NetworkRegistrationLockId::<T>::get(&coldkey) != u32::MAX,
+                lock_id != u32::MAX,
                 Error::<T>::ColdkeyRegisterTooManySubnets
             );
-            let lock_id = NetworkRegistrationLockId::<T>::get(&coldkey);
 
             Self::lock_network_registration_cost(&coldkey, lock_amount.into(), lock_id)?;
-            NetworkRegistrationLockId::<T>::set(&coldkey, lock_id.saturating_add(1));
+            NetworkRegistrationLockId::<T>::set(lock_id.saturating_add(1));
 
             let median_subnet_alpha_price = Self::get_median_subnet_alpha_price();
             let info = NetworkRegistrationInfo::<T::AccountId> {
