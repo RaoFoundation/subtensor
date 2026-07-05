@@ -51,8 +51,8 @@ where
 impl<T> DispatchExtension<<T as frame_system::Config>::RuntimeCall> for CheckSubnetSale<T>
 where
     T: Config,
-    <T as frame_system::Config>::RuntimeCall: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
-        + IsSubType<Call<T>>,
+    <T as frame_system::Config>::RuntimeCall:
+        Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
     DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
