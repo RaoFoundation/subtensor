@@ -86,7 +86,7 @@ pub mod pallet {
     use crate::staking::lock::LockState;
     use crate::subnets::{
         leasing::{LeaseId, SubnetLeaseOf},
-        sale_offer::SubnetSaleOfferOf,
+        sale_offer::{SaleOfferId, SubnetSaleOfferOf},
     };
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -101,7 +101,7 @@ pub mod pallet {
     use pallet_drand::types::RoundNumber;
     use runtime_common::prod_or_fast;
     use share_pool::SafeFloat;
-    use sp_core::{ConstU32, H160, H256};
+    use sp_core::{ConstU32, ConstU64, H160, H256};
     use sp_runtime::traits::{Dispatchable, TrailingZeroInput};
     use sp_std::collections::btree_map::BTreeMap;
     use sp_std::collections::btree_set::BTreeSet;
@@ -2627,6 +2627,11 @@ pub mod pallet {
     /// ===========================
     /// ==== Subnet Sale Offers ====
     /// ===========================
+    /// --- ITEM ( next_sale_offer_id ) | The next subnet sale offer id.
+    #[pallet::storage]
+    pub type NextSubnetSaleOfferId<T: Config> =
+        StorageValue<_, SaleOfferId, ValueQuery, ConstU64<0>>;
+
     /// --- MAP ( netuid ) --> subnet sale offer | Active sale offer for a subnet.
     #[pallet::storage]
     pub type SubnetSaleOffers<T: Config> =

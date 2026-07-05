@@ -473,8 +473,8 @@ impl<T: Config> Pallet<T> {
 
         // --- 23. Subnet sale offers: release sale locks.
         if let Some(offer) = SubnetSaleOffers::<T>::take(netuid) {
-            SubnetSaleFrozenColdkeys::<T>::remove(&offer.seller);
-            SubnetSaleFrozenHotkeys::<T>::remove(&offer.owner_hotkey);
+            SubnetSaleFrozenColdkeys::<T>::remove(&offer.seller_coldkey);
+            SubnetSaleFrozenHotkeys::<T>::remove(&offer.seller_hotkey);
         }
 
         // --- 23: Locks cleanup

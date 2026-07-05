@@ -398,8 +398,10 @@ mod events {
 
         /// A subnet sale offer has been created and the seller coldkey has been locked.
         SubnetSaleOfferCreated {
-            /// The subnet owner selling the subnet.
-            seller: T::AccountId,
+            /// The unique id of the sale offer.
+            id: SaleOfferId,
+            /// The subnet owner coldkey selling the subnet.
+            seller_coldkey: T::AccountId,
             /// The subnet ID.
             netuid: NetUid,
             /// The sale price.
@@ -410,8 +412,10 @@ mod events {
 
         /// A subnet sale offer has been cancelled and its locks have been released.
         SubnetSaleOfferCancelled {
-            /// The subnet owner that cancelled the offer.
-            seller: T::AccountId,
+            /// The unique id of the sale offer.
+            id: SaleOfferId,
+            /// The subnet owner coldkey that cancelled the offer.
+            seller_coldkey: T::AccountId,
             /// The subnet ID.
             netuid: NetUid,
         },

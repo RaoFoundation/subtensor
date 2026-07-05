@@ -11,59 +11,47 @@ use sp_std::marker::PhantomData;
 /// Dispatch extension that blocks seller coldkey and owner hotkey calls during a subnet sale.
 ///
 /// When a subnet sale offer is active:
-/// - The frozen seller coldkey can only cancel the sale offer or submit MEV-protected calls.
-/// - The frozen owner hotkey can only submit MEV-protected calls.
+/// - The frozen seller coldkey can only cancel the sale offer.
+/// - The frozen owner hotkey is fully locked and can submit no calls.
 ///
 /// Root origin bypasses this extension entirely.
 /// Non-signed origins pass through.
 ///
 /// Because this is a `DispatchExtension` (not a `TransactionExtension`), it fires at every
 /// `call.dispatch(origin)` site, including inside proxy dispatch with the resolved origin.
+/// Any indirectly dispatched call that resolves to a frozen signer is therefore re-checked
+/// here, so the freeze cannot be bypassed by wrapping a call in another dispatch layer.
 pub struct CheckSubnetSale<T: Config>(PhantomData<T>);
 
 impl<T> CheckSubnetSale<T>
 where
-    T: Config + pallet_shield::Config,
-    CallOf<T>: IsSubType<Call<T>> + IsSubType<pallet_shield::Call<T>>,
+    T: Config,
+    CallOf<T>: IsSubType<Call<T>>,
 {
     pub fn check(who: &T::AccountId, call: &CallOf<T>) -> Result<(), Error<T>> {
-        let is_sale_frozen_coldkey = SubnetSaleFrozenColdkeys::<T>::contains_key(who);
-        let is_sale_frozen_owner_hotkey = SubnetSaleFrozenHotkeys::<T>::contains_key(who);
-
-        if is_sale_frozen_coldkey && !Self::is_allowed_for_frozen_coldkey(call) {
+        // A frozen seller coldkey may only cancel the sale offer.
+        if SubnetSaleFrozenColdkeys::<T>::contains_key(who)
+            && !matches!(call.is_sub_type(), Some(Call::cancel_sale_offer { .. }))
+        {
             return Err(Error::<T>::ColdkeyLockedDuringSale);
         }
 
-        if is_sale_frozen_owner_hotkey && !Self::is_allowed_for_frozen_owner_hotkey(call) {
+        // A frozen seller hotkey is fully locked while the sale is active. Cancellation is a
+        // coldkey action, so the seller cancels through the (also frozen) seller coldkey,
+        // which is why a same-account seller hotkey is never frozen here (see do_create_sale_offer).
+        if SubnetSaleFrozenHotkeys::<T>::contains_key(who) {
             return Err(Error::<T>::HotkeyLockedDuringSale);
         }
 
         Ok(())
     }
-
-    fn is_allowed_for_frozen_coldkey(call: &CallOf<T>) -> bool {
-        matches!(call.is_sub_type(), Some(Call::cancel_sale_offer { .. }))
-            || Self::is_mev_protected(call)
-    }
-
-    fn is_allowed_for_frozen_owner_hotkey(call: &CallOf<T>) -> bool {
-        Self::is_mev_protected(call)
-    }
-
-    fn is_mev_protected(call: &CallOf<T>) -> bool {
-        matches!(
-            IsSubType::<pallet_shield::Call<T>>::is_sub_type(call),
-            Some(pallet_shield::Call::submit_encrypted { .. })
-        )
-    }
 }
 
 impl<T> DispatchExtension<<T as frame_system::Config>::RuntimeCall> for CheckSubnetSale<T>
 where
-    T: Config + pallet_shield::Config,
+    T: Config,
     <T as frame_system::Config>::RuntimeCall: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
-        + IsSubType<Call<T>>
-        + IsSubType<pallet_shield::Call<T>>,
+        + IsSubType<Call<T>>,
     DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
@@ -89,7 +77,7 @@ where
 mod tests {
     use crate::{Error, SubnetSaleFrozenColdkeys, SubnetSaleFrozenHotkeys, tests::mock::*};
     use frame_support::{
-        BoundedVec, assert_noop, assert_ok,
+        assert_noop, assert_ok,
         dispatch::{DispatchErrorWithPostInfo, DispatchExtension},
     };
     use frame_system::Call as SystemCall;
@@ -126,12 +114,6 @@ mod tests {
     fn cancel_call() -> RuntimeCall {
         RuntimeCall::SubtensorModule(crate::Call::cancel_sale_offer {
             netuid: sale_netuid(),
-        })
-    }
-
-    fn shielded_call() -> RuntimeCall {
-        RuntimeCall::Shield(pallet_shield::Call::submit_encrypted {
-            ciphertext: BoundedVec::truncate_from(vec![1, 2, 3, 4]),
         })
     }
 
@@ -224,25 +206,6 @@ mod tests {
                 ),
                 Error::<Test>::HotkeyLockedDuringSale
             );
-        });
-    }
-
-    #[test]
-    fn mev_protected_calls_are_allowed_for_sale_frozen_accounts() {
-        new_test_ext(1).execute_with(|| {
-            let seller = U256::from(1);
-            let owner_hotkey = U256::from(2);
-            freeze_coldkey(seller);
-            freeze_owner_hotkey(owner_hotkey);
-
-            assert_ok!(pre_dispatch(
-                RuntimeOrigin::signed(seller),
-                &shielded_call()
-            ));
-            assert_ok!(pre_dispatch(
-                RuntimeOrigin::signed(owner_hotkey),
-                &shielded_call()
-            ));
         });
     }
 

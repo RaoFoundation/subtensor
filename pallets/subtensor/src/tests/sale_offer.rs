@@ -42,9 +42,10 @@ fn create_sale_offer_stores_offer_and_freezes_keys() {
         ));
 
         let offer = SubnetSaleOffers::<Test>::get(netuid).unwrap();
+        assert_eq!(offer.id, 0);
         assert_eq!(offer.netuid, netuid);
-        assert_eq!(offer.seller, seller);
-        assert_eq!(offer.owner_hotkey, owner_hotkey);
+        assert_eq!(offer.seller_coldkey, seller);
+        assert_eq!(offer.seller_hotkey, owner_hotkey);
         assert_eq!(offer.authorized_buyer, Some(buyer));
         assert_eq!(offer.price, price);
         assert_eq!(offer.created_at, System::block_number());
@@ -53,12 +54,31 @@ fn create_sale_offer_stores_offer_and_freezes_keys() {
         assert_eq!(
             last_event(),
             RuntimeEvent::SubtensorModule(Event::SubnetSaleOfferCreated {
-                seller,
+                id: 0,
+                seller_coldkey: seller,
                 netuid,
                 price,
                 authorized_buyer: Some(buyer),
             })
         );
+    });
+}
+
+#[test]
+fn create_sale_offer_assigns_incrementing_ids() {
+    new_test_ext(1).execute_with(|| {
+        let (first_netuid, seller, _first_owner_hotkey, buyer) = sale_fixture();
+        let second_owner_hotkey = U256::from(20);
+        let second_seller = U256::from(21);
+        let second_netuid = add_dynamic_network(&second_owner_hotkey, &second_seller);
+
+        create_offer(first_netuid, seller, Some(buyer));
+        create_offer(second_netuid, second_seller, None);
+
+        assert_eq!(SubnetSaleOffers::<Test>::get(first_netuid).unwrap().id, 0);
+        assert_eq!(SubnetSaleOffers::<Test>::get(second_netuid).unwrap().id, 1);
+        // The counter keeps advancing; ids are never reused.
+        assert_eq!(NextSubnetSaleOfferId::<Test>::get(), 2);
     });
 }
 
@@ -189,21 +209,32 @@ fn create_sale_offer_rejects_missing_owner_hotkey() {
 }
 
 #[test]
-fn create_sale_offer_rejects_owner_hotkey_same_as_seller() {
+fn create_sale_offer_allows_owner_hotkey_same_as_seller() {
     new_test_ext(1).execute_with(|| {
         let seller = U256::from(SELLER);
         let buyer = U256::from(BUYER);
+        // Subnet whose owner coldkey and owner hotkey are the same account.
         let netuid = add_dynamic_network(&seller, &seller);
 
-        assert_noop!(
-            SubtensorModule::create_sale_offer(
-                RuntimeOrigin::signed(seller),
-                netuid,
-                TaoBalance::from(1_000_000_000_u64),
-                Some(buyer),
-            ),
-            Error::<Test>::SubnetOwnerHotkeyCannotBeOwnerColdkey,
-        );
+        assert_ok!(SubtensorModule::create_sale_offer(
+            RuntimeOrigin::signed(seller),
+            netuid,
+            TaoBalance::from(1_000_000_000_u64),
+            Some(buyer),
+        ));
+
+        // Only the coldkey is frozen: freezing the same account in the hotkey map as well
+        // would block the seller from ever cancelling their own offer.
+        assert!(SubnetSaleFrozenColdkeys::<Test>::contains_key(seller));
+        assert!(!SubnetSaleFrozenHotkeys::<Test>::contains_key(seller));
+
+        // The seller can still cancel and fully release the lock.
+        assert_ok!(SubtensorModule::cancel_sale_offer(
+            RuntimeOrigin::signed(seller),
+            netuid,
+        ));
+        assert!(!SubnetSaleOffers::<Test>::contains_key(netuid));
+        assert!(!SubnetSaleFrozenColdkeys::<Test>::contains_key(seller));
     });
 }
 
@@ -259,7 +290,11 @@ fn cancel_sale_offer_unfreezes_keys() {
         assert!(!SubnetSaleFrozenHotkeys::<Test>::contains_key(owner_hotkey));
         assert_eq!(
             last_event(),
-            RuntimeEvent::SubtensorModule(Event::SubnetSaleOfferCancelled { seller, netuid })
+            RuntimeEvent::SubtensorModule(Event::SubnetSaleOfferCancelled {
+                id: 0,
+                seller_coldkey: seller,
+                netuid
+            })
         );
     });
 }
@@ -280,7 +315,11 @@ fn cancel_sale_offer_root_unfreezes_keys() {
         assert!(!SubnetSaleFrozenHotkeys::<Test>::contains_key(owner_hotkey));
         assert_eq!(
             last_event(),
-            RuntimeEvent::SubtensorModule(Event::SubnetSaleOfferCancelled { seller, netuid })
+            RuntimeEvent::SubtensorModule(Event::SubnetSaleOfferCancelled {
+                id: 0,
+                seller_coldkey: seller,
+                netuid
+            })
         );
     });
 }
