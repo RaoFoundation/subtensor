@@ -99,6 +99,7 @@ pub trait WeightInfo {
 	fn set_activity_cutoff_factor() -> Weight;
 	fn trigger_epoch() -> Weight;
 	fn check_coldkey_swap_extension() -> Weight;
+	fn check_subnet_sale_extension() -> Weight;
 	fn check_weights_extension() -> Weight;
 	fn check_rate_limits_extension() -> Weight;
 	fn check_delegate_take_extension() -> Weight;
@@ -2529,6 +2530,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4198`
 		// Minimum execution time: 16_952_000 picoseconds.
 		Weight::from_parts(17_353_000, 4198)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn check_subnet_sale_extension() -> Weight {
+		Weight::from_parts(10_000_000, 0)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
@@ -5045,6 +5054,14 @@ impl WeightInfo for () {
 		//  Estimated: `4198`
 		// Minimum execution time: 16_952_000 picoseconds.
 		Weight::from_parts(17_353_000, 4198)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn check_subnet_sale_extension() -> Weight {
+		Weight::from_parts(10_000_000, 0)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)

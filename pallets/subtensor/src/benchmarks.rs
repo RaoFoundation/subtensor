@@ -2416,6 +2416,26 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn check_subnet_sale_extension() {
+        let who: T::AccountId = account("who", 0, 1);
+        let hotkey: T::AccountId = account("hotkey", 0, 1);
+        let call = runtime_call::<T>(Call::<T>::register_network { hotkey });
+
+        // Freeze `who` as an owner hotkey only. This exercises the worst case: the coldkey
+        // lookup misses (so the check does not return early) and the hotkey lookup hits, so
+        // both storage reads are performed.
+        SubnetSaleFrozenHotkeys::<T>::insert(&who, ());
+
+        #[block]
+        {
+            assert_eq!(
+                CheckSubnetSale::<T>::check(&who, &call),
+                Err(Error::<T>::HotkeyLockedDuringSale)
+            );
+        }
+    }
+
+    #[benchmark]
     fn check_weights_extension() {
         let netuid = NetUid::from(1);
         let hotkey: T::AccountId = account("hotkey", 0, 1);

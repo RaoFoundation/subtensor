@@ -1,4 +1,5 @@
 use super::{CallOf, DispatchableOriginOf};
+use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, SubnetSaleFrozenColdkeys, SubnetSaleFrozenHotkeys};
 use frame_support::{
     dispatch::{DispatchErrorWithPostInfo, DispatchExtension, DispatchInfo, PostDispatchInfo},
@@ -57,7 +58,7 @@ where
     type Pre = ();
 
     fn weight(_call: &CallOf<T>) -> Weight {
-        T::DbWeight::get().reads(2)
+        <T as Config>::WeightInfo::check_subnet_sale_extension()
     }
 
     fn pre_dispatch(
@@ -75,7 +76,10 @@ where
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
-    use crate::{Error, SubnetSaleFrozenColdkeys, SubnetSaleFrozenHotkeys, tests::mock::*};
+    use crate::{
+        Error, SubnetSaleFrozenColdkeys, SubnetSaleFrozenHotkeys, tests::mock::*,
+        weights::WeightInfo as _,
+    };
     use frame_support::{
         assert_noop, assert_ok,
         dispatch::{DispatchErrorWithPostInfo, DispatchExtension},
@@ -207,6 +211,18 @@ mod tests {
                 Error::<Test>::HotkeyLockedDuringSale
             );
         });
+    }
+
+    #[test]
+    fn weight_is_constant_across_calls_because_freeze_can_block_any_signed_call() {
+        let expected = <Test as crate::Config>::WeightInfo::check_subnet_sale_extension();
+
+        for call in [remark_call(), cancel_call()] {
+            assert_eq!(
+                <SaleGuard as DispatchExtension<RuntimeCall>>::weight(&call),
+                expected
+            );
+        }
     }
 
     #[test]
