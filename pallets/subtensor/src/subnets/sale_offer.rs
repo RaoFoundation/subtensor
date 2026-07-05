@@ -1,8 +1,8 @@
 //! Subnet sale offers and sale-time freezes.
 //!
 //! This module intentionally only owns the seller-side primitive: listing a subnet
-//! for sale freezes the seller coldkey, subnet, and owner hotkey until the offer is
-//! cancelled or later consumed by a sale finalization path.
+//! for sale freezes the seller coldkey and owner hotkey until the offer is cancelled
+//! or later consumed by a sale finalization path.
 
 use super::*;
 use frame_support::traits::fungible;
@@ -14,13 +14,19 @@ pub type CurrencyOf<T> = <T as Config>::Currency;
 pub type BalanceOf<T> =
     <CurrencyOf<T> as fungible::Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
-#[freeze_struct("801dda6b57266829")]
+#[freeze_struct("d7b8c7328636281a")]
 #[derive(Encode, Decode, Eq, PartialEq, Ord, PartialOrd, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct SubnetSaleOffer<AccountId, Balance, BlockNumber> {
     /// The subnet being sold.
     pub netuid: NetUid,
     /// The subnet owner coldkey that created the offer.
     pub seller: AccountId,
+    /// The subnet owner hotkey frozen by this offer.
+    ///
+    /// Kept here (rather than re-read from `SubnetOwnerHotkey` at unfreeze time) so
+    /// cancellation and subnet dissolution unfreeze exactly the hotkey that was frozen,
+    /// even if the subnet owner hotkey changed while the offer was active.
+    pub owner_hotkey: AccountId,
     /// Optional coldkey that is allowed to consume this offer.
     pub authorized_buyer: Option<AccountId>,
     /// Sale price expected by the seller.
@@ -45,6 +51,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
         ensure!(
+            !SubnetUidToLeaseId::<T>::contains_key(netuid),
+            Error::<T>::SubnetIsLeased
+        );
+        ensure!(
             !SubnetSaleOffers::<T>::contains_key(netuid),
             Error::<T>::SaleOfferAlreadyExists
         );
@@ -55,6 +65,10 @@ impl<T: Config> Pallet<T> {
         let owner_hotkey = SubnetOwnerHotkey::<T>::try_get(netuid)
             .map_err(|_| Error::<T>::HotKeyAccountNotExists)?;
         ensure!(
+            owner_hotkey != seller,
+            Error::<T>::SubnetOwnerHotkeyCannotBeOwnerColdkey
+        );
+        ensure!(
             !SubnetSaleFrozenHotkeys::<T>::contains_key(&owner_hotkey),
             Error::<T>::HotkeyLockedDuringSale
         );
@@ -64,6 +78,7 @@ impl<T: Config> Pallet<T> {
             SubnetSaleOffer {
                 netuid,
                 seller: seller.clone(),
+                owner_hotkey: owner_hotkey.clone(),
                 authorized_buyer: authorized_buyer.clone(),
                 price: price.into(),
                 created_at: frame_system::Pallet::<T>::block_number(),
@@ -96,9 +111,7 @@ impl<T: Config> Pallet<T> {
         let seller = offer.seller.clone();
         SubnetSaleOffers::<T>::remove(offer.netuid);
         SubnetSaleFrozenColdkeys::<T>::remove(&offer.seller);
-        if let Ok(owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(offer.netuid) {
-            SubnetSaleFrozenHotkeys::<T>::remove(owner_hotkey);
-        }
+        SubnetSaleFrozenHotkeys::<T>::remove(&offer.owner_hotkey);
 
         Self::deposit_event(Event::SubnetSaleOfferCancelled { seller, netuid });
 

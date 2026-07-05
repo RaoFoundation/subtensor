@@ -2098,6 +2098,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetSaleOffers` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:1)
@@ -2108,7 +2110,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn create_sale_offer() -> Weight {
 		Weight::from_parts(25_000_000, 0)
-			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
@@ -4612,6 +4614,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetSaleOffers` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:1)
@@ -4622,7 +4626,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn create_sale_offer() -> Weight {
 		Weight::from_parts(25_000_000, 0)
-			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)

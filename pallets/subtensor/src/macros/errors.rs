@@ -233,6 +233,10 @@ mod errors {
         SaleOfferAlreadyExists,
         /// No active subnet sale offer exists for this subnet.
         SaleOfferNotFound,
+        /// The subnet owner hotkey cannot be the same account as the owner coldkey.
+        SubnetOwnerHotkeyCannotBeOwnerColdkey,
+        /// The subnet is under an active lease and cannot be listed for sale.
+        SubnetIsLeased,
         /// The seller coldkey is locked by an active subnet sale offer.
         ColdkeyLockedDuringSale,
         /// The subnet owner hotkey is locked by an active subnet sale offer.

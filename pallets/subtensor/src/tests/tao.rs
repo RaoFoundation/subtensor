@@ -6,7 +6,8 @@
     clippy::expect_used
 )]
 
-use super::mock::*;
+use super::mock_high_ed::*;
+use crate::tests::mock_high_ed;
 use crate::*;
 use frame_support::{
     assert_noop, assert_ok,
@@ -20,11 +21,6 @@ use sp_runtime::traits::{AccountIdConversion, Zero};
 use subtensor_runtime_common::TaoBalance;
 
 const MAX_TAO_ISSUANCE: u64 = 21_000_000_000_000_000_u64;
-const HIGH_EXISTENTIAL_DEPOSIT: TaoBalance = TaoBalance::new(100);
-
-fn new_high_ed_test_ext(block_number: BlockNumber) -> TestExternalitiesWithExistentialDeposit {
-    test_ext_with_existential_deposit(block_number, HIGH_EXISTENTIAL_DEPOSIT)
-}
 
 /// Helper: balances-pallet total issuance.
 fn balances_total_issuance() -> TaoBalance {
@@ -52,7 +48,7 @@ fn total_balance(account: &U256) -> TaoBalance {
 
 #[test]
 fn test_transfer_tao_normal_case() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -73,7 +69,7 @@ fn test_transfer_tao_normal_case() {
 
 #[test]
 fn test_transfer_tao_zero_balance_zero_amount() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(10_001);
         let dest = U256::from(10_002);
 
@@ -90,7 +86,7 @@ fn test_transfer_tao_zero_balance_zero_amount() {
 
 #[test]
 fn test_transfer_tao_zero_balance_non_zero_amount_fails() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(10_011);
         let dest = U256::from(10_012);
 
@@ -108,7 +104,7 @@ fn test_transfer_tao_zero_balance_non_zero_amount_fails() {
 
 #[test]
 fn test_transfer_tao_amount_greater_than_transferrable_fails() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -124,7 +120,7 @@ fn test_transfer_tao_amount_greater_than_transferrable_fails() {
 
 #[test]
 fn test_transfer_tao_transfer_exactly_transferrable_succeeds() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -141,7 +137,7 @@ fn test_transfer_tao_transfer_exactly_transferrable_succeeds() {
 
 #[test]
 fn test_transfer_tao_can_reap_origin_when_amount_brings_it_below_ed() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -165,7 +161,7 @@ fn test_transfer_tao_can_reap_origin_when_amount_brings_it_below_ed() {
 
 #[test]
 fn test_transfer_tao_to_self_is_ok_and_no_net_balance_change() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
         let before = total_balance(&who);
         let amount = reducible_balance(&who).min(10.into());
@@ -182,7 +178,7 @@ fn test_transfer_tao_to_self_is_ok_and_no_net_balance_change() {
 
 #[test]
 fn test_transfer_all_tao_and_kill_normal_case() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -210,7 +206,7 @@ fn test_transfer_all_tao_and_kill_normal_case() {
 
 #[test]
 fn test_transfer_all_tao_and_kill_non_existing_origin_is_noop() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(20_001);
         let dest = U256::from(20_002);
 
@@ -228,7 +224,7 @@ fn test_transfer_all_tao_and_kill_non_existing_origin_is_noop() {
 
 #[test]
 fn test_transfer_all_tao_and_kill_preexisting_destination() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -251,7 +247,7 @@ fn test_transfer_all_tao_and_kill_preexisting_destination() {
 
 #[test]
 fn test_transfer_all_tao_and_kill_to_self_is_noop() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
         let before_total = total_balance(&who);
         let before_reducible = reducible_balance(&who);
@@ -269,7 +265,7 @@ fn test_transfer_all_tao_and_kill_to_self_is_noop() {
 
 #[test]
 fn test_burn_tao_increases_burn_address_balance() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let burn_address: U256 = <Test as Config>::BurnAccountId::get().into_account_truncating();
 
@@ -289,7 +285,7 @@ fn test_burn_tao_increases_burn_address_balance() {
 
 #[test]
 fn test_burn_tao_zero_amount_is_ok() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let burn_address: U256 = <Test as Config>::BurnAccountId::get().into_account_truncating();
 
@@ -305,7 +301,7 @@ fn test_burn_tao_zero_amount_is_ok() {
 
 #[test]
 fn test_burn_tao_insufficient_balance_fails() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(30_001);
 
         assert_noop!(
@@ -321,7 +317,7 @@ fn test_burn_tao_insufficient_balance_fails() {
 
 #[test]
 fn test_recycle_tao_reduces_both_balances_and_subtensor_total_issuance() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let max_preserving = SubtensorModule::get_coldkey_balance(&coldkey);
         let amount = max_preserving.min(10.into());
@@ -347,7 +343,7 @@ fn test_recycle_tao_reduces_both_balances_and_subtensor_total_issuance() {
 
 #[test]
 fn test_recycle_tao_amount_greater_than_max_preserving_fails() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let max_preserving: u64 = <Test as Config>::Currency::reducible_balance(
             &coldkey,
@@ -369,7 +365,7 @@ fn test_recycle_tao_amount_greater_than_max_preserving_fails() {
 
 #[test]
 fn test_recycle_tao_zero_amount_keeps_issuance_equal() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let balances_before = balances_total_issuance();
         let subtensor_before = subtensor_total_issuance();
@@ -389,7 +385,7 @@ fn test_recycle_tao_zero_amount_keeps_issuance_equal() {
 /// and recycle should reduce both by the same amount.
 #[test]
 fn test_total_issuance_subtensor_matches_balances_across_tao_operations() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let a = U256::from(1);
         let b = U256::from(2);
 
@@ -427,7 +423,7 @@ fn test_total_issuance_subtensor_matches_balances_across_tao_operations() {
 /// SubtensorModule::TotalIssuance.
 #[test]
 fn test_mint_tao_increases_total_issuance_in_balances_and_subtensor() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let amount = TaoBalance::from(123);
 
         let balances_before = balances_total_issuance();
@@ -447,7 +443,7 @@ fn test_mint_tao_increases_total_issuance_in_balances_and_subtensor() {
 
 #[test]
 fn test_mint_tao_zero_amount() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let balances_before = balances_total_issuance();
         let subtensor_before = subtensor_total_issuance();
 
@@ -461,7 +457,7 @@ fn test_mint_tao_zero_amount() {
 
 #[test]
 fn test_mint_tao_respects_max_issuance_cap_in_balances() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         // We cannot directly force balances-pallet issuance above the cap in every mock,
         // but we *can* set subtensor's mirror and still verify that mint_tao uses the
         // balances-pallet total issuance as its source of truth.
@@ -481,7 +477,7 @@ fn test_mint_tao_respects_max_issuance_cap_in_balances() {
 
 #[test]
 fn test_transfer_tao_reaps_origin() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
         let dest = U256::from(2);
 
@@ -506,7 +502,7 @@ fn test_transfer_tao_reaps_origin() {
 
 #[test]
 fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
-    new_high_ed_test_ext(1).execute_with(|| {
+    new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
 
         let max_preserving =

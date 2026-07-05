@@ -99,7 +99,7 @@ mod tests {
         weights::WeightInfo as _,
     };
     use frame_support::{
-        BoundedVec, assert_noop, assert_ok,
+        BoundedVec, assert_ok,
         dispatch::{DispatchExtension, DispatchResultWithPostInfo},
         traits::ExtendedDispatchable,
     };

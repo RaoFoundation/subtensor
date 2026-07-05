@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf};
 use crate::{Call, Config, Error, SubnetSaleFrozenColdkeys, SubnetSaleFrozenHotkeys};
 use frame_support::{
     dispatch::{DispatchErrorWithPostInfo, DispatchExtension, DispatchInfo, PostDispatchInfo},
@@ -6,9 +7,6 @@ use frame_support::{
 };
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
-
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 
 /// Dispatch extension that blocks seller coldkey and owner hotkey calls during a subnet sale.
 ///
@@ -22,6 +20,43 @@ type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 /// Because this is a `DispatchExtension` (not a `TransactionExtension`), it fires at every
 /// `call.dispatch(origin)` site, including inside proxy dispatch with the resolved origin.
 pub struct CheckSubnetSale<T: Config>(PhantomData<T>);
+
+impl<T> CheckSubnetSale<T>
+where
+    T: Config + pallet_shield::Config,
+    CallOf<T>: IsSubType<Call<T>> + IsSubType<pallet_shield::Call<T>>,
+{
+    pub fn check(who: &T::AccountId, call: &CallOf<T>) -> Result<(), Error<T>> {
+        let is_sale_frozen_coldkey = SubnetSaleFrozenColdkeys::<T>::contains_key(who);
+        let is_sale_frozen_owner_hotkey = SubnetSaleFrozenHotkeys::<T>::contains_key(who);
+
+        if is_sale_frozen_coldkey && !Self::is_allowed_for_frozen_coldkey(call) {
+            return Err(Error::<T>::ColdkeyLockedDuringSale);
+        }
+
+        if is_sale_frozen_owner_hotkey && !Self::is_allowed_for_frozen_owner_hotkey(call) {
+            return Err(Error::<T>::HotkeyLockedDuringSale);
+        }
+
+        Ok(())
+    }
+
+    fn is_allowed_for_frozen_coldkey(call: &CallOf<T>) -> bool {
+        matches!(call.is_sub_type(), Some(Call::cancel_sale_offer { .. }))
+            || Self::is_mev_protected(call)
+    }
+
+    fn is_allowed_for_frozen_owner_hotkey(call: &CallOf<T>) -> bool {
+        Self::is_mev_protected(call)
+    }
+
+    fn is_mev_protected(call: &CallOf<T>) -> bool {
+        matches!(
+            IsSubType::<pallet_shield::Call<T>>::is_sub_type(call),
+            Some(pallet_shield::Call::submit_encrypted { .. })
+        )
+    }
+}
 
 impl<T> DispatchExtension<<T as frame_system::Config>::RuntimeCall> for CheckSubnetSale<T>
 where
@@ -45,23 +80,7 @@ where
             return Ok(());
         };
 
-        let is_mev_protected = matches!(
-            IsSubType::<pallet_shield::Call<T>>::is_sub_type(call),
-            Some(pallet_shield::Call::submit_encrypted { .. })
-        );
-        let is_sale_frozen_coldkey = SubnetSaleFrozenColdkeys::<T>::contains_key(who);
-        let is_sale_frozen_owner_hotkey = SubnetSaleFrozenHotkeys::<T>::contains_key(who);
-        let is_sale_cancel = matches!(call.is_sub_type(), Some(Call::cancel_sale_offer { .. }));
-
-        if is_sale_frozen_coldkey && !is_sale_cancel && !is_mev_protected {
-            return Err(Error::<T>::ColdkeyLockedDuringSale.into());
-        }
-
-        if is_sale_frozen_owner_hotkey && !is_mev_protected {
-            return Err(Error::<T>::HotkeyLockedDuringSale.into());
-        }
-
-        Ok(())
+        Self::check(who, call).map_err(Into::into)
     }
 }
 
