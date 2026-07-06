@@ -13,10 +13,16 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec.workspace = true
 ed25519-dalek = { workspace = true, features = ["alloc"] }
+ark-bls12-381.workspace = true
+ark-ec.workspace = true
+ark-ff.workspace = true
+ark-serialize.workspace = true
 fp-evm.workspace = true
 frame-support.workspace = true
 frame-system.workspace = true
+hex-literal.workspace = true
 log.workspace = true
+sha2.workspace = true
 pallet-alpha-assets.workspace = true
 pallet-balances.workspace = true
 pallet-evm.workspace = true
@@ -24,6 +30,7 @@ pallet-evm-precompile-dispatch.workspace = true
 pallet-evm-precompile-modexp.workspace = true
 pallet-evm-precompile-sha3fips.workspace = true
 pallet-evm-precompile-simple.workspace = true
+pallet-evm-precompile-blake2.workspace = true
 pallet-evm-precompile-bn128.workspace = true
 pallet-subtensor-proxy.workspace = true
 precompile-utils.workspace = true
@@ -58,8 +65,14 @@ std = [
 	"pallet-balances/std",
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
+	"ark-bls12-381/std",
+	"ark-ec/std",
+	"ark-ff/std",
+	"ark-serialize/std",
+	"pallet-evm-precompile-blake2/std",
 	"pallet-evm-precompile-bn128/std",
 	"pallet-evm-chain-id/std",
+	"sha2/std",
 	"pallet-evm-precompile-dispatch/std",
 	"pallet-evm-precompile-modexp/std",
 	"pallet-evm-precompile-sha3fips/std",

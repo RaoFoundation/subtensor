@@ -25,12 +25,14 @@ use pallet_evm::{
     AddressMapping, IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult,
     PrecompileSet,
 };
+use pallet_evm_precompile_blake2::Blake2F;
 use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
 use pallet_evm_precompile_dispatch::Dispatch;
 use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 use pallet_subtensor_proxy as pallet_proxy;
+pub use point_evaluation::PointEvaluation;
 pub use proxy::ProxyPrecompile;
 use sp_core::{H160, U256, crypto::ByteArray};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup};
@@ -51,6 +53,7 @@ mod extensions;
 mod leasing;
 mod metagraph;
 mod neuron;
+mod point_evaluation;
 mod proxy;
 mod sr25519;
 mod staking;
@@ -137,7 +140,7 @@ where
         Self(Default::default())
     }
 
-    pub fn used_addresses() -> [H160; 27] {
+    pub fn used_addresses() -> [H160; 30] {
         [
             hash(1),
             hash(2),
@@ -148,8 +151,11 @@ where
             hash(7),
             hash(8),
             hash(9),
+            hash(10),
+            hash(11),
             hash(1024),
             hash(1025),
+            hash(1028),
             hash(Ed25519Verify::<R::AccountId>::INDEX),
             hash(Sr25519Verify::<R::AccountId>::INDEX),
             hash(BalanceTransferPrecompile::<R>::INDEX),
@@ -216,9 +222,12 @@ where
             a if a == hash(7) => Some(Bn128Mul::execute(handle)),
             a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             a if a == hash(9) => Some(Bn128Add::execute(handle)),
+            a if a == hash(10) => Some(Blake2F::execute(handle)),
+            a if a == hash(11) => Some(PointEvaluation::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
+            a if a == hash(1028) => Some(Bn128Add::execute(handle)),
             a if a == hash(Ed25519Verify::<R::AccountId>::INDEX) => {
                 Some(Ed25519Verify::<R::AccountId>::execute(handle))
             }
