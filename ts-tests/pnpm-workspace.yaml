@@ -1,6 +1,21 @@
 packages:
   - "**"
 
+overrides:
+  toml: 3.0.0
+
+strictDepBuilds: false
+
+allowBuilds:
+  '@biomejs/biome': set this to true or false
+  '@parcel/watcher': set this to true or false
+  cpu-features: set this to true or false
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  protobufjs: set this to true or false
+  sqlite3: set this to true or false
+  ssh2: set this to true or false
+
 onlyBuiltDependencies:
   - '@biomejs/biome'
   - '@chainsafe/blst'

@@ -3,6 +3,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::ToTokens;
 use syn::{Error, ItemStruct, LitStr, Result, parse2, visit_mut::visit_item_struct_mut};
 
+mod call_filter_group;
 mod visitor;
 use visitor::*;
 
@@ -23,6 +24,18 @@ use visitor::*;
 pub fn freeze_struct(attr: TokenStream, tokens: TokenStream) -> TokenStream {
     match freeze_struct_impl(attr, tokens) {
         Ok(item_struct) => item_struct.to_token_stream().into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Defines a reusable runtime call filter group and derives its metadata from the same allowlist.
+///
+/// Example: `call_filter_group!(GroupName, [RuntimeCall::Foobar(pallet_foobar::Call::some_call)]);`
+#[proc_macro]
+pub fn call_filter_group(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse_macro_input!(input as call_filter_group::CallFilterGroupInput);
+    match call_filter_group::generate(parsed) {
+        Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }

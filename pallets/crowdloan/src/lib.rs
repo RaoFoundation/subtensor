@@ -1,8 +1,9 @@
 //! # Crowdloan Pallet
 //!
 //! A pallet allowing users to create generic crowdloans and contribute to them,
-//! the raised funds are then transferred to a target address and an extrinsic
-//! is dispatched, making it reusable for any crowdloan type.
+//! then finalize them through exactly one configured route: transfer the raised
+//! funds to a target address or dispatch an extrinsic, making it reusable for any
+//! crowdloan type.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -167,6 +168,11 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// A map of crowdloan ids to their optional maximum cumulative contribution per contributor.
+    #[pallet::storage]
+    pub type MaxContributions<T: Config> =
+        StorageMap<_, Twox64Concat, CrowdloanId, BalanceOf<T>, OptionQuery>;
+
     /// The current crowdloan id that will be set during the finalize call, making it
     /// temporarily accessible to the dispatched call.
     #[pallet::storage]
@@ -222,6 +228,11 @@ pub mod pallet {
             crowdloan_id: CrowdloanId,
             new_cap: BalanceOf<T>,
         },
+        /// The maximum contribution was updated.
+        MaxContributionUpdated {
+            crowdloan_id: CrowdloanId,
+            new_max_contribution: Option<BalanceOf<T>>,
+        },
     }
 
     #[pallet::error]
@@ -254,6 +265,8 @@ pub mod pallet {
         InvalidOrigin,
         /// The crowdloan has already been finalized.
         AlreadyFinalized,
+        /// A crowdloan finalization is already in progress.
+        AlreadyFinalizing,
         /// The crowdloan contribution period has not ended yet.
         ContributionPeriodNotEnded,
         /// The contributor has no contribution for this crowdloan.
@@ -270,6 +283,14 @@ pub mod pallet {
         DepositCannotBeWithdrawn,
         /// The maximum number of contributors has been reached.
         MaxContributorsReached,
+        /// Exactly one of call or target address must be provided.
+        InvalidFinalizationConfig,
+        /// The contributor has already reached the maximum contribution.
+        MaxContributionReached,
+        /// The maximum contribution is too low.
+        MaximumContributionTooLow,
+        /// The minimum contribution is too high.
+        MinimumContributionTooHigh,
     }
 
     #[pallet::hooks]
@@ -290,10 +311,11 @@ pub mod pallet {
         #![deny(clippy::expect_used)]
 
         /// Create a crowdloan that will raise funds up to a maximum cap and if successful,
-        /// will transfer funds to the target address if provided and dispatch the call
-        /// (using creator origin).
+        /// will either transfer funds to the target address or dispatch the call
+        /// (using creator origin). Exactly one of call or target address must be provided.
+        /// Providing both, or providing neither, is rejected.
         ///
-        /// The initial deposit will be transfered to the crowdloan account and will be refunded
+        /// The initial deposit will be transferred to the crowdloan account and will be refunded
         /// in case the crowdloan fails to raise the cap. Additionally, the creator will pay for
         /// the execution of the call.
         ///
@@ -305,7 +327,7 @@ pub mod pallet {
         /// - `cap`: The maximum amount of funds that can be raised.
         /// - `end`: The block number at which the crowdloan will end.
         /// - `call`: The call to dispatch when the crowdloan is finalized.
-        /// - `target_address`: The address to transfer the raised funds to if provided.
+        /// - `target_address`: The address to transfer the raised funds to.
         #[pallet::call_index(0)]
         #[pallet::weight({
 			let di = call.as_ref().map(|c| c.get_dispatch_info());
@@ -338,6 +360,10 @@ pub mod pallet {
             ensure!(
                 min_contribution >= T::AbsoluteMinimumContribution::get(),
                 Error::<T>::MinimumContributionTooLow
+            );
+            ensure!(
+                call.is_some() != target_address.is_some(),
+                Error::<T>::InvalidFinalizationConfig
             );
 
             Self::ensure_valid_end(now, end)?;
@@ -400,7 +426,7 @@ pub mod pallet {
 
         /// Contribute to an active crowdloan.
         ///
-        /// The contribution will be transfered to the crowdloan account and will be refunded
+        /// The contribution will be transferred to the crowdloan account and will be refunded
         /// if the crowdloan fails to raise the cap. If the contribution would raise the amount above the cap,
         /// the contribution will be set to the amount that is left to be raised.
         ///
@@ -437,16 +463,30 @@ pub mod pallet {
                 Error::<T>::MaxContributorsReached
             );
 
-            // Ensure contribution does not overflow the actual raised amount
-            // and it does not exceed the cap
+            // Compute how much room is left before the crowdloan reaches its cap.
             let left_to_raise = crowdloan
                 .cap
                 .checked_sub(&crowdloan.raised)
                 .ok_or(Error::<T>::Underflow)?;
 
-            // If the contribution would raise the amount above the cap,
-            // set the contribution to the amount that is left to be raised
-            let amount = amount.min(left_to_raise);
+            // The requested contribution must meet the minimum contribution, but
+            // the accepted amount may be lower when only a smaller remainder can
+            // be accepted before reaching the crowdloan cap or the contributor's
+            // maximum contribution.
+            let amount = if let Some(max_contribution) = MaxContributions::<T>::get(crowdloan_id) {
+                let current_contribution =
+                    Contributions::<T>::get(crowdloan_id, &contributor).unwrap_or_else(Zero::zero);
+                ensure!(
+                    current_contribution < max_contribution,
+                    Error::<T>::MaxContributionReached
+                );
+                let left_to_contribute = max_contribution
+                    .checked_sub(&current_contribution)
+                    .ok_or(Error::<T>::Underflow)?;
+                amount.min(left_to_contribute).min(left_to_raise)
+            } else {
+                amount.min(left_to_raise)
+            };
 
             // Ensure contribution does not overflow the actual raised amount
             crowdloan.raised = crowdloan
@@ -553,9 +593,13 @@ pub mod pallet {
 
         /// Finalize crowdloan that has reached the cap.
         ///
-        /// The call will transfer the raised amount to the target address if it was provided when the crowdloan was created
-        /// and dispatch the call that was provided using the creator origin. The CurrentCrowdloanId will be set to the
-        /// crowdloan id being finalized so the dispatched call can access it temporarily by accessing
+        /// The call will either transfer the raised amount to the configured target address
+        /// or dispatch the configured call using the creator origin. The stored crowdloan
+        /// must contain exactly one of target address or call; if both or neither are set,
+        /// finalization fails before transfer or dispatch.
+        ///
+        /// When dispatching a call, the CurrentCrowdloanId will be set to the crowdloan id
+        /// being finalized so the dispatched call can access it temporarily by accessing
         /// the `CurrentCrowdloanId` storage item.
         ///
         /// The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.
@@ -577,46 +621,52 @@ pub mod pallet {
             ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
             ensure!(crowdloan.raised == crowdloan.cap, Error::<T>::CapNotRaised);
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
-
-            // If the target address is provided, transfer the raised amount to it.
-            if let Some(ref target_address) = crowdloan.target_address {
-                CurrencyOf::<T>::transfer(
-                    &crowdloan.funds_account,
-                    target_address,
-                    crowdloan.raised,
-                    Preservation::Expendable,
-                )?;
-            }
-
-            // If the call is provided, dispatch it.
-            if let Some(ref call) = crowdloan.call {
-                // Set the current crowdloan id so the dispatched call
-                // can access it temporarily
-                CurrentCrowdloanId::<T>::put(crowdloan_id);
-
-                // Retrieve the call from the preimage storage
-                let stored_call = match T::Preimages::peek(call) {
-                    Ok((call, _)) => call,
-                    Err(_) => {
-                        // If the call is not found, we drop it from the preimage storage
-                        // because it's not needed anymore
-                        T::Preimages::drop(call);
-                        return Err(Error::<T>::CallUnavailable)?;
-                    }
-                };
-
-                // Dispatch the call with creator origin
-                stored_call
-                    .dispatch(frame_system::RawOrigin::Signed(who).into())
-                    .map(|_| ())
-                    .map_err(|e| e.error)?;
-
-                // Clear the current crowdloan id
-                CurrentCrowdloanId::<T>::kill();
-            }
+            ensure!(
+                CurrentCrowdloanId::<T>::get().is_none(),
+                Error::<T>::AlreadyFinalizing
+            );
 
             crowdloan.finalized = true;
             Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+            match (&crowdloan.call, &crowdloan.target_address) {
+                (Some(call), None) => {
+                    // Set the current crowdloan id so the dispatched call
+                    // can access it temporarily
+                    CurrentCrowdloanId::<T>::put(crowdloan_id);
+
+                    // Retrieve the call from the preimage storage
+                    let stored_call = match T::Preimages::peek(call) {
+                        Ok((call, _)) => call,
+                        Err(_) => {
+                            // If the call is not found, we drop it from the preimage storage
+                            // because it's not needed anymore
+                            T::Preimages::drop(call);
+                            return Err(Error::<T>::CallUnavailable)?;
+                        }
+                    };
+
+                    // Dispatch the call with creator origin
+                    stored_call
+                        .dispatch(frame_system::RawOrigin::Signed(who).into())
+                        .map(|_| ())
+                        .map_err(|e| e.error)?;
+
+                    // Clear the current crowdloan id
+                    CurrentCrowdloanId::<T>::kill();
+                }
+                (None, Some(target_address)) => {
+                    CurrencyOf::<T>::transfer(
+                        &crowdloan.funds_account,
+                        target_address,
+                        crowdloan.raised,
+                        Preservation::Expendable,
+                    )?;
+                }
+                (_, _) => {
+                    return Err(Error::<T>::InvalidFinalizationConfig)?;
+                }
+            }
 
             Self::deposit_event(Event::<T>::Finalized { crowdloan_id });
 
@@ -748,12 +798,16 @@ pub mod pallet {
             // Remove the crowdloan
             let _ = frame_system::Pallet::<T>::dec_providers(&crowdloan.funds_account).defensive();
             Crowdloans::<T>::remove(crowdloan_id);
+            MaxContributions::<T>::remove(crowdloan_id);
 
             Self::deposit_event(Event::<T>::Dissolved { crowdloan_id });
             Ok(())
         }
 
         /// Update the minimum contribution of a non-finalized crowdloan.
+        ///
+        /// If a maximum contribution is configured, the new minimum contribution
+        /// must not exceed it.
         ///
         /// The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.
         ///
@@ -780,6 +834,12 @@ pub mod pallet {
                 new_min_contribution >= T::AbsoluteMinimumContribution::get(),
                 Error::<T>::MinimumContributionTooLow
             );
+            if let Some(max_contribution) = MaxContributions::<T>::get(crowdloan_id) {
+                ensure!(
+                    new_min_contribution <= max_contribution,
+                    Error::<T>::MinimumContributionTooHigh
+                );
+            }
 
             crowdloan.min_contribution = new_min_contribution;
             Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
@@ -858,6 +918,50 @@ pub mod pallet {
             Self::deposit_event(Event::<T>::CapUpdated {
                 crowdloan_id,
                 new_cap,
+            });
+            Ok(())
+        }
+
+        /// Set or clear the maximum cumulative contribution allowed per contributor
+        /// for a non-finalized crowdloan.
+        ///
+        /// The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.
+        ///
+        /// Parameters:
+        /// - `crowdloan_id`: The id of the crowdloan to update the maximum contribution of.
+        /// - `new_max_contribution`: The new optional maximum contribution.
+        #[pallet::call_index(9)]
+        #[pallet::weight(T::WeightInfo::set_max_contribution())]
+        pub fn set_max_contribution(
+            origin: OriginFor<T>,
+            #[pallet::compact] crowdloan_id: CrowdloanId,
+            new_max_contribution: Option<BalanceOf<T>>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            let crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+            // Only the creator can update the max contribution.
+            ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+            if let Some(max_contribution) = new_max_contribution {
+                let creator_contribution =
+                    Contributions::<T>::get(crowdloan_id, &crowdloan.creator)
+                        .unwrap_or_else(Zero::zero);
+                ensure!(
+                    max_contribution >= crowdloan.min_contribution
+                        && max_contribution >= creator_contribution,
+                    Error::<T>::MaximumContributionTooLow
+                );
+                MaxContributions::<T>::insert(crowdloan_id, max_contribution);
+            } else {
+                MaxContributions::<T>::remove(crowdloan_id);
+            }
+
+            Self::deposit_event(Event::<T>::MaxContributionUpdated {
+                crowdloan_id,
+                new_max_contribution,
             });
             Ok(())
         }

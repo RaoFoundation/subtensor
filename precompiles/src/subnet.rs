@@ -161,9 +161,22 @@ where
         )
     }
 
+    #[precompile::public("getNetworkRegistrationBlock(uint16)")]
+    #[precompile::view]
+    fn get_network_registration_block(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::NetworkRegisteredAt::<R>::get(
+            NetUid::from(netuid),
+        ))
+    }
+
     #[precompile::public("getServingRateLimit(uint16)")]
     #[precompile::view]
-    fn get_serving_rate_limit(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_serving_rate_limit(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::ServingRateLimit::<R>::get(NetUid::from(
             netuid,
         )))
@@ -189,7 +202,8 @@ where
 
     #[precompile::public("getMinDifficulty(uint16)")]
     #[precompile::view]
-    fn get_min_difficulty(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_min_difficulty(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::MinDifficulty::<R>::get(NetUid::from(
             netuid,
         )))
@@ -215,7 +229,8 @@ where
 
     #[precompile::public("getMaxDifficulty(uint16)")]
     #[precompile::view]
-    fn get_max_difficulty(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_max_difficulty(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::MaxDifficulty::<R>::get(NetUid::from(
             netuid,
         )))
@@ -241,7 +256,8 @@ where
 
     #[precompile::public("getWeightsVersionKey(uint16)")]
     #[precompile::view]
-    fn get_weights_version_key(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_weights_version_key(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::WeightsVersionKey::<R>::get(NetUid::from(
             netuid,
         )))
@@ -267,7 +283,11 @@ where
 
     #[precompile::public("getWeightsSetRateLimit(uint16)")]
     #[precompile::view]
-    fn get_weights_set_rate_limit(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_weights_set_rate_limit(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::WeightsSetRateLimit::<R>::get(
             NetUid::from(netuid),
         ))
@@ -286,7 +306,8 @@ where
 
     #[precompile::public("getAdjustmentAlpha(uint16)")]
     #[precompile::view]
-    fn get_adjustment_alpha(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_adjustment_alpha(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::AdjustmentAlpha::<R>::get(NetUid::from(
             netuid,
         )))
@@ -320,7 +341,8 @@ where
 
     #[precompile::public("getImmunityPeriod(uint16)")]
     #[precompile::view]
-    fn get_immunity_period(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+    fn get_immunity_period(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::ImmunityPeriod::<R>::get(NetUid::from(
             netuid,
         )))
@@ -346,7 +368,8 @@ where
 
     #[precompile::public("getMinAllowedWeights(uint16)")]
     #[precompile::view]
-    fn get_min_allowed_weights(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+    fn get_min_allowed_weights(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::MinAllowedWeights::<R>::get(NetUid::from(
             netuid,
         )))
@@ -372,7 +395,8 @@ where
 
     #[precompile::public("getKappa(uint16)")]
     #[precompile::view]
-    fn get_kappa(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+    fn get_kappa(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::Kappa::<R>::get(NetUid::from(netuid)))
     }
 
@@ -392,13 +416,18 @@ where
 
     #[precompile::public("getRho(uint16)")]
     #[precompile::view]
-    fn get_rho(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+    fn get_rho(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::Rho::<R>::get(NetUid::from(netuid)))
     }
 
     #[precompile::public("getAlphaSigmoidSteepness(uint16)")]
     #[precompile::view]
-    fn get_alpha_sigmoid_steepness(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+    fn get_alpha_sigmoid_steepness(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::AlphaSigmoidSteepness::<R>::get(NetUid::from(netuid)) as u16)
     }
 
@@ -436,7 +465,8 @@ where
 
     #[precompile::public("getActivityCutoff(uint16)")]
     #[precompile::view]
-    fn get_activity_cutoff(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+    fn get_activity_cutoff(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::ActivityCutoff::<R>::get(NetUid::from(
             netuid,
         )))
@@ -460,12 +490,39 @@ where
         )
     }
 
+    #[precompile::public("getActivityCutoffFactor(uint16)")]
+    #[precompile::view]
+    fn get_activity_cutoff_factor(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u32> {
+        Ok(pallet_subtensor::ActivityCutoffFactorMilli::<R>::get(
+            NetUid::from(netuid),
+        ))
+    }
+
+    #[precompile::public("setActivityCutoffFactor(uint16,uint32)")]
+    #[precompile::payable]
+    fn set_activity_cutoff_factor(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        factor_milli: u32,
+    ) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::set_activity_cutoff_factor {
+            netuid: netuid.into(),
+            factor_milli,
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
     #[precompile::public("getNetworkRegistrationAllowed(uint16)")]
     #[precompile::view]
     fn get_network_registration_allowed(
-        _: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::NetworkRegistrationAllowed::<R>::get(
             NetUid::from(netuid),
         ))
@@ -492,9 +549,10 @@ where
     #[precompile::public("getNetworkPowRegistrationAllowed(uint16)")]
     #[precompile::view]
     fn get_network_pow_registration_allowed(
-        _: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::NetworkPowRegistrationAllowed::<R>::get(
             NetUid::from(netuid),
         ))
@@ -520,7 +578,8 @@ where
 
     #[precompile::public("getMinBurn(uint16)")]
     #[precompile::view]
-    fn get_min_burn(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_min_burn(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::MinBurn::<R>::get(NetUid::from(netuid)).to_u64())
     }
 
@@ -537,7 +596,8 @@ where
 
     #[precompile::public("getMaxBurn(uint16)")]
     #[precompile::view]
-    fn get_max_burn(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_max_burn(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::MaxBurn::<R>::get(NetUid::from(netuid)).to_u64())
     }
 
@@ -554,7 +614,8 @@ where
 
     #[precompile::public("getDifficulty(uint16)")]
     #[precompile::view]
-    fn get_difficulty(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_difficulty(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::Difficulty::<R>::get(NetUid::from(netuid)))
     }
 
@@ -578,7 +639,8 @@ where
 
     #[precompile::public("getBondsMovingAverage(uint16)")]
     #[precompile::view]
-    fn get_bonds_moving_average(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+    fn get_bonds_moving_average(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::BondsMovingAverage::<R>::get(
             NetUid::from(netuid),
         ))
@@ -605,9 +667,10 @@ where
     #[precompile::public("getCommitRevealWeightsEnabled(uint16)")]
     #[precompile::view]
     fn get_commit_reveal_weights_enabled(
-        _: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::CommitRevealWeightsEnabled::<R>::get(
             NetUid::from(netuid),
         ))
@@ -633,7 +696,11 @@ where
 
     #[precompile::public("getLiquidAlphaEnabled(uint16)")]
     #[precompile::view]
-    fn get_liquid_alpha_enabled(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
+    fn get_liquid_alpha_enabled(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::LiquidAlphaOn::<R>::get(NetUid::from(
             netuid,
         )))
@@ -659,13 +726,15 @@ where
 
     #[precompile::public("getYuma3Enabled(uint16)")]
     #[precompile::view]
-    fn get_yuma3_enabled(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
+    fn get_yuma3_enabled(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::Yuma3On::<R>::get(NetUid::from(netuid)))
     }
 
     #[precompile::public("getBondsResetEnabled(uint16)")]
     #[precompile::view]
-    fn get_bonds_reset_enabled(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
+    fn get_bonds_reset_enabled(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::BondsResetOn::<R>::get(NetUid::from(
             netuid,
         )))
@@ -709,7 +778,8 @@ where
 
     #[precompile::public("getAlphaValues(uint16)")]
     #[precompile::view]
-    fn get_alpha_values(_: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<(u16, u16)> {
+    fn get_alpha_values(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<(u16, u16)> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::AlphaValues::<R>::get(NetUid::from(
             netuid,
         )))
@@ -738,9 +808,10 @@ where
     #[precompile::public("getCommitRevealWeightsInterval(uint16)")]
     #[precompile::view]
     fn get_commit_reveal_weights_interval(
-        _: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         netuid: u16,
     ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::RevealPeriodEpochs::<R>::get(
             NetUid::from(netuid),
         ))
@@ -780,5 +851,499 @@ where
             call,
             RawOrigin::Signed(handle.caller_account_id::<R>()),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::arithmetic_side_effects,
+        clippy::expect_used,
+        clippy::unwrap_used
+    )]
+
+    use super::*;
+    use crate::PrecompileExt;
+    use crate::mock::{
+        AccountId, Runtime, addr_from_index, assert_static_call, mapped_account, new_test_ext,
+        precompiles, selector_u32,
+    };
+    use precompile_utils::solidity::encode_with_selector;
+    use precompile_utils::testing::PrecompileTesterExt;
+    use sp_core::{H160, H256, U256};
+    use subtensor_runtime_common::TaoBalance;
+
+    const TEST_NETUID_U16: u16 = 1;
+    const TEST_TEMPO: u16 = 100;
+
+    fn setup_owner_subnet(caller: H160) -> NetUid {
+        let netuid = NetUid::from(TEST_NETUID_U16);
+        let owner = mapped_account(caller);
+        let owner_hotkey = AccountId::from([0x55; 32]);
+
+        pallet_subtensor::Pallet::<Runtime>::init_new_network(netuid, TEST_TEMPO);
+        pallet_subtensor::SubnetOwner::<Runtime>::insert(netuid, owner);
+        pallet_subtensor::SubnetOwnerHotkey::<Runtime>::insert(netuid, owner_hotkey);
+        pallet_subtensor::AdminFreezeWindow::<Runtime>::set(0);
+        pallet_subtensor::OwnerHyperparamRateLimit::<Runtime>::set(0);
+
+        netuid
+    }
+
+    fn add_balance_to_coldkey_account(coldkey: &sp_core::crypto::AccountId32, tao: TaoBalance) {
+        let credit = pallet_subtensor::Pallet::<Runtime>::mint_tao(tao);
+        let _ = pallet_subtensor::Pallet::<Runtime>::spend_tao(coldkey, credit, tao).unwrap();
+    }
+
+    #[test]
+    fn subnet_precompile_registers_network_without_identity() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5000);
+            let caller_account = mapped_account(caller);
+            let hotkey = AccountId::from([0x44; 32]);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            add_balance_to_coldkey_account(&caller_account, 1_000_000_000_000_u64.into());
+
+            let total_before = pallet_subtensor::TotalNetworks::<Runtime>::get();
+            let netuid = pallet_subtensor::Pallet::<Runtime>::get_next_netuid();
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("registerNetwork(bytes32)"),
+                        (H256::from_slice(hotkey.as_ref()),),
+                    ),
+                )
+                .execute_returns(());
+
+            let total_after = pallet_subtensor::TotalNetworks::<Runtime>::get();
+            assert_eq!(total_after, total_before + 1);
+            assert_eq!(
+                pallet_subtensor::SubnetOwner::<Runtime>::get(netuid),
+                caller_account
+            );
+            assert!(!pallet_subtensor::SubnetIdentitiesV3::<Runtime>::contains_key(netuid));
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_registers_network_with_identity() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5002);
+            let caller_account = mapped_account(caller);
+            let hotkey = AccountId::from([0x45; 32]);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            add_balance_to_coldkey_account(
+                &caller_account,
+                1_000_000_000_000_u64.into(),
+            );
+
+            let total_before = pallet_subtensor::TotalNetworks::<Runtime>::get();
+            let netuid = pallet_subtensor::Pallet::<Runtime>::get_next_netuid();
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32(
+                            "registerNetwork(bytes32,string,string,string,string,string,string,string)",
+                        ),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            precompile_utils::solidity::codec::UnboundedString::from("name"),
+                            precompile_utils::solidity::codec::UnboundedString::from("repo"),
+                            precompile_utils::solidity::codec::UnboundedString::from("contact"),
+                            precompile_utils::solidity::codec::UnboundedString::from("subnetUrl"),
+                            precompile_utils::solidity::codec::UnboundedString::from("discord"),
+                            precompile_utils::solidity::codec::UnboundedString::from("description"),
+                            precompile_utils::solidity::codec::UnboundedString::from("additional"),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            let total_after = pallet_subtensor::TotalNetworks::<Runtime>::get();
+            assert_eq!(total_after, total_before + 1);
+            assert_eq!(pallet_subtensor::SubnetOwner::<Runtime>::get(netuid), caller_account);
+            assert!(pallet_subtensor::SubnetIdentitiesV3::<Runtime>::contains_key(netuid));
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_sets_and_gets_owner_hyperparameters() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5001);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setServingRateLimit(uint16,uint64)"),
+                        (TEST_NETUID_U16, 100_u64),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::ServingRateLimit::<Runtime>::get(netuid),
+                100
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getServingRateLimit(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(100_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setMaxDifficulty(uint16,uint64)"),
+                        (TEST_NETUID_U16, 102_u64),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(pallet_subtensor::MaxDifficulty::<Runtime>::get(netuid), 102);
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(selector_u32("getMaxDifficulty(uint16)"), (TEST_NETUID_U16,)),
+                U256::from(102_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setWeightsVersionKey(uint16,uint64)"),
+                        (TEST_NETUID_U16, 103_u64),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::WeightsVersionKey::<Runtime>::get(netuid),
+                103
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getWeightsVersionKey(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(103_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setAdjustmentAlpha(uint16,uint64)"),
+                        (TEST_NETUID_U16, 105_u64),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::AdjustmentAlpha::<Runtime>::get(netuid),
+                105
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getAdjustmentAlpha(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(105_u64),
+            );
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getMaxWeightLimit(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(0xFFFF_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setImmunityPeriod(uint16,uint16)"),
+                        (TEST_NETUID_U16, 107_u16),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::ImmunityPeriod::<Runtime>::get(netuid),
+                107
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getImmunityPeriod(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(107_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setMinAllowedWeights(uint16,uint16)"),
+                        (TEST_NETUID_U16, 108_u16),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::MinAllowedWeights::<Runtime>::get(netuid),
+                108
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getMinAllowedWeights(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(108_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setRho(uint16,uint16)"),
+                        (TEST_NETUID_U16, 110_u16),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(pallet_subtensor::Rho::<Runtime>::get(netuid), 110);
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(selector_u32("getRho(uint16)"), (TEST_NETUID_U16,)),
+                U256::from(110_u64),
+            );
+
+            let activity_cutoff = pallet_subtensor::MinActivityCutoff::<Runtime>::get() + 1;
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setActivityCutoff(uint16,uint16)"),
+                        (TEST_NETUID_U16, activity_cutoff),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::ActivityCutoff::<Runtime>::get(netuid),
+                activity_cutoff
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getActivityCutoff(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(activity_cutoff),
+            );
+
+            let factor_milli: u32 = 1_500;
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setActivityCutoffFactor(uint16,uint32)"),
+                        (TEST_NETUID_U16, factor_milli),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::ActivityCutoffFactorMilli::<Runtime>::get(netuid),
+                factor_milli
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getActivityCutoffFactor(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(factor_milli),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setBondsMovingAverage(uint16,uint64)"),
+                        (TEST_NETUID_U16, 115_u64),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::BondsMovingAverage::<Runtime>::get(netuid),
+                115
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getBondsMovingAverage(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(115_u64),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setCommitRevealWeightsEnabled(uint16,bool)"),
+                        (TEST_NETUID_U16, true),
+                    ),
+                )
+                .execute_returns(());
+            assert!(pallet_subtensor::CommitRevealWeightsEnabled::<Runtime>::get(netuid));
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getCommitRevealWeightsEnabled(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::one(),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setLiquidAlphaEnabled(uint16,bool)"),
+                        (TEST_NETUID_U16, true),
+                    ),
+                )
+                .execute_returns(());
+            assert!(pallet_subtensor::LiquidAlphaOn::<Runtime>::get(netuid));
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getLiquidAlphaEnabled(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::one(),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setYuma3Enabled(uint16,bool)"),
+                        (TEST_NETUID_U16, true),
+                    ),
+                )
+                .execute_returns(());
+            assert!(pallet_subtensor::Yuma3On::<Runtime>::get(netuid));
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(selector_u32("getYuma3Enabled(uint16)"), (TEST_NETUID_U16,)),
+                U256::one(),
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setCommitRevealWeightsInterval(uint16,uint64)"),
+                        (TEST_NETUID_U16, 99_u64),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::RevealPeriodEpochs::<Runtime>::get(netuid),
+                99
+            );
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getCommitRevealWeightsInterval(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(99_u64),
+            );
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_gets_network_registered_block() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5003);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            let registration_block: u64 = 42;
+            pallet_subtensor::NetworkRegisteredAt::<Runtime>::insert(netuid, registration_block);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getNetworkRegistrationBlock(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(registration_block),
+            );
+        });
     }
 }

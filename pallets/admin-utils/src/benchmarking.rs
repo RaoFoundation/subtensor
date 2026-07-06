@@ -9,7 +9,8 @@ use alloc::vec::Vec;
 use crate::Pallet as AdminUtils;
 use frame_benchmarking::v1::account;
 use frame_benchmarking::v2::*;
-use frame_support::BoundedVec;
+use frame_support::dispatch::UnfilteredDispatchable;
+use frame_support::{BoundedVec, assert_noop};
 use frame_system::RawOrigin;
 use pallet_subtensor::SubnetworkN;
 
@@ -417,8 +418,17 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_total_issuance() {
-        #[extrinsic_call]
-        _(RawOrigin::Root, 100u64.into());
+        let call = Call::<T>::sudo_set_total_issuance {
+            total_issuance: 100u64.into(),
+        };
+
+        #[block]
+        {
+            assert_noop!(
+                call.dispatch_bypass_filter(RawOrigin::Root.into()),
+                Error::<T>::Deprecated
+            );
+        }
     }
 
     #[benchmark]
@@ -454,6 +464,19 @@ mod benchmarks {
     fn sudo_set_min_delegate_take() {
         #[extrinsic_call]
         _(RawOrigin::Root, 100u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_min_childkey_take_per_subnet() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(
+            netuid, 1u16, // tempo
+        );
+        let take = pallet_subtensor::Pallet::<T>::get_max_childkey_take() / 2;
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, take);
     }
 
     #[benchmark]
@@ -572,6 +595,19 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_subnet_emission_enabled() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(
+            netuid, 1u16, // tempo
+        );
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, false);
+
+        assert!(!pallet_subtensor::SubnetEmissionEnabled::<T>::get(netuid));
+    }
+    #[benchmark]
     fn sudo_set_sn_owner_hotkey() {
         let netuid = NetUid::from(1);
         let hotkey: T::AccountId = account("Alice", 0, 1);
@@ -651,6 +687,17 @@ mod benchmarks {
             1u16.into(), /* netuid */
             12u16,       /* min */
         ); /* sudo_set_min_non_immune_uids() */
+    }
+
+    #[benchmark]
+    fn sudo_set_max_epochs_per_block() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 8u8);
+
+        assert_eq!(
+            pallet_subtensor::Pallet::<T>::get_max_epochs_per_block(),
+            8u8
+        );
     }
 
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);

@@ -7,7 +7,7 @@ use frame_support::{
 };
 use frame_system::Config;
 use pallet_subtensor::{
-    Error as SubtensorError, Event, MaxRegistrationsPerBlock, Rank, SubnetOwner,
+    Error as SubtensorError, Event, MaxRegistrationsPerBlock, SubnetOwner,
     TargetRegistrationsPerInterval, Tempo, WeightsVersionKeyRateLimit,
     subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET, utils::rate_limiting::TransactionType, *,
 };
@@ -384,25 +384,6 @@ fn test_sudo_subnet_owner_cut() {
             to_be_set
         ));
         assert_eq!(SubtensorModule::get_subnet_owner_cut(), to_be_set);
-    });
-}
-
-#[test]
-fn test_sudo_set_issuance() {
-    new_test_ext().execute_with(|| {
-        let to_be_set = TaoBalance::from(10);
-        assert_eq!(
-            AdminUtils::sudo_set_total_issuance(
-                <<Test as Config>::RuntimeOrigin>::signed(U256::from(0)),
-                to_be_set
-            ),
-            Err(DispatchError::BadOrigin)
-        );
-        assert_ok!(AdminUtils::sudo_set_total_issuance(
-            <<Test as Config>::RuntimeOrigin>::root(),
-            to_be_set
-        ));
-        assert_eq!(SubtensorModule::get_total_issuance(), to_be_set);
     });
 }
 
@@ -1127,6 +1108,67 @@ fn test_sudo_set_min_delegate_take() {
 }
 
 #[test]
+fn test_sudo_set_min_childkey_take_per_subnet() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(10);
+        let non_owner = U256::from(11);
+        let take = SubtensorModule::get_max_childkey_take() / 2;
+
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+
+        assert_eq!(
+            AdminUtils::sudo_set_min_childkey_take_per_subnet(
+                <<Test as Config>::RuntimeOrigin>::signed(non_owner),
+                netuid,
+                take
+            ),
+            Err(DispatchError::BadOrigin)
+        );
+
+        assert_ok!(AdminUtils::sudo_set_min_childkey_take_per_subnet(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            take
+        ));
+        assert_eq!(
+            SubtensorModule::get_min_childkey_take_for_subnet(netuid),
+            take
+        );
+        assert_eq!(
+            SubtensorModule::get_effective_min_childkey_take(netuid),
+            take
+        );
+    });
+}
+
+#[test]
+fn test_sudo_set_min_childkey_take_per_subnet_rejects_below_global() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let global_min = 100;
+
+        add_network(netuid, 10);
+        SubtensorModule::set_min_childkey_take(global_min);
+
+        assert_noop!(
+            AdminUtils::sudo_set_min_childkey_take_per_subnet(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                global_min - 1
+            ),
+            Error::<Test>::InvalidValue
+        );
+        assert_ok!(AdminUtils::sudo_set_min_childkey_take_per_subnet(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            global_min
+        ));
+    });
+}
+
+#[test]
 fn test_sudo_set_commit_reveal_weights_enabled() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
@@ -1260,7 +1302,7 @@ fn test_sudo_get_set_alpha() {
         pallet_subtensor::migrations::migrate_create_root_network::migrate_create_root_network::<
             Test,
         >();
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_000_u64.into());
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_000_u64.into());
         assert_ok!(SubtensorModule::root_register(signer.clone(), hotkey,));
 
         // Should fail as signer does not own the subnet
@@ -1453,6 +1495,79 @@ fn test_sudo_set_coldkey_swap_reannouncement_delay() {
 
         // You might want to check for events here if your pallet emits them
         System::assert_last_event(Event::ColdkeySwapReannouncementDelaySet(new_delay).into());
+    });
+}
+
+#[test]
+fn test_sudo_set_max_epochs_per_block() {
+    new_test_ext().execute_with(|| {
+        let root = RuntimeOrigin::root();
+        let non_root = RuntimeOrigin::signed(U256::from(1));
+        let init_value = SubtensorModule::get_max_epochs_per_block();
+        let to_be_set: u8 = init_value.saturating_add(3);
+
+        // Non-root is rejected and leaves the value untouched.
+        assert_noop!(
+            AdminUtils::sudo_set_max_epochs_per_block(non_root, to_be_set),
+            DispatchError::BadOrigin
+        );
+        assert_eq!(SubtensorModule::get_max_epochs_per_block(), init_value);
+
+        // Zero is rejected by the `>= 1` guard (a zero cap would halt all subnet epochs).
+        assert_noop!(
+            AdminUtils::sudo_set_max_epochs_per_block(root.clone(), 0u8),
+            Error::<Test>::ValueNotInBounds
+        );
+        assert_eq!(SubtensorModule::get_max_epochs_per_block(), init_value);
+
+        // Root succeeds: storage is updated and the event is emitted.
+        assert_ok!(AdminUtils::sudo_set_max_epochs_per_block(root, to_be_set));
+        assert_eq!(SubtensorModule::get_max_epochs_per_block(), to_be_set);
+        System::assert_last_event(Event::MaxEpochsPerBlockSet(to_be_set).into());
+    });
+}
+
+#[test]
+fn test_sudo_set_max_epochs_per_block_changes_deferrals() {
+    new_test_ext().execute_with(|| {
+        let root = RuntimeOrigin::root();
+
+        // Create several subnets and force each to be "due this block".
+        let created: u16 = 4;
+        for i in 0..created {
+            let netuid = NetUid::from(i + 1);
+            add_network(netuid, 100 /*tempo*/);
+            pallet_subtensor::PendingEpochAt::<Test>::insert(netuid, 1);
+        }
+
+        let block = SubtensorModule::get_current_block_as_u64();
+        let subnets: Vec<NetUid> = SubtensorModule::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|x| *x != NetUid::ROOT)
+            .collect();
+        let due = subnets
+            .iter()
+            .filter(|n| SubtensorModule::should_run_epoch(**n, block))
+            .count();
+        assert!(due >= created as usize);
+
+        // Tight cap (1): every due subnet beyond the first is deferred.
+        assert_ok!(AdminUtils::sudo_set_max_epochs_per_block(root.clone(), 1u8));
+        let deferred_tight = SubtensorModule::epochs_deferred_this_block(&subnets, block).len();
+        assert_eq!(deferred_tight, due.saturating_sub(1));
+
+        // Raising the cap above the due count clears all deferrals — proving the
+        // admin-set cap directly drives which epochs are deferred.
+        assert_ok!(AdminUtils::sudo_set_max_epochs_per_block(
+            root,
+            (due as u8).saturating_add(2)
+        ));
+        let deferred_loose = SubtensorModule::epochs_deferred_this_block(&subnets, block).len();
+        assert_eq!(deferred_loose, 0);
+        assert!(
+            deferred_loose < deferred_tight,
+            "raising MaxEpochsPerBlock must defer fewer epochs"
+        );
     });
 }
 
@@ -2000,7 +2115,7 @@ fn test_sudo_set_admin_freeze_window_and_rate() {
 fn test_freeze_window_blocks_root_and_owner() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let tempo = 10;
+        let tempo: u16 = 10;
         // Create subnet with tempo 10
         add_network(netuid, tempo);
         // Set freeze window to 3 blocks
@@ -2008,8 +2123,12 @@ fn test_freeze_window_blocks_root_and_owner() {
             <<Test as Config>::RuntimeOrigin>::root(),
             3
         ));
-        // Advance to a block where remaining < 3
-        run_to_block((tempo - 2).into());
+        // Pin the state-based scheduler so the next auto-epoch lands at
+        // `LastEpochBlock + tempo`. Freeze window covers blocks (next_auto - 3, next_auto].
+        pallet_subtensor::LastEpochBlock::<Test>::insert(netuid, 0);
+        let next_auto = tempo as u64;
+        // Advance to a block inside the freeze window (remaining < 3).
+        run_to_block(next_auto - 2);
 
         // Root should be blocked during freeze window
         assert_noop!(
@@ -2105,7 +2224,7 @@ fn test_owner_hyperparam_update_rate_limit_enforced() {
         SubnetOwner::<Test>::insert(netuid, owner);
 
         // Set tempo to 1 so owner hyperparam RL = 2 tempos = 2 blocks
-        SubtensorModule::set_tempo(netuid, 1);
+        SubtensorModule::set_tempo_unchecked(netuid, 1);
         // Disable admin freeze window to avoid blocking on small tempo
         assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
             <<Test as Config>::RuntimeOrigin>::root(),
@@ -2160,7 +2279,7 @@ fn test_hyperparam_rate_limit_enforced_by_tempo() {
         SubnetOwner::<Test>::insert(netuid, owner);
 
         // Set tempo to 1 so RL = 2 blocks
-        SubtensorModule::set_tempo(netuid, 1);
+        SubtensorModule::set_tempo_unchecked(netuid, 1);
         // Disable admin freeze window to avoid blocking on small tempo
         assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
             <<Test as Config>::RuntimeOrigin>::root(),
@@ -2208,7 +2327,7 @@ fn test_owner_hyperparam_rate_limit_independent_per_param() {
         SubnetOwner::<Test>::insert(netuid, owner);
 
         // Use small tempo to make RL short and deterministic (2 blocks when tempo=1)
-        SubtensorModule::set_tempo(netuid, 1);
+        SubtensorModule::set_tempo_unchecked(netuid, 1);
         // Disable admin freeze window so it doesn't interfere with small tempo
         assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
             <<Test as Config>::RuntimeOrigin>::root(),
@@ -2377,6 +2496,92 @@ fn test_sudo_set_mechanism_count() {
     });
 }
 
+#[test]
+fn test_sudo_set_owner_cut_enabled() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(11);
+        let owner = U256::from(1234);
+        let call = RuntimeCall::AdminUtils(crate::Call::sudo_set_owner_cut_enabled {
+            netuid,
+            enabled: false,
+        });
+
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0
+        ));
+
+        let dispatch_info = call.get_dispatch_info();
+        assert_eq!(dispatch_info.pays_fee, Pays::Yes);
+
+        assert!(SubtensorModule::get_owner_cut_enabled(netuid));
+        assert_ok!(AdminUtils::sudo_set_owner_cut_enabled(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            false
+        ));
+        assert!(!SubtensorModule::get_owner_cut_enabled(netuid));
+
+        assert_ok!(AdminUtils::sudo_set_owner_cut_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            true
+        ));
+        assert!(SubtensorModule::get_owner_cut_enabled(netuid));
+    });
+}
+
+#[test]
+fn test_sudo_set_owner_cut_auto_lock_enabled() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(11);
+        let owner = U256::from(1234);
+        let non_owner = U256::from(4321);
+        let call = RuntimeCall::AdminUtils(crate::Call::sudo_set_owner_cut_auto_lock_enabled {
+            netuid,
+            enabled: true,
+        });
+
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+
+        assert_ok!(AdminUtils::sudo_set_admin_freeze_window(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            0
+        ));
+
+        let dispatch_info = call.get_dispatch_info();
+        assert_eq!(dispatch_info.pays_fee, Pays::Yes);
+
+        assert!(!SubtensorModule::get_owner_cut_auto_lock_enabled(netuid));
+        assert_noop!(
+            AdminUtils::sudo_set_owner_cut_auto_lock_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(non_owner),
+                netuid,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_owner_cut_auto_lock_enabled(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            false
+        ));
+        assert!(!SubtensorModule::get_owner_cut_auto_lock_enabled(netuid));
+
+        assert_ok!(AdminUtils::sudo_set_owner_cut_auto_lock_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            true
+        ));
+        assert!(SubtensorModule::get_owner_cut_auto_lock_enabled(netuid));
+    });
+}
+
 // cargo test --package pallet-admin-utils --lib -- tests::test_sudo_set_mechanism_count_and_emissions --exact --show-output
 #[test]
 fn test_sudo_set_mechanism_count_and_emissions() {
@@ -2495,12 +2700,8 @@ fn test_trim_to_max_allowed_uids() {
         let u64_values: Vec<u64> = values.iter().map(|&v| v as u64).collect();
 
         Emission::<Test>::set(netuid, alpha_values);
-        // NOTE: Rank/Trust/PruningScores are *not* trimmed anymore, but we can populate them.
-        Rank::<Test>::insert(netuid, values.clone());
-        Trust::<Test>::insert(netuid, values.clone());
         Consensus::<Test>::insert(netuid, values.clone());
         Dividends::<Test>::insert(netuid, values.clone());
-        PruningScores::<Test>::insert(netuid, values.clone());
         ValidatorTrust::<Test>::insert(netuid, values.clone());
         StakeWeight::<Test>::insert(netuid, values.clone());
         ValidatorPermit::<Test>::insert(netuid, bool_values.clone());
@@ -2593,7 +2794,6 @@ fn test_trim_to_max_allowed_uids() {
         let expected_bools = vec![true, true, true, true, true, true, true, true];
         let expected_u64_values = vec![56, 91, 34, 77, 65, 88, 51, 74];
 
-        // NOTE: Rank/Trust/PruningScores are no longer trimmed; do not assert on them.
         assert_eq!(Active::<Test>::get(netuid), expected_bools);
         assert_eq!(Consensus::<Test>::get(netuid), expected_values);
         assert_eq!(Dividends::<Test>::get(netuid), expected_values);

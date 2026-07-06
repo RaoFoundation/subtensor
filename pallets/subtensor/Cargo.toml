@@ -43,6 +43,7 @@ subtensor-swap-interface.workspace = true
 runtime-common.workspace = true
 subtensor-runtime-common = { workspace = true, features = ["approx"] }
 sp-keyring.workspace = true
+pallet-alpha-assets.workspace = true
 
 pallet-drand.workspace = true
 pallet-commitments.workspace = true
@@ -115,6 +116,7 @@ std = [
 	"sp-version/std",
 	"sp-keyring/std",
 	"subtensor-runtime-common/std",
+	"pallet-alpha-assets/std",
 	"pallet-commitments/std",
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
@@ -158,6 +160,9 @@ runtime-benchmarks = [
 	"pallet-subtensor-utility/runtime-benchmarks",
 	"pallet-shield/runtime-benchmarks",
 	"subtensor-runtime-common/runtime-benchmarks",
+	"subtensor-swap-interface/runtime-benchmarks",
+	"libsecp256k1/hmac",
+	"libsecp256k1/static-context",
 ]
 pow-faucet = []
 fast-runtime = ["subtensor-runtime-common/fast-runtime"]

@@ -2,17 +2,14 @@
 use super::mock::*;
 
 use crate::Error;
-use crate::extensions::SubtensorTransactionExtension;
 use crate::*;
 use frame_support::assert_noop;
 use frame_support::{
     assert_ok,
     dispatch::{DispatchClass, DispatchInfo, GetDispatchInfo, Pays},
 };
-use frame_system::{Config, RawOrigin};
+use frame_system::Config;
 use sp_core::U256;
-use sp_runtime::traits::{DispatchInfoOf, TransactionExtension, TxBaseImplication};
-use subtensor_runtime_common::CustomTransactionError;
 
 mod test {
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -1169,76 +1166,5 @@ fn test_set_subnet_identity_dispatch_info_ok() {
 
         assert_eq!(dispatch_info.class, DispatchClass::Normal);
         assert_eq!(dispatch_info.pays_fee, Pays::Yes);
-    });
-}
-
-// cargo test --package pallet-subtensor --lib -- tests::serving::test_serve_axon_validate --exact --show-output
-#[test]
-fn test_serve_axon_validate() {
-    // Testing the signed extension validate function
-    // correctly filters the `serve_axon` transaction.
-
-    new_test_ext(0).execute_with(|| {
-        let hotkey = U256::from(1);
-        let netuid = NetUid::from(1);
-        let version: u32 = 2;
-        let ip: u128 = 1676056785;
-        let port: u16 = 128;
-        let ip_type: u8 = 4;
-        let protocol: u8 = 0;
-        let placeholder1: u8 = 0;
-        let placeholder2: u8 = 0;
-
-        // Serve axon bad call
-        let call = RuntimeCall::SubtensorModule(SubtensorCall::serve_axon {
-            netuid,
-            version,
-            ip,
-            port,
-            ip_type,
-            protocol,
-            placeholder1,
-            placeholder2,
-        });
-
-        let info: DispatchInfo =
-            DispatchInfoOf::<<Test as frame_system::Config>::RuntimeCall>::default();
-
-        let extension = SubtensorTransactionExtension::<Test>::new();
-        // Submit to the signed extension validate function
-        let result_bad = extension.validate(
-            RawOrigin::Signed(hotkey).into(),
-            &call.clone(),
-            &info,
-            10,
-            (),
-            &TxBaseImplication(()),
-            TransactionSource::External,
-        );
-
-        // Should fail due to insufficient stake
-        assert_eq!(
-            result_bad.unwrap_err(),
-            CustomTransactionError::HotKeyNotRegisteredInNetwork.into()
-        );
-
-        // Register the hotkey in the subnet and try again
-        let coldkey = U256::from(1);
-        add_network(netuid, 13, 0);
-        register_ok_neuron(netuid, hotkey, coldkey, 0);
-
-        // Submit to the signed extension validate function
-        let result_ok = extension.validate(
-            RawOrigin::Signed(hotkey).into(),
-            &call.clone(),
-            &info,
-            10,
-            (),
-            &TxBaseImplication(()),
-            TransactionSource::External,
-        );
-
-        // Now the call passes
-        assert_ok!(result_ok);
     });
 }

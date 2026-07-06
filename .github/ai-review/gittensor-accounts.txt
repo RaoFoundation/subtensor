@@ -1,0 +1,5 @@
+# Curated list of GitHub usernames known to be associated with Gittensor (SN74) miners.
+# One login per line. Lines starting with # are ignored.
+# Maintained by the nucleus team. Augmented automatically by the on-chain indexer
+# which writes to known-gittensor-accounts.json — only add accounts here that the
+# indexer cannot discover (e.g. PAT-only farmers who have never won a bounty).

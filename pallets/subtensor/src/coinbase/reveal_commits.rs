@@ -38,8 +38,9 @@ impl<T: Config> Pallet<T> {
     /// The `reveal_crv3_commits` function is run at the very beginning of epoch `n`,
     pub fn reveal_crv3_commits_for_subnet(netuid: NetUid) -> dispatch::DispatchResult {
         let reveal_period = Self::get_reveal_period(netuid);
-        let cur_block = Self::get_current_block_as_u64();
-        let cur_epoch = Self::get_epoch_index(netuid, cur_block);
+        // If the subnet is deferred past this block the
+        // commits are taken once here and the later block(s) become no-ops.
+        let cur_epoch = Self::current_epoch_with_lookahead(netuid);
 
         // Weights revealed must have been committed during epoch `cur_epoch - reveal_period`.
         let reveal_epoch = cur_epoch.saturating_sub(reveal_period);

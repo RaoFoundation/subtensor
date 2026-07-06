@@ -51,5 +51,10 @@ scripts/specs/local.json
 # Node modules
 node_modules
 
-# Claude Code configuration
-.claude
+# Python bytecode cache (from .github/ai-review/*.py)
+__pycache__/
+*.py[cod]
+
+# Claude Code configuration (skills are checked in; everything else is ignored)
+.claude/*
+!.claude/skills/

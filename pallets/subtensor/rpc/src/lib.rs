@@ -14,7 +14,7 @@ use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 use sp_api::ProvideRuntimeApi;
 
 pub use subtensor_custom_rpc_runtime_api::{
-    DelegateInfoRuntimeApi, NeuronInfoRuntimeApi, SubnetInfoRuntimeApi,
+    DelegateInfoRuntimeApi, NeuronInfoRuntimeApi, StakeInfoRuntimeApi, SubnetInfoRuntimeApi,
     SubnetRegistrationRuntimeApi,
 };
 
@@ -83,6 +83,9 @@ pub trait SubtensorCustomApi<BlockHash> {
     ) -> RpcResult<Vec<u8>>;
     #[method(name = "subnetInfo_getSubnetState")]
     fn get_subnet_state(&self, netuid: NetUid, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
+
+    #[method(name = "subnetInfo_getBlockEmission")]
+    fn get_block_emission(&self, at: Option<BlockHash>) -> RpcResult<TaoBalance>;
     #[method(name = "subnetInfo_getLockCost")]
     fn get_network_lock_cost(&self, at: Option<BlockHash>) -> RpcResult<TaoBalance>;
     #[method(name = "subnetInfo_getSelectiveMetagraph")]
@@ -109,6 +112,15 @@ pub trait SubtensorCustomApi<BlockHash> {
     ) -> RpcResult<Vec<u8>>;
     #[method(name = "subnetInfo_getSubnetToPrune")]
     fn get_subnet_to_prune(&self, at: Option<BlockHash>) -> RpcResult<Option<NetUid>>;
+    #[method(name = "subnetInfo_getSubnetAccountId")]
+    fn get_subnet_account_id(&self, netuid: NetUid, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
+    #[method(name = "stakeInfo_getColdkeyLock")]
+    fn get_coldkey_lock(
+        &self,
+        coldkey: AccountId32,
+        netuid: NetUid,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Vec<u8>>;
 }
 
 pub struct SubtensorCustom<C, P> {
@@ -156,6 +168,7 @@ where
     C::Api: DelegateInfoRuntimeApi<Block>,
     C::Api: NeuronInfoRuntimeApi<Block>,
     C::Api: SubnetInfoRuntimeApi<Block>,
+    C::Api: StakeInfoRuntimeApi<Block>,
     C::Api: SubnetRegistrationRuntimeApi<Block>,
 {
     fn get_delegates(&self, at: Option<<Block as BlockT>::Hash>) -> RpcResult<Vec<u8>> {
@@ -294,6 +307,7 @@ where
         }
     }
 
+    #[allow(deprecated)]
     fn get_subnet_hyperparams(
         &self,
         netuid: NetUid,
@@ -308,6 +322,7 @@ where
         }
     }
 
+    #[allow(deprecated)]
     fn get_subnet_hyperparams_v2(
         &self,
         netuid: NetUid,
@@ -455,6 +470,14 @@ where
         }
     }
 
+    fn get_block_emission(&self, at: Option<<Block as BlockT>::Hash>) -> RpcResult<TaoBalance> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        api.get_block_emission(at)
+            .map_err(|e| Error::RuntimeError(format!("Unable to get block emission: {e:?}")).into())
+    }
+
     fn get_network_lock_cost(&self, at: Option<<Block as BlockT>::Hash>) -> RpcResult<TaoBalance> {
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
@@ -529,6 +552,35 @@ where
             Err(e) => {
                 Err(Error::RuntimeError(format!("Unable to get subnet to prune: {e:?}")).into())
             }
+        }
+    }
+
+    fn get_subnet_account_id(
+        &self,
+        netuid: NetUid,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_subnet_account_id(at, netuid) {
+            Ok(result) => Ok(result.encode()),
+            Err(_) => Err(Error::RuntimeError("Subnet does not exist".to_string()).into()),
+        }
+    }
+
+    fn get_coldkey_lock(
+        &self,
+        coldkey: AccountId32,
+        netuid: NetUid,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_coldkey_lock(at, coldkey, netuid) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => Err(Error::RuntimeError(format!("Unable to get coldkey lock: {e:?}")).into()),
         }
     }
 }

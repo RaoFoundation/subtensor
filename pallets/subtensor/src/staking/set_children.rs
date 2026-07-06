@@ -735,7 +735,8 @@ impl<T: Config> Pallet<T> {
 
         // Ensure the take value is valid
         ensure!(
-            take <= Self::get_max_childkey_take(),
+            take >= Self::get_effective_min_childkey_take(netuid)
+                && take <= Self::get_max_childkey_take(),
             Error::<T>::InvalidChildkeyTake
         );
 
@@ -789,7 +790,11 @@ impl<T: Config> Pallet<T> {
     ///     - The childkey take value. This is a percentage represented as a value between 0
     ///       and 10000, where 10000 represents 100%.
     pub fn get_childkey_take(hotkey: &T::AccountId, netuid: NetUid) -> u16 {
-        ChildkeyTake::<T>::get(hotkey, netuid)
+        ChildkeyTake::<T>::get(hotkey, netuid).max(Self::get_effective_min_childkey_take(netuid))
+    }
+
+    pub fn get_auto_parent_delegation_enabled(root_validator_hotkey: &T::AccountId) -> bool {
+        AutoParentDelegationEnabled::<T>::get(root_validator_hotkey)
     }
 
     ////////////////////////////////////////////////////////////
@@ -829,6 +834,11 @@ impl<T: Config> Pallet<T> {
             // Skip if the root validator is the subnet owner hotkey itself
             // (cannot be both parent and child).
             if root_validator_hotkey == subnet_owner_hotkey {
+                continue;
+            }
+
+            // Skip if root validator disabled auto parent delegation via AutoParentDelegationEnabled flag
+            if !Self::get_auto_parent_delegation_enabled(&root_validator_hotkey) {
                 continue;
             }
 

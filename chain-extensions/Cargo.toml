@@ -21,9 +21,11 @@ sp-std.workspace = true
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 subtensor-runtime-common.workspace = true
+subtensor-macros.workspace = true
 pallet-contracts.workspace = true
 pallet-subtensor.workspace = true
 pallet-subtensor-swap.workspace = true
+pallet-alpha-assets.workspace = true
 pallet-balances.workspace = true
 pallet-scheduler.workspace = true
 pallet-preimage.workspace = true
@@ -52,6 +54,7 @@ std = [
 	"codec/std",
 	"scale-info/std",
 	"subtensor-runtime-common/std",
+	"pallet-alpha-assets/std",
 	"pallet-contracts/std",
 	"pallet-subtensor/std",
 	"pallet-subtensor-swap/std",
@@ -82,5 +85,6 @@ runtime-benchmarks = [
 	"pallet-subtensor-proxy/runtime-benchmarks",
 	"pallet-subtensor-utility/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-	"subtensor-runtime-common/runtime-benchmarks"
+	"subtensor-runtime-common/runtime-benchmarks",
+	"subtensor-swap-interface/runtime-benchmarks"
 ]

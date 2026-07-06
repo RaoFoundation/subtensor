@@ -1,7 +1,10 @@
-import { expect, beforeAll } from "vitest";
-import type { PolkadotClient, TypedApi } from "polkadot-api";
-import { hexToU8a } from "@polkadot/util";
 import { describeSuite } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { Keyring } from "@polkadot/keyring";
+import { hexToU8a } from "@polkadot/util";
+import type { PolkadotClient, TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     checkRuntime,
     getAccountNonce,
@@ -11,9 +14,6 @@ import {
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
-import type { KeyringPair } from "@moonwall/util";
-import { Keyring } from "@polkadot/keyring";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
 
 describeSuite({
     id: "01_scaling",

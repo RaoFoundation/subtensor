@@ -66,16 +66,22 @@ fn ensure_subnet_owner_or_root_distinguishes_root_and_owner() {
 fn ensure_admin_window_open_blocks_in_freeze_window() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(0);
-        let tempo = 10;
-        add_network(netuid, 10, 0);
+        let tempo: u16 = 10;
+        add_network(netuid, tempo, 0);
 
-        let freeze_window = 3;
+        let freeze_window: u16 = 3;
         crate::Pallet::<Test>::set_admin_freeze_window(freeze_window);
 
-        System::set_block_number((tempo - freeze_window).into());
+        crate::LastEpochBlock::<Test>::insert(netuid, 0);
+        // Period is `tempo`: next auto-epoch fires at `LastEpochBlock + tempo`.
+        let next_auto = tempo as u64;
+
+        // Inside freeze window: `next_auto - freeze_window + 1`.
+        System::set_block_number(next_auto - freeze_window as u64 + 1);
         assert!(crate::Pallet::<Test>::ensure_admin_window_open(netuid).is_err());
 
-        System::set_block_number((tempo - freeze_window - 1).into());
+        // Outside freeze window: `next_auto - freeze_window`.
+        System::set_block_number(next_auto - freeze_window as u64);
         assert!(crate::Pallet::<Test>::ensure_admin_window_open(netuid).is_ok());
     });
 }
@@ -93,7 +99,7 @@ fn ensure_owner_or_root_with_limits_checks_rl_and_freeze() {
         crate::Pallet::<Test>::set_admin_freeze_window(0);
 
         // Set tempo to 1 so owner hyperparam RL = 2 blocks
-        crate::Pallet::<Test>::set_tempo(netuid, 1);
+        crate::Pallet::<Test>::set_tempo_unchecked(netuid, 1);
 
         assert_eq!(OwnerHyperparamRateLimit::<Test>::get(), 2);
 
@@ -135,12 +141,12 @@ fn ensure_owner_or_root_with_limits_checks_rl_and_freeze() {
         // (using loop for clarity, because epoch calculation function uses netuid)
         // Restore tempo and configure freeze window for this part
         let freeze_window = 3;
-        crate::Pallet::<Test>::set_tempo(netuid, tempo);
+        crate::Pallet::<Test>::set_tempo_unchecked(netuid, tempo);
         crate::Pallet::<Test>::set_admin_freeze_window(freeze_window);
         let freeze_window = freeze_window as u64;
         loop {
             let cur = crate::Pallet::<Test>::get_current_block_as_u64();
-            let rem = crate::Pallet::<Test>::blocks_until_next_epoch(netuid, tempo, cur);
+            let rem = crate::Pallet::<Test>::blocks_until_next_auto_epoch(netuid, tempo, cur);
             if rem < freeze_window {
                 break;
             }

@@ -1,10 +1,11 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 use super::mock::*;
 use crate::subnets::symbols::{DEFAULT_SYMBOL, SYMBOLS};
 use crate::*;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use frame_system::Config;
 use sp_core::U256;
+use std::collections::BTreeSet;
 use subtensor_runtime_common::{AlphaBalance, TaoBalance};
 
 use super::mock;
@@ -70,7 +71,7 @@ fn test_do_start_call_fail_not_owner() {
         add_network_without_emission_block(netuid, tempo, 0);
         mock::setup_reserves(netuid, 1_000_000_000.into(), 1_000_000_000.into());
         // Give it some $$$ in his coldkey balance
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey_account_id, 10000.into());
+        add_balance_to_coldkey_account(&coldkey_account_id, 10000.into());
 
         add_network_without_emission_block(netuid, tempo, 0);
 
@@ -100,7 +101,7 @@ fn test_do_start_call_can_start_now() {
         add_network_without_emission_block(netuid, tempo, 0);
         mock::setup_reserves(netuid, 1_000_000_000.into(), 1_000_000_000.into());
         // Give it some $$$ in his coldkey balance
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey_account_id, 10000.into());
+        add_balance_to_coldkey_account(&coldkey_account_id, 10000.into());
 
         add_network_without_emission_block(netuid, tempo, 0);
 
@@ -132,7 +133,7 @@ fn test_do_start_call_fail_for_set_again() {
 
         // Fund coldkey based on the actual burn.
         let burn_u64 = SubtensorModule::get_burn(netuid);
-        SubtensorModule::add_balance_to_coldkey_account(
+        add_balance_to_coldkey_account(
             &coldkey_account_id,
             burn_u64
                 .saturating_add(ExistentialDeposit::get())
@@ -210,7 +211,7 @@ fn test_register_network_min_burn_at_default() {
         let cost = SubtensorModule::get_network_lock_cost();
 
         // Give coldkey enough for lock
-        SubtensorModule::add_balance_to_coldkey_account(&sn_owner_coldkey, cost.into());
+        add_balance_to_coldkey_account(&sn_owner_coldkey, ExistentialDeposit::get() + cost.into());
 
         // Register network
         assert_ok!(SubtensorModule::register_network(
@@ -241,7 +242,7 @@ fn test_register_network_use_symbol_for_subnet_if_available() {
             let coldkey = U256::from(1_000_000 + i);
             let hotkey = U256::from(2_000_000 + i);
             let cost = SubtensorModule::get_network_lock_cost();
-            SubtensorModule::add_balance_to_coldkey_account(&coldkey, cost.into());
+            add_balance_to_coldkey_account(&coldkey, ExistentialDeposit::get() + cost.into());
 
             assert_ok!(SubtensorModule::register_network(
                 <<Test as Config>::RuntimeOrigin>::signed(coldkey),
@@ -260,6 +261,9 @@ fn test_register_network_use_symbol_for_subnet_if_available() {
             // Check registration allowed
             assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
             assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+
+            // Reduce lock cost to avoid exponential cost growth
+            NetworkLastLockCost::<Test>::set(1_000.into());
         }
     });
 }
@@ -272,7 +276,7 @@ fn test_register_network_use_next_available_symbol_if_symbol_for_subnet_is_taken
             let coldkey = U256::from(1_000_000 + i);
             let hotkey = U256::from(2_000_000 + i);
             let cost = SubtensorModule::get_network_lock_cost();
-            SubtensorModule::add_balance_to_coldkey_account(&coldkey, cost.into());
+            add_balance_to_coldkey_account(&coldkey, ExistentialDeposit::get() + cost.into());
 
             assert_ok!(SubtensorModule::register_network(
                 <<Test as Config>::RuntimeOrigin>::signed(coldkey),
@@ -291,6 +295,9 @@ fn test_register_network_use_next_available_symbol_if_symbol_for_subnet_is_taken
             // Check registration allowed
             assert!(NetworkRegistrationAllowed::<Test>::get(netuid));
             assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
+
+            // Reduce lock cost to avoid exponential cost growth
+            NetworkLastLockCost::<Test>::set(1_000.into());
         }
 
         // Swap some of the network symbol for the network 25 to network 51 symbol (not registered yet)
@@ -300,7 +307,7 @@ fn test_register_network_use_next_available_symbol_if_symbol_for_subnet_is_taken
         let coldkey = U256::from(1_000_000 + 50);
         let hotkey = U256::from(2_000_000 + 50);
         let cost = SubtensorModule::get_network_lock_cost();
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, cost.into());
+        add_balance_to_coldkey_account(&coldkey, ExistentialDeposit::get() + cost.into());
 
         assert_ok!(SubtensorModule::register_network(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
@@ -328,19 +335,22 @@ fn test_register_network_use_default_symbol_if_all_symbols_are_taken() {
             let coldkey = U256::from(1_000_000 + i);
             let hotkey = U256::from(2_000_000 + i);
             let cost = SubtensorModule::get_network_lock_cost();
-            SubtensorModule::add_balance_to_coldkey_account(&coldkey, cost.into());
+            add_balance_to_coldkey_account(&coldkey, ExistentialDeposit::get() + cost.into());
 
             assert_ok!(SubtensorModule::register_network(
                 <<Test as Config>::RuntimeOrigin>::signed(coldkey),
                 hotkey
             ));
+
+            // Reduce lock cost to avoid exponential cost growth
+            NetworkLastLockCost::<Test>::set(1_000.into());
         }
 
         // Register a new network
         let coldkey = U256::from(1_000_000 + 50);
         let hotkey = U256::from(2_000_000 + 50);
         let cost = SubtensorModule::get_network_lock_cost();
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, cost.into());
+        add_balance_to_coldkey_account(&coldkey, ExistentialDeposit::get() + cost.into());
 
         assert_ok!(SubtensorModule::register_network(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
@@ -362,6 +372,7 @@ fn test_register_network_use_default_symbol_if_all_symbols_are_taken() {
         assert!(NetworkPowRegistrationAllowed::<Test>::get(netuid));
     });
 }
+
 // cargo test --package pallet-subtensor --lib -- tests::subnet::test_subtoken_enable --exact --show-output
 #[test]
 fn test_subtoken_enable() {
@@ -385,8 +396,7 @@ fn test_subtoken_enable() {
     });
 }
 
-// cargo test --package pallet-subtensor --lib --
-// tests::subnet::test_subtoken_enable_reject_trading_before_enable --exact --show-output
+// cargo test --package pallet-subtensor --lib -- tests::subnet::test_subtoken_enable_reject_trading_before_enable --exact --show-output
 #[allow(clippy::unwrap_used)]
 #[test]
 fn test_subtoken_enable_reject_trading_before_enable() {
@@ -419,10 +429,10 @@ fn test_subtoken_enable_reject_trading_before_enable() {
         register_ok_neuron(netuid, hotkey_account_2_id, coldkey_account_id, 0);
         register_ok_neuron(netuid2, hotkey_account_2_id, coldkey_account_id, 100);
 
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey_account_id, 10_000.into());
+        add_balance_to_coldkey_account(&coldkey_account_id, 10_000.into());
 
         // Give some stake
-        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey_account_id,
             &coldkey_account_id,
             netuid,
@@ -592,10 +602,7 @@ fn test_subtoken_enable_trading_ok_with_enable() {
         register_ok_neuron(netuid, hotkey_account_2_id, coldkey_account_id, 0);
         register_ok_neuron(netuid2, hotkey_account_2_id, coldkey_account_id, 100);
 
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey_account_id,
-            stake_amount * 10.into(),
-        );
+        add_balance_to_coldkey_account(&coldkey_account_id, stake_amount * 10.into());
 
         // all trading extrinsic should be possible now that subtoken is enabled.
         assert_ok!(SubtensorModule::add_stake(
@@ -626,8 +633,6 @@ fn test_subtoken_enable_trading_ok_with_enable() {
             stake_amount
         ));
 
-        remove_stake_rate_limit_for_tests(&hotkey_account_id, &coldkey_account_id, netuid);
-
         assert_ok!(SubtensorModule::remove_stake(
             RuntimeOrigin::signed(coldkey_account_id),
             hotkey_account_id,
@@ -657,8 +662,6 @@ fn test_subtoken_enable_trading_ok_with_enable() {
             netuid2,
             unstake_amount,
         ));
-
-        remove_stake_rate_limit_for_tests(&hotkey_account_2_id, &coldkey_account_id, netuid);
 
         assert_ok!(SubtensorModule::transfer_stake(
             RuntimeOrigin::signed(coldkey_account_id),
@@ -712,7 +715,7 @@ fn test_subtoken_enable_ok_for_burn_register_before_enable() {
         // Fund enough to burned-register twice + keep-alive buffer.
         let burn_1 = SubtensorModule::get_burn(netuid);
         let burn_2 = SubtensorModule::get_burn(netuid2);
-        SubtensorModule::add_balance_to_coldkey_account(
+        add_balance_to_coldkey_account(
             &coldkey_account_id,
             burn_1
                 .saturating_add(burn_2)
@@ -734,63 +737,6 @@ fn test_subtoken_enable_ok_for_burn_register_before_enable() {
         ));
     });
 }
-
-// #[test]
-// fn test_user_liquidity_access_control() {
-//     new_test_ext(1).execute_with(|| {
-//         let owner_hotkey = U256::from(1);
-//         let owner_coldkey = U256::from(2);
-//         let not_owner = U256::from(999); // arbitrary non-owner
-
-//         // add network
-//         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
-
-//         // Not owner, not root: should fail
-//         assert_noop!(
-//             Swap::toggle_user_liquidity(RuntimeOrigin::signed(not_owner), netuid, true),
-//             DispatchError::BadOrigin
-//         );
-
-//         // Subnet owner can enable
-//         assert_ok!(Swap::toggle_user_liquidity(
-//             RuntimeOrigin::signed(owner_coldkey),
-//             netuid,
-//             true
-//         ));
-//         assert!(pallet_subtensor_swap::EnabledUserLiquidity::<Test>::get(
-//             NetUid::from(netuid)
-//         ));
-
-//         // Root can disable
-//         assert_ok!(Swap::toggle_user_liquidity(
-//             RuntimeOrigin::root(),
-//             netuid,
-//             false
-//         ));
-//         assert!(!pallet_subtensor_swap::EnabledUserLiquidity::<Test>::get(
-//             NetUid::from(netuid)
-//         ));
-
-//         // Root can enable again
-//         assert_ok!(Swap::toggle_user_liquidity(
-//             RuntimeOrigin::root(),
-//             netuid,
-//             true
-//         ));
-//         assert!(pallet_subtensor_swap::EnabledUserLiquidity::<Test>::get(
-//             NetUid::from(netuid)
-//         ));
-
-//         // Subnet owner cannot disable (only root can disable)
-//         assert_noop!(
-//             Swap::toggle_user_liquidity(RuntimeOrigin::signed(owner_coldkey), netuid, false),
-//             DispatchError::BadOrigin
-//         );
-//         assert!(pallet_subtensor_swap::EnabledUserLiquidity::<Test>::get(
-//             NetUid::from(netuid)
-//         ));
-//     });
-// }
 
 // cargo test --package pallet-subtensor --lib -- tests::subnet::test_no_duplicates_in_symbol_static --exact --show-output
 #[test]
@@ -906,6 +852,140 @@ fn test_update_symbol_fails_if_symbol_already_in_use() {
                 SYMBOLS.get(42).unwrap().to_vec()
             ),
             Error::<Test>::SymbolAlreadyInUse
+        );
+    });
+}
+
+// cargo test --package pallet-subtensor --lib -- tests::subnet::test_get_subnet_account_id_exists_and_is_distinct_for_257_consecutive_subnets --exact --nocapture
+#[test]
+fn test_get_subnet_account_id_exists_and_is_distinct_for_257_consecutive_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let mut account_ids = BTreeSet::new();
+
+        for raw_netuid in 0u16..=256u16 {
+            let netuid = NetUid::from(raw_netuid);
+            add_network(netuid, 10, 0);
+
+            let account_id = SubtensorModule::get_subnet_account_id(netuid);
+            assert!(
+                account_ids.insert(account_id),
+                "duplicate subnet account id for netuid {:?}",
+                netuid
+            );
+        }
+
+        assert_eq!(account_ids.len(), 257);
+    });
+}
+
+// cargo test --package pallet-subtensor --lib -- tests::subnet::test_is_subnet_account_id --exact --nocapture
+#[test]
+fn test_is_subnet_account_id() {
+    new_test_ext(1).execute_with(|| {
+        for raw_netuid in 0u16..=2048u16 {
+            let netuid = NetUid::from(raw_netuid);
+            add_network(netuid, 10, 0);
+
+            let account_id = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+            let roudtrip_netuid = SubtensorModule::is_subnet_account_id(&account_id);
+            assert_eq!(netuid, roudtrip_netuid.unwrap());
+        }
+
+        // Not a subnet account
+        let not_subnet_account_id = U256::from(1);
+        assert!(SubtensorModule::is_subnet_account_id(&not_subnet_account_id).is_none());
+    });
+}
+
+// cargo test --package pallet-subtensor --lib -- tests::subnet::test_cannot_register_system_hotkey --exact --nocapture
+#[test]
+fn test_cannot_register_system_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        for raw_netuid in 0u16..=2048u16 {
+            let coldkey = U256::from(1);
+            let netuid = NetUid::from(raw_netuid);
+            add_network(netuid, 10, 0);
+
+            let account_id = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+            assert_err!(
+                SubtensorModule::create_account_if_non_existent(&coldkey, &account_id),
+                Error::<Test>::CannotUseSystemAccount
+            );
+            assert!(!SubtensorModule::coldkey_owns_hotkey(&coldkey, &account_id),);
+        }
+    });
+}
+
+#[test]
+fn test_burned_register_increases_subnet_tao_flow() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let coldkey = U256::from(77);
+        let hotkey = U256::from(88);
+
+        add_network(netuid, 13, 0);
+        mock::setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
+
+        let burn = 1_000u64;
+        SubtensorModule::set_burn(netuid, burn.into());
+        let flow_before = SubnetTaoFlow::<Test>::get(netuid);
+
+        add_balance_to_coldkey_account(
+            &coldkey,
+            ExistentialDeposit::get() + burn.into() + 10u64.into(),
+        );
+
+        assert_ok!(SubtensorModule::burned_register(
+            <<Test as Config>::RuntimeOrigin>::signed(coldkey),
+            netuid,
+            hotkey
+        ));
+
+        assert_eq!(
+            SubnetTaoFlow::<Test>::get(netuid),
+            flow_before + burn as i64
+        );
+    });
+}
+
+#[test]
+fn test_register_network_gives_owner_no_initial_alpha_distribution() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(5001);
+        let owner_hotkey = U256::from(5002);
+        let lock_cost = SubtensorModule::get_network_lock_cost();
+        let netuids_before = SubtensorModule::get_all_subnet_netuids();
+
+        add_balance_to_coldkey_account(
+            &owner_coldkey,
+            ExistentialDeposit::get() + lock_cost.into(),
+        );
+
+        assert_ok!(SubtensorModule::register_network(
+            <<Test as Config>::RuntimeOrigin>::signed(owner_coldkey),
+            owner_hotkey
+        ));
+
+        let netuid = SubtensorModule::get_all_subnet_netuids()
+            .into_iter()
+            .find(|netuid| !netuids_before.contains(netuid))
+            .expect("new subnet should be added");
+
+        assert_eq!(SubnetOwner::<Test>::get(netuid), owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), AlphaBalance::ZERO);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &owner_hotkey,
+                &owner_coldkey,
+                netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert!(
+            Lock::<Test>::iter_prefix((&owner_coldkey, netuid))
+                .next()
+                .is_none()
         );
     });
 }

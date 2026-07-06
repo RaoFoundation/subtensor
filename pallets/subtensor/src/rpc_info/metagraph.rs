@@ -10,7 +10,7 @@ use substrate_fixed::types::I96F32;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("fbab6d1e7f3c69ae")]
+#[freeze_struct("54520f5534d7e59e")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Subnet index
@@ -54,7 +54,7 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     max_weights_limit: Compact<u16>,   // max allowed weights per val
     weights_version: Compact<u64>,     // allowed weights version
     weights_rate_limit: Compact<u64>,  // rate limit on weights
-    activity_cutoff: Compact<u16>,     // validator weights cut off period in blocks
+    activity_cutoff: Compact<u64>,     // validator weights cut off period in blocks
     max_validators: Compact<u16>,      // max allowed validators
 
     // Registration
@@ -110,7 +110,7 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     alpha_dividends_per_hotkey: Vec<(AccountId, Compact<AlphaBalance>)>, // List of dividend payout in alpha via subnet.
 }
 
-#[freeze_struct("3ff2befdb7b393ea")]
+#[freeze_struct("5f9c8beab622882c")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     // Subnet index
@@ -154,8 +154,8 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     max_weights_limit: Option<Compact<u16>>,   // max allowed weights per val
     weights_version: Option<Compact<u64>>,     // allowed weights version
     weights_rate_limit: Option<Compact<u64>>,  // rate limit on weights
-    activity_cutoff: Option<Compact<u16>>,     // validator weights cut off period in blocks
-    max_validators: Option<Compact<u16>>,      // max allowed validators
+    activity_cutoff: Option<Compact<u64>>, // validator weights cut off period in blocks (effective = factor × tempo / 1000)
+    max_validators: Option<Compact<u16>>,  // max allowed validators
 
     // Registration
     num_uids: Option<Compact<u16>>,
@@ -710,7 +710,7 @@ impl<T: Config> Pallet<T> {
             max_weights_limit: Self::get_max_weight_limit(netuid).into(),      // max allowed weight
             weights_version: Self::get_weights_version_key(netuid).into(), // allowed weights version
             weights_rate_limit: Self::get_weights_set_rate_limit(netuid).into(), // rate limit on weights.
-            activity_cutoff: Self::get_activity_cutoff(netuid).into(), // validator weights cut off period in blocks
+            activity_cutoff: Self::get_activity_cutoff_blocks(netuid).into(), // validator weights cut off period in blocks
             max_validators: Self::get_max_allowed_validators(netuid).into(), // max allowed validators.
 
             // Registration
@@ -748,10 +748,7 @@ impl<T: Config> Pallet<T> {
             identities,
             active: Active::<T>::get(netuid), // Active per UID
             validator_permit: ValidatorPermit::<T>::get(netuid), // Val permit per UID
-            pruning_score: PruningScores::<T>::get(netuid)
-                .into_iter()
-                .map(Compact::from)
-                .collect(), // Pruning per UID
+            pruning_score: Vec::new(),        // Deprecated: no longer computed
             last_update: LastUpdate::<T>::get(NetUidStorageIndex::from(netuid))
                 .into_iter()
                 .map(Compact::from)
@@ -772,14 +769,8 @@ impl<T: Config> Pallet<T> {
                 .into_iter()
                 .map(Compact::from)
                 .collect(), // Consensus per UID
-            trust: Trust::<T>::get(netuid)
-                .into_iter()
-                .map(Compact::from)
-                .collect(), // Trust per UID
-            rank: Rank::<T>::get(netuid)
-                .into_iter()
-                .map(Compact::from)
-                .collect(), // Rank per UID
+            trust: Vec::new(),                // Deprecated: no longer computed
+            rank: Vec::new(),                 // Deprecated: no longer computed
             block_at_registration,            // Reg block per UID
             alpha_stake: alpha_stake_fl
                 .iter()
@@ -1060,7 +1051,7 @@ impl<T: Config> Pallet<T> {
             },
             Some(SelectiveMetagraphIndex::ActivityCutoff) => SelectiveMetagraph {
                 netuid: netuid.into(),
-                activity_cutoff: Some(Self::get_activity_cutoff(netuid).into()),
+                activity_cutoff: Some(Self::get_activity_cutoff_blocks(netuid).into()),
                 ..Default::default()
             },
             Some(SelectiveMetagraphIndex::MaxValidators) => SelectiveMetagraph {
@@ -1262,12 +1253,7 @@ impl<T: Config> Pallet<T> {
 
             Some(SelectiveMetagraphIndex::PruningScore) => SelectiveMetagraph {
                 netuid: netuid.into(),
-                pruning_score: Some(
-                    PruningScores::<T>::get(netuid)
-                        .into_iter()
-                        .map(Compact::from)
-                        .collect(),
-                ),
+                pruning_score: Some(Vec::new()), // Deprecated: no longer computed
                 ..Default::default()
             },
 
@@ -1328,22 +1314,12 @@ impl<T: Config> Pallet<T> {
 
             Some(SelectiveMetagraphIndex::Trust) => SelectiveMetagraph {
                 netuid: netuid.into(),
-                trust: Some(
-                    Trust::<T>::get(netuid)
-                        .into_iter()
-                        .map(Compact::from)
-                        .collect(),
-                ),
+                trust: Some(Vec::new()), // Deprecated: no longer computed
                 ..Default::default()
             },
             Some(SelectiveMetagraphIndex::Rank) => SelectiveMetagraph {
                 netuid: netuid.into(),
-                rank: Some(
-                    Rank::<T>::get(netuid)
-                        .into_iter()
-                        .map(Compact::from)
-                        .collect(),
-                ),
+                rank: Some(Vec::new()), // Deprecated: no longer computed
                 ..Default::default()
             },
             Some(SelectiveMetagraphIndex::BlockAtRegistration) => {

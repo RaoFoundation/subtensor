@@ -1,4 +1,3 @@
-use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
@@ -49,7 +48,7 @@ impl<T: Config> Pallet<T> {
             "do_add_stake( origin:{coldkey:?} hotkey:{hotkey:?}, netuid:{netuid:?}, stake_to_be_added:{stake_to_be_added:?} )"
         );
 
-        Self::ensure_subtoken_enabled(netuid)?;
+        Self::ensure_add_stake_input_within_swap_limit(netuid, stake_to_be_added)?;
 
         // 2. Validate user input
         Self::validate_add_stake(
@@ -61,21 +60,14 @@ impl<T: Config> Pallet<T> {
             false,
         )?;
 
-        // 3. Ensure the remove operation from the coldkey is a success.
-        let tao_staked: I96F32 =
-            Self::remove_balance_from_coldkey_account(&coldkey, stake_to_be_added.into())?
-                .to_u64()
-                .into();
-
-        // 4. Swap the stake into alpha on the subnet and increase counters.
+        // 3. Swap the stake into alpha on the subnet and increase counters.
         // Emit the staking event.
         Self::stake_into_subnet(
             &hotkey,
             &coldkey,
             netuid,
-            tao_staked.saturating_to_num::<u64>().into(),
+            stake_to_be_added,
             T::SwapInterface::max_price(),
-            true,
             false,
         )
     }
@@ -134,6 +126,8 @@ impl<T: Config> Pallet<T> {
             "do_add_stake( origin:{coldkey:?} hotkey:{hotkey:?}, netuid:{netuid:?}, stake_to_be_added:{stake_to_be_added:?} )"
         );
 
+        Self::ensure_add_stake_input_within_swap_limit(netuid, stake_to_be_added)?;
+
         // 2. Calculate the maximum amount that can be executed with price limit
         let max_amount: TaoBalance = Self::get_max_amount_add(netuid, limit_price)?.into();
         let mut possible_stake = stake_to_be_added;
@@ -156,19 +150,14 @@ impl<T: Config> Pallet<T> {
             Self::maybe_become_delegate(&hotkey);
         }
 
-        // 5. Ensure the remove operation from the coldkey is a success.
-        let tao_staked =
-            Self::remove_balance_from_coldkey_account(&coldkey, possible_stake.into())?;
-
-        // 6. Swap the stake into alpha on the subnet and increase counters.
+        // 5. Swap the stake into alpha on the subnet and increase counters.
         // Emit the staking event.
         Self::stake_into_subnet(
             &hotkey,
             &coldkey,
             netuid,
-            tao_staked,
+            possible_stake,
             limit_price,
-            true,
             false,
         )
     }
@@ -185,19 +174,32 @@ impl<T: Config> Pallet<T> {
             if limit_price >= 1_000_000_000.into() {
                 return Ok(u64::MAX);
             } else {
-                return Err(Error::<T>::ZeroMaxStakeAmount.into());
+                // Price will never move down, so maximum amount that can be staked is zero
+                return Ok(0_u64);
             }
         }
 
-        // Use reverting swap to estimate max limit amount
-        let order = GetAlphaForTao::<T>::with_amount(u64::MAX);
+        // Use the largest supported input instead of probing the swap path with u64::MAX.
+        let max_supported_input = SubnetTAO::<T>::get(netuid).saturating_mul(1_000.into());
+        let order = GetAlphaForTao::<T>::with_amount(max_supported_input);
         let result = T::SwapInterface::swap(netuid.into(), order, limit_price, false, true)
             .map(|r| r.amount_paid_in.saturating_add(r.fee_paid))?;
 
-        if !result.is_zero() {
-            Ok(result.into())
-        } else {
-            Err(Error::<T>::ZeroMaxStakeAmount.into())
+        Ok(result.into())
+    }
+
+    fn ensure_add_stake_input_within_swap_limit(
+        netuid: NetUid,
+        amount: TaoBalance,
+    ) -> Result<(), Error<T>> {
+        if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+            let max_supported_input = SubnetTAO::<T>::get(netuid).saturating_mul(1_000.into());
+            ensure!(
+                amount <= max_supported_input,
+                Error::<T>::InsufficientLiquidity
+            );
         }
+
+        Ok(())
     }
 }

@@ -3,14 +3,14 @@ use crate::verifier::*;
 use crate::*;
 use frame_support::{
     derive_impl, parameter_types,
-    traits::{ConstU16, ConstU64, InherentBuilder},
+    traits::{ConstU16, ConstU64},
 };
 use sp_core::{H256, sr25519::Signature};
 use sp_keystore::{KeystoreExt, testing::MemoryKeystore};
 use sp_runtime::{
     BuildStorage,
     testing::TestXt,
-    traits::{BlakeTwo256, IdentifyAccount, IdentityLookup, Verify},
+    traits::{BlakeTwo256, IdentityLookup, Verify},
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -52,7 +52,6 @@ impl frame_system::Config for Test {
 }
 
 type Extrinsic = TestXt<RuntimeCall, ()>;
-type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
 impl frame_system::offchain::SigningTypes for Test {
     type Public = <Signature as Verify>::Signer;
@@ -67,28 +66,12 @@ where
     type Extrinsic = Extrinsic;
 }
 
-impl<LocalCall> frame_system::offchain::CreateInherent<LocalCall> for Test
+impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test
 where
     RuntimeCall: From<LocalCall>,
 {
     fn create_bare(call: RuntimeCall) -> Self::Extrinsic {
-        Extrinsic::new_inherent(call)
-    }
-}
-
-impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Test
-where
-    RuntimeCall: From<LocalCall>,
-{
-    fn create_signed_transaction<
-        C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>,
-    >(
-        call: RuntimeCall,
-        _public: <Signature as Verify>::Signer,
-        _account: AccountId,
-        nonce: u64,
-    ) -> Option<Self::Extrinsic> {
-        Some(Extrinsic::new_signed(call, nonce, (), ()))
+        Extrinsic::new_bare(call)
     }
 }
 

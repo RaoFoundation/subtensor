@@ -1,0 +1,140 @@
+name: on eco-tests change notification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'eco-tests/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: eco-tests-indexer-notify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ECO_TESTS_REVIEWERS: "evgeny-s"
+
+jobs:
+  notify:
+    name: Notify indexer reviewer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List changed files under eco-tests/
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'eco-tests/' || true)
+          {
+            echo "files<<EOF"
+            echo "$changed"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post or update sticky review-request comment
+        if: steps.changes.outputs.files != ''
+        uses: actions/github-script@v7
+        env:
+          CHANGED_FILES: ${{ steps.changes.outputs.files }}
+          REVIEWERS: ${{ env.ECO_TESTS_REVIEWERS }}
+        with:
+          script: |
+            const marker = '<!-- eco-tests-indexer-notify -->';
+
+            const reviewers = (process.env.REVIEWERS || '')
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
+            const ccLine = reviewers.length
+              ? reviewers.map(u => `@${u}`).join(' ')
+              : '_(no reviewers configured — set ECO_TESTS_REVIEWERS in the workflow)_';
+
+            const changed = (process.env.CHANGED_FILES || '').trim();
+            const fileList = changed
+              .split('\n')
+              .filter(Boolean)
+              .map(f => `- \`${f}\``)
+              .join('\n');
+
+            const body = [
+              marker,
+              '### eco-tests changed — indexer review required',
+              '',
+              'This PR modifies files under `eco-tests/`. and may affect downstream indexing.',
+              `**cc ${ccLine}** — please review manually`,
+              '',
+              '<details><summary>Changed files</summary>',
+              '',
+              fileList,
+              '',
+              '</details>',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              if (existing.body !== body) {
+                await github.rest.issues.updateComment({
+                  owner, repo, comment_id: existing.id, body,
+                });
+              }
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body,
+              });
+            }
+
+      - name: Request reviews from configured reviewers
+        if: steps.changes.outputs.files != ''
+        uses: actions/github-script@v7
+        env:
+          REVIEWERS: ${{ env.ECO_TESTS_REVIEWERS }}
+        with:
+          script: |
+            const reviewers = (process.env.REVIEWERS || '')
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
+            if (reviewers.length === 0) {
+              core.info('ECO_TESTS_REVIEWERS is empty — skipping review request.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const pull_number = context.issue.number;
+            const pr = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            // GitHub rejects requesting a review from the PR author.
+            const author = pr.data.user && pr.data.user.login;
+            const filtered = reviewers.filter(u => u !== author);
+            if (filtered.length === 0) {
+              core.info(`All configured reviewers are the PR author (${author}) — skipping.`);
+              return;
+            }
+
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner, repo, pull_number,
+                reviewers: filtered,
+              });
+            } catch (e) {
+              core.warning(`requestReviewers failed: ${e.message}`);
+            }

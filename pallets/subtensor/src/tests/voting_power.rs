@@ -77,7 +77,7 @@ impl VotingPowerTestFixture {
     #[allow(clippy::arithmetic_side_effects)]
     fn setup_for_staking_with_amount(&self, amount: u64) {
         mock::setup_reserves(self.netuid, (amount * 100).into(), (amount * 100).into());
-        SubtensorModule::add_balance_to_coldkey_account(&self.coldkey, (amount * 10).into());
+        add_balance_to_coldkey_account(&self.coldkey, (amount * 10).into());
     }
 
     /// Enable voting power tracking for the subnet
@@ -401,10 +401,7 @@ fn test_only_validators_get_voting_power() {
             (DEFAULT_STAKE_AMOUNT * 100).into(),
             (DEFAULT_STAKE_AMOUNT * 100).into(),
         );
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey,
-            (DEFAULT_STAKE_AMOUNT * 20).into(),
-        );
+        add_balance_to_coldkey_account(&coldkey, (DEFAULT_STAKE_AMOUNT * 20).into());
 
         // Register miner
         register_ok_neuron(netuid, miner_hotkey, coldkey, 0);

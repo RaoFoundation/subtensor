@@ -17,7 +17,7 @@ env:
 jobs:
   eco-tests:
     name: cargo test (eco-tests)
-    runs-on: [self-hosted, type-ccx43]
+    runs-on: [self-hosted, fireactions-heavy]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1

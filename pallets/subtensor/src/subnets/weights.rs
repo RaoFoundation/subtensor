@@ -96,17 +96,21 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CommittingWeightsTooFast
         );
 
-        // 5. Calculate the reveal blocks based on network tempo and reveal period.
-        let (first_reveal_block, last_reveal_block) = Self::get_reveal_blocks(netuid, commit_block);
+        // 5. Resolve the epoch this commit belongs to under the stateful counter.
+        let commit_epoch = Self::current_epoch_with_lookahead(netuid);
 
         // 6. Retrieve or initialize the VecDeque of commits for the hotkey.
         WeightCommits::<T>::try_mutate(netuid_index, &who, |maybe_commits| -> DispatchResult {
+            // Tuple shape `(hash, commit_epoch, commit_block, _)`. `commit_epoch`
+            // drives reveal-window timing; `commit_block` is kept for the epoch's
+            // commit-reveal weight column-mask. The 4th field is a legacy
+            // reveal-block bound, now unused and left at 0.
             let mut commits: VecDeque<(H256, u64, u64, u64)> =
                 maybe_commits.take().unwrap_or_default();
 
             // 7. Remove any expired commits from the front of the queue.
-            while let Some((_, commit_block_existing, _, _)) = commits.front() {
-                if Self::is_commit_expired(netuid, *commit_block_existing) {
+            while let Some((_, commit_epoch_existing, _, _)) = commits.front() {
+                if Self::is_commit_expired(netuid, *commit_epoch_existing) {
                     commits.pop_front();
                 } else {
                     break;
@@ -116,13 +120,8 @@ impl<T: Config> Pallet<T> {
             // 8. Verify that the number of unrevealed commits is within the allowed limit.
             ensure!(commits.len() < 10, Error::<T>::TooManyUnrevealedCommits);
 
-            // 9. Append the new commit with calculated reveal blocks.
-            commits.push_back((
-                commit_hash,
-                commit_block,
-                first_reveal_block,
-                last_reveal_block,
-            ));
+            // 9. Append the new commit, tagged with its epoch and block.
+            commits.push_back((commit_hash, commit_epoch, commit_block, 0));
 
             // 10. Store the updated commits queue back to storage.
             *maybe_commits = Some(commits);
@@ -184,24 +183,27 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InputLengthsUnequal
         );
 
-        let results: Vec<dispatch::DispatchResult> = netuids
+        let results: Vec<(NetUid, dispatch::DispatchResult)> = netuids
             .iter()
             .zip(commit_hashes.iter())
             .map(|(&netuid, &commit_hash)| {
                 let origin_cloned = origin.clone();
-
-                Self::do_commit_weights(origin_cloned, netuid.into(), commit_hash)
+                let netuid: NetUid = netuid.into();
+                (
+                    netuid,
+                    Self::do_commit_weights(origin_cloned, netuid, commit_hash),
+                )
             })
             .collect();
 
         let mut completed_with_errors: bool = false;
-        for result in results {
+        for (netuid, result) in results {
             if let Some(err) = result.err() {
                 if !completed_with_errors {
                     Self::deposit_event(Event::BatchCompletedWithErrors());
                     completed_with_errors = true;
                 }
-                Self::deposit_event(Event::BatchWeightItemFailed(err));
+                Self::deposit_event(Event::BatchWeightItemFailed(netuid, err));
             }
         }
 
@@ -339,10 +341,8 @@ impl<T: Config> Pallet<T> {
 
         // 6. Retrieve or initialize the VecDeque of commits for the hotkey.
         let cur_block = Self::get_current_block_as_u64();
-        let cur_epoch = match Self::should_run_epoch(netuid, commit_block) {
-            true => Self::get_epoch_index(netuid, cur_block).saturating_add(1),
-            false => Self::get_epoch_index(netuid, cur_block),
-        };
+        // Key the commit by the epoch it belongs to under the stateful counter.
+        let cur_epoch = Self::current_epoch_with_lookahead(netuid);
 
         TimelockedWeightCommits::<T>::try_mutate(
             netuid_index,
@@ -1043,39 +1043,37 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InputLengthsUnequal
         );
 
-        let results: Vec<dispatch::DispatchResult> = netuids
+        let results: Vec<(NetUid, dispatch::DispatchResult)> = netuids
             .iter()
             .zip(weights.iter())
             .zip(version_keys.iter())
             .map(|((&netuid, w), &version_key)| {
                 let origin_cloned = origin.clone();
+                let netuid: NetUid = netuid.into();
 
-                if Self::get_commit_reveal_weights_enabled(netuid.into()) {
-                    return Err(Error::<T>::CommitRevealEnabled.into());
+                if Self::get_commit_reveal_weights_enabled(netuid) {
+                    return (netuid, Err(Error::<T>::CommitRevealEnabled.into()));
                 }
 
                 let uids = w.iter().map(|(u, _)| (*u).into()).collect::<Vec<u16>>();
 
                 let values = w.iter().map(|(_, v)| (*v).into()).collect::<Vec<u16>>();
 
-                Self::do_set_weights(
-                    origin_cloned,
-                    netuid.into(),
-                    uids,
-                    values,
-                    version_key.into(),
+                (
+                    netuid,
+                    Self::do_set_weights(origin_cloned, netuid, uids, values, version_key.into()),
                 )
             })
             .collect();
 
         let mut completed_with_errors: bool = false;
-        for result in results {
+        for (netuid, result) in results {
             if let Some(err) = result.err() {
                 if !completed_with_errors {
                     Self::deposit_event(Event::BatchCompletedWithErrors());
                     completed_with_errors = true;
                 }
-                Self::deposit_event(Event::BatchWeightItemFailed(err));
+                Self::deposit_event(Event::BatchWeightItemFailed(netuid, err));
             }
         }
 
@@ -1248,49 +1246,49 @@ impl<T: Config> Pallet<T> {
         uids.len() <= subnetwork_n as usize
     }
 
-    pub fn is_reveal_block_range(netuid: NetUid, commit_block: u64) -> bool {
-        let current_block: u64 = Self::get_current_block_as_u64();
-        let commit_epoch: u64 = Self::get_epoch_index(netuid, commit_block);
-        let current_epoch: u64 = Self::get_epoch_index(netuid, current_block);
+    /// True when the current epoch is exactly `commit_epoch + reveal_period`.
+    ///
+    /// `commit_epoch` is the `SubnetEpochIndex` value stored with the commit (CR-v2
+    /// `WeightCommits` tuple field 1). The current epoch uses the look-ahead value
+    /// so a reveal submitted on a fire-block is judged against the about-to-fire
+    /// epoch, consistent with how the commit was tagged.
+    pub fn is_reveal_block_range(netuid: NetUid, commit_epoch: u64) -> bool {
+        let current_epoch: u64 = Self::current_epoch_with_lookahead(netuid);
         let reveal_period: u64 = Self::get_reveal_period(netuid);
 
-        // Reveal is allowed only in the exact epoch `commit_epoch + reveal_period`
         current_epoch == commit_epoch.saturating_add(reveal_period)
     }
 
-    pub fn get_epoch_index(netuid: NetUid, block_number: u64) -> u64 {
-        let tempo: u64 = Self::get_tempo(netuid) as u64;
-        let tempo_plus_one: u64 = tempo.saturating_add(1);
-        let netuid_plus_one: u64 = (u16::from(netuid) as u64).saturating_add(1);
-        let block_with_offset: u64 = block_number.saturating_add(netuid_plus_one);
-
-        block_with_offset.checked_div(tempo_plus_one).unwrap_or(0)
+    /// Canonical epoch index for a subnet — the monotonic `SubnetEpochIndex` counter.
+    pub fn get_epoch_index(netuid: NetUid, _block_number: u64) -> u64 {
+        SubnetEpochIndex::<T>::get(netuid)
     }
 
-    pub fn is_commit_expired(netuid: NetUid, commit_block: u64) -> bool {
-        let current_block: u64 = Self::get_current_block_as_u64();
-        let current_epoch: u64 = Self::get_epoch_index(netuid, current_block);
-        let commit_epoch: u64 = Self::get_epoch_index(netuid, commit_block);
+    /// Epoch index that a commit or reveal happening at the *current* block
+    /// belongs to: the `SubnetEpochIndex` counter, plus one if an epoch slot is
+    /// due to fire this block.
+    ///
+    /// The look-ahead is needed because `block_step` runs in `on_initialize`:
+    /// `reveal_crv3_commits` (which must see the about-to-fire epoch) runs before
+    /// `run_coinbase` increments the counter, and a commit extrinsic submitted on
+    /// a deferred fire-block belongs to the next epoch, not the current one.
+    pub fn current_epoch_with_lookahead(netuid: NetUid) -> u64 {
+        let block = Self::get_current_block_as_u64();
+        let base = SubnetEpochIndex::<T>::get(netuid);
+        if Self::should_run_epoch(netuid, block) {
+            base.saturating_add(1)
+        } else {
+            base
+        }
+    }
+
+    /// True once the current epoch has moved past the commit's reveal epoch
+    /// (`commit_epoch + reveal_period`). `commit_epoch` is the stored counter value.
+    pub fn is_commit_expired(netuid: NetUid, commit_epoch: u64) -> bool {
+        let current_epoch: u64 = Self::current_epoch_with_lookahead(netuid);
         let reveal_period: u64 = Self::get_reveal_period(netuid);
 
         current_epoch > commit_epoch.saturating_add(reveal_period)
-    }
-
-    pub fn get_reveal_blocks(netuid: NetUid, commit_block: u64) -> (u64, u64) {
-        let reveal_period: u64 = Self::get_reveal_period(netuid);
-        let tempo: u64 = Self::get_tempo(netuid) as u64;
-        let tempo_plus_one: u64 = tempo.saturating_add(1);
-        let netuid_plus_one: u64 = (u16::from(netuid) as u64).saturating_add(1);
-
-        let commit_epoch: u64 = Self::get_epoch_index(netuid, commit_block);
-        let reveal_epoch: u64 = commit_epoch.saturating_add(reveal_period);
-
-        let first_reveal_block = reveal_epoch
-            .saturating_mul(tempo_plus_one)
-            .saturating_sub(netuid_plus_one);
-        let last_reveal_block = first_reveal_block.saturating_add(tempo);
-
-        (first_reveal_block, last_reveal_block)
     }
 
     pub fn set_reveal_period(netuid: NetUid, reveal_period: u64) -> DispatchResult {
@@ -1313,6 +1311,11 @@ impl<T: Config> Pallet<T> {
         RevealPeriodEpochs::<T>::get(netuid)
     }
 
+    /// Legacy modulo first-block-of-epoch: `epoch * (tempo + 1) - (netuid + 1)`.
+    ///
+    /// NOT used by live commit-reveal logic — that keys off the stateful
+    /// `SubnetEpochIndex` counter. Retained solely so the already-executed,
+    /// one-shot `migrate_crv3_commits_add_block` migration stays untouched.
     pub fn get_first_block_of_epoch(netuid: NetUid, epoch: u64) -> u64 {
         let tempo: u64 = Self::get_tempo(netuid) as u64;
         let tempo_plus_one: u64 = tempo.saturating_add(1);
@@ -1333,18 +1336,20 @@ impl<T: Config> Pallet<T> {
         BlakeTwo256::hash_of(&(who.clone(), netuid_index, uids, values, salt, version_key))
     }
 
-    pub fn find_commit_block_via_hash(hash: H256) -> Option<u64> {
+    /// Returns the stored `commit_epoch` (CR-v2 `WeightCommits` tuple field 1) for
+    /// the commit with the given hash, if any.
+    pub fn find_commit_epoch_via_hash(hash: H256) -> Option<u64> {
         WeightCommits::<T>::iter().find_map(|(_, _, commits)| {
             commits
                 .iter()
                 .find(|(h, _, _, _)| *h == hash)
-                .map(|(_, commit_block, _, _)| *commit_block)
+                .map(|(_, commit_epoch, _, _)| *commit_epoch)
         })
     }
 
-    pub fn is_batch_reveal_block_range(netuid: NetUid, commit_block: Vec<u64>) -> bool {
-        commit_block
+    pub fn is_batch_reveal_epoch_range(netuid: NetUid, commit_epochs: Vec<u64>) -> bool {
+        commit_epochs
             .iter()
-            .all(|block| Self::is_reveal_block_range(netuid, *block))
+            .all(|epoch| Self::is_reveal_block_range(netuid, *epoch))
     }
 }

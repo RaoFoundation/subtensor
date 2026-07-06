@@ -3,25 +3,16 @@ extern crate alloc;
 use alloc::format;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, Pays, PostDispatchInfo};
-use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
 use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
 use pallet_evm::{
     AddressMapping, BalanceConverter, EvmBalance, ExitError, GasWeightMapping, Precompile,
     PrecompileFailure, PrecompileHandle, PrecompileResult,
 };
-use pallet_subtensor::SubtensorTransactionExtension;
 use precompile_utils::EvmResult;
-use scale_info::TypeInfo;
+use precompile_utils::prelude::RuntimeHelper;
 use sp_core::{H160, U256, blake2_256};
-use sp_runtime::{
-    DispatchResult,
-    traits::{
-        AsSystemOriginSigner, Dispatchable, ExtensionPostDispatchWeightHandler,
-        TransactionExtension, TxBaseImplication,
-    },
-    transaction_validity::{TransactionSource, TransactionValidityError},
-};
+use sp_runtime::traits::{Dispatchable, ExtensionPostDispatchWeightHandler};
 use sp_std::vec::Vec;
 use subtensor_runtime_common::with_evm_context;
 
@@ -32,6 +23,23 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     {
         <R as pallet_evm::Config>::AddressMapping::into_account_id(self.context().caller)
+    }
+
+    fn record_db_reads<R>(&mut self, reads: u64) -> EvmResult<()>
+    where
+        R: frame_system::Config + pallet_evm::Config,
+    {
+        self.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(reads))?;
+        Ok(())
+    }
+
+    fn record_db_writes<R>(&mut self, writes: u64) -> EvmResult<()>
+    where
+        R: frame_system::Config + pallet_evm::Config,
+    {
+        self.record_cost(RuntimeHelper::<R>::db_write_gas_cost().saturating_mul(writes))?;
+
+        Ok(())
     }
 
     fn try_convert_apparent_value<R>(&self) -> EvmResult<U256>
@@ -56,30 +64,17 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
     ) -> EvmResult<()>
     where
         R: frame_system::Config
-            + pallet_balances::Config
             + pallet_evm::Config
             + pallet_subtensor::Config
             + pallet_shield::Config
-            + pallet_subtensor_proxy::Config
-            + Send
-            + Sync
-            + TypeInfo,
+            + pallet_subtensor_proxy::Config,
         <R as frame_system::Config>::RuntimeCall: From<Call>,
-        <R as frame_system::Config>::RuntimeCall: GetDispatchInfo
-            + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
-            + IsSubType<pallet_balances::Call<R>>
-            + IsSubType<pallet_subtensor::Call<R>>
-            + IsSubType<pallet_shield::Call<R>>
-            + IsSubType<pallet_subtensor_proxy::Call<R>>,
-        <R as frame_system::Config>::RuntimeOrigin:
-            From<RawOrigin<R::AccountId>> + AsSystemOriginSigner<R::AccountId> + Clone,
+        <R as frame_system::Config>::RuntimeCall:
+            GetDispatchInfo + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
+        <R as frame_system::Config>::RuntimeOrigin: From<RawOrigin<R::AccountId>> + Clone,
     {
         let call = <R as frame_system::Config>::RuntimeCall::from(call);
-        let mut info = GetDispatchInfo::get_dispatch_info(&call);
-        let subtensor_extension = SubtensorTransactionExtension::<R>::new();
-        info.extension_weight = info
-            .extension_weight
-            .saturating_add(subtensor_extension.weight(&call));
+        let info = GetDispatchInfo::get_dispatch_info(&call);
 
         let target_gas = self.gas_limit();
         if let Some(gas) = target_gas {
@@ -99,29 +94,10 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         )?;
 
         let origin = <R as frame_system::Config>::RuntimeOrigin::from(origin);
-        let (_, val, origin) = subtensor_extension
-            .validate(
-                origin,
-                &call,
-                &info,
-                0,
-                (),
-                &TxBaseImplication(()),
-                TransactionSource::External,
-            )
-            .map_err(extension_error)?;
-        subtensor_extension
-            .prepare(val, &origin, &call, &info, 0)
-            .map_err(extension_error)?;
 
         match with_evm_context(|| call.dispatch(origin)) {
             Ok(mut post_info) => {
                 post_info.set_extension_weight(&info);
-                let result: DispatchResult = Ok(());
-                <SubtensorTransactionExtension<R> as TransactionExtension<
-                    <R as frame_system::Config>::RuntimeCall,
-                >>::post_dispatch((), &info, &mut post_info, 0, &result)
-                .map_err(extension_error)?;
                 log::debug!("Dispatch succeeded. Post info: {post_info:?}");
                 self.charge_and_refund_after_dispatch::<R, Call>(&info, &post_info)?;
 
@@ -131,11 +107,6 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
                 let err_str: &'static str = e.into();
                 let mut post_info = e.post_info;
                 post_info.set_extension_weight(&info);
-                let result: DispatchResult = Err(e.error);
-                <SubtensorTransactionExtension<R> as TransactionExtension<
-                    <R as frame_system::Config>::RuntimeCall,
-                >>::post_dispatch((), &info, &mut post_info, 0, &result)
-                .map_err(extension_error)?;
                 log::info!("Precompile dispatch failed. message as: {e:?}");
                 self.charge_and_refund_after_dispatch::<R, Call>(&info, &post_info)?;
 
@@ -176,12 +147,6 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         }
 
         Ok(())
-    }
-}
-
-fn extension_error(err: TransactionValidityError) -> PrecompileFailure {
-    PrecompileFailure::Error {
-        exit_status: ExitError::Other(format!("transaction extension rejected: {err:?}").into()),
     }
 }
 

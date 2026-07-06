@@ -2,7 +2,7 @@ use super::*;
 use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
-use substrate_fixed::types::{I64F64, I96F32, U96F32};
+use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler, SwapResult};
 
@@ -21,8 +21,8 @@ impl<T: Config> Pallet<T> {
         SubnetAlphaIn::<T>::get(netuid).saturating_add(SubnetAlphaOut::<T>::get(netuid))
     }
 
-    pub fn get_moving_alpha_price(netuid: NetUid) -> U96F32 {
-        let one = U96F32::saturating_from_num(1.0);
+    pub fn get_moving_alpha_price(netuid: NetUid) -> U64F64 {
+        let one = U64F64::saturating_from_num(1.0);
         if netuid.is_root() {
             // Root.
             one
@@ -30,12 +30,12 @@ impl<T: Config> Pallet<T> {
             // Stable
             one
         } else {
-            U96F32::saturating_from_num(SubnetMovingPrice::<T>::get(netuid))
+            U64F64::saturating_from_num(SubnetMovingPrice::<T>::get(netuid))
         }
     }
 
     pub fn update_moving_price(netuid: NetUid) {
-        let blocks_since_start_call = U96F32::saturating_from_num({
+        let blocks_since_start_call = U64F64::saturating_from_num({
             // We expect FirstEmissionBlockNumber to be set earlier, and we take the block when
             // `start_call` was called (first block before FirstEmissionBlockNumber).
             let start_call_block = FirstEmissionBlockNumber::<T>::get(netuid)
@@ -50,19 +50,20 @@ impl<T: Config> Pallet<T> {
         // will take in order for the distance between current EMA of price and current price to shorten
         // by half.
         let halving_time = EMAPriceHalvingBlocks::<T>::get(netuid);
-        let current_ma_unsigned = U96F32::saturating_from_num(SubnetMovingAlpha::<T>::get());
-        let alpha: U96F32 = current_ma_unsigned.saturating_mul(blocks_since_start_call.safe_div(
-            blocks_since_start_call.saturating_add(U96F32::saturating_from_num(halving_time)),
+        let current_ma_unsigned = U64F64::saturating_from_num(SubnetMovingAlpha::<T>::get());
+        let alpha: U64F64 = current_ma_unsigned.saturating_mul(blocks_since_start_call.safe_div(
+            blocks_since_start_call.saturating_add(U64F64::saturating_from_num(halving_time)),
         ));
         // Because alpha = b / (b + h), where b and h > 0, alpha < 1, so 1 - alpha > 0.
         // We can use unsigned type here: U96F32
-        let one_minus_alpha: U96F32 = U96F32::saturating_from_num(1.0).saturating_sub(alpha);
-        let current_price: U96F32 = alpha.saturating_mul(
+        let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
+        let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
             T::SwapInterface::current_alpha_price(netuid.into())
-                .min(U96F32::saturating_from_num(1.0)),
-        );
-        let current_moving: U96F32 =
-            one_minus_alpha.saturating_mul(Self::get_moving_alpha_price(netuid));
+                .min(U64F64::saturating_from_num(1.0)),
+        ));
+        let current_moving: U64F64 = one_minus_alpha.saturating_mul(U64F64::saturating_from_num(
+            Self::get_moving_alpha_price(netuid),
+        ));
         // Convert batch to signed I96F32 to avoid migration of SubnetMovingPrice for now``
         let new_moving: I96F32 =
             I96F32::saturating_from_num(current_price.saturating_add(current_moving));
@@ -70,12 +71,12 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Gets the Median Subnet Alpha Price
-    pub fn get_median_subnet_alpha_price() -> U96F32 {
-        let default_price = U96F32::saturating_from_num(1_u64);
-        let zero_price = U96F32::saturating_from_num(0_u64);
-        let two = U96F32::saturating_from_num(2_u64);
+    pub fn get_median_subnet_alpha_price() -> U64F64 {
+        let default_price = U64F64::saturating_from_num(1_u64);
+        let zero_price = U64F64::saturating_from_num(0_u64);
+        let two = U64F64::saturating_from_num(2_u64);
 
-        let mut price_counts: BTreeMap<U96F32, usize> = BTreeMap::new();
+        let mut price_counts: BTreeMap<U64F64, usize> = BTreeMap::new();
         let mut total_prices: usize = 0;
 
         for (netuid, added) in NetworksAdded::<T>::iter() {
@@ -112,8 +113,8 @@ impl<T: Config> Pallet<T> {
         };
 
         let mut cumulative: usize = 0;
-        let mut lower_price: Option<U96F32> = None;
-        let mut upper_price: Option<U96F32> = None;
+        let mut lower_price: Option<U64F64> = None;
+        let mut upper_price: Option<U64F64> = None;
 
         for (price, count) in price_counts.into_iter() {
             let next_cumulative = cumulative.saturating_add(count);
@@ -665,9 +666,7 @@ impl<T: Config> Pallet<T> {
             *total = total.saturating_add(swap_result.amount_paid_out.into());
         });
 
-        // Increase only the protocol TAO reserve. We only use the sum of
-        // (SubnetTAO + SubnetTaoProvided) in tao_reserve(), so it is irrelevant
-        // which one to increase.
+        // Increase the protocol TAO reserve
         SubnetTAO::<T>::mutate(netuid, |total| {
             let delta = swap_result.paid_in_reserve_delta_i64().unsigned_abs();
             *total = total.saturating_add(delta.into());
@@ -739,9 +738,11 @@ impl<T: Config> Pallet<T> {
     /// Unstakes alpha from a subnet for a given hotkey and coldkey pair.
     ///
     /// We update the pools associated with a subnet as well as update hotkey alpha shares.
+    /// Credits the unstaked TAO to the beneficiary account
     pub fn unstake_from_subnet(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
+        beneficiary: &T::AccountId,
         netuid: NetUid,
         alpha: AlphaBalance,
         price_limit: TaoBalance,
@@ -764,6 +765,9 @@ impl<T: Config> Pallet<T> {
             Self::increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, refund);
         }
 
+        // Transfer unstaked TAO from subnet account to the coldkey.
+        Self::transfer_tao_from_subnet(netuid, beneficiary, swap_result.amount_paid_out.into())?;
+
         // Swap (in a fee-less way) the block builder alpha fee
         let mut fee_outflow = 0_u64;
         let maybe_block_author_coldkey = T::AuthorshipProvider::author();
@@ -774,10 +778,11 @@ impl<T: Config> Pallet<T> {
                 T::SwapInterface::min_price::<TaoBalance>(),
                 true,
             )?;
-            Self::add_balance_to_coldkey_account(
+            Self::transfer_tao_from_subnet(
+                netuid,
                 &block_author_coldkey,
                 bb_swap_result.amount_paid_out.into(),
-            );
+            )?;
             fee_outflow = bb_swap_result.amount_paid_out.into();
         } else {
             // block author is not found, burn this alpha
@@ -788,6 +793,12 @@ impl<T: Config> Pallet<T> {
         if netuid == NetUid::ROOT {
             // Adjust root claimed value for this hotkey and coldkey.
             Self::remove_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
+
+            // If the coldkey no longer holds any root stake, remove it from the
+            // auto-claim staking-coldkey index so dead entries do not accumulate.
+            if !Self::coldkey_has_root_stake(coldkey) {
+                Self::maybe_remove_coldkey_index(coldkey);
+            }
         }
 
         // Step 3: Update StakingHotkeys if the hotkey's total alpha, across all subnets, is zero
@@ -805,6 +816,9 @@ impl<T: Config> Pallet<T> {
                 .amount_paid_out
                 .saturating_add(fee_outflow.into()),
         );
+
+        // Cleanup locks if needed
+        Self::cleanup_lock_if_zero(coldkey, netuid);
 
         LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
 
@@ -840,11 +854,14 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         tao: TaoBalance,
         price_limit: TaoBalance,
-        set_limit: bool,
         drop_fees: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        // Transfer TAO from coldkey to the subnet account.
+        // Actual transfered may be different within ED amount.
+        let tao_staked = Self::transfer_tao_to_subnet(netuid, coldkey, tao)?;
+
         // Swap the tao to alpha.
-        let swap_result = Self::swap_tao_for_alpha(netuid, tao, price_limit, drop_fees)?;
+        let swap_result = Self::swap_tao_for_alpha(netuid, tao_staked, price_limit, drop_fees)?;
 
         ensure!(
             !swap_result.amount_paid_out.is_zero(),
@@ -878,26 +895,29 @@ impl<T: Config> Pallet<T> {
         // Increase the balance of the block author
         let maybe_block_author_coldkey = T::AuthorshipProvider::author();
         if let Some(block_author_coldkey) = maybe_block_author_coldkey {
-            Self::add_balance_to_coldkey_account(
+            // TAO was transferred to subnet account in the beginning of this fn
+            // swap_tao_for_alpha guarantees that input amount of TAO was split into
+            // reserve delta + fee_to_block_author.
+            // Now transfer the fee from subnet account to block builder.
+            Self::transfer_tao_from_subnet(
+                netuid,
                 &block_author_coldkey,
                 swap_result.fee_to_block_author.into(),
-            );
+            )?;
         } else {
             // Block author is not found - burn this TAO
-            // Pallet balances total issuance was taken care of when balance was withdrawn for this swap
-            TotalIssuance::<T>::mutate(|ti| {
-                *ti = ti.saturating_sub(swap_result.fee_to_block_author);
-            });
+            if let Some(subnet_account_id) = Self::get_subnet_account_id(netuid) {
+                let _ = Self::burn_tao(&subnet_account_id, swap_result.fee_to_block_author.into());
+            }
         }
 
         // Record TAO inflow
         Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
 
-        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
+        // Cleanup locks if needed
+        Self::cleanup_lock_if_zero(coldkey, netuid);
 
-        if set_limit {
-            Self::set_stake_operation_limit(hotkey, coldkey, netuid.into());
-        }
+        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
 
         // If this is a root-stake
         if netuid == NetUid::ROOT {
@@ -911,7 +931,7 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::StakeAdded(
             coldkey.clone(),
             hotkey.clone(),
-            tao,
+            tao_staked,
             swap_result.amount_paid_out.into(),
             netuid,
             swap_result.fee_paid.to_u64(),
@@ -921,7 +941,7 @@ impl<T: Config> Pallet<T> {
             "StakeAdded( coldkey: {:?}, hotkey:{:?}, tao: {:?}, alpha:{:?}, netuid: {:?}, fee {} )",
             coldkey.clone(),
             hotkey.clone(),
-            tao,
+            tao_staked,
             swap_result.amount_paid_out,
             netuid,
             swap_result.fee_paid,
@@ -942,6 +962,9 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
+        // Transfer lock (may fail if destination coldkey has a conflicting lock)
+        Self::transfer_lock(origin_coldkey, destination_coldkey, netuid, alpha)?;
+
         // Decrease alpha on origin keys
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
             origin_hotkey,
@@ -977,7 +1000,7 @@ impl<T: Config> Pallet<T> {
         let current_price =
             <T as pallet::Config>::SwapInterface::current_alpha_price(netuid.into());
         let tao_equivalent: TaoBalance = current_price
-            .saturating_mul(U96F32::saturating_from_num(alpha))
+            .saturating_mul(U64F64::saturating_from_num(alpha))
             .saturating_to_num::<u64>()
             .into();
 
@@ -1120,8 +1143,6 @@ impl<T: Config> Pallet<T> {
         // Ensure that the subnet exists.
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
-        Self::ensure_stake_operation_limit_not_exceeded(hotkey, coldkey, netuid.into())?;
-
         // Ensure that the subnet is enabled.
         // Self::ensure_subtoken_enabled(netuid)?;
 
@@ -1157,6 +1178,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotKeyAccountNotExists
         );
 
+        // Ensure that unstaked amount is not greater than available to unstake (due to locks)
+        Self::ensure_available_to_unstake(coldkey, netuid, alpha_unstaked)?;
+
         Ok(())
     }
 
@@ -1184,6 +1208,10 @@ impl<T: Config> Pallet<T> {
 
             // Get user's stake in this subnet
             let alpha = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, *netuid);
+
+            // Ensure that unstaked amount is not greater than available to unstake (due to locks)
+            // for this subnet.
+            Self::ensure_available_to_unstake(coldkey, *netuid, alpha)?;
 
             if Self::validate_remove_stake(coldkey, hotkey, *netuid, alpha, alpha, false).is_ok() {
                 unstaking_any = true;
@@ -1215,12 +1243,6 @@ impl<T: Config> Pallet<T> {
         if origin_coldkey == destination_coldkey && origin_hotkey == destination_hotkey {
             ensure!(origin_netuid != destination_netuid, Error::<T>::SameNetuid);
         }
-
-        Self::ensure_stake_operation_limit_not_exceeded(
-            origin_hotkey,
-            origin_coldkey,
-            origin_netuid.into(),
-        )?;
 
         // Ensure that both subnets exist.
         ensure!(
@@ -1302,6 +1324,12 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Enforce lock invariant: if the is cross-subnet move, the remaining amount must
+        // cover the lock.
+        if origin_netuid != destination_netuid {
+            Self::ensure_available_to_unstake(origin_coldkey, origin_netuid, alpha_amount)?;
+        }
+
         Ok(())
     }
 
@@ -1335,27 +1363,6 @@ impl<T: Config> Pallet<T> {
                 *total = total.saturating_sub(alpha);
             });
         }
-    }
-
-    pub fn set_stake_operation_limit(
-        hotkey: &T::AccountId,
-        coldkey: &T::AccountId,
-        netuid: NetUid,
-    ) {
-        StakingOperationRateLimiter::<T>::insert((hotkey, coldkey, netuid), true);
-    }
-
-    pub fn ensure_stake_operation_limit_not_exceeded(
-        hotkey: &T::AccountId,
-        coldkey: &T::AccountId,
-        netuid: NetUid,
-    ) -> Result<(), Error<T>> {
-        ensure!(
-            !StakingOperationRateLimiter::<T>::contains_key((hotkey, coldkey, netuid)),
-            Error::<T>::StakingOperationRateLimitExceeded
-        );
-
-        Ok(())
     }
 }
 

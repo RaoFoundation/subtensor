@@ -9,10 +9,13 @@ frame-support.workspace = true
 frame-system.workspace = true
 log.workspace = true
 pallet-balances = { workspace = true, default-features = false }
+pallet-alpha-assets = { workspace = true, default-features = false }
+pallet-evm.workspace = true
 pallet-subtensor.workspace = true
 pallet-subtensor-swap.workspace = true
 pallet-transaction-payment.workspace = true
 smallvec.workspace = true
+sp-core.workspace = true
 sp-runtime.workspace = true
 sp-std.workspace = true
 substrate-fixed.workspace = true
@@ -47,9 +50,11 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
+	"pallet-alpha-assets/std",
 	"pallet-balances/std",
 	"pallet-crowdloan/std",
 	"pallet-drand/std",
+	"pallet-evm/std",
 	"pallet-evm-chain-id/std",
 	"pallet-grandpa/std",
 	"pallet-preimage/std",
@@ -58,6 +63,7 @@ std = [
 	"pallet-subtensor-swap/std",
 	"pallet-transaction-payment/std",
 	"scale-info/std",
+	"sp-core/std",
 	"sp-runtime/std",
 	"sp-std/std",
 	"sp-consensus-aura/std",
@@ -78,10 +84,12 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-crowdloan/runtime-benchmarks",
 	"pallet-drand/runtime-benchmarks",
+	"pallet-evm/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
 	"pallet-preimage/runtime-benchmarks",
 	"pallet-scheduler/runtime-benchmarks",	
 	"pallet-subtensor/runtime-benchmarks",
 	"pallet-subtensor-swap/runtime-benchmarks",
 	"subtensor-runtime-common/runtime-benchmarks",
+	"subtensor-swap-interface/runtime-benchmarks",
 ]

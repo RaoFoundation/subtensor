@@ -406,6 +406,8 @@ impl<T: Config> Pallet<T> {
             let original_fields = registration.info.fields.clone();
             let mut remain_fields = Vec::new();
             let mut revealed_fields = Vec::new();
+            let mut saw_timelock = false;
+            let mut processed_timelock = false;
 
             for data in original_fields {
                 match data {
@@ -413,6 +415,7 @@ impl<T: Config> Pallet<T> {
                         encrypted,
                         reveal_round,
                     } => {
+                        saw_timelock = true;
                         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
                         let pulse = match pallet_drand::Pulses::<T>::get(reveal_round) {
                             Some(p) => p,
@@ -424,6 +427,8 @@ impl<T: Config> Pallet<T> {
                                 continue;
                             }
                         };
+
+                        processed_timelock = true;
 
                         let signature_bytes = pulse
                             .signature
@@ -478,6 +483,29 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
+            if !saw_timelock {
+                TimelockedIndex::<T>::mutate(|idx| {
+                    idx.remove(&(netuid, who.clone()));
+                });
+                total_weight = total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+                continue;
+            }
+
+            // Do not rewrite CommitmentOf every block for entries whose reveal round is
+            // not yet available in the drand pulse storage. The hook has only performed
+            // the index, commitment, and pulse reads accounted above.
+            if !processed_timelock {
+                continue;
+            }
+
+            let Ok(remaining_fields) = BoundedVec::try_from(remain_fields) else {
+                log::error!(
+                    "Failed to build BoundedVec for remain_fields; this should be impossible \
+    					because remain_fields is a subset of the original commitment fields"
+                );
+                continue;
+            };
+
             if !revealed_fields.is_empty() {
                 let mut existing_reveals =
                     RevealedCommitments::<T>::get(netuid, &who).unwrap_or_default();
@@ -489,7 +517,6 @@ impl<T: Config> Pallet<T> {
                 // Push newly revealed items onto the tail of existing_reveals and emit the event
                 for revealed_bytes in revealed_fields {
                     existing_reveals.push((revealed_bytes, block_u64));
-
                     Self::deposit_event(Event::CommitmentRevealed {
                         netuid,
                         who: who.clone(),
@@ -506,8 +533,7 @@ impl<T: Config> Pallet<T> {
                 total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            registration.info.fields = BoundedVec::try_from(remain_fields)
-                .map_err(|_| "Failed to build BoundedVec for remain_fields")?;
+            registration.info.fields = remaining_fields;
 
             match registration.info.fields.is_empty() {
                 true => {
@@ -534,7 +560,6 @@ impl<T: Config> Pallet<T> {
                         TimelockedIndex::<T>::mutate(|idx| {
                             idx.remove(&(netuid, who.clone()));
                         });
-
                         total_weight =
                             total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
                     }

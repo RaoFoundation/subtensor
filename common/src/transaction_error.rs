@@ -30,6 +30,9 @@ pub enum CustomTransactionError {
     InvalidRealAccount,
     FailedShieldedTxParsing,
     InvalidShieldedTxPubKeyHash,
+    NonAssociatedColdKey,
+    DelegateTakeTooLow,
+    DelegateTakeTooHigh,
 }
 
 impl From<CustomTransactionError> for u8 {
@@ -62,6 +65,9 @@ impl From<CustomTransactionError> for u8 {
             CustomTransactionError::InvalidRealAccount => 22,
             CustomTransactionError::FailedShieldedTxParsing => 23,
             CustomTransactionError::InvalidShieldedTxPubKeyHash => 24,
+            CustomTransactionError::NonAssociatedColdKey => 25,
+            CustomTransactionError::DelegateTakeTooLow => 26,
+            CustomTransactionError::DelegateTakeTooHigh => 27,
         }
     }
 }

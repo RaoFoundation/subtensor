@@ -99,10 +99,7 @@ impl<T: Config> Pallet<T> {
         }
         let active: Vec<bool> = Active::<T>::get(netuid);
         let validator_permit: Vec<bool> = ValidatorPermit::<T>::get(netuid);
-        let pruning_score: Vec<Compact<u16>> = PruningScores::<T>::get(netuid)
-            .into_iter()
-            .map(Compact::from)
-            .collect();
+        let pruning_score: Vec<Compact<u16>> = Vec::new(); // Deprecated: no longer computed
         let last_update: Vec<Compact<u64>> = LastUpdate::<T>::get(NetUidStorageIndex::from(netuid))
             .into_iter()
             .map(Compact::from)
@@ -123,14 +120,8 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .map(Compact::from)
             .collect();
-        let trust: Vec<Compact<u16>> = Trust::<T>::get(netuid)
-            .into_iter()
-            .map(Compact::from)
-            .collect();
-        let rank: Vec<Compact<u16>> = Rank::<T>::get(netuid)
-            .into_iter()
-            .map(Compact::from)
-            .collect();
+        let trust: Vec<Compact<u16>> = Vec::new(); // Deprecated: no longer computed
+        let rank: Vec<Compact<u16>> = Vec::new(); // Deprecated: no longer computed
         let (total_stake_fl, alpha_stake_fl, tao_stake_fl): (
             Vec<I64F64>,
             Vec<I64F64>,

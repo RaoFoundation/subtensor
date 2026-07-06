@@ -1,10 +1,10 @@
-import { log } from "./logger.js";
 import type { KeyringPair } from "@moonwall/util";
-import { sleep } from "@zombienet/utils";
-import { waitForBlocks } from "./staking.ts";
-import type { Transaction, TypedApi } from "polkadot-api";
 import type { subtensor } from "@polkadot-api/descriptors";
+import { sleep } from "@zombienet/utils";
+import type { Transaction, TypedApi } from "polkadot-api";
 import { getPolkadotSigner } from "polkadot-api/signer";
+import { log } from "./logger.js";
+import { waitForBlocks } from "./staking.ts";
 
 export async function waitForTransactionWithRetry(
     api: TypedApi<typeof subtensor>,

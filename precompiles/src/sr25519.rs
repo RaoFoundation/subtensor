@@ -55,3 +55,82 @@ where
         Ok((ExitSucceed::Returned, buf.to_vec()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use crate::mock::{
+        AccountId, abi_word, addr_from_index, new_test_ext, precompiles, selector_u32,
+    };
+    use precompile_utils::solidity::encode_with_selector;
+    use precompile_utils::testing::PrecompileTesterExt;
+    use sp_core::{H256, Pair, U256, sr25519};
+
+    #[test]
+    fn sr25519_precompile_verifies_valid_and_invalid_signatures() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(1);
+            let precompile_addr = addr_from_index(Sr25519Verify::<AccountId>::INDEX);
+
+            let pair = sr25519::Pair::from_seed(&[1u8; 32]);
+            let message = [7u8; 32];
+            let signature = pair.sign(&message);
+            let public_key = pair.public();
+            let broken_message = [8u8; 32];
+            let mut broken_signature = signature.0;
+            broken_signature[0] ^= 1;
+            let broken_signature = sr25519::Signature::from_raw(broken_signature);
+
+            precompiles::<Sr25519Verify<AccountId>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("verify(bytes32,bytes32,bytes32,bytes32)"),
+                        (
+                            H256::from(message),
+                            H256::from(public_key.0),
+                            H256::from_slice(&signature.0[..32]),
+                            H256::from_slice(&signature.0[32..]),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns_raw(abi_word(U256::one()));
+            precompiles::<Sr25519Verify<AccountId>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("verify(bytes32,bytes32,bytes32,bytes32)"),
+                        (
+                            H256::from(broken_message),
+                            H256::from(public_key.0),
+                            H256::from_slice(&signature.0[..32]),
+                            H256::from_slice(&signature.0[32..]),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns_raw(abi_word(U256::zero()));
+            precompiles::<Sr25519Verify<AccountId>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("verify(bytes32,bytes32,bytes32,bytes32)"),
+                        (
+                            H256::from(message),
+                            H256::from(public_key.0),
+                            H256::from_slice(&broken_signature.0[..32]),
+                            H256::from_slice(&broken_signature.0[32..]),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns_raw(abi_word(U256::zero()));
+        });
+    }
+}

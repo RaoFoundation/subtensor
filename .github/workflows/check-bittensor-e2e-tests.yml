@@ -190,7 +190,7 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: [self-hosted, type-ccx33]
+          - runner: [self-hosted, fireactions-heavy]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
         runtime: ["fast-runtime", "non-fast-runtime"]

@@ -736,9 +736,7 @@ mod dispatches {
         /// 	- Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(3)]
-        #[pallet::weight((Weight::from_parts(196_800_000, 0)
-		.saturating_add(T::DbWeight::get().reads(19))
-		.saturating_add(T::DbWeight::get().writes(10)), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake())]
         pub fn remove_stake(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1057,7 +1055,7 @@ mod dispatches {
         #[pallet::call_index(72)]
         #[pallet::weight((Weight::from_parts(275_300_000, 0)
         .saturating_add(T::DbWeight::get().reads(52_u64))
-        .saturating_add(T::DbWeight::get().writes(35_u64)), DispatchClass::Normal, Pays::No))]
+        .saturating_add(T::DbWeight::get().writes(35_u64)), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_hotkey_v2(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1081,7 +1079,7 @@ mod dispatches {
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            if swap_cost.to_u64() > 0 {
+            if !swap_cost.is_zero() {
                 Self::charge_swap_cost(&old_coldkey, swap_cost)?;
             }
             Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
@@ -1778,7 +1776,7 @@ mod dispatches {
         pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
 
-            let _ = Self::do_try_associate_hotkey(&coldkey, &hotkey);
+            Self::do_try_associate_hotkey(&coldkey, &hotkey)?;
 
             Ok(())
         }
@@ -1825,7 +1823,7 @@ mod dispatches {
         /// May emit a `EvmKeyAssociated` event on success
         #[pallet::call_index(93)]
         #[pallet::weight((
-            Weight::from_parts(3_000_000, 0).saturating_add(T::DbWeight::get().reads_writes(2, 1)),
+            <T as crate::pallet::Config>::WeightInfo::associate_evm_key(),
             DispatchClass::Normal,
             Pays::No
         ))]
@@ -1857,7 +1855,7 @@ mod dispatches {
             amount: AlphaBalance,
             netuid: NetUid,
         ) -> DispatchResult {
-            Self::do_recycle_alpha(origin, hotkey, amount, netuid)
+            Self::do_recycle_alpha(origin, hotkey, amount, netuid).map(|_| ())
         }
 
         /// Burns alpha from a cold/hot key pair without reducing `AlphaOut`
@@ -1878,7 +1876,7 @@ mod dispatches {
             amount: AlphaBalance,
             netuid: NetUid,
         ) -> DispatchResult {
-            Self::do_burn_alpha(origin, hotkey, amount, netuid)
+            Self::do_burn_alpha(origin, hotkey, amount, netuid).map(|_| ())
         }
 
         /// Sets the pending childkey cooldown (in blocks). Root only.
@@ -2179,7 +2177,7 @@ mod dispatches {
 
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::do_root_claim(coldkey, Some(subnets));
+            let weight = Self::do_root_claim(coldkey, Some(subnets))?;
             Ok((Some(weight), Pays::Yes).into())
         }
 
@@ -2505,6 +2503,145 @@ mod dispatches {
             limit_price: u64,
         ) -> DispatchResult {
             Self::do_register_limit(origin, netuid, hotkey, limit_price)
+        }
+
+        /// --- Allows a root validator to toggle auto parent delegation
+        /// for new subnets owner hotkey
+        #[pallet::call_index(135)]
+        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_auto_parent_delegation_enabled(), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_auto_parent_delegation_enabled(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            enabled: bool,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+
+            ensure!(
+                Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+                Error::<T>::NonAssociatedColdKey
+            );
+
+            ensure!(
+                Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+                Error::<T>::HotKeyNotRegisteredInSubNet
+            );
+
+            AutoParentDelegationEnabled::<T>::insert(&hotkey, enabled);
+
+            Self::deposit_event(Event::AutoParentDelegationEnabledSet { hotkey, enabled });
+            Ok(())
+        }
+
+        /// Locks stake on a subnet to a specific hotkey, building conviction over time.
+        ///
+        /// If no lock exists for (coldkey, subnet), a new one is created.
+        /// If a lock exists, the destination hotkey must match the existing lock's hotkey.
+        /// Top-up adds to the locked amount after rolling the lock state forward.
+        ///
+        /// # Arguments
+        /// * `origin` - Must be signed by the coldkey.
+        /// * `hotkey` - The hotkey to lock stake to.
+        /// * `netuid` - The subnet on which to lock.
+        /// * `amount` - The alpha amount to lock.
+        #[pallet::call_index(136)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::lock_stake())]
+        pub fn lock_stake(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            amount: AlphaBalance,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            Self::do_lock_stake(&coldkey, netuid, &hotkey, amount)
+        }
+
+        /// Moves an existing lock for a coldkey on a subnet from one hotkey to another.
+        ///
+        /// The lock is rolled forward to the current block before switching the
+        /// associated hotkey, preserving the decayed locked mass. The conviction is
+        /// reset to zero.
+        ///
+        /// # Arguments
+        /// * `origin` - Must be signed by the coldkey that owns the lock.
+        /// * `destination_hotkey` - The hotkey the lock should target after the move.
+        /// * `netuid` - The subnet on which the lock exists.
+        /// # Errors:
+        /// * `Error::<T>::NoExistingLock` - If no lock exists for the given coldkey and subnet.
+        #[pallet::call_index(137)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_lock())]
+        pub fn move_lock(
+            origin: OriginFor<T>,
+            destination_hotkey: T::AccountId,
+            netuid: NetUid,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            Self::do_move_lock(&coldkey, &destination_hotkey, netuid)
+        }
+
+        /// Sets or clears the caller's perpetual lock flag for a subnet.
+        ///
+        /// Locks decay by default. When enabled, the caller's individual lock
+        /// does not unlock through locked-mass decay. Passing `false` returns
+        /// the caller's lock to normal decay.
+        #[pallet::call_index(138)]
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(4, 3))]
+        pub fn set_perpetual_lock(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            enabled: bool,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
+        }
+
+        /// Owner-side `set_tempo`. Validates `[MinTempo, MaxTempo]`, applies a fixed
+        /// `MinTempo`-block cooldown via `TransactionType::TempoUpdate`, respects the admin
+        /// freeze window, and resets the cycle (`LastEpochBlock = current_block`) on success.
+        #[pallet::call_index(139)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_tempo())]
+        pub fn set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
+            Self::do_set_tempo(origin, netuid, tempo)
+        }
+
+        /// `set_activity_cutoff_factor`. Per-mille (1/1000) units; `cutoff_blocks
+        /// = (factor × tempo) / 1000`. Validates `[MinActivityCutoffFactorMilli,
+        /// MaxActivityCutoffFactorMilli]`. Callable by the subnet owner (rate-limited
+        /// via `OwnerHyperparamUpdate`, respects the admin freeze window) or by root
+        /// (bypasses both).
+        #[pallet::call_index(140)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_activity_cutoff_factor())]
+        pub fn set_activity_cutoff_factor(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            factor_milli: u32,
+        ) -> DispatchResult {
+            Self::do_set_activity_cutoff_factor(origin, netuid, factor_milli)
+        }
+
+        /// Owner-side `trigger_epoch`. Schedules an epoch to fire after `AdminFreezeWindow`
+        /// blocks. Rate-limited via the existing `OwnerHyperparamUpdate` pattern.
+        #[pallet::call_index(141)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::trigger_epoch())]
+        pub fn trigger_epoch(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+            Self::do_trigger_epoch(origin, netuid)
+        }
+
+        /// Sets or clears whether the caller rejects incoming locked alpha.
+        ///
+        /// Coldkeys reject locked alpha by default. Passing `false` opts the
+        /// caller into receiving locked alpha from stake transfers or coldkey
+        /// swaps.
+        #[pallet::call_index(142)]
+        #[pallet::weight((
+            <T as frame_system::Config>::DbWeight::get().reads_writes(1, 1),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
+        pub fn set_reject_locked_alpha(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            Self::set_accept_locked_alpha(&coldkey, !enabled);
+            Self::deposit_event(Event::RejectLockedAlphaUpdated { coldkey, enabled });
+            Ok(())
         }
     }
 }

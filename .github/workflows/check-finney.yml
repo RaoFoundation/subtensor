@@ -15,7 +15,7 @@ env:
 jobs:
   check-spec-version:
     name: Check spec_version bump
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-tryruntime-finney]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') }}
     steps:
       - name: Dependencies

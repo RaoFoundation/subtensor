@@ -1,0 +1,142 @@
+import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { ApiPromise } from "@polkadot/api";
+import type { KeyringPair } from "@moonwall/util";
+import { tao, generateKeyringPair } from "../../../../utils";
+import {
+    devForceSetBalance,
+    devGetAlphaStake,
+    devAssociateHotKey,
+    devEnableSubtoken,
+    devRegisterSubnet,
+    devSudoSetLockReductionInterval,
+} from "../../../../utils/dev-helpers.js";
+import {
+    buildSignedOrder,
+    FAR_FUTURE,
+    filterEvents,
+    getOrderStatus,
+    getPartiallyFilledAmount,
+    orderId,
+    registerLimitOrderTypes,
+} from "../../../../utils/limit-orders.js";
+
+// Tests for partial fill via execute_batched_orders.
+// Same semantics as the execute_orders variant: the signed VersionedOrder
+// payload is reused unchanged; only partial_fill on the envelope changes.
+
+describeSuite({
+    id: "DEV_SUB_LIMIT_ORDERS_BATCH_PARTIAL_FILL",
+    title: "execute_batched_orders — partial fill",
+    foundationMethods: "dev",
+    testCases: ({ it, context }) => {
+        let polkadotJs: ApiPromise;
+        let alice: KeyringPair;
+        let aliceHotKey: KeyringPair;
+        let netuid: number;
+
+        beforeAll(async () => {
+            polkadotJs = context.polkadotJs();
+            alice = context.keyring.alice;
+            aliceHotKey = generateKeyringPair("sr25519");
+
+            registerLimitOrderTypes(polkadotJs);
+
+            await devForceSetBalance(polkadotJs, context, alice.address, tao(10_000));
+            await devSudoSetLockReductionInterval(polkadotJs, context, alice, 1);
+
+            netuid = await devRegisterSubnet(polkadotJs, context, alice, aliceHotKey);
+
+            await devEnableSubtoken(polkadotJs, context, alice, netuid);
+            await devAssociateHotKey(polkadotJs, context, alice, aliceHotKey.address);
+        });
+
+        it({
+            id: "T01",
+            title: "first batched partial fill sets status to PartiallyFilled",
+            test: async () => {
+                const orderAmount = tao(100);
+                const firstFill = Number(tao(50));
+
+                const signed = buildSignedOrder(polkadotJs, {
+                    signer: alice,
+                    hotkey: aliceHotKey.address,
+                    netuid,
+                    orderType: "LimitBuy",
+                    amount: orderAmount,
+                    limitPrice: FAR_FUTURE,
+                    expiry: FAR_FUTURE,
+                    feeRate: 0,
+                    feeRecipient: alice.address,
+                    relayer: [alice.address],
+                    partialFillsEnabled: true,
+                });
+
+                const id = orderId(polkadotJs, signed.order);
+
+                // Submit first partial fill (50 out of 100 TAO) via execute_batched_orders.
+                const firstEnvelope = { ...signed, partial_fill: firstFill };
+                await context.createBlock([
+                    await polkadotJs.tx.limitOrders.executeBatchedOrders(netuid, [firstEnvelope]).signAsync(alice),
+                ]);
+
+                const events = await polkadotJs.query.system.events();
+                expect(filterEvents(events, "OrderExecuted").length).toBe(1);
+                expect(filterEvents(events, "OrderSkipped").length).toBe(0);
+
+                expect(await getOrderStatus(polkadotJs, id)).toBe("PartiallyFilled");
+                const filled = await getPartiallyFilledAmount(polkadotJs, id);
+                expect(filled).toBe(BigInt(firstFill));
+
+                // Alpha stake should have increased from the partial buy.
+                const stakeAfter = await devGetAlphaStake(polkadotJs, aliceHotKey.address, alice.address, netuid);
+                expect(stakeAfter).toBeGreaterThan(0n);
+            },
+        });
+
+        it({
+            id: "T02",
+            title: "second batched partial fill completing the order sets status to Fulfilled",
+            test: async () => {
+                const orderAmount = tao(200);
+                const firstFill = Number(tao(100));
+                const secondFill = Number(tao(100));
+
+                const signed = buildSignedOrder(polkadotJs, {
+                    signer: alice,
+                    hotkey: aliceHotKey.address,
+                    netuid,
+                    orderType: "LimitBuy",
+                    amount: orderAmount,
+                    limitPrice: FAR_FUTURE,
+                    expiry: FAR_FUTURE,
+                    feeRate: 0,
+                    feeRecipient: alice.address,
+                    relayer: [alice.address],
+                    partialFillsEnabled: true,
+                });
+
+                const id = orderId(polkadotJs, signed.order);
+
+                // First fill: 100 / 200.
+                const firstEnvelope = { ...signed, partial_fill: firstFill };
+                await context.createBlock([
+                    await polkadotJs.tx.limitOrders.executeBatchedOrders(netuid, [firstEnvelope]).signAsync(alice),
+                ]);
+
+                expect(await getOrderStatus(polkadotJs, id)).toBe("PartiallyFilled");
+                expect(await getPartiallyFilledAmount(polkadotJs, id)).toBe(BigInt(firstFill));
+
+                // Second fill: the remaining 100 — completes the order.
+                const secondEnvelope = { ...signed, partial_fill: secondFill };
+                await context.createBlock([
+                    await polkadotJs.tx.limitOrders.executeBatchedOrders(netuid, [secondEnvelope]).signAsync(alice),
+                ]);
+
+                const events = await polkadotJs.query.system.events();
+                expect(filterEvents(events, "OrderExecuted").length).toBe(1);
+
+                expect(await getOrderStatus(polkadotJs, id)).toBe("Fulfilled");
+            },
+        });
+    },
+});

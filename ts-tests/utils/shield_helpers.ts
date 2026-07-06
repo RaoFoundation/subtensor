@@ -1,13 +1,26 @@
 import type { KeyringPair } from "@moonwall/util";
+import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
+import type { subtensor } from "@polkadot-api/descriptors";
+import { hexToU8a } from "@polkadot/util";
 import { xxhashAsU8a } from "@polkadot/util-crypto";
 import { randomBytes } from "ethers";
-import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { MlKem768 } from "mlkem";
 import { type TypedApi, Binary } from "polkadot-api";
-import type { subtensor } from "@polkadot-api/descriptors";
 import { getSignerFromKeypair } from "./account.ts";
 import { waitForFinalizedBlocks } from "./transactions.ts";
-import { hexToU8a } from "@polkadot/util";
+
+const keyToBytes = (key: unknown): Uint8Array => {
+    if (key instanceof Uint8Array) {
+        return key;
+    }
+    if (typeof key === "object" && key !== null && "asBytes" in key) {
+        return (key as Binary).asBytes();
+    }
+    if (typeof key === "string") {
+        return hexToU8a(key);
+    }
+    throw new Error(`Unexpected MEV shield key type: ${typeof key}`);
+};
 
 export const getNextKey = async (api: TypedApi<typeof subtensor>): Promise<Uint8Array | undefined> => {
     // Query at "best" (not default "finalized") because keys rotate every block
@@ -16,8 +29,7 @@ export const getNextKey = async (api: TypedApi<typeof subtensor>): Promise<Uint8
     // block-building time, causing InvalidShieldedTxPubKeyHash rejection.
     const key = await api.query.MevShield.NextKey.getValue({ at: "best" });
     if (!key) return undefined;
-    if (key instanceof Binary) return key.asBytes();
-    return hexToU8a(key as string);
+    return keyToBytes(key);
 };
 
 export const checkRuntime = async (api: TypedApi<typeof subtensor>) => {
@@ -41,8 +53,7 @@ export const checkRuntime = async (api: TypedApi<typeof subtensor>) => {
 export const getCurrentKey = async (api: TypedApi<typeof subtensor>): Promise<Uint8Array | undefined> => {
     const key = await api.query.MevShield.CurrentKey.getValue({ at: "best" });
     if (!key) return undefined;
-    if (key instanceof Binary) return key.asBytes();
-    return hexToU8a(key as string);
+    return keyToBytes(key);
 };
 
 export const encryptTransaction = async (plaintext: Uint8Array, publicKey: Uint8Array): Promise<Uint8Array> => {

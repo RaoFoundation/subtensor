@@ -18,7 +18,11 @@ unwrap-used = "deny"
 useless_conversion = "allow"
 
 [dependencies]
+# Pin `time` to a version without the tracing-subscriber E0119 trait conflict that
+# breaks the eco-tests build on current stable rustc (transitive dep; eco-tests Cargo.lock is gitignored).
+time = { version = "=0.3.36", default-features = false }
 pallet-subtensor = { path = "../pallets/subtensor", default-features = false, features = ["std"] }
+pallet-alpha-assets = { path = "../pallets/alpha-assets", default-features = false, features = ["std"] }
 frame-support = { git = "https://github.com/opentensor/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
 frame-system = { git = "https://github.com/opentensor/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
 sp-core = { git = "https://github.com/opentensor/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
@@ -32,13 +36,17 @@ pallet-scheduler = { git = "https://github.com/opentensor/polkadot-sdk.git", rev
 pallet-preimage = { git = "https://github.com/opentensor/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
 pallet-drand = { path = "../pallets/drand", default-features = false, features = ["std"] }
 pallet-subtensor-swap = { path = "../pallets/swap", default-features = false, features = ["std"] }
+pallet-subtensor-swap-runtime-api = { path = "../pallets/swap/runtime-api", default-features = false, features = ["std"] }
+subtensor-custom-rpc-runtime-api = { path = "../pallets/subtensor/runtime-api", default-features = false, features = ["std"] }
+sp-api = { git = "https://github.com/opentensor/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
 pallet-crowdloan = { path = "../pallets/crowdloan", default-features = false, features = ["std"] }
 pallet-subtensor-proxy = { path = "../pallets/proxy", default-features = false, features = ["std"] }
 pallet-subtensor-utility = { path = "../pallets/utility", default-features = false, features = ["std"] }
 pallet-shield = { path = "../pallets/shield", default-features = false, features = ["std"] }
 subtensor-runtime-common = { path = "../common", default-features = false, features = ["std"] }
-subtensor-swap-interface = { path = "../pallets/swap-interface", default-features = false, features = ["std"] }
+subtensor-swap-interface = { path = "../primitives/swap-interface", default-features = false, features = ["std"] }
 share-pool = { path = "../primitives/share-pool", default-features = false, features = ["std"] }
+substrate-fixed = { git = "https://github.com/encointer/substrate-fixed.git", tag = "v0.6.0", default-features = false, features = ["std"] }
 safe-math = { path = "../primitives/safe-math", default-features = false, features = ["std"] }
 log = { version = "0.4.21", default-features = false, features = ["std"] }
 approx = "0.5"

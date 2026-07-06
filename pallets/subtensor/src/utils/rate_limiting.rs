@@ -17,6 +17,7 @@ pub enum TransactionType {
     MechanismEmission,
     MaxUidsTrimming,
     AddStakeBurn,
+    TempoUpdate,
 }
 
 impl TransactionType {
@@ -46,6 +47,7 @@ impl TransactionType {
             }
             Self::SetSNOwnerHotkey => DefaultSetSNOwnerHotkeyRateLimit::<T>::get(),
             Self::AddStakeBurn => Tempo::<T>::get(netuid) as u64,
+            Self::TempoUpdate => MIN_TEMPO as u64,
 
             _ => self.rate_limit::<T>(),
         }
@@ -144,6 +146,7 @@ impl From<TransactionType> for u16 {
             TransactionType::MechanismEmission => 8,
             TransactionType::MaxUidsTrimming => 9,
             TransactionType::AddStakeBurn => 10,
+            TransactionType::TempoUpdate => 11,
         }
     }
 }
@@ -162,6 +165,7 @@ impl From<u16> for TransactionType {
             8 => TransactionType::MechanismEmission,
             9 => TransactionType::MaxUidsTrimming,
             10 => TransactionType::AddStakeBurn,
+            11 => TransactionType::TempoUpdate,
             _ => TransactionType::Unknown,
         }
     }
@@ -204,6 +208,10 @@ pub enum Hyperparameter {
     MaxAllowedUids = 25,
     BurnHalfLife = 26,
     BurnIncreaseMult = 27,
+    SubnetEmissionEnabled = 28,
+    MinChildkeyTake = 29,
+    ActivityCutoffFactorMilli = 30,
+    TriggerEpoch = 31,
 }
 
 impl<T: Config> Pallet<T> {

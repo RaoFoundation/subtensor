@@ -44,7 +44,17 @@ pub fn migrate_swapv3_to_balancer<T: Config>() -> Weight {
     // ------------------------------
     for (netuid, price_sqrt) in deprecated_swap_maps::AlphaSqrtPrice::<T>::iter() {
         let price = price_sqrt.saturating_mul(price_sqrt);
-        crate::Pallet::<T>::maybe_initialize_palswap(netuid, Some(price)).unwrap_or_default();
+        if let Err(error) = crate::Pallet::<T>::maybe_initialize_palswap(netuid, Some(price)) {
+            log::warn!(
+                "Migration '{}' failed to initialize balancer with V3 price for netuid {}: {:?}. Falling back to default balancer.",
+                String::from_utf8_lossy(&migration_name),
+                netuid,
+                error,
+            );
+            SwapBalancer::<T>::insert(netuid, Balancer::default());
+            PalSwapInitialized::<T>::insert(netuid, true);
+            weight = weight.saturating_add(T::DbWeight::get().writes(2));
+        }
     }
 
     // ------------------------------

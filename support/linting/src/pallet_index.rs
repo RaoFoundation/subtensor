@@ -174,7 +174,6 @@ mod tests {
                 Preimage : pallet_preimage = 14,
                 Scheduler : pallet_scheduler = 15,
                 Proxy : pallet_subtensor_proxy = 16,
-                Registry : pallet_registry = 17,
                 Commitments : pallet_commitments = 18,
                 AdminUtils : pallet_admin_utils = 19,
                 SafeMode : pallet_safe_mode = 20

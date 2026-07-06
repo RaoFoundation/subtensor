@@ -116,15 +116,12 @@ mod genesis {
             let block_number = Pallet::<T>::get_current_block_as_u64();
 
             SubnetworkN::<T>::insert(netuid, 1);
-            Rank::<T>::mutate(netuid, |v| v.push(0));
-            Trust::<T>::mutate(netuid, |v| v.push(0));
             Active::<T>::mutate(netuid, |v| v.push(true));
             Emission::<T>::mutate(netuid, |v| v.push(0.into()));
             Consensus::<T>::mutate(netuid, |v| v.push(0));
             Incentive::<T>::mutate(NetUidStorageIndex::from(netuid), |v| v.push(0));
             Dividends::<T>::mutate(netuid, |v| v.push(0));
             LastUpdate::<T>::mutate(NetUidStorageIndex::from(netuid), |v| v.push(block_number));
-            PruningScores::<T>::mutate(netuid, |v| v.push(0));
             ValidatorTrust::<T>::mutate(netuid, |v| v.push(0));
             ValidatorPermit::<T>::mutate(netuid, |v| v.push(false));
             Keys::<T>::insert(netuid, 0, hotkey.clone()); // Make hotkey - uid association.

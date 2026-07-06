@@ -10,15 +10,6 @@ pub fn migrate_restore_subnet_locked<T: Config>() -> Weight {
     let migration_name = b"migrate_restore_subnet_locked".to_vec();
     let mut weight = T::DbWeight::get().reads(1);
 
-    if HasMigrationRun::<T>::get(&migration_name) {
-        log::info!(
-            target: "runtime",
-            "Migration '{}' already run - skipping.",
-            String::from_utf8_lossy(&migration_name)
-        );
-        return weight;
-    }
-
     // Snapshot: NetworkLastLockCost at (registration_block + 1) for each netuid.
     const SUBNET_LOCKED: &[(u16, u64)] = &[
         (65, 37_274_536_408),
@@ -86,6 +77,15 @@ pub fn migrate_restore_subnet_locked<T: Config>() -> Weight {
         (127, 97_101_698_382),
         (128, 145_645_807_991),
     ];
+
+    if HasMigrationRun::<T>::get(&migration_name) {
+        log::info!(
+            target: "runtime",
+            "Migration '{}' already run - skipping.",
+            String::from_utf8_lossy(&migration_name)
+        );
+        return weight;
+    }
 
     let mut inserted: u32 = 0;
     let mut total_rao: u128 = 0;

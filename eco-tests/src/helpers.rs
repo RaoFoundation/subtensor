@@ -87,9 +87,9 @@ pub fn next_block_no_epoch(netuid: NetUid) -> u64 {
     let high_tempo: u16 = u16::MAX - 1;
     let old_tempo: u16 = SubtensorModule::get_tempo(netuid);
 
-    SubtensorModule::set_tempo(netuid, high_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, high_tempo);
     let new_block = next_block();
-    SubtensorModule::set_tempo(netuid, old_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, old_tempo);
 
     new_block
 }
@@ -99,14 +99,14 @@ pub fn run_to_block_no_epoch(netuid: NetUid, n: u64) {
     let high_tempo: u16 = u16::MAX - 1;
     let old_tempo: u16 = SubtensorModule::get_tempo(netuid);
 
-    SubtensorModule::set_tempo(netuid, high_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, high_tempo);
     run_to_block(n);
-    SubtensorModule::set_tempo(netuid, old_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, old_tempo);
 }
 
 pub fn step_epochs(count: u16, netuid: NetUid) {
     for _ in 0..count {
-        let blocks_to_next_epoch = SubtensorModule::blocks_until_next_epoch(
+        let blocks_to_next_epoch = SubtensorModule::blocks_until_next_auto_epoch(
             netuid,
             SubtensorModule::get_tempo(netuid),
             SubtensorModule::get_current_block_as_u64(),
@@ -186,7 +186,7 @@ pub fn add_network_disable_subtoken(netuid: NetUid, tempo: u16, _modality: u16) 
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    SubtensorModule::add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(coldkey, lock_cost.into());
     TotalIssuance::<Test>::mutate(|total_issuance| {
         *total_issuance = total_issuance.saturating_add(lock_cost);
     });
@@ -205,7 +205,7 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 pub fn add_dynamic_network_without_emission_block(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    SubtensorModule::add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(coldkey, lock_cost.into());
     TotalIssuance::<Test>::mutate(|total_issuance| {
         *total_issuance = total_issuance.saturating_add(lock_cost);
     });
@@ -299,7 +299,7 @@ pub fn increase_stake_on_coldkey_hotkey_account(
     netuid: NetUid,
 ) {
     // Ensure the coldkey has enough balance
-    SubtensorModule::add_balance_to_coldkey_account(coldkey, tao_staked.into());
+    add_balance_to_coldkey_account(coldkey, tao_staked.into());
     assert_ok!(SubtensorModule::add_stake(
         RuntimeOrigin::signed(*coldkey),
         *hotkey,
@@ -320,10 +320,6 @@ pub fn increase_stake_on_hotkey_account(hotkey: &U256, increment: TaoBalance, ne
         increment,
         netuid,
     );
-}
-
-pub fn remove_stake_rate_limit_for_tests(hotkey: &U256, coldkey: &U256, netuid: NetUid) {
-    StakingOperationRateLimiter::<Test>::remove((hotkey, coldkey, netuid));
 }
 
 pub fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {

@@ -79,19 +79,16 @@ pub fn migrate_delete_subnet_21<T: Config>() -> Weight {
         weight.saturating_accrue(T::DbWeight::get().writes(4));
 
         // Remove various network-related parameters
-        Rank::<T>::remove(netuid);
-        Trust::<T>::remove(netuid);
         Active::<T>::remove(netuid);
         Emission::<T>::remove(netuid);
         Incentive::<T>::remove(NetUidStorageIndex::from(netuid));
         Consensus::<T>::remove(netuid);
         Dividends::<T>::remove(netuid);
-        PruningScores::<T>::remove(netuid);
         LastUpdate::<T>::remove(NetUidStorageIndex::from(netuid));
         ValidatorPermit::<T>::remove(netuid);
         ValidatorTrust::<T>::remove(netuid);
 
-        weight.saturating_accrue(T::DbWeight::get().writes(11));
+        weight.saturating_accrue(T::DbWeight::get().writes(8));
 
         // Erase network parameters
         Tempo::<T>::remove(netuid);

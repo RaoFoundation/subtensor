@@ -4,9 +4,9 @@ use core::num::NonZeroU64;
 
 use frame_support::{
     PalletId, assert_ok, derive_impl, parameter_types,
-    traits::{Everything, Hooks, InherentBuilder, PrivilegeCmp},
+    traits::{Everything, Hooks, PrivilegeCmp},
 };
-use frame_system::{self as system, offchain::CreateTransactionBase};
+use frame_system::{self as system};
 use frame_system::{EnsureRoot, limits};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_consensus_grandpa::AuthorityList as GrandpaAuthorityList;
@@ -29,6 +29,7 @@ frame_support::construct_runtime!(
         System: frame_system = 1,
         Balances: pallet_balances = 2,
         AdminUtils: crate = 3,
+        AlphaAssets: pallet_alpha_assets = 12,
         SubtensorModule: pallet_subtensor::{Pallet, Call, Storage, Event<T>, Error<T>} = 4,
         Scheduler: pallet_scheduler::{Pallet, Call, Storage, Event<T>} = 5,
         Drand: pallet_drand::{Pallet, Call, Storage, Event<T>} = 6,
@@ -118,9 +119,14 @@ parameter_types! {
     pub const InitialTxChildKeyTakeRateLimit: u64 = 0; // Disable rate limit for testing
     pub const InitialBurn: TaoBalance = TaoBalance::new(0);
     pub const InitialMinBurn: TaoBalance = TaoBalance::new(500_000);
+    pub const InitialMinStake: TaoBalance = TaoBalance::new(2_000_000);
     pub const InitialMaxBurn: TaoBalance = TaoBalance::new(1_000_000_000);
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
+    pub const MinTempo: u16 = pallet_subtensor::MIN_TEMPO;
+    pub const MaxTempo: u16 = pallet_subtensor::MAX_TEMPO;
+    pub const MinActivityCutoffFactorMilli: u32 = pallet_subtensor::MIN_ACTIVITY_CUTOFF_FACTOR_MILLI;
+    pub const MaxActivityCutoffFactorMilli: u32 = pallet_subtensor::MAX_ACTIVITY_CUTOFF_FACTOR_MILLI;
     pub const InitialValidatorPruneLen: u64 = 0;
     pub const InitialScalingLawPower: u16 = 50;
     pub const InitialMaxAllowedValidators: u16 = 100;
@@ -157,6 +163,9 @@ parameter_types! {
     pub const LeaseDividendsDistributionInterval: u32 = 100; // 100 blocks
     pub const MaxImmuneUidsPercentage: Percent = Percent::from_percent(80);
     pub const EvmKeyAssociateRateLimit: u64 = 0;
+    pub const SubtensorPalletId: PalletId = PalletId(*b"subtensr");
+    pub const BurnAccountId: PalletId = PalletId(*b"burntnsr");
+    pub const MaxEpochsPerBlock: u8 = 32;
 }
 
 impl pallet_subtensor::Config for Test {
@@ -202,8 +211,13 @@ impl pallet_subtensor::Config for Test {
     type InitialBurn = InitialBurn;
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
+    type InitialMinStake = InitialMinStake;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
+    type MinTempo = MinTempo;
+    type MaxTempo = MaxTempo;
+    type MinActivityCutoffFactorMilli = MinActivityCutoffFactorMilli;
+    type MaxActivityCutoffFactorMilli = MaxActivityCutoffFactorMilli;
     type InitialRAORecycledForRegistration = InitialRAORecycledForRegistration;
     type InitialNetworkImmunityPeriod = InitialNetworkImmunityPeriod;
     type InitialNetworkMinLockCost = InitialNetworkMinLockCost;
@@ -216,6 +230,7 @@ impl pallet_subtensor::Config for Test {
     type LiquidAlphaOn = InitialLiquidAlphaOn;
     type Yuma3On = InitialYuma3On;
     type Preimages = ();
+    type AlphaAssets = AlphaAssets;
     type InitialColdkeySwapAnnouncementDelay = InitialColdkeySwapAnnouncementDelay;
     type InitialColdkeySwapReannouncementDelay = InitialColdkeySwapReannouncementDelay;
     type InitialDissolveNetworkScheduleDuration = InitialDissolveNetworkScheduleDuration;
@@ -232,6 +247,9 @@ impl pallet_subtensor::Config for Test {
     type CommitmentsInterface = CommitmentsI;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
+    type SubtensorPalletId = SubtensorPalletId;
+    type BurnAccountId = BurnAccountId;
+    type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
 }
 
@@ -329,11 +347,12 @@ impl pallet_balances::Config for Test {
     type RuntimeHoldReason = ();
 }
 
+impl pallet_alpha_assets::Config for Test {}
+
 // Swap-related parameter types
 parameter_types! {
     pub const SwapProtocolId: PalletId = PalletId(*b"ten/swap");
     pub const SwapMaxFeeRate: u16 = 10000; // 15.26%
-    pub const SwapMaxPositions: u32 = 100;
     pub const SwapMinimumLiquidity: u64 = 1_000;
     pub const SwapMinimumReserve: NonZeroU64 = NonZeroU64::new(1_000_000).unwrap();
 }
@@ -345,7 +364,6 @@ impl pallet_subtensor_swap::Config for Test {
     type TaoReserve = pallet_subtensor::TaoBalanceReserve<Self>;
     type AlphaReserve = pallet_subtensor::AlphaBalanceReserve<Self>;
     type MaxFeeRate = SwapMaxFeeRate;
-    type MaxPositions = SwapMaxPositions;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
     type WeightInfo = ();
@@ -461,28 +479,12 @@ where
     type RuntimeCall = RuntimeCall;
 }
 
-impl<LocalCall> frame_system::offchain::CreateInherent<LocalCall> for Test
+impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test
 where
     RuntimeCall: From<LocalCall>,
 {
     fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
-        UncheckedExtrinsic::new_inherent(call)
-    }
-}
-
-impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Test
-where
-    RuntimeCall: From<LocalCall>,
-{
-    fn create_signed_transaction<
-        C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>,
-    >(
-        call: <Self as CreateTransactionBase<LocalCall>>::RuntimeCall,
-        _public: Self::Public,
-        _account: Self::AccountId,
-        nonce: Self::Nonce,
-    ) -> Option<Self::Extrinsic> {
-        Some(UncheckedExtrinsic::new_signed(call, nonce, (), ()))
+        UncheckedExtrinsic::new_bare(call)
     }
 }
 
@@ -529,10 +531,7 @@ pub fn register_ok_neuron(
     let bal = SubtensorModule::get_coldkey_balance(&coldkey_account_id);
 
     if bal < burn_u64 {
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey_account_id,
-            burn_u64 - bal + 10.into(),
-        );
+        add_balance_to_coldkey_account(&coldkey_account_id, burn_u64 - bal + 10.into());
     }
 
     let result = SubtensorModule::burned_register(
@@ -569,4 +568,15 @@ pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalanc
 pub fn step_block(n: u64) {
     let current: u64 = frame_system::Pallet::<Test>::block_number().into();
     run_to_block(current + n);
+}
+
+#[allow(dead_code)]
+pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
+    let credit = SubtensorModule::mint_tao(tao);
+    let _ = SubtensorModule::spend_tao(coldkey, credit, tao).unwrap();
+}
+
+#[allow(dead_code)]
+pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
+    let _ = SubtensorModule::burn_tao(coldkey, tao);
 }

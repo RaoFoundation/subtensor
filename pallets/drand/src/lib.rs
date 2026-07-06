@@ -43,8 +43,7 @@ use codec::Encode;
 use frame_support::{pallet_prelude::*, traits::Randomness};
 use frame_system::{
     offchain::{
-        AppCrypto, CreateInherent, CreateSignedTransaction, SendUnsignedTransaction, SignedPayload,
-        Signer, SigningTypes,
+        AppCrypto, CreateBare, SendUnsignedTransaction, SignedPayload, Signer, SigningTypes,
     },
     pallet_prelude::BlockNumberFor,
 };
@@ -162,9 +161,7 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config:
-        CreateSignedTransaction<Call<Self>> + CreateInherent<Call<Self>> + frame_system::Config
-    {
+    pub trait Config: CreateBare<Call<Self>> + SigningTypes + frame_system::Config {
         /// The identifier type for an offchain worker.
         type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
         /// something that knows how to verify beacon pulses

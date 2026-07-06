@@ -13,12 +13,14 @@ use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
-pub use pallet_subtensor_swap_runtime_api::SwapRuntimeApi;
+pub use pallet_subtensor_swap_runtime_api::{SubnetPrice, SwapRuntimeApi};
 
 #[rpc(client, server)]
 pub trait SwapRpcApi<BlockHash> {
     #[method(name = "swap_currentAlphaPrice")]
     fn current_alpha_price(&self, netuid: NetUid, at: Option<BlockHash>) -> RpcResult<u64>;
+    #[method(name = "swap_currentAlphaPriceAll")]
+    fn current_alpha_price_all(&self, at: Option<BlockHash>) -> RpcResult<Vec<SubnetPrice>>;
     #[method(name = "swap_simSwapTaoForAlpha")]
     fn sim_swap_tao_for_alpha(
         &self,
@@ -89,6 +91,18 @@ where
 
         api.current_alpha_price(at, netuid).map_err(|e| {
             Error::RuntimeError(format!("Unable to get current alpha price: {e:?}")).into()
+        })
+    }
+
+    fn current_alpha_price_all(
+        &self,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<SubnetPrice>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        api.current_alpha_price_all(at).map_err(|e| {
+            Error::RuntimeError(format!("Unable to get all current alpha prices: {e:?}")).into()
         })
     }
 

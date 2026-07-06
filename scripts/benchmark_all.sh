@@ -27,8 +27,8 @@ die() { echo "ERROR: $1" >&2; exit 1; }
 
 # ── Auto-discover pallets ────────────────────────────────────────────────────
 typeset -A PALLET_OUTPUTS
-while read -r name path; do
-  PALLET_OUTPUTS[$name]="$path"
+while read -r name output_path; do
+  PALLET_OUTPUTS[$name]="$output_path"
 done < <("$SCRIPT_DIR/discover_pallets.sh")
 
 (( ${#PALLET_OUTPUTS} > 0 )) || die "no benchmarked pallets found"

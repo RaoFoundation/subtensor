@@ -1,12 +1,13 @@
 use super::*;
 // use frame_support::traits::{Currency as BalancesCurrency, Get, Imbalance};
-use frame_support::traits::Get;
+use crate::coinbase::tao::CreditOf;
+use frame_support::traits::{Get, Imbalance};
 use safe_math::*;
 use substrate_fixed::{transcendental::log2, types::I96F32};
-use subtensor_runtime_common::TaoBalance;
 
 impl<T: Config> Pallet<T> {
-    /// Calculates the block emission based on the total issuance.
+    /// Calculates the block emission based on the total issuance and mints corresponding
+    /// amount of TAO.
     ///
     /// This function computes the block emission by applying a logarithmic function
     /// to the total issuance of the network. The formula used takes into account
@@ -17,7 +18,18 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// * 'Result<u64, &'static str>': The calculated block emission rate or error.
     ///
-    pub fn get_block_emission() -> Result<TaoBalance, &'static str> {
+    pub fn get_block_emission() -> CreditOf<T> {
+        let maybe_tao_to_mint = Self::calculate_block_emission();
+        if let Ok(tao_to_mint) = maybe_tao_to_mint
+            && !tao_to_mint.is_zero()
+        {
+            return Self::mint_tao(tao_to_mint.into());
+        }
+        CreditOf::<T>::zero()
+    }
+
+    /// Calculates the block emission based on the total issuance only, no minting happens.
+    pub fn calculate_block_emission() -> Result<TaoBalance, &'static str> {
         // Convert the total issuance to a fixed-point number for calculation.
         Self::get_block_emission_for_issuance(Self::get_total_issuance().into()).map(Into::into)
     }
@@ -65,9 +77,6 @@ impl<T: Config> Pallet<T> {
             .saturating_mul(I96F32::saturating_from_num(DefaultBlockEmission::<T>::get()));
         // Convert to u64
         let block_emission_u64: u64 = block_emission.saturating_to_num::<u64>();
-        if BlockEmission::<T>::get() != block_emission_u64 {
-            BlockEmission::<T>::put(block_emission_u64);
-        }
         Ok(block_emission_u64)
     }
 }

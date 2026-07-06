@@ -12,12 +12,13 @@ use core::num::NonZeroU64;
 
 pub mod check_mortality;
 pub mod check_nonce;
-mod migrations;
+mod proxy_filters;
 pub mod sudo_wrapper;
 pub mod transaction_payment_wrapper;
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use codec::{Compact, Decode, Encode};
 use ethereum::AuthorizationList;
 use frame_support::{
@@ -30,7 +31,6 @@ use frame_support::{
 use frame_system::{EnsureRoot, EnsureRootWithSuccess, EnsureSigned};
 use pallet_commitments::{CanCommit, OnMetadataCommitment};
 use pallet_grandpa::{AuthorityId as GrandpaId, fg_primitives};
-use pallet_registry::CanRegisterIdentity;
 pub use pallet_shield;
 use pallet_subtensor::rpc_info::{
     delegate_info::DelegateInfo,
@@ -38,8 +38,10 @@ use pallet_subtensor::rpc_info::{
     metagraph::{Metagraph, SelectiveMetagraph},
     neuron_info::{NeuronInfo, NeuronInfoLite},
     show_subnet::SubnetState,
-    stake_info::StakeInfo,
-    subnet_info::{SubnetHyperparams, SubnetHyperparamsV2, SubnetInfo, SubnetInfov2},
+    stake_info::{StakeAvailability, StakeInfo},
+    subnet_info::{
+        SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3, SubnetInfo, SubnetInfov2,
+    },
 };
 use pallet_subtensor::{CommitmentsInterface, ProxyInterface};
 use pallet_subtensor_proxy as pallet_proxy;
@@ -55,13 +57,11 @@ use sp_core::{
     H160, H256, OpaqueMetadata, U256,
     crypto::{ByteArray, KeyTypeId},
 };
-use sp_runtime::Cow;
-use sp_runtime::generic::Era;
 use sp_runtime::{
-    AccountId32, ApplyExtrinsicResult, ConsensusEngineId, Percent, generic, impl_opaque_keys,
+    AccountId32, ApplyExtrinsicResult, ConsensusEngineId, Cow, Percent, generic, impl_opaque_keys,
     traits::{
-        AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable, One,
-        PostDispatchInfoOf, UniqueSaturatedInto, Verify,
+        AccountIdConversion, AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf,
+        Dispatchable, One, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -73,7 +73,7 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 use stp_shield::ShieldedTransaction;
-use substrate_fixed::types::U96F32;
+use substrate_fixed::types::U64F64;
 use subtensor_precompiles::Precompiles;
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, TaoBalance, time::*, *};
 use subtensor_swap_interface::{Order, SwapHandler};
@@ -82,8 +82,9 @@ use subtensor_swap_interface::{Order, SwapHandler};
 pub use frame_support::{
     StorageValue, construct_runtime, parameter_types,
     traits::{
-        ConstBool, ConstU8, ConstU32, ConstU64, ConstU128, FindAuthor, InstanceFilter,
-        KeyOwnerProofSystem, OnFinalize, OnTimestampSet, PrivilegeCmp, Randomness, StorageInfo,
+        ConstBool, ConstU8, ConstU32, ConstU64, ConstU128, FindAuthor, GetCallIndex, GetCallName,
+        InstanceFilter, KeyOwnerProofSystem, OnFinalize, OnTimestampSet, PalletInfoAccess,
+        PrivilegeCmp, Randomness, StorageInfo,
     },
     weights::{
         IdentityFee, Weight, WeightToFeeCoefficient, WeightToFeeCoefficients,
@@ -101,7 +102,9 @@ use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
-use subtensor_transaction_fee::{SubtensorTxFeeHandler, TransactionFeeHandler};
+use subtensor_transaction_fee::{
+    SubtensorEvmFeeHandler, SubtensorTxFeeHandler, TransactionFeeHandler,
+};
 
 use core::marker::PhantomData;
 
@@ -150,6 +153,8 @@ impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
 impl pallet_shield::Config for Runtime {
     type AuthorityId = AuraId;
     type FindAuthors = FindAuraAuthors;
+    type RuntimeCall = RuntimeCall;
+    type ExtrinsicDecryptor = ();
     type WeightInfo = pallet_shield::weights::SubstrateWeight<Runtime>;
 }
 
@@ -175,47 +180,6 @@ where
 impl frame_system::offchain::CreateBare<pallet_drand::Call<Runtime>> for Runtime {
     fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
         UncheckedExtrinsic::new_bare(call)
-    }
-}
-
-impl frame_system::offchain::CreateSignedTransaction<pallet_drand::Call<Runtime>> for Runtime {
-    fn create_signed_transaction<
-        S: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>,
-    >(
-        call: RuntimeCall,
-        public: Self::Public,
-        account: Self::AccountId,
-        nonce: Self::Nonce,
-    ) -> Option<Self::Extrinsic> {
-        use sp_runtime::traits::StaticLookup;
-
-        let address = <Runtime as frame_system::Config>::Lookup::unlookup(account.clone());
-        let extra: TxExtension = (
-            (
-                frame_system::CheckNonZeroSender::<Runtime>::new(),
-                frame_system::CheckSpecVersion::<Runtime>::new(),
-                frame_system::CheckTxVersion::<Runtime>::new(),
-                frame_system::CheckGenesis::<Runtime>::new(),
-                check_mortality::CheckMortality::<Runtime>::from(Era::Immortal),
-                check_nonce::CheckNonce::<Runtime>::from(nonce).into(),
-                frame_system::CheckWeight::<Runtime>::new(),
-            ),
-            (
-                ChargeTransactionPaymentWrapper::new(TaoBalance::new(0)),
-                SudoTransactionExtension::<Runtime>::new(),
-                pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
-                pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
-                pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
-            ),
-            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
-        );
-
-        let raw_payload = SignedPayload::new(call.clone(), extra.clone()).ok()?;
-        let signature = raw_payload.using_encoded(|payload| S::sign(payload, public))?;
-
-        Some(UncheckedExtrinsic::new_signed(
-            call, address, signature, extra,
-        ))
     }
 }
 
@@ -270,7 +234,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 396,
+    spec_version: 424,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -377,13 +341,20 @@ impl frame_system::Config for Runtime {
     type MaxConsumers = frame_support::traits::ConstU32<16>;
     type Nonce = Nonce;
     type Block = Block;
-    type SingleBlockMigrations = Migrations;
+    type SingleBlockMigrations = ();
     type MultiBlockMigrator = ();
     type PreInherents = ();
     type PostInherents = ();
     type PostTransactions = ();
     type ExtensionsWeightInfo = frame_system::SubstrateExtensionsWeight<Runtime>;
-    type DispatchExtension = pallet_subtensor::CheckColdkeySwap<Runtime>;
+    type DispatchExtension = (
+        pallet_subtensor::CheckColdkeySwap<Runtime>,
+        pallet_subtensor::CheckWeights<Runtime>,
+        pallet_subtensor::CheckRateLimits<Runtime>,
+        pallet_subtensor::CheckDelegateTake<Runtime>,
+        pallet_subtensor::CheckServingEndpoints<Runtime>,
+        pallet_subtensor::CheckEvmKeyAssociation<Runtime>,
+    );
 }
 
 impl pallet_insecure_randomness_collective_flip::Config for Runtime {}
@@ -524,6 +495,8 @@ impl pallet_balances::Config for Runtime {
     type DoneSlashHandler = ();
 }
 
+impl pallet_alpha_assets::Config for Runtime {}
+
 // Implement AuthorshipInfo trait for Runtime to satisfy pallet transaction
 // fee OnUnbalanced trait bounds
 pub struct BlockAuthorFromAura<F>(core::marker::PhantomData<F>);
@@ -609,225 +582,6 @@ parameter_types! {
     pub const AnnouncementDepositBase: Balance =  deposit(1, 16);
     // 68 bytes per announcement
     pub const AnnouncementDepositFactor: Balance = deposit(0, 68);
-}
-
-impl InstanceFilter<RuntimeCall> for ProxyType {
-    fn filter(&self, c: &RuntimeCall) -> bool {
-        match self {
-            ProxyType::Any => true,
-            ProxyType::NonTransfer => !matches!(
-                c,
-                RuntimeCall::Balances(..)
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::schedule_swap_coldkey { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_coldkey { .. })
-            ),
-            ProxyType::NonFungible => !matches!(
-                c,
-                RuntimeCall::Balances(..)
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake_limit { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::remove_stake_limit { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::remove_stake_full_limit { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::unstake_all { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::unstake_all_alpha { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake_limit { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::burned_register { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::root_register { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::schedule_swap_coldkey { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_coldkey { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_hotkey { .. })
-            ),
-            ProxyType::Transfer => matches!(
-                c,
-                RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive { .. })
-                    | RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death { .. })
-                    | RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
-            ),
-            ProxyType::SmallTransfer => match c {
-                RuntimeCall::Balances(pallet_balances::Call::transfer_keep_alive {
-                    value, ..
-                }) => *value < SMALL_TRANSFER_LIMIT,
-                RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
-                    value,
-                    ..
-                }) => *value < SMALL_TRANSFER_LIMIT,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake {
-                    alpha_amount,
-                    ..
-                }) => *alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
-                _ => false,
-            },
-            ProxyType::Owner => {
-                matches!(
-                    c,
-                    RuntimeCall::AdminUtils(..)
-                        | RuntimeCall::SubtensorModule(
-                            pallet_subtensor::Call::set_subnet_identity { .. }
-                        )
-                        | RuntimeCall::SubtensorModule(
-                            pallet_subtensor::Call::update_symbol { .. }
-                        )
-                ) && !matches!(
-                    c,
-                    RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_sn_owner_hotkey { .. }
-                    )
-                )
-            }
-            ProxyType::NonCritical => !matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::dissolve_network { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::root_register { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::burned_register { .. })
-                    | RuntimeCall::Sudo(..)
-            ),
-            ProxyType::Triumvirate => false, // deprecated
-            ProxyType::Senate => false,      // deprecated
-            ProxyType::Governance => false,  // deprecated
-            ProxyType::Staking => matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::remove_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::unstake_all { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::unstake_all_alpha { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake_limit { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake_limit { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::remove_stake_limit { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::remove_stake_full_limit { .. }
-                    )
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::set_root_claim_type { .. }
-                    )
-            ),
-            ProxyType::Registration => matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::burned_register { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::register { .. })
-                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::register_limit { .. })
-            ),
-            ProxyType::RootWeights => false, // deprecated
-            ProxyType::ChildKeys => matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::set_children { .. })
-                    | RuntimeCall::SubtensorModule(
-                        pallet_subtensor::Call::set_childkey_take { .. }
-                    )
-            ),
-            ProxyType::SudoUncheckedSetCode => match c {
-                RuntimeCall::Sudo(pallet_sudo::Call::sudo_unchecked_weight { call, weight: _ }) => {
-                    let inner_call: RuntimeCall = *call.clone();
-
-                    matches!(
-                        inner_call,
-                        RuntimeCall::System(frame_system::Call::set_code { .. })
-                    )
-                }
-                _ => false,
-            },
-            ProxyType::SwapHotkey => matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_hotkey { .. })
-            ),
-            ProxyType::SubnetLeaseBeneficiary => matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::start_call { .. })
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_serving_rate_limit { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_min_difficulty { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_max_difficulty { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_weights_version_key { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_adjustment_alpha { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_immunity_period { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_min_allowed_weights { .. }
-                    )
-                    | RuntimeCall::AdminUtils(pallet_admin_utils::Call::sudo_set_kappa { .. })
-                    | RuntimeCall::AdminUtils(pallet_admin_utils::Call::sudo_set_rho { .. })
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_activity_cutoff { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_network_registration_allowed { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_network_pow_registration_allowed { .. }
-                    )
-                    | RuntimeCall::AdminUtils(pallet_admin_utils::Call::sudo_set_max_burn { .. })
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_bonds_moving_average { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_bonds_penalty { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_commit_reveal_weights_enabled { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_liquid_alpha_enabled { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_alpha_values { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_commit_reveal_weights_interval { .. }
-                    )
-                    | RuntimeCall::AdminUtils(
-                        pallet_admin_utils::Call::sudo_set_toggle_transfer { .. }
-                    )
-            ),
-            ProxyType::RootClaim => matches!(
-                c,
-                RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root { .. })
-            ),
-        }
-    }
-    fn is_superset(&self, o: &Self) -> bool {
-        match (self, o) {
-            (x, y) if x == y => true,
-            (ProxyType::Any, _) => true,
-            (_, ProxyType::Any) => false,
-            (ProxyType::NonTransfer, _) => {
-                // NonTransfer is NOT a superset of Transfer or SmallTransfer
-                !matches!(o, ProxyType::Transfer | ProxyType::SmallTransfer)
-            }
-            (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
-            _ => false,
-        }
-    }
 }
 
 impl pallet_proxy::Config for Runtime {
@@ -934,43 +688,6 @@ impl pallet_preimage::Config for Runtime {
         PreimageHoldReason,
         LinearStoragePrice<PreimageBaseDeposit, PreimageByteDeposit, Balance>,
     >;
-}
-
-pub struct AllowIdentityReg;
-
-impl CanRegisterIdentity<AccountId> for AllowIdentityReg {
-    #[cfg(not(feature = "runtime-benchmarks"))]
-    fn can_register(address: &AccountId, identified: &AccountId) -> bool {
-        if address != identified {
-            SubtensorModule::coldkey_owns_hotkey(address, identified)
-                && SubtensorModule::is_hotkey_registered_on_network(NetUid::ROOT, identified)
-        } else {
-            SubtensorModule::is_subnet_owner(address)
-        }
-    }
-
-    #[cfg(feature = "runtime-benchmarks")]
-    fn can_register(_: &AccountId, _: &AccountId) -> bool {
-        true
-    }
-}
-
-// Configure registry pallet.
-parameter_types! {
-    pub const MaxAdditionalFields: u32 = 1;
-    pub const InitialDeposit: Balance = TaoBalance::new(100_000_000); // 0.1 TAO
-    pub const FieldDeposit: Balance = TaoBalance::new(100_000_000); // 0.1 TAO
-}
-
-impl pallet_registry::Config for Runtime {
-    type RuntimeHoldReason = RuntimeHoldReason;
-    type Currency = Balances;
-    type CanRegister = AllowIdentityReg;
-    type WeightInfo = pallet_registry::weights::SubstrateWeight<Runtime>;
-
-    type MaxAdditionalFields = MaxAdditionalFields;
-    type InitialDeposit = InitialDeposit;
-    type FieldDeposit = FieldDeposit;
 }
 
 parameter_types! {
@@ -1093,9 +810,16 @@ parameter_types! {
     pub const SubtensorInitialServingRateLimit: u64 = 50;
     pub const SubtensorInitialBurn: TaoBalance = TaoBalance::new(100_000_000); // 0.1 tao
     pub const SubtensorInitialMinBurn: TaoBalance = TaoBalance::new(500_000); // 500k RAO
+    pub const SubtensorInitialMinStake: TaoBalance = TaoBalance::new(2_000_000); // 0.002 tao
     pub const SubtensorInitialMaxBurn: TaoBalance = TaoBalance::new(100_000_000_000); // 100 tao
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
+    pub const SubtensorMinTempo: u16 = pallet_subtensor::MIN_TEMPO;
+    pub const SubtensorMaxTempo: u16 = pallet_subtensor::MAX_TEMPO;
+    pub const SubtensorMinActivityCutoffFactorMilli: u32 =
+        pallet_subtensor::MIN_ACTIVITY_CUTOFF_FACTOR_MILLI;
+    pub const SubtensorMaxActivityCutoffFactorMilli: u32 =
+        pallet_subtensor::MAX_ACTIVITY_CUTOFF_FACTOR_MILLI;
     pub const SubtensorInitialTxRateLimit: u64 = 1000;
     pub const SubtensorInitialTxDelegateTakeRateLimit: u64 = 216000; // 30 days at 12 seconds per block
     pub const SubtensorInitialTxChildKeyTakeRateLimit: u64 = INITIAL_CHILDKEY_TAKE_RATELIMIT;
@@ -1120,10 +844,13 @@ parameter_types! {
     // 0 days
     pub const InitialStartCallDelay: u64 = 0;
     pub const SubtensorInitialKeySwapOnSubnetCost: TaoBalance = TaoBalance::new(1_000_000); // 0.001 TAO
-    pub const HotkeySwapOnSubnetInterval : BlockNumber = 24 * 60 * 60 / 12; // 1 day
+    pub const HotkeySwapOnSubnetInterval : BlockNumber = prod_or_fast!(24 * 60 * 60 / 12, 1); // 1 day
     pub const LeaseDividendsDistributionInterval: BlockNumber = 100; // 100 blocks
     pub const MaxImmuneUidsPercentage: Percent = Percent::from_percent(80);
     pub const EvmKeyAssociateRateLimit: u64 = EVM_KEY_ASSOCIATE_RATELIMIT;
+    pub const SubtensorPalletId: PalletId = PalletId(*b"subtensr");
+    pub const BurnAccountId: PalletId = PalletId(*b"burntnsr");
+    pub const SubtensorMaxEpochsPerBlock: u8 = prod_or_fast!(2, 32);
 }
 
 impl pallet_subtensor::Config for Runtime {
@@ -1165,8 +892,13 @@ impl pallet_subtensor::Config for Runtime {
     type InitialBurn = SubtensorInitialBurn;
     type InitialMaxBurn = SubtensorInitialMaxBurn;
     type InitialMinBurn = SubtensorInitialMinBurn;
+    type InitialMinStake = SubtensorInitialMinStake;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
+    type MinTempo = SubtensorMinTempo;
+    type MaxTempo = SubtensorMaxTempo;
+    type MinActivityCutoffFactorMilli = SubtensorMinActivityCutoffFactorMilli;
+    type MaxActivityCutoffFactorMilli = SubtensorMaxActivityCutoffFactorMilli;
     type InitialTxRateLimit = SubtensorInitialTxRateLimit;
     type InitialTxDelegateTakeRateLimit = SubtensorInitialTxDelegateTakeRateLimit;
     type InitialTxChildKeyTakeRateLimit = SubtensorInitialTxChildKeyTakeRateLimit;
@@ -1197,15 +929,18 @@ impl pallet_subtensor::Config for Runtime {
     type GetCommitments = GetCommitmentsStruct;
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
+    type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = BlockAuthorFromAura<Aura>;
+    type SubtensorPalletId = SubtensorPalletId;
+    type BurnAccountId = BurnAccountId;
+    type InitialMaxEpochsPerBlock = SubtensorMaxEpochsPerBlock;
     type WeightInfo = pallet_subtensor::weights::SubstrateWeight<Runtime>;
 }
 
 parameter_types! {
     pub const SwapProtocolId: PalletId = PalletId(*b"ten/swap");
     pub const SwapMaxFeeRate: u16 = 10000; // 15.26%
-    pub const SwapMaxPositions: u32 = 100;
     pub const SwapMinimumLiquidity: u64 = 1_000;
     pub const SwapMinimumReserve: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(1_000_000) };
 }
@@ -1217,10 +952,8 @@ impl pallet_subtensor_swap::Config for Runtime {
     type TaoReserve = pallet_subtensor::TaoBalanceReserve<Self>;
     type AlphaReserve = pallet_subtensor::AlphaBalanceReserve<Self>;
     type MaxFeeRate = SwapMaxFeeRate;
-    type MaxPositions = SwapMaxPositions;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
-    // TODO: set measured weights when the pallet been benchmarked and the type is generated
     type WeightInfo = pallet_subtensor_swap::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = SwapBenchmarkHelper;
@@ -1391,7 +1124,7 @@ impl pallet_evm::Config for Runtime {
     type ChainId = ConfigurableChainId;
     type BlockGasLimit = BlockGasLimit;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
-    type OnChargeTransaction = ();
+    type OnChargeTransaction = SubtensorEvmFeeHandler<Balances, TransactionFeeHandler<Runtime>>;
     type OnCreate = ();
     type FindAuthor = FindAuthorTruncated<Aura>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
@@ -1556,6 +1289,42 @@ impl pallet_crowdloan::Config for Runtime {
     type MaxContributors = MaxContributors;
 }
 
+// Limit Orders
+parameter_types! {
+    pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
+    pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
+}
+
+pub struct LimitOrdersPalletHotkey;
+impl Get<AccountId> for LimitOrdersPalletHotkey {
+    fn get() -> AccountId {
+        PalletId(*b"bt/lmhky").into_account_truncating()
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct LimitOrdersUnixTime;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl frame_support::traits::UnixTime for LimitOrdersUnixTime {
+    fn now() -> core::time::Duration {
+        core::time::Duration::from_millis(pallet_timestamp::Pallet::<Runtime>::get())
+    }
+}
+
+impl pallet_limit_orders::Config for Runtime {
+    type SwapInterface = SubtensorModule;
+    #[cfg(feature = "runtime-benchmarks")]
+    type TimeProvider = LimitOrdersUnixTime;
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    type TimeProvider = Timestamp;
+    type MaxOrdersPerBatch = LimitOrdersMaxOrdersPerBatch;
+    type PalletId = LimitOrdersPalletId;
+    type PalletHotkey = LimitOrdersPalletHotkey;
+    type WeightInfo = pallet_limit_orders::weights::SubstrateWeight<Runtime>;
+    type ChainId = ConfigurableChainId;
+}
+
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {
     pallet_contracts::Schedule {
         limits: pallet_contracts::Limits {
@@ -1660,7 +1429,7 @@ construct_runtime!(
         Preimage: pallet_preimage = 14,
         Scheduler: pallet_scheduler = 15,
         Proxy: pallet_proxy = 16,
-        Registry: pallet_registry = 17,
+        // pallet_registry was 17
         Commitments: pallet_commitments = 18,
         AdminUtils: pallet_admin_utils = 19,
         SafeMode: pallet_safe_mode = 20,
@@ -1677,6 +1446,8 @@ construct_runtime!(
         Swap: pallet_subtensor_swap = 28,
         Contracts: pallet_contracts = 29,
         MevShield: pallet_shield = 30,
+        AlphaAssets: pallet_alpha_assets = 31,
+        LimitOrders: pallet_limit_orders = 32,
     }
 );
 
@@ -1752,7 +1523,6 @@ mod benches {
         [pallet_balances, Balances]
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
-        [pallet_registry, Registry]
         [pallet_commitments, Commitments]
         [pallet_admin_utils, AdminUtils]
         [pallet_subtensor, SubtensorModule]
@@ -1762,6 +1532,7 @@ mod benches {
         [pallet_shield, MevShield]
         [pallet_subtensor_proxy, Proxy]
         [pallet_subtensor_utility, Utility]
+        [pallet_limit_orders, LimitOrders]
     );
 }
 
@@ -2441,6 +2212,7 @@ impl_runtime_apis! {
         }
     }
 
+    #[api_version(2)]
     impl subtensor_custom_rpc_runtime_api::SubnetInfoRuntimeApi<Block> for Runtime {
         fn get_subnet_info(netuid: NetUid) -> Option<SubnetInfo<AccountId32>> {
             SubtensorModule::get_subnet_info(netuid)
@@ -2458,12 +2230,18 @@ impl_runtime_apis! {
             SubtensorModule::get_subnets_info_v2()
         }
 
+        #[allow(deprecated)]
         fn get_subnet_hyperparams(netuid: NetUid) -> Option<SubnetHyperparams> {
             SubtensorModule::get_subnet_hyperparams(netuid)
         }
 
+        #[allow(deprecated)]
         fn get_subnet_hyperparams_v2(netuid: NetUid) -> Option<SubnetHyperparamsV2> {
             SubtensorModule::get_subnet_hyperparams_v2(netuid)
+        }
+
+        fn get_subnet_hyperparams_v3(netuid: NetUid) -> Option<SubnetHyperparamsV3> {
+            SubtensorModule::get_subnet_hyperparams_v3(netuid)
         }
 
         fn get_dynamic_info(netuid: NetUid) -> Option<DynamicInfo<AccountId32>> {
@@ -2508,6 +2286,21 @@ impl_runtime_apis! {
         fn get_selective_mechagraph(netuid: NetUid, mecid: MechId, metagraph_indexes: Vec<u16>) -> Option<SelectiveMetagraph<AccountId32>> {
             SubtensorModule::get_selective_mechagraph(netuid, mecid, metagraph_indexes)
         }
+
+        fn get_subnet_account_id(netuid: NetUid) -> Option<AccountId32> {
+            SubtensorModule::get_subnet_account_id(netuid)
+        }
+
+        fn get_next_epoch_start_block(netuid: NetUid) -> Option<u64> {
+            SubtensorModule::get_next_epoch_start_block(netuid)
+        }
+
+        fn get_block_emission() -> TaoBalance {
+            match SubtensorModule::calculate_block_emission() {
+                Ok(block_emission) => block_emission.into(),
+                Err(_) => TaoBalance::ZERO,
+            }
+        }
     }
 
     impl subtensor_custom_rpc_runtime_api::StakeInfoRuntimeApi<Block> for Runtime {
@@ -2523,14 +2316,40 @@ impl_runtime_apis! {
             SubtensorModule::get_stake_info_for_hotkey_coldkey_netuid( hotkey_account, coldkey_account, netuid )
         }
 
+        fn get_stake_availability_for_coldkeys( coldkey_accounts: Vec<AccountId32>, netuids: Option<Vec<NetUid>> ) -> BTreeMap<AccountId32, BTreeMap<NetUid, StakeAvailability>> {
+            SubtensorModule::get_stake_availability_for_coldkeys( coldkey_accounts, netuids )
+        }
+
         fn get_stake_fee( origin: Option<(AccountId32, NetUid)>, origin_coldkey_account: AccountId32, destination: Option<(AccountId32, NetUid)>, destination_coldkey_account: AccountId32, amount: u64 ) -> u64 {
             SubtensorModule::get_stake_fee( origin, origin_coldkey_account, destination, destination_coldkey_account, amount )
+        }
+
+        fn get_coldkey_lock(coldkey: AccountId32, netuid: NetUid) -> Option<pallet_subtensor::staking::lock::LockState> {
+            SubtensorModule::get_coldkey_lock(&coldkey, netuid)
+        }
+
+        fn get_hotkey_conviction(hotkey: AccountId32, netuid: NetUid) -> U64F64 {
+            SubtensorModule::hotkey_conviction(&hotkey, netuid)
+        }
+
+        fn get_most_convicted_hotkey_on_subnet(netuid: NetUid) -> Option<AccountId32> {
+            SubtensorModule::subnet_king(netuid)
         }
     }
 
     impl subtensor_custom_rpc_runtime_api::SubnetRegistrationRuntimeApi<Block> for Runtime {
         fn get_network_registration_cost() -> TaoBalance {
             SubtensorModule::get_network_lock_cost()
+        }
+    }
+
+    impl subtensor_custom_rpc_runtime_api::ProxyFilterRuntimeApi<Block> for Runtime {
+        fn get_proxy_types() -> Vec<ProxyTypeInfo> {
+            proxy_filters::get_all_proxy_type_infos()
+        }
+
+        fn get_proxy_filters(proxy_types: Option<Vec<u8>>) -> Vec<ProxyFilterInfo> {
+            proxy_filters::get_proxy_filters(proxy_types)
         }
     }
 
@@ -2592,7 +2411,7 @@ impl_runtime_apis! {
     impl pallet_subtensor_swap_runtime_api::SwapRuntimeApi<Block> for Runtime {
         fn current_alpha_price(netuid: NetUid) -> u64 {
             pallet_subtensor_swap::Pallet::<Runtime>::current_price(netuid.into())
-                .saturating_mul(U96F32::from_num(1_000_000_000))
+                .saturating_mul(U64F64::from_num(1_000_000_000))
                 .saturating_to_num()
         }
 
@@ -2611,7 +2430,7 @@ impl_runtime_apis! {
         fn sim_swap_tao_for_alpha(netuid: NetUid, tao: TaoBalance) -> SimSwapResult {
             let price = pallet_subtensor_swap::Pallet::<Runtime>::current_price(netuid.into());
             let tao_u64: u64 = tao.into();
-            let no_slippage_alpha = U96F32::saturating_from_num(tao_u64).safe_div(price).saturating_to_num::<u64>();
+            let no_slippage_alpha = U64F64::saturating_from_num(tao_u64).safe_div(price).saturating_to_num::<u64>();
             let order = pallet_subtensor::GetAlphaForTao::<Runtime>::with_amount(tao);
             // fee_to_block_author is included in sr.fee_paid, so it is absent in this calculation
             pallet_subtensor_swap::Pallet::<Runtime>::sim_swap(
@@ -2641,7 +2460,7 @@ impl_runtime_apis! {
         fn sim_swap_alpha_for_tao(netuid: NetUid, alpha: AlphaBalance) -> SimSwapResult {
             let price = pallet_subtensor_swap::Pallet::<Runtime>::current_price(netuid.into());
             let alpha_u64: u64 = alpha.into();
-            let no_slippage_tao = U96F32::saturating_from_num(alpha_u64).saturating_mul(price).saturating_to_num::<u64>();
+            let no_slippage_tao = U64F64::saturating_from_num(alpha_u64).saturating_mul(price).saturating_to_num::<u64>();
             let order = pallet_subtensor::GetTaoForAlpha::<Runtime>::with_amount(alpha);
             // fee_to_block_author is included in sr.fee_paid, so it is absent in this calculation
             pallet_subtensor_swap::Pallet::<Runtime>::sim_swap(

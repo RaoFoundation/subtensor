@@ -113,6 +113,15 @@ interface ISubnet {
         uint16 activityCutoff
     ) external payable;
 
+    function getActivityCutoffFactor(
+        uint16 netuid
+    ) external view returns (uint32);
+
+    function setActivityCutoffFactor(
+        uint16 netuid,
+        uint32 factorMilli
+    ) external payable;
+
     function getNetworkRegistrationAllowed(
         uint16 netuid
     ) external view returns (bool);

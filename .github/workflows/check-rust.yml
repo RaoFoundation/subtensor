@@ -23,7 +23,7 @@ jobs:
   # runs cargo fmt
   cargo-fmt:
     name: cargo fmt
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
     env:
       RUST_BACKTRACE: full
     steps:
@@ -67,7 +67,7 @@ jobs:
 
   cargo-clippy-default-features:
     name: cargo clippy
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
@@ -97,7 +97,7 @@ jobs:
 
   cargo-check-lints:
     name: check custom lints
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
     env:
       RUSTFLAGS: -D warnings
       RUST_BACKTRACE: full
@@ -130,7 +130,7 @@ jobs:
 
   cargo-clippy-all-features:
     name: cargo clippy --all-features
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
@@ -161,7 +161,7 @@ jobs:
   # runs cargo test --workspace --all-features
   cargo-test:
     name: cargo test
-    runs-on: [self-hosted, type-ccx43]
+    runs-on: [self-hosted, fireactions-heavy]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
@@ -191,7 +191,7 @@ jobs:
   # ensures cargo fix has no trivial changes that can be applied
   cargo-fix:
     name: cargo fix
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
@@ -230,7 +230,7 @@ jobs:
 
   check-feature-propagation:
     name: zepter run check
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
 
     steps:
       - name: Checkout

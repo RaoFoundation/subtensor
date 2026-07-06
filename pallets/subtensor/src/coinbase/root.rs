@@ -18,7 +18,7 @@
 use super::*;
 use crate::CommitmentsInterface;
 use safe_math::*;
-use substrate_fixed::types::{I64F64, U96F32};
+use substrate_fixed::types::{I64F64, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -110,7 +110,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 6. Create a network account for the user if it doesn't exist.
-        Self::create_account_if_non_existent(&coldkey, &hotkey);
+        Self::create_account_if_non_existent(&coldkey, &hotkey)?;
 
         // --- 7. Fetch the current size of the subnetwork.
         let current_num_root_validators: u16 = Self::get_num_root_validators();
@@ -213,8 +213,6 @@ impl<T: Config> Pallet<T> {
         Self::finalize_all_subnet_root_dividends(netuid);
 
         // --- Perform the cleanup before removing the network.
-        // Will handle it in dissolve network PR.
-        T::SwapInterface::dissolve_all_liquidity_providers(netuid).map_err(|e| e.error)?;
         Self::destroy_alpha_in_out_stakes(netuid)?;
         T::SwapInterface::clear_protocol_liquidity(netuid)?;
         T::CommitmentsInterface::purge_netuid(netuid);
@@ -265,14 +263,11 @@ impl<T: Config> Pallet<T> {
         }
 
         // --- 9. Remove various network-related parameters.
-        Rank::<T>::remove(netuid);
-        Trust::<T>::remove(netuid);
         Active::<T>::remove(netuid);
         Emission::<T>::remove(netuid);
 
         Consensus::<T>::remove(netuid);
         Dividends::<T>::remove(netuid);
-        PruningScores::<T>::remove(netuid);
         ValidatorPermit::<T>::remove(netuid);
         ValidatorTrust::<T>::remove(netuid);
 
@@ -287,6 +282,10 @@ impl<T: Config> Pallet<T> {
         MaxAllowedUids::<T>::remove(netuid);
         ImmunityPeriod::<T>::remove(netuid);
         ActivityCutoff::<T>::remove(netuid);
+        ActivityCutoffFactorMilli::<T>::remove(netuid);
+        LastEpochBlock::<T>::remove(netuid);
+        PendingEpochAt::<T>::remove(netuid);
+        SubnetEpochIndex::<T>::remove(netuid);
         MinAllowedWeights::<T>::remove(netuid);
         RegistrationsThisInterval::<T>::remove(netuid);
         POWRegistrationsThisInterval::<T>::remove(netuid);
@@ -301,7 +300,10 @@ impl<T: Config> Pallet<T> {
         SubnetMovingPrice::<T>::remove(netuid);
         SubnetTaoFlow::<T>::remove(netuid);
         SubnetEmaTaoFlow::<T>::remove(netuid);
-        SubnetTaoProvided::<T>::remove(netuid);
+        SubnetProtocolFlow::<T>::remove(netuid);
+        SubnetEmaProtocolFlow::<T>::remove(netuid);
+        SubnetExcessTao::<T>::remove(netuid);
+        SubnetRootSellTao::<T>::remove(netuid);
 
         // --- 13. Token / mechanism / registration toggles.
         TokenSymbol::<T>::remove(netuid);
@@ -321,6 +323,7 @@ impl<T: Config> Pallet<T> {
         PendingServerEmission::<T>::remove(netuid);
         PendingRootAlphaDivs::<T>::remove(netuid);
         PendingOwnerCut::<T>::remove(netuid);
+        MinerBurned::<T>::remove(netuid);
         BlocksSinceLastStep::<T>::remove(netuid);
         LastMechansimStepBlock::<T>::remove(netuid);
         LastAdjustmentBlock::<T>::remove(netuid);
@@ -359,6 +362,7 @@ impl<T: Config> Pallet<T> {
         Yuma3On::<T>::remove(netuid);
         AlphaValues::<T>::remove(netuid);
         SubtokenEnabled::<T>::remove(netuid);
+        OwnerCutAutoLockEnabled::<T>::remove(netuid);
         ImmuneOwnerUidsLimit::<T>::remove(netuid);
 
         // --- 18. Consensus aux vectors.
@@ -460,27 +464,15 @@ impl<T: Config> Pallet<T> {
                 TransactionKeyLastBlock::<T>::remove((hot, netuid, name));
             }
         }
-        // StakingOperationRateLimiter NMAP: (hot, cold, netuid) → bool
-        {
-            let to_rm: sp_std::vec::Vec<(T::AccountId, T::AccountId)> =
-                StakingOperationRateLimiter::<T>::iter()
-                    .filter_map(
-                        |((hot, cold, n), _)| {
-                            if n == netuid { Some((hot, cold)) } else { None }
-                        },
-                    )
-                    .collect();
-            for (hot, cold) in to_rm {
-                StakingOperationRateLimiter::<T>::remove((hot, cold, netuid));
-            }
-        }
-
         // --- 22. Subnet leasing: remove mapping and any lease-scoped state linked to this netuid.
         if let Some(lease_id) = SubnetUidToLeaseId::<T>::take(netuid) {
             SubnetLeases::<T>::remove(lease_id);
             let _ = SubnetLeaseShares::<T>::clear_prefix(lease_id, u32::MAX, None);
             AccumulatedLeaseDividends::<T>::remove(lease_id);
         }
+
+        // --- 23: Locks cleanup
+        Self::destroy_lock_maps(netuid);
 
         // --- Final removal logging.
         log::debug!(
@@ -537,6 +529,9 @@ impl<T: Config> Pallet<T> {
     pub fn get_network_registered_block(netuid: NetUid) -> u64 {
         NetworkRegisteredAt::<T>::get(netuid)
     }
+    pub fn get_registered_subnet_counter(netuid: NetUid) -> u64 {
+        RegisteredSubnetCounter::<T>::get(netuid)
+    }
     pub fn get_network_immunity_period() -> u64 {
         NetworkImmunityPeriod::<T>::get()
     }
@@ -575,7 +570,7 @@ impl<T: Config> Pallet<T> {
         let interval: I64F64 =
             I64F64::saturating_from_num(NetworkLockReductionInterval::<T>::get());
         let block_emission: I64F64 = I64F64::saturating_from_num(
-            Self::get_block_emission()
+            Self::calculate_block_emission()
                 .unwrap_or(1_000_000_000.into())
                 .to_u64(),
         );
@@ -599,7 +594,7 @@ impl<T: Config> Pallet<T> {
         let current_block: u64 = Self::get_current_block_as_u64();
 
         let mut candidate_netuid: Option<NetUid> = None;
-        let mut candidate_price: U96F32 = U96F32::saturating_from_num(u128::MAX);
+        let mut candidate_price: U64F64 = U64F64::saturating_from_num(u128::MAX);
         let mut candidate_timestamp: u64 = u64::MAX;
 
         for (netuid, added) in NetworksAdded::<T>::iter() {
@@ -614,7 +609,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let price: U96F32 = Self::get_moving_alpha_price(netuid);
+            let price: U64F64 = Self::get_moving_alpha_price(netuid);
 
             // If tie on price, earliest registration wins.
             if price < candidate_price

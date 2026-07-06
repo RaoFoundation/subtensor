@@ -100,6 +100,9 @@ impl WeightInfo for TestWeightInfo {
     fn update_cap() -> Weight {
         Weight::zero()
     }
+    fn set_max_contribution() -> Weight {
+        Weight::zero()
+    }
 }
 
 parameter_types! {

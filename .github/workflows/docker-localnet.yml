@@ -95,7 +95,7 @@ jobs:
       matrix:
         platform:
           # triple names used `in scripts/install_prebuilt_binaries.sh` file
-          - runner: [self-hosted, type-ccx33]
+          - runner: [self-hosted, fireactions-heavy]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
           - runner: [ubuntu-24.04-arm]
@@ -162,7 +162,7 @@ jobs:
   # Collect all artifacts and publish them to docker repo
   docker:
     needs: [setup, artifacts]
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-heavy]
     defaults:
       run:
         working-directory: ${{ github.workspace }}

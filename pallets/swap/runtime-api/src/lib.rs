@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use frame_support::pallet_prelude::*;
+use serde::{Deserialize, Serialize};
 use sp_std::vec::Vec;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
@@ -16,8 +17,8 @@ pub struct SimSwapResult {
     pub alpha_slippage: AlphaBalance,
 }
 
-#[freeze_struct("423384310ac5e2f7")]
-#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+#[freeze_struct("d7bbb761fc2b2eac")]
+#[derive(Decode, Deserialize, Encode, PartialEq, Eq, Clone, Debug, Serialize, TypeInfo)]
 pub struct SubnetPrice {
     pub netuid: NetUid,
     pub price: u64,

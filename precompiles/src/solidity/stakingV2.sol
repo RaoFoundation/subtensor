@@ -310,4 +310,106 @@ interface IStaking {
         uint256 amount,
         uint256 netuid
     ) external payable;
+
+    /**
+     * @dev Set how much the caller approves the spender to use the provided amount of subnet tokens
+     * on its behalf in a later call.
+     *
+     * This is similar to ERC20 approve, and then allows smart contract to transfer with permission from
+     * other accounts during their execution. They can then act as escrows while knowing from whom
+     * the funds comes from, which is not possible if the spender called `transfer` towards the contract
+     * (no callback).
+     *
+     * @param spenderAddress Address allowed to spend funds from the caller.
+     * @param netuid The approved subnet token.
+     * @param absoluteAmount New approval amount, will overwrite previous value.
+     */
+    function approve(
+        address spenderAddress,
+        uint256 netuid,
+        uint256 absoluteAmount
+    ) external;
+
+    /**
+     * @dev Get how much the source allows the spender to use their subnet tokens
+     *
+     * @param sourceAddress Address of the source making the allowance.
+     * @param spenderAddress Address allowed to spend funds from the source.
+     * @param netuid The approved subnet token.
+     */
+    function allowance(
+        address sourceAddress,
+        address spenderAddress,
+        uint256 netuid,
+    ) external view returns (uint256);
+
+    /**
+     * @dev Increase how much the caller approves the spender to use the provided amount of subnet tokens
+     * on its behalf in a later call.
+     *
+     * This is similar to ERC20 increaseAllowance, and then allows smart contract to transfer with permission from
+     * other accounts during their execution. They can then act as escrows while knowing from whom
+     * the funds comes from, which is not possible if the spender called `transfer` towards the contract
+     * (no callback).
+     *
+     * @param spenderAddress Address allowed to spend funds from the caller.
+     * @param netuid The approved subnet token.
+     * @param increaseAmount How much the approval amount should be increased.
+     */
+    function increaseAllowance(
+        address spenderAddress,
+        uint256 netuid,
+        uint256 increaseAmount
+    ) external;
+
+    /**
+     * @dev Decrease how much the caller approves the spender to use the provided amount of subnet tokens
+     * on its behalf in a later call.
+     *
+     * This is similar to ERC20 decreaseAllowance, and then allows smart contract to transfer with permission from
+     * other accounts during their execution. They can then act as escrows while knowing from whom
+     * the funds comes from, which is not possible if the spender called `transfer` towards the contract
+     * (no callback).
+     *
+     * @param spenderAddress Address allowed to spend funds from the caller.
+     * @param netuid The approved subnet token.
+     * @param decreaseAmount How much the approval amount should be decreased.
+     */
+    function decreaseAllowance(
+        address spenderAddress,
+        uint256 netuid,
+        uint256 decreaseAmount
+    ) external;
+
+    /**
+     * @dev Transfer a subtensor stake `amount` associated with the `sourceAddress` to a different
+     * destination address. The `sourceAddress` must have approved beforehand the transaction signer
+     * (spender) to spend at least the `amount` (allowance). The allowance towards that spender will be
+     * decreased by this amount.
+     *
+     * This function allows external accounts and contracts to transfer staked TAO to another EVM
+     * address, which effectively calls `transfer_stake` on the subtensor pallet. Both the source and
+     * destination EVM addresses are converted to their Substrate ss58 representation using Frontier
+     * HashedAddressMapping:
+     * https://github.com/polkadot-evm/frontier/blob/2e219e17a526125da003e64ef22ec037917083fa/frame/evm/src/lib.rs#L739
+     *
+     * @param sourceAddress The source address (20 bytes).
+     * @param destinationAddress The destination EVM address (20 bytes).
+     * @param hotkey The hotkey public key (32 bytes).
+     * @param originNetuid The subnet to move stake from (uint256).
+     * @param destinationNetuid The subnet to move stake to (uint256).
+     * @param amount The amount to move in rao.
+     *
+     * Requirements:
+     * - `origin_hotkey` and `destination_hotkey` must be valid hotkeys registered on the network, ensuring
+     * that the stake is correctly attributed.
+     */
+    function transferStakeFrom(
+        address sourceAddress,
+        address destinationAddress,
+        bytes32 hotkey,
+        uint256 originNetuid,
+        uint256 destinationNetuid,
+        uint256 amount
+    ) external;
 }

@@ -1,14 +1,7 @@
 use alloc::collections::BTreeMap;
-use frame_support::traits::{
-    Imbalance,
-    tokens::{
-        Fortitude, Precision, Preservation,
-        fungible::{Balanced as _, Inspect as _},
-    },
-};
 use safe_math::*;
 use share_pool::SafeFloat;
-use substrate_fixed::types::U96F32;
+use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 
@@ -50,15 +43,13 @@ impl<T: Config> Pallet<T> {
         Self::get_all_subnet_netuids()
             .into_iter()
             .map(|netuid| {
-                let alpha = U96F32::saturating_from_num(Self::get_stake_for_hotkey_on_subnet(
+                let alpha = U64F64::saturating_from_num(Self::get_stake_for_hotkey_on_subnet(
                     hotkey, netuid,
                 ));
-                let alpha_price = U96F32::saturating_from_num(
-                    T::SwapInterface::current_alpha_price(netuid.into()),
-                );
+                let alpha_price = T::SwapInterface::current_alpha_price(netuid.into());
                 alpha.saturating_mul(alpha_price)
             })
-            .sum::<U96F32>()
+            .sum::<U64F64>()
             .saturating_to_num::<u64>()
             .into()
     }
@@ -78,7 +69,7 @@ impl<T: Config> Pallet<T> {
                         let order = GetTaoForAlpha::<T>::with_amount(alpha_stake);
                         T::SwapInterface::sim_swap(netuid.into(), order)
                             .map(|r| {
-                                let fee: u64 = U96F32::saturating_from_num(r.fee_paid)
+                                let fee: u64 = U64F64::saturating_from_num(r.fee_paid)
                                     .saturating_mul(T::SwapInterface::current_alpha_price(
                                         netuid.into(),
                                     ))
@@ -112,7 +103,7 @@ impl<T: Config> Pallet<T> {
                             let order = GetTaoForAlpha::<T>::with_amount(alpha_stake);
                             T::SwapInterface::sim_swap(netuid.into(), order)
                                 .map(|r| {
-                                    let fee: u64 = U96F32::saturating_from_num(r.fee_paid)
+                                    let fee: u64 = U64F64::saturating_from_num(r.fee_paid)
                                         .saturating_mul(T::SwapInterface::current_alpha_price(
                                             netuid.into(),
                                         ))
@@ -132,7 +123,16 @@ impl<T: Config> Pallet<T> {
 
     // Creates a cold - hot pairing account if the hotkey is not already an active account.
     //
-    pub fn create_account_if_non_existent(coldkey: &T::AccountId, hotkey: &T::AccountId) {
+    pub fn create_account_if_non_existent(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> DispatchResult {
+        // Only allow to register non-system hotkeys
+        ensure!(
+            Self::is_subnet_account_id(hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+
         if !Self::hotkey_account_exists(hotkey) {
             Owner::<T>::insert(hotkey, coldkey);
 
@@ -150,6 +150,17 @@ impl<T: Config> Pallet<T> {
                 StakingHotkeys::<T>::insert(coldkey, staking_hotkeys);
             }
         }
+        Ok(())
+    }
+
+    pub fn set_hotkey_owner(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
+        // Only allow to register non-system hotkeys
+        ensure!(
+            Self::is_subnet_account_id(hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+        Owner::<T>::insert(hotkey, coldkey);
+        Ok(())
     }
 
     //// If the hotkey is not a delegate, make it a delegate.
@@ -225,7 +236,7 @@ impl<T: Config> Pallet<T> {
             let alpha_stake =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
             let min_alpha_stake =
-                U96F32::saturating_from_num(Self::get_nominator_min_required_stake())
+                U64F64::saturating_from_num(Self::get_nominator_min_required_stake())
                     .safe_div(T::SwapInterface::current_alpha_price(netuid))
                     .saturating_to_num::<u64>();
             if alpha_stake > 0.into() && alpha_stake < min_alpha_stake.into() {
@@ -233,19 +244,18 @@ impl<T: Config> Pallet<T> {
                 // Remove the stake from the nominator account. (this is a more forceful unstake operation which )
                 // Actually deletes the staking account.
                 // Do not apply any fees
-                let maybe_cleared_stake = Self::unstake_from_subnet(
+                if Self::unstake_from_subnet(
                     hotkey,
+                    coldkey,
                     coldkey,
                     netuid,
                     alpha_stake,
                     T::SwapInterface::min_price(),
                     false,
-                );
-
-                if let Ok(cleared_stake) = maybe_cleared_stake {
-                    // Add the stake to the coldkey account.
-                    Self::add_balance_to_coldkey_account(coldkey, cleared_stake.into());
-                } else {
+                )
+                .is_err()
+                {
+                    // Ignore errors if unstaking fails
                     // Just clear small alpha
                     let alpha =
                         Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
@@ -253,6 +263,9 @@ impl<T: Config> Pallet<T> {
                         hotkey, coldkey, netuid, alpha,
                     );
                 }
+
+                // Reduce lock (if exists) by the cleaned stake amount
+                Self::force_reduce_lock(coldkey, netuid, alpha_stake);
             }
         }
     }
@@ -266,103 +279,6 @@ impl<T: Config> Pallet<T> {
         for ((hotkey, coldkey, netuid), _) in Self::alpha_iter() {
             Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
         }
-    }
-
-    pub fn add_balance_to_coldkey_account(
-        coldkey: &T::AccountId,
-        amount: <<T as Config>::Currency as fungible::Inspect<<T as system::Config>::AccountId>>::Balance,
-    ) {
-        // infallible
-        let _ = <T as Config>::Currency::deposit(coldkey, amount, Precision::BestEffort);
-    }
-
-    pub fn can_remove_balance_from_coldkey_account(
-        coldkey: &T::AccountId,
-        amount: <<T as Config>::Currency as fungible::Inspect<<T as system::Config>::AccountId>>::Balance,
-    ) -> bool {
-        let current_balance = Self::get_coldkey_balance(coldkey);
-        if amount > current_balance {
-            return false;
-        }
-
-        // This bit is currently untested. @todo
-
-        <T as Config>::Currency::can_withdraw(coldkey, amount)
-            .into_result(false)
-            .is_ok()
-    }
-
-    pub fn get_coldkey_balance(
-        coldkey: &T::AccountId,
-    ) -> <<T as Config>::Currency as fungible::Inspect<<T as system::Config>::AccountId>>::Balance
-    {
-        <T as Config>::Currency::reducible_balance(
-            coldkey,
-            Preservation::Expendable,
-            Fortitude::Polite,
-        )
-    }
-
-    #[must_use = "Balance must be used to preserve total issuance of token"]
-    pub fn remove_balance_from_coldkey_account(
-        coldkey: &T::AccountId,
-        amount: <<T as Config>::Currency as fungible::Inspect<<T as system::Config>::AccountId>>::Balance,
-    ) -> Result<TaoBalance, DispatchError> {
-        if amount.is_zero() {
-            return Ok(TaoBalance::ZERO);
-        }
-
-        let credit = <T as Config>::Currency::withdraw(
-            coldkey,
-            amount,
-            Precision::BestEffort,
-            Preservation::Preserve,
-            Fortitude::Polite,
-        )
-        .map_err(|_| Error::<T>::BalanceWithdrawalError)?
-        .peek();
-
-        if credit.is_zero() {
-            return Err(Error::<T>::ZeroBalanceAfterWithdrawn.into());
-        }
-
-        Ok(credit.into())
-    }
-
-    pub fn kill_coldkey_account(
-        coldkey: &T::AccountId,
-        amount: <<T as Config>::Currency as fungible::Inspect<<T as system::Config>::AccountId>>::Balance,
-    ) -> Result<TaoBalance, DispatchError> {
-        if amount.is_zero() {
-            return Ok(0.into());
-        }
-
-        let credit = <T as Config>::Currency::withdraw(
-            coldkey,
-            amount,
-            Precision::Exact,
-            Preservation::Expendable,
-            Fortitude::Force,
-        )
-        .map_err(|_| Error::<T>::BalanceWithdrawalError)?
-        .peek();
-
-        if credit.is_zero() {
-            return Err(Error::<T>::ZeroBalanceAfterWithdrawn.into());
-        }
-
-        Ok(credit)
-    }
-
-    pub fn is_user_liquidity_enabled(netuid: NetUid) -> bool {
-        T::SwapInterface::is_user_liquidity_enabled(netuid)
-    }
-
-    pub fn recycle_subnet_alpha(netuid: NetUid, amount: AlphaBalance) {
-        // TODO: record recycled alpha in a tracker
-        SubnetAlphaOut::<T>::mutate(netuid, |total| {
-            *total = total.saturating_sub(amount);
-        });
     }
 
     /// The function clears Alpha map in batches. Each run will check ALPHA_MAP_BATCH_SIZE
@@ -462,10 +378,6 @@ impl<T: Config> Pallet<T> {
 
             AlphaV2MapLastKey::<T>::put(new_starting_key);
         }
-    }
-
-    pub fn burn_subnet_alpha(_netuid: NetUid, _amount: AlphaBalance) {
-        // Do nothing; TODO: record burned alpha in a tracker
     }
 
     /// Several alpha iteration helpers that merge key space from Alpha and AlphaV2 maps

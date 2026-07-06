@@ -1,0 +1,59 @@
+[package]
+name = "pallet-limit-orders"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
+sp-io = { workspace = true, optional = true }
+sp-keyring = { workspace = true, optional = true }
+frame-support.workspace = true
+frame-system.workspace = true
+scale-info.workspace = true
+sp-core.workspace = true
+sp-runtime.workspace = true
+sp-std.workspace = true
+log.workspace = true
+substrate-fixed.workspace = true
+subtensor-runtime-common.workspace = true
+subtensor-macros.workspace = true
+subtensor-swap-interface.workspace = true
+
+[dev-dependencies]
+sp-io.workspace = true
+sp-keyring.workspace = true
+sp-keystore.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io?/std",
+    "sp-keyring?/std",
+    "sp-keystore/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "log/std",
+    "substrate-fixed/std",
+    "subtensor-runtime-common/std",
+    "subtensor-swap-interface/std",
+]
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "sp-io",
+    "subtensor-runtime-common/runtime-benchmarks",
+    "subtensor-swap-interface/runtime-benchmarks",
+]

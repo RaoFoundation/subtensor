@@ -23,22 +23,23 @@ impl<T: Config> Pallet<T> {
             IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
         }
 
+        // Temporarily allow the destination coldkey to receive this stake even if some of it is
+        // locked; swap_coldkey_locks will copy the source AccountFlags over afterward.
+        Self::set_accept_locked_alpha(new_coldkey, true);
+
         for netuid in Self::get_all_subnet_netuids() {
             Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
             Self::transfer_auto_stake_destination(netuid, old_coldkey, new_coldkey);
             Self::transfer_coldkey_stake(netuid, old_coldkey, new_coldkey);
         }
         Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
-        Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey);
+        Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
+
+        // Transfer stake locks
+        Self::swap_coldkey_locks(old_coldkey, new_coldkey)?;
 
         // Transfer any remaining balance from old_coldkey to new_coldkey
-        let remaining_balance = Self::get_coldkey_balance(old_coldkey);
-        if remaining_balance > 0.into() {
-            Self::kill_coldkey_account(old_coldkey, remaining_balance)?;
-            Self::add_balance_to_coldkey_account(new_coldkey, remaining_balance);
-        }
-
-        Self::set_last_tx_block(new_coldkey, Self::get_current_block_as_u64());
+        Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
 
         Self::deposit_event(Event::ColdkeySwapped {
             old_coldkey: old_coldkey.clone(),
@@ -49,15 +50,8 @@ impl<T: Config> Pallet<T> {
 
     /// Charges the swap cost from the coldkey's account and recycles the tokens.
     pub fn charge_swap_cost(coldkey: &T::AccountId, swap_cost: TaoBalance) -> DispatchResult {
-        let burn_amount = Self::remove_balance_from_coldkey_account(coldkey, swap_cost.into())
+        Self::recycle_tao(coldkey, swap_cost)
             .map_err(|_| Error::<T>::NotEnoughBalanceToPaySwapColdKey)?;
-
-        if burn_amount < swap_cost {
-            return Err(Error::<T>::NotEnoughBalanceToPaySwapColdKey.into());
-        }
-
-        Self::recycle_tao(burn_amount);
-
         Ok(())
     }
 
@@ -130,6 +124,14 @@ impl<T: Config> Pallet<T> {
                 }
             }
         }
+
+        // All of the old coldkey's root stake for this subnet has been moved to the new
+        // coldkey, so the old coldkey no longer holds any root stake. Remove its stale
+        // entry from the auto-claim staking-coldkey index (it is added for new_coldkey
+        // above) so swaps do not orphan dead entries.
+        if netuid == NetUid::ROOT {
+            Self::maybe_remove_coldkey_index(old_coldkey);
+        }
     }
 
     /// Transfer staking hotkeys from the old coldkey to the new coldkey.
@@ -148,14 +150,17 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Transfer the ownership of the hotkeys owned by the old coldkey to the new coldkey.
-    fn transfer_hotkeys_ownership(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
+    fn transfer_hotkeys_ownership(
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) -> DispatchResult {
         let old_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(old_coldkey);
         let mut new_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(new_coldkey);
         for owned_hotkey in old_owned_hotkeys.iter() {
             // Remove the hotkey from the old coldkey.
             Owner::<T>::remove(owned_hotkey);
             // Add the hotkey to the new coldkey.
-            Owner::<T>::insert(owned_hotkey, new_coldkey.clone());
+            Self::set_hotkey_owner(new_coldkey, owned_hotkey)?;
             // Addd the owned hotkey to the new set of owned hotkeys.
             if !new_owned_hotkeys.contains(owned_hotkey) {
                 new_owned_hotkeys.push(owned_hotkey.clone());
@@ -163,5 +168,6 @@ impl<T: Config> Pallet<T> {
         }
         OwnedHotkeys::<T>::remove(old_coldkey);
         OwnedHotkeys::<T>::insert(new_coldkey, new_owned_hotkeys);
+        Ok(())
     }
 }

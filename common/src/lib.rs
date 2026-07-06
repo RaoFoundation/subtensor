@@ -16,10 +16,12 @@ use subtensor_macros::freeze_struct;
 
 pub use currency::*;
 pub use evm_context::*;
+pub use proxy::*;
 pub use transaction_error::*;
 
 mod currency;
 mod evm_context;
+mod proxy;
 mod transaction_error;
 
 /// Balance of an account.
@@ -132,101 +134,6 @@ impl TypeInfo for NetUid {
     }
 }
 
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Encode,
-    Decode,
-    DecodeWithMemTracking,
-    Debug,
-    MaxEncodedLen,
-    TypeInfo,
-)]
-pub enum ProxyType {
-    Any,
-    Owner, // Subnet owner Calls
-    NonCritical,
-    NonTransfer,
-    Senate,
-    NonFungible, // Nothing involving moving TAO
-    Triumvirate,
-    Governance, // Both above governance
-    Staking,
-    Registration,
-    Transfer,
-    SmallTransfer,
-    RootWeights, // deprecated
-    ChildKeys,
-    SudoUncheckedSetCode,
-    SwapHotkey,
-    SubnetLeaseBeneficiary, // Used to operate the leased subnet
-    RootClaim,
-}
-
-impl TryFrom<u8> for ProxyType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Any),
-            1 => Ok(Self::Owner),
-            2 => Ok(Self::NonCritical),
-            3 => Ok(Self::NonTransfer),
-            4 => Ok(Self::Senate),
-            5 => Ok(Self::NonFungible),
-            6 => Ok(Self::Triumvirate),
-            7 => Ok(Self::Governance),
-            8 => Ok(Self::Staking),
-            9 => Ok(Self::Registration),
-            10 => Ok(Self::Transfer),
-            11 => Ok(Self::SmallTransfer),
-            12 => Ok(Self::RootWeights),
-            13 => Ok(Self::ChildKeys),
-            14 => Ok(Self::SudoUncheckedSetCode),
-            15 => Ok(Self::SwapHotkey),
-            16 => Ok(Self::SubnetLeaseBeneficiary),
-            17 => Ok(Self::RootClaim),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<ProxyType> for u8 {
-    fn from(proxy_type: ProxyType) -> Self {
-        match proxy_type {
-            ProxyType::Any => 0,
-            ProxyType::Owner => 1,
-            ProxyType::NonCritical => 2,
-            ProxyType::NonTransfer => 3,
-            ProxyType::Senate => 4,
-            ProxyType::NonFungible => 5,
-            ProxyType::Triumvirate => 6,
-            ProxyType::Governance => 7,
-            ProxyType::Staking => 8,
-            ProxyType::Registration => 9,
-            ProxyType::Transfer => 10,
-            ProxyType::SmallTransfer => 11,
-            ProxyType::RootWeights => 12,
-            ProxyType::ChildKeys => 13,
-            ProxyType::SudoUncheckedSetCode => 14,
-            ProxyType::SwapHotkey => 15,
-            ProxyType::SubnetLeaseBeneficiary => 16,
-            ProxyType::RootClaim => 17,
-        }
-    }
-}
-
-impl Default for ProxyType {
-    // allow all Calls; required to be most permissive
-    fn default() -> Self {
-        Self::Any
-    }
-}
-
 pub trait SubnetInfo<AccountId> {
     fn exists(netuid: NetUid) -> bool;
     fn mechanism(netuid: NetUid) -> u16;
@@ -246,8 +153,6 @@ pub trait TokenReserve<C: Token> {
 pub trait BalanceOps<AccountId> {
     fn tao_balance(account_id: &AccountId) -> TaoBalance;
     fn alpha_balance(netuid: NetUid, coldkey: &AccountId, hotkey: &AccountId) -> AlphaBalance;
-    fn increase_balance(coldkey: &AccountId, tao: TaoBalance);
-    fn decrease_balance(coldkey: &AccountId, tao: TaoBalance) -> Result<TaoBalance, DispatchError>;
     fn increase_stake(
         coldkey: &AccountId,
         hotkey: &AccountId,

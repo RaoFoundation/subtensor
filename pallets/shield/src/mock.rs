@@ -1,6 +1,8 @@
 use crate as pallet_shield;
 use stp_shield::MLKEM768_ENC_KEY_LEN;
 
+use codec::Decode;
+use frame_support::pallet_prelude::DispatchError;
 use frame_support::traits::{ConstBool, ConstU64};
 use frame_support::{BoundedVec, construct_runtime, derive_impl, parameter_types};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -85,9 +87,20 @@ impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
     }
 }
 
+/// Mock decryptor that just decodes the bytes without decryption.
+pub struct MockDecryptor;
+
+impl pallet_shield::ExtrinsicDecryptor<RuntimeCall> for MockDecryptor {
+    fn decrypt(data: &[u8]) -> Result<RuntimeCall, DispatchError> {
+        RuntimeCall::decode(&mut &data[..]).map_err(|_| DispatchError::Other("decode failed"))
+    }
+}
+
 impl pallet_shield::Config for Test {
     type AuthorityId = AuraId;
     type FindAuthors = MockFindAuthors;
+    type RuntimeCall = RuntimeCall;
+    type ExtrinsicDecryptor = MockDecryptor;
     type WeightInfo = ();
 }
 

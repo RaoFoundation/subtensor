@@ -1,8 +1,8 @@
-import { waitForTransactionWithRetry } from "./transactions.js";
 import type { KeyringPair } from "@moonwall/util";
 import type { subtensor } from "@polkadot-api/descriptors";
-import type { TypedApi } from "polkadot-api";
 import { Keyring } from "@polkadot/keyring";
+import type { TypedApi } from "polkadot-api";
+import { waitForTransactionWithRetry } from "./transactions.js";
 
 export async function addStake(
     api: TypedApi<typeof subtensor>,
@@ -436,4 +436,14 @@ export async function getTotalHotkeyAlpha(
     netuid: number
 ): Promise<bigint> {
     return await api.query.SubtensorModule.TotalHotkeyAlpha.getValue(hotkey, netuid);
+}
+
+export async function getStakeInfoForHotkeyColdkeyNetuid(
+    api: TypedApi<typeof subtensor>,
+    hotkey: string,
+    coldkey: string,
+    netuid: number
+): Promise<bigint | undefined> {
+    return (await api.apis.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid(hotkey, coldkey, netuid))
+        ?.stake;
 }

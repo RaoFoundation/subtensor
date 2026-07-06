@@ -91,7 +91,12 @@ pub fn migrate_rao<T: Config>() -> Weight {
         //         .checked_div(I96F32::from_num(1_000_000_000))
         //         .unwrap_or(I96F32::from_num(0.0)),
         // );
-        Pallet::<T>::add_balance_to_coldkey_account(&owner, remaining_lock.into());
+
+        // This code mimics what used to be here previously (add_balance_to_coldkey_account) as
+        // close as reasonably possible.
+        let credit = Pallet::<T>::mint_tao(remaining_lock.into());
+        let _ = Pallet::<T>::spend_tao(&owner, credit, remaining_lock.into());
+
         SubnetLocked::<T>::insert(netuid, TaoBalance::ZERO); // Clear lock amount.
         SubnetTAO::<T>::insert(netuid, pool_initial_tao);
         TotalStake::<T>::mutate(|total| {
@@ -107,8 +112,9 @@ pub fn migrate_rao<T: Config>() -> Weight {
         if let Ok(owner_coldkey) = SubnetOwner::<T>::try_get(netuid) {
             // Set Owner as the coldkey.
             SubnetOwnerHotkey::<T>::insert(netuid, owner_coldkey.clone());
-            // Associate the coldkey to coldkey.
-            Pallet::<T>::create_account_if_non_existent(&owner_coldkey, &owner_coldkey);
+            // Associate the coldkey to coldkey. The function only fails if hotkey is a system
+            // account, which is never the case in this migration. Hence, the result can be ignored.
+            let _ = Pallet::<T>::create_account_if_non_existent(&owner_coldkey, &owner_coldkey);
 
             // Only register the owner coldkey if it's not already a hotkey on the subnet.
             if !Uids::<T>::contains_key(*netuid, &owner_coldkey) {

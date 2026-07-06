@@ -55,6 +55,7 @@ impl<T: Config> Pallet<T> {
         let alpha_available =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
         let alpha_unstaked = alpha_unstaked.min(alpha_available);
+        Self::ensure_remove_stake_input_within_swap_limit(netuid, alpha_unstaked)?;
 
         // 2. Validate the user input
         Self::validate_remove_stake(
@@ -67,17 +68,15 @@ impl<T: Config> Pallet<T> {
         )?;
 
         // 3. Swap the alpba to tao and update counters for this subnet.
-        let tao_unstaked = Self::unstake_from_subnet(
+        Self::unstake_from_subnet(
             &hotkey,
+            &coldkey,
             &coldkey,
             netuid,
             alpha_unstaked,
             T::SwapInterface::min_price(),
             false,
         )?;
-
-        // 4. We add the balance to the coldkey. If the above fails we will not credit this coldkey.
-        Self::add_balance_to_coldkey_account(&coldkey, tao_unstaked.into());
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
@@ -159,17 +158,15 @@ impl<T: Config> Pallet<T> {
 
             if !alpha_unstaked.is_zero() {
                 // Swap the alpha to tao and update counters for this subnet.
-                let tao_unstaked = Self::unstake_from_subnet(
+                Self::unstake_from_subnet(
                     &hotkey,
+                    &coldkey,
                     &coldkey,
                     netuid,
                     alpha_unstaked,
                     T::SwapInterface::min_price(),
                     false,
                 )?;
-
-                // Add the balance to the coldkey. If the above fails we will not credit this coldkey.
-                Self::add_balance_to_coldkey_account(&coldkey, tao_unstaked.into());
 
                 // If the stake is below the minimum, we clear the nomination from storage.
                 Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
@@ -255,6 +252,7 @@ impl<T: Config> Pallet<T> {
                     let tao_unstaked = Self::unstake_from_subnet(
                         &hotkey,
                         &coldkey,
+                        &coldkey,
                         netuid,
                         alpha_unstaked,
                         T::SwapInterface::min_price(),
@@ -277,7 +275,6 @@ impl<T: Config> Pallet<T> {
             NetUid::ROOT,
             total_tao_unstaked,
             T::SwapInterface::max_price(),
-            false, // no limit for Root subnet
             false,
         )?;
 
@@ -340,6 +337,8 @@ impl<T: Config> Pallet<T> {
             "do_remove_stake( origin:{coldkey:?} hotkey:{hotkey:?}, netuid: {netuid:?}, alpha_unstaked:{alpha_unstaked:?} )"
         );
 
+        Self::ensure_remove_stake_input_within_swap_limit(netuid, alpha_unstaked)?;
+
         // 2. Calculate the maximum amount that can be executed with price limit
         let max_amount = Self::get_max_amount_remove(netuid, limit_price)?;
         let mut possible_alpha = alpha_unstaked;
@@ -358,8 +357,9 @@ impl<T: Config> Pallet<T> {
         )?;
 
         // 4. Swap the alpha to tao and update counters for this subnet.
-        let tao_unstaked = Self::unstake_from_subnet(
+        Self::unstake_from_subnet(
             &hotkey,
+            &coldkey,
             &coldkey,
             netuid,
             possible_alpha,
@@ -367,13 +367,10 @@ impl<T: Config> Pallet<T> {
             false,
         )?;
 
-        // 5. We add the balance to the coldkey. If the above fails we will not credit this coldkey.
-        Self::add_balance_to_coldkey_account(&coldkey, tao_unstaked.into());
-
-        // 6. If the stake is below the minimum, we clear the nomination from storage.
+        // 5. If the stake is below the minimum, we clear the nomination from storage.
         Self::clear_small_nomination_if_required(&hotkey, &coldkey, netuid);
 
-        // 7. Check if stake lowered below MinStake and remove Pending children if it did
+        // 6. Check if stake lowered below MinStake and remove Pending children if it did
         if Self::get_total_stake_for_hotkey(&hotkey) < StakeThreshold::<T>::get().into() {
             Self::get_all_subnet_netuids().iter().for_each(|netuid| {
                 PendingChildKeys::<T>::remove(netuid, &hotkey);
@@ -396,20 +393,32 @@ impl<T: Config> Pallet<T> {
             if limit_price <= 1_000_000_000.into() {
                 return Ok(AlphaBalance::MAX);
             } else {
-                return Err(Error::<T>::ZeroMaxStakeAmount.into());
+                return Ok(AlphaBalance::ZERO);
             }
         }
 
-        // Use reverting swap to estimate max limit amount
-        let order = GetTaoForAlpha::<T>::with_amount(u64::MAX);
+        // Use the largest supported input instead of probing the swap path with u64::MAX.
+        let max_supported_input = SubnetAlphaIn::<T>::get(netuid).saturating_mul(1_000.into());
+        let order = GetTaoForAlpha::<T>::with_amount(max_supported_input);
         let result = T::SwapInterface::swap(netuid.into(), order, limit_price.into(), false, true)
             .map(|r| r.amount_paid_in.saturating_add(r.fee_paid))?;
 
-        if !result.is_zero() {
-            Ok(result)
-        } else {
-            Err(Error::<T>::ZeroMaxStakeAmount.into())
+        Ok(result)
+    }
+
+    fn ensure_remove_stake_input_within_swap_limit(
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> Result<(), Error<T>> {
+        if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+            let max_supported_input = SubnetAlphaIn::<T>::get(netuid).saturating_mul(1_000.into());
+            ensure!(
+                amount <= max_supported_input,
+                Error::<T>::InsufficientLiquidity
+            );
         }
+
+        Ok(())
     }
 
     pub fn do_remove_stake_full_limit(
@@ -460,7 +469,9 @@ impl<T: Config> Pallet<T> {
                     .saturating_to_num::<u64>();
 
                 owner_emission_tao = if owner_alpha_u64 > 0 {
-                    let cur_price: U96F32 = T::SwapInterface::current_alpha_price(netuid.into());
+                    let cur_price: U96F32 = U96F32::saturating_from_num(
+                        T::SwapInterface::current_alpha_price(netuid.into()),
+                    );
                     let val_u64 = U96F32::from_num(owner_alpha_u64)
                         .saturating_mul(cur_price)
                         .floor()
@@ -478,7 +489,21 @@ impl<T: Config> Pallet<T> {
         //    - track hotkeys to clear pool totals.
         let mut keys_to_remove: Vec<(T::AccountId, T::AccountId)> = Vec::new();
         let mut stakers: Vec<(T::AccountId, T::AccountId, u128)> = Vec::new();
-        let mut total_alpha_value_u128: u128 = 0;
+
+        let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
+
+        // Legacy subnets keep the old dereg behavior: ignore SubnetAlphaIn.
+        // New subnets include SubnetAlphaIn.
+        let protocol_alpha_value_u128: u128 = if reg_at > tao_in_refund_deployment_block {
+            SubnetAlphaIn::<T>::get(netuid)
+                .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
+                .to_u64() as u128
+        } else {
+            SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128
+        };
+
+        let mut total_alpha_value_u128: u128 = protocol_alpha_value_u128;
+        let mut protocol_tao_share = TaoBalance::ZERO;
 
         let hotkeys_in_subnet: Vec<T::AccountId> = TotalHotkeyAlpha::<T>::iter_keys()
             .filter(|(_, this_netuid)| *this_netuid == netuid)
@@ -522,16 +547,18 @@ impl<T: Config> Pallet<T> {
 
         // 6) Pro‑rata distribution of the pot by α value (largest‑remainder),
         //    **credited directly to each staker's COLDKEY free balance**.
-        if pot_u64 > 0 && total_alpha_value_u128 > 0 && !stakers.is_empty() {
+        if pot_u64 > 0 && total_alpha_value_u128 > 0 {
             struct Portion<A, C> {
                 _hot: A,
                 cold: C,
+                is_protocol: bool,
                 share: u64, // TAO to credit to coldkey balance
                 rem: u128,  // remainder for largest‑remainder method
             }
 
             let pot_u128: u128 = pot_u64 as u128;
-            let mut portions: Vec<Portion<_, _>> = Vec::with_capacity(stakers.len());
+            let mut portions: Vec<Portion<_, _>> =
+                Vec::with_capacity(stakers.len().saturating_add(1));
             let mut distributed: u128 = 0;
 
             for (hot, cold, alpha_val) in &stakers {
@@ -544,6 +571,22 @@ impl<T: Config> Pallet<T> {
                 portions.push(Portion {
                     _hot: hot.clone(),
                     cold: cold.clone(),
+                    is_protocol: false,
+                    share: share_u64,
+                    rem,
+                });
+            }
+
+            if protocol_alpha_value_u128 > 0 {
+                let prod: u128 = pot_u128.saturating_mul(protocol_alpha_value_u128);
+                let share_u128: u128 = prod.checked_div(total_alpha_value_u128).unwrap_or_default();
+                let share_u64: u64 = share_u128.min(u128::from(u64::MAX)) as u64;
+                distributed = distributed.saturating_add(u128::from(share_u64));
+                let rem: u128 = prod.checked_rem(total_alpha_value_u128).unwrap_or_default();
+                portions.push(Portion {
+                    _hot: owner_coldkey.clone(),
+                    cold: owner_coldkey.clone(),
+                    is_protocol: true,
                     share: share_u64,
                     rem,
                 });
@@ -560,8 +603,11 @@ impl<T: Config> Pallet<T> {
 
             // Credit each share directly to coldkey free balance.
             for p in portions {
-                if p.share > 0 {
-                    Self::add_balance_to_coldkey_account(&p.cold, p.share.into());
+                if p.is_protocol {
+                    protocol_tao_share = protocol_tao_share.saturating_add(p.share.into());
+                } else if p.share > 0 {
+                    // Cannot fail the whole transaction if this transfer fails
+                    let _ = Self::transfer_tao_from_subnet(netuid, &p.cold, p.share.into());
                 }
             }
         }
@@ -580,8 +626,8 @@ impl<T: Config> Pallet<T> {
         }
         // 7.c) Remove α‑in/α‑out counters (fully destroyed).
         SubnetAlphaIn::<T>::remove(netuid);
-        SubnetAlphaInProvided::<T>::remove(netuid);
         SubnetAlphaOut::<T>::remove(netuid);
+        SubnetProtocolAlpha::<T>::remove(netuid);
 
         // Clear the locked balance on the subnet.
         Self::set_subnet_locked_balance(netuid, TaoBalance::ZERO);
@@ -596,9 +642,27 @@ impl<T: Config> Pallet<T> {
             TaoBalance::ZERO
         };
 
-        if !refund.is_zero() {
-            Self::add_balance_to_coldkey_account(&owner_coldkey, refund);
+        if !refund.is_zero()
+            && let Some(subnet_account) = Self::get_subnet_account_id(netuid)
+        {
+            // Transfer maximum transferrable up to refund to owner
+            let transferrable =
+                Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
+            // We do our best effort to refund owner to as full amount of refund as possible, but
+            // we cannot fail new subnet registration, so the result is ignored.
+            let _ = Self::transfer_tao(&subnet_account, &owner_coldkey, refund.min(transferrable));
         }
+
+        // 9) Recycle TAO remaining on the subnet account, forgive errors.
+        if let Some(subnet_account) = Self::get_subnet_account_id(netuid) {
+            let remaining_subnet_balance = Self::get_keep_alive_balance(&subnet_account);
+            if Self::recycle_tao(&subnet_account, remaining_subnet_balance).is_ok() {
+                RAORecycledForRegistration::<T>::insert(netuid, remaining_subnet_balance);
+            }
+        }
+
+        // 10) Cleanup all subnet stake locks and lock aggregates if any.
+        Self::destroy_lock_maps(netuid);
 
         Ok(())
     }

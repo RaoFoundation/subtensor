@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   handle-hotfix-pr:
-    runs-on: [self-hosted, type-ccx13]
+    runs-on: [self-hosted, fireactions-light]
     steps:
       - name: Check if PR is a hotfix into `main`
         if: >

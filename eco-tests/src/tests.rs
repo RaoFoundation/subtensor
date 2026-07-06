@@ -18,7 +18,7 @@ fn test_add_stake_ok_neuron_does_not_belong_to_coldkey() {
         let stake = DefaultMinStake::<Test>::get() * 10.into();
 
         // Give it some $$$ in his coldkey balance
-        SubtensorModule::add_balance_to_coldkey_account(&other_cold_key, stake.into());
+        add_balance_to_coldkey_account(&other_cold_key, stake.into());
 
         // Perform the request which is signed by a different cold key
         assert_ok!(SubtensorModule::add_stake(

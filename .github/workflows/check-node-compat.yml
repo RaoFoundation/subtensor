@@ -15,7 +15,7 @@ env:
 jobs:
   build:
     name: build ${{ matrix.version.name }}
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-heavy]
     if: contains(github.event.pull_request.labels.*.name, 'check-node-compat')
     env:
         RUST_BACKTRACE: full
@@ -60,7 +60,7 @@ jobs:
           
   test:
     needs: [build]
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-heavy]
     steps:
       - name: Download old node binary
         uses: actions/download-artifact@v4

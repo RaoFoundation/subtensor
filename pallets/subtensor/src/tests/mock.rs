@@ -8,7 +8,8 @@ use core::num::NonZeroU64;
 
 use crate::utils::rate_limiting::TransactionType;
 use crate::*;
-use frame_support::traits::{Contains, Everything, InherentBuilder, InsideBoth, InstanceFilter};
+pub use frame_support::traits::Imbalance;
+use frame_support::traits::{Contains, Everything, InsideBoth, InstanceFilter};
 use frame_support::weights::Weight;
 use frame_support::weights::constants::RocksDbWeight;
 use frame_support::{PalletId, derive_impl};
@@ -17,7 +18,7 @@ use frame_support::{
     traits::{Hooks, PrivilegeCmp},
 };
 use frame_system as system;
-use frame_system::{EnsureRoot, RawOrigin, limits, offchain::CreateTransactionBase};
+use frame_system::{EnsureRoot, RawOrigin, limits};
 use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_utility as pallet_utility;
 use share_pool::SafeFloat;
@@ -43,13 +44,14 @@ frame_support::construct_runtime!(
         Balances: pallet_balances = 2,
         Shield: pallet_shield = 3,
         SubtensorModule: crate = 4,
-        Utility: pallet_utility = 5,
-        Scheduler: pallet_scheduler = 6,
-        Preimage: pallet_preimage = 7,
-        Drand: pallet_drand = 8,
-        Swap: pallet_subtensor_swap = 9,
-        Crowdloan: pallet_crowdloan = 10,
-        Proxy: pallet_subtensor_proxy = 11,
+        AlphaAssets: pallet_alpha_assets = 5,
+        Utility: pallet_utility = 6,
+        Scheduler: pallet_scheduler = 7,
+        Preimage: pallet_preimage = 8,
+        Drand: pallet_drand = 9,
+        Swap: pallet_subtensor_swap = 10,
+        Crowdloan: pallet_crowdloan = 11,
+        Proxy: pallet_subtensor_proxy = 12,
     }
 );
 
@@ -101,8 +103,12 @@ impl pallet_balances::Config for Test {
 impl pallet_shield::Config for Test {
     type AuthorityId = sp_core::sr25519::Public;
     type FindAuthors = ();
+    type RuntimeCall = RuntimeCall;
+    type ExtrinsicDecryptor = ();
     type WeightInfo = ();
 }
+
+impl pallet_alpha_assets::Config for Test {}
 
 pub struct NoNestingCallFilter;
 
@@ -151,7 +157,14 @@ impl system::Config for Test {
     type MaxConsumers = frame_support::traits::ConstU32<16>;
     type Nonce = u64;
     type Block = Block;
-    type DispatchExtension = crate::CheckColdkeySwap<Test>;
+    type DispatchExtension = (
+        crate::CheckColdkeySwap<Test>,
+        crate::CheckWeights<Test>,
+        crate::CheckRateLimits<Test>,
+        crate::CheckDelegateTake<Test>,
+        crate::CheckServingEndpoints<Test>,
+        crate::CheckEvmKeyAssociation<Test>,
+    );
 }
 
 parameter_types! {
@@ -204,9 +217,14 @@ parameter_types! {
     pub const InitialTxChildKeyTakeRateLimit: u64 = 1; // 1 block take rate limit for testing
     pub const InitialBurn: u64 = 0;
     pub const InitialMinBurn: u64 = 500_000;
+    pub const InitialMinStake: u64 = 2_000_000;
     pub const InitialMaxBurn: u64 = 1_000_000_000;
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
+    pub const MinTempo: u16 = crate::MIN_TEMPO;
+    pub const MaxTempo: u16 = crate::MAX_TEMPO;
+    pub const MinActivityCutoffFactorMilli: u32 = crate::MIN_ACTIVITY_CUTOFF_FACTOR_MILLI;
+    pub const MaxActivityCutoffFactorMilli: u32 = crate::MAX_ACTIVITY_CUTOFF_FACTOR_MILLI;
     pub const InitialValidatorPruneLen: u64 = 0;
     pub const InitialScalingLawPower: u16 = 50;
     pub const InitialMaxAllowedValidators: u16 = 100;
@@ -244,6 +262,9 @@ parameter_types! {
     pub const LeaseDividendsDistributionInterval: u32 = 100;
     pub const MaxImmuneUidsPercentage: Percent = Percent::from_percent(80);
     pub const EvmKeyAssociateRateLimit: u64 = 10;
+    pub const SubtensorPalletId: PalletId = PalletId(*b"subtensr");
+    pub const BurnAccountId: PalletId = PalletId(*b"burntnsr");
+    pub const MaxEpochsPerBlock: u8 = 32;
 }
 
 impl crate::Config for Test {
@@ -289,8 +310,13 @@ impl crate::Config for Test {
     type InitialBurn = InitialBurn;
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
+    type InitialMinStake = InitialMinStake;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
+    type MinTempo = MinTempo;
+    type MaxTempo = MaxTempo;
+    type MinActivityCutoffFactorMilli = MinActivityCutoffFactorMilli;
+    type MaxActivityCutoffFactorMilli = MaxActivityCutoffFactorMilli;
     type InitialRAORecycledForRegistration = InitialRAORecycledForRegistration;
     type InitialNetworkImmunityPeriod = InitialNetworkImmunityPeriod;
     type InitialNetworkMinLockCost = InitialNetworkMinLockCost;
@@ -317,8 +343,12 @@ impl crate::Config for Test {
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
+    type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
+    type SubtensorPalletId = SubtensorPalletId;
+    type BurnAccountId = BurnAccountId;
+    type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
 }
 
@@ -326,7 +356,6 @@ impl crate::Config for Test {
 parameter_types! {
     pub const SwapProtocolId: PalletId = PalletId(*b"ten/swap");
     pub const SwapMaxFeeRate: u16 = 10000; // 15.26%
-    pub const SwapMaxPositions: u32 = 100;
     pub const SwapMinimumLiquidity: u64 = 1_000;
     pub const SwapMinimumReserve: NonZeroU64 = NonZeroU64::new(100).unwrap();
 }
@@ -338,7 +367,6 @@ impl pallet_subtensor_swap::Config for Test {
     type TaoReserve = TaoBalanceReserve<Self>;
     type AlphaReserve = AlphaBalanceReserve<Self>;
     type MaxFeeRate = SwapMaxFeeRate;
-    type MaxPositions = SwapMaxPositions;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
     type WeightInfo = ();
@@ -551,28 +579,12 @@ where
     type RuntimeCall = RuntimeCall;
 }
 
-impl<LocalCall> frame_system::offchain::CreateInherent<LocalCall> for Test
+impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test
 where
     RuntimeCall: From<LocalCall>,
 {
     fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
-        UncheckedExtrinsic::new_inherent(call)
-    }
-}
-
-impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Test
-where
-    RuntimeCall: From<LocalCall>,
-{
-    fn create_signed_transaction<
-        C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>,
-    >(
-        call: <Self as CreateTransactionBase<LocalCall>>::RuntimeCall,
-        _public: Self::Public,
-        _account: Self::AccountId,
-        nonce: Self::Nonce,
-    ) -> Option<Self::Extrinsic> {
-        Some(UncheckedExtrinsic::new_signed(call, nonce.into(), (), ()))
+        UncheckedExtrinsic::new_bare(call)
     }
 }
 
@@ -683,9 +695,9 @@ pub(crate) fn next_block_no_epoch(netuid: NetUid) -> u64 {
     let high_tempo: u16 = u16::MAX - 1;
     let old_tempo: u16 = SubtensorModule::get_tempo(netuid);
 
-    SubtensorModule::set_tempo(netuid, high_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, high_tempo);
     let new_block = next_block();
-    SubtensorModule::set_tempo(netuid, old_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, old_tempo);
 
     new_block
 }
@@ -696,27 +708,27 @@ pub(crate) fn run_to_block_no_epoch(netuid: NetUid, n: u64) {
     let high_tempo: u16 = u16::MAX - 1;
     let old_tempo: u16 = SubtensorModule::get_tempo(netuid);
 
-    SubtensorModule::set_tempo(netuid, high_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, high_tempo);
     run_to_block(n);
-    SubtensorModule::set_tempo(netuid, old_tempo);
+    SubtensorModule::set_tempo_unchecked(netuid, old_tempo);
 }
 
 #[allow(dead_code)]
 pub(crate) fn step_epochs(count: u16, netuid: NetUid) {
-    for _ in 0..count {
-        let blocks_to_next_epoch = SubtensorModule::blocks_until_next_epoch(
-            netuid,
-            SubtensorModule::get_tempo(netuid),
-            SubtensorModule::get_current_block_as_u64(),
-        );
-        log::info!("Blocks to next epoch: {blocks_to_next_epoch:?}");
-        step_block(blocks_to_next_epoch as u16);
+    const STEP_EPOCHS_MAX_BLOCKS: u32 = 50_000;
 
-        assert!(SubtensorModule::should_run_epoch(
-            netuid,
-            SubtensorModule::get_current_block_as_u64()
-        ));
+    // Advance block-by-block until exactly `count` more epoch slots have been
+    // consumed for `netuid`, observed via the `SubnetEpochIndex` counter. Robust
+    // to any tempo (including `tempo == 1`) and to the per-block epoch cap.
+    let target = crate::SubnetEpochIndex::<Test>::get(netuid) + count as u64;
+    let mut blocks_advanced: u32 = 0;
+    while crate::SubnetEpochIndex::<Test>::get(netuid) < target {
         step_block(1);
+        blocks_advanced += 1;
+        assert!(
+            blocks_advanced < STEP_EPOCHS_MAX_BLOCKS,
+            "step_epochs: epoch counter never advanced (tempo == 0?)"
+        );
     }
 }
 
@@ -743,8 +755,7 @@ pub fn register_ok_neuron(
     SubtensorModule::set_burn(netuid, TaoBalance::from(0));
     let reserve: u64 = 1_000_000_000_000;
     let tao_reserve = SubnetTAO::<Test>::get(netuid);
-    let alpha_reserve =
-        SubnetAlphaIn::<Test>::get(netuid) + SubnetAlphaInProvided::<Test>::get(netuid);
+    let alpha_reserve = SubnetAlphaIn::<Test>::get(netuid);
 
     if tao_reserve.is_zero() && alpha_reserve.is_zero() {
         setup_reserves(netuid, reserve.into(), reserve.into());
@@ -767,7 +778,7 @@ pub fn register_ok_neuron(
 
         let bal: TaoBalance = SubtensorModule::get_coldkey_balance(&cold);
         if bal < min_balance_needed {
-            SubtensorModule::add_balance_to_coldkey_account(&cold, min_balance_needed - bal);
+            add_balance_to_coldkey_account(&cold, min_balance_needed - bal);
         }
     };
 
@@ -840,7 +851,7 @@ pub fn add_network_disable_subtoken(netuid: NetUid, tempo: u16, _modality: u16) 
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    SubtensorModule::add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(coldkey, lock_cost.into());
     TotalIssuance::<Test>::mutate(|total_issuance| {
         *total_issuance = total_issuance.saturating_add(lock_cost);
     });
@@ -864,7 +875,7 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
 pub fn add_dynamic_network_without_emission_block(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
     let lock_cost = SubtensorModule::get_network_lock_cost();
-    SubtensorModule::add_balance_to_coldkey_account(coldkey, lock_cost.into());
+    add_balance_to_coldkey_account(coldkey, lock_cost.into());
     TotalIssuance::<Test>::mutate(|total_issuance| {
         *total_issuance = total_issuance.saturating_add(lock_cost);
     });
@@ -972,13 +983,16 @@ pub fn increase_stake_on_coldkey_hotkey_account(
     tao_staked: TaoBalance,
     netuid: NetUid,
 ) {
+    // Add TAO balance to coldkey account
+    add_balance_to_coldkey_account(coldkey, tao_staked.into());
+
+    // Stake
     SubtensorModule::stake_into_subnet(
         hotkey,
         coldkey,
         netuid,
         tao_staked,
         <Test as Config>::SwapInterface::max_price(),
-        false,
         false,
     )
     .unwrap();
@@ -997,10 +1011,6 @@ pub fn increase_stake_on_hotkey_account(hotkey: &U256, increment: TaoBalance, ne
         increment,
         netuid,
     );
-}
-
-pub(crate) fn remove_stake_rate_limit_for_tests(hotkey: &U256, coldkey: &U256, netuid: NetUid) {
-    StakingOperationRateLimiter::<Test>::remove((hotkey, coldkey, netuid));
 }
 
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
@@ -1105,6 +1115,41 @@ pub fn sf_from_u64(val: u64) -> SafeFloat {
 }
 
 #[allow(dead_code)]
+pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
+    let ed = ExistentialDeposit::get();
+    if tao >= ed {
+        let credit = SubtensorModule::mint_tao(tao);
+        let _ = SubtensorModule::spend_tao(coldkey, credit, tao).unwrap();
+    }
+}
+
+#[allow(dead_code)]
+pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
+    let _ = SubtensorModule::burn_tao(coldkey, tao);
+}
+
+#[allow(dead_code)]
+pub fn mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+    hotkey: &U256,
+    coldkey: &U256,
+    netuid: NetUid,
+    alpha: AlphaBalance,
+) {
+    // Record stake in alpha pool
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        hotkey, coldkey, netuid, alpha,
+    );
+
+    // Make sure subnet exists, so does it's account
+    NetworksAdded::<Test>::insert(netuid, true);
+
+    // Add TAO balance to subnet account
+    // For simplicity make it equal to alpha * 100, which is more than needed
+    let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+    let tao_bal = u64::from(alpha) * 100;
+    add_balance_to_coldkey_account(&subnet_account, tao_bal.into());
+}
+
 pub fn remove_owner_registration_stake(netuid: NetUid) {
     let owner_hotkey = SubnetOwnerHotkey::<Test>::get(netuid);
     let owner_coldkey = SubnetOwner::<Test>::get(netuid);

@@ -394,5 +394,141 @@
     "outputs": [],
     "stateMutability": "payable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "spenderAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "absoluteAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "approve",
+    "outputs": [],
+    "stateMutability": "",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sourceAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "spenderAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      }
+    ],
+    "name": "allowance",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "spenderAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "increaseAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "increaseAllowance",
+    "outputs": [],
+    "stateMutability": "",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "spenderAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "decreaseAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "decreaseAllowance",
+    "outputs": [],
+    "stateMutability": "",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sourceAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "destinationAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "originNetuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "destinationNetuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferStakeFrom",
+    "outputs": [],
+    "stateMutability": "",
+    "type": "function"
   }
 ]

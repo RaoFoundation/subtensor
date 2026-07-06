@@ -4,12 +4,22 @@ extern crate alloc;
 
 use core::marker::PhantomData;
 
+use crate::extensions::*;
+pub use address_mapping::AddressMappingPrecompile;
+pub use alpha::AlphaPrecompile;
+pub use balance_transfer::BalanceTransferPrecompile;
+pub use crowdloan::CrowdloanPrecompile;
+pub use ed25519::Ed25519Verify;
+pub use extensions::PrecompileExt;
 use fp_evm::{ExitError, PrecompileFailure};
 use frame_support::traits::IsSubType;
 use frame_support::{
     dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
     pallet_prelude::Decode,
 };
+pub use leasing::LeasingPrecompile;
+pub use metagraph::MetagraphPrecompile;
+pub use neuron::NeuronPrecompile;
 use pallet_admin_utils::PrecompileEnum;
 use pallet_evm::{
     AddressMapping, IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult,
@@ -21,26 +31,14 @@ use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 use pallet_subtensor_proxy as pallet_proxy;
+pub use proxy::ProxyPrecompile;
 use sp_core::{H160, U256, crypto::ByteArray};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup};
-use subtensor_runtime_common::ProxyType;
-
-use crate::extensions::*;
-
-pub use address_mapping::AddressMappingPrecompile;
-pub use alpha::AlphaPrecompile;
-pub use balance_transfer::BalanceTransferPrecompile;
-pub use crowdloan::CrowdloanPrecompile;
-pub use ed25519::Ed25519Verify;
-pub use extensions::PrecompileExt;
-pub use leasing::LeasingPrecompile;
-pub use metagraph::MetagraphPrecompile;
-pub use neuron::NeuronPrecompile;
-pub use proxy::ProxyPrecompile;
 pub use sr25519::Sr25519Verify;
 pub use staking::{StakingPrecompile, StakingPrecompileV2};
 pub use storage_query::StorageQueryPrecompile;
 pub use subnet::SubnetPrecompile;
+use subtensor_runtime_common::ProxyType;
 pub use uid_lookup::UidLookupPrecompile;
 pub use voting_power::VotingPowerPrecompile;
 
@@ -60,6 +58,9 @@ mod storage_query;
 mod subnet;
 mod uid_lookup;
 mod voting_power;
+
+#[cfg(test)]
+mod mock;
 
 pub struct Precompiles<R>(PhantomData<R>);
 

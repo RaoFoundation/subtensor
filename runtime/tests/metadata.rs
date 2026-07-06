@@ -9,7 +9,6 @@ fn is_pallet_error(segments: &[String]) -> bool {
         "pallet_admin_utils",
         "pallet_subtensor_collective",
         "pallet_commitments",
-        "pallet_registry",
         "pallet_subtensor",
     ];
 

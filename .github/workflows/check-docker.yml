@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-heavy]
 
     steps:
       - name: Checkout code

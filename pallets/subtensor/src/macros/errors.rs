@@ -64,6 +64,9 @@ mod errors {
         HotKeyAlreadyRegisteredInSubNet,
         /// The new hotkey is the same as old one
         NewHotKeyIsSameWithOld,
+        /// The new hotkey has outstanding root claimable or non-zero root stake,
+        /// so the root rate-book cannot be merged without misallocating dividends.
+        NewHotKeyNotCleanForRootSwap,
         /// The supplied PoW hash block is in the future or negative.
         InvalidWorkBlock,
         /// The supplied PoW hash block does not meet the network difficulty.
@@ -168,8 +171,8 @@ mod errors {
         InvalidIdentity,
         /// Subnet mechanism does not exist.
         MechanismDoesNotExist,
-        /// Trying to unstake your lock amount.
-        CannotUnstakeLock,
+        /// Trying to unstake or re-lock the locked amount.
+        StakeUnavailable,
         /// Trying to perform action on non-existent subnet.
         SubnetNotExists,
         /// Maximum commit limit reached
@@ -210,14 +213,10 @@ mod errors {
         SubtokenDisabled,
         /// Too frequent hotkey swap on subnet
         HotKeySwapOnSubnetIntervalNotPassed,
-        /// Zero max stake amount
-        ZeroMaxStakeAmount,
         /// Invalid netuid duplication
         SameNetuid,
         /// The caller does not have enough balance for the operation.
         InsufficientBalance,
-        /// Too frequent staking operations
-        StakingOperationRateLimitExceeded,
         /// Invalid lease beneficiary to register the leased network.
         InvalidLeaseBeneficiary,
         /// Lease cannot end in the past.
@@ -244,6 +243,8 @@ mod errors {
         SymbolAlreadyInUse,
         /// Incorrect commit-reveal version.
         IncorrectCommitRevealVersion,
+        /// Reveal round is older than the most recently stored DRAND round.
+        InvalidRevealRound,
         /// Reveal period is too large.
         RevealPeriodTooLarge,
         /// Reveal period is too small.
@@ -290,5 +291,33 @@ mod errors {
         DisabledTemporarily,
         /// Registration Price Limit Exceeded
         RegistrationPriceLimitExceeded,
+        /// Lock hotkey mismatch: existing lock is for a different hotkey.
+        LockHotkeyMismatch,
+        /// Insufficient stake on subnet to cover the lock amount.
+        InsufficientStakeForLock,
+        /// No existing lock found for the given coldkey and subnet.
+        NoExistingLock,
+        /// There is already an active lock for the given coldkey.
+        ActiveLockExists,
+        /// A system account cannot be used in this operation
+        CannotUseSystemAccount,
+        /// Trying to unlock more than locked
+        UnlockAmountTooHigh,
+        /// The supplied tempo is outside the allowed range.
+        TempoOutOfBounds,
+        /// The supplied activity-cutoff factor is outside the allowed range.
+        ActivityCutoffFactorMilliOutOfBounds,
+        /// An epoch trigger is already pending for this subnet; wait for it to fire
+        /// before triggering again.
+        EpochTriggerAlreadyPending,
+        /// The next automatic epoch is already imminent; a manual trigger would have
+        /// no effect.
+        AutoEpochAlreadyImminent,
+        /// `trigger_epoch` is blocked because commit-reveal is enabled for this subnet:
+        /// an out-of-band epoch would desync the CRv3 reveal window from the wall-clock
+        /// Drand schedule and silently drop committed weights.
+        DynamicTempoBlockedByCommitReveal,
+        /// The destination coldkey rejects incoming locked alpha.
+        AccountRejectsLockedAlpha,
     }
 }

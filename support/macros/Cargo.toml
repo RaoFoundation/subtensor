@@ -16,8 +16,11 @@ syn = { workspace = true, features = [
     "full",
     "visit-mut",
     "visit",
+    "clone-impls",
     "extra-traits",
     "parsing",
+    "printing",
+    "proc-macro",
 ] }
 proc-macro2.workspace = true
 quote.workspace = true

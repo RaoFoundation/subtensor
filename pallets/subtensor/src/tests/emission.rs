@@ -1,6 +1,7 @@
 use subtensor_runtime_common::NetUid;
 
 use super::mock::*;
+use crate::LastEpochBlock;
 
 // 1. Test Zero Tempo
 // Description: Verify that when tempo is 0, the function returns u64::MAX.
@@ -9,7 +10,7 @@ use super::mock::*;
 fn test_zero_tempo() {
     new_test_ext(1).execute_with(|| {
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(1.into(), 0, 100),
+            SubtensorModule::blocks_until_next_auto_epoch(1.into(), 0, 100),
             u64::MAX
         );
     });
@@ -21,14 +22,21 @@ fn test_zero_tempo() {
 #[test]
 fn test_regular_case() {
     new_test_ext(1).execute_with(|| {
-        assert_eq!(SubtensorModule::blocks_until_next_epoch(1.into(), 10, 5), 3);
+        LastEpochBlock::<Test>::insert(NetUid::from(1), 0);
+        LastEpochBlock::<Test>::insert(NetUid::from(2), 0);
+        LastEpochBlock::<Test>::insert(NetUid::from(3), 0);
+        // (LastEpochBlock + tempo) - block.
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(2.into(), 20, 15),
-            2
+            SubtensorModule::blocks_until_next_auto_epoch(1.into(), 10, 5),
+            5
         );
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(3.into(), 30, 25),
-            1
+            SubtensorModule::blocks_until_next_auto_epoch(2.into(), 20, 15),
+            5
+        );
+        assert_eq!(
+            SubtensorModule::blocks_until_next_auto_epoch(3.into(), 30, 25),
+            5
         );
     });
 }
@@ -39,12 +47,16 @@ fn test_regular_case() {
 #[test]
 fn test_boundary_conditions() {
     new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(u16::MAX);
+        LastEpochBlock::<Test>::insert(netuid, 0);
+        // Far past the next-auto block — saturating to 0.
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(u16::MAX.into(), u16::MAX, u64::MAX),
+            SubtensorModule::blocks_until_next_auto_epoch(netuid, u16::MAX, u64::MAX),
             0
         );
+        // Block 0 — full period until next auto epoch.
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(u16::MAX.into(), u16::MAX, 0),
+            SubtensorModule::blocks_until_next_auto_epoch(netuid, u16::MAX, 0),
             u16::MAX as u64
         );
     });
@@ -56,9 +68,11 @@ fn test_boundary_conditions() {
 #[test]
 fn test_overflow_handling() {
     new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(u16::MAX);
+        LastEpochBlock::<Test>::insert(netuid, 0);
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(u16::MAX.into(), u16::MAX, u64::MAX - 1),
-            1
+            SubtensorModule::blocks_until_next_auto_epoch(netuid, u16::MAX, u64::MAX - 1),
+            0
         );
     });
 }
@@ -69,13 +83,17 @@ fn test_overflow_handling() {
 #[test]
 fn test_epoch_alignment() {
     new_test_ext(1).execute_with(|| {
+        LastEpochBlock::<Test>::insert(NetUid::from(1), 0);
+        LastEpochBlock::<Test>::insert(NetUid::from(2), 0);
+        // (LastEpochBlock + tempo) - block_number.
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(1.into(), 10, 9),
-            10
+            SubtensorModule::blocks_until_next_auto_epoch(1.into(), 10, 9),
+            1
         );
+        // Block exactly at next-auto — returns 0.
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(2.into(), 20, 21),
-            17
+            SubtensorModule::blocks_until_next_auto_epoch(2.into(), 20, 21),
+            0
         );
     });
 }
@@ -86,9 +104,23 @@ fn test_epoch_alignment() {
 #[test]
 fn test_different_network_ids() {
     new_test_ext(1).execute_with(|| {
-        assert_eq!(SubtensorModule::blocks_until_next_epoch(1.into(), 10, 5), 3);
-        assert_eq!(SubtensorModule::blocks_until_next_epoch(2.into(), 10, 5), 2);
-        assert_eq!(SubtensorModule::blocks_until_next_epoch(3.into(), 10, 5), 1);
+        // Anchor each subnet identically — proves the new formula does NOT
+        // depend on `netuid` (only on the per-subnet `LastEpochBlock`).
+        LastEpochBlock::<Test>::insert(NetUid::from(1), 0);
+        LastEpochBlock::<Test>::insert(NetUid::from(2), 0);
+        LastEpochBlock::<Test>::insert(NetUid::from(3), 0);
+        assert_eq!(
+            SubtensorModule::blocks_until_next_auto_epoch(1.into(), 10, 5),
+            5
+        );
+        assert_eq!(
+            SubtensorModule::blocks_until_next_auto_epoch(2.into(), 10, 5),
+            5
+        );
+        assert_eq!(
+            SubtensorModule::blocks_until_next_auto_epoch(3.into(), 10, 5),
+            5
+        );
     });
 }
 
@@ -98,9 +130,11 @@ fn test_different_network_ids() {
 #[test]
 fn test_large_tempo_values() {
     new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        LastEpochBlock::<Test>::insert(netuid, 0);
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(1.into(), u16::MAX - 1, 100),
-            u16::MAX as u64 - 103
+            SubtensorModule::blocks_until_next_auto_epoch(netuid, u16::MAX - 1, 100),
+            (u16::MAX as u64).saturating_sub(1).saturating_sub(100)
         );
     });
 }
@@ -113,9 +147,11 @@ fn test_consecutive_blocks() {
     new_test_ext(1).execute_with(|| {
         let tempo = 10;
         let netuid = NetUid::from(1);
-        let mut last_result = SubtensorModule::blocks_until_next_epoch(netuid, tempo, 0);
+        LastEpochBlock::<Test>::insert(netuid, 0);
+        let mut last_result = SubtensorModule::blocks_until_next_auto_epoch(netuid, tempo, 0);
         for i in 1..tempo - 1 {
-            let current_result = SubtensorModule::blocks_until_next_epoch(netuid, tempo, i as u64);
+            let current_result =
+                SubtensorModule::blocks_until_next_auto_epoch(netuid, tempo, i as u64);
             assert_eq!(current_result, last_result - 1);
             last_result = current_result;
         }
@@ -128,13 +164,16 @@ fn test_consecutive_blocks() {
 #[test]
 fn test_wrap_around_behavior() {
     new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        LastEpochBlock::<Test>::insert(netuid, 0);
+        // `next_auto - block_number` saturates to 0 for far-future blocks.
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(1.into(), 10, u64::MAX),
-            9
+            SubtensorModule::blocks_until_next_auto_epoch(netuid, 10, u64::MAX),
+            0
         );
         assert_eq!(
-            SubtensorModule::blocks_until_next_epoch(1.into(), 10, u64::MAX - 1),
-            10
+            SubtensorModule::blocks_until_next_auto_epoch(netuid, 10, u64::MAX - 1),
+            0
         );
     });
 }

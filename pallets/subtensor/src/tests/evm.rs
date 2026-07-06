@@ -44,7 +44,7 @@ fn test_associate_evm_key_success() {
 
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
-        SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
 
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
@@ -93,7 +93,7 @@ fn test_associate_evm_key_different_block_number_success() {
 
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
-        SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
 
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
@@ -182,7 +182,7 @@ fn test_associate_evm_key_hotkey_not_registered_in_subnet() {
 
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
-        SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
 
         let pair = ecdsa::Pair::generate().0;
         let public = pair.public();
@@ -224,7 +224,7 @@ fn test_associate_evm_key_using_wrong_hash_function() {
 
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
-        SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
 
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
@@ -268,7 +268,7 @@ fn test_associate_evm_key_rate_limit_exceeded() {
 
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
-        SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
 
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 

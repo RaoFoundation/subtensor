@@ -54,16 +54,18 @@ unwrap-used = "deny"
 useless_conversion = "allow"     # until polkadot is patched
 
 [workspace.dependencies]
+pallet-alpha-assets = { path = "pallets/alpha-assets", default-features = false }
 node-subtensor-runtime = { path = "runtime", default-features = false }
 pallet-admin-utils = { path = "pallets/admin-utils", default-features = false }
+pallet-limit-orders = { path = "pallets/limit-orders", default-features = false }
 pallet-commitments = { path = "pallets/commitments", default-features = false }
-pallet-registry = { path = "pallets/registry", default-features = false }
 pallet-crowdloan = { path = "pallets/crowdloan", default-features = false }
 pallet-subtensor = { path = "pallets/subtensor", default-features = false }
 pallet-subtensor-swap = { path = "pallets/swap", default-features = false }
 pallet-subtensor-swap-runtime-api = { path = "pallets/swap/runtime-api", default-features = false }
 pallet-subtensor-swap-rpc = { path = "pallets/swap/rpc", default-features = false }
 procedural-fork = { path = "support/procedural-fork", default-features = false }
+safe-bigmath = { package = "safe-bigmath", default-features = false, git = "https://github.com/sam0x17/safe-bigmath", rev = "013c49984910e1c9a23289e8c85e7a856e263a02" }
 safe-math = { path = "primitives/safe-math", default-features = false }
 share-pool = { path = "primitives/share-pool", default-features = false }
 subtensor-macros = { path = "support/macros", default-features = false }
@@ -71,7 +73,7 @@ subtensor-custom-rpc = { default-features = false, path = "pallets/subtensor/rpc
 subtensor-custom-rpc-runtime-api = { default-features = false, path = "pallets/subtensor/runtime-api" }
 subtensor-precompiles = { default-features = false, path = "precompiles" }
 subtensor-runtime-common = { default-features = false, path = "common" }
-subtensor-swap-interface = { default-features = false, path = "pallets/swap-interface" }
+subtensor-swap-interface = { default-features = false, path = "primitives/swap-interface" }
 subtensor-transaction-fee = { default-features = false, path = "pallets/transaction-fee" }
 subtensor-chain-extensions = { default-features = false, path = "chain-extensions" }
 stp-shield = { git = "https://github.com/opentensor/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
@@ -86,6 +88,7 @@ enumflags2 = "0.7.9"
 futures = "0.3.30"
 hex = { version = "0.4", default-features = false }
 hex-literal = "0.4.1"
+impl-trait-for-tuples = "0.2.3"
 jsonrpsee = { version = "0.24.9", default-features = false }
 libsecp256k1 = { version = "0.7.2", default-features = false }
 lencode = "0.1.6"
@@ -116,7 +119,7 @@ toml_edit = "0.22"
 derive-syn-parse = "0.2"
 Inflector = "0.11"
 cfg-expr = "0.15"
-itertools = "0.10"
+itertools = { version = "0.10", default-features = false }
 macro_magic = { version = "0.5", default-features = false }
 frame-support-procedural-tools = { version = "10.0.0", default-features = false }
 proc-macro-warning = { version = "1", default-features = false }
@@ -318,4 +321,5 @@ pow-faucet = []
 
 [patch.crates-io]
 w3f-bls = { git = "https://github.com/opentensor/bls", branch = "fix-no-std" }
-
+zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
+zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe5d35d982f6afefb5d7e4e69f5f18" }

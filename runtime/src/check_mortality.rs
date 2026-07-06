@@ -52,36 +52,42 @@ impl<T: frame_system::Config + Send + Sync> core::fmt::Debug for CheckMortality<
     }
 }
 
-impl<T: frame_system::Config + Send + Sync + TypeInfo> TransactionExtension<T::RuntimeCall>
-    for CheckMortality<T>
+impl<T: frame_system::Config + Send + Sync + TypeInfo>
+    TransactionExtension<<T as frame_system::Config>::RuntimeCall> for CheckMortality<T>
 where
-    T::RuntimeCall: Dispatchable + IsSubType<ShieldCall<T>>,
+    <T as frame_system::Config>::RuntimeCall: Dispatchable + IsSubType<ShieldCall<T>>,
     T: pallet_shield::Config,
 {
     const IDENTIFIER: &'static str = "CheckMortality";
 
-    type Implicit = <CheckMortalitySubstrate<T> as TransactionExtension<T::RuntimeCall>>::Implicit;
-    type Val = <CheckMortalitySubstrate<T> as TransactionExtension<T::RuntimeCall>>::Val;
-    type Pre = <CheckMortalitySubstrate<T> as TransactionExtension<T::RuntimeCall>>::Pre;
+    type Implicit = <CheckMortalitySubstrate<T> as TransactionExtension<
+        <T as frame_system::Config>::RuntimeCall,
+    >>::Implicit;
+    type Val = <CheckMortalitySubstrate<T> as TransactionExtension<
+        <T as frame_system::Config>::RuntimeCall,
+    >>::Val;
+    type Pre = <CheckMortalitySubstrate<T> as TransactionExtension<
+        <T as frame_system::Config>::RuntimeCall,
+    >>::Pre;
 
     fn implicit(&self) -> Result<Self::Implicit, TransactionValidityError> {
         CheckMortalitySubstrate::<T>::from(self.0).implicit()
     }
 
-    fn weight(&self, call: &T::RuntimeCall) -> sp_weights::Weight {
+    fn weight(&self, call: &<T as frame_system::Config>::RuntimeCall) -> sp_weights::Weight {
         CheckMortalitySubstrate::<T>::from(self.0).weight(call)
     }
 
     fn validate(
         &self,
         origin: T::RuntimeOrigin,
-        call: &T::RuntimeCall,
-        info: &DispatchInfoOf<T::RuntimeCall>,
+        call: &<T as frame_system::Config>::RuntimeCall,
+        info: &DispatchInfoOf<<T as frame_system::Config>::RuntimeCall>,
         len: usize,
         self_implicit: Self::Implicit,
         inherited_implication: &impl Implication,
         source: TransactionSource,
-    ) -> ValidateResult<Self::Val, T::RuntimeCall> {
+    ) -> ValidateResult<Self::Val, <T as frame_system::Config>::RuntimeCall> {
         if let Some(ShieldCall::submit_encrypted { .. }) =
             IsSubType::<ShieldCall<T>>::is_sub_type(call)
         {
@@ -109,8 +115,8 @@ where
         self,
         val: Self::Val,
         origin: &T::RuntimeOrigin,
-        call: &T::RuntimeCall,
-        info: &DispatchInfoOf<T::RuntimeCall>,
+        call: &<T as frame_system::Config>::RuntimeCall,
+        info: &DispatchInfoOf<<T as frame_system::Config>::RuntimeCall>,
         len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
         CheckMortalitySubstrate::<T>::from(self.0).prepare(val, origin, call, info, len)

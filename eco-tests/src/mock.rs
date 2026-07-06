@@ -8,13 +8,13 @@
 use core::num::NonZeroU64;
 
 use frame_support::dispatch::DispatchResult;
-use frame_support::traits::{Contains, Everything, InherentBuilder, InsideBoth, InstanceFilter};
+use frame_support::traits::{Contains, Everything, InsideBoth, InstanceFilter};
 use frame_support::weights::Weight;
 use frame_support::weights::constants::RocksDbWeight;
 use frame_support::{PalletId, derive_impl};
 use frame_support::{parameter_types, traits::PrivilegeCmp};
 use frame_system as system;
-use frame_system::{EnsureRoot, limits, offchain::CreateTransactionBase};
+use frame_system::{EnsureRoot, limits};
 use pallet_subtensor::*;
 use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_utility as pallet_utility;
@@ -28,7 +28,8 @@ use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
 use sp_tracing::tracing_subscriber;
 use subtensor_runtime_common::{AuthorshipInfo, NetUid, TaoBalance};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-type Block = frame_system::mocking::MockBlock<Test>;
+pub type Block = frame_system::mocking::MockBlock<Test>;
+pub use api_mocks::MockApi;
 
 // Configure a mock runtime to test the pallet.
 frame_support::construct_runtime!(
@@ -45,6 +46,7 @@ frame_support::construct_runtime!(
         Swap: pallet_subtensor_swap = 9,
         Crowdloan: pallet_crowdloan = 10,
         Proxy: pallet_subtensor_proxy = 11,
+        AlphaAssets: pallet_alpha_assets = 12,
     }
 );
 
@@ -88,6 +90,8 @@ impl pallet_balances::Config for Test {
 impl pallet_shield::Config for Test {
     type AuthorityId = sp_core::sr25519::Public;
     type FindAuthors = ();
+    type RuntimeCall = RuntimeCall;
+    type ExtrinsicDecryptor = ();
     type WeightInfo = ();
 }
 
@@ -138,7 +142,14 @@ impl system::Config for Test {
     type MaxConsumers = frame_support::traits::ConstU32<16>;
     type Nonce = u64;
     type Block = Block;
-    type DispatchExtension = pallet_subtensor::CheckColdkeySwap<Test>;
+    type DispatchExtension = (
+        pallet_subtensor::CheckColdkeySwap<Test>,
+        pallet_subtensor::CheckWeights<Test>,
+        pallet_subtensor::CheckRateLimits<Test>,
+        pallet_subtensor::CheckDelegateTake<Test>,
+        pallet_subtensor::CheckServingEndpoints<Test>,
+        pallet_subtensor::CheckEvmKeyAssociation<Test>,
+    );
 }
 
 parameter_types! {
@@ -191,9 +202,16 @@ parameter_types! {
     pub const InitialTxChildKeyTakeRateLimit: u64 = 1; // 1 block take rate limit for testing
     pub const InitialBurn: u64 = 0;
     pub const InitialMinBurn: u64 = 500_000;
+    pub const InitialMinStake: u64 = 2_000_000;
     pub const InitialMaxBurn: u64 = 1_000_000_000;
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
+    pub const MinTempo: u16 = pallet_subtensor::MIN_TEMPO;
+    pub const MaxTempo: u16 = pallet_subtensor::MAX_TEMPO;
+    pub const MinActivityCutoffFactorMilli: u32 =
+        pallet_subtensor::MIN_ACTIVITY_CUTOFF_FACTOR_MILLI;
+    pub const MaxActivityCutoffFactorMilli: u32 =
+        pallet_subtensor::MAX_ACTIVITY_CUTOFF_FACTOR_MILLI;
     pub const InitialValidatorPruneLen: u64 = 0;
     pub const InitialScalingLawPower: u16 = 50;
     pub const InitialMaxAllowedValidators: u16 = 100;
@@ -231,6 +249,9 @@ parameter_types! {
     pub const LeaseDividendsDistributionInterval: u32 = 100;
     pub const MaxImmuneUidsPercentage: Percent = Percent::from_percent(80);
     pub const EvmKeyAssociateRateLimit: u64 = 10;
+    pub const SubtensorPalletId: PalletId = PalletId(*b"subtensr");
+    pub const BurnAccountId: PalletId = PalletId(*b"burntnsr");
+    pub const MaxEpochsPerBlock: u8 = 32;
 }
 
 impl pallet_subtensor::Config for Test {
@@ -276,8 +297,13 @@ impl pallet_subtensor::Config for Test {
     type InitialBurn = InitialBurn;
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
+    type InitialMinStake = InitialMinStake;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
+    type MinTempo = MinTempo;
+    type MaxTempo = MaxTempo;
+    type MinActivityCutoffFactorMilli = MinActivityCutoffFactorMilli;
+    type MaxActivityCutoffFactorMilli = MaxActivityCutoffFactorMilli;
     type InitialRAORecycledForRegistration = InitialRAORecycledForRegistration;
     type InitialNetworkImmunityPeriod = InitialNetworkImmunityPeriod;
     type InitialNetworkMinLockCost = InitialNetworkMinLockCost;
@@ -306,14 +332,17 @@ impl pallet_subtensor::Config for Test {
     type CommitmentsInterface = CommitmentsI;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
+    type SubtensorPalletId = SubtensorPalletId;
+    type BurnAccountId = BurnAccountId;
+    type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type AlphaAssets = AlphaAssets;
 }
 
 // Swap-related parameter types
 parameter_types! {
     pub const SwapProtocolId: PalletId = PalletId(*b"ten/swap");
     pub const SwapMaxFeeRate: u16 = 10000; // 15.26%
-    pub const SwapMaxPositions: u32 = 100;
     pub const SwapMinimumLiquidity: u64 = 1_000;
     pub const SwapMinimumReserve: NonZeroU64 = NonZeroU64::new(100).unwrap();
 }
@@ -325,7 +354,6 @@ impl pallet_subtensor_swap::Config for Test {
     type TaoReserve = TaoBalanceReserve<Self>;
     type AlphaReserve = AlphaBalanceReserve<Self>;
     type MaxFeeRate = SwapMaxFeeRate;
-    type MaxPositions = SwapMaxPositions;
     type MinimumLiquidity = SwapMinimumLiquidity;
     type MinimumReserve = SwapMinimumReserve;
     type WeightInfo = ();
@@ -479,6 +507,8 @@ impl InstanceFilter<RuntimeCall> for subtensor_runtime_common::ProxyType {
     }
 }
 
+impl pallet_alpha_assets::Config for Test {}
+
 mod test_crypto {
     use super::KEY_TYPE;
     use sp_core::{
@@ -536,28 +566,12 @@ where
     type RuntimeCall = RuntimeCall;
 }
 
-impl<LocalCall> frame_system::offchain::CreateInherent<LocalCall> for Test
+impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test
 where
     RuntimeCall: From<LocalCall>,
 {
     fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
-        UncheckedExtrinsic::new_inherent(call)
-    }
-}
-
-impl<LocalCall> frame_system::offchain::CreateSignedTransaction<LocalCall> for Test
-where
-    RuntimeCall: From<LocalCall>,
-{
-    fn create_signed_transaction<
-        C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>,
-    >(
-        call: <Self as CreateTransactionBase<LocalCall>>::RuntimeCall,
-        _public: Self::Public,
-        _account: Self::AccountId,
-        nonce: Self::Nonce,
-    ) -> Option<Self::Extrinsic> {
-        Some(UncheckedExtrinsic::new_signed(call, nonce.into(), (), ()))
+        UncheckedExtrinsic::new_bare(call)
     }
 }
 
@@ -587,4 +601,88 @@ pub fn init_logs_for_tests() {
         .try_init();
 
     let _ = TEST_LOGS_INIT.set(());
+}
+
+#[allow(dead_code)]
+pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
+    let credit = SubtensorModule::mint_tao(tao);
+    let _ = SubtensorModule::spend_tao(coldkey, credit, tao).unwrap();
+}
+
+mod api_mocks {
+    use codec::Compact;
+    use pallet_subtensor::rpc_info::delegate_info::DelegateInfo;
+    use pallet_subtensor::rpc_info::stake_info::StakeInfo;
+    use pallet_subtensor_swap_runtime_api::{SimSwapResult, SubnetPrice, SwapRuntimeApi};
+    use sp_runtime::AccountId32;
+    use subtensor_custom_rpc_runtime_api::{DelegateInfoRuntimeApi, StakeInfoRuntimeApi};
+    use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
+
+    use super::Block;
+
+    pub struct MockApi;
+
+    sp_api::mock_impl_runtime_apis! {
+        impl DelegateInfoRuntimeApi<Block> for MockApi {
+            fn get_delegates() -> Vec<DelegateInfo<AccountId32>> { Vec::new() }
+            fn get_delegate(_delegate_account: AccountId32) -> Option<DelegateInfo<AccountId32>> { None }
+            fn get_delegated(
+                _delegatee_account: AccountId32,
+            ) -> Vec<(DelegateInfo<AccountId32>, (Compact<NetUid>, Compact<AlphaBalance>))> {
+                Vec::new()
+            }
+        }
+
+        impl StakeInfoRuntimeApi<Block> for MockApi {
+            fn get_stake_info_for_coldkey(_coldkey_account: AccountId32) -> Vec<StakeInfo<AccountId32>> {
+                Vec::new()
+            }
+            fn get_stake_info_for_coldkeys(
+                _coldkey_accounts: Vec<AccountId32>,
+            ) -> Vec<(AccountId32, Vec<StakeInfo<AccountId32>>)> {
+                Vec::new()
+            }
+            fn get_stake_info_for_hotkey_coldkey_netuid(
+                _hotkey_account: AccountId32,
+                _coldkey_account: AccountId32,
+                _netuid: NetUid,
+            ) -> Option<StakeInfo<AccountId32>> {
+                None
+            }
+            fn get_stake_fee(
+                _origin: Option<(AccountId32, NetUid)>,
+                _origin_coldkey_account: AccountId32,
+                _destination: Option<(AccountId32, NetUid)>,
+                _destination_coldkey_account: AccountId32,
+                _amount: u64,
+            ) -> u64 {
+                0
+            }
+        }
+
+        impl SwapRuntimeApi<Block> for MockApi {
+            fn current_alpha_price(_netuid: NetUid) -> u64 { 0 }
+            fn current_alpha_price_all() -> Vec<SubnetPrice> { Vec::new() }
+            fn sim_swap_tao_for_alpha(_netuid: NetUid, _tao: TaoBalance) -> SimSwapResult {
+                SimSwapResult {
+                    tao_amount: 0u64.into(),
+                    alpha_amount: 0u64.into(),
+                    tao_fee: 0u64.into(),
+                    alpha_fee: 0u64.into(),
+                    tao_slippage: 0u64.into(),
+                    alpha_slippage: 0u64.into(),
+                }
+            }
+            fn sim_swap_alpha_for_tao(_netuid: NetUid, _alpha: AlphaBalance) -> SimSwapResult {
+                SimSwapResult {
+                    tao_amount: 0u64.into(),
+                    alpha_amount: 0u64.into(),
+                    tao_fee: 0u64.into(),
+                    alpha_fee: 0u64.into(),
+                    tao_slippage: 0u64.into(),
+                    alpha_slippage: 0u64.into(),
+                }
+            }
+        }
+    }
 }

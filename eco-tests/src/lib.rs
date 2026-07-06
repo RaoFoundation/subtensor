@@ -4,3 +4,6 @@ mod helpers;
 mod mock;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_taocom_indexer;

@@ -7,6 +7,8 @@ use frame_support::pallet_macros::pallet_section;
 mod config {
 
     use crate::{CommitmentsInterface, GetAlphaForTao, GetTaoForAlpha};
+    use frame_support::PalletId;
+    use pallet_alpha_assets::AlphaAssetsInterface;
     use pallet_commitments::GetCommitments;
     use subtensor_runtime_common::AuthorshipInfo;
     use subtensor_swap_interface::{SwapEngine, SwapHandler};
@@ -60,6 +62,9 @@ mod config {
         ///  Interface to clean commitments on network dissolution.
         type CommitmentsInterface: CommitmentsInterface;
 
+        /// Interface to mint, burn, and recycle subnet alpha.
+        type AlphaAssets: AlphaAssetsInterface;
+
         /// Rate limit for associating an EVM key.
         type EvmKeyAssociateRateLimit: Get<u64>;
 
@@ -106,12 +111,27 @@ mod config {
         /// Initial Min Burn.
         #[pallet::constant]
         type InitialMinBurn: Get<TaoBalance>;
+        /// Initial minimum stake.
+        #[pallet::constant]
+        type InitialMinStake: Get<TaoBalance>;
         /// Min  burn upper bound.
         #[pallet::constant]
         type MinBurnUpperBound: Get<TaoBalance>;
         /// Max burn lower bound.
         #[pallet::constant]
         type MaxBurnLowerBound: Get<TaoBalance>;
+        /// Lower bound for owner-set tempo.
+        #[pallet::constant]
+        type MinTempo: Get<u16>;
+        /// Upper bound for owner-set tempo.
+        #[pallet::constant]
+        type MaxTempo: Get<u16>;
+        /// Lower bound for the activity-cutoff factor (per-mille).
+        #[pallet::constant]
+        type MinActivityCutoffFactorMilli: Get<u32>;
+        /// Upper bound for the activity-cutoff factor (per-mille).
+        #[pallet::constant]
+        type MaxActivityCutoffFactorMilli: Get<u32>;
         /// Initial adjustment interval.
         #[pallet::constant]
         type InitialAdjustmentInterval: Get<u16>;
@@ -256,5 +276,16 @@ mod config {
         /// Maximum percentage of immune UIDs.
         #[pallet::constant]
         type MaxImmuneUidsPercentage: Get<Percent>;
+        /// Pallet account ID
+        #[pallet::constant]
+        type SubtensorPalletId: Get<PalletId>;
+        /// Burn account ID
+        #[pallet::constant]
+        type BurnAccountId: Get<PalletId>;
+        /// Initial default per-block cap on number of subnet epochs that may
+        /// execute in a single `block_step`; the rest are deferred 1 block forward via
+        /// `PendingEpochAt`.
+        #[pallet::constant]
+        type InitialMaxEpochsPerBlock: Get<u8>;
     }
 }

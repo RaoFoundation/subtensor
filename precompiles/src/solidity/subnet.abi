@@ -26,6 +26,25 @@
 				"type": "uint16"
 			}
 		],
+		"name": "getActivityCutoffFactor",
+		"outputs": [
+			{
+				"internalType": "uint32",
+				"name": "",
+				"type": "uint32"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			}
+		],
 		"name": "getAdjustmentAlpha",
 		"outputs": [
 			{
@@ -600,6 +619,24 @@
 				"type": "uint16"
 			},
 			{
+				"internalType": "uint32",
+				"name": "factorMilli",
+				"type": "uint32"
+			}
+		],
+		"name": "setActivityCutoffFactor",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
 				"internalType": "uint64",
 				"name": "adjustmentAlpha",
 				"type": "uint64"
@@ -1028,8 +1065,5 @@
 		"outputs": [],
 		"stateMutability": "payable",
 		"type": "function"
-	}, 
-	{
-		"inputs"
 	}
 ]

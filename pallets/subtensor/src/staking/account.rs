@@ -6,7 +6,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
     ) -> DispatchResult {
         // Ensure the hotkey is not already associated with a coldkey
-        Self::create_account_if_non_existent(coldkey, hotkey);
+        Self::create_account_if_non_existent(coldkey, hotkey)?;
 
         Ok(())
     }

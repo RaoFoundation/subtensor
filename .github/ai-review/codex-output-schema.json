@@ -1,0 +1,133 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "scrutiny_note",
+    "summary_markdown",
+    "conclusion_markdown",
+    "inline_findings",
+    "off_diff_findings",
+    "prior_reconciliation",
+    "proposed_pr_body"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "description": "Verdict line value. Skeptic: 'SAFE' | 'VULNERABLE' | 'MALICIOUS'. Auditor: '👍' | '👎'."
+    },
+    "scrutiny_note": {
+      "type": "string",
+      "description": "One-line scrutiny / calibration summary (contributor tier, gittensor association, etc.)."
+    },
+    "summary_markdown": {
+      "type": "string",
+      "description": "Markdown body for the sticky comment that goes between the verdict header and the findings table. Do NOT include the verdict line, the findings table, the prior-reconciliation list, or the conclusion — those are rendered by the post-script."
+    },
+    "conclusion_markdown": {
+      "type": "string",
+      "description": "One- or two-sentence verdict justification rendered as the sticky's final paragraph."
+    },
+    "inline_findings": {
+      "type": "array",
+      "description": "Findings pinned to a specific line in the PR diff. Each becomes an inline PR review comment.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "line",
+          "start_line",
+          "side",
+          "severity",
+          "title",
+          "body_markdown",
+          "suggestion"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path as it appears in the PR diff."
+          },
+          "line": {
+            "type": "integer",
+            "description": "Diff line number; use the new-file line for RIGHT side, old-file line for LEFT."
+          },
+          "start_line": {
+            "type": ["integer", "null"],
+            "description": "First line of a multi-line range. Null for single-line findings."
+          },
+          "side": {
+            "type": "string",
+            "enum": ["RIGHT", "LEFT"],
+            "description": "RIGHT for added/context lines, LEFT for removed lines."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+          },
+          "title": {
+            "type": "string",
+            "description": "Short headline (used as the table row title and the inline comment header)."
+          },
+          "body_markdown": {
+            "type": "string",
+            "description": "Markdown body of the inline comment. Do NOT include a ```suggestion fence here — put replacement code in `suggestion`."
+          },
+          "suggestion": {
+            "type": ["string", "null"],
+            "description": "Optional replacement text. When non-null, the post-script wraps it in a ```suggestion fence so GitHub renders the 'Apply suggestion' button. Lines in the suggestion replace lines start_line..line (or just `line` when start_line is null)."
+          }
+        }
+      }
+    },
+    "off_diff_findings": {
+      "type": "array",
+      "description": "Findings that cannot be pinned to a diff line (e.g. 'missing test file entirely', 'PR description is wrong'). Rendered as a list under '## Other findings'.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "body_markdown", "approximate_location"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+          },
+          "title": {"type": "string"},
+          "body_markdown": {"type": "string"},
+          "approximate_location": {
+            "type": ["string", "null"],
+            "description": "Free-form hint like 'pallets/foo/' or 'PR body' when applicable."
+          }
+        }
+      }
+    },
+    "proposed_pr_body": {
+      "type": ["string", "null"],
+      "description": "Auditor-only. When the existing PR body is empty or trivial, populate this with a proposed PR description (full markdown, ready to drop into the body). The post-script PATCHes the PR body with this content ONLY when the current body is empty/trivial. Skeptic always sets this to null."
+    },
+    "prior_reconciliation": {
+      "type": "array",
+      "description": "One entry for each finding in the prior sticky comment (read from /tmp/ai-review-context/prior-<persona>-comment.md, which has finding IDs in HTML comment markers like <!-- fid:abc12345 -->). Skip if no prior comment exists.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prior_finding_id", "status", "note_markdown"],
+        "properties": {
+          "prior_finding_id": {
+            "type": "string",
+            "description": "The finding ID from the prior sticky's <!-- fid:... --> marker."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["addressed", "not_addressed", "no_longer_applies"]
+          },
+          "note_markdown": {
+            "type": ["string", "null"],
+            "description": "Optional short explanation."
+          }
+        }
+      }
+    }
+  }
+}

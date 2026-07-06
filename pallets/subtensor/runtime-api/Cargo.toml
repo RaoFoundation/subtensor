@@ -15,6 +15,7 @@ workspace = true
 sp-api.workspace = true
 sp-runtime.workspace = true
 codec = { workspace = true, features = ["derive"] }
+substrate-fixed.workspace = true
 subtensor-runtime-common.workspace = true
 # local
 pallet-subtensor.workspace = true
@@ -26,6 +27,7 @@ std = [
 	"pallet-subtensor/std",
 	"sp-api/std",
 	"sp-runtime/std",
+	"substrate-fixed/std",
 	"subtensor-runtime-common/std",
 ]
 pow-faucet = []

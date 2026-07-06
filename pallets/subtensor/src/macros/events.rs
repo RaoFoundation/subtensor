@@ -109,6 +109,8 @@ mod events {
         MaxBurnSet(NetUid, TaoBalance),
         /// setting min burn on a network.
         MinBurnSet(NetUid, TaoBalance),
+        /// setting the per-block epoch cap (dynamic tempo throttle).
+        MaxEpochsPerBlockSet(u8),
         /// setting the transaction rate limit.
         TxRateLimitSet(u64),
         /// setting the delegate take transaction rate limit.
@@ -121,6 +123,8 @@ mod events {
         OwnerHyperparamRateLimitSet(u16),
         /// minimum childkey take set
         MinChildKeyTakeSet(u16),
+        /// subnet-specific minimum childkey take set
+        MinChildKeyTakePerSubnetSet(NetUid, u16),
         /// maximum childkey take set
         MaxChildKeyTakeSet(u16),
         /// childkey take set
@@ -279,8 +283,9 @@ mod events {
 
         /// A weight set among a batch of weights failed.
         ///
+        /// - **netuid**: The netuid of the batch item that failed.
         /// - **error**: The dispatch error emitted by the failed item.
-        BatchWeightItemFailed(sp_runtime::DispatchError),
+        BatchWeightItemFailed(NetUid, sp_runtime::DispatchError),
 
         /// Stake has been transferred from one coldkey to another on the same subnet.
         /// Parameters:
@@ -542,6 +547,8 @@ mod events {
         TransactionFeePaidWithAlpha {
             /// Account that paid the transaction fee.
             who: T::AccountId,
+            /// Netuid
+            netuid: NetUid,
             /// Exact fee deducted in Alpha units.
             alpha_fee: AlphaBalance,
             /// Resulting swapped TAO amount
@@ -560,7 +567,115 @@ mod events {
             /// The subnet identifier.
             netuid: NetUid,
             /// The burn increase multiplier value for neuron registration.
-            burn_increase_mult: u64,
+            burn_increase_mult: U64F64,
+        },
+
+        /// A root validator toggled the "auto parent delegation" flag.
+        AutoParentDelegationEnabledSet {
+            /// The validator hotkey.
+            hotkey: T::AccountId,
+            /// Whether delegation is now enabled.
+            enabled: bool,
+        },
+
+        /// Stake has been locked to a hotkey on a subnet.
+        StakeLocked {
+            /// The coldkey that locked the stake.
+            coldkey: T::AccountId,
+            /// The hotkey the stake is locked to.
+            hotkey: T::AccountId,
+            /// The subnet the stake is locked on.
+            netuid: NetUid,
+            /// The alpha amount locked.
+            amount: AlphaBalance,
+        },
+
+        /// Stake has been unlocked from a hotkey on a subnet.
+        StakeUnlocked {
+            /// The coldkey that unlocked the stake.
+            coldkey: T::AccountId,
+            /// The hotkey the stake was locked to.
+            hotkey: T::AccountId,
+            /// The subnet the stake was locked on.
+            netuid: NetUid,
+            /// The alpha amount unlocked.
+            amount: AlphaBalance,
+        },
+
+        /// Stake has been unlocked from a hotkey on a subnet.
+        LockMoved {
+            /// The coldkey that moved the lock.
+            coldkey: T::AccountId,
+            /// The hotkey the lock was moved from.
+            origin_hotkey: T::AccountId,
+            /// The hotkey the lock was moved to.
+            destination_hotkey: T::AccountId,
+            /// The subnet the lock is on.
+            netuid: NetUid,
+        },
+
+        /// Activity-cutoff factor (per-mille) set on a subnet by its owner.
+        ActivityCutoffFactorMilliSet {
+            /// The subnet identifier.
+            netuid: NetUid,
+            /// Factor (per-mille).
+            factor_milli: u32,
+        },
+
+        /// Owner manually triggered an epoch for their subnet.
+        EpochTriggered {
+            /// The subnet identifier.
+            netuid: NetUid,
+            /// The account that triggered the epoch.
+            by: T::AccountId,
+            /// The earliest block at which the triggered epoch may execute.
+            fires_at: u64,
+        },
+
+        /// An epoch slot was deferred to the next block due to the per-block epoch cap.
+        EpochDeferred {
+            /// The subnet identifier.
+            netuid: NetUid,
+            /// Block at which the epoch was originally scheduled.
+            from_block: u64,
+            /// Block to which the epoch was deferred.
+            to_block: u64,
+        },
+
+        /// Epoch execution skipped by `is_epoch_input_state_consistent` returned false or other errors.
+        EpochSkipped {
+            /// The subnet identifier.
+            netuid: NetUid,
+            /// The block at which the slot was consumed.
+            block: u64,
+        },
+
+        /// Subnet ownership was reassigned by lock conviction.
+        SubnetOwnerChanged {
+            /// The subnet whose owner changed.
+            netuid: NetUid,
+            /// The previous owner coldkey.
+            old_coldkey: T::AccountId,
+            /// The new owner coldkey.
+            new_coldkey: T::AccountId,
+        },
+
+        /// A coldkey's perpetual lock flag was updated.
+        PerpetualLockUpdated {
+            /// The coldkey whose flag changed.
+            coldkey: T::AccountId,
+            /// The subnet whose coldkey flag changed.
+            netuid: NetUid,
+            /// Whether this coldkey's locks are now perpetual.
+            enabled: bool,
+        },
+
+        /// A coldkey's reject locked alpha account flag was updated.
+        RejectLockedAlphaUpdated {
+            /// The coldkey whose flag changed.
+            coldkey: T::AccountId,
+            /// Whether this coldkey rejects incoming locked alpha.
+            enabled: bool,
         },
     }
 }

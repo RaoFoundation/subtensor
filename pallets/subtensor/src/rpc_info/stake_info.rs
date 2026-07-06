@@ -2,6 +2,7 @@ extern crate alloc;
 
 use codec::Compact;
 use frame_support::pallet_prelude::{Decode, Encode};
+use sp_std::collections::btree_map::BTreeMap;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -19,6 +20,29 @@ pub struct StakeInfo<AccountId: TypeInfo + Encode + Decode> {
     tao_emission: Compact<TaoBalance>,
     drain: Compact<u64>,
     is_registered: bool,
+}
+
+#[freeze_struct("2d52e2de04425fb6")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct StakeAvailability {
+    total: Compact<AlphaBalance>,
+    locked: Compact<AlphaBalance>,
+    available: Compact<AlphaBalance>,
+}
+
+// Per-subnet stake breakdown: total alpha, locked mass, and what is free to unstake.
+impl StakeAvailability {
+    pub fn total(&self) -> AlphaBalance {
+        self.total.into()
+    }
+
+    pub fn locked(&self) -> AlphaBalance {
+        self.locked.into()
+    }
+
+    pub fn available(&self) -> AlphaBalance {
+        self.available.into()
+    }
 }
 
 impl<T: Config> Pallet<T> {
@@ -117,6 +141,69 @@ impl<T: Config> Pallet<T> {
             drain: 0.into(),
             is_registered,
         })
+    }
+
+    /// Batch query of unstakable stake per coldkey and subnet.
+    ///
+    /// `netuids: None` scans every subnet; `Some(vec)` limits the scan.
+    /// Subnets with zero stake and zero lock are left out of the response.
+    ///
+    /// Invalid `Some(vec)` requests (empty or longer than the number of subnets on chain)
+    /// return each coldkey with an empty inner map. Non-existent netuids are omitted.
+    pub fn get_stake_availability_for_coldkeys(
+        coldkey_accounts: Vec<T::AccountId>,
+        netuids: Option<Vec<NetUid>>,
+    ) -> BTreeMap<T::AccountId, BTreeMap<NetUid, StakeAvailability>> {
+        if coldkey_accounts.is_empty() {
+            return BTreeMap::new();
+        }
+
+        let existing_netuids = Self::get_all_subnet_netuids();
+
+        let netuids = match netuids {
+            None => existing_netuids,
+            Some(mut requested) => {
+                // Same netuid may appear more than once in the request — keep one row per subnet.
+                requested.sort();
+                requested.dedup();
+                if requested.is_empty() || requested.len() > existing_netuids.len() {
+                    return coldkey_accounts
+                        .into_iter()
+                        .map(|coldkey| (coldkey, BTreeMap::new()))
+                        .collect();
+                }
+                requested.retain(|n| Self::if_subnet_exist(*n));
+                requested
+            }
+        };
+
+        coldkey_accounts
+            .into_iter()
+            .map(|coldkey| {
+                let availability: BTreeMap<NetUid, StakeAvailability> = netuids
+                    .iter()
+                    .filter_map(|netuid| {
+                        let (total, locked, available) =
+                            Self::stake_availability(&coldkey, *netuid);
+                        // Nothing staked and no active lock — skip this subnet.
+                        if total.is_zero() && locked.is_zero() {
+                            None
+                        } else {
+                            Some((
+                                *netuid,
+                                StakeAvailability {
+                                    total: total.into(),
+                                    locked: locked.into(),
+                                    available: available.into(),
+                                },
+                            ))
+                        }
+                    })
+                    .collect();
+
+                (coldkey, availability)
+            })
+            .collect()
     }
 
     pub fn get_stake_fee(

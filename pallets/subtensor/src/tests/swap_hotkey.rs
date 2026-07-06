@@ -81,7 +81,7 @@ fn test_swap_total_hotkey_stake() {
         mock::setup_reserves(netuid, reserve.into(), reserve.into());
 
         // Give it some $$$ in his coldkey balance
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, amount);
+        add_balance_to_coldkey_account(&coldkey, amount);
 
         // Add stake
         let (expected_alpha, _) = mock::swap_tao_to_alpha(netuid, amount);
@@ -420,14 +420,8 @@ fn test_swap_hotkey_with_multiple_coldkeys() {
         StakingHotkeys::<Test>::insert(coldkey1, vec![old_hotkey]);
         StakingHotkeys::<Test>::insert(coldkey2, vec![old_hotkey]);
         SubtensorModule::create_account_if_non_existent(&coldkey1, &old_hotkey);
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey1,
-            stake + ExistentialDeposit::get(),
-        );
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey2,
-            stake + ExistentialDeposit::get(),
-        );
+        add_balance_to_coldkey_account(&coldkey1, stake + ExistentialDeposit::get());
+        add_balance_to_coldkey_account(&coldkey2, stake + ExistentialDeposit::get());
 
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(coldkey1),
@@ -519,14 +513,8 @@ fn test_swap_staking_hotkeys_multiple_coldkeys() {
         Alpha::<Test>::insert((old_hotkey, coldkey2, netuid), U64F64::from_num(100));
 
         SubtensorModule::create_account_if_non_existent(&coldkey1, &old_hotkey);
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey1,
-            stake + ExistentialDeposit::get(),
-        );
-        SubtensorModule::add_balance_to_coldkey_account(
-            &coldkey2,
-            stake + ExistentialDeposit::get(),
-        );
+        add_balance_to_coldkey_account(&coldkey1, stake + ExistentialDeposit::get());
+        add_balance_to_coldkey_account(&coldkey2, stake + ExistentialDeposit::get());
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(coldkey1),
             old_hotkey,
@@ -618,8 +606,8 @@ fn test_swap_hotkey_with_multiple_coldkeys_and_subnets() {
         mock::setup_reserves(netuid2, reserve.into(), reserve.into());
 
         // Add balance to both coldkeys
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey1, stake + 1_000.into());
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey2, stake + 1_000.into());
+        add_balance_to_coldkey_account(&coldkey1, stake + 1_000.into());
+        add_balance_to_coldkey_account(&coldkey2, stake + 1_000.into());
 
         // Stake with coldkey1
         assert_ok!(SubtensorModule::add_stake(
@@ -731,9 +719,9 @@ fn test_swap_hotkey_with_multiple_coldkeys_and_subnets() {
     });
 }
 
-// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_hotkey_tx_rate_limit_exceeded --exact --nocapture
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_hotkey_no_tx_rate_limit --exact --nocapture
 #[test]
-fn test_swap_hotkey_tx_rate_limit_exceeded() {
+fn test_swap_hotkey_no_tx_rate_limit() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
         let tempo: u16 = 13;
@@ -741,23 +729,22 @@ fn test_swap_hotkey_tx_rate_limit_exceeded() {
         let new_hotkey_1 = U256::from(2);
         let new_hotkey_2 = U256::from(4);
         let coldkey = U256::from(3);
-        let swap_cost = TaoBalance::from(1_000_000_000u64 * 2);
+        let swap_cost = SubtensorModule::get_key_swap_cost() * 2.into();
 
-        let tx_rate_limit = 1;
+        let interval: u64 = <Test as crate::Config>::HotkeySwapOnSubnetInterval::get();
 
-        // Get the current transaction rate limit
-        let current_tx_rate_limit = SubtensorModule::get_tx_rate_limit();
-        log::info!("current_tx_rate_limit: {current_tx_rate_limit:?}");
-
-        // Set the transaction rate limit
+        // Set a tx rate limit far larger than the gap we leave between the two swaps below.
+        // The generic tx rate limit no longer gates hotkey swaps, so the second swap must
+        // succeed even though the old behaviour would have rejected it. Only the per-subnet
+        // `HotkeySwapOnSubnetInterval` cooldown still applies.
+        let tx_rate_limit = interval.saturating_mul(100);
         SubtensorModule::set_tx_rate_limit(tx_rate_limit);
-        // assert the rate limit is set to 1000 blocks
         assert_eq!(SubtensorModule::get_tx_rate_limit(), tx_rate_limit);
 
         // Setup initial state
         add_network(netuid, tempo, 0);
         register_ok_neuron(netuid, old_hotkey, coldkey, 0);
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, swap_cost);
+        add_balance_to_coldkey_account(&coldkey, swap_cost + ExistentialDeposit::get());
 
         // Perform the first swap
         assert_ok!(SubtensorModule::do_swap_hotkey(
@@ -768,20 +755,10 @@ fn test_swap_hotkey_tx_rate_limit_exceeded() {
             false,
         ));
 
-        // Attempt to perform another swap immediately, which should fail due to rate limit
-        assert_err!(
-            SubtensorModule::do_swap_hotkey(
-                <<Test as Config>::RuntimeOrigin>::signed(coldkey),
-                &new_hotkey_1,
-                &new_hotkey_2,
-                None,
-                false,
-            ),
-            Error::<Test>::HotKeySetTxRateLimitExceeded
-        );
-
-        // move in time past the rate limit
-        step_block(1001);
+        // Advance just past the per-subnet swap cooldown, but far less than the tx rate
+        // limit set above. Under the old rules the generic tx rate limit would reject this
+        // second swap; with that limit removed it succeeds.
+        step_block(interval as u16 + 1);
         assert_ok!(SubtensorModule::do_swap_hotkey(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &new_hotkey_1,
@@ -807,7 +784,7 @@ fn test_do_swap_hotkey_err_not_owner() {
         // Setup initial state
         add_network(netuid, tempo, 0);
         register_ok_neuron(netuid, old_hotkey, coldkey, 0);
-        SubtensorModule::add_balance_to_coldkey_account(&not_owner_coldkey, swap_cost);
+        add_balance_to_coldkey_account(&not_owner_coldkey, swap_cost);
 
         // Attempt the swap with a non-owner coldkey
         assert_err!(
@@ -1140,7 +1117,7 @@ fn test_swap_hotkey_error_cases() {
         );
 
         let initial_balance = SubtensorModule::get_key_swap_cost() + 1000.into();
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, initial_balance);
+        add_balance_to_coldkey_account(&coldkey, initial_balance);
 
         // Test new hotkey same as old
         assert_noop!(
@@ -1191,6 +1168,65 @@ fn test_swap_hotkey_error_cases() {
 
         // Check balance after swap
         assert_eq!(Balances::free_balance(coldkey), initial_balance - swap_cost);
+    });
+}
+
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::swap_hotkey::test_do_swap_hotkey_err_new_hotkey_not_clean_for_root --exact --nocapture
+#[test]
+fn test_do_swap_hotkey_err_new_hotkey_not_clean_for_root() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let other_coldkey = U256::from(4);
+
+        Owner::<Test>::insert(old_hotkey, coldkey);
+        TotalNetworks::<Test>::put(1);
+        SubtensorModule::set_last_tx_block(&coldkey, 0);
+
+        let initial_balance = SubtensorModule::get_key_swap_cost() + 1000.into();
+        add_balance_to_coldkey_account(&coldkey, initial_balance);
+
+        // new_hotkey is NOT registered on any network, but some other coldkey
+        // has staked to it on root. This must block a root-touching swap.
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &new_hotkey,
+            &other_coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(1_000_000u64),
+        );
+
+        assert!(!SubtensorModule::is_hotkey_registered_on_any_network(
+            &new_hotkey
+        ));
+        assert!(
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&new_hotkey, NetUid::ROOT)
+                > AlphaBalance::ZERO
+        );
+
+        // Full swap (netuid = None) — touches root, must fail.
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &old_hotkey,
+                &new_hotkey,
+                None,
+                false,
+            ),
+            Error::<Test>::NewHotKeyNotCleanForRootSwap
+        );
+
+        // Explicit root-subnet swap — also must fail.
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &old_hotkey,
+                &new_hotkey,
+                Some(NetUid::ROOT),
+                false,
+            ),
+            Error::<Test>::NewHotKeyNotCleanForRootSwap
+        );
     });
 }
 
@@ -1518,14 +1554,11 @@ fn test_swap_hotkey_swap_rate_limits() {
         let new_hotkey = U256::from(2);
         let coldkey = U256::from(3);
         let netuid = add_dynamic_network(&old_hotkey, &coldkey);
-        SubtensorModule::add_balance_to_coldkey_account(&coldkey, u64::MAX.into());
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
-        let last_tx_block = 123;
         let delegate_take_block = 4567;
         let child_key_take_block = 8910;
 
-        // Set the last tx block for the old hotkey
-        SubtensorModule::set_last_tx_block(&old_hotkey, last_tx_block);
         // Set the last delegate take block for the old hotkey
         SubtensorModule::set_last_tx_block_delegate_take(&old_hotkey, delegate_take_block);
         // Set last childkey take block for the old hotkey
@@ -1540,11 +1573,8 @@ fn test_swap_hotkey_swap_rate_limits() {
             false,
         ));
 
-        // Check for new hotkey
-        assert_eq!(
-            SubtensorModule::get_last_tx_block(&new_hotkey),
-            last_tx_block
-        );
+        // Check for new hotkey (LastTxBlock is no longer transferred: the generic tx rate
+        // limit was removed, so it is dead state). The take rate limits are still active.
         assert_eq!(
             SubtensorModule::get_last_tx_block_delegate_take(&new_hotkey),
             delegate_take_block
@@ -1637,5 +1667,294 @@ fn test_swap_auto_stake_destination_coldkeys() {
             AutoStakeDestination::<Test>::get(coldkey, netuid),
             Some(new_hotkey)
         );
+    });
+}
+
+// ============================================================
+// GHSA-2026-011 regression test — security audit (June 2026)
+// Fails on the vulnerable code; passes with the fix in this PR.
+// ============================================================
+use crate::staking::lock::LockState;
+
+#[test]
+fn ghsa_2026_011_subnet_swap_interval_bypassed_by_all_subnets_path() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1); // not root (root == 0)
+        let tempo: u16 = 13;
+        let coldkey = U256::from(3);
+        let old_hotkey = U256::from(1);
+        let hk_a = U256::from(2); // result of the per-subnet swap
+        let hk_contrast = U256::from(6); // attempted per-subnet re-swap (must fail)
+        let hk_b = U256::from(7); // attempted all-subnets bypass swap (must now also fail)
+
+        // The per-subnet cooldown configured in the mock.
+        let interval: u64 = <Test as crate::Config>::HotkeySwapOnSubnetInterval::get();
+        assert_eq!(interval, 15);
+
+        // Setup: coldkey owns old_hotkey, registered on subnet N.
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, old_hotkey, coldkey, 0);
+        // Fund the coldkey generously for both per-subnet and all-subnets swap costs.
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+
+        // Advance the block past the interval so the FIRST per-subnet swap is allowed
+        // (LastHotkeySwapOnNetuid defaults to 0; the check is 0 + interval < block).
+        // Do NOT step further afterwards: the on_finalize cleanup hook would otherwise
+        // purge stale LastHotkeySwapOnNetuid rows once the interval elapses.
+        step_block(20);
+        let block = SubtensorModule::get_current_block_as_u64();
+        assert!(block > interval);
+
+        // Precondition sanity: no swap record yet for (netuid, coldkey).
+        assert_eq!(LastHotkeySwapOnNetuid::<Test>::get(netuid, coldkey), 0);
+
+        // 1. Per-subnet swap old_hotkey -> hk_a on subnet N. This stamps
+        //    LastHotkeySwapOnNetuid(N, coldkey) = current block, opening the cooldown.
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &hk_a,
+            Some(netuid),
+            false,
+        ));
+        assert_eq!(
+            LastHotkeySwapOnNetuid::<Test>::get(netuid, coldkey),
+            block,
+            "per-subnet swap must record the swap block for the cooldown"
+        );
+
+        // 2. CONTRAST (the rate limit works on the per-subnet path):
+        //    Immediately re-swapping on the SAME subnet within the interval fails.
+        assert_err!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &hk_a,
+                &hk_contrast,
+                Some(netuid),
+                false,
+            ),
+            Error::<Test>::HotKeySwapOnSubnetIntervalNotPassed
+        );
+        // State unchanged by the rejected per-subnet swap.
+        assert!(SubtensorModule::is_hotkey_registered_on_specific_network(
+            &hk_a, netuid
+        ));
+        assert!(!SubtensorModule::is_hotkey_registered_on_specific_network(
+            &hk_contrast,
+            netuid
+        ));
+
+        // 3. FIXED (GHSA-2026-011): the all-subnets path (netuid=None) now also consults
+        //    the per-subnet interval for every subnet the old hotkey is a member of, so an
+        //    immediate swap via netuid=None within the cooldown is rejected with the same
+        //    error and CANNOT bypass the per-subnet cooldown.
+        assert_err!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &hk_a,
+                &hk_b,
+                None,
+                false,
+            ),
+            Error::<Test>::HotKeySwapOnSubnetIntervalNotPassed
+        );
+
+        // The bypass swap did NOT take effect: ownership stays with hk_a (from step 1),
+        // and hk_b never became an owner.
+        assert_eq!(Owner::<Test>::get(hk_a), coldkey);
+        assert!(!Owner::<Test>::contains_key(hk_b));
+        // The per-subnet cooldown record is unchanged (still the step-1 block).
+        assert_eq!(LastHotkeySwapOnNetuid::<Test>::get(netuid, coldkey), block);
+
+        // 4. After the cooldown elapses, the all-subnets swap is allowed again and now
+        //    correctly re-stamps the per-subnet cooldown for the affected subnet.
+        step_block((interval + 1) as u16);
+        let block_after = SubtensorModule::get_current_block_as_u64();
+        assert!(block_after > block.saturating_add(interval));
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &hk_a,
+            &hk_b,
+            None,
+            false,
+        ));
+        assert_eq!(Owner::<Test>::get(hk_b), coldkey);
+        assert!(!Owner::<Test>::contains_key(hk_a));
+        // The all-subnets path now records the per-subnet cooldown.
+        assert_eq!(
+            LastHotkeySwapOnNetuid::<Test>::get(netuid, coldkey),
+            block_after,
+            "all-subnets swap must record the per-subnet cooldown block"
+        );
+    });
+}
+
+// ============================================================
+// GHSA-2026-011 follow-up (review): the all-subnets cooldown must cover subnets where the
+// old hotkey is a PARENT (has childkeys) — those are migrated even on subnets it is not a
+// member of — but must NOT gate on the CHILD side (ParentKeys), since a third party can set
+// any hotkey as its child without consent (that would be a griefing vector).
+// Fails on the member-only filter; passes with the membership-or-parent filter in this PR.
+// ============================================================
+#[test]
+fn ghsa_2026_011_all_subnets_swap_covers_parent_key_subnets_not_child_side() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(3);
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let child = U256::from(8);
+        let foreign_parent = U256::from(9);
+
+        // member_netuid: old_hotkey is a registered member here.
+        let member_netuid = NetUid::from(1);
+        // parent_netuid: old_hotkey is ONLY a parent here (has a childkey), NOT a member.
+        let parent_netuid = NetUid::from(2);
+        // child_netuid: old_hotkey is ONLY a child here (some other hotkey's child), NOT a
+        // member and not a parent. This must NOT be cooldown-gated (anti-griefing).
+        let child_netuid = NetUid::from(3);
+
+        let interval: u64 = <Test as crate::Config>::HotkeySwapOnSubnetInterval::get();
+
+        add_network(member_netuid, 13, 0);
+        add_network(parent_netuid, 13, 0);
+        add_network(child_netuid, 13, 0);
+        register_ok_neuron(member_netuid, old_hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+
+        // old_hotkey is a PARENT on parent_netuid (has a child) but NOT a network member there.
+        ChildKeys::<Test>::insert(old_hotkey, parent_netuid, vec![(u64::MAX, child)]);
+        assert!(!IsNetworkMember::<Test>::get(old_hotkey, parent_netuid));
+        // old_hotkey is only a CHILD on child_netuid (set by foreign_parent, no consent).
+        ParentKeys::<Test>::insert(old_hotkey, child_netuid, vec![(u64::MAX, foreign_parent)]);
+        assert!(!IsNetworkMember::<Test>::get(old_hotkey, child_netuid));
+        assert!(ChildKeys::<Test>::get(old_hotkey, child_netuid).is_empty());
+
+        // Advance past the interval so the swap itself is allowed (first swap on each subnet).
+        step_block(20);
+        let block = SubtensorModule::get_current_block_as_u64();
+        assert!(block > interval);
+
+        // Preconditions: no cooldown recorded on the parent-only or child-only subnets.
+        assert_eq!(LastHotkeySwapOnNetuid::<Test>::get(parent_netuid, coldkey), 0);
+        assert_eq!(LastHotkeySwapOnNetuid::<Test>::get(child_netuid, coldkey), 0);
+
+        // All-subnets swap (netuid = None).
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            None,
+            false,
+        ));
+
+        // The relationships are re-homed onto new_hotkey regardless of membership.
+        assert_eq!(
+            ChildKeys::<Test>::get(new_hotkey, parent_netuid),
+            vec![(u64::MAX, child)],
+            "parent relationship must migrate to new_hotkey on the parent-only subnet"
+        );
+        assert_eq!(
+            ParentKeys::<Test>::get(new_hotkey, child_netuid),
+            vec![(u64::MAX, foreign_parent)],
+            "child relationship must still migrate to new_hotkey on the child-only subnet"
+        );
+
+        // FIXED: the per-subnet cooldown is recorded on the member subnet AND the parent-only
+        // subnet (the member-only filter would have left the latter at 0).
+        assert_eq!(LastHotkeySwapOnNetuid::<Test>::get(member_netuid, coldkey), block);
+        assert_eq!(
+            LastHotkeySwapOnNetuid::<Test>::get(parent_netuid, coldkey),
+            block,
+            "all-subnets swap must record the cooldown on parent-key subnets, not just member subnets"
+        );
+
+        // Anti-griefing: the child-only subnet is NOT cooldown-gated. A third party (the
+        // foreign parent) set old_hotkey as its child without consent; gating on that would
+        // let it impose swap-cooldowns on the victim.
+        assert_eq!(
+            LastHotkeySwapOnNetuid::<Test>::get(child_netuid, coldkey),
+            0,
+            "child-only subnet must NOT be cooldown-gated (no-consent child assignment is a griefing vector)"
+        );
+    });
+}
+
+// ============================================================
+// GHSA-2026-014 regression test — security audit (June 2026)
+// Fails on the vulnerable code; passes with the fix in this PR.
+// ============================================================
+
+#[test]
+fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let coldkey = U256::from(2);
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(5);
+        let mut weight = Weight::zero();
+
+        add_network(netuid, 1, 0);
+        // Establish coldkey ownership of old_hotkey (Owner(old_hotkey) = coldkey).
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey,
+            &old_hotkey
+        ));
+
+        // The effective minimum (floor) childkey take in this mock is 0.
+        let floor_take = SubtensorModule::get_effective_min_childkey_take(netuid);
+        assert_eq!(floor_take, 0);
+
+        // Configure a NON-minimum childkey take on the old hotkey for this subnet.
+        // 5000 is well above the floor (0) and below the max (11_796).
+        let configured_childkey_take: u16 = 5000;
+        assert!(configured_childkey_take > floor_take);
+        ChildkeyTake::<Test>::insert(old_hotkey, netuid, configured_childkey_take);
+
+        // Configure a NON-default delegate take on the old hotkey for contrast.
+        // (Default delegate take in this mock is 11_796.)
+        let configured_delegate_take: u16 = 100;
+        Delegates::<Test>::insert(old_hotkey, configured_delegate_take);
+
+        // Sanity: pre-swap the old hotkey carries the configured values.
+        assert_eq!(
+            ChildkeyTake::<Test>::get(old_hotkey, netuid),
+            configured_childkey_take
+        );
+        assert_eq!(
+            SubtensorModule::get_childkey_take(&old_hotkey, netuid),
+            configured_childkey_take
+        );
+        assert_eq!(Delegates::<Test>::get(old_hotkey), configured_delegate_take);
+
+        // Perform the real hotkey swap on all subnets.
+        assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+            false
+        ));
+
+        // CONTRAST (safe behavior): Delegates take IS migrated to the new hotkey.
+        assert!(!Delegates::<Test>::contains_key(old_hotkey));
+        assert_eq!(Delegates::<Test>::get(new_hotkey), configured_delegate_take);
+
+        // FIXED (GHSA-2026-014): ChildkeyTake IS now migrated to the new hotkey.
+        // The new hotkey carries over the configured take (5000) instead of
+        // silently dropping to the storage default (0) / floor take.
+        assert_eq!(
+            ChildkeyTake::<Test>::get(new_hotkey, netuid),
+            configured_childkey_take,
+            "ChildkeyTake(new_hotkey) should inherit the configured take after swap"
+        );
+        // The effective getter for the new hotkey returns the configured take, not the floor.
+        assert_eq!(
+            SubtensorModule::get_childkey_take(&new_hotkey, netuid),
+            configured_childkey_take
+        );
+
+        // FIXED: the old hotkey's ChildkeyTake row is removed (no orphan left behind).
+        assert!(!ChildkeyTake::<Test>::contains_key(old_hotkey, netuid));
+        assert_eq!(ChildkeyTake::<Test>::get(old_hotkey, netuid), 0);
     });
 }

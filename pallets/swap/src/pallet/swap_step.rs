@@ -1,15 +1,13 @@
 use core::marker::PhantomData;
 
-use frame_support::{ensure, pallet_prelude::Zero, traits::Get};
+use frame_support::ensure;
 use safe_math::*;
-use substrate_fixed::types::{I64F64, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+use substrate_fixed::types::U64F64;
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenReserve};
 
 use super::pallet::*;
-use crate::{
-    SqrtPrice,
-    tick::{ActiveTickIndexManager, TickIndex},
-};
+
+pub(crate) const MAX_SWAP_INPUT_RESERVE_MULTIPLIER: u64 = 1_000;
 
 /// A struct representing a single swap step with all its parameters and state
 pub(crate) struct BasicSwapStep<T, PaidIn, PaidOut>
@@ -21,22 +19,16 @@ where
     // Input parameters
     netuid: NetUid,
     drop_fees: bool,
+    requested_delta_in: PaidIn,
+    limit_price: U64F64,
 
-    // Computed values
-    current_liquidity: U64F64,
-    possible_delta_in: PaidIn,
-
-    // Ticks and prices (current, limit, edge, target)
-    target_sqrt_price: SqrtPrice,
-    limit_sqrt_price: SqrtPrice,
-    current_sqrt_price: SqrtPrice,
-    edge_sqrt_price: SqrtPrice,
-    edge_tick: TickIndex,
+    // Intermediate calculations
+    target_price: U64F64,
+    current_price: U64F64,
 
     // Result values
-    action: SwapStepAction,
     delta_in: PaidIn,
-    final_price: SqrtPrice,
+    final_price: U64F64,
     fee: PaidIn,
 
     _phantom: PhantomData<(T, PaidIn, PaidOut)>,
@@ -53,36 +45,25 @@ where
     pub(crate) fn new(
         netuid: NetUid,
         amount_remaining: PaidIn,
-        limit_sqrt_price: SqrtPrice,
+        limit_price: U64F64,
         drop_fees: bool,
     ) -> Self {
-        // Calculate prices and ticks
-        let current_tick = CurrentTick::<T>::get(netuid);
-        let current_sqrt_price = AlphaSqrtPrice::<T>::get(netuid);
-        let edge_tick = Self::tick_edge(netuid, current_tick);
-        let edge_sqrt_price = edge_tick.as_sqrt_price_bounded();
-
         let fee = Pallet::<T>::calculate_fee_amount(netuid, amount_remaining, drop_fees);
-        let possible_delta_in = amount_remaining.saturating_sub(fee);
+        let requested_delta_in = amount_remaining.saturating_sub(fee);
 
-        // Target price and quantities
-        let current_liquidity = U64F64::saturating_from_num(CurrentLiquidity::<T>::get(netuid));
-        let target_sqrt_price =
-            Self::sqrt_price_target(current_liquidity, current_sqrt_price, possible_delta_in);
+        // Target and current prices
+        let target_price = Self::price_target(netuid, requested_delta_in);
+        let current_price = Pallet::<T>::current_price(netuid);
 
         Self {
             netuid,
             drop_fees,
-            target_sqrt_price,
-            limit_sqrt_price,
-            current_sqrt_price,
-            edge_sqrt_price,
-            edge_tick,
-            possible_delta_in,
-            current_liquidity,
-            action: SwapStepAction::Stop,
+            requested_delta_in,
+            limit_price,
+            target_price,
+            current_price,
             delta_in: PaidIn::ZERO,
-            final_price: target_sqrt_price,
+            final_price: target_price,
             fee,
             _phantom: PhantomData,
         }
@@ -99,64 +80,25 @@ where
         let mut recalculate_fee = false;
 
         // Calculate the stopping price: The price at which we either reach the limit price,
-        // exchange the full amount, or reach the edge price.
-        if Self::price_is_closer(&self.target_sqrt_price, &self.limit_sqrt_price)
-            && Self::price_is_closer(&self.target_sqrt_price, &self.edge_sqrt_price)
-        {
-            // Case 1. target_quantity is the lowest
-            // The trade completely happens within one tick, no tick crossing happens.
-            self.action = SwapStepAction::Stop;
-            self.final_price = self.target_sqrt_price;
-            self.delta_in = self.possible_delta_in;
-        } else if Self::price_is_closer(&self.limit_sqrt_price, &self.target_sqrt_price)
-            && Self::price_is_closer(&self.limit_sqrt_price, &self.edge_sqrt_price)
-        {
-            // Case 2. lim_quantity is the lowest
-            // The trade also completely happens within one tick, no tick crossing happens.
-            self.action = SwapStepAction::Stop;
-            self.final_price = self.limit_sqrt_price;
-            self.delta_in = Self::delta_in(
-                self.current_liquidity,
-                self.current_sqrt_price,
-                self.limit_sqrt_price,
-            );
-            recalculate_fee = true;
+        // or exchange the full amount.
+        if Self::price_is_closer(&self.target_price, &self.limit_price) {
+            // Case 1. target_quantity is the lowest, execute in full
+            self.final_price = self.target_price;
+            self.delta_in = self.requested_delta_in;
         } else {
-            // Case 3. edge_quantity is the lowest
-            // Tick crossing is likely
-            self.action = SwapStepAction::Crossing;
-            self.delta_in = Self::delta_in(
-                self.current_liquidity,
-                self.current_sqrt_price,
-                self.edge_sqrt_price,
-            );
-            self.final_price = self.edge_sqrt_price;
+            // Case 2. lim_quantity is the lowest
+            self.final_price = self.limit_price;
+            self.delta_in = Self::delta_in(self.netuid, self.current_price, self.limit_price);
             recalculate_fee = true;
         }
 
-        log::trace!("\tAction           : {:?}", self.action);
-        log::trace!(
-            "\tCurrent Price    : {}",
-            self.current_sqrt_price
-                .saturating_mul(self.current_sqrt_price)
-        );
-        log::trace!(
-            "\tTarget Price     : {}",
-            self.target_sqrt_price
-                .saturating_mul(self.target_sqrt_price)
-        );
-        log::trace!(
-            "\tLimit Price      : {}",
-            self.limit_sqrt_price.saturating_mul(self.limit_sqrt_price)
-        );
-        log::trace!(
-            "\tEdge Price       : {}",
-            self.edge_sqrt_price.saturating_mul(self.edge_sqrt_price)
-        );
+        log::trace!("\tCurrent Price    : {}", self.current_price);
+        log::trace!("\tTarget Price     : {}", self.target_price);
+        log::trace!("\tLimit Price      : {}", self.limit_price);
         log::trace!("\tDelta In         : {}", self.delta_in);
 
         // Because on step creation we calculate fee off the total amount, we might need to
-        // recalculate it in case if we hit the limit price or the edge price.
+        // recalculate it in case if we hit the limit price.
         if recalculate_fee {
             let u16_max = U64F64::saturating_from_num(u16::MAX);
             let fee_rate = if self.drop_fees {
@@ -170,345 +112,115 @@ where
                 .saturating_to_num::<u64>()
                 .into();
         }
-
-        // Now correct the action if we stopped exactly at the edge no matter what was the case
-        // above. Because order type buy moves the price up and tick semi-open interval doesn't
-        // include its right point, we cross on buys and stop on sells.
-        let natural_reason_stop_price =
-            if Self::price_is_closer(&self.limit_sqrt_price, &self.target_sqrt_price) {
-                self.limit_sqrt_price
-            } else {
-                self.target_sqrt_price
-            };
-        if natural_reason_stop_price == self.edge_sqrt_price {
-            self.action = Self::action_on_edge_sqrt_price();
-        }
     }
 
     /// Process a single step of a swap
     fn process_swap(&self) -> Result<SwapStepResult<PaidIn, PaidOut>, Error<T>> {
+        // Convert amounts, actual swap happens here
         let delta_out = Self::convert_deltas(self.netuid, self.delta_in);
         log::trace!("\tDelta Out        : {delta_out}");
-
         let mut fee_to_block_author = 0.into();
-        if self.delta_in > 0.into() {
-            ensure!(delta_out > 0.into(), Error::<T>::ReservesTooLow);
+        if !self.delta_in.is_zero() {
+            ensure!(!delta_out.is_zero(), Error::<T>::ReservesTooLow);
 
-            // Split fees according to DefaultFeeSplit between liquidity pool and
-            // validators. In case we want just to forward 100% of fees to the block
-            // author, it can be done this way:
-            // ```
-            //     fee_to_block_author = self.fee;
-            // ```
-            let fee_split = DefaultFeeSplit::get();
-            let lp_fee: PaidIn = fee_split.mul_floor(self.fee.to_u64()).into();
-
-            // Hold the reserve portion of fees
-            if !lp_fee.is_zero() {
-                Self::add_fees(
-                    self.netuid,
-                    Pallet::<T>::current_liquidity_safe(self.netuid),
-                    lp_fee,
-                );
-            }
-
-            fee_to_block_author = self.fee.saturating_sub(lp_fee);
+            // 100% of swap fees to to block builder
+            fee_to_block_author = self.fee;
         }
-
-        if self.action == SwapStepAction::Crossing {
-            let mut tick = Ticks::<T>::get(self.netuid, self.edge_tick).unwrap_or_default();
-            tick.fees_out_tao = I64F64::saturating_from_num(FeeGlobalTao::<T>::get(self.netuid))
-                .saturating_sub(tick.fees_out_tao);
-            tick.fees_out_alpha =
-                I64F64::saturating_from_num(FeeGlobalAlpha::<T>::get(self.netuid))
-                    .saturating_sub(tick.fees_out_alpha);
-            Self::update_liquidity_at_crossing(self.netuid)?;
-            Ticks::<T>::insert(self.netuid, self.edge_tick, tick);
-        }
-
-        // Update current price
-        AlphaSqrtPrice::<T>::set(self.netuid, self.final_price);
-
-        // Update current tick
-        let new_current_tick = TickIndex::from_sqrt_price_bounded(self.final_price);
-        CurrentTick::<T>::set(self.netuid, new_current_tick);
 
         Ok(SwapStepResult {
-            amount_to_take: self.delta_in.saturating_add(self.fee),
             fee_paid: self.fee,
             delta_in: self.delta_in,
             delta_out,
             fee_to_block_author,
         })
     }
-
-    pub(crate) fn action(&self) -> SwapStepAction {
-        self.action
-    }
 }
 
 impl<T: Config> SwapStep<T, TaoBalance, AlphaBalance>
     for BasicSwapStep<T, TaoBalance, AlphaBalance>
 {
-    fn delta_in(
-        liquidity_curr: U64F64,
-        sqrt_price_curr: SqrtPrice,
-        sqrt_price_target: SqrtPrice,
-    ) -> TaoBalance {
-        liquidity_curr
-            .saturating_mul(sqrt_price_target.saturating_sub(sqrt_price_curr))
-            .saturating_to_num::<u64>()
-            .into()
+    fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> TaoBalance {
+        let tao_reserve = T::TaoReserve::reserve(netuid.into());
+        let balancer = SwapBalancer::<T>::get(netuid);
+        TaoBalance::from(balancer.calculate_quote_delta_in(
+            price_curr,
+            price_target,
+            tao_reserve.into(),
+        ))
     }
 
-    fn tick_edge(netuid: NetUid, current_tick: TickIndex) -> TickIndex {
-        ActiveTickIndexManager::<T>::find_closest_higher(
-            netuid,
-            current_tick.next().unwrap_or(TickIndex::MAX),
+    fn price_target(netuid: NetUid, delta_in: TaoBalance) -> U64F64 {
+        let tao_reserve = T::TaoReserve::reserve(netuid.into());
+        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
+        let balancer = SwapBalancer::<T>::get(netuid);
+        let dy = delta_in;
+        let dx = Self::convert_deltas(netuid, dy);
+        balancer.calculate_price(
+            u64::from(alpha_reserve.saturating_sub(dx)),
+            u64::from(tao_reserve.saturating_add(dy)),
         )
-        .unwrap_or(TickIndex::MAX)
     }
 
-    fn sqrt_price_target(
-        liquidity_curr: U64F64,
-        sqrt_price_curr: SqrtPrice,
-        delta_in: TaoBalance,
-    ) -> SqrtPrice {
-        let delta_fixed = U64F64::saturating_from_num(delta_in);
-
-        // No liquidity means that price should go to the limit
-        if liquidity_curr == 0 {
-            return SqrtPrice::saturating_from_num(
-                Pallet::<T>::max_price_inner::<TaoBalance>().to_u64(),
-            );
-        }
-
-        delta_fixed
-            .safe_div(liquidity_curr)
-            .saturating_add(sqrt_price_curr)
-    }
-
-    fn price_is_closer(sq_price1: &SqrtPrice, sq_price2: &SqrtPrice) -> bool {
-        sq_price1 <= sq_price2
-    }
-
-    fn action_on_edge_sqrt_price() -> SwapStepAction {
-        SwapStepAction::Crossing
-    }
-
-    fn add_fees(netuid: NetUid, current_liquidity: U64F64, fee: TaoBalance) {
-        if current_liquidity == 0 {
-            return;
-        }
-
-        let fee_fixed = U64F64::saturating_from_num(fee.to_u64());
-
-        FeeGlobalTao::<T>::mutate(netuid, |value| {
-            *value = value.saturating_add(fee_fixed.safe_div(current_liquidity))
-        });
+    fn price_is_closer(price1: &U64F64, price2: &U64F64) -> bool {
+        price1 <= price2
     }
 
     fn convert_deltas(netuid: NetUid, delta_in: TaoBalance) -> AlphaBalance {
-        // Skip conversion if delta_in is zero
-        if delta_in.is_zero() {
-            return AlphaBalance::ZERO;
-        }
-
-        let liquidity_curr = SqrtPrice::saturating_from_num(CurrentLiquidity::<T>::get(netuid));
-        let sqrt_price_curr = AlphaSqrtPrice::<T>::get(netuid);
-        let delta_fixed = SqrtPrice::saturating_from_num(delta_in.to_u64());
-
-        // Calculate result based on order type with proper fixed-point math
-        // Using safe math operations throughout to prevent overflows
-        let result = {
-            // (liquidity_curr * sqrt_price_curr + delta_fixed) * sqrt_price_curr;
-            let a = liquidity_curr
-                .saturating_mul(sqrt_price_curr)
-                .saturating_add(delta_fixed)
-                .saturating_mul(sqrt_price_curr);
-            // liquidity_curr / a;
-            let b = liquidity_curr.safe_div(a);
-            // b * delta_fixed;
-            b.saturating_mul(delta_fixed)
-        };
-
-        result.saturating_to_num::<u64>().into()
-    }
-
-    fn update_liquidity_at_crossing(netuid: NetUid) -> Result<(), Error<T>> {
-        let mut liquidity_curr = CurrentLiquidity::<T>::get(netuid);
-        let current_tick_index = TickIndex::current_bounded::<T>(netuid);
-
-        // Find the appropriate tick based on order type
-        let tick = {
-            // Self::find_closest_higher_active_tick(netuid, current_tick_index),
-            let upper_tick = ActiveTickIndexManager::<T>::find_closest_higher(
-                netuid,
-                current_tick_index.next().unwrap_or(TickIndex::MAX),
-            )
-            .unwrap_or(TickIndex::MAX);
-            Ticks::<T>::get(netuid, upper_tick)
-        }
-        .ok_or(Error::<T>::InsufficientLiquidity)?;
-
-        let liquidity_update_abs_u64 = tick.liquidity_net_as_u64();
-
-        // Update liquidity based on the sign of liquidity_net and the order type
-        liquidity_curr = if tick.liquidity_net >= 0 {
-            liquidity_curr.saturating_add(liquidity_update_abs_u64)
-        } else {
-            liquidity_curr.saturating_sub(liquidity_update_abs_u64)
-        };
-
-        CurrentLiquidity::<T>::set(netuid, liquidity_curr);
-
-        Ok(())
+        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
+        let tao_reserve = T::TaoReserve::reserve(netuid.into());
+        let balancer = SwapBalancer::<T>::get(netuid);
+        let e = balancer.exp_quote_base(tao_reserve.into(), delta_in.into());
+        let one = U64F64::from_num(1);
+        let alpha_reserve_fixed = U64F64::from_num(alpha_reserve);
+        AlphaBalance::from(
+            alpha_reserve_fixed
+                .saturating_mul(one.saturating_sub(e))
+                .saturating_to_num::<u64>(),
+        )
     }
 }
 
 impl<T: Config> SwapStep<T, AlphaBalance, TaoBalance>
     for BasicSwapStep<T, AlphaBalance, TaoBalance>
 {
-    fn delta_in(
-        liquidity_curr: U64F64,
-        sqrt_price_curr: SqrtPrice,
-        sqrt_price_target: SqrtPrice,
-    ) -> AlphaBalance {
-        let one = U64F64::saturating_from_num(1);
-
-        liquidity_curr
-            .saturating_mul(
-                one.safe_div(sqrt_price_target.into())
-                    .saturating_sub(one.safe_div(sqrt_price_curr)),
-            )
-            .saturating_to_num::<u64>()
-            .into()
+    fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> AlphaBalance {
+        let alpha_reserve = T::AlphaReserve::reserve(netuid);
+        let balancer = SwapBalancer::<T>::get(netuid);
+        AlphaBalance::from(balancer.calculate_base_delta_in(
+            price_curr,
+            price_target,
+            alpha_reserve.into(),
+        ))
     }
 
-    fn tick_edge(netuid: NetUid, current_tick: TickIndex) -> TickIndex {
-        let current_price: SqrtPrice = AlphaSqrtPrice::<T>::get(netuid);
-        let current_tick_price = current_tick.as_sqrt_price_bounded();
-        let is_active = ActiveTickIndexManager::<T>::tick_is_active(netuid, current_tick);
-
-        if is_active && current_price > current_tick_price {
-            return ActiveTickIndexManager::<T>::find_closest_lower(netuid, current_tick)
-                .unwrap_or(TickIndex::MIN);
-        }
-
-        ActiveTickIndexManager::<T>::find_closest_lower(
-            netuid,
-            current_tick.prev().unwrap_or(TickIndex::MIN),
-        )
-        .unwrap_or(TickIndex::MIN)
-    }
-
-    fn sqrt_price_target(
-        liquidity_curr: U64F64,
-        sqrt_price_curr: SqrtPrice,
-        delta_in: AlphaBalance,
-    ) -> SqrtPrice {
-        let delta_fixed = U64F64::saturating_from_num(delta_in);
-        let one = U64F64::saturating_from_num(1);
-
-        // No liquidity means that price should go to the limit
-        if liquidity_curr == 0 {
-            return SqrtPrice::saturating_from_num(
-                Pallet::<T>::min_price_inner::<AlphaBalance>().to_u64(),
-            );
-        }
-
-        one.safe_div(
-            delta_fixed
-                .safe_div(liquidity_curr)
-                .saturating_add(one.safe_div(sqrt_price_curr)),
+    fn price_target(netuid: NetUid, delta_in: AlphaBalance) -> U64F64 {
+        let tao_reserve = T::TaoReserve::reserve(netuid.into());
+        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
+        let balancer = SwapBalancer::<T>::get(netuid);
+        let dx = delta_in;
+        let dy = Self::convert_deltas(netuid, dx);
+        balancer.calculate_price(
+            u64::from(alpha_reserve.saturating_add(dx)),
+            u64::from(tao_reserve.saturating_sub(dy)),
         )
     }
 
-    fn price_is_closer(sq_price1: &SqrtPrice, sq_price2: &SqrtPrice) -> bool {
-        sq_price1 >= sq_price2
-    }
-
-    fn action_on_edge_sqrt_price() -> SwapStepAction {
-        SwapStepAction::Stop
-    }
-
-    fn add_fees(netuid: NetUid, current_liquidity: U64F64, fee: AlphaBalance) {
-        if current_liquidity == 0 {
-            return;
-        }
-
-        let fee_fixed = U64F64::saturating_from_num(fee.to_u64());
-
-        FeeGlobalAlpha::<T>::mutate(netuid, |value| {
-            *value = value.saturating_add(fee_fixed.safe_div(current_liquidity))
-        });
+    fn price_is_closer(price1: &U64F64, price2: &U64F64) -> bool {
+        price1 >= price2
     }
 
     fn convert_deltas(netuid: NetUid, delta_in: AlphaBalance) -> TaoBalance {
-        // Skip conversion if delta_in is zero
-        if delta_in.is_zero() {
-            return TaoBalance::ZERO;
-        }
-
-        let liquidity_curr = SqrtPrice::saturating_from_num(CurrentLiquidity::<T>::get(netuid));
-        let sqrt_price_curr = AlphaSqrtPrice::<T>::get(netuid);
-        let delta_fixed = SqrtPrice::saturating_from_num(delta_in.to_u64());
-
-        // Calculate result based on order type with proper fixed-point math
-        // Using safe math operations throughout to prevent overflows
-        let result = {
-            // liquidity_curr / (liquidity_curr / sqrt_price_curr + delta_fixed);
-            let denom = liquidity_curr
-                .safe_div(sqrt_price_curr)
-                .saturating_add(delta_fixed);
-            let a = liquidity_curr.safe_div(denom);
-            // a * sqrt_price_curr;
-            let b = a.saturating_mul(sqrt_price_curr);
-
-            // delta_fixed * b;
-            delta_fixed.saturating_mul(b)
-        };
-
-        result.saturating_to_num::<u64>().into()
-    }
-
-    fn update_liquidity_at_crossing(netuid: NetUid) -> Result<(), Error<T>> {
-        let mut liquidity_curr = CurrentLiquidity::<T>::get(netuid);
-        let current_tick_index = TickIndex::current_bounded::<T>(netuid);
-
-        // Find the appropriate tick based on order type
-        let tick = {
-            // Self::find_closest_lower_active_tick(netuid, current_tick_index)
-            let current_price = AlphaSqrtPrice::<T>::get(netuid);
-            let current_tick_price = current_tick_index.as_sqrt_price_bounded();
-            let is_active = ActiveTickIndexManager::<T>::tick_is_active(netuid, current_tick_index);
-
-            let lower_tick = if is_active && current_price > current_tick_price {
-                ActiveTickIndexManager::<T>::find_closest_lower(netuid, current_tick_index)
-                    .unwrap_or(TickIndex::MIN)
-            } else {
-                ActiveTickIndexManager::<T>::find_closest_lower(
-                    netuid,
-                    current_tick_index.prev().unwrap_or(TickIndex::MIN),
-                )
-                .unwrap_or(TickIndex::MIN)
-            };
-            Ticks::<T>::get(netuid, lower_tick)
-        }
-        .ok_or(Error::<T>::InsufficientLiquidity)?;
-
-        let liquidity_update_abs_u64 = tick.liquidity_net_as_u64();
-
-        // Update liquidity based on the sign of liquidity_net and the order type
-        liquidity_curr = if tick.liquidity_net >= 0 {
-            liquidity_curr.saturating_sub(liquidity_update_abs_u64)
-        } else {
-            liquidity_curr.saturating_add(liquidity_update_abs_u64)
-        };
-
-        CurrentLiquidity::<T>::set(netuid, liquidity_curr);
-
-        Ok(())
+        let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
+        let tao_reserve = T::TaoReserve::reserve(netuid.into());
+        let balancer = SwapBalancer::<T>::get(netuid);
+        let e = balancer.exp_base_quote(alpha_reserve.into(), delta_in.into());
+        let one = U64F64::from_num(1);
+        let tao_reserve_fixed = U64F64::from_num(u64::from(tao_reserve));
+        TaoBalance::from(
+            tao_reserve_fixed
+                .saturating_mul(one.saturating_sub(e))
+                .saturating_to_num::<u64>(),
+        )
     }
 }
 
@@ -519,49 +231,21 @@ where
     PaidOut: Token,
 {
     /// Get the input amount needed to reach the target price
-    fn delta_in(
-        liquidity_curr: U64F64,
-        sqrt_price_curr: SqrtPrice,
-        sqrt_price_target: SqrtPrice,
-    ) -> PaidIn;
+    fn delta_in(netuid: NetUid, price_curr: U64F64, price_target: U64F64) -> PaidIn;
 
-    /// Get the tick at the current tick edge.
-    ///
-    /// If anything is wrong with tick math and it returns Err, we just abort the deal, i.e. return
-    /// the edge that is impossible to execute
-    fn tick_edge(netuid: NetUid, current_tick: TickIndex) -> TickIndex;
+    /// Get the target price based on the input amount
+    fn price_target(netuid: NetUid, delta_in: PaidIn) -> U64F64;
 
-    /// Get the target square root price based on the input amount
-    ///
-    /// This is the price that would be reached if
-    ///    - There are no liquidity positions other than protocol liquidity
-    ///    - Full delta_in amount is executed
-    fn sqrt_price_target(
-        liquidity_curr: U64F64,
-        sqrt_price_curr: SqrtPrice,
-        delta_in: PaidIn,
-    ) -> SqrtPrice;
-
-    /// Returns True if sq_price1 is closer to the current price than sq_price2
-    /// in terms of order direction.
-    ///    For buying:  sq_price1 <= sq_price2
-    ///    For selling: sq_price1 >= sq_price2
-    fn price_is_closer(sq_price1: &SqrtPrice, sq_price2: &SqrtPrice) -> bool;
-
-    /// Get swap step action on the edge sqrt price.
-    fn action_on_edge_sqrt_price() -> SwapStepAction;
-
-    /// Add fees to the global fee counters
-    fn add_fees(netuid: NetUid, current_liquidity: U64F64, fee: PaidIn);
+    /// Returns True if price1 is closer to the current price than price2
+    ///    For buying:  price1 <= price2
+    ///    For selling: price1 >= price2
+    fn price_is_closer(price1: &U64F64, price2: &U64F64) -> bool;
 
     /// Convert input amount (delta_in) to output amount (delta_out)
     ///
-    /// This is the core method of uniswap V3 that tells how much output token is given for an
+    /// This is the core method of the swap that tells how much output token is given for an
     /// amount of input token within one price tick.
     fn convert_deltas(netuid: NetUid, delta_in: PaidIn) -> PaidOut;
-
-    /// Update liquidity when crossing a tick
-    fn update_liquidity_at_crossing(netuid: NetUid) -> Result<(), Error<T>>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -570,15 +254,8 @@ where
     PaidIn: Token,
     PaidOut: Token,
 {
-    pub(crate) amount_to_take: PaidIn,
     pub(crate) fee_paid: PaidIn,
     pub(crate) delta_in: PaidIn,
     pub(crate) delta_out: PaidOut,
     pub(crate) fee_to_block_author: PaidIn,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SwapStepAction {
-    Crossing,
-    Stop,
 }

@@ -1,0 +1,6 @@
+{
+  "_comment": "Auto-maintained by .github/ai-review/index_gittensor.py via the ai-review-index-gittensor workflow. Maps GitHub login -> count and list of bountied issues that login closed. Do not edit by hand; add nucleus-known accounts to gittensor-accounts.txt instead.",
+  "_last_indexed_iso": null,
+  "_completed_issues_seen": 0,
+  "accounts": {}
+}

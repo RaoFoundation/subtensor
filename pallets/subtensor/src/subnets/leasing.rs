@@ -219,7 +219,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BeneficiaryDoesNotOwnHotkey
         );
         SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
-        Self::set_subnet_owner_hotkey(lease.netuid, &hotkey);
+        Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
 
         // Stop tracking the lease coldkey and hotkey
         let _ = frame_system::Pallet::<T>::dec_providers(&lease.coldkey).defensive();

@@ -85,14 +85,11 @@ impl<T: Config> Pallet<T> {
         let coldkey = Owner::<T>::get(hotkey.clone()).clone();
 
         let active = Self::get_active_for_uid(netuid, uid);
-        let rank = Self::get_rank_for_uid(netuid, uid);
         let emission = Self::get_emission_for_uid(netuid, uid);
         let incentive = Self::get_incentive_for_uid(netuid.into(), uid);
         let consensus = Self::get_consensus_for_uid(netuid, uid);
-        let trust = Self::get_trust_for_uid(netuid, uid);
         let validator_trust = Self::get_validator_trust_for_uid(netuid, uid);
         let dividends = Self::get_dividends_for_uid(netuid, uid);
-        let pruning_score = Self::get_pruning_score_for_uid(netuid, uid);
         let last_update = Self::get_last_update_for_uid(NetUidStorageIndex::from(netuid), uid);
         let validator_permit = Self::get_validator_permit_for_uid(netuid, uid);
 
@@ -130,18 +127,18 @@ impl<T: Config> Pallet<T> {
             axon_info,
             prometheus_info,
             stake,
-            rank: rank.into(),
+            rank: 0.into(), // Deprecated: no longer computed
             emission: emission.into(),
             incentive: incentive.into(),
             consensus: consensus.into(),
-            trust: trust.into(),
+            trust: 0.into(), // Deprecated: no longer computed
             validator_trust: validator_trust.into(),
             dividends: dividends.into(),
             last_update: last_update.into(),
             validator_permit,
             weights,
             bonds,
-            pruning_score: pruning_score.into(),
+            pruning_score: u16::MAX.into(), // Deprecated: no longer computed
         };
 
         Some(neuron)
@@ -171,14 +168,11 @@ impl<T: Config> Pallet<T> {
         let coldkey = Owner::<T>::get(hotkey.clone()).clone();
 
         let active = Self::get_active_for_uid(netuid, uid);
-        let rank = Self::get_rank_for_uid(netuid, uid);
         let emission = Self::get_emission_for_uid(netuid, uid);
         let incentive = Self::get_incentive_for_uid(netuid.into(), uid);
         let consensus = Self::get_consensus_for_uid(netuid, uid);
-        let trust = Self::get_trust_for_uid(netuid, uid);
         let validator_trust = Self::get_validator_trust_for_uid(netuid, uid);
         let dividends = Self::get_dividends_for_uid(netuid, uid);
-        let pruning_score = Self::get_pruning_score_for_uid(netuid, uid);
         let last_update = Self::get_last_update_for_uid(NetUidStorageIndex::from(netuid), uid);
         let validator_permit = Self::get_validator_permit_for_uid(netuid, uid);
 
@@ -196,16 +190,16 @@ impl<T: Config> Pallet<T> {
             axon_info,
             prometheus_info,
             stake,
-            rank: rank.into(),
+            rank: 0.into(), // Deprecated: no longer computed
             emission: emission.into(),
             incentive: incentive.into(),
             consensus: consensus.into(),
-            trust: trust.into(),
+            trust: 0.into(), // Deprecated: no longer computed
             validator_trust: validator_trust.into(),
             dividends: dividends.into(),
             last_update: last_update.into(),
             validator_permit,
-            pruning_score: pruning_score.into(),
+            pruning_score: u16::MAX.into(), // Deprecated: no longer computed
         };
 
         Some(neuron)

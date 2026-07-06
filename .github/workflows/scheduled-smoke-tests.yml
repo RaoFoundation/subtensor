@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   run-smoke-tests:
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
 
     strategy:
@@ -20,7 +20,9 @@ jobs:
       matrix:
         include:
           - test: smoke_mainnet
+            runner: [self-hosted, fireactions-tryruntime-finney]
           - test: smoke_testnet
+            runner: [self-hosted, fireactions-tryruntime]
 
     name: "smoke-e2e-${{ matrix.test }}"
 

@@ -268,9 +268,10 @@ where
     #[precompile::public("getProxies(bytes32)")]
     #[precompile::view]
     pub fn get_proxies(
-        _handle: &mut impl PrecompileHandle,
+        handle: &mut impl PrecompileHandle,
         account_id: H256,
     ) -> EvmResult<Vec<(H256, U256, U256)>> {
+        handle.record_db_reads::<R>(1)?;
         let account_id = R::AccountId::from(account_id.0.into());
 
         let proxies = pallet_proxy::pallet::Pallet::<R>::proxies(account_id);

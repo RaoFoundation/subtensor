@@ -264,7 +264,7 @@ fn test_terminate_lease_works() {
 
         // Create a hotkey for the beneficiary
         let hotkey = U256::from(3);
-        SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
         assert_ok!(SubtensorModule::terminate_lease(
@@ -356,7 +356,7 @@ fn test_terminate_lease_fails_if_origin_is_not_beneficiary() {
 
         // Create a hotkey for the beneficiary
         let hotkey = U256::from(3);
-        SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
         assert_err!(
@@ -389,7 +389,7 @@ fn test_terminate_lease_fails_if_lease_has_no_end_block() {
 
         // Create a hotkey for the beneficiary
         let hotkey = U256::from(3);
-        SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
         assert_err!(
@@ -427,7 +427,7 @@ fn test_terminate_lease_fails_if_lease_has_not_ended() {
 
         // Create a hotkey for the beneficiary
         let hotkey = U256::from(3);
-        SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
         // Terminate the lease
         assert_err!(
@@ -575,7 +575,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
                 .to_num::<u64>();
         assert_eq!(contributor1_alpha_delta, expected_contributor1_alpha.into());
         assert_eq!(
-            System::events()[2].event,
+            System::events()[3].event,
             RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: contributions[0].0.into(),
@@ -590,7 +590,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
                 .to_num::<u64>();
         assert_eq!(contributor2_alpha_delta, expected_contributor2_alpha.into());
         assert_eq!(
-            System::events()[5].event,
+            System::events()[6].event,
             RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: contributions[1].0.into(),
@@ -603,7 +603,7 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
             - (expected_contributor1_alpha + expected_contributor2_alpha);
         assert_eq!(beneficiary_alpha_delta, expected_beneficiary_alpha.into());
         assert_eq!(
-            System::events()[8].event,
+            System::events()[9].event,
             RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: beneficiary.into(),
@@ -1074,7 +1074,7 @@ fn setup_crowdloan(
         pallet_crowdloan::Contributions::<Test>::insert(id, contributor, amount);
     }
 
-    SubtensorModule::add_balance_to_coldkey_account(&funds_account, cap);
+    add_balance_to_coldkey_account(&funds_account, cap);
 
     // Mark the crowdloan as finalizing
     pallet_crowdloan::CurrentCrowdloanId::<Test>::set(Some(0));
@@ -1099,7 +1099,7 @@ fn setup_leased_network(
     SubtokenEnabled::<Test>::insert(netuid, true);
 
     if let Some(tao_to_stake) = tao_to_stake {
-        SubtensorModule::add_balance_to_coldkey_account(&lease.coldkey, tao_to_stake.into());
+        add_balance_to_coldkey_account(&lease.coldkey, tao_to_stake.into());
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(lease.coldkey),
             lease.hotkey,

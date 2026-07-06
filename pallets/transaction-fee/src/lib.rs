@@ -3,6 +3,7 @@
 // FRAME
 use frame_support::{
     pallet_prelude::*,
+    storage::{TransactionOutcome, with_transaction},
     traits::{
         Imbalance, IsSubType, OnUnbalanced,
         fungible::{
@@ -13,11 +14,15 @@ use frame_support::{
     },
     weights::{WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial},
 };
+use pallet_evm::{
+    AddressMapping, BalanceConverter, Config as EvmConfig, EvmBalance, OnChargeEVMTransaction,
+};
 
 // Runtime
 use sp_runtime::{
-    Perbill, Saturating,
+    DispatchError, Perbill, Saturating,
     traits::{DispatchInfoOf, PostDispatchInfoOf},
+    transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 
 // Pallets
@@ -29,6 +34,7 @@ use subtensor_swap_interface::SwapHandler;
 // Misc
 use core::marker::PhantomData;
 use smallvec::smallvec;
+use sp_core::H160;
 use sp_runtime::traits::SaturatedConversion;
 use sp_std::vec::Vec;
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance};
@@ -67,7 +73,7 @@ pub trait AlphaFeeHandler<T: frame_system::Config> {
         coldkey: &AccountIdOf<T>,
         alpha_vec: &[(AccountIdOf<T>, NetUid)],
         tao_amount: TaoBalance,
-    ) -> (AlphaBalance, TaoBalance);
+    ) -> Result<(AlphaBalance, TaoBalance, NetUid), TransactionValidityError>;
     fn get_all_netuids_for_coldkey_and_hotkey(
         coldkey: &AccountIdOf<T>,
         hotkey: &AccountIdOf<T>,
@@ -111,6 +117,7 @@ where
 /// Handle Alpha fees
 impl<T> AlphaFeeHandler<T> for TransactionFeeHandler<T>
 where
+    T: AuthorshipInfo<AccountIdOf<T>>,
     T: frame_system::Config,
     T: pallet_subtensor::Config,
     T: pallet_subtensor_swap::Config,
@@ -154,9 +161,9 @@ where
         coldkey: &AccountIdOf<T>,
         alpha_vec: &[(AccountIdOf<T>, NetUid)],
         tao_amount: TaoBalance,
-    ) -> (AlphaBalance, TaoBalance) {
+    ) -> Result<(AlphaBalance, TaoBalance, NetUid), TransactionValidityError> {
         if alpha_vec.len() != 1 {
-            return (0.into(), 0.into());
+            return Ok((0.into(), 0.into(), NetUid::ROOT));
         }
 
         if let Some((hotkey, netuid)) = alpha_vec.first() {
@@ -174,22 +181,34 @@ where
             let alpha_fee = alpha_equivalent.min(alpha_balance);
 
             // Sell alpha_fee and burn received tao (ignore unstake_from_subnet return).
-            let swap_result = pallet_subtensor::Pallet::<T>::unstake_from_subnet(
-                hotkey,
-                coldkey,
-                *netuid,
-                alpha_fee,
-                0.into(),
-                true,
-            );
-
-            if let Ok(tao_amount) = swap_result {
-                (alpha_fee, tao_amount)
+            if let Some(author) = T::author() {
+                with_transaction(
+                    || -> TransactionOutcome<Result<TaoBalance, DispatchError>> {
+                        match pallet_subtensor::Pallet::<T>::unstake_from_subnet(
+                            hotkey,
+                            coldkey,
+                            &author,
+                            *netuid,
+                            alpha_fee,
+                            0.into(),
+                            true,
+                        ) {
+                            Ok(tao_amount) => TransactionOutcome::Commit(Ok(tao_amount)),
+                            Err(err) => TransactionOutcome::Rollback(Err(err)),
+                        }
+                    },
+                )
+                .map(|tao_amount| (alpha_fee, tao_amount, *netuid))
+                .map_err(|err| {
+                    log::warn!("Error withdrawing transaction fee in alpha: {err:?}");
+                    InvalidTransaction::Payment.into()
+                })
             } else {
-                (0.into(), 0.into())
+                // Fallback: no author => no fees (do nothing)
+                Ok((0.into(), 0.into(), NetUid::ROOT))
             }
         } else {
-            (0.into(), 0.into())
+            Ok((0.into(), 0.into(), NetUid::ROOT))
         }
     }
 
@@ -215,13 +234,15 @@ pub enum WithdrawnFee<T: frame_system::Config, F: Balanced<AccountIdOf<T>>> {
     // Contains withdrawn TAO amount
     Tao(Credit<AccountIdOf<T>, F>),
     // Contains withdrawn Alpha amount and resulting swapped TAO
-    Alpha((AlphaBalance, TaoBalance)),
+    Alpha((AlphaBalance, TaoBalance, NetUid)),
 }
 
 /// Custom OnChargeTransaction implementation based on standard FungibleAdapter from transaction_payment
 /// FRAME pallet
 ///
 pub struct SubtensorTxFeeHandler<F, OU>(PhantomData<(F, OU)>);
+
+pub struct SubtensorEvmFeeHandler<F, OU>(PhantomData<(F, OU)>);
 
 /// This implementation contains the list of calls that require paying transaction
 /// fees in Alpha
@@ -336,9 +357,9 @@ where
                 let alpha_vec = Self::fees_in_alpha::<T>(who, call);
                 if !alpha_vec.is_empty() {
                     let fee_u64: u64 = fee.saturated_into::<u64>();
-                    let (alpha_fee, tao_amount) =
-                        OU::withdraw_in_alpha(who, &alpha_vec, fee_u64.into());
-                    return Ok(Some(WithdrawnFee::Alpha((alpha_fee, tao_amount))));
+                    let (alpha_fee, tao_amount, netuid) =
+                        OU::withdraw_in_alpha(who, &alpha_vec, fee_u64.into())?;
+                    return Ok(Some(WithdrawnFee::Alpha((alpha_fee, tao_amount, netuid))));
                 }
                 Err(InvalidTransaction::Payment.into())
             }
@@ -405,17 +426,12 @@ where
                     let (tip, fee) = adjusted_paid.split(tip);
                     OU::on_unbalanceds(Some(fee).into_iter().chain(Some(tip)));
                 }
-                WithdrawnFee::Alpha((alpha_fee, tao_amount)) => {
-                    if let Some(author) = T::author() {
-                        // Pay block author
-                        let _ = F::deposit(&author, tao_amount.into(), Precision::BestEffort)
-                            .unwrap_or_else(|_| Debt::<T::AccountId, F>::zero());
-                    } else {
-                        // Fallback: no author => do nothing
-                    }
+                WithdrawnFee::Alpha((alpha_fee, tao_amount, netuid)) => {
+                    // Block author already received the fee in withdraw_in_alpha, nothing to do here.
                     frame_system::Pallet::<T>::deposit_event(
                         pallet_subtensor::Event::<T>::TransactionFeePaidWithAlpha {
                             who: who.clone(),
+                            netuid,
                             alpha_fee,
                             tao_amount,
                         },
@@ -436,5 +452,80 @@ where
     #[cfg(feature = "runtime-benchmarks")]
     fn minimum_balance() -> Self::Balance {
         F::minimum_balance()
+    }
+}
+
+impl<T, F, OU> OnChargeEVMTransaction<T> for SubtensorEvmFeeHandler<F, OU>
+where
+    T: EvmConfig + pallet_subtensor::Config,
+    F: Balanced<T::AccountId>,
+    OU: OnUnbalanced<Credit<T::AccountId, F>>,
+    T::AddressMapping: AddressMapping<T::AccountId>,
+    <F as Inspect<T::AccountId>>::Balance: From<TaoBalance> + Into<TaoBalance>,
+{
+    type LiquidityInfo = Option<Credit<T::AccountId, F>>;
+
+    fn withdraw_fee(
+        who: &H160,
+        fee: EvmBalance,
+    ) -> Result<Self::LiquidityInfo, pallet_evm::Error<T>> {
+        if fee.into_u256().is_zero() {
+            return Ok(None);
+        }
+
+        let account_id = <T::AddressMapping as AddressMapping<T::AccountId>>::into_account_id(*who);
+        let fee_sub = T::BalanceConverter::into_substrate_balance(fee)
+            .ok_or(pallet_evm::Error::<T>::FeeOverflow)?;
+
+        let imbalance = F::withdraw(
+            &account_id,
+            TaoBalance::from(fee_sub.into_u64_saturating()).into(),
+            Precision::Exact,
+            frame_support::traits::tokens::Preservation::Preserve,
+            frame_support::traits::tokens::Fortitude::Polite,
+        )
+        .map_err(|_| pallet_evm::Error::<T>::BalanceLow)?;
+
+        Ok(Some(imbalance))
+    }
+
+    fn correct_and_deposit_fee(
+        who: &H160,
+        corrected_fee: EvmBalance,
+        base_fee: EvmBalance,
+        already_withdrawn: Self::LiquidityInfo,
+    ) -> Self::LiquidityInfo {
+        if let Some(paid) = already_withdrawn {
+            let account_id =
+                <T::AddressMapping as AddressMapping<T::AccountId>>::into_account_id(*who);
+            let corrected_fee_sub = T::BalanceConverter::into_substrate_balance(corrected_fee)
+                .unwrap_or_else(|| 0u64.into());
+            let refund_amount = paid
+                .peek()
+                .saturating_sub(TaoBalance::from(corrected_fee_sub.into_u64_saturating()).into());
+            let refund_imbalance = F::deposit(&account_id, refund_amount, Precision::BestEffort)
+                .unwrap_or_else(|_| Debt::<T::AccountId, F>::zero());
+            let adjusted_paid = paid
+                .offset(refund_imbalance)
+                .same()
+                .unwrap_or_else(|_| Credit::<T::AccountId, F>::zero());
+            let base_fee_sub = T::BalanceConverter::into_substrate_balance(base_fee)
+                .unwrap_or_else(|| 0u64.into());
+            let (base_fee_credit, tip) =
+                adjusted_paid.split(TaoBalance::from(base_fee_sub.into_u64_saturating()).into());
+            OU::on_unbalanced(base_fee_credit);
+            return Some(tip);
+        }
+
+        None
+    }
+
+    fn pay_priority_fee(tip: Self::LiquidityInfo) {
+        if let Some(tip) = tip {
+            let author = <T::AddressMapping as AddressMapping<T::AccountId>>::into_account_id(
+                pallet_evm::Pallet::<T>::find_author(),
+            );
+            let _ = F::resolve(&author, tip);
+        }
     }
 }

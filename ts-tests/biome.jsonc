@@ -3,7 +3,7 @@
   "vcs": {
     "enabled": false,
     "clientKind": "git",
-    "useIgnoreFile": false,
+    "useIgnoreFile": false
   },
   "files": {
     "ignoreUnknown": false,
@@ -16,17 +16,17 @@
       "**/.yarn/**",
       "test/tsconfig.json",
       "tmp",
-      "**/tmp/",
+      "**/tmp/"
     ]
   },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
     "lineWidth": 120,
-    "indentWidth": 4,
+    "indentWidth": 4
   },
   "organizeImports": {
-    "enabled": true,
+    "enabled": true
   },
   "linter": {
     "enabled": true,
@@ -34,27 +34,27 @@
       "recommended": true,
       "suspicious": {
         "noExplicitAny": "off",
-        "noShadowRestrictedNames": "off",
+        "noShadowRestrictedNames": "off"
       },
       "correctness": {
-        "noUnusedImports": "error",
-      },
+        "noUnusedImports": "error"
+      }
     },
-    "ignore": [],
+    "ignore": []
   },
   "javascript": {
     "formatter": {
       "quoteStyle": "double",
       "semicolons": "always",
-      "trailingCommas": "es5",
-    },
+      "trailingCommas": "es5"
+    }
   },
   "json": {
     "formatter": {
-      "enabled": false,
+      "enabled": false
     },
     "linter": {
-      "enabled": false,
-    },
-  },
+      "enabled": false
+    }
+  }
 }

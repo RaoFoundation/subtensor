@@ -44,7 +44,7 @@ jobs:
 
   # Build the node binary in both variants and share as artifacts.
   build:
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-heavy]
     needs: [typescript-formatting]
     timeout-minutes: 60
     strategy:
@@ -90,7 +90,7 @@ jobs:
 
   run-e2e-tests:
     needs: [build]
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-heavy]
     timeout-minutes: 30
 
     strategy:
@@ -104,6 +104,10 @@ jobs:
           - test: zombienet_staking
             binary: fast
           - test: zombienet_coldkey_swap
+            binary: fast
+          - test: zombienet_subnets
+            binary: fast
+          - test: zombienet_evm
             binary: fast
 
     name: "typescript-e2e-${{ matrix.test }}"
@@ -135,7 +139,13 @@ jobs:
         working-directory: ts-tests
         run: pnpm install --frozen-lockfile
 
+      - name: Install lsof (dev foundation RPC port discovery)
+        if: matrix.test == 'dev'
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+
       - name: Run tests
-        run: | 
+        run: |
           cd ts-tests
           pnpm moonwall test ${{ matrix.test }}

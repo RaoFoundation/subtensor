@@ -1,11 +1,11 @@
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 use super::mock::*;
 use crate::*;
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, vec::Vec};
 use approx::assert_abs_diff_eq;
 use sp_core::U256;
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
-use subtensor_runtime_common::NetUid;
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
 fn u64f64(x: f64) -> U64F64 {
     U64F64::from_num(x)

@@ -1,9 +1,9 @@
-import { waitForTransactionWithRetry } from "./transactions.js";
-import { log } from "./logger.js";
 import type { KeyringPair } from "@moonwall/util";
-import { Keyring } from "@polkadot/keyring";
 import type { subtensor } from "@polkadot-api/descriptors";
+import { Keyring } from "@polkadot/keyring";
 import type { TypedApi } from "polkadot-api";
+import { log } from "./logger.js";
+import { waitForTransactionWithRetry } from "./transactions.js";
 
 export async function addNewSubnetwork(
     api: TypedApi<typeof subtensor>,
@@ -51,8 +51,14 @@ export async function startCall(api: TypedApi<typeof subtensor>, netuid: number,
     const registerBlock = Number(await api.query.SubtensorModule.NetworkRegisteredAt.getValue(netuid));
     let currentBlock = await api.query.System.Number.getValue();
     const duration = Number(await api.constants.SubtensorModule.InitialStartCallDelay);
+    const deadline = Date.now() + 120_000;
 
     while (currentBlock - registerBlock <= duration) {
+        if (Date.now() > deadline) {
+            throw new Error(
+                `startCall timed out for netuid ${netuid} (registerBlock=${registerBlock}, currentBlock=${currentBlock}, duration=${duration})`
+            );
+        }
         await new Promise((resolve) => setTimeout(resolve, 2000));
         currentBlock = await api.query.System.Number.getValue();
     }
@@ -63,4 +69,13 @@ export async function startCall(api: TypedApi<typeof subtensor>, netuid: number,
     await waitForTransactionWithRetry(api, tx, coldkey, "start_call");
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+
+export async function rootRegister(
+    api: TypedApi<typeof subtensor>,
+    coldkey: KeyringPair,
+    hotkeyAddress: string
+): Promise<void> {
+    const tx = api.tx.SubtensorModule.root_register({ hotkey: hotkeyAddress });
+    await waitForTransactionWithRetry(api, tx, coldkey, "root_register");
 }

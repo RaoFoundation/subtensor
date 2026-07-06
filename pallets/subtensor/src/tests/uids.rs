@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::mock::*;
 use crate::*;
@@ -40,10 +40,7 @@ fn test_replace_neuron() {
         assert_ok!(neuron_uid);
         let neuron_uid = neuron_uid.unwrap();
 
-        // Set non-default values.
-        Trust::<Test>::mutate(netuid, |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, 5u16)
-        });
+        // set non-default values
         Emission::<Test>::mutate(netuid, |v| {
             SubtensorModule::set_element_at(v, neuron_uid as usize, 5.into())
         });
@@ -190,6 +187,87 @@ fn test_bonds_cleared_on_replace() {
             vec![]
         );
         assert_eq!(AssociatedEvmAddress::<Test>::get(netuid, neuron_uid), None);
+    });
+}
+
+#[test]
+fn test_replace_neuron_resets_last_update() {
+    new_test_ext(1).execute_with(|| {
+        let registration_block: u64 = 0;
+        let replacement_block: u64 = 123;
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 13;
+        let hotkey_account_id = U256::from(1);
+        let coldkey_account_id = U256::from(1234);
+        let new_hotkey_account_id = U256::from(2);
+
+        System::set_block_number(registration_block);
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, hotkey_account_id, coldkey_account_id, 0);
+
+        let neuron_uid =
+            SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey_account_id).unwrap();
+        let netuid_index = NetUidStorageIndex::from(netuid);
+
+        LastUpdate::<Test>::insert(netuid_index, vec![7]);
+
+        SubtensorModule::replace_neuron(
+            netuid,
+            neuron_uid,
+            &new_hotkey_account_id,
+            replacement_block,
+        );
+
+        assert_eq!(
+            LastUpdate::<Test>::get(netuid_index)[neuron_uid as usize],
+            replacement_block
+        );
+    });
+}
+
+#[test]
+fn test_replace_neuron_clears_validator_trust_and_permit() {
+    new_test_ext(1).execute_with(|| {
+        let registration_block: u64 = 0;
+        let replacement_block: u64 = 123;
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 13;
+        let hotkey_account_id = U256::from(1);
+        let coldkey_account_id = U256::from(1234);
+        let new_hotkey_account_id = U256::from(2);
+
+        System::set_block_number(registration_block);
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, hotkey_account_id, coldkey_account_id, 0);
+
+        let neuron_uid =
+            SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey_account_id).unwrap();
+        let idx = neuron_uid as usize;
+
+        // Simulate the previous occupant having earned a validator_permit and trust score.
+        ValidatorTrust::<Test>::mutate(netuid, |v| {
+            if v.len() <= idx {
+                v.resize(idx + 1, 0);
+            }
+            v[idx] = 42;
+        });
+        ValidatorPermit::<Test>::mutate(netuid, |v| {
+            if v.len() <= idx {
+                v.resize(idx + 1, false);
+            }
+            v[idx] = true;
+        });
+
+        SubtensorModule::replace_neuron(
+            netuid,
+            neuron_uid,
+            &new_hotkey_account_id,
+            replacement_block,
+        );
+
+        // The replaced neuron must not inherit the previous occupant's validator state.
+        assert_eq!(ValidatorTrust::<Test>::get(netuid)[idx], 0);
+        assert!(!ValidatorPermit::<Test>::get(netuid)[idx]);
     });
 }
 

@@ -14,7 +14,7 @@ jobs:
   check-devnet:
     name: check devnet
     if: github.base_ref != 'main'
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-tryruntime]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -29,23 +29,19 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: "try-runtime"
-
       - name: Run Try Runtime Checks
-        uses: "paritytech/try-runtime-gha@v0.1.0"
+        uses: ./.github/actions/try-runtime
         with:
           runtime-package: "node-subtensor-runtime"
           node-uri: "wss://dev.chain.opentensor.ai:443"
           checks: "all"
+          blocktime: "12000"
           extra-args: "--disable-spec-version-check --no-weight-warnings"
 
   check-testnet:
     name: check testnet
     if: github.base_ref != 'main'
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-tryruntime]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -60,23 +56,19 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: "try-runtime"
-
       - name: Run Try Runtime Checks
-        uses: "paritytech/try-runtime-gha@v0.1.0"
+        uses: ./.github/actions/try-runtime
         with:
           runtime-package: "node-subtensor-runtime"
           node-uri: "wss://archive.dev.opentensor.ai:8443"
           checks: "all"
+          blocktime: "12000"
           extra-args: "--disable-spec-version-check --no-weight-warnings"
 
   check-finney:
     name: check finney
     # if: github.base_ref == 'testnet' || github.base_ref == 'devnet' || github.base_ref == 'main'
-    runs-on: [self-hosted, type-ccx33]
+    runs-on: [self-hosted, fireactions-tryruntime-finney]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -91,16 +83,12 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: try-runtime
-          cache-on-failure: true
-
       - name: Run Try Runtime Checks
-        uses: "paritytech/try-runtime-gha@v0.1.0"
+        uses: ./.github/actions/try-runtime
         with:
           runtime-package: "node-subtensor-runtime"
           node-uri: "wss://archive.dev.opentensor.ai:443"
           checks: "all"
+          blocktime: "12000"
           extra-args: "--disable-spec-version-check --no-weight-warnings"
+          cache-on-failure: "true"

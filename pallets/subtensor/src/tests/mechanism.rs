@@ -951,7 +951,7 @@ fn test_set_mechanism_weights_happy_path_sets_row_under_subid() {
         // Make caller a permitted validator with stake
         SubtensorModule::set_stake_threshold(0);
         SubtensorModule::set_validator_permit_for_uid(netuid, uid1, true);
-        SubtensorModule::add_balance_to_coldkey_account(&ck1, 1.into());
+        add_balance_to_coldkey_account(&ck1, 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hk1,
             &ck1,
@@ -1008,7 +1008,7 @@ fn test_set_mechanism_weights_above_mechanism_count_fails() {
         // Make caller a permitted validator with stake
         SubtensorModule::set_stake_threshold(0);
         SubtensorModule::set_validator_permit_for_uid(netuid, uid1, true);
-        SubtensorModule::add_balance_to_coldkey_account(&ck1, 1.into());
+        add_balance_to_coldkey_account(&ck1, 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hk1,
             &ck1,
@@ -1066,7 +1066,7 @@ fn test_commit_reveal_mechanism_weights_ok() {
         SubtensorModule::set_weights_set_rate_limit(netuid, 5);
         SubtensorModule::set_validator_permit_for_uid(netuid, uid1, true);
         SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
-        SubtensorModule::add_balance_to_coldkey_account(&ck1, 1.into());
+        add_balance_to_coldkey_account(&ck1, 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hk1,
             &ck1,
@@ -1150,7 +1150,7 @@ fn test_commit_reveal_above_mechanism_count_fails() {
         SubtensorModule::set_weights_set_rate_limit(netuid, 5);
         SubtensorModule::set_validator_permit_for_uid(netuid, uid1, true);
         SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
-        SubtensorModule::add_balance_to_coldkey_account(&ck1, 1.into());
+        add_balance_to_coldkey_account(&ck1, 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hk1,
             &ck1,
@@ -1237,8 +1237,8 @@ fn test_reveal_crv3_commits_sub_success() {
 
         SubtensorModule::set_validator_permit_for_uid(netuid, uid1, true);
         SubtensorModule::set_validator_permit_for_uid(netuid, uid2, true);
-        SubtensorModule::add_balance_to_coldkey_account(&U256::from(3), 1.into());
-        SubtensorModule::add_balance_to_coldkey_account(&U256::from(4), 1.into());
+        add_balance_to_coldkey_account(&U256::from(3), 1.into());
+        add_balance_to_coldkey_account(&U256::from(4), 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(&hotkey1, &U256::from(3), netuid, 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(&hotkey2, &U256::from(4), netuid, 1.into());
 
@@ -1342,7 +1342,7 @@ fn test_crv3_above_mechanism_count_fails() {
         let uid2 = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey2).expect("uid2");
 
         SubtensorModule::set_validator_permit_for_uid(netuid, uid1, true);
-        SubtensorModule::add_balance_to_coldkey_account(&U256::from(3), 1.into());
+        add_balance_to_coldkey_account(&U256::from(3), 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(&hotkey1, &U256::from(3), netuid, 1.into());
 
         let version_key = SubtensorModule::get_weights_version_key(netuid);
@@ -1412,7 +1412,7 @@ fn test_do_commit_crv3_mechanism_weights_committing_too_fast() {
         // make validator with stake
         SubtensorModule::set_stake_threshold(0);
         SubtensorModule::set_validator_permit_for_uid(netuid, uid, true);
-        SubtensorModule::add_balance_to_coldkey_account(&U256::from(2), 1.into());
+        add_balance_to_coldkey_account(&U256::from(2), 1.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &U256::from(2),
@@ -1523,9 +1523,9 @@ fn epoch_mechanism_emergency_mode_distributes_by_stake() {
         // (leave Weights/Bonds empty for all rows on this sub-subnet)
 
         // stake proportions: uid0:uid1:uid2 = 10:30:60
-        SubtensorModule::add_balance_to_coldkey_account(&ck0, 10.into());
-        SubtensorModule::add_balance_to_coldkey_account(&ck1, 30.into());
-        SubtensorModule::add_balance_to_coldkey_account(&ck2, 60.into());
+        add_balance_to_coldkey_account(&ck0, 10.into());
+        add_balance_to_coldkey_account(&ck1, 30.into());
+        add_balance_to_coldkey_account(&ck2, 60.into());
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hk0,
             &ck0,

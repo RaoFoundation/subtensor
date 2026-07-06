@@ -2,7 +2,7 @@ import { beforeAll, expect } from "vitest";
 import { describeSuite } from "@moonwall/cli";
 import { generateKeyringPair, tao } from "../../../../utils";
 import type { ApiPromise } from "@polkadot/api";
-import { devForceSetBalance, devSetWeightsTx, devTryAssociateHotkey } from "../../../../utils/dev-helpers.ts";
+import { devAssociateHotKey, devForceSetBalance, devSetWeightsTx } from "../../../../utils/dev-helpers.ts";
 
 describeSuite({
     id: "00_transaction_payment_wrapper_dev",
@@ -32,7 +32,7 @@ describeSuite({
                 // Hotkey should "exist", even if coldkey is paying for tx
                 await devForceSetBalance(api, context, hotkey.address, existentialDeposit);
                 await devForceSetBalance(api, context, coldkey.address, initialBalance);
-                await devTryAssociateHotkey(api, context, coldkey, hotkey.address);
+                await devAssociateHotKey(api, context, coldkey, hotkey.address);
 
                 const coldkeyBalanceBefore = (await api.query.system.account(coldkey.address)).data.free.toBigInt();
 

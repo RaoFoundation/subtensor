@@ -188,5 +188,78 @@ mod benches {
         }
     }
 
+    /// Worst-case `store_encrypted`: queue is nearly full (count = limit - 1),
+    /// max-size encrypted call data (8192 bytes).
+    #[benchmark(extra)]
+    fn store_encrypted() {
+        let who: T::AccountId = whitelisted_caller();
+
+        // Fill queue to just under the limit for worst-case read path.
+        let limit = MaxPendingExtrinsicsLimit::<T>::get();
+        let dummy = PendingExtrinsic::<T> {
+            who: who.clone(),
+            encrypted_call: BoundedVec::truncate_from(vec![0x00; 1]),
+            submitted_at: 0u32.into(),
+        };
+        for i in 0..limit.saturating_sub(1) {
+            PendingExtrinsics::<T>::insert(i, dummy.clone());
+        }
+        NextPendingExtrinsicIndex::<T>::put(limit.saturating_sub(1));
+
+        let encrypted_call: BoundedVec<u8, MaxEncryptedCallSize> =
+            BoundedVec::truncate_from(vec![0xAB; 8192]);
+
+        #[extrinsic_call]
+        store_encrypted(RawOrigin::Signed(who.clone()), encrypted_call);
+
+        assert_eq!(PendingExtrinsics::<T>::count(), limit);
+    }
+
+    /// Benchmark `set_max_pending_extrinsics_number`: root origin, single storage write.
+    #[benchmark]
+    fn set_max_pending_extrinsics_number() {
+        let value: u32 = 500;
+
+        #[extrinsic_call]
+        set_max_pending_extrinsics_number(RawOrigin::Root, value);
+
+        assert_eq!(MaxPendingExtrinsicsLimit::<T>::get(), value);
+    }
+
+    /// Benchmark `set_on_initialize_weight`: root origin, single storage write.
+    /// Uses the maximum allowed value for worst-case.
+    #[benchmark]
+    fn set_on_initialize_weight() {
+        let value: u64 = MAX_ON_INITIALIZE_WEIGHT;
+
+        #[extrinsic_call]
+        set_on_initialize_weight(RawOrigin::Root, value);
+
+        assert_eq!(OnInitializeWeight::<T>::get(), value);
+    }
+
+    /// Benchmark `set_stored_extrinsic_lifetime`: root origin, single storage write.
+    #[benchmark]
+    fn set_stored_extrinsic_lifetime() {
+        let value: u32 = 100;
+
+        #[extrinsic_call]
+        set_stored_extrinsic_lifetime(RawOrigin::Root, value);
+
+        assert_eq!(ExtrinsicLifetime::<T>::get(), value);
+    }
+
+    /// Benchmark `set_max_extrinsic_weight`: root origin, single storage write.
+    /// Uses the maximum allowed value for worst-case.
+    #[benchmark]
+    fn set_max_extrinsic_weight() {
+        let value: u64 = MAX_ON_INITIALIZE_WEIGHT;
+
+        #[extrinsic_call]
+        set_max_extrinsic_weight(RawOrigin::Root, value);
+
+        assert_eq!(MaxExtrinsicWeight::<T>::get(), value);
+    }
+
     impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(), crate::mock::Test);
 }
