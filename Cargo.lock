@@ -18539,6 +18539,7 @@ dependencies = [
  "approx",
  "environmental",
  "frame-support",
+ "impl-trait-for-tuples",
  "num-traits",
  "parity-scale-codec",
  "polkadot-runtime-common",

@@ -18,12 +18,14 @@ use subtensor_macros::freeze_struct;
 
 pub use currency::*;
 pub use evm_context::*;
+pub use proxy::*;
 pub use transaction_error::*;
 
 use frame_support::weights::WeightMeter;
 
 mod currency;
 mod evm_context;
+mod proxy;
 mod transaction_error;
 
 /// Balance of an account.
@@ -134,181 +136,6 @@ impl TypeInfo for NetUid {
     fn type_info() -> scale_info::Type {
         <u16 as TypeInfo>::type_info()
     }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Encode,
-    Decode,
-    DecodeWithMemTracking,
-    Debug,
-    MaxEncodedLen,
-    TypeInfo,
-)]
-pub enum ProxyType {
-    Any,
-    Owner, // Subnet owner Calls
-    NonCritical,
-    NonTransfer,
-    Senate,
-    NonFungible, // Nothing involving moving TAO
-    Triumvirate,
-    Governance, // Both above governance
-    Staking,
-    Registration,
-    Transfer,
-    SmallTransfer,
-    RootWeights, // deprecated
-    ChildKeys,
-    SudoUncheckedSetCode,
-    SwapHotkey,
-    SubnetLeaseBeneficiary, // Used to operate the leased subnet
-    RootClaim,
-}
-
-impl TryFrom<u8> for ProxyType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Any),
-            1 => Ok(Self::Owner),
-            2 => Ok(Self::NonCritical),
-            3 => Ok(Self::NonTransfer),
-            4 => Ok(Self::Senate),
-            5 => Ok(Self::NonFungible),
-            6 => Ok(Self::Triumvirate),
-            7 => Ok(Self::Governance),
-            8 => Ok(Self::Staking),
-            9 => Ok(Self::Registration),
-            10 => Ok(Self::Transfer),
-            11 => Ok(Self::SmallTransfer),
-            12 => Ok(Self::RootWeights),
-            13 => Ok(Self::ChildKeys),
-            14 => Ok(Self::SudoUncheckedSetCode),
-            15 => Ok(Self::SwapHotkey),
-            16 => Ok(Self::SubnetLeaseBeneficiary),
-            17 => Ok(Self::RootClaim),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<ProxyType> for u8 {
-    fn from(proxy_type: ProxyType) -> Self {
-        match proxy_type {
-            ProxyType::Any => 0,
-            ProxyType::Owner => 1,
-            ProxyType::NonCritical => 2,
-            ProxyType::NonTransfer => 3,
-            ProxyType::Senate => 4,
-            ProxyType::NonFungible => 5,
-            ProxyType::Triumvirate => 6,
-            ProxyType::Governance => 7,
-            ProxyType::Staking => 8,
-            ProxyType::Registration => 9,
-            ProxyType::Transfer => 10,
-            ProxyType::SmallTransfer => 11,
-            ProxyType::RootWeights => 12,
-            ProxyType::ChildKeys => 13,
-            ProxyType::SudoUncheckedSetCode => 14,
-            ProxyType::SwapHotkey => 15,
-            ProxyType::SubnetLeaseBeneficiary => 16,
-            ProxyType::RootClaim => 17,
-        }
-    }
-}
-
-impl ProxyType {
-    pub fn is_deprecated(&self) -> bool {
-        matches!(
-            self,
-            Self::Triumvirate | Self::Senate | Self::Governance | Self::RootWeights
-        )
-    }
-}
-
-impl Default for ProxyType {
-    // allow all Calls; required to be most permissive
-    fn default() -> Self {
-        Self::Any
-    }
-}
-
-/// Conditions that must be met beyond matching the call itself.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub enum CallCondition {
-    /// A numeric parameter must be less than this limit
-    ParamLessThan { param_name: Vec<u8>, limit: u128 },
-    /// The nested call inside must match this pallet/call
-    NestedCallMustBe {
-        pallet_name: Vec<u8>,
-        call_name: Vec<u8>,
-    },
-}
-
-/// Describes which call(s) a proxy filter rule applies to.
-///
-/// When `call_name` and `call_index` are `None`, the rule applies to ALL calls in the pallet.
-/// When they are `Some`, the rule applies to that specific call only.
-#[freeze_struct("57f984617f6084cc")]
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub struct CallInfo {
-    /// Pallet name (always present)
-    pub pallet_name: Vec<u8>,
-    /// Pallet index in runtime (always present)
-    pub pallet_index: u8,
-    /// Call name within pallet. None means ALL calls in this pallet.
-    pub call_name: Option<Vec<u8>>,
-    /// Call index within pallet. None means ALL calls in this pallet.
-    pub call_index: Option<u8>,
-    /// Additional condition that must be met (value limits, nested call requirements)
-    pub condition: Option<CallCondition>,
-}
-
-/// Describes how a ProxyType filters incoming calls.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub enum FilterMode {
-    /// All calls are permitted regardless of the calls list (e.g. ProxyType::Any)
-    AllowAll,
-    /// No calls are permitted (e.g. deprecated proxy types)
-    DenyAll,
-    /// Only calls listed in the `calls` field are permitted
-    Allow,
-    /// All calls are permitted EXCEPT those listed in the `calls` field
-    Deny,
-}
-
-/// Complete filter description for a ProxyType, returned by the Runtime API.
-///
-/// Interpretation:
-/// - `filter_mode: AllowAll` — everything permitted, `calls` is empty
-/// - `filter_mode: DenyAll` — nothing permitted, `calls` is empty
-/// - `filter_mode: Allow` — only `calls` are permitted (minus `exceptions`)
-/// - `filter_mode: Deny` — everything EXCEPT `calls` is permitted
-/// - `call_name: None` in a CallInfo — rule applies to ALL calls in the pallet
-#[freeze_struct("4453d44869f8a188")]
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub struct ProxyFilterInfo {
-    pub proxy_type: u8,
-    pub name: Vec<u8>,
-    pub deprecated: bool,
-    pub filter_mode: FilterMode,
-    pub calls: Vec<CallInfo>,
-    pub exceptions: Vec<CallInfo>,
-}
-
-#[freeze_struct("b0cce66ed9b2451b")]
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub struct ProxyTypeInfo {
-    pub name: Vec<u8>,
-    pub index: u8,
-    pub deprecated: bool,
 }
 
 pub trait SubnetInfo<AccountId> {

@@ -24,7 +24,6 @@ impl<T: Config> Pallet<T> {
     /// # Errors
     ///
     /// * `NonAssociatedColdKey` - If the coldkey does not own the old hotkey.
-    /// * `HotKeySetTxRateLimitExceeded` - If the transaction rate limit is exceeded.
     /// * `NewHotKeyIsSameWithOld` - If the new hotkey is the same as the old hotkey.
     /// * `HotKeyAlreadyRegisteredInSubNet` - If the new hotkey is already registered in the subnet.
     /// * `NewHotKeyNotCleanForRootSwap` - If the swap touches root and the new hotkey
@@ -67,14 +66,6 @@ impl<T: Config> Pallet<T> {
         // 6. Get the current block number
         let block: u64 = Self::get_current_block_as_u64();
 
-        // 7. Ensure the transaction rate limit is not exceeded
-        ensure!(
-            !Self::exceeds_tx_rate_limit(Self::get_last_tx_block(&coldkey), block),
-            Error::<T>::HotKeySetTxRateLimitExceeded
-        );
-
-        weight.saturating_accrue(T::DbWeight::get().reads(2));
-
         match netuid {
             // 8. Ensure the hotkey is not registered on the network before, if netuid is provided
             Some(netuid) => {
@@ -111,12 +102,7 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // 9. Swap LastTxBlock
-        let last_tx_block: u64 = Self::get_last_tx_block(old_hotkey);
-        Self::set_last_tx_block(new_hotkey, last_tx_block);
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
-
-        // 10. Swap LastTxBlockDelegateTake
+        // 8. Swap LastTxBlockDelegateTake
         let last_tx_block_delegate_take: u64 = Self::get_last_tx_block_delegate_take(old_hotkey);
         Self::set_last_tx_block_delegate_take(new_hotkey, last_tx_block_delegate_take);
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
@@ -216,11 +202,7 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(T::DbWeight::get().writes(1));
         }
 
-        // 17. Update the last transaction block for the coldkey
-        Self::set_last_tx_block(&coldkey, block);
-        weight.saturating_accrue(T::DbWeight::get().writes(1));
-
-        // 18. Emit an event for the hotkey swap
+        // 17. Emit an event for the hotkey swap
         Self::deposit_event(Event::HotkeySwapped {
             coldkey,
             old_hotkey: old_hotkey.clone(),
@@ -435,10 +417,10 @@ impl<T: Config> Pallet<T> {
             keep_stake,
         )?;
 
-        // 11. Update the last transaction block for the coldkey
-        Self::set_last_tx_block(coldkey, block);
+        // 10. Record the per-subnet swap block for the HotkeySwapOnSubnetInterval gate.
+        //     The generic LastTxBlock setter is dropped together with its removed check.
         LastHotkeySwapOnNetuid::<T>::insert(netuid, coldkey, block);
-        weight.saturating_accrue(T::DbWeight::get().writes(2));
+        weight.saturating_accrue(T::DbWeight::get().writes(1));
 
         // 12. Emit an event for the hotkey swap
         Self::deposit_event(Event::HotkeySwappedOnSubnet {

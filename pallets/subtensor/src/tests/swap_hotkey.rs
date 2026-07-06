@@ -719,9 +719,9 @@ fn test_swap_hotkey_with_multiple_coldkeys_and_subnets() {
     });
 }
 
-// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_hotkey_tx_rate_limit_exceeded --exact --nocapture
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey -- test_swap_hotkey_no_tx_rate_limit --exact --nocapture
 #[test]
-fn test_swap_hotkey_tx_rate_limit_exceeded() {
+fn test_swap_hotkey_no_tx_rate_limit() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
         let tempo: u16 = 13;
@@ -731,15 +731,14 @@ fn test_swap_hotkey_tx_rate_limit_exceeded() {
         let coldkey = U256::from(3);
         let swap_cost = SubtensorModule::get_key_swap_cost() * 2.into();
 
-        let tx_rate_limit = 1;
+        let interval: u64 = <Test as crate::Config>::HotkeySwapOnSubnetInterval::get();
 
-        // Get the current transaction rate limit
-        let current_tx_rate_limit = SubtensorModule::get_tx_rate_limit();
-        log::info!("current_tx_rate_limit: {current_tx_rate_limit:?}");
-
-        // Set the transaction rate limit
+        // Set a tx rate limit far larger than the gap we leave between the two swaps below.
+        // The generic tx rate limit no longer gates hotkey swaps, so the second swap must
+        // succeed even though the old behaviour would have rejected it. Only the per-subnet
+        // `HotkeySwapOnSubnetInterval` cooldown still applies.
+        let tx_rate_limit = interval.saturating_mul(100);
         SubtensorModule::set_tx_rate_limit(tx_rate_limit);
-        // assert the rate limit is set to 1000 blocks
         assert_eq!(SubtensorModule::get_tx_rate_limit(), tx_rate_limit);
 
         // Setup initial state
@@ -756,20 +755,10 @@ fn test_swap_hotkey_tx_rate_limit_exceeded() {
             false,
         ));
 
-        // Attempt to perform another swap immediately, which should fail due to rate limit
-        assert_err!(
-            SubtensorModule::do_swap_hotkey(
-                <<Test as Config>::RuntimeOrigin>::signed(coldkey),
-                &new_hotkey_1,
-                &new_hotkey_2,
-                None,
-                false,
-            ),
-            Error::<Test>::HotKeySetTxRateLimitExceeded
-        );
-
-        // move in time past the rate limit
-        step_block(1001);
+        // Advance just past the per-subnet swap cooldown, but far less than the tx rate
+        // limit set above. Under the old rules the generic tx rate limit would reject this
+        // second swap; with that limit removed it succeeds.
+        step_block(interval as u16 + 1);
         assert_ok!(SubtensorModule::do_swap_hotkey(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &new_hotkey_1,
@@ -1568,12 +1557,9 @@ fn test_swap_hotkey_swap_rate_limits() {
         let netuid = add_dynamic_network(&old_hotkey, &coldkey);
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
-        let last_tx_block = 123;
         let delegate_take_block = 4567;
         let child_key_take_block = 8910;
 
-        // Set the last tx block for the old hotkey
-        SubtensorModule::set_last_tx_block(&old_hotkey, last_tx_block);
         // Set the last delegate take block for the old hotkey
         SubtensorModule::set_last_tx_block_delegate_take(&old_hotkey, delegate_take_block);
         // Set last childkey take block for the old hotkey
@@ -1588,11 +1574,8 @@ fn test_swap_hotkey_swap_rate_limits() {
             false,
         ));
 
-        // Check for new hotkey
-        assert_eq!(
-            SubtensorModule::get_last_tx_block(&new_hotkey),
-            last_tx_block
-        );
+        // Check for new hotkey (LastTxBlock is no longer transferred: the generic tx rate
+        // limit was removed, so it is dead state). The take rate limits are still active.
         assert_eq!(
             SubtensorModule::get_last_tx_block_delegate_take(&new_hotkey),
             delegate_take_block

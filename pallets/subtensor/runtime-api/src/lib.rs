@@ -81,6 +81,6 @@ sp_api::decl_runtime_apis! {
 
     pub trait ProxyFilterRuntimeApi {
         fn get_proxy_types() -> Vec<ProxyTypeInfo>;
-        fn get_proxy_filter(proxy_type: Option<u8>) -> Vec<ProxyFilterInfo>;
+        fn get_proxy_filters(proxy_types: Option<Vec<u8>>) -> Vec<ProxyFilterInfo>;
     }
 }

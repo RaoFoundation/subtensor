@@ -3,11 +3,9 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::ToTokens;
 use syn::{Error, ItemStruct, LitStr, Result, parse2, visit_mut::visit_item_struct_mut};
 
+mod call_filter_group;
 mod visitor;
 use visitor::*;
-
-mod proxy_filter;
-use proxy_filter::ProxyFilterInput;
 
 /// Freezes the layout of a struct to the current hash of its fields, ensuring that future
 /// changes require updating the hash.
@@ -26,6 +24,18 @@ use proxy_filter::ProxyFilterInput;
 pub fn freeze_struct(attr: TokenStream, tokens: TokenStream) -> TokenStream {
     match freeze_struct_impl(attr, tokens) {
         Ok(item_struct) => item_struct.to_token_stream().into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Defines a reusable runtime call filter group and derives its metadata from the same allowlist.
+///
+/// Example: `call_filter_group!(GroupName, [RuntimeCall::Foobar(pallet_foobar::Call::some_call)]);`
+#[proc_macro]
+pub fn call_filter_group(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse_macro_input!(input as call_filter_group::CallFilterGroupInput);
+    match call_filter_group::generate(parsed) {
+        Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
@@ -71,16 +81,4 @@ fn freeze_struct_impl(
         ));
     }
     Ok(item)
-}
-
-/// Defines proxy filter rules as a single source of truth, generating both the
-/// `proxy_type_filter()` function (used by `InstanceFilter::filter()`) and the
-/// `get_all_proxy_filters()` function (used by the Runtime API).
-///
-/// This ensures the on-chain filtering logic and the off-chain API metadata
-/// can never drift apart.
-#[proc_macro]
-pub fn define_proxy_filters(input: TokenStream) -> TokenStream {
-    let parsed = syn::parse_macro_input!(input as ProxyFilterInput);
-    parsed.generate().into()
 }
