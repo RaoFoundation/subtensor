@@ -123,14 +123,17 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (coldkey_to_move, netuid, old_hotkey),
             moved_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_to_move), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, old_hotkey),
             discarded_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_with_conflict), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, new_hotkey),
             existing_destination_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, new_hotkey, coldkey_with_conflict), ());
         DecayingLock::<Test>::insert(coldkey_to_move, netuid, false);
         DecayingLock::<Test>::insert(coldkey_with_conflict, netuid, false);
         DecayingLock::<Test>::insert(chained_coldkey, chained_netuid, false);
@@ -148,6 +151,10 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (chained_coldkey, chained_netuid, chained_first_hotkey),
             chained_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert(
+            (chained_netuid, chained_first_hotkey, chained_coldkey),
+            (),
+        );
         HotkeyLock::<Test>::insert(chained_netuid, chained_first_hotkey, chained_lock.clone());
 
         let weight =
@@ -157,14 +164,34 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
         assert!(HasMigrationRun::<Test>::get(&migration_name));
         assert!(Lock::<Test>::get((coldkey_to_move, netuid, old_hotkey)).is_none());
         assert!(Lock::<Test>::get((coldkey_with_conflict, netuid, old_hotkey)).is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_to_move
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_with_conflict
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_to_move, netuid, new_hotkey)),
             Some(moved_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_to_move
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_with_conflict, netuid, new_hotkey)),
             Some(existing_destination_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_with_conflict
+        )));
         assert!(HotkeyLock::<Test>::get(netuid, old_hotkey).is_none());
 
         let new_aggregate = HotkeyLock::<Test>::get(netuid, new_hotkey)
@@ -193,10 +220,25 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             chained_middle_hotkey
         ))
         .is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_first_hotkey,
+            chained_coldkey
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_middle_hotkey,
+            chained_coldkey
+        )));
         assert_eq!(
             Lock::<Test>::get((chained_coldkey, chained_netuid, chained_final_hotkey)),
             Some(chained_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_final_hotkey,
+            chained_coldkey
+        )));
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_first_hotkey).is_none());
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_middle_hotkey).is_none());
         assert_eq!(
