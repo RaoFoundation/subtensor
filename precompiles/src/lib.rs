@@ -140,7 +140,7 @@ where
         Self(Default::default())
     }
 
-    pub fn used_addresses() -> [H160; 30] {
+    pub fn used_addresses() -> [H160; 29] {
         [
             hash(1),
             hash(2),
@@ -155,7 +155,6 @@ where
             hash(11),
             hash(1024),
             hash(1025),
-            hash(1028),
             hash(Ed25519Verify::<R::AccountId>::INDEX),
             hash(Sr25519Verify::<R::AccountId>::INDEX),
             hash(BalanceTransferPrecompile::<R>::INDEX),
@@ -227,7 +226,6 @@ where
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
-            a if a == hash(1028) => Some(Bn128Add::execute(handle)),
             a if a == hash(Ed25519Verify::<R::AccountId>::INDEX) => {
                 Some(Ed25519Verify::<R::AccountId>::execute(handle))
             }
