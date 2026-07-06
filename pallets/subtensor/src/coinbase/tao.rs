@@ -282,8 +282,6 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         amount: BalanceOf<T>,
     ) -> Result<CreditOf<T>, DispatchError> {
-        let balances_ti_before = <T as Config>::Currency::total_issuance();
-
         let credit = <T as Config>::Currency::withdraw(
             coldkey,
             amount,
@@ -291,14 +289,6 @@ impl<T: Config> Pallet<T> {
             Preservation::Expendable,
             Fortitude::Polite,
         )?;
-
-        let balances_ti_after = <T as Config>::Currency::total_issuance();
-        if balances_ti_after < balances_ti_before {
-            let burned = balances_ti_before.saturating_sub(balances_ti_after);
-            TotalIssuance::<T>::mutate(|total| {
-                *total = total.saturating_sub(burned);
-            });
-        }
 
         Ok(credit)
     }
