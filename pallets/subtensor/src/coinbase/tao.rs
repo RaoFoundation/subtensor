@@ -33,32 +33,20 @@ impl<T: Config> Pallet<T> {
         SubnetTAO::<T>::get(netuid)
     }
 
-    /// Internal function that transfers and updates subtensor pallet total issuance
-    /// in case of dust collection.
+    /// Internal function that transfers TAO and allows the origin account to be reaped.
+    ///
+    /// Dust collection is handled by the runtime's Balances `DustRemoval` implementation.
     fn transfer_allow_death_update_ti(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
         amount: BalanceOf<T>,
     ) -> DispatchResult {
-        // If account balance remainder drops below ED, then account is killed, balance
-        // is lost, and we need to reduce total issuance in subtensor pallet. Measure
-        // balance TI before and after to detect the dust.
-        let balances_ti_before = <T as pallet::Config>::Currency::total_issuance();
-
         <T as pallet::Config>::Currency::transfer(
             origin_coldkey,
             destination_coldkey,
             amount,
             Preservation::Expendable,
         )?;
-
-        let balances_ti_after = <T as pallet::Config>::Currency::total_issuance();
-        if balances_ti_after < balances_ti_before {
-            let burned = balances_ti_before.saturating_sub(balances_ti_after);
-            TotalIssuance::<T>::mutate(|total| {
-                *total = total.saturating_sub(burned);
-            });
-        }
 
         Ok(())
     }

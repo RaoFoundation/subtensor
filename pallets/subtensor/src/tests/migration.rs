@@ -4733,6 +4733,7 @@ fn test_migrate_subnet_balances() {
 fn test_migrate_fix_total_issuance_evm_fees() {
     new_test_ext(1).execute_with(|| {
         const MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_evm_fees";
+        const DUST_MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_after_dust_collection";
 
         let account = U256::from(42);
         let balances_total_issuance = TaoBalance::from(123_456_789_u64);
@@ -4753,16 +4754,29 @@ fn test_migrate_fix_total_issuance_evm_fees() {
         assert!(!weight.is_zero(), "weight must be non-zero");
         assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
         assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
 
         let second_wrong_value = TaoBalance::from(555_u64);
         TotalIssuance::<Test>::put(second_wrong_value);
 
         crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
 
+        assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
+        assert!(HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
+
+        let third_wrong_value = TaoBalance::from(777_u64);
+        TotalIssuance::<Test>::put(third_wrong_value);
+
+        crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
+
         assert_eq!(
             TotalIssuance::<Test>::get(),
-            second_wrong_value,
-            "migration must not run more than once"
+            third_wrong_value,
+            "migration must not run after all known migration keys have run"
         );
     });
 }
