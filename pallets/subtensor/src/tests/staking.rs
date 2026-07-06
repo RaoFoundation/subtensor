@@ -23,6 +23,26 @@ use crate::*;
 ************************************************************/
 
 #[test]
+fn test_delegate_take_dispatch_info_pays_fee() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let take = SubtensorModule::get_min_delegate_take();
+
+        let decrease_take_call =
+            RuntimeCall::SubtensorModule(SubtensorCall::decrease_take { hotkey, take });
+        let decrease_take_dispatch_info = decrease_take_call.get_dispatch_info();
+        assert_eq!(decrease_take_dispatch_info.class, DispatchClass::Normal);
+        assert_eq!(decrease_take_dispatch_info.pays_fee, Pays::Yes);
+
+        let increase_take_call =
+            RuntimeCall::SubtensorModule(SubtensorCall::increase_take { hotkey, take });
+        let increase_take_dispatch_info = increase_take_call.get_dispatch_info();
+        assert_eq!(increase_take_dispatch_info.class, DispatchClass::Normal);
+        assert_eq!(increase_take_dispatch_info.pays_fee, Pays::Yes);
+    });
+}
+
+#[test]
 fn test_add_stake_dispatch_info_ok() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(0);
