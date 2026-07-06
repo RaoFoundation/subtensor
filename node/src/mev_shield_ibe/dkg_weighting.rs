@@ -96,7 +96,7 @@ pub fn plan_stake_weighted_atoms<AuthorityId: Clone + Ord>(
         .iter()
         .try_fold(0u128, |acc, v| acc.checked_add(v.stake))
         .ok_or(DkgWeightingError::ArithmeticOverflow)?;
-    let total_atoms = max_atoms as u128;
+    let total_atoms = u128::from(max_atoms);
 
     let mut allocation: Vec<(AuthorityId, [u8; 32], u32, u128, u128)> = Vec::new();
     let mut assigned = 0u32;
@@ -138,8 +138,12 @@ pub fn plan_stake_weighted_atoms<AuthorityId: Clone + Ord>(
 
     let mut extra_order: Vec<usize> = (0..allocation.len()).collect();
     extra_order.sort_by(|a, b| {
-        let left = &allocation[*a];
-        let right = &allocation[*b];
+        let Some(left) = allocation.get(*a) else {
+            return a.cmp(b);
+        };
+        let Some(right) = allocation.get(*b) else {
+            return a.cmp(b);
+        };
         right
             .3
             .cmp(&left.3)
@@ -150,7 +154,10 @@ pub fn plan_stake_weighted_atoms<AuthorityId: Clone + Ord>(
         if assigned >= max_atoms {
             break;
         }
-        allocation[pos].2 = allocation[pos]
+        let Some(allocation_entry) = allocation.get_mut(pos) else {
+            return Err(DkgWeightingError::ArithmeticOverflow);
+        };
+        allocation_entry.2 = allocation_entry
             .2
             .checked_add(1)
             .ok_or(DkgWeightingError::ArithmeticOverflow)?;
@@ -162,7 +169,9 @@ pub fn plan_stake_weighted_atoms<AuthorityId: Clone + Ord>(
         return Err(DkgWeightingError::ArithmeticOverflow);
     }
 
-    let mut atoms = Vec::with_capacity(assigned as usize);
+    let atom_capacity =
+        usize::try_from(assigned).map_err(|_| DkgWeightingError::ArithmeticOverflow)?;
+    let mut atoms = Vec::with_capacity(atom_capacity);
     let mut share_id = 1u32;
     for (authority_id, dkg_x25519_public_key, count, _, _) in allocation {
         for _ in 0..count {

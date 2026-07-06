@@ -195,9 +195,10 @@ where
             )?;
         }
 
-        // Missing IBE block-key bundles are not block-import fatal.
-        // pallet_shield::on_initialize deterministically aborts and refunds due
-        // encrypted entries whose block key is unavailable, preserving liveness.
+        // Missing IBE block-key bundles are not block-import fatal. The runtime
+        // leaves due encrypted entries queued, and its transaction extension keeps
+        // non-operational plaintext out during validation and pre-dispatch
+        // while encrypted work remains due.
         let encoded = block
             .extrinsics()
             .iter()
@@ -225,8 +226,8 @@ where
                 }
                 MevShieldExtrinsicClass::Operational => {}
                 MevShieldExtrinsicClass::UnencryptedNonOperational => {
-                    // Missing-key liveness is handled in the runtime queue drain.
-                    // Do not reject otherwise valid plaintext blocks at import time.
+                    // Runtime validation enforces the no-preemption rule against
+                    // the post-on_initialize state, including missing-key cases.
                 }
             }
         }

@@ -2,8 +2,7 @@ use crate::consensus::hybrid_import_queue::HybridBlockImport;
 use crate::consensus::{ConsensusMechanism, StartAuthoringParams};
 use crate::{
     client::{FullBackend, FullClient},
-    ethereum::EthConfiguration,
-    service::{BIQ, FullSelectChain, GrandpaBlockImport},
+    service::{BIQ, GrandpaBlockImport},
 };
 use jsonrpsee::tokio;
 use node_subtensor_runtime::opaque::Block;
@@ -25,14 +24,15 @@ use sp_consensus_babe::AuthorityId as BabeAuthorityId;
 use sp_consensus_babe::BabeConfiguration;
 use sp_consensus_slots::SlotDuration;
 use sp_inherents::CreateInherentDataProviders;
-use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Block as BlockT;
 use sp_runtime::traits::NumberFor;
 use stc_shield::InherentDataProvider as ShieldInherentDataProvider;
 use std::{error::Error, sync::Arc};
 use stp_shield::ShieldKeystorePtr;
 
-pub struct AuraConsensus;
+pub struct AuraConsensus {
+    slot_duration: Option<SlotDuration>,
+}
 
 impl ConsensusMechanism for AuraConsensus {
     type InherentDataProviders = (
@@ -136,7 +136,9 @@ impl ConsensusMechanism for AuraConsensus {
     }
 
     fn new() -> Self {
-        Self {}
+        Self {
+            slot_duration: None,
+        }
     }
 
     fn build_biq(&mut self, skip_history_backfill: bool) -> Result<BIQ<'_>, sc_service::Error>
@@ -147,7 +149,6 @@ impl ConsensusMechanism for AuraConsensus {
             move |client: Arc<FullClient>,
                   backend: Arc<FullBackend>,
                   service_config: &Configuration,
-                  _eth_config: &EthConfiguration,
                   task_manager: &TaskManager,
                   telemetry: Option<TelemetryHandle>,
                   grandpa_block_import: GrandpaBlockImport,
@@ -170,6 +171,7 @@ impl ConsensusMechanism for AuraConsensus {
                     );
 
                 let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
+                self.slot_duration = Some(slot_duration);
 
                 let create_inherent_data_providers = move |_, ()| async move {
                     let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
@@ -214,8 +216,13 @@ impl ConsensusMechanism for AuraConsensus {
         Ok(build_import_queue)
     }
 
-    fn slot_duration(&self, client: &FullClient) -> Result<SlotDuration, sc_service::Error> {
-        sc_consensus_aura::slot_duration(client).map_err(Into::into)
+    fn slot_duration(&self) -> Result<SlotDuration, sc_service::Error> {
+        self.slot_duration.ok_or_else(|| {
+            sc_service::Error::Other(
+                "Aura slot duration not initialized. Ensure that the import queue has been built before calling slot_duration."
+                    .to_string(),
+            )
+        })
     }
 
     fn spawn_essential_handles(
@@ -227,7 +234,7 @@ impl ConsensusMechanism for AuraConsensus {
     ) -> Result<(), sc_service::Error> {
         let client_clone = client.clone();
         let custom_service_signal_clone = custom_service_signal.clone();
-        let slot_duration = self.slot_duration(&client)?;
+        let slot_duration = self.slot_duration()?;
         task_manager.spawn_essential_handle().spawn(
             "babe-switch",
             None,
@@ -261,16 +268,6 @@ impl ConsensusMechanism for AuraConsensus {
             }),
         );
         Ok(())
-    }
-
-    fn rpc_methods(
-        &self,
-        _client: Arc<FullClient>,
-        _keystore: KeystorePtr,
-        _select_chain: FullSelectChain,
-    ) -> Result<Vec<jsonrpsee::Methods>, sc_service::Error> {
-        // Aura requires no special RPC methods.
-        Ok(Default::default())
     }
 }
 

@@ -172,8 +172,8 @@ pub fn verify_partial_identity_key(
     TinyBLS381::pairing(public_share, q_id) == TinyBLS381::pairing(g2, partial_key)
 }
 
-fn lagrange_coeff_at_zero(id: u32, ids: &[u32]) -> Scalar {
-    let x_i = Scalar::from(id as u64);
+fn lagrange_coeff_at_zero(id: u32, ids: &[u32]) -> Option<Scalar> {
+    let x_i = Scalar::from(u64::from(id));
 
     let mut num = Scalar::one();
     let mut den = Scalar::one();
@@ -183,14 +183,12 @@ fn lagrange_coeff_at_zero(id: u32, ids: &[u32]) -> Scalar {
             continue;
         }
 
-        let x_j = Scalar::from(*other as u64);
+        let x_j = Scalar::from(u64::from(*other));
         num *= -x_j;
         den *= x_i - x_j;
     }
 
-    num * den
-        .inverse()
-        .expect("unique non-zero share ids; denominator nonzero")
+    den.inverse().map(|inverse| num * inverse)
 }
 
 pub fn combine_identity_key(
@@ -256,7 +254,8 @@ pub fn combine_identity_key(
         let partial =
             IdentityKeyShare::deserialize_compressed(&mut &share.partial_identity_key[..])
                 .map_err(|e| format!("bad partial identity key: {e:?}"))?;
-        let lambda = lagrange_coeff_at_zero(share_id, &ids);
+        let lambda = lagrange_coeff_at_zero(share_id, &ids)
+            .ok_or_else(|| "duplicate or invalid share ids in interpolation set".to_string())?;
         acc += partial.mul(lambda);
     }
 

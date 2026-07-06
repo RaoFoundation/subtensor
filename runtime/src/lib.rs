@@ -66,7 +66,8 @@ use sp_runtime::{
         PostDispatchInfoOf, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
-        TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
+        InvalidTransaction, TransactionPriority, TransactionSource, TransactionValidity,
+        TransactionValidityError,
     },
 };
 use sp_std::cmp::Ordering;
@@ -131,21 +132,26 @@ impl frame_system::offchain::SigningTypes for Runtime {
 }
 
 pub struct FindAuraAuthors;
+impl FindAuraAuthors {
+    fn find_author_at_slot(slot: u64) -> Option<AuraId> {
+        let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
+        let authority_count = u64::try_from(authorities.len()).ok()?;
+        let author_index = slot.checked_rem(authority_count)?;
+        let author_index = usize::try_from(author_index).ok()?;
+
+        authorities.get(author_index).cloned()
+    }
+}
+
 impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
     fn find_current_author() -> Option<AuraId> {
         let slot = Aura::current_slot_from_digests()?;
-        let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
-        let author_index = *slot % authorities.len() as u64;
-
-        authorities.get(author_index as usize).cloned()
+        Self::find_author_at_slot(*slot)
     }
 
     fn find_next_next_author() -> Option<AuraId> {
         let slot = Aura::current_slot_from_digests()?.checked_add(2)?;
-        let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
-        let author_index = slot % authorities.len() as u64;
-
-        authorities.get(author_index as usize).cloned()
+        Self::find_author_at_slot(slot)
     }
 }
 
@@ -551,8 +557,9 @@ impl<F: FindAuthor<u32>> BlockAuthorFromAura<F> {
         let binding = frame_system::Pallet::<Runtime>::digest();
         let digest_logs = binding.logs();
         let author_index = F::find_author(digest_logs.iter().filter_map(|d| d.as_pre_runtime()))?;
+        let authority_index = usize::try_from(author_index).ok()?;
         let authority_id = pallet_aura::Authorities::<Runtime>::get()
-            .get(author_index as usize)?
+            .get(authority_index)?
             .clone();
         Some(AccountId32::new(authority_id.to_raw_vec().try_into().ok()?))
     }
@@ -1314,8 +1321,9 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
         I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
     {
         if let Some(author_index) = F::find_author(digests) {
+            let author_index = usize::try_from(author_index).ok()?;
             pallet_aura::Authorities::<Runtime>::get()
-                .get(author_index as usize)
+                .get(author_index)
                 .and_then(|authority_id| {
                     let raw_vec = authority_id.to_raw_vec();
                     raw_vec.get(4..24).map(H160::from_slice)
@@ -1493,6 +1501,19 @@ impl<B: BlockT> fp_rpc::ConvertTransaction<<B as BlockT>::Extrinsic> for Transac
     }
 }
 
+fn ensure_self_contained_not_plaintext_preemption(
+    dispatch_info: &DispatchInfoOf<RuntimeCall>,
+) -> Result<(), TransactionValidityError> {
+    if !MevShield::is_ibe_queue_drain_in_progress()
+        && dispatch_info.class != frame_support::dispatch::DispatchClass::Operational
+        && (MevShield::has_due_ibe_queue_head() || MevShield::has_fired_conditional_ibe())
+    {
+        return Err(InvalidTransaction::ExhaustsResources.into());
+    }
+
+    Ok(())
+}
+
 impl fp_self_contained::SelfContainedCall for RuntimeCall {
     type SignedInfo = H160;
 
@@ -1517,7 +1538,12 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
         len: usize,
     ) -> Option<TransactionValidity> {
         match self {
-            RuntimeCall::Ethereum(call) => call.validate_self_contained(info, dispatch_info, len),
+            RuntimeCall::Ethereum(call) => {
+                if let Err(error) = ensure_self_contained_not_plaintext_preemption(dispatch_info) {
+                    return Some(Err(error));
+                }
+                call.validate_self_contained(info, dispatch_info, len)
+            }
             _ => None,
         }
     }
@@ -1530,6 +1556,9 @@ impl fp_self_contained::SelfContainedCall for RuntimeCall {
     ) -> Option<Result<(), TransactionValidityError>> {
         match self {
             RuntimeCall::Ethereum(call) => {
+                if let Err(error) = ensure_self_contained_not_plaintext_preemption(dispatch_info) {
+                    return Some(Err(error));
+                }
                 call.pre_dispatch_self_contained(info, dispatch_info, len)
             }
             _ => None,
@@ -2854,7 +2883,8 @@ impl mev_shield_ibe_runtime_api::MevShieldIbeApi<Block> for Runtime {
 };
 
         for encoded in encoded_xts {
-            out.block_len = out.block_len.saturating_add(encoded.len() as u32);
+            let encoded_len = u32::try_from(encoded.len()).unwrap_or(u32::MAX);
+            out.block_len = out.block_len.saturating_add(encoded_len);
 
             let class = if let Ok(xt) = UncheckedExtrinsic::decode(&mut &encoded[..]) {
                 let call = &xt.0.function;

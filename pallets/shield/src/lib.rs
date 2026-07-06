@@ -142,12 +142,12 @@ pub fn queue_depth_price_multiplier_microunits(pending_count: u32, max_pending: 
         return IBE_QUEUE_PRICE_SCALE;
     }
 
-    let pending = core::cmp::min(pending_count, max_pending) as u128;
+    let pending = u128::from(core::cmp::min(pending_count, max_pending));
     if pending == 0 {
         return IBE_QUEUE_PRICE_SCALE;
     }
 
-    let capacity = max_pending as u128;
+    let capacity = u128::from(max_pending);
     let denominator = capacity.saturating_mul(capacity).max(1);
     let max_premium = IBE_QUEUE_PRICE_FULL_MULTIPLIER
         .saturating_sub(1)
@@ -164,11 +164,12 @@ pub fn queue_depth_price_multiplier_microunits(pending_count: u32, max_pending: 
 /// Apply the queue-depth pricing multiplier to a base dispatch weight.
 pub fn queue_depth_priced_weight(base: Weight, pending_count: u32, max_pending: u32) -> Weight {
     let multiplier = queue_depth_price_multiplier_microunits(pending_count, max_pending);
-    let ref_time = (base.ref_time() as u128)
+    let capped_ref_time = u128::from(base.ref_time())
         .saturating_mul(multiplier)
         .checked_div(IBE_QUEUE_PRICE_SCALE)
         .unwrap_or(u128::MAX)
-        .min(u64::MAX as u128) as u64;
+        .min(u128::from(u64::MAX));
+    let ref_time = u64::try_from(capped_ref_time).unwrap_or(u64::MAX);
 
     Weight::from_parts(ref_time, base.proof_size())
 }
@@ -696,20 +697,17 @@ pub mod pallet {
             new_last_block: u64,
         },
 
-        /// MEVShield v2 encrypted extrinsic was invalid after the block key became available.
-        IbeEncryptedExtrinsicInvalid {
-            index: u32,
-        },
-
-        /// MEVShield v2 encrypted extrinsic reached its target without an available block key.
-        ///
-        /// The entry was removed and its submission deposit was refunded so missing key
-        /// release cannot stall block production.
+        /// A due MEVShield v2 entry could not decrypt because its block key is unavailable.
         IbeBlockKeyUnavailable {
             index: u32,
             epoch: u64,
             target_block: u64,
             key_id: [u8; KEY_ID_LEN],
+        },
+
+        /// MEVShield v2 encrypted extrinsic was invalid after the block key became available.
+        IbeEncryptedExtrinsicInvalid {
+            index: u32,
         },
 
         /// MEVShield v2 encrypted extrinsic consumed its canonical queue position.
@@ -788,7 +786,7 @@ pub mod pallet {
             weight = weight.saturating_add(Self::ensure_ibe_dkg_liveness());
             weight = weight.saturating_add(Self::ingest_ibe_block_key_preruntime_digests());
             weight = weight.saturating_add(Self::process_pending_extrinsics());
-            weight = weight.saturating_add(Self::process_conditional_ibe_queue());
+            weight = weight.saturating_add(Self::process_conditional_ibe_queue_after(weight));
             weight
         }
 
@@ -862,12 +860,12 @@ pub mod pallet {
 
             // 5. Set expiration blocks for user-facing keys.
             if PendingKey::<T>::get().is_some() {
-                PendingKeyExpiresAt::<T>::put(now + 2u32.into());
+                PendingKeyExpiresAt::<T>::put(now.saturating_add(2u32.into()));
             } else {
                 PendingKeyExpiresAt::<T>::kill();
             }
             if NextKey::<T>::get().is_some() {
-                NextKeyExpiresAt::<T>::put(now + 3u32.into());
+                NextKeyExpiresAt::<T>::put(now.saturating_add(3u32.into()));
             } else {
                 NextKeyExpiresAt::<T>::kill();
             }
@@ -1262,7 +1260,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidIbeTargetWindow
         );
         ensure!(
-            !PendingIbeCommitments::<T>::contains_key(envelope.commitment),
+            !PendingIbeCommitments::<T>::contains_key(envelope.commitment)
+                && !PendingConditionalIbeCommitments::<T>::contains_key(envelope.commitment),
             Error::<T>::DuplicateIbeCommitment
         );
         let epoch_key =
@@ -1339,6 +1338,14 @@ impl<T: Config> Pallet<T> {
             let remove_weight = T::DbWeight::get().reads_writes(1, 2);
 
             if IbeEncryptedExtrinsicV1::is_v2_prefixed(pending.encrypted_call.as_slice()) {
+                if let Some(meta) = PendingIbeMetadata::<T>::get(index) {
+                    weight = weight.saturating_add(T::DbWeight::get().reads(1));
+                    let current_block_u64: u64 = current_block.saturated_into();
+                    if meta.target_block > current_block_u64 {
+                        break;
+                    }
+                }
+
                 match Self::process_pending_ibe_extrinsic(index, pending, weight, remove_weight) {
                     PendingProcess::Continue(new_weight) => {
                         weight = new_weight;

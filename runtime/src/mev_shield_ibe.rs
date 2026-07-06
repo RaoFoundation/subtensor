@@ -30,14 +30,14 @@ type IbeRuntimePublicShare = <TinyBLS381 as EngineBLS>::PublicKeyGroup;
 type IbeRuntimeIdentityKeyShare = <TinyBLS381 as EngineBLS>::SignatureGroup;
 
 fn ibe_lagrange_coeff_at_zero(id: u32, ids: &[u32]) -> Option<IbeRuntimeScalar> {
-    let x_i = IbeRuntimeScalar::from(id as u64);
+    let x_i = IbeRuntimeScalar::from(u64::from(id));
     let mut num = IbeRuntimeScalar::one();
     let mut den = IbeRuntimeScalar::one();
     for other in ids {
         if *other == id {
             continue;
         }
-        let x_j = IbeRuntimeScalar::from(*other as u64);
+        let x_j = IbeRuntimeScalar::from(u64::from(*other));
         num *= -x_j;
         den *= x_i - x_j;
     }

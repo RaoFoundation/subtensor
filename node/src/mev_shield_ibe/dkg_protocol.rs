@@ -384,7 +384,7 @@ pub fn build_dealer_commitment<R: RngCore + CryptoRng>(
         .atoms
         .iter()
         .map(|atom| {
-            let x = Scalar::from(atom.share_id as u64);
+            let x = Scalar::from(u64::from(atom.share_id));
             let y = evaluate_poly(&coefficients, x);
             let plain = DkgPlainShareV1 {
                 version: MEV_SHIELD_IBE_VERSION,
@@ -437,7 +437,7 @@ pub fn verify_plain_share(
         .collect::<Result<_, _>>()?;
     let scalar = scalar_from_bytes_for_worker(&share.secret_scalar)?;
     let lhs = <PublicShare as Group>::generator().mul(scalar);
-    let rhs = commitment_eval(&commitments, Scalar::from(share.share_id as u64));
+    let rhs = commitment_eval(&commitments, Scalar::from(u64::from(share.share_id)));
     if lhs != rhs {
         return Err("DKG share does not verify against dealer commitment".into());
     }
@@ -501,7 +501,7 @@ pub fn finalize_local_output(
                 .iter()
                 .map(|c| public_share_from_bytes(c))
                 .collect::<Result<_, _>>()?;
-            public += commitment_eval(&commitments, Scalar::from(atom.share_id as u64));
+            public += commitment_eval(&commitments, Scalar::from(u64::from(atom.share_id)));
         }
         let public_atom = PublicShareAtom {
             share_id: atom.share_id,

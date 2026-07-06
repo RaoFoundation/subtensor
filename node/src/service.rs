@@ -53,7 +53,6 @@ pub type BIQ<'a> = Box<
             Arc<FullClient>,
             Arc<FullBackend>,
             &Configuration,
-            &EthConfiguration,
             &TaskManager,
             Option<TelemetryHandle>,
             GrandpaBlockImport,
@@ -210,7 +209,6 @@ pub fn new_partial(
         client.clone(),
         backend.clone(),
         config,
-        eth_config,
         &task_manager,
         telemetry.as_ref().map(|x| x.handle()),
         grandpa_block_import,
@@ -240,13 +238,9 @@ pub fn new_partial(
 #[cfg(feature = "runtime-benchmarks")]
 pub fn build_manual_seal_import_queue(
     client: Arc<FullClient>,
-    _backend: Arc<FullBackend>,
     config: &Configuration,
-    _eth_config: &EthConfiguration,
     task_manager: &TaskManager,
-    _telemetry: Option<TelemetryHandle>,
     grandpa_block_import: GrandpaBlockImport,
-    _transaction_pool_handle: Arc<TransactionPoolHandle<Block, FullClient>>,
 ) -> Result<(BasicQueue<Block>, BoxBlockImport<Block>), ServiceError> {
     let conditional_block_import =
         crate::conditional_evm_block_import::ConditionalEVMBlockImport::new(
@@ -430,8 +424,7 @@ where
             crate::mev_shield_ibe::dkg_runtime_keys::local_consensus_authorities(
                 &keystore_container.keystore(),
             );
-        let has_mev_shield_dkg_consensus_keys = !local_authorities.is_empty();
-        if !has_mev_shield_dkg_consensus_keys {
+        if local_authorities.is_empty() {
             log::error!(
                 target: "mev-shield-ibe",
                 "authority node has no local Aura or BABE keys visible to MEV Shield DKG"
@@ -447,44 +440,31 @@ where
                 keystore_container.keystore(),
             ),
         );
-        if has_mev_shield_dkg_consensus_keys {
-            // It is no longer the authority source of truth; it is retained to keep
-            // older share-pool consumers operational during the transition.
-            if has_mev_shield_dkg_consensus_keys {
-                let mev_shield_epoch_ahead_dkg_guard =
-                    crate::mev_shield_ibe::dkg_worker::spawn_epoch_ahead_dkg_worker::<
-                        Block,
-                        FullClient,
-                    >(
-                        &task_manager.spawn_handle(),
-                        client.clone(),
-                        dkg_key_source.clone(),
-                        crate::mev_shield_ibe::dkg_worker::DkgWorkerConfig {
-                            poll_interval: std::time::Duration::from_secs(12),
-                            max_atoms: 4096,
-                            local_authorities: local_authorities.clone(),
-                            x25519_static_secret_bytes: x25519_secret,
-                        },
-                        authority_signer.clone(),
-                        dkg_inbound_rx,
-                        wire_outbound_tx.clone(),
-                        Some(dkg_publication_tx),
-                    );
-                task_manager.keep_alive(mev_shield_epoch_ahead_dkg_guard);
-            }
+        // It is no longer the authority source of truth; it is retained to keep
+        // older share-pool consumers operational during the transition.
+        let mev_shield_epoch_ahead_dkg_guard =
+            crate::mev_shield_ibe::dkg_worker::spawn_epoch_ahead_dkg_worker::<Block, FullClient>(
+                client.clone(),
+                dkg_key_source.clone(),
+                crate::mev_shield_ibe::dkg_worker::DkgWorkerConfig {
+                    poll_interval: std::time::Duration::from_secs(12),
+                    max_atoms: 4096,
+                    local_authorities: local_authorities.clone(),
+                    x25519_static_secret_bytes: x25519_secret,
+                },
+                authority_signer.clone(),
+                dkg_inbound_rx,
+                wire_outbound_tx.clone(),
+                Some(dkg_publication_tx),
+            );
+        task_manager.keep_alive(mev_shield_epoch_ahead_dkg_guard);
 
-            if has_mev_shield_dkg_consensus_keys {
-                crate::mev_shield_ibe::dkg_submitter::spawn_dkg_publication_submitter(
-                    &task_manager.spawn_handle(),
-                    client.clone(),
-                    transaction_pool.clone(),
-                    dkg_publication_rx,
-                );
-            }
-        } else {
-            drop(dkg_inbound_rx);
-            drop(dkg_publication_rx);
-        }
+        crate::mev_shield_ibe::dkg_submitter::spawn_dkg_publication_submitter(
+            &task_manager.spawn_handle(),
+            client.clone(),
+            transaction_pool.clone(),
+            dkg_publication_rx,
+        );
 
         crate::mev_shield_ibe::outbound_fanout::spawn_outbound_fanout(
             &task_manager.spawn_handle(),
@@ -597,7 +577,7 @@ where
         ));
 
         let shield_keystore = Arc::new(MemoryShieldKeystore::new());
-        let slot_duration = consensus_mechanism.slot_duration(&client)?;
+        let slot_duration = consensus_mechanism.slot_duration()?;
         let pending_create_inherent_data_providers = move |_, ()| {
             let keystore = shield_keystore.clone();
             async move { CM::pending_create_inherent_data_providers(slot_duration, keystore) }
@@ -747,7 +727,7 @@ where
                 client.clone(),
             );
 
-        let slot_duration = consensus_mechanism.slot_duration(&client)?;
+        let slot_duration = consensus_mechanism.slot_duration()?;
         let create_inherent_data_providers = move |_parent_hash, ()| {
             let keystore = shield_keystore.clone();
             async move { CM::create_inherent_data_providers(slot_duration, keystore) }

@@ -93,7 +93,13 @@ impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
         MOCK_CURRENT.with(|c| c.borrow().clone()).or_else(|| {
             let slot = Aura::current_slot_from_digests()?;
             let auths = pallet_aura::Authorities::<Test>::get().into_inner();
-            auths.get(*slot as usize % auths.len()).cloned()
+            let len = auths.len();
+            if len == 0 {
+                return None;
+            }
+            let slot_index = usize::try_from(*slot).ok()?;
+            let author_index = slot_index.checked_rem(len)?;
+            auths.get(author_index).cloned()
         })
     }
 
@@ -103,7 +109,13 @@ impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
         }
         let slot = Aura::current_slot_from_digests()?.checked_add(2)?;
         let auths = pallet_aura::Authorities::<Test>::get().into_inner();
-        auths.get(slot as usize % auths.len()).cloned()
+        let len = auths.len();
+        if len == 0 {
+            return None;
+        }
+        let slot_index = usize::try_from(slot).ok()?;
+        let author_index = slot_index.checked_rem(len)?;
+        auths.get(author_index).cloned()
     }
 }
 

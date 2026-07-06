@@ -78,7 +78,10 @@ if [[ "$BUILD_BINARY" == "1" ]]; then
     echo "[+] Building for host architecture"
   fi
 
-  CARGO_TARGET_DIR="$BUILD_DIR" "${BUILD_CMD[@]}"
+  if ! CARGO_TARGET_DIR="$BUILD_DIR" "${BUILD_CMD[@]}"; then
+    echo "*** Binary build failed" >&2
+    exit 1
+  fi
   echo "*** Binary compiled"
 fi
 

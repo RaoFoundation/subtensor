@@ -120,7 +120,7 @@ impl MevShieldIbeSharePool {
     fn spawn_inbound(&self, inbound: mpsc::UnboundedReceiver<WireMessage>) {
         let pool = self.clone();
 
-        std::thread::Builder::new()
+        if let Err(error) = std::thread::Builder::new()
             .name("mev-shield-ibe-inbound".into())
             .spawn(move || {
                 futures::executor::block_on(async move {
@@ -138,7 +138,9 @@ impl MevShieldIbeSharePool {
                     }
                 });
             })
-            .expect("spawn inbound share pool");
+        {
+            log::warn!("failed to spawn MeV Shield IBE inbound share pool: {error}");
+        }
     }
 
     pub fn mark_finalized_identity_unlocked(
@@ -255,9 +257,11 @@ impl MevShieldIbeSharePool {
         }
 
         let mut rounds = self.inner.rounds.lock();
-        if !rounds.contains_key(&round)
-            && rounds.len() >= self.inner.cfg.max_pending_identities as usize
-        {
+        let Ok(max_pending_identities) = usize::try_from(self.inner.cfg.max_pending_identities)
+        else {
+            return false;
+        };
+        if !rounds.contains_key(&round) && rounds.len() >= max_pending_identities {
             return false;
         }
         let state = rounds.entry(round).or_default();

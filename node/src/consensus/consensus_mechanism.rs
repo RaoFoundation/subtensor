@@ -81,7 +81,7 @@ pub trait ConsensusMechanism {
     fn build_biq(&mut self, skip_history_backfill: bool) -> Result<BIQ<'_>, sc_service::Error>;
 
     /// Returns the slot duration.
-    fn slot_duration(&self, client: &FullClient) -> Result<SlotDuration, ServiceError>;
+    fn slot_duration(&self) -> Result<SlotDuration, ServiceError>;
 
     /// Creates IDPs for the consensus mechanism.
     fn create_inherent_data_providers(
@@ -128,19 +128,25 @@ pub trait ConsensusMechanism {
         Error: std::error::Error + Send + From<sp_consensus::Error> + From<I::Error> + 'static;
 
     /// Spawns any consensus mechanism specific essential handles.
+    #[allow(unused_variables)]
     fn spawn_essential_handles(
         &self,
         task_manager: &mut TaskManager,
         client: Arc<FullClient>,
         custom_service_signal: Option<Arc<AtomicBool>>,
         sync_service: Arc<SyncingService<Block>>,
-    ) -> Result<(), ServiceError>;
+    ) -> Result<(), ServiceError> {
+        Ok(())
+    }
 
     /// Returns any consensus mechanism specific rpc methods to register.
+    #[allow(unused_variables)]
     fn rpc_methods(
         &self,
         client: Arc<FullClient>,
         keystore: KeystorePtr,
         select_chain: FullSelectChain,
-    ) -> Result<Vec<Methods>, sc_service::Error>;
+    ) -> Result<Vec<Methods>, sc_service::Error> {
+        Ok(Default::default())
+    }
 }

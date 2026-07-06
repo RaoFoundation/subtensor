@@ -8,20 +8,16 @@ impl<T: Config> Pallet<T> {
         let lifetime = u64::from(lifetime_blocks);
         let eval_ref_time = condition
             .condition_eval_weight_ref_time()
-            .checked_mul(lifetime)
-            .unwrap_or(u64::MAX);
+            .saturating_mul(lifetime);
         let storage_rent_ref_time = condition
             .encoded_condition_len()
-            .checked_mul(lifetime)
-            .and_then(|x| x.checked_mul(CONDITIONAL_IBE_STORAGE_RENT_WEIGHT_PER_BYTE_BLOCK))
-            .unwrap_or(u64::MAX);
-        let committee_premium_ref_time = CONDITIONAL_IBE_COMMITTEE_PREMIUM_WEIGHT_REF_TIME
-            .checked_mul(lifetime)
-            .unwrap_or(u64::MAX);
+            .saturating_mul(lifetime)
+            .saturating_mul(CONDITIONAL_IBE_STORAGE_RENT_WEIGHT_PER_BYTE_BLOCK);
+        let committee_premium_ref_time =
+            CONDITIONAL_IBE_COMMITTEE_PREMIUM_WEIGHT_REF_TIME.saturating_mul(lifetime);
         let variable_ref_time = eval_ref_time
-            .checked_add(storage_rent_ref_time)
-            .and_then(|x| x.checked_add(committee_premium_ref_time))
-            .unwrap_or(u64::MAX);
+            .saturating_add(storage_rent_ref_time)
+            .saturating_add(committee_premium_ref_time);
         let base = Self::current_ibe_queue_depth_priced_weight(
             Self::ibe_encrypted_submission_base_weight(),
         );
@@ -200,17 +196,34 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn process_conditional_ibe_queue() -> Weight {
+        Self::process_conditional_ibe_queue_after(Weight::zero())
+    }
+
+    pub(crate) fn process_conditional_ibe_queue_after(base_weight: Weight) -> Weight {
         let mut consumed = Weight::zero();
         let now: u64 = frame_system::Pallet::<T>::block_number().saturated_into::<u64>();
-        let indices: Vec<u32> = PendingConditionalIbeQueue::<T>::iter_keys().collect();
+        let mut indices: Vec<u32> = PendingConditionalIbeQueue::<T>::iter_keys().collect();
+        indices.sort_unstable();
+
         for index in indices {
-            consumed = consumed
-                .saturating_add(Weight::from_parts(CONDITIONAL_IBE_EVAL_WEIGHT_REF_TIME, 0));
+            let eval_weight = Weight::from_parts(CONDITIONAL_IBE_EVAL_WEIGHT_REF_TIME, 0);
+            if base_weight
+                .saturating_add(consumed)
+                .saturating_add(eval_weight)
+                .ref_time()
+                > OnInitializeWeight::<T>::get()
+            {
+                break;
+            }
+            consumed = consumed.saturating_add(eval_weight);
+
             let Some(entry) = PendingConditionalIbeQueue::<T>::get(index) else {
                 continue;
             };
+            let remove_weight = T::DbWeight::get().reads_writes(1, 2);
             if now > entry.expires_at {
                 let _ = Self::remove_conditional_ibe_entry(index);
+                consumed = consumed.saturating_add(remove_weight);
                 Self::refund_conditional_ibe_submission_deposit(index);
                 Self::deposit_event(Event::ConditionalIbeExpired { index });
                 continue;
@@ -220,49 +233,58 @@ impl<T: Config> Pallet<T> {
             }
             match T::IbeEncryptedTxDecryptor::decrypt(entry.encrypted_call.as_slice()) {
                 IbeDecryptOutcome::NotReady => {
-                    if now >= entry.target_block {
-                        let epoch = entry.epoch;
-                        let target_block = entry.target_block;
-                        let key_id = entry.key_id;
-
-                        let _ = Self::remove_conditional_ibe_entry(index);
-                        Self::refund_conditional_ibe_submission_deposit(index);
-
-                        Self::deposit_event(Event::IbeBlockKeyUnavailable {
-                            index,
-                            epoch,
-                            target_block,
-                            key_id,
-                        });
-                        Self::deposit_event(Event::ConditionalIbeExecuted {
-                            index,
-                            success: false,
-                        });
-                        continue;
-                    }
-
+                    Self::deposit_event(Event::IbeBlockKeyUnavailable {
+                        index,
+                        epoch: entry.epoch,
+                        target_block: entry.target_block,
+                        key_id: entry.key_id,
+                    });
                     Self::deposit_event(Event::ExtrinsicPostponed { index });
                     continue;
                 }
                 IbeDecryptOutcome::InvalidAfterKeyAvailable => {
                     let _ = Self::remove_conditional_ibe_entry(index);
+                    consumed = consumed.saturating_add(remove_weight);
                     Self::forfeit_conditional_ibe_submission_deposit(index);
                     Self::deposit_event(Event::ConditionalIbeInvalid { index });
                 }
                 IbeDecryptOutcome::Ready(inner) => {
-                    if let Some(info) = T::DecryptedExtrinsicExecutor::dispatch_info(&inner) {
-                        if info.call_weight.ref_time() > MaxExtrinsicWeight::<T>::get() {
-                            let _ = Self::remove_conditional_ibe_entry(index);
-                            Self::forfeit_conditional_ibe_submission_deposit(index);
-                            Self::deposit_event(Event::ExtrinsicWeightExceeded { index });
-                            continue;
-                        }
+                    let Some(info) = T::DecryptedExtrinsicExecutor::dispatch_info(&inner) else {
+                        let _ = Self::remove_conditional_ibe_entry(index);
+                        consumed = consumed.saturating_add(remove_weight);
+                        Self::forfeit_conditional_ibe_submission_deposit(index);
+                        Self::deposit_event(Event::ConditionalIbeInvalid { index });
+                        continue;
+                    };
+                    if info.call_weight.ref_time() > MaxExtrinsicWeight::<T>::get() {
+                        let _ = Self::remove_conditional_ibe_entry(index);
+                        consumed = consumed.saturating_add(remove_weight);
+                        Self::forfeit_conditional_ibe_submission_deposit(index);
+                        Self::deposit_event(Event::ExtrinsicWeightExceeded { index });
+                        continue;
                     }
+
+                    let dispatch_weight = T::DbWeight::get()
+                        .writes(2)
+                        .saturating_add(info.call_weight);
+                    if base_weight
+                        .saturating_add(consumed)
+                        .saturating_add(dispatch_weight)
+                        .ref_time()
+                        > OnInitializeWeight::<T>::get()
+                    {
+                        Self::deposit_event(Event::ExtrinsicPostponed { index });
+                        break;
+                    }
+
                     IbeQueueDrainInProgress::<T>::put(true);
+                    consumed = consumed.saturating_add(T::DbWeight::get().writes(1));
                     let applied = T::DecryptedExtrinsicExecutor::apply(inner);
-                    IbeQueueDrainInProgress::<T>::put(false);
+                    IbeQueueDrainInProgress::<T>::kill();
+                    consumed = consumed.saturating_add(T::DbWeight::get().writes(1));
                     consumed = consumed.saturating_add(applied.consumed_weight);
                     let _ = Self::remove_conditional_ibe_entry(index);
+                    consumed = consumed.saturating_add(remove_weight);
                     if applied.success {
                         Self::refund_conditional_ibe_submission_deposit(index);
                     } else {

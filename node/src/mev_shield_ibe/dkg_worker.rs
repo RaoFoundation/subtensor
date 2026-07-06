@@ -9,7 +9,6 @@ use futures::future::{AbortHandle, Abortable};
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use rand_core::OsRng;
 use sc_client_api::HeaderBackend;
-use sc_service::SpawnTaskHandle;
 use sp_api::ProvideRuntimeApi;
 use sp_core::H256;
 use sp_runtime::traits::Block as BlockT;
@@ -95,7 +94,6 @@ impl Default for WorkerState {
 }
 
 pub fn spawn_epoch_ahead_dkg_worker<Block, Client>(
-    _spawn_handle: &SpawnTaskHandle,
     client: Arc<Client>,
     dkg_source: Arc<ProductionDkgKeySource>,
     cfg: DkgWorkerConfig,
@@ -810,7 +808,7 @@ mod mev_shield_dkg_worker_unit_tests {
         VerifiedDealerShare {
             dealer_authority_id: dealer.to_vec(),
             share_id,
-            scalar: Scalar::from(share_id as u64),
+            scalar: Scalar::from(u64::from(share_id)),
         }
     }
 
@@ -968,7 +966,7 @@ mod comprehensive_green_path_tests {
             plan.max_atoms,
         )
         .expect("stake weighted atom plan builds");
-        assert_eq!(atom_plan.total_weight, plan.max_atoms as u128);
+        assert_eq!(atom_plan.total_weight, u128::from(plan.max_atoms));
         assert_eq!(
             atom_plan.threshold_weight,
             two_thirds_plus_one(atom_plan.total_weight).expect("threshold computes")

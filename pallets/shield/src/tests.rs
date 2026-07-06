@@ -1355,6 +1355,54 @@ fn ibe_v2_submit_rejects_wrong_key_id_and_duplicate_commitment() {
 }
 
 #[test]
+fn ibe_v2_commitments_are_unique_across_regular_and_conditional_queues() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x31; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(31, key_id, 1, 100),
+        ));
+
+        let envelope = test_ibe_envelope(31, 12, key_id, 0x77);
+        frame_support::assert_ok!(MevShield::submit_conditional_encrypted(
+            RuntimeOrigin::signed(1),
+            envelope.clone(),
+            crate::ConditionalIbeCondition::AtBlock { block: 12 },
+            8,
+        ));
+        frame_support::assert_noop!(
+            MevShield::submit_encrypted(RuntimeOrigin::signed(2), envelope),
+            Error::<Test>::DuplicateIbeCommitment
+        );
+    });
+
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x32; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(32, key_id, 1, 100),
+        ));
+
+        let envelope = test_ibe_envelope(32, 12, key_id, 0x78);
+        frame_support::assert_ok!(MevShield::submit_encrypted(
+            RuntimeOrigin::signed(1),
+            envelope.clone(),
+        ));
+        frame_support::assert_noop!(
+            MevShield::submit_conditional_encrypted(
+                RuntimeOrigin::signed(2),
+                envelope,
+                crate::ConditionalIbeCondition::AtBlock { block: 12 },
+                8,
+            ),
+            Error::<Test>::DuplicateIbeCommitment
+        );
+    });
+}
+
+#[test]
 fn ibe_v2_pending_identities_group_by_epoch_target_and_key() {
     new_test_ext().execute_with(|| {
         System::set_block_number(10);
@@ -1451,6 +1499,100 @@ fn ibe_v2_submission_forfeits_deposit_on_invalid_or_failed_inner() {
             }
             .into(),
         );
+    });
+}
+
+#[test]
+fn ibe_v2_future_target_waits_without_postponed_event() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [15; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(15, key_id, 1, 100),
+        ));
+
+        frame_support::assert_ok!(MevShield::submit_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(15, 12, key_id, 0xCC),
+        ));
+        assert_eq!(PendingExtrinsics::<Test>::count(), 1);
+
+        System::reset_events();
+        run_mev_shield_on_initialize_at(11);
+
+        assert_eq!(PendingExtrinsics::<Test>::count(), 1);
+        assert!(!MevShield::has_due_ibe_queue_head());
+        assert!(!System::events().iter().any(|record| {
+            matches!(
+                record.event,
+                RuntimeEvent::MevShield(crate::Event::<Test>::ExtrinsicPostponed { index: 0 })
+            )
+        }));
+
+        run_mev_shield_on_initialize_at(12);
+
+        assert_eq!(PendingExtrinsics::<Test>::count(), 1);
+        assert!(MevShield::has_due_ibe_queue_head());
+        System::assert_has_event(crate::Event::<Test>::ExtrinsicPostponed { index: 0 }.into());
+    });
+}
+
+#[test]
+fn ibe_v2_missing_block_key_keeps_due_entry_queued() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [13; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(13, key_id, 1, 100),
+        ));
+
+        let deposit = 10u64;
+        frame_support::assert_ok!(MevShield::submit_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(13, 12, key_id, 0xCC),
+        ));
+        assert_eq!(Balances::reserved_balance(1), deposit);
+
+        run_mev_shield_on_initialize_at(12);
+
+        assert_eq!(PendingExtrinsics::<Test>::count(), 1);
+        assert!(PendingExtrinsics::<Test>::get(0).is_some());
+        assert!(PendingIbeSubmissionDeposits::<Test>::get(0).is_some());
+        assert_eq!(Balances::reserved_balance(1), deposit);
+        assert!(MevShield::has_due_ibe_queue_head());
+        System::assert_has_event(crate::Event::<Test>::ExtrinsicPostponed { index: 0 }.into());
+    });
+}
+
+#[test]
+fn conditional_missing_block_key_keeps_fired_entry_queued() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [14; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(14, key_id, 1, 100),
+        ));
+
+        let deposit = 10u64;
+        frame_support::assert_ok!(MevShield::submit_conditional_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(14, 12, key_id, 0xCC),
+            crate::ConditionalIbeCondition::AtBlock { block: 12 },
+            5,
+        ));
+        assert_eq!(Balances::reserved_balance(1), deposit);
+
+        run_mev_shield_on_initialize_at(12);
+
+        assert_eq!(crate::PendingConditionalIbeQueue::<Test>::count(), 1);
+        assert!(crate::PendingConditionalIbeQueue::<Test>::get(0).is_some());
+        assert!(crate::PendingConditionalIbeSubmissionDeposits::<Test>::get(0).is_some());
+        assert_eq!(Balances::reserved_balance(1), deposit);
+        assert!(MevShield::has_fired_conditional_ibe());
+        System::assert_has_event(crate::Event::<Test>::ExtrinsicPostponed { index: 0 }.into());
     });
 }
 
@@ -1569,6 +1711,78 @@ fn fired_conditional_entries_are_visible_to_ibe_key_discovery() {
 }
 
 #[test]
+fn conditional_queue_processes_sparse_indices_in_numeric_order() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x42; stp_mev_shield_ibe::KEY_ID_LEN];
+
+        for index in [256u32, 1u32] {
+            crate::PendingConditionalIbeQueue::<Test>::insert(
+                index,
+                crate::PendingConditionalIbe::<Test> {
+                    who: 1,
+                    encrypted_call: test_ibe_envelope(4, 10, key_id, 0xAA),
+                    condition: crate::ConditionalIbeCondition::AtBlock { block: 10 },
+                    submitted_at: 1,
+                    expires_at: 20,
+                    epoch: 4,
+                    target_block: 10,
+                    key_id,
+                    commitment: sp_core::H256::repeat_byte(u8::try_from(index).unwrap_or(u8::MAX)),
+                },
+            );
+        }
+
+        let _ = MevShield::process_conditional_ibe_queue();
+        let executed = System::events()
+            .into_iter()
+            .filter_map(|record| match record.event {
+                RuntimeEvent::MevShield(crate::Event::ConditionalIbeExecuted {
+                    index,
+                    success: true,
+                }) => Some(index),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(executed, vec![1, 256]);
+    });
+}
+
+#[test]
+fn fired_conditional_entry_postpones_when_dispatch_would_exceed_budget() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x43; stp_mev_shield_ibe::KEY_ID_LEN];
+        OnInitializeWeight::<Test>::put(crate::CONDITIONAL_IBE_EVAL_WEIGHT_REF_TIME);
+
+        crate::PendingConditionalIbeQueue::<Test>::insert(
+            0,
+            crate::PendingConditionalIbe::<Test> {
+                who: 1,
+                encrypted_call: test_ibe_envelope(4, 10, key_id, 0xAA),
+                condition: crate::ConditionalIbeCondition::AtBlock { block: 10 },
+                submitted_at: 1,
+                expires_at: 20,
+                epoch: 4,
+                target_block: 10,
+                key_id,
+                commitment: sp_core::H256::repeat_byte(0x43),
+            },
+        );
+
+        let _ = MevShield::process_conditional_ibe_queue();
+
+        assert!(crate::PendingConditionalIbeQueue::<Test>::get(0).is_some());
+        System::assert_has_event(crate::Event::<Test>::ExtrinsicPostponed { index: 0 }.into());
+        assert!(!System::events().into_iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::MevShield(crate::Event::ConditionalIbeExecuted { index: 0, .. })
+        )));
+    });
+}
+
+#[test]
 fn expired_conditional_entries_are_not_key_release_identities() {
     new_test_ext().execute_with(|| {
         System::set_block_number(30);
@@ -1592,6 +1806,211 @@ fn expired_conditional_entries_are_not_key_release_identities() {
         assert!(!identities.iter().any(|identity| {
             identity.epoch == 4 && identity.target_block == 10 && identity.key_id == key_id
         }));
+    });
+}
+
+#[test]
+fn ibe_v2_missing_key_holds_fifo_then_drains_after_key_available() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x21; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(21, key_id, 1, 100),
+        ));
+
+        frame_support::assert_ok!(MevShield::submit_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(21, 12, key_id, 0xCC),
+        ));
+        frame_support::assert_ok!(MevShield::submit_encrypted(
+            RuntimeOrigin::signed(2),
+            test_ibe_envelope(21, 12, key_id, 0xAA),
+        ));
+
+        run_mev_shield_on_initialize_at(12);
+
+        assert_eq!(PendingExtrinsics::<Test>::count(), 2);
+        assert!(PendingExtrinsics::<Test>::get(0).is_some());
+        assert!(PendingExtrinsics::<Test>::get(1).is_some());
+        System::assert_has_event(
+            crate::Event::<Test>::IbeBlockKeyUnavailable {
+                index: 0,
+                epoch: 21,
+                target_block: 12,
+                key_id,
+            }
+            .into(),
+        );
+        assert!(!System::events().into_iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::MevShield(crate::Event::IbeEncryptedExtrinsicExecuted { index: 1, .. })
+        )));
+
+        let mut pending = PendingExtrinsics::<Test>::get(0).expect("pending entry exists");
+        pending.encrypted_call = test_ibe_envelope(21, 12, key_id, 0xAA);
+        PendingExtrinsics::<Test>::insert(0, pending);
+        System::reset_events();
+
+        run_mev_shield_on_initialize_at(13);
+
+        assert_eq!(PendingExtrinsics::<Test>::count(), 0);
+        let executed = System::events()
+            .into_iter()
+            .filter_map(|record| match record.event {
+                RuntimeEvent::MevShield(crate::Event::IbeEncryptedExtrinsicExecuted {
+                    index,
+                    success: true,
+                }) => Some(index),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(executed, vec![0, 1]);
+    });
+}
+
+#[test]
+fn ibe_v2_per_sender_cap_is_released_after_queue_drain() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x22; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(22, key_id, 1, 100),
+        ));
+
+        for commitment_byte in 1u8..=8 {
+            frame_support::assert_ok!(MevShield::submit_encrypted(
+                RuntimeOrigin::signed(1),
+                test_ibe_envelope(22, 12, key_id, commitment_byte),
+            ));
+        }
+        assert_eq!(crate::PendingIbeBySubmitter::<Test>::get(1), 8);
+        frame_support::assert_noop!(
+            MevShield::submit_encrypted(
+                RuntimeOrigin::signed(1),
+                test_ibe_envelope(22, 12, key_id, 9),
+            ),
+            Error::<Test>::TooManyPendingIbeForSender
+        );
+
+        for index in 0u32..8 {
+            let mut pending = PendingExtrinsics::<Test>::get(index).expect("pending entry exists");
+            pending.encrypted_call = test_ibe_envelope(22, 12, key_id, 0xAA);
+            PendingExtrinsics::<Test>::insert(index, pending);
+        }
+
+        run_mev_shield_on_initialize_at(12);
+
+        assert_eq!(PendingExtrinsics::<Test>::count(), 0);
+        assert_eq!(crate::PendingIbeBySubmitter::<Test>::get(1), 0);
+        assert_eq!(Balances::reserved_balance(1), 0);
+
+        frame_support::assert_ok!(MevShield::submit_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(22, 14, key_id, 9),
+        ));
+    });
+}
+
+#[test]
+fn legacy_store_encrypted_is_disabled_once_v2_bootstrap_is_ready() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x23; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(23, key_id, 1, 100),
+        ));
+        assert!(MevShield::ibe_v2_submission_bootstrap_ready(10));
+
+        let legacy_call = RuntimeCall::System(frame_system::Call::remark { remark: vec![1] });
+        frame_support::assert_noop!(
+            MevShield::store_encrypted(
+                RuntimeOrigin::signed(1),
+                BoundedVec::truncate_from(legacy_call.encode()),
+            ),
+            Error::<Test>::BadIbeEnvelope
+        );
+
+        frame_support::assert_ok!(MevShield::store_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(23, 12, key_id, 0xAA),
+        ));
+    });
+}
+
+#[test]
+fn conditional_missing_key_expires_and_refunds_after_lifetime() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let key_id = [0x24; stp_mev_shield_ibe::KEY_ID_LEN];
+        frame_support::assert_ok!(MevShield::set_ibe_epoch_public_key(
+            RuntimeOrigin::root(),
+            test_ibe_epoch_key(24, key_id, 1, 100),
+        ));
+
+        frame_support::assert_ok!(MevShield::submit_conditional_encrypted(
+            RuntimeOrigin::signed(1),
+            test_ibe_envelope(24, 12, key_id, 0xCC),
+            crate::ConditionalIbeCondition::AtBlock { block: 12 },
+            2,
+        ));
+        assert_eq!(Balances::reserved_balance(1), 10);
+
+        run_mev_shield_on_initialize_at(12);
+        assert_eq!(crate::PendingConditionalIbeQueue::<Test>::count(), 1);
+        System::assert_has_event(
+            crate::Event::<Test>::IbeBlockKeyUnavailable {
+                index: 0,
+                epoch: 24,
+                target_block: 12,
+                key_id,
+            }
+            .into(),
+        );
+
+        run_mev_shield_on_initialize_at(13);
+        assert_eq!(crate::PendingConditionalIbeQueue::<Test>::count(), 0);
+        assert_eq!(Balances::reserved_balance(1), 0);
+        assert!(crate::PendingConditionalIbeSubmissionDeposits::<Test>::get(0).is_none());
+        System::assert_has_event(crate::Event::<Test>::ConditionalIbeExpired { index: 0 }.into());
+    });
+}
+
+#[test]
+fn epoch_ahead_snapshot_promotes_future_poa_handoff_to_pos_before_dkg_output() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(0);
+        let epoch = crate::IBE_DKG_EPOCHS_AHEAD;
+        let aura_authority = mev_shield_ibe_runtime_api::DkgAuthorityInfo {
+            hotkey_account_id: vec![1; 32],
+            consensus_key_kind: mev_shield_ibe_runtime_api::DkgConsensusKeyKind::AuraSr25519,
+            authority_id: vec![2; 32],
+            stake: 10,
+            dkg_x25519_public_key: [3; 32],
+        };
+        crate::IbeDkgAuthoritySnapshots::<Test>::insert(epoch, vec![aura_authority]);
+        crate::IbeDkgConsensusSources::<Test>::insert(
+            epoch,
+            mev_shield_ibe_runtime_api::DkgConsensusSource::PoaAuraRootValidators,
+        );
+
+        let babe_authorities = vec![babe_dkg_authority(9, 10), babe_dkg_authority(10, 20)];
+        set_dkg_authorities(babe_authorities.clone());
+
+        let _ = MevShield::ensure_epoch_ahead_dkg_snapshots();
+
+        let stored = crate::IbeDkgAuthoritySnapshots::<Test>::get(epoch);
+        assert_eq!(stored.len(), babe_authorities.len());
+        assert!(stored.iter().all(|authority| {
+            authority.consensus_key_kind
+                == mev_shield_ibe_runtime_api::DkgConsensusKeyKind::BabeSr25519
+        }));
+        assert_eq!(
+            crate::IbeDkgConsensusSources::<Test>::get(epoch),
+            Some(mev_shield_ibe_runtime_api::DkgConsensusSource::PosBabeRootValidators),
+        );
     });
 }
 

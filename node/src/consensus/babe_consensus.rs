@@ -3,7 +3,6 @@ use crate::consensus::StartAuthoringParams;
 use crate::{
     client::{FullBackend, FullClient},
     conditional_evm_block_import::ConditionalEVMBlockImport,
-    ethereum::EthConfiguration,
     service::{BIQ, FullSelectChain, GrandpaBlockImport},
 };
 use fc_consensus::FrontierBlockImport;
@@ -16,7 +15,6 @@ use sc_consensus_babe::{BabeLink, BabeWorkerHandle};
 use sc_consensus_babe_rpc::{Babe, BabeApiServer};
 use sc_consensus_grandpa::BlockNumberOps;
 use sc_consensus_slots::{BackoffAuthoringBlocksStrategy, InherentDataProviderExt};
-use sc_network_sync::SyncingService;
 use sc_service::{Configuration, TaskManager};
 use sc_telemetry::TelemetryHandle;
 use sc_transaction_pool::TransactionPoolHandle;
@@ -31,7 +29,6 @@ use sp_consensus_slots::SlotDuration;
 use sp_inherents::CreateInherentDataProviders;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::NumberFor;
-use stc_shield::InherentDataProvider as ShieldInherentDataProvider;
 use std::{error::Error, sync::Arc};
 use stp_shield::ShieldKeystorePtr;
 
@@ -44,7 +41,6 @@ impl ConsensusMechanism for BabeConsensus {
     type InherentDataProviders = (
         sp_consensus_babe::inherents::InherentDataProvider,
         sp_timestamp::InherentDataProvider,
-        stc_shield::InherentDataProvider,
     );
 
     #[allow(clippy::expect_used)]
@@ -114,7 +110,7 @@ impl ConsensusMechanism for BabeConsensus {
 
     fn create_inherent_data_providers(
         slot_duration: SlotDuration,
-        shield_keystore: ShieldKeystorePtr,
+        _: ShieldKeystorePtr,
     ) -> Result<Self::InherentDataProviders, Box<dyn Error + Send + Sync>> {
         let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
         let slot =
@@ -122,13 +118,12 @@ impl ConsensusMechanism for BabeConsensus {
                 *timestamp,
                 slot_duration,
             );
-        let shield = stc_shield::InherentDataProvider::new(shield_keystore);
-        Ok((slot, timestamp, shield))
+        Ok((slot, timestamp))
     }
 
     fn pending_create_inherent_data_providers(
         slot_duration: SlotDuration,
-        shield_keystore: ShieldKeystorePtr,
+        _: ShieldKeystorePtr,
     ) -> Result<Self::InherentDataProviders, Box<dyn Error + Send + Sync>> {
         let current = sp_timestamp::InherentDataProvider::from_system_time();
         let next_slot = current
@@ -141,8 +136,7 @@ impl ConsensusMechanism for BabeConsensus {
                 *timestamp,
                 slot_duration,
             );
-        let shield = ShieldInherentDataProvider::new(shield_keystore);
-        Ok((slot, timestamp, shield))
+        Ok((slot, timestamp))
     }
 
     fn new() -> Self {
@@ -160,7 +154,6 @@ impl ConsensusMechanism for BabeConsensus {
             move |client: Arc<FullClient>,
                   backend: Arc<FullBackend>,
                   config: &Configuration,
-                  _eth_config: &EthConfiguration,
                   task_manager: &TaskManager,
                   telemetry: Option<TelemetryHandle>,
                   grandpa_block_import: GrandpaBlockImport,
@@ -240,7 +233,7 @@ impl ConsensusMechanism for BabeConsensus {
         Ok(build_import_queue)
     }
 
-    fn slot_duration(&self, _client: &FullClient) -> Result<SlotDuration, sc_service::Error> {
+    fn slot_duration(&self) -> Result<SlotDuration, sc_service::Error> {
         if let Some(ref babe_link) = self.babe_link {
             Ok(babe_link.config().slot_duration())
         } else {
@@ -249,18 +242,6 @@ impl ConsensusMechanism for BabeConsensus {
 			))
         }
     }
-
-    fn spawn_essential_handles(
-        &self,
-        _task_manager: &mut TaskManager,
-        _client: Arc<FullClient>,
-        _custom_service_signal: Option<Arc<std::sync::atomic::AtomicBool>>,
-        _sync_service: Arc<SyncingService<Block>>,
-    ) -> Result<(), sc_service::Error> {
-        // No additional Babe handles required.
-        Ok(())
-    }
-
     fn rpc_methods(
         &self,
         client: Arc<FullClient>,

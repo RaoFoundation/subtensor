@@ -1,12 +1,6 @@
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    /// Install the finalized NPoS/BABE DKG authority snapshot for an epoch.
-    ///
-    /// This is a runtime-internal hook for the PoA->NPoS transition migration.
-    /// It deliberately has no dispatchable call: before the transition there is
-    /// no session/BABE pallet state to query, and after the transition this must
-    /// be sourced from the finalized NPoS/session authority set, not from a user
     /// Install/freeze a finalized NPoS/BABE DKG authority snapshot for `epoch`.
     ///
     /// This is a runtime-internal hook for the PoA -> NPoS transition and
@@ -164,7 +158,7 @@ impl<T: Config> Pallet<T> {
             };
 
             if authorities_missing || should_promote_to_pos {
-                let authority_count = authorities.len() as u32;
+                let authority_count = u32::try_from(authorities.len()).unwrap_or(u32::MAX);
                 IbeDkgAuthoritySnapshots::<T>::insert(epoch, authorities);
                 writes = writes.saturating_add(1);
                 Self::deposit_event(Event::IbeDkgAuthoritySnapshotStored {
@@ -224,7 +218,7 @@ impl<T: Config> Pallet<T> {
         }
         Some(
             stake
-                .checked_mul(max_atoms as u128)?
+                .checked_mul(u128::from(max_atoms))?
                 .checked_div(total_stake)?
                 > 0,
         )
@@ -244,7 +238,7 @@ impl<T: Config> Pallet<T> {
         if total_stake == 0 {
             return None;
         }
-        let total_atoms = max_atoms as u128;
+        let total_atoms = u128::from(max_atoms);
         let mut eligible_stake = 0u128;
         for authority in authorities.iter().filter(|a| a.stake > 0) {
             if Self::dkg_authority_is_atom_eligible(authority.stake, total_stake, max_atoms)? {
@@ -381,9 +375,7 @@ impl<T: Config> Pallet<T> {
         let current = Self::current_ibe_epoch();
         let (_, current_last_block) = Self::epoch_bounds(current);
         let current_block: u64 = frame_system::Pallet::<T>::block_number().saturated_into::<u64>();
-        let canonical_submission_target = current_block
-            .checked_add(IBE_TARGET_LOOKAHEAD_BLOCKS)
-            .unwrap_or(u64::MAX);
+        let canonical_submission_target = current_block.saturating_add(IBE_TARGET_LOOKAHEAD_BLOCKS);
         let required_last_block = core::cmp::max(current_last_block, canonical_submission_target);
 
         // Reads are intentionally conservative: the readiness probes and fallback
@@ -417,7 +409,7 @@ impl<T: Config> Pallet<T> {
         fallback_key.last_block = required_last_block;
         IbeEpochKeys::<T>::insert(source_epoch, fallback_key);
         Self::update_latest_published_ibe_epoch(source_epoch);
-        writes = writes.checked_add(2).unwrap_or(u64::MAX);
+        writes = writes.saturating_add(2);
 
         let epoch_len = T::EpochLength::get().max(1);
         let extended_epoch = required_last_block
@@ -526,7 +518,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BadIbeDkgPublication
         );
         ensure!(
-            publication.public_atoms.len() <= plan.max_atoms as usize,
+            publication.public_atoms.len() <= usize::try_from(plan.max_atoms).unwrap_or(usize::MAX),
             Error::<T>::BadIbeDkgPublication
         );
         let mut seen_atoms = sp_std::collections::btree_set::BTreeSet::<u32>::new();
@@ -654,7 +646,7 @@ impl<T: Config> Pallet<T> {
 
         let index = match Self::store_pending_encrypted(who.clone(), encrypted_call) {
             Ok(index) => index,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(error),
         };
 
         let submission_deposit = Self::ibe_submission_deposit();
@@ -748,11 +740,7 @@ impl<T: Config> Pallet<T> {
             {
                 return false;
             }
-            if !T::IbeKeyVerifier::verify_partial_identity_key(
-                genesis_hash.clone(),
-                &epoch_key,
-                share,
-            ) {
+            if !T::IbeKeyVerifier::verify_partial_identity_key(genesis_hash, &epoch_key, share) {
                 return false;
             }
             let Some(next_weight) = total_weight.checked_add(share.weight) else {
@@ -880,10 +868,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Process pending encrypted extrinsics up to the weight limit.
-    /// Returns the total weight consumed.
-    /// Drain pending encrypted work after mandatory inherents and before user extrinsics.
-
     /// Import threshold-IBE block-key release bundles from pre-runtime digests.
     ///
     /// This is the spec-compatible delivery path: the block author puts
@@ -929,21 +913,6 @@ impl<T: Config> Pallet<T> {
         T::DbWeight::get().reads_writes(1u64, imported)
     }
 
-    /// Return the identity of a pending IBE queue entry once its target block is due.
-    ///
-    /// A due entry whose block key is unavailable must be terminal. Otherwise one
-    /// missing key can pin the FIFO head forever and halt plaintext block import.
-    pub(crate) fn due_ibe_entry_identity(index: u32) -> Option<(u64, u64, [u8; KEY_ID_LEN])> {
-        let meta = PendingIbeMetadata::<T>::get(index)?;
-        let now: u64 = frame_system::Pallet::<T>::block_number().saturated_into::<u64>();
-
-        if meta.target_block <= now {
-            Some((meta.epoch, meta.target_block, meta.key_id))
-        } else {
-            None
-        }
-    }
-
     pub(crate) fn process_pending_ibe_extrinsic(
         index: u32,
         pending: PendingExtrinsic<T>,
@@ -953,29 +922,18 @@ impl<T: Config> Pallet<T> {
         let outcome = T::IbeEncryptedTxDecryptor::decrypt(pending.encrypted_call.as_slice());
         let inner = match outcome {
             IbeDecryptOutcome::NotReady => {
-                if let Some((epoch, target_block, key_id)) = Self::due_ibe_entry_identity(index) {
-                    Self::remove_pending_index(index);
-                    weight = weight.saturating_add(remove_weight);
-
-                    // Missing key release is a committee/liveness failure, not a malformed
-                    // user ciphertext. Refund the reserved deposit and consume the slot so
-                    // a single unreleased key can never pin the chain.
-                    Self::refund_ibe_submission_deposit(index);
-
+                // Keep the entry at the FIFO head. A missing or not-yet-imported
+                // block key must not let a block author consume/drop encrypted
+                // work and then execute plaintext non-operational calls.
+                if let Some(meta) = PendingIbeMetadata::<T>::get(index) {
+                    weight = weight.saturating_add(T::DbWeight::get().reads(1));
                     Self::deposit_event(Event::IbeBlockKeyUnavailable {
                         index,
-                        epoch,
-                        target_block,
-                        key_id,
+                        epoch: meta.epoch,
+                        target_block: meta.target_block,
+                        key_id: meta.key_id,
                     });
-                    Self::deposit_event(Event::IbeEncryptedExtrinsicExecuted {
-                        index,
-                        success: false,
-                    });
-
-                    return PendingProcess::Continue(weight);
                 }
-
                 Self::deposit_event(Event::ExtrinsicPostponed { index });
                 return PendingProcess::Break(weight);
             }
@@ -1059,7 +1017,7 @@ impl<T: Config> Pallet<T> {
         };
         let next_index = NextPendingExtrinsicIndex::<T>::get();
         let count: u32 = PendingExtrinsics::<T>::count();
-        let start_index = next_index.checked_sub(count).unwrap_or(0);
+        let start_index = next_index.saturating_sub(count);
         let mut identities = sp_std::collections::btree_map::BTreeMap::<
             (u64, u64, [u8; KEY_ID_LEN]),
             (u32, u32),
