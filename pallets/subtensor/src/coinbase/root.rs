@@ -210,11 +210,22 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetNotExists
         );
 
+        let reservoir_tao = T::SwapInterface::protocol_tao_reservoir(netuid);
+        let reservoir_alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
+        T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
+        Self::increase_provided_tao_reserve(netuid, reservoir_tao);
+        Self::increase_provided_alpha_reserve(netuid, reservoir_alpha);
+        if !reservoir_tao.is_zero() {
+            TotalStake::<T>::mutate(|total| {
+                *total = total.saturating_add(reservoir_tao);
+            });
+        }
+
         Self::finalize_all_subnet_root_dividends(netuid);
 
         // --- Perform the cleanup before removing the network.
         Self::destroy_alpha_in_out_stakes(netuid)?;
-        T::SwapInterface::clear_protocol_liquidity(netuid)?;
+        T::SwapInterface::clear_protocol_liquidity(netuid);
         T::CommitmentsInterface::purge_netuid(netuid);
 
         // --- Remove the network

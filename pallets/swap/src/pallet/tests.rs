@@ -155,6 +155,124 @@ mod dispatchables {
         });
     }
 
+    #[test]
+    fn test_adjust_protocol_liquidity_materializes_tao_when_reservoiring_tao() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+
+            let tao = TaoBalance::from(1_000_u64);
+            let alpha = AlphaBalance::from(1_000_u64);
+            TaoReserve::set_mock_reserve(netuid, tao);
+            AlphaReserve::set_mock_reserve(netuid, alpha);
+
+            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
+                netuid,
+                TaoBalance::from(200_000_u64),
+                AlphaBalance::from(1_000_u64),
+            );
+
+            assert_eq!(price_active_tao, TaoBalance::ZERO);
+            assert_eq!(price_active_alpha, AlphaBalance::from(1_000_u64));
+            assert_eq!(
+                BalancerTaoReservoir::<Test>::get(netuid),
+                TaoBalance::from(200_000_u64)
+            );
+            assert_eq!(
+                BalancerAlphaReservoir::<Test>::get(netuid),
+                AlphaBalance::ZERO
+            );
+        });
+    }
+
+    #[test]
+    fn test_adjust_protocol_liquidity_materializes_alpha_when_reservoiring_alpha() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+
+            let tao = TaoBalance::from(1_000_u64);
+            let alpha = AlphaBalance::from(1_000_u64);
+            TaoReserve::set_mock_reserve(netuid, tao);
+            AlphaReserve::set_mock_reserve(netuid, alpha);
+
+            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
+                netuid,
+                TaoBalance::from(1_000_u64),
+                AlphaBalance::from(200_000_u64),
+            );
+
+            assert_eq!(price_active_tao, TaoBalance::from(1_000_u64));
+            assert_eq!(price_active_alpha, AlphaBalance::ZERO);
+            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
+            assert_eq!(
+                BalancerAlphaReservoir::<Test>::get(netuid),
+                AlphaBalance::from(200_000_u64)
+            );
+        });
+    }
+
+    #[test]
+    fn test_adjust_protocol_liquidity_retries_reservoir_with_new_injection() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+
+            let mut tao = TaoBalance::from(1_000_u64);
+            let mut alpha = AlphaBalance::from(1_000_u64);
+            TaoReserve::set_mock_reserve(netuid, tao);
+            AlphaReserve::set_mock_reserve(netuid, alpha);
+
+            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
+                netuid,
+                TaoBalance::from(200_000_u64),
+                AlphaBalance::from(1_000_u64),
+            );
+            assert_eq!(price_active_tao, TaoBalance::ZERO);
+            assert_eq!(price_active_alpha, AlphaBalance::from(1_000_u64));
+            tao += price_active_tao;
+            alpha += price_active_alpha;
+            TaoReserve::set_mock_reserve(netuid, tao);
+            AlphaReserve::set_mock_reserve(netuid, alpha);
+
+            let (price_active_tao, price_active_alpha) = Swap::adjust_protocol_liquidity(
+                netuid,
+                TaoBalance::from(1_000_u64),
+                AlphaBalance::from(200_000_u64),
+            );
+
+            assert!(price_active_tao >= TaoBalance::from(1_000_u64));
+            assert!(price_active_alpha >= AlphaBalance::from(200_000_u64));
+            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
+            assert_eq!(
+                BalancerAlphaReservoir::<Test>::get(netuid),
+                AlphaBalance::ZERO
+            );
+        });
+    }
+
+    #[test]
+    fn test_adjust_protocol_liquidity_activates_reservoir_amounts() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+
+            TaoReserve::set_mock_reserve(netuid, TaoBalance::from(1_000_000_u64));
+            AlphaReserve::set_mock_reserve(netuid, AlphaBalance::from(1_000_000_u64));
+            BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(10_000_u64));
+            BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(20_000_u64));
+
+            let tao_delta = TaoBalance::from(300_u64);
+            let alpha_delta = AlphaBalance::from(400_u64);
+            let (price_active_tao, price_active_alpha) =
+                Swap::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta);
+
+            assert_eq!(price_active_tao, TaoBalance::from(10_300_u64));
+            assert_eq!(price_active_alpha, AlphaBalance::from(20_400_u64));
+            assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
+            assert_eq!(
+                BalancerAlphaReservoir::<Test>::get(netuid),
+                AlphaBalance::ZERO
+            );
+        });
+    }
+
     /// This test case verifies that small gradual injections (like emissions in every block)
     /// in the worst case
     ///   - Do not cause price to change
@@ -810,17 +928,18 @@ fn print_current_price(netuid: NetUid) {
     log::trace!("Current price: {current_price:.6}");
 }
 
-/// Simple palswap path: PalSwap is initialized, but no positions, only protocol; function
-/// must still clear any residual storages and succeed.
-/// TODO: Revise when user liquidity is available
+/// Reservoir liquidity is already materialized but not price-active; direct
+/// cleanup materializes it into the reserve abstraction before clearing.
 #[test]
-fn test_liquidate_pal_simple_ok_and_clears() {
+fn test_clear_protocol_liquidity_clears_nonzero_reservoirs() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(202);
 
         // Insert map values
         FeeRate::<Test>::insert(netuid, 1_000);
         PalSwapInitialized::<Test>::insert(netuid, true);
+        BalancerTaoReservoir::<Test>::insert(netuid, TaoBalance::from(12_345_u64));
+        BalancerAlphaReservoir::<Test>::insert(netuid, AlphaBalance::from(67_890_u64));
         let w_quote_pt = Perquintill::from_rational(1u128, 2u128);
         let bal = Balancer::new(w_quote_pt).unwrap();
         SwapBalancer::<Test>::insert(netuid, bal);
@@ -828,13 +947,13 @@ fn test_liquidate_pal_simple_ok_and_clears() {
         // Sanity: PalSwap is not initialized
         assert!(PalSwapInitialized::<Test>::get(netuid));
 
-        // ACT
-        assert_ok!(Pallet::<Test>::do_clear_protocol_liquidity(netuid));
+        Pallet::<Test>::do_clear_protocol_liquidity(netuid);
 
-        // All single-key maps should not have the key after liquidation
         assert!(!FeeRate::<Test>::contains_key(netuid));
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
         assert!(!SwapBalancer::<Test>::contains_key(netuid));
+        assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+        assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
     });
 }
 
@@ -853,7 +972,7 @@ fn test_clear_protocol_liquidity_green_path() {
 
         // --- Act ---
         // Green path: just clear protocol liquidity and wipe all V3 state.
-        assert_ok!(Pallet::<Test>::do_clear_protocol_liquidity(netuid));
+        Pallet::<Test>::do_clear_protocol_liquidity(netuid);
 
         // Flags
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
@@ -862,7 +981,7 @@ fn test_clear_protocol_liquidity_green_path() {
         assert!(!FeeRate::<Test>::contains_key(netuid));
 
         // --- And it's idempotent ---
-        assert_ok!(Pallet::<Test>::do_clear_protocol_liquidity(netuid));
+        Pallet::<Test>::do_clear_protocol_liquidity(netuid);
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
     });
 }

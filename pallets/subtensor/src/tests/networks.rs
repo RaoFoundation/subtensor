@@ -522,6 +522,8 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!SubnetAlphaOutEmission::<Test>::contains_key(net));
         assert!(!SubnetTaoInEmission::<Test>::contains_key(net));
         assert!(!SubnetVolume::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
 
         // TAO Flow
         assert!(!SubnetTaoFlow::<Test>::contains_key(net));
@@ -640,6 +642,58 @@ fn dissolve_clears_all_per_subnet_storages() {
         // Final subnet removal confirmation
         // ------------------------------------------------------------------
         assert!(!SubtensorModule::if_subnet_exist(net));
+    });
+}
+
+#[test]
+fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
+    new_test_ext(0).execute_with(|| {
+        let owner_cold = U256::from(123);
+        let owner_hot = U256::from(456);
+        let net = add_dynamic_network(&owner_hot, &owner_cold);
+        remove_owner_registration_stake(net);
+
+        // Force the modern dissolve branch where pool alpha participates in
+        // the protocol denominator.
+        TaoInRefundDeploymentBlock::<Test>::put(0);
+        NetworkRegisteredAt::<Test>::insert(net, 1);
+
+        let reservoir_tao = TaoBalance::from(100_u64);
+        let reservoir_alpha = AlphaBalance::from(100_u64);
+        let staker_hot = U256::from(789);
+        let staker_cold = U256::from(987);
+
+        let subnet_account = SubtensorModule::get_subnet_account_id(net).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, reservoir_tao);
+
+        SubnetTAO::<Test>::insert(net, TaoBalance::ZERO);
+        SubtensorModule::set_subnet_locked_balance(net, TaoBalance::ZERO);
+        SubnetAlphaIn::<Test>::insert(net, AlphaBalance::ZERO);
+        SubnetProtocolAlpha::<Test>::insert(net, AlphaBalance::ZERO);
+        AlphaV2::<Test>::insert((staker_hot, staker_cold, net), sf_from_u64(100u64));
+        TotalHotkeyAlpha::<Test>::insert(staker_hot, net, AlphaBalance::from(100u64));
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(net, reservoir_tao);
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(net, reservoir_alpha);
+
+        let staker_before = SubtensorModule::get_coldkey_balance(&staker_cold);
+        let issuance_before = TotalIssuance::<Test>::get();
+
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+
+        // Reservoir alpha is treated like materialized protocol pool alpha.
+        // The staker owns half the denominator, so receives half the reservoir
+        // TAO pot; the protocol share is recycled.
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&staker_cold),
+            staker_before + TaoBalance::from(50_u64)
+        );
+        assert!(TotalIssuance::<Test>::get() < issuance_before);
+        assert!(!NetworksAdded::<Test>::contains_key(net));
+        assert!(!SubnetOwner::<Test>::contains_key(net));
+        assert!(!SubnetAlphaIn::<Test>::contains_key(net));
+        assert!(!SubnetProtocolAlpha::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
     });
 }
 

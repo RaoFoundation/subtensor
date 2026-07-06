@@ -85,11 +85,6 @@ impl<T: Config> Pallet<T> {
                 let tao_to_swap_with: TaoBalance =
                     tou64!(excess_tao.get(netuid_i).unwrap_or(&asfloat!(0))).into();
 
-                // Inject tao and alpha into protocol liquidity. In theorry, it may not always
-                // be a success (returned values are 0s) in case of high liquidity disbalance
-                let (actual_injected_tao, actual_injected_alpha) =
-                    T::SwapInterface::adjust_protocol_liquidity(*netuid_i, tao_in_i, alpha_in_i);
-
                 // Clear per-block pool-side emission counters up front so a subnet
                 // disabled this block does not display stale values from an earlier block.
                 SubnetExcessTao::<T>::insert(*netuid_i, TaoBalance::ZERO);
@@ -130,38 +125,56 @@ impl<T: Config> Pallet<T> {
                     }
                 }
 
-                // Inject Alpha in.
-                SubnetAlphaInEmission::<T>::insert(*netuid_i, actual_injected_alpha);
-
-                // Mint alpha and resolve to alpha reserve
-                Self::resolve_to_alpha_in(Self::mint_alpha(*netuid_i, actual_injected_alpha));
-
-                // Inject TAO in.
-                if !actual_injected_tao.is_zero() {
-                    match Self::spend_tao(&subnet_account_id, remaining_credit, actual_injected_tao)
-                    {
+                // Materialize this block's TAO before updating balancer reservoir
+                // state. If spending fails, do not let the swap pallet consume
+                // reservoir state as if this block's TAO arrived.
+                let materialized_tao_delta = if tao_in_i.is_zero() {
+                    TaoBalance::ZERO
+                } else {
+                    match Self::spend_tao(&subnet_account_id, remaining_credit, tao_in_i) {
                         Ok(remainder) => {
                             remaining_credit = remainder;
-
-                            SubnetTaoInEmission::<T>::insert(*netuid_i, actual_injected_tao);
-                            SubnetTAO::<T>::mutate(*netuid_i, |total| {
-                                *total = total.saturating_add(actual_injected_tao);
-                            });
-                            TotalStake::<T>::mutate(|total| {
-                                *total = total.saturating_add(actual_injected_tao);
-                            });
-
-                            // Record emission injection as protocol inflow.
-                            Self::record_protocol_inflow(*netuid_i, actual_injected_tao);
+                            tao_in_i
                         }
                         Err(remainder) => {
                             remaining_credit = remainder;
                             let remaining_balance = remaining_credit.peek();
                             log::error!(
-                                "Failed to spend credit: injected_tao = {actual_injected_tao:?}, netuid_i = {netuid_i:?}, remaining_balance = {remaining_balance:?}"
+                                "Failed to spend credit: tao_delta = {tao_in_i:?}, netuid_i = {netuid_i:?}, remaining_balance = {remaining_balance:?}"
                             );
+                            TaoBalance::ZERO
                         }
                     }
+                };
+
+                // Decide which current/reservoir liquidity can become price-active
+                // without pushing balancer weights out of range. Only already
+                // materialized current TAO is offered to the swap pallet.
+                let (price_active_tao, price_active_alpha) =
+                    T::SwapInterface::adjust_protocol_liquidity(
+                        *netuid_i,
+                        materialized_tao_delta,
+                        alpha_in_i,
+                    );
+
+                // Materialize this block's alpha emission, then add only the
+                // price-active portion to the pool reserve. The price-active
+                // portion may include alpha that was materialized in an earlier
+                // block and held in the reservoir.
+                let _ = Self::mint_alpha(*netuid_i, alpha_in_i);
+                SubnetAlphaInEmission::<T>::insert(*netuid_i, price_active_alpha);
+                Self::increase_provided_alpha_reserve(*netuid_i, price_active_alpha);
+
+                // Add only the price-active TAO to the pool reserve. This may
+                // include TAO materialized in an earlier block and held in the
+                // reservoir.
+                if !price_active_tao.is_zero() {
+                    SubnetTaoInEmission::<T>::insert(*netuid_i, price_active_tao);
+                    Self::increase_provided_tao_reserve(*netuid_i, price_active_tao);
+                    TotalStake::<T>::mutate(|total| {
+                        *total = total.saturating_add(price_active_tao);
+                    });
+                    Self::record_protocol_inflow(*netuid_i, price_active_tao);
                 }
             }
         }
