@@ -515,7 +515,7 @@ fn test_do_move_wrong_origin() {
                 netuid,
                 alpha,
             ),
-            Error::<Test>::AmountTooLow
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
 
         // Check that no stake was moved
@@ -1023,17 +1023,45 @@ fn test_do_transfer_insufficient_stake() {
         )
         .unwrap();
 
-        // Amount over available stake succeeds (because fees can be paid in Alpha,
-        // this limitation is removed)
+        let origin_alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+        let destination_alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &destination_coldkey,
+            netuid,
+        );
+
         let alpha = stake_amount * 2;
-        assert_ok!(SubtensorModule::do_transfer_stake(
-            RuntimeOrigin::signed(origin_coldkey),
-            destination_coldkey,
-            hotkey,
-            netuid,
-            netuid,
-            alpha.into()
-        ));
+        assert_noop!(
+            SubtensorModule::do_transfer_stake(
+                RuntimeOrigin::signed(origin_coldkey),
+                destination_coldkey,
+                hotkey,
+                netuid,
+                netuid,
+                alpha.into()
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &origin_coldkey,
+                netuid
+            ),
+            origin_alpha_before
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &destination_coldkey,
+                netuid
+            ),
+            destination_alpha_before
+        );
     });
 }
 
@@ -1072,7 +1100,7 @@ fn test_do_transfer_wrong_origin() {
                 netuid,
                 stake_amount.into()
             ),
-            Error::<Test>::AmountTooLow
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
     });
 }
@@ -1322,13 +1350,16 @@ fn test_do_swap_insufficient_stake() {
         )
         .unwrap();
 
-        assert_ok!(SubtensorModule::do_swap_stake(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            netuid1,
-            netuid2,
-            attempted_swap.into()
-        ));
+        assert_noop!(
+            SubtensorModule::do_swap_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                netuid1,
+                netuid2,
+                attempted_swap.into()
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
     });
 }
 
@@ -1365,7 +1396,7 @@ fn test_do_swap_wrong_origin() {
                 netuid2,
                 stake_amount.into()
             ),
-            Error::<Test>::AmountTooLow
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
     });
 }
