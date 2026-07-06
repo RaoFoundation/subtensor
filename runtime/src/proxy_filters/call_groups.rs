@@ -430,7 +430,7 @@ call_filter_group!(
 // Residual pallet-subtensor calls that no proxy needs to grant on their own:
 // weights, serving, delegate-take, alpha lock/burn/preferences, network
 // registration, childkey admin, account association, tempo control, voting
-// power, root-claim admin, and lease teardown.
+// power, root-claim admin, lease teardown, and subnet sale offers.
 call_filter_group!(
     SubtensorCommonCalls,
     [
@@ -471,6 +471,8 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_min_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_max_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::terminate_lease),
+        RuntimeCall::SubtensorModule(SubtensorCall::create_sale_offer),
+        RuntimeCall::SubtensorModule(SubtensorCall::cancel_sale_offer),
         RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
         RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::SubtensorModule(SubtensorCall::trigger_epoch),
