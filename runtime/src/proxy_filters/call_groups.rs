@@ -488,7 +488,9 @@ call_filter_group!(
 // granted by no proxy allowlist — only `Any` or the coldkey directly.
 call_filter_group!(
     SubnetSaleCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::create_sale_offer),]
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::create_sale_offer
+    ),]
 );
 
 // Subnet parameters a subnet owner may set directly (the admin-utils calls
