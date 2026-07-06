@@ -501,6 +501,33 @@ fn test_transfer_tao_reaps_origin() {
 }
 
 #[test]
+fn test_withdraw_tao_as_credit_reaps_origin_and_updates_subtensor_total_issuance() {
+    new_test_ext(1).execute_with(|| {
+        let origin = U256::from(1);
+
+        let ed = ExistentialDeposit::get();
+        let dust = ed - 1u64.into();
+        let amount = TaoBalance::from(1_000);
+        let balance = amount + dust;
+        add_balance_to_coldkey_account(&origin, balance);
+
+        let subtensor_ti_before = subtensor_total_issuance();
+        let balances_ti_before = balances_total_issuance();
+
+        let credit = SubtensorModule::withdraw_tao_as_credit(&origin, amount).unwrap();
+
+        let subtensor_ti_after = subtensor_total_issuance();
+        let balances_ti_after = balances_total_issuance();
+
+        assert_eq!(credit.peek(), amount);
+        assert_eq!(Balances::total_balance(&origin), 0.into());
+        assert_eq!(balances_ti_before - balances_ti_after, dust);
+        assert_eq!(subtensor_ti_before - subtensor_ti_after, dust);
+        assert_eq!(balances_ti_after, subtensor_ti_after);
+    });
+}
+
+#[test]
 fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
     new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);

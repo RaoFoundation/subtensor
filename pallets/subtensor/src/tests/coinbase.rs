@@ -3764,6 +3764,55 @@ fn test_alpha_reservoir_counts_toward_subnet_issuance_across_blocks() {
         assert_eq!(SubtensorModule::get_alpha_issuance(netuid), expected);
     });
 }
+        
+fn test_coinbase_inject_and_maybe_swap_reverts_excess_tao_deposit_on_swap_failure() {
+    new_test_ext(1).execute_with(|| {
+        let zero = U96F32::saturating_from_num(0);
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let tao_to_swap = TaoBalance::from(789_100_u64);
+
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_u64),
+        );
+        Swap::maybe_initialize_palswap(netuid, None);
+
+        // Force the buy swap to fail after the excess TAO credit is deposited.
+        SubnetAlphaIn::<Test>::set(
+            netuid,
+            AlphaBalance::from(u64::from(mock::SwapMinimumReserve::get()) - 1),
+        );
+        assert!(
+            SubtensorModule::swap_tao_for_alpha(
+                netuid,
+                tao_to_swap,
+                <Test as Config>::SwapInterface::max_price(),
+                true,
+            )
+            .is_err()
+        );
+
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        let chain_before = Balances::free_balance(subnet_account);
+        let subnet_tao_before = SubnetTAO::<Test>::get(netuid);
+        let total_issuance_before = TotalIssuance::<Test>::get();
+        let balances_issuance_before = Balances::total_issuance();
+
+        let tao_in = BTreeMap::from([(netuid, zero)]);
+        let alpha_in = BTreeMap::from([(netuid, zero)]);
+        let excess_tao = BTreeMap::from([(netuid, U96F32::saturating_from_num(tao_to_swap))]);
+        let credit = SubtensorModule::mint_tao(tao_to_swap);
+
+        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+
+        assert_eq!(Balances::free_balance(subnet_account), chain_before);
+        assert_eq!(SubnetTAO::<Test>::get(netuid), subnet_tao_before);
+        assert_eq!(SubnetExcessTao::<Test>::get(netuid), TaoBalance::ZERO);
+        assert_eq!(TotalIssuance::<Test>::get(), total_issuance_before);
+        assert_eq!(Balances::total_issuance(), balances_issuance_before);
+    });
+}
 
 #[test]
 fn test_coinbase_drain_pending_increments_blockssincelaststep() {

@@ -274,6 +274,35 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Withdraw TAO from an account into a fresh credit.
+    ///
+    /// This is useful when a previous `spend_tao` resolve must be undone without
+    /// changing total issuance.
+    pub fn withdraw_tao_as_credit(
+        coldkey: &T::AccountId,
+        amount: BalanceOf<T>,
+    ) -> Result<CreditOf<T>, DispatchError> {
+        let balances_ti_before = <T as Config>::Currency::total_issuance();
+
+        let credit = <T as Config>::Currency::withdraw(
+            coldkey,
+            amount,
+            Precision::Exact,
+            Preservation::Expendable,
+            Fortitude::Polite,
+        )?;
+
+        let balances_ti_after = <T as Config>::Currency::total_issuance();
+        if balances_ti_after < balances_ti_before {
+            let burned = balances_ti_before.saturating_sub(balances_ti_after);
+            TotalIssuance::<T>::mutate(|total| {
+                *total = total.saturating_sub(burned);
+            });
+        }
+
+        Ok(credit)
+    }
+
     /// Finalizes the unused part of the minted TAO.
     pub fn recycle_credit(credit: CreditOf<T>) {
         let amount = credit.peek();

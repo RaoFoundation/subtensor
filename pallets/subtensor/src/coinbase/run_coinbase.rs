@@ -102,17 +102,36 @@ impl<T: Config> Pallet<T> {
                                 T::SwapInterface::max_price(),
                                 true,
                             );
-                            if let Ok(buy_swap_result_ok) = buy_swap_result {
-                                let bought_alpha: AlphaBalance =
-                                    buy_swap_result_ok.amount_paid_out.into();
-                                SubnetProtocolAlpha::<T>::mutate(*netuid_i, |total| {
-                                    *total = total.saturating_add(bought_alpha);
-                                });
+                            match buy_swap_result {
+                                Ok(buy_swap_result_ok) => {
+                                    let bought_alpha: AlphaBalance =
+                                        buy_swap_result_ok.amount_paid_out.into();
+                                    SubnetProtocolAlpha::<T>::mutate(*netuid_i, |total| {
+                                        *total = total.saturating_add(bought_alpha);
+                                    });
 
-                                // Record actual excess TAO that entered pool.
-                                let actual_excess: TaoBalance = buy_swap_result_ok.amount_paid_in;
-                                SubnetExcessTao::<T>::insert(*netuid_i, actual_excess);
-                                Self::record_protocol_inflow(*netuid_i, actual_excess);
+                                    // Record actual excess TAO that entered pool.
+                                    let actual_excess: TaoBalance =
+                                        buy_swap_result_ok.amount_paid_in;
+                                    SubnetExcessTao::<T>::insert(*netuid_i, actual_excess);
+                                    Self::record_protocol_inflow(*netuid_i, actual_excess);
+                                }
+                                Err(error) => {
+                                    match Self::withdraw_tao_as_credit(
+                                        &subnet_account_id,
+                                        tao_to_swap_with,
+                                    ) {
+                                        Ok(refund_credit) => {
+                                            remaining_credit =
+                                                remaining_credit.merge(refund_credit);
+                                        }
+                                        Err(withdraw_error) => {
+                                            log::error!(
+                                                "Failed to revert excess TAO deposit after swap failure: netuid_i = {netuid_i:?}, tao_to_swap_with = {tao_to_swap_with:?}, swap_error = {error:?}, withdraw_error = {withdraw_error:?}"
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                         Err(remainder) => {
