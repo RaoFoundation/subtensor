@@ -36,7 +36,7 @@ impl<T: Config> Pallet<T> {
         block_emission: U96F32,
     ) -> BTreeMap<NetUid, U96F32> {
         // Disabled subnets get zero TAO-side emission, redistributed to enabled subnets.
-        // They stay in the map so the normal alpha_out/root-prop path still runs.
+        // They stay in the map so the normal alpha_out path still runs.
         let shares = Self::get_shares(subnets_to_emit_to);
         log::debug!("Subnet emission shares = {shares:?}");
 
@@ -354,11 +354,9 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
         let price_shares = Self::get_shares_price_ema(subnets_to_emit_to);
 
-        // Weight each subnet's price share by root_proportion * (1 - miner_burned), then
-        // renormalize. The effective emission is therefore proportional to
-        //   root_proportion_i * price_i * (1 - miner_burned_i).
-        // - root_proportion shrinks as a subnet's alpha issuance grows, so emission is
-        //   reallocated away from older subnets toward newer ones (easier entrance).
+        // Weight each subnet's price share by (1 - miner_burned), then
+        // renormalize. The effective emission is proportional to
+        // price_i * (1 - miner_burned_i).
         // - (1 - miner_burned) reallocates away from subnets that withhold miner emission.
         let zero = U64F64::saturating_from_num(0);
         let one = U64F64::saturating_from_num(1);
@@ -366,8 +364,8 @@ impl<T: Config> Pallet<T> {
             .iter()
             .map(|(netuid, share)| {
                 let burned = U64F64::saturating_from_num(MinerBurned::<T>::get(netuid)).min(one);
-                let root_prop = U64F64::saturating_from_num(Self::root_proportion(*netuid));
-                let factor = root_prop.saturating_mul(one.saturating_sub(burned));
+                let factor = one.saturating_sub(burned);
+
                 (*netuid, share.saturating_mul(factor))
             })
             .collect();
