@@ -42,7 +42,7 @@ impl Precompile for PointEvaluation {
 
         let input = handle.input();
 
-        if input.len() < INPUT_LEN {
+        if input.len() != INPUT_LEN {
             return Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("input must be 192 bytes".into()),
             });
@@ -76,8 +76,11 @@ impl Precompile for PointEvaluation {
             }
         })?;
 
-        let g2_srs =
-            G2Affine::deserialize_compressed(&G2_SRS[..]).expect("valid G2 SRS from trusted setup");
+        let g2_srs = G2Affine::deserialize_compressed(&G2_SRS[..]).map_err(|_| {
+            PrecompileFailure::Error {
+                exit_status: ExitError::Other("invalid G2 SRS".into()),
+            }
+        })?;
 
         let g1_gen = G1Affine::generator();
         let g2_gen = G2Affine::generator();
