@@ -445,30 +445,6 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Credits a subnet account up to `required` liquid τ when on-chain balance lags storage.
-    fn credit_subnet_account_shortfall(
-        netuid: NetUid,
-        required: TaoBalance,
-        subtract_mint_from_total_issuance: bool,
-    ) {
-        if required.is_zero() {
-            return;
-        }
-        let Some(subnet_account) = Self::get_subnet_account_id(netuid) else {
-            return;
-        };
-        let balance = Self::get_coldkey_balance(&subnet_account);
-        if balance >= required {
-            return;
-        }
-        let shortfall = required.saturating_sub(balance);
-        let credit = Self::mint_tao(shortfall);
-        let _ = Self::spend_tao(&subnet_account, credit, shortfall);
-        if subtract_mint_from_total_issuance {
-            TotalIssuance::<T>::mutate(|ti| *ti = ti.saturating_sub(shortfall));
-        }
-    }
-
     pub fn destroy_alpha_in_out_stakes(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
@@ -565,11 +541,6 @@ impl<T: Config> Pallet<T> {
         if !refund.is_zero()
             && let Some(subnet_account) = Self::get_subnet_account_id(netuid)
         {
-            Self::credit_subnet_account_shortfall(
-                netuid,
-                refund.saturating_add(protocol_tao_share),
-                false,
-            );
             // Transfer maximum transferrable up to refund to owner
             let transferrable =
                 Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
@@ -814,11 +785,7 @@ impl<T: Config> Pallet<T> {
         // total TAO in the subnet pool
         let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid);
         let pot_u64: u64 = pot_tao.into();
-        if pot_u64 > 0 {
-            // Don't update the total stake here, it is already updated in do_dissolve_network function
-            // Update it in the cleanup process could impact the correct computation of emission
-            Self::credit_subnet_account_shortfall(netuid, pot_tao, true);
-        }
+
         struct Portion<A, C> {
             _hot: A,
             cold: C,
@@ -921,7 +888,6 @@ impl<T: Config> Pallet<T> {
             let mut coldkeys: Vec<T::AccountId> = Vec::new();
             if !weight_meter.can_consume(r) {
                 read_all = false;
-
                 break;
             }
             weight_meter.consume(r);
@@ -931,12 +897,11 @@ impl<T: Config> Pallet<T> {
             }
 
             let mut iterate_all = true;
+            // handle all coldkeys for the hotkey as transactional, it is overdesigned to record two layers of checkpoints
             for (cold, this_netuid, _) in Self::alpha_iter_single_prefix(&hot) {
                 if !weight_meter.can_consume(r) {
                     read_all = false;
-                    last_hot = Some(hot.clone());
                     iterate_all = false;
-
                     break;
                 }
                 weight_meter.consume(r);
@@ -950,16 +915,16 @@ impl<T: Config> Pallet<T> {
                 read_all = false;
                 break;
             }
-            last_hot = Some(hot.clone());
 
             let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
 
             if !weight_meter.can_consume(weight_for_all_remove) {
                 read_all = false;
-                last_hot = Some(hot.clone());
                 break;
             }
             weight_meter.consume(weight_for_all_remove);
+
+            last_hot = Some(hot.clone());
 
             for cold in coldkeys {
                 Alpha::<T>::remove((&hot, &cold, netuid));
