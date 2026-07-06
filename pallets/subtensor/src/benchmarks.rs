@@ -78,6 +78,116 @@ mod pallet_benchmarks {
         add_balance_to_coldkey_account::<T>(who, deposit.into());
     }
 
+    fn dense_benchmark_weights(uid_count: u16) -> Vec<(u16, u16)> {
+        (0..uid_count)
+            .map(|uid| (uid, u16::MAX))
+            .collect::<Vec<_>>()
+    }
+
+    fn seed_benchmark_neuron<T: Config>(
+        netuid: NetUid,
+        hotkey_label: &'static str,
+        coldkey_label: &'static str,
+        seed: u32,
+        stake: AlphaBalance,
+    ) -> (T::AccountId, T::AccountId) {
+        let hotkey: T::AccountId = account(hotkey_label, seed, 1);
+        let coldkey: T::AccountId = account(coldkey_label, seed, 2);
+
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey, &hotkey
+        ));
+        Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey, netuid, stake,
+        );
+
+        (hotkey, coldkey)
+    }
+
+    fn setup_full_subnet_registration_benchmark<T: Config>(
+        netuid: NetUid,
+        hotkey_label: &'static str,
+        coldkey_label: &'static str,
+    ) {
+        let uid_count = DefaultMaxAllowedUids::<T>::get();
+        assert!(
+            uid_count > 0,
+            "registration benchmark requires at least one subnet UID"
+        );
+
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+        Subtensor::<T>::set_max_allowed_uids(netuid, uid_count);
+        Subtensor::<T>::set_max_registrations_per_block(netuid, uid_count);
+        Subtensor::<T>::set_target_registrations_per_interval(netuid, uid_count);
+        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
+        seed_swap_reserves::<T>(netuid);
+
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        let dense_weights = dense_benchmark_weights(uid_count);
+
+        for uid in 0..uid_count {
+            seed_benchmark_neuron::<T>(
+                netuid,
+                hotkey_label,
+                coldkey_label,
+                u32::from(uid),
+                AlphaBalance::ZERO,
+            );
+            Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+            Weights::<T>::insert(netuid_index, uid, dense_weights.clone());
+            Bonds::<T>::insert(netuid_index, uid, dense_weights.clone());
+        }
+
+        assert_eq!(Subtensor::<T>::get_subnetwork_n(netuid), uid_count);
+    }
+
+    fn setup_full_root_registration_benchmark<T: Config>() {
+        Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
+        SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
+        Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
+        FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
+
+        let root_validator_count = Subtensor::<T>::get_max_allowed_validators(NetUid::ROOT);
+        assert!(
+            root_validator_count > 0,
+            "root registration benchmark requires at least one root validator"
+        );
+
+        Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, root_validator_count);
+        Subtensor::<T>::set_max_registrations_per_block(
+            NetUid::ROOT,
+            root_validator_count.saturating_add(1),
+        );
+        Subtensor::<T>::set_target_registrations_per_interval(
+            NetUid::ROOT,
+            root_validator_count.saturating_add(1),
+        );
+
+        let netuid_index = NetUidStorageIndex::from(NetUid::ROOT);
+        let dense_weights = dense_benchmark_weights(root_validator_count);
+
+        for uid in 0..root_validator_count {
+            seed_benchmark_neuron::<T>(
+                NetUid::ROOT,
+                "root_register_existing_hot",
+                "root_register_existing_cold",
+                u32::from(uid),
+                AlphaBalance::from(1_u64),
+            );
+            Subtensor::<T>::set_validator_permit_for_uid(NetUid::ROOT, uid, true);
+            Weights::<T>::insert(netuid_index, uid, dense_weights.clone());
+            Bonds::<T>::insert(netuid_index, uid, dense_weights.clone());
+        }
+
+        assert_eq!(
+            Subtensor::<T>::get_subnetwork_n(NetUid::ROOT),
+            root_validator_count
+        );
+    }
+
     /// Add a zero lock to a random hotkey just so that the lock records exist
     fn add_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
         let hotkey: T::AccountId = account("RandomHotkey", 0, 999);
@@ -327,21 +437,15 @@ mod pallet_benchmarks {
     #[benchmark]
     fn register() {
         let netuid = NetUid::from(1);
-        let tempo: u16 = 1;
-        let hotkey: T::AccountId = account("Alice", 0, 1);
-        let coldkey: T::AccountId = account("Test", 0, 2);
+        let hotkey: T::AccountId = account("register_hot", 0, 1);
+        let coldkey: T::AccountId = account("register_cold", 0, 2);
 
-        Subtensor::<T>::init_new_network(netuid, tempo);
-        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
-        SubtokenEnabled::<T>::insert(netuid, true);
-
-        Subtensor::<T>::set_network_registration_allowed(netuid, true);
-
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-        seed_swap_reserves::<T>(netuid);
-
+        setup_full_subnet_registration_benchmark::<T>(
+            netuid,
+            "register_existing_hot",
+            "register_existing_cold",
+        );
         fund_for_registration::<T>(netuid, &coldkey);
-        fund_for_registration::<T>(netuid, &hotkey);
         Subtensor::<T>::set_difficulty(netuid, 1);
 
         let block_number: u64 = Subtensor::<T>::get_current_block_as_u64();
@@ -539,16 +643,15 @@ mod pallet_benchmarks {
     #[benchmark]
     fn burned_register() {
         let netuid = NetUid::from(1);
-        let seed: u32 = 1;
-        let hotkey: T::AccountId = account("Alice", 0, seed);
-        let coldkey: T::AccountId = account("Test", 0, seed);
+        let hotkey: T::AccountId = account("burned_register_hot", 0, 1);
+        let coldkey: T::AccountId = account("burned_register_cold", 0, 1);
 
-        Subtensor::<T>::init_new_network(netuid, 1);
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-
-        let amount: u64 = 1_000_000;
-        add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
+        setup_full_subnet_registration_benchmark::<T>(
+            netuid,
+            "burned_register_existing_hot",
+            "burned_register_existing_cold",
+        );
+        fund_for_registration::<T>(netuid, &coldkey);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), netuid, hotkey.clone());
@@ -556,31 +659,16 @@ mod pallet_benchmarks {
 
     #[benchmark]
     fn root_register() {
-        let netuid = NetUid::from(1);
-        let seed: u32 = 1;
-        let coldkey: T::AccountId = account("Test", 0, seed);
-        let hotkey: T::AccountId = account("Alice", 0, seed);
+        let coldkey: T::AccountId = account("root_register_cold", 0, 1);
+        let hotkey: T::AccountId = account("root_register_hot", 0, 1);
 
-        Subtensor::<T>::init_new_network(netuid, 1);
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-        Subtensor::<T>::set_network_registration_allowed(netuid, true);
-        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
-        assert_eq!(Subtensor::<T>::get_max_allowed_uids(netuid), 4096);
-        Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
-        Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
-        FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
-        SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
-
-        let amount: u64 = 100_000_000_000_000;
-        seed_swap_reserves::<T>(netuid);
-        add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
-
-        assert_ok!(Subtensor::<T>::burned_register(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            netuid,
-            hotkey.clone()
-        ));
+        setup_full_root_registration_benchmark::<T>();
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(2_u64),
+        );
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
@@ -3071,12 +3159,11 @@ mod pallet_benchmarks {
         let coldkey: T::AccountId = account("register_limit_cold", 0, 1);
         let hotkey: T::AccountId = account("register_limit_hot", 0, 1);
 
-        Subtensor::<T>::init_new_network(netuid, 1);
-        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
-        Subtensor::<T>::set_network_registration_allowed(netuid, true);
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Burn::<T>::insert(netuid, benchmark_registration_burn());
-        seed_swap_reserves::<T>(netuid);
+        setup_full_subnet_registration_benchmark::<T>(
+            netuid,
+            "register_limit_existing_hot",
+            "register_limit_existing_cold",
+        );
         fund_for_registration::<T>(netuid, &coldkey);
 
         #[extrinsic_call]
