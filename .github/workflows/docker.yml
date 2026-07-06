@@ -14,7 +14,7 @@ on:
       - devnet-ready
       - devnet
       - testnet
-
+      
 concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: true

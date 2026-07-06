@@ -50,7 +50,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - variant: release
+          - variant: release 
             flags: ""
           - variant: fast
             flags: "--features fast-runtime"

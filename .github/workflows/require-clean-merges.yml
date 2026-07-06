@@ -34,7 +34,7 @@ jobs:
           else
             echo "MERGE_BRANCHES=devnet-ready devnet testnet main" >> $GITHUB_ENV
           fi
-
+          
       - name: Add Fork Remote and Fetch PR Branch
         if: github.event.pull_request.head.repo.fork == true
         run: |
@@ -68,7 +68,7 @@ jobs:
 
           for branch in $MERGE_BRANCHES; do
             echo "Checking merge from $branch into $PR_BRANCH_REF..."
-
+            
             # Ensure PR branch is up to date
             git reset --hard $PR_BRANCH_REF
 
@@ -79,7 +79,7 @@ jobs:
               echo "❌ Merge conflict detected when merging $branch into $PR_BRANCH_REF"
               exit 1
             fi
-
+            
             # Abort merge if one was started, suppressing errors if no merge happened
             git merge --abort 2>/dev/null || true
           done

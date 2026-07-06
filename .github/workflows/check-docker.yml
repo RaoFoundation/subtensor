@@ -2,7 +2,7 @@ name: Build Docker Image
 
 on:
   pull_request:
-
+    
 concurrency:
   group: check-docker-${{ github.ref }}
   cancel-in-progress: true

@@ -638,7 +638,6 @@ impl<T: Config> Pallet<T> {
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
                 if !weight_meter.can_consume(r) {
                     iterate_all = false;
-
                     break;
                 }
                 weight_meter.consume(r);

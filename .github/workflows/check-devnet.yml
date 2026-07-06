@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [devnet, devnet-ready]
     types: [labeled, unlabeled, synchronize, opened]
-
+    
 concurrency:
   group: check-devnet-${{ github.ref }}
   cancel-in-progress: true
