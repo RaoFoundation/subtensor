@@ -430,7 +430,7 @@ call_filter_group!(
 // Residual pallet-subtensor calls that no proxy needs to grant on their own:
 // weights, serving, delegate-take, alpha lock/burn/preferences, network
 // registration, childkey admin, account association, tempo control, voting
-// power, root-claim admin, lease teardown, and subnet sale offers.
+// power, root-claim admin, lease teardown, and sale-offer cancellation.
 call_filter_group!(
     SubtensorCommonCalls,
     [
@@ -471,7 +471,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_min_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_max_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::terminate_lease),
-        RuntimeCall::SubtensorModule(SubtensorCall::create_sale_offer),
         RuntimeCall::SubtensorModule(SubtensorCall::cancel_sale_offer),
         RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
         RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
@@ -482,6 +481,14 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::disable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_voting_power_ema_alpha),
     ]
+);
+
+// Listing an owned subnet for sale: an ownership/economic disposal (the offer's
+// price/buyer become a pre-authorized sale once finalization lands), so it is
+// granted by no proxy allowlist — only `Any` or the coldkey directly.
+call_filter_group!(
+    SubnetSaleCalls,
+    [RuntimeCall::SubtensorModule(SubtensorCall::create_sale_offer),]
 );
 
 // Subnet parameters a subnet owner may set directly (the admin-utils calls
@@ -680,6 +687,7 @@ type SubtensorSplitCalls = (
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
+    SubnetSaleCalls,
 );
 
 // admin-utils, split for the Owner and SubnetLeaseBeneficiary proxies.

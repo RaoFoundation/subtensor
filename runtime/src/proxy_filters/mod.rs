@@ -309,6 +309,7 @@ mod tests {
         let denied = &(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
+        let denied = &denied | &group_calls::<SubnetSaleCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -323,6 +324,7 @@ mod tests {
             | &(&(&group_calls::<BurnedRegistrationCalls>()
                 | &group_calls::<RootRegistrationCalls>())
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
+        let denied = &denied | &group_calls::<SubnetSaleCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -334,6 +336,7 @@ mod tests {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
+        let denied = &denied | &group_calls::<SubnetSaleCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -529,6 +532,36 @@ mod tests {
             !allowed_calls(ProxyType::NonCritical)
                 .contains("SubtensorModule::root_dissolve_network")
         );
+    }
+
+    // Creating a sale offer is a disposal of the subnet, so no proxy but `Any`
+    // may do it; cancellation stays broadly available.
+    #[test]
+    fn sale_offer_creation_is_any_only() {
+        let create = "SubtensorModule::create_sale_offer";
+        let cancel = "SubtensorModule::cancel_sale_offer";
+
+        for proxy_type in all_proxy_types() {
+            let allowed = allowed_calls(proxy_type);
+            if proxy_type == ProxyType::Any {
+                assert!(allowed.contains(create));
+            } else {
+                assert!(
+                    !allowed.contains(create),
+                    "{:?} must not be able to create a sale offer",
+                    proxy_type
+                );
+            }
+        }
+
+        // The broad proxies can still cancel an offer.
+        for proxy_type in [
+            ProxyType::NonTransfer,
+            ProxyType::NonFungible,
+            ProxyType::NonCritical,
+        ] {
+            assert!(allowed_calls(proxy_type).contains(cancel));
+        }
     }
 
     // The SmallTransfer / SudoUncheckedSetCode metadata must carry their
