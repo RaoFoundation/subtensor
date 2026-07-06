@@ -206,6 +206,15 @@ interface IStaking {
     function getNominatorMinRequiredStake() external view returns (uint256);
 
     /**
+     * @dev Returns the minimum TAO-equivalent value (in rao) a stake operation must
+     * reach to be accepted; operations below this threshold are rejected.
+     * It is a view function, meaning it does not modify the state of the contract and is free to call.
+     *
+     * @return The stake operation threshold in rao.
+     */
+    function getStakeOperationThreshold() external view returns (uint256);
+
+    /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.
      *
      * This function allows external accounts and contracts to stake TAO into the subtensor pallet,

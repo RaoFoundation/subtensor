@@ -389,6 +389,17 @@ where
         Ok(stake.into())
     }
 
+    #[precompile::public("getStakeOperationThreshold()")]
+    #[precompile::view]
+    fn get_stake_operation_threshold(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
+        // The threshold is a runtime constant, but gas accounting conservatively
+        // charges it as one storage read.
+        handle.record_db_reads::<R>(1)?;
+        let threshold = pallet_subtensor::Pallet::<R>::get_stake_operation_threshold();
+
+        Ok(threshold.to_u64().into())
+    }
+
     #[precompile::public("addProxy(bytes32)")]
     #[precompile::payable]
     fn add_proxy(handle: &mut impl PrecompileHandle, delegate: H256) -> EvmResult<()> {
@@ -1587,6 +1598,134 @@ mod tests {
                 encode_with_selector(selector_u32("getNominatorMinRequiredStake()"), ()),
                 U256::from(pallet_subtensor::Pallet::<Runtime>::get_nominator_min_required_stake()),
             );
+
+            let threshold =
+                pallet_subtensor::Pallet::<Runtime>::get_stake_operation_threshold().to_u64();
+            assert!(threshold > 0);
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(selector_u32("getStakeOperationThreshold()"), ()),
+                U256::from(threshold),
+            );
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_add_stake_below_threshold_is_rejected() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1010);
+            let caller_account = mapped_account(caller);
+            let hotkey = hotkey();
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            ensure_hotkey_exists(&hotkey);
+
+            let threshold =
+                pallet_subtensor::Pallet::<Runtime>::get_stake_operation_threshold().to_u64();
+
+            let rejected = execute_precompile(
+                &precompiles::<StakingPrecompileV2<Runtime>>(),
+                addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                caller,
+                encode_with_selector(
+                    selector_u32("addStake(bytes32,uint256,uint256)"),
+                    (
+                        H256::from_slice(hotkey.as_ref()),
+                        U256::from(threshold - 1),
+                        U256::from(TEST_NETUID_U16),
+                    ),
+                ),
+                U256::zero(),
+            )
+            .expect("staking v2 add stake should route to the precompile");
+
+            assert!(rejected.is_err());
+            assert_eq!(stake_for(&hotkey, &caller_account, netuid), 0);
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_transfer_stake_below_threshold_is_rejected() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1011);
+            let caller_account = mapped_account(caller);
+            let destination_coldkey = AccountId::from([0x33; 32]);
+            let hotkey = hotkey();
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            let caller_stake_before = stake_for(&hotkey, &caller_account, netuid);
+
+            let threshold =
+                pallet_subtensor::Pallet::<Runtime>::get_stake_operation_threshold().to_u64();
+            // Alpha priced at ~2 TAO in this pool, so an alpha amount far below the
+            // threshold is guaranteed to fall short of it in TAO terms.
+            let below_threshold_alpha = threshold / 100;
+            assert!(below_threshold_alpha > 0);
+
+            let rejected = execute_precompile(
+                &precompiles::<StakingPrecompileV2<Runtime>>(),
+                addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                caller,
+                encode_with_selector(
+                    selector_u32("transferStake(bytes32,bytes32,uint256,uint256,uint256)"),
+                    (
+                        H256::from_slice(destination_coldkey.as_ref()),
+                        H256::from_slice(hotkey.as_ref()),
+                        U256::from(TEST_NETUID_U16),
+                        U256::from(TEST_NETUID_U16),
+                        U256::from(below_threshold_alpha),
+                    ),
+                ),
+                U256::zero(),
+            )
+            .expect("staking v2 transfer stake should route to the precompile");
+
+            assert!(rejected.is_err());
+            assert_eq!(stake_for(&hotkey, &destination_coldkey, netuid), 0);
+            assert_eq!(
+                stake_for(&hotkey, &caller_account, netuid),
+                caller_stake_before
+            );
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_transfer_stake_above_threshold_moves_stake() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1012);
+            let caller_account = mapped_account(caller);
+            let destination_coldkey = AccountId::from([0x33; 32]);
+            let hotkey = hotkey();
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            let caller_stake_before = stake_for(&hotkey, &caller_account, netuid);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("transferStake(bytes32,bytes32,uint256,uint256,uint256)"),
+                        (
+                            H256::from_slice(destination_coldkey.as_ref()),
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                            U256::from(TEST_NETUID_U16),
+                            U256::from(TRANSFERRED_ALLOWANCE_RAO),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            assert!(stake_for(&hotkey, &destination_coldkey, netuid) > 0);
+            assert!(stake_for(&hotkey, &caller_account, netuid) < caller_stake_before);
         });
     }
 
