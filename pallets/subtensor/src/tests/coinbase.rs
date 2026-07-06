@@ -3764,7 +3764,7 @@ fn test_alpha_reservoir_counts_toward_subnet_issuance_across_blocks() {
         assert_eq!(SubtensorModule::get_alpha_issuance(netuid), expected);
     });
 }
-        
+
 fn test_coinbase_inject_and_maybe_swap_reverts_excess_tao_deposit_on_swap_failure() {
     new_test_ext(1).execute_with(|| {
         let zero = U96F32::saturating_from_num(0);
