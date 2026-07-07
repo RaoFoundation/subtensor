@@ -70,18 +70,15 @@ impl pallet_utility::Config for Test {
     Decode,
     DecodeWithMemTracking,
     Debug,
+    Default,
     MaxEncodedLen,
     scale_info::TypeInfo,
 )]
 pub enum ProxyType {
+    #[default]
     Any,
     JustTransfer,
     JustUtility,
-}
-impl Default for ProxyType {
-    fn default() -> Self {
-        Self::Any
-    }
 }
 impl frame::traits::InstanceFilter<RuntimeCall> for ProxyType {
     fn filter(&self, c: &RuntimeCall) -> bool {

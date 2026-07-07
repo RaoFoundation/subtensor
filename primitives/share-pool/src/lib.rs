@@ -1431,7 +1431,7 @@ mod tests {
             }
 
             let done_outer = checked.load(Ordering::Relaxed);
-            if done_outer % progress_step == 0 {
+            if done_outer.is_multiple_of(progress_step) {
                 let invalid = skipped_invalid_sf.load(Ordering::Relaxed);
                 let non_finite = skipped_non_finite.load(Ordering::Relaxed);
                 log::debug!(
@@ -1621,7 +1621,7 @@ mod tests {
             }
 
             let done = done_counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if done % 10_000 == 0 {
+            if done.is_multiple_of(10_000) {
                 let progress = done as f64 / total_cases as f64 * 100.0;
                 log::debug!("div progress = {progress:.4}%");
             }

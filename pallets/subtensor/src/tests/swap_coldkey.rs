@@ -10,7 +10,6 @@
 use approx::assert_abs_diff_eq;
 use codec::Encode;
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo};
-use frame_support::error::BadOrigin;
 use frame_support::traits::OnInitialize;
 use frame_support::traits::schedule::DispatchTime;
 use frame_support::traits::schedule::v3::Named as ScheduleNamed;
@@ -21,7 +20,7 @@ use sp_core::{Get, H256, U256};
 use sp_runtime::PerU16;
 use sp_runtime::traits::Hash;
 use sp_runtime::traits::{DispatchInfoOf, DispatchTransaction, TransactionExtension};
-use sp_runtime::{DispatchError, traits::TxBaseImplication};
+use sp_runtime::{DispatchError, DispatchError::BadOrigin, traits::TxBaseImplication};
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::{
     AlphaBalance, CustomTransactionError, SubnetInfo, TaoBalance, Token,

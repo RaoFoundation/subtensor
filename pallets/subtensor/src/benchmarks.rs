@@ -918,8 +918,7 @@ mod pallet_benchmarks {
         let duration = StartCallDelay::<T>::get();
         let block: BlockNumberFor<T> = (current_block + duration)
             .try_into()
-            .ok()
-            .expect("can't convert to block number");
+            .unwrap_or_else(|_| panic!("can't convert to block number"));
         frame_system::Pallet::<T>::set_block_number(block);
 
         #[extrinsic_call]

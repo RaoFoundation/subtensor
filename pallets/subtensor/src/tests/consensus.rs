@@ -107,7 +107,7 @@ fn distribute_nodes(
         (validators, servers) = (0..network_n as u16)
             .collect::<Vec<u16>>()
             .iter()
-            .partition(|&i| *i as usize % (network_n / validators_n) == 0);
+            .partition(|&i| (*i as usize).is_multiple_of(network_n / validators_n));
     } else if interleave == 2 {
         // random interleaving
         let mut permuted_uids: Vec<u16> = (0..network_n as u16).collect();

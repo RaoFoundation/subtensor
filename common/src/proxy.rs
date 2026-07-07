@@ -20,10 +20,12 @@ use subtensor_macros::freeze_struct;
     Decode,
     DecodeWithMemTracking,
     Debug,
+    Default,
     MaxEncodedLen,
     TypeInfo,
 )]
 pub enum ProxyType {
+    #[default]
     Any,
     Owner,
     NonCritical,
@@ -103,12 +105,6 @@ impl ProxyType {
             self,
             Self::Triumvirate | Self::Senate | Self::Governance | Self::RootWeights
         )
-    }
-}
-
-impl Default for ProxyType {
-    fn default() -> Self {
-        Self::Any
     }
 }
 

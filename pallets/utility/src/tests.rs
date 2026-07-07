@@ -39,8 +39,6 @@ use sp_runtime::{
     traits::{BadOrigin, Dispatchable},
 };
 
-type BlockNumber = u64;
-
 // example module to test behaviors.
 #[frame_support::pallet(dev_mode)]
 #[allow(clippy::large_enum_variant)]
@@ -137,7 +135,7 @@ parameter_types! {
     pub const MultisigDepositBase: u64 = 1;
     pub const MultisigDepositFactor: u64 = 1;
     pub const MaxSignatories: u32 = 3;
-    pub const MotionDuration: BlockNumber = 3;
+    pub const MotionDuration: u64 = 3;
     pub const MaxProposals: u32 = 100;
     pub const MaxMembers: u32 = 100;
     pub MaxProposalWeight: Weight = BlockWeights::get().max_block.saturating_div(2);

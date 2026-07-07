@@ -82,6 +82,7 @@ pub type BlockNumber = u64;
 pub type TestAuthId = test_crypto::TestAuthId;
 
 pub type TransactionExtensions = (
+    frame_system::AuthorizeCall<Test>,
     frame_system::CheckNonZeroSender<Test>,
     frame_system::CheckWeight<Test>,
     pallet_transaction_payment::ChargeTransactionPayment<Test>,
@@ -532,6 +533,31 @@ where
 {
     type Extrinsic = UncheckedExtrinsic;
     type RuntimeCall = RuntimeCall;
+}
+
+impl<LocalCall> frame_system::offchain::CreateTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    type Extension = TransactionExtensions;
+
+    fn create_transaction(call: RuntimeCall, extension: Self::Extension) -> Self::Extrinsic {
+        UncheckedExtrinsic::new_transaction(call, extension)
+    }
+}
+
+impl<LocalCall> frame_system::offchain::CreateAuthorizedTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    fn create_extension() -> Self::Extension {
+        (
+            frame_system::AuthorizeCall::<Test>::new(),
+            frame_system::CheckNonZeroSender::<Test>::new(),
+            frame_system::CheckWeight::<Test>::new(),
+            pallet_transaction_payment::ChargeTransactionPayment::<Test>::from(0.into()),
+        )
+    }
 }
 
 impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test

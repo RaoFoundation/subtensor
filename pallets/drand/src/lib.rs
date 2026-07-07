@@ -69,6 +69,9 @@ pub mod verifier;
 use types::*;
 use verifier::Verifier;
 
+type WritePulsePayload<T> = PulsesPayload<<T as SigningTypes>::Public, BlockNumberFor<T>>;
+type WritePulseSignature<T> = Option<<T as SigningTypes>::Signature>;
+
 #[cfg(test)]
 mod mock;
 
@@ -299,25 +302,10 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::write_pulse())]
         #[pallet::weight_of_authorize(T::WeightInfo::write_pulse())]
-        #[pallet::authorize(|
-            _source: TransactionSource,
-            pulses_payload: &PulsesPayload<T::Public, BlockNumberFor<T>>,
-            signature: &Option<T::Signature>,
-        | -> TransactionValidityWithRefund {
-            let signature = signature.as_ref().ok_or(InvalidTransaction::BadSigner)?;
-            let rounds: Vec<RoundNumber> = pulses_payload.pulses.iter().map(|p| p.round).collect();
-            Pallet::<T>::validate_signature_and_parameters(
-                pulses_payload,
-                signature,
-                &pulses_payload.block_number,
-                &pulses_payload.public,
-                Some(&rounds),
-            )
-            .map(|validity| (validity, Weight::zero()))
-        })]
+        #[pallet::authorize(Self::authorize_write_pulse)]
         pub fn write_pulse(
             origin: OriginFor<T>,
-            pulses_payload: PulsesPayload<T::Public, BlockNumberFor<T>>,
+            pulses_payload: WritePulsePayload<T>,
             _signature: Option<T::Signature>,
         ) -> DispatchResult {
             ensure_authorized(origin)?;
@@ -431,6 +419,24 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+    fn authorize_write_pulse(
+        _source: TransactionSource,
+        pulses_payload: &WritePulsePayload<T>,
+        signature: &WritePulseSignature<T>,
+    ) -> TransactionValidityWithRefund {
+        let signature = signature.as_ref().ok_or(InvalidTransaction::BadSigner)?;
+        let rounds: Vec<RoundNumber> = pulses_payload.pulses.iter().map(|p| p.round).collect();
+
+        Self::validate_signature_and_parameters(
+            pulses_payload,
+            signature,
+            &pulses_payload.block_number,
+            &pulses_payload.public,
+            Some(&rounds),
+        )
+        .map(|validity| (validity, Weight::zero()))
+    }
+
     /// fetch the latest public pulse from the configured drand beacon
     /// then send a signed transaction to include it on-chain
     fn fetch_drand_pulse_and_send_unsigned(

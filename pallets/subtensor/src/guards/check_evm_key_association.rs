@@ -77,7 +77,8 @@ mod tests {
         weights::Weight,
     };
     use frame_system::Call as SystemCall;
-    use sp_core::{H160, Pair, U256, ecdsa, keccak_256};
+    use sp_core::{H160, Pair, U256, ecdsa};
+    use sp_io::hashing::keccak_256;
     use sp_runtime::DispatchError;
     use subtensor_runtime_common::NetUid;
 

@@ -373,8 +373,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_block_hash_from_u64(block_number: u64) -> H256 {
         let block_number: BlockNumberFor<T> = TryInto::<BlockNumberFor<T>>::try_into(block_number)
-            .ok()
-            .expect("convert u64 to block number.");
+            .unwrap_or_else(|_| panic!("convert u64 to block number."));
         let block_hash_at_number: <T as frame_system::Config>::Hash =
             system::Pallet::<T>::block_hash(block_number);
         let vec_hash: Vec<u8> = block_hash_at_number.as_ref().to_vec();

@@ -74,7 +74,8 @@ pub type Balance = TaoBalance;
 pub type BlockNumber = u64;
 
 pub type TestAuthId = test_crypto::TestAuthId;
-pub type UncheckedExtrinsic = TestXt<RuntimeCall, ()>;
+type TxExtension = frame_system::AuthorizeCall<Test>;
+pub type UncheckedExtrinsic = TestXt<RuntimeCall, TxExtension>;
 
 pub struct MockAuthorshipProvider;
 
@@ -482,6 +483,26 @@ where
 {
     type Extrinsic = UncheckedExtrinsic;
     type RuntimeCall = RuntimeCall;
+}
+
+impl<LocalCall> frame_system::offchain::CreateTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    type Extension = TxExtension;
+
+    fn create_transaction(call: RuntimeCall, extension: Self::Extension) -> Self::Extrinsic {
+        UncheckedExtrinsic::new_transaction(call, extension)
+    }
+}
+
+impl<LocalCall> frame_system::offchain::CreateAuthorizedTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    fn create_extension() -> Self::Extension {
+        TxExtension::new()
+    }
 }
 
 impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test

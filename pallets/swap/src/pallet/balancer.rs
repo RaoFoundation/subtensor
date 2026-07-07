@@ -1005,7 +1005,7 @@ mod tests {
 
             // Print progress
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if done % 10_000_000 == 0 {
+            if done.is_multiple_of(10_000_000) {
                 let progress = done as f64 / ITERATIONS as f64 * 100.0;
                 // Replace with println for real-time progress
                 log::debug!("progress = {progress:.4}%");

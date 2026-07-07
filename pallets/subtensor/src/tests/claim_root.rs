@@ -18,6 +18,7 @@ use frame_support::pallet_prelude::Weight;
 use frame_support::traits::{Currency, Get};
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{H256, U256};
+use sp_io::hashing::keccak_256;
 use sp_runtime::DispatchError;
 use std::collections::{BTreeMap, BTreeSet};
 use substrate_fixed::types::I96F32;
@@ -948,12 +949,11 @@ fn test_claim_root_block_hash_indices() {
         let n = 15000u64;
 
         // 0
-        let indices =
-            SubtensorModule::block_hash_to_indices(H256(sp_core::keccak_256(b"zero")), 0, n);
+        let indices = SubtensorModule::block_hash_to_indices(H256(keccak_256(b"zero")), 0, n);
         assert!(indices.is_empty());
 
         // 1
-        let hash = sp_core::keccak_256(b"some");
+        let hash = keccak_256(b"some");
         let mut indices = SubtensorModule::block_hash_to_indices(H256(hash), k, n);
         indices.sort();
 
@@ -967,7 +967,7 @@ fn test_claim_root_block_hash_indices() {
         assert_eq!(indices, expected_result);
 
         // 2
-        let hash = sp_core::keccak_256(b"some2");
+        let hash = keccak_256(b"some2");
         let mut indices = SubtensorModule::block_hash_to_indices(H256(hash), k, n);
         indices.sort();
 
