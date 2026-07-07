@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use pallet_evm::PrecompileHandle;
-use precompile_utils::{prelude::Address, EvmResult};
+use precompile_utils::{EvmResult, prelude::Address};
 use sp_runtime::traits::{Dispatchable, StaticLookup};
 use sp_std::vec::Vec;
 
@@ -58,7 +58,7 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
-    use crate::mock::{addr_from_index, new_test_ext, precompiles, selector_u32, Runtime};
+    use crate::mock::{Runtime, addr_from_index, new_test_ext, precompiles, selector_u32};
     use precompile_utils::prelude::RuntimeHelper;
     use precompile_utils::solidity::{codec::Address, encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;

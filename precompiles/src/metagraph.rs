@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use fp_evm::{ExitError, PrecompileFailure, PrecompileHandle};
 use pallet_subtensor::AxonInfo as SubtensorModuleAxonInfo;
-use precompile_utils::{solidity::Codec, EvmResult};
+use precompile_utils::{EvmResult, solidity::Codec};
 use sp_core::{ByteArray, H256};
 use subtensor_runtime_common::{NetUid, Token};
 
@@ -214,10 +214,10 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
-    use crate::mock::{
-        abi_word, addr_from_index, new_test_ext, precompiles, selector_u32, Runtime,
-    };
     use crate::PrecompileExt;
+    use crate::mock::{
+        Runtime, abi_word, addr_from_index, new_test_ext, precompiles, selector_u32,
+    };
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::H256;

@@ -33,7 +33,7 @@ use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
 use pallet_subtensor_proxy as pallet_proxy;
 pub use proxy::ProxyPrecompile;
-use sp_core::{crypto::ByteArray, H160, U256};
+use sp_core::{H160, U256, crypto::ByteArray};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup};
 pub use sr25519::Sr25519Verify;
 pub use staking::{StakingPrecompile, StakingPrecompileV2};

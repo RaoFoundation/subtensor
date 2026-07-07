@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fp_evm::{ExitError, ExitSucceed, LinearCostPrecompile, PrecompileFailure};
 
-use crate::{parse_slice, PrecompileExt};
+use crate::{PrecompileExt, parse_slice};
 
 pub struct Ed25519Verify<A>(PhantomData<A>);
 
@@ -63,11 +63,11 @@ mod tests {
 
     use super::*;
     use crate::mock::{
-        abi_word, addr_from_index, new_test_ext, precompiles, selector_u32, AccountId,
+        AccountId, abi_word, addr_from_index, new_test_ext, precompiles, selector_u32,
     };
     use precompile_utils::solidity::encode_with_selector;
     use precompile_utils::testing::PrecompileTesterExt;
-    use sp_core::{ed25519, Pair, H256, U256};
+    use sp_core::{H256, Pair, U256, ed25519};
 
     #[test]
     fn ed25519_precompile_verifies_valid_and_invalid_signatures() {

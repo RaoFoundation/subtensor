@@ -147,11 +147,11 @@ mod tests {
     #![allow(clippy::arithmetic_side_effects)]
 
     use super::*;
-    use crate::mock::{
-        addr_from_index, assert_static_call, new_test_ext, precompiles, selector_u32, AccountId,
-        Runtime,
-    };
     use crate::PrecompileExt;
+    use crate::mock::{
+        AccountId, Runtime, addr_from_index, assert_static_call, new_test_ext, precompiles,
+        selector_u32,
+    };
     use precompile_utils::solidity::encode_with_selector;
     use sp_core::{H160, H256, U256};
 

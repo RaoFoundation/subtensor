@@ -9,7 +9,7 @@ use pallet_evm::AddressMapping;
 use pallet_evm::PrecompileHandle;
 use pallet_subtensor_proxy as pallet_proxy;
 use precompile_utils::prelude::Address;
-use precompile_utils::{solidity::Codec, EvmResult};
+use precompile_utils::{EvmResult, solidity::Codec};
 use sp_core::{ByteArray, H256};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, UniqueSaturatedInto};
 
@@ -266,11 +266,11 @@ mod tests {
     #![allow(clippy::expect_used, clippy::arithmetic_side_effects)]
 
     use super::*;
-    use crate::mock::{
-        addr_from_index, fund_account, mapped_account, new_test_ext, precompiles, selector_u32,
-        AccountId, Runtime, RuntimeOrigin, System,
-    };
     use crate::PrecompileExt;
+    use crate::mock::{
+        AccountId, Runtime, RuntimeOrigin, System, addr_from_index, fund_account, mapped_account,
+        new_test_ext, precompiles, selector_u32,
+    };
     use precompile_utils::solidity::{codec::Address, encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::H160;

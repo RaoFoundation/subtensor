@@ -9,8 +9,8 @@ use pallet_evm::{
     AddressMapping, BalanceConverter, EvmBalance, ExitError, GasWeightMapping, Precompile,
     PrecompileFailure, PrecompileHandle, PrecompileResult,
 };
-use precompile_utils::prelude::RuntimeHelper;
 use precompile_utils::EvmResult;
+use precompile_utils::prelude::RuntimeHelper;
 use sp_core::{H160, U256};
 use sp_io::hashing::blake2_256;
 use sp_runtime::traits::{Dispatchable, ExtensionPostDispatchWeightHandler};

@@ -9,8 +9,8 @@ use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::IsSubType;
 use pallet_evm::PrecompileHandle;
 use pallet_subtensor_proxy as pallet_proxy;
-use precompile_utils::prelude::Address;
 use precompile_utils::EvmResult;
+use precompile_utils::prelude::Address;
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 
 pub struct AddressMappingPrecompile<R>(PhantomData<R>);
@@ -82,7 +82,7 @@ mod tests {
 
     use super::*;
     use crate::mock::{
-        addr_from_index, execute_precompile, new_test_ext, precompiles, selector_u32, Runtime,
+        Runtime, addr_from_index, execute_precompile, new_test_ext, precompiles, selector_u32,
     };
     use pallet_evm::AddressMapping;
     use precompile_utils::solidity::{codec::Address, encode_with_selector};
