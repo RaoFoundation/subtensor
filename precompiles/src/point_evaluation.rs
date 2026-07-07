@@ -53,7 +53,7 @@ impl Precompile for PointEvaluation {
         let z = &input[32..64];
         let y = &input[64..96];
         let commitment_bytes = &input[96..144];
-        let proof_bytes = &input[144..196];
+        let proof_bytes = &input[144..INPUT_LEN];
 
         let commitment_hash = Sha256::digest(commitment_bytes);
         if versioned_hash[0] != 0x01 || versioned_hash[1..] != commitment_hash[1..] {
