@@ -12,7 +12,7 @@ use sp_runtime::DispatchResult;
 use sp_runtime::traits::{
     AsSystemOriginSigner, DispatchInfoOf, DispatchOriginOf, Dispatchable, Implication,
     PostDispatchInfoOf, StaticLookup, TransactionExtension, TransactionExtensionMetadata,
-    ValidateResult,
+    ValidateResult, Zero,
 };
 use sp_runtime::transaction_validity::{
     TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -69,6 +69,7 @@ impl<T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtenso
 where
     RuntimeCallOf<T>: IsSubType<pallet_proxy::Call<T>> + IsSubType<pallet_utility::Call<T>>,
     T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
+    BalanceOf<T>: Zero,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>> + Clone,
 {
     /// Extract (real, delegate, inner_call) from a `proxy` call.
@@ -194,14 +195,18 @@ where
 
     /// Determine the coldkey that should pay the fee when a hotkey is the origin.
     ///
-    /// Returns `Some(coldkey)` only for calls the runtime marks as coldkey-paid
-    /// (via [`ColdkeyFeeCallFilter`]), and only when the signer (hotkey) has an
-    /// owner. Returns `None` otherwise, so the signer pays.
+    /// Returns `Some(coldkey)` only when the call is runtime-marked as coldkey-paid
+    /// (via [`ColdkeyFeeCallFilter`]), the signer (hotkey) has an owner, and the tip
+    /// is zero. The tip is chosen by the signing hotkey, so redirecting it to the
+    /// coldkey would let a hotkey spend coldkey funds it never authorized; a tipped
+    /// call therefore always falls back to the signer paying. Returns `None`
+    /// otherwise, so the signer pays.
     fn extract_coldkey_fee_payer(
         call: &RuntimeCallOf<T>,
         origin: &RuntimeOriginOf<T>,
+        tip: BalanceOf<T>,
     ) -> Option<AccountIdOf<T>> {
-        if !T::charges_coldkey(call) {
+        if !tip.is_zero() || !T::charges_coldkey(call) {
             return None;
         }
 
@@ -217,6 +222,7 @@ where
         + IsSubType<pallet_proxy::Call<T>>
         + IsSubType<pallet_utility::Call<T>>,
     T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
+    BalanceOf<T>: Zero,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>>
         + Clone
         + From<frame_system::RawOrigin<AccountIdOf<T>>>,
@@ -257,7 +263,9 @@ where
         // Otherwise, the signer pays as usual.
         let fee_origin = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
             frame_system::RawOrigin::Signed(real).into()
-        } else if let Some(coldkey) = Self::extract_coldkey_fee_payer(call, &origin) {
+        } else if let Some(coldkey) =
+            Self::extract_coldkey_fee_payer(call, &origin, self.inner.tip())
+        {
             frame_system::RawOrigin::Signed(coldkey).into()
         } else {
             origin.clone()
@@ -497,6 +505,24 @@ mod tests {
             origin,
             call,
             info,
+            100,
+            (),
+            &TxBaseImplication(()),
+            TransactionSource::External,
+        )?;
+        Ok((valid_tx, val))
+    }
+
+    fn validate_call_with_tip(
+        origin: RuntimeOrigin,
+        call: &RuntimeCall,
+        tip: TaoBalance,
+    ) -> Result<(ValidTransaction, Val<Runtime>), TransactionValidityError> {
+        let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+        let (valid_tx, val, _origin) = ext.validate(
+            origin,
+            call,
+            &call.get_dispatch_info(),
             100,
             (),
             &TxBaseImplication(()),
@@ -829,7 +855,7 @@ mod tests {
     // ============================================================
 
     #[test]
-    fn hotkey_origin_charges_coldkey_fee_payer() {
+    fn hotkey_with_owner_charges_coldkey() {
         new_test_ext().execute_with(|| {
             let hotkey = signer();
             let coldkey = other();
@@ -845,7 +871,7 @@ mod tests {
 
     // Guards against the gate only recognizing `set_weights` rather than the whole group.
     #[test]
-    fn hotkey_origin_charges_coldkey_for_non_set_weights_member() {
+    fn other_group_member_charges_coldkey() {
         new_test_ext().execute_with(|| {
             let hotkey = signer();
             let coldkey = other();
@@ -860,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn hotkey_origin_without_owner_charges_signer() {
+    fn hotkey_without_owner_charges_signer() {
         new_test_ext().execute_with(|| {
             let hotkey = signer();
 
@@ -872,9 +898,28 @@ mod tests {
         });
     }
 
+    // A signer-chosen tip is never charged to the coldkey (that would let a hotkey
+    // drain coldkey funds): a tipped group call falls back to the signing hotkey.
+    #[test]
+    fn tipped_group_call_charges_signer() {
+        new_test_ext().execute_with(|| {
+            let hotkey = signer();
+            let coldkey = other();
+
+            pallet_subtensor::Owner::<Runtime>::insert(hotkey.clone(), coldkey);
+
+            let call = call_set_weights();
+            let (_valid_tx, val) =
+                validate_call_with_tip(RuntimeOrigin::signed(hotkey.clone()), &call, TaoBalance::new(1_000))
+                    .unwrap();
+
+            assert_eq!(fee_payer(&val), hotkey);
+        });
+    }
+
     // Owner is set, yet a call outside the group is never redirected: the signer pays.
     #[test]
-    fn ineligible_call_from_hotkey_charges_signer() {
+    fn ineligible_call_charges_signer() {
         new_test_ext().execute_with(|| {
             let hotkey = signer();
             let coldkey = other();
