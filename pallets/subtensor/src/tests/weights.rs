@@ -53,7 +53,7 @@ fn test_set_weights_dispatch_info_ok() {
         let dispatch_info = call.get_dispatch_info();
 
         assert_eq!(dispatch_info.class, DispatchClass::Normal);
-        assert_eq!(dispatch_info.pays_fee, Pays::Yes);
+        assert_eq!(dispatch_info.pays_fee, Pays::No);
     });
 }
 

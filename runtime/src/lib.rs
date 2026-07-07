@@ -12,6 +12,7 @@ use core::num::NonZeroU64;
 
 pub mod check_mortality;
 pub mod check_nonce;
+mod fee_filters;
 mod proxy_filters;
 pub mod sudo_wrapper;
 pub mod transaction_payment_wrapper;

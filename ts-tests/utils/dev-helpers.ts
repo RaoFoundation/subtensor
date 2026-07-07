@@ -4,9 +4,8 @@
  */
 import type { ApiPromise } from "@polkadot/api";
 import { tao } from "./balance.ts";
-import type { DevModeContext } from "@moonwall/cli";
 import type { KeyringPair } from "@moonwall/util";
-import { SignedOrder } from "./index.js";
+import type { SignedOrder } from "./index.js";
 
 export async function devForceSetBalance(
     polkadotJs: ApiPromise,
@@ -18,20 +17,6 @@ export async function devForceSetBalance(
         await polkadotJs.tx.sudo
             .sudo(polkadotJs.tx.balances.forceSetBalance(address, amount))
             .signAsync(context.keyring.alice),
-    ]);
-}
-
-export async function devSetWeightsTx(
-    api: ApiPromise,
-    context: DevModeContext,
-    coldkey: KeyringPair,
-    netuid: number,
-    uids: number[],
-    values: number[],
-    versionKey: bigint
-): Promise<void> {
-    await context.createBlock([
-        await api.tx.subtensorModule.setWeights(netuid, uids, values, versionKey).signAsync(coldkey),
     ]);
 }
 
