@@ -308,6 +308,7 @@ runtime-benchmarks = [
 	"runtime-common/runtime-benchmarks",
 	"pallet-babe/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
+	"pallet-session/runtime-benchmarks",
 	"pallet-election-provider-multi-phase/runtime-benchmarks",
 	"frame-election-provider-support/runtime-benchmarks",
 	"pallet-bags-list/runtime-benchmarks",

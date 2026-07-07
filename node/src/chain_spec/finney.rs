@@ -216,7 +216,7 @@ fn finney_genesis(
 ) -> serde_json::Value {
     serde_json::json!({
         "balances": { "balances": balances.to_vec() },
-        "aura": { "authorities": initial_authorities.iter().map(|x| (x.0.clone())).collect::<Vec<_>>() },
+        "aura": { "authorities": initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>() },
         "grandpa": { "authorities": initial_authorities
                 .iter()
                 .map(|x| (x.1.clone(), 1))

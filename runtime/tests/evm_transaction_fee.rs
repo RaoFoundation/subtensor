@@ -1,4 +1,8 @@
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::expect_used,
+    clippy::unwrap_used
+)]
 
 use codec::Encode;
 use frame_support::traits::fungible::Inspect;
@@ -34,7 +38,8 @@ fn initialize_block_with_aura_authority(authority: AuraId, slot: u64) {
             slot.encode(),
         )],
     };
-    frame_system::Pallet::<Runtime>::initialize(&1u32.into(), &Default::default(), &digest);
+    let next_block = frame_system::Pallet::<Runtime>::block_number() + 1;
+    frame_system::Pallet::<Runtime>::initialize(&next_block, &Default::default(), &digest);
 }
 
 #[test]
