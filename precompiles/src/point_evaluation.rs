@@ -1,5 +1,5 @@
 extern crate alloc;
-
+#[allow(clippy::arithmetic_side_effects)]
 use alloc::vec::Vec;
 
 use fp_evm::{
@@ -40,29 +40,20 @@ impl Precompile for PointEvaluation {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         handle.record_cost(GAS_COST)?;
 
-        let input = handle.input();
-
-        if input.len() != INPUT_LEN {
+        if handle.input().len() != INPUT_LEN {
             return Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("input must be 192 bytes".into()),
             });
         }
 
-        let versioned_hash = input.get(0..32).ok_or(PrecompileFailure::Error {
-            exit_status: ExitError::Other("input must be 192 bytes".into()),
-        })?;
-        let z = input.get(32..64).ok_or(PrecompileFailure::Error {
-            exit_status: ExitError::Other("input must be 192 bytes".into()),
-        })?;
-        let y = input.get(64..96).ok_or(PrecompileFailure::Error {
-            exit_status: ExitError::Other("input must be 192 bytes".into()),
-        })?;
-        let commitment_bytes = input.get(96..144).ok_or(PrecompileFailure::Error {
-            exit_status: ExitError::Other("input must be 192 bytes".into()),
-        })?;
-        let proof_bytes = input.get(144..192).ok_or(PrecompileFailure::Error {
-            exit_status: ExitError::Other("input must be 192 bytes".into()),
-        })?;
+        let mut input = [0u8; INPUT_LEN];
+        input.copy_from_slice(handle.input());
+
+        let versioned_hash = &input[0..32];
+        let z = &input[32..64];
+        let y = &input[64..96];
+        let commitment_bytes = &input[96..144];
+        let proof_bytes = &input[144..196];
 
         let commitment_hash = Sha256::digest(commitment_bytes);
         if versioned_hash[0] != 0x01 || versioned_hash[1..] != commitment_hash[1..] {
@@ -103,6 +94,7 @@ impl Precompile for PointEvaluation {
         let g1_gen = G1Affine::generator();
         let g2_gen = G2Affine::generator();
 
+        #[allow(clippy::arithmetic_side_effects)]
         let p_minus_y =
             (G1Projective::from(commitment) - G1Projective::from(g1_gen) * y_fr).into_affine();
 
