@@ -48,11 +48,21 @@ impl Precompile for PointEvaluation {
             });
         }
 
-        let versioned_hash = &input[0..32];
-        let z = &input[32..64];
-        let y = &input[64..96];
-        let commitment_bytes = &input[96..144];
-        let proof_bytes = &input[144..192];
+        let versioned_hash = input.get(0..32).ok_or(PrecompileFailure::Error {
+            exit_status: ExitError::Other("input must be 192 bytes".into()),
+        })?;
+        let z = input.get(32..64).ok_or(PrecompileFailure::Error {
+            exit_status: ExitError::Other("input must be 192 bytes".into()),
+        })?;
+        let y = input.get(64..96).ok_or(PrecompileFailure::Error {
+            exit_status: ExitError::Other("input must be 192 bytes".into()),
+        })?;
+        let commitment_bytes = input.get(96..144).ok_or(PrecompileFailure::Error {
+            exit_status: ExitError::Other("input must be 192 bytes".into()),
+        })?;
+        let proof_bytes = input.get(144..192).ok_or(PrecompileFailure::Error {
+            exit_status: ExitError::Other("input must be 192 bytes".into()),
+        })?;
 
         let commitment_hash = Sha256::digest(commitment_bytes);
         if versioned_hash[0] != 0x01 || versioned_hash[1..] != commitment_hash[1..] {
