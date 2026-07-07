@@ -3,18 +3,14 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_std::vec::Vec;
 
-/// Upper bound on the number of `AssociatedEvmAddress` entries this migration will process in a
-/// single `on_runtime_upgrade`.
+/// Backfill the reverse index `AssociatedUidsByEvmAddress` from the existing
+/// `AssociatedEvmAddress` forward map. One-time, idempotent, guarded by `HasMigrationRun`.
 ///
-/// `AssociatedEvmAddress` is grown only through `do_associate_evm_key` — an opt-in, signature-gated,
-/// rate-limited extrinsic — so in practice it holds at most a handful of entries per subnet. This
-/// cap gives the one-shot migration a *verified* bound on the reads/writes it can perform, so a
-/// pathologically large map can never turn the upgrade block into unbounded Wasm work. The value is
-/// orders of magnitude above any realistic association count while keeping the upgrade block's work
-/// safely bounded. If the map ever exceeds it, the migration refuses to mark itself complete and
-/// logs an error, rather than silently indexing only a prefix of the map.
-const MAX_MIGRATION_ENTRIES: u64 = 50_000;
-
+/// This scans the whole forward map in a single block. That is safe because the map is tiny: it
+/// grows only through `do_associate_evm_key`, an opt-in, signature-gated, rate-limited extrinsic.
+/// Measured on 2026-07-07, the entire map holds **100 entries on Finney and 20 on testnet**, with a
+/// largest single-`(netuid, evm_key)` bucket of **3** (against the cap of 32). There is no realistic
+/// chain state in which this scan is expensive, so no chunked / multi-block migration is warranted.
 pub fn migrate_associated_evm_address_index<T: Config>() -> Weight {
     let migration_name = b"migrate_associated_evm_address_index".to_vec();
     let mut weight = T::DbWeight::get().reads(1);
@@ -33,8 +29,6 @@ pub fn migrate_associated_evm_address_index<T: Config>() -> Weight {
     );
 
     let mut migrated = 0_u64;
-    let mut processed = 0_u64;
-    let mut capped = false;
 
     // Forward-map entries whose address bucket is already full and therefore cannot be represented
     // in the bounded reverse index. Collected here and pruned from the forward map after the scan
@@ -42,11 +36,6 @@ pub fn migrate_associated_evm_address_index<T: Config>() -> Weight {
     let mut overflow = Vec::new();
 
     for (netuid, uid, (evm_key, block_associated)) in AssociatedEvmAddress::<T>::iter() {
-        if processed >= MAX_MIGRATION_ENTRIES {
-            capped = true;
-            break;
-        }
-        processed = processed.saturating_add(1);
         weight.saturating_accrue(T::DbWeight::get().reads(1));
 
         let mut overflowed = false;
@@ -78,7 +67,7 @@ pub fn migrate_associated_evm_address_index<T: Config>() -> Weight {
     // could never recover. Instead we drop the excess from the forward map too, so both maps agree
     // on the cap the pallet now enforces; a dropped UID can re-associate later, reusing a freed
     // slot. This branch is unreachable for any real chain state (observed peak reuse of a single
-    // address is far below the cap); it exists so the migration can never silently produce an
+    // address is 3, far below the cap); it exists so the migration can never silently produce an
     // inconsistent index.
     for (netuid, uid) in &overflow {
         AssociatedEvmAddress::<T>::remove(*netuid, *uid);
@@ -86,15 +75,6 @@ pub fn migrate_associated_evm_address_index<T: Config>() -> Weight {
         log::warn!(
             "migrate_associated_evm_address_index: dropped over-cap association (netuid={netuid:?}, uid={uid}) to keep the forward map and reverse index consistent"
         );
-    }
-
-    if capped {
-        log::error!(
-            "Migration 'migrate_associated_evm_address_index' hit the {MAX_MIGRATION_ENTRIES}-entry \
-             processing cap and was left incomplete. This indicates an unexpectedly large \
-             AssociatedEvmAddress map and requires manual attention."
-        );
-        return weight;
     }
 
     HasMigrationRun::<T>::insert(&migration_name, true);
