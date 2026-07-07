@@ -221,8 +221,8 @@ where
             a if a == hash(7) => Some(Bn128Mul::execute(handle)),
             a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             a if a == hash(9) => Some(Bn128Add::execute(handle)),
-            a if a == hash(10) => Some(Blake2F::execute(handle)),
-            a if a == hash(11) => Some(PointEvaluation::execute(handle)),
+            a if a == hash(10) => Some(PointEvaluation::execute(handle)),
+            a if a == hash(11) => Some(Blake2F::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
