@@ -37,26 +37,24 @@ const BLS_MODULUS_BYTES: [u8; 32] =
 
 pub struct PointEvaluation;
 
-impl Precompile for PointEvaluation {
-    fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
-        handle.record_cost(GAS_COST)?;
-
-        if handle.input().len() != INPUT_LEN {
+impl PointEvaluation {
+    fn execute_impl(input: &[u8], g2_srs: &[u8]) -> PrecompileResult {
+        if input.len() != INPUT_LEN {
             return Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("input must be 192 bytes".into()),
             });
         }
 
-        let mut input = [0u8; INPUT_LEN];
-        input.copy_from_slice(handle.input());
+        let mut buf = [0u8; INPUT_LEN];
+        buf.copy_from_slice(input);
 
         let mut versioned_hash = [0u8; 32];
-        versioned_hash.copy_from_slice(&input[0..32]);
+        versioned_hash.copy_from_slice(&buf[0..32]);
 
-        let z = &input[32..64];
-        let y = &input[64..96];
-        let commitment_bytes = &input[96..144];
-        let proof_bytes = &input[144..INPUT_LEN];
+        let z = &buf[32..64];
+        let y = &buf[64..96];
+        let commitment_bytes = &buf[96..144];
+        let proof_bytes = &buf[144..INPUT_LEN];
 
         let commitment_hash = Sha256::digest(commitment_bytes);
         if versioned_hash[0] != 0x01 || versioned_hash.get(1..) != commitment_hash.get(1..) {
@@ -88,11 +86,10 @@ impl Precompile for PointEvaluation {
             }
         })?;
 
-        let g2_srs = G2Affine::deserialize_compressed(&G2_SRS[..]).map_err(|_| {
-            PrecompileFailure::Error {
+        let g2_srs =
+            G2Affine::deserialize_compressed(g2_srs).map_err(|_| PrecompileFailure::Error {
                 exit_status: ExitError::Other("invalid G2 SRS".into()),
-            }
-        })?;
+            })?;
 
         let g1_gen = G1Affine::generator();
         let g2_gen = G2Affine::generator();
@@ -127,6 +124,13 @@ impl Precompile for PointEvaluation {
     }
 }
 
+impl Precompile for PointEvaluation {
+    fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
+        handle.record_cost(GAS_COST)?;
+        Self::execute_impl(handle.input(), &G2_SRS)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -152,6 +156,11 @@ mod tests {
             Err(e) => Err(e),
         }
     }
+
+    const EXPECTED_OUTPUT: [u8; 64] = hex!(
+        "0000000000000000000000000000000000000000000000000000000000001000"
+        "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001"
+    );
 
     #[test]
     fn point_evaluation_requires_192_bytes() {
@@ -183,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn point_evaluation_success() {
+    fn point_evaluation_success_identity() {
         new_test_ext().execute_with(|| {
             use ark_serialize::CanonicalSerialize;
 
@@ -233,6 +242,95 @@ mod tests {
 
             let result = execute_point_eval(input);
             assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+            assert_eq!(result.unwrap(), EXPECTED_OUTPUT);
+        });
+    }
+
+    #[test]
+    fn point_evaluation_nontrivial() {
+        new_test_ext().execute_with(|| {
+            use ark_serialize::CanonicalSerialize;
+
+            // Build a known SRS with secret sk = 12345,
+            // then create a valid KZG proof for a degree-1 polynomial
+            // p(x) = 7*x + 42 with C - y*G1 != 0 and proof != identity.
+            let sk = Fr::from(12345u64);
+            let a = Fr::from(7u64);
+            let b = Fr::from(42u64);
+            let z_fr = Fr::from(3u64);
+            let y_fr = a * z_fr + b;
+
+            let g1_gen = G1Affine::generator();
+            let g2_gen = G2Affine::generator();
+
+            let s_g1 = (G1Projective::from(g1_gen) * sk).into_affine();
+            let s_g2 = (G2Projective::from(g2_gen) * sk).into_affine();
+
+            // KZG: commitment = a*(s*G1) + b*G1, proof = a*G1
+            let commitment =
+                (G1Projective::from(s_g1) * a + G1Projective::from(g1_gen) * b).into_affine();
+            let proof = (G1Projective::from(g1_gen) * a).into_affine();
+
+            // Verify internal pairing math first (out of band)
+            let p_minus_y =
+                (G1Projective::from(commitment) - G1Projective::from(g1_gen) * y_fr).into_affine();
+            let neg_g2 = -g2_gen;
+            let s_minus_z =
+                (G2Projective::from(s_g2) + G2Projective::from(g2_gen) * (-z_fr)).into_affine();
+            assert!(
+                Bls12_381::multi_pairing([p_minus_y, proof], [neg_g2, s_minus_z])
+                    .0
+                    .is_one(),
+                "internal pairing equation must hold for the known-SRS vector"
+            );
+
+            // Verify the vector is nontrivial
+            assert_ne!(p_minus_y, G1Affine::identity(), "p_minus_y must be nonzero");
+            assert_ne!(proof, G1Affine::identity(), "proof must be nonzero");
+
+            // Build the 192-byte input for execute_impl
+            let mut z_bytes = [0u8; 32];
+            // Fr from_be_bytes_mod_order expects big-endian bytes.  Fr::from(3) is just 3,
+            // and the big-endian representation is [0,...,0,3].
+            z_bytes[31] = 3;
+
+            let mut y_bytes = [0u8; 32];
+            // y = 7*3 + 42 = 63
+            y_bytes[31] = 63;
+
+            let mut commitment_bytes = [0u8; 48];
+            commitment
+                .serialize_compressed(&mut commitment_bytes[..])
+                .unwrap();
+
+            let commitment_hash = Sha256::digest(commitment_bytes);
+
+            let mut versioned_hash = [0u8; 32];
+            versioned_hash[0] = 0x01;
+            versioned_hash[1..].copy_from_slice(&commitment_hash[1..]);
+
+            let mut proof_bytes = [0u8; 48];
+            proof.serialize_compressed(&mut proof_bytes[..]).unwrap();
+
+            let mut srs_bytes = [0u8; 96];
+            s_g2.serialize_compressed(&mut srs_bytes[..]).unwrap();
+
+            let mut input = Vec::with_capacity(192);
+            input.extend_from_slice(&versioned_hash);
+            input.extend_from_slice(&z_bytes);
+            input.extend_from_slice(&y_bytes);
+            input.extend_from_slice(&commitment_bytes);
+            input.extend_from_slice(&proof_bytes);
+
+            // Must use execute_impl with the known SRS; the real precompile
+            // uses the hardcoded SRS and would reject this.
+            let result = PointEvaluation::execute_impl(&input, &srs_bytes);
+            assert!(result.is_ok(), "nontrivial vector must pass with known SRS");
+            assert_eq!(result.unwrap().output, EXPECTED_OUTPUT);
+
+            // Verify the real precompile rejects it (wrong SRS)
+            let real_reject = PointEvaluation::execute_impl(&input, &G2_SRS);
+            assert!(real_reject.is_err(), "must fail with wrong SRS");
         });
     }
 }
