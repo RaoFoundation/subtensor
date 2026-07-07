@@ -251,10 +251,14 @@ mod tests {
         new_test_ext().execute_with(|| {
             use ark_serialize::CanonicalSerialize;
 
-            // Build a known SRS with secret sk = 12345,
-            // then create a valid KZG proof for a degree-1 polynomial
-            // p(x) = 7*x + 42 with C - y*G1 != 0 and proof != identity.
-            let sk = Fr::from(12345u64);
+            // Build a test-only SRS whose secret is derived from a public
+            // nothing-up-my-sleeve string.  This is NOT the production
+            // G2_SRS — nobody can forge a proof against that one (that is
+            // the point of the trusted setup).  Here we verify that the
+            // pairing-based verification logic correctly accepts a valid
+            // degree-1 KZG proof and correctly rejects it against the
+            // production SRS.
+            let sk = Fr::from_be_bytes_mod_order(&Sha256::digest(b"KZG test vector for subtensor point_evaluation"));
             let a = Fr::from(7u64);
             let b = Fr::from(42u64);
             let z_fr = Fr::from(3u64);
