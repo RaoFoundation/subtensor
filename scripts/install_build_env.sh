@@ -63,7 +63,7 @@ if [ "$OS" = "Linux" ]; then
             /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources || true
         $SUDO apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update
         $SUDO apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y --no-install-recommends \
-            curl build-essential protobuf-compiler clang git pkg-config libssl-dev llvm libudev-dev \
+            curl build-essential protobuf-compiler clang libclang-dev git pkg-config libssl-dev llvm llvm-dev libudev-dev \
             python3 python3-dev \
             gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
     fi
@@ -99,14 +99,14 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y
 source "$HOME/.cargo/env" || export PATH="$HOME/.cargo/bin:$PATH"
 
 # Keep in sync with rust-toolchain.toml (the repo's canonical pin).
-rustup toolchain install 1.89 --profile minimal
-rustup default 1.89
+rustup toolchain install 1.93.0 --profile minimal
+rustup default 1.93.0
 
 # Add Rust Targets
 
 echo "Adding Rust targets for wasm + cross-arch binaries..."
-rustup target add wasm32v1-none
-rustup target add aarch64-unknown-linux-gnu
-rustup target add x86_64-unknown-linux-gnu
+rustup target add wasm32v1-none --toolchain 1.93.0
+rustup target add aarch64-unknown-linux-gnu --toolchain 1.93.0
+rustup target add x86_64-unknown-linux-gnu --toolchain 1.93.0
 
 echo "[✓] Environment setup complete."

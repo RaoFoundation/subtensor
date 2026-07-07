@@ -7,7 +7,7 @@
 ###############################################################################
 # ---------- 1. Common build environment -------------------------------------
 ###############################################################################
-ARG BASE_IMAGE=rust:latest
+ARG BASE_IMAGE=rust:1.93.0
 FROM ${BASE_IMAGE} AS base_builder
 
 LABEL com.bittensor.image.authors="operations@bittensor.com" \
@@ -17,14 +17,13 @@ LABEL com.bittensor.image.authors="operations@bittensor.com" \
   com.bittensor.image.documentation="https://bittensor.com/docs"
 
 # Rust targets
-RUN rustup update stable && \
-  rustup target add wasm32v1-none --toolchain stable
+RUN rustup target add wasm32v1-none --toolchain 1.93.0
 
 # Build prerequisites
 ENV RUST_BACKTRACE=1
 RUN apt-get update && \
   apt-get install -y --no-install-recommends \
-  curl build-essential protobuf-compiler clang git pkg-config libssl-dev python3 python3-dev && \
+  curl build-essential protobuf-compiler clang libclang-dev llvm llvm-dev git pkg-config libssl-dev python3 python3-dev && \
   rm -rf /var/lib/apt/lists/*
 
 # Copy entire repository once for all build stages (maximises cache hits)
