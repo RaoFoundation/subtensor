@@ -7,7 +7,7 @@ homepage = "https://substrate.io/"
 edition = "2024"
 license = "Unlicense"
 publish = false
-repository = "https://github.com/opentensor/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 
 [build-dependencies]
 subtensor-linting = { path = "support/linting", version = "0.1.0" }

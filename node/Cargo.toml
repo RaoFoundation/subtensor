@@ -7,7 +7,7 @@ homepage = "https://substrate.io/"
 edition.workspace = true
 license = "Unlicense"
 publish = false
-repository = "https://github.com/opentensor/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 build = "build.rs"
 
 [lints]

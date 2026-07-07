@@ -185,7 +185,7 @@ pub fn finney_mainnet_config() -> Result<ChainSpec, String> {
     .build();
 
     // Load and set the code substitute to avoid archive node sync panic
-    // See <https://github.com/opentensor/subtensor/pull/1051>
+    // See <https://github.com/RaoFoundation/subtensor/pull/1051>
     //
     // Need to do it in this hacky way because the ChainSpec builder doesn't support setting it
     let code_substitute_2585476_hex = include_bytes!("code_substitute_2585476.txt");

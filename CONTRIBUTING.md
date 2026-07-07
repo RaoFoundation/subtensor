@@ -3,7 +3,7 @@
 ## Lifecycle of a Pull Request
 
 1. Individuals wishing to contribute to subtensor should develop their change/feature/fix in a
-   [Pull Request](https://github.com/opentensor/subtensor/compare) (PR) targeting the `devnet-ready`
+   [Pull Request](https://github.com/RaoFoundation/subtensor/compare) (PR) targeting the `devnet-ready`
    branch of the subtensor GitHub repository. It is recommended to start your pull request as a
    draft initially until you are ready to have other developers actively look at it. Any
    changes to pallet/runtime code should be accompanied by integration and/or unit tests fully
