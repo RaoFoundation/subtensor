@@ -364,12 +364,13 @@ mod tests {
     };
     use frame_support::{
         assert_ok,
-        dispatch::{DispatchClass, DispatchInfo, GetDispatchInfo},
+        dispatch::{DispatchClass, DispatchInfo, GetDispatchInfo, Pays},
     };
     use pallet_subtensor_proxy as pallet_proxy;
     use pallet_subtensor_utility as pallet_utility;
     use pallet_transaction_payment::Val;
-    use sp_runtime::traits::{TransactionExtension, TxBaseImplication};
+    use sp_runtime::Saturating;
+    use sp_runtime::traits::{DispatchTransaction, TransactionExtension, TxBaseImplication};
     use sp_runtime::transaction_validity::{
         TransactionSource, TransactionValidityError, ValidTransaction,
     };
@@ -510,24 +511,6 @@ mod tests {
             origin,
             call,
             info,
-            100,
-            (),
-            &TxBaseImplication(()),
-            TransactionSource::External,
-        )?;
-        Ok((valid_tx, val))
-    }
-
-    fn validate_call_with_tip(
-        origin: RuntimeOrigin,
-        call: &RuntimeCall,
-        tip: TaoBalance,
-    ) -> Result<(ValidTransaction, Val<Runtime>), TransactionValidityError> {
-        let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
-        let (valid_tx, val, _origin) = ext.validate(
-            origin,
-            call,
-            &call.get_dispatch_info(),
             100,
             (),
             &TxBaseImplication(()),
@@ -903,10 +886,11 @@ mod tests {
         });
     }
 
-    // A signer-chosen tip is dropped rather than billed to the coldkey (billing it would let
-    // a hotkey drain coldkey funds); the coldkey still pays the call's protocol fee.
+    // Full lifecycle (validate → prepare → post_dispatch) via `DispatchTransaction::test_run`,
+    // which validate-only tests cannot reach: a `Pays::Yes` allow-listed call debits the coldkey
+    // and leaves the hotkey untouched, and a signer-chosen tip is excluded from the debit.
     #[test]
-    fn coldkey_charge_excludes_signer_tip() {
+    fn full_lifecycle_debits_coldkey_excluding_tip() {
         new_test_ext().execute_with(|| {
             let hotkey = signer();
             let coldkey = other();
@@ -914,20 +898,43 @@ mod tests {
             pallet_subtensor::Owner::<Runtime>::insert(hotkey.clone(), coldkey.clone());
 
             let call = call_set_weights();
-            let (_valid_tx, val) = validate_call_with_tip(
-                RuntimeOrigin::signed(hotkey),
-                &call,
-                TaoBalance::new(1_000),
-            )
-            .unwrap();
+            // Force a fee-bearing call; the real `set_weights` is `Pays::No` in this PR.
+            let info = DispatchInfo {
+                pays_fee: Pays::Yes,
+                ..call.get_dispatch_info()
+            };
 
-            match val {
-                Val::Charge { who, tip, .. } => {
-                    assert_eq!(who, coldkey);
-                    assert_eq!(tip, TaoBalance::new(0));
-                }
-                _ => panic!("expected Val::Charge"),
-            }
+            let hotkey_before = pallet_balances::Pallet::<Runtime>::free_balance(&hotkey);
+            let coldkey_before = pallet_balances::Pallet::<Runtime>::free_balance(&coldkey);
+
+            // Sign with a large tip; it must not reach the coldkey.
+            let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(1_000_000));
+            assert_ok!(ext.test_run(
+                RuntimeOrigin::signed(hotkey.clone()),
+                &call,
+                &info,
+                0,
+                0,
+                |_origin| Ok(Default::default()),
+            ));
+
+            let tipless_fee = pallet_transaction_payment::Pallet::<Runtime>::compute_fee(
+                0,
+                &info,
+                TaoBalance::new(0),
+            );
+            let coldkey_after = pallet_balances::Pallet::<Runtime>::free_balance(&coldkey);
+
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::free_balance(&hotkey),
+                hotkey_before
+            );
+            assert!(coldkey_after < coldkey_before, "coldkey should be debited");
+            assert_eq!(
+                coldkey_before.saturating_sub(coldkey_after),
+                tipless_fee,
+                "coldkey pays the tipless fee, not the tip"
+            );
         });
     }
 
