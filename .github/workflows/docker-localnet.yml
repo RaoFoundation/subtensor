@@ -200,6 +200,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine image name
+        # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-localnet" >> $GITHUB_ENV
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -211,5 +215,5 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}-localnet:${{ needs.setup.outputs.tag }}
-            ${{ needs.setup.outputs.latest_tag == 'true' && format('ghcr.io/{0}-localnet:latest', github.repository) || '' }}
+            ${{ env.image }}:${{ needs.setup.outputs.tag }}
+            ${{ needs.setup.outputs.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}

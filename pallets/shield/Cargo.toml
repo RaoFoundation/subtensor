@@ -1,12 +1,12 @@
 [package]
 name = "pallet-shield"
 description = "FRAME pallet for opt-in, per-block ephemeral-key encrypted transactions, MEV-shielded."
-authors = ["Subtensor Contributors <https://github.com/opentensor/subtensor>"]
+authors = ["Subtensor Contributors <https://github.com/RaoFoundation/subtensor>"]
 version = "0.0.1"
 license = "Unlicense"
 edition.workspace = true
-homepage = "https://github.com/opentensor/subtensor"
-repository = "https://github.com/opentensor/subtensor"
+homepage = "https://github.com/RaoFoundation/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 publish = false
 
 [package.metadata.docs.rs]

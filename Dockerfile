@@ -12,7 +12,7 @@ FROM ${BASE_IMAGE} AS base_builder
 
 LABEL ai.opentensor.image.authors="operations@opentensor.ai" \
   ai.opentensor.image.vendor="Opentensor Foundation" \
-  ai.opentensor.image.title="opentensor/subtensor" \
+  ai.opentensor.image.title="raofoundation/subtensor" \
   ai.opentensor.image.description="Opentensor Subtensor Blockchain" \
   ai.opentensor.image.documentation="https://docs.bittensor.com"
 
