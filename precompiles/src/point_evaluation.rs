@@ -61,8 +61,16 @@ impl Precompile for PointEvaluation {
             });
         }
 
-        let z_fr = Fr::from_be_bytes_mod_order(z);
-        let y_fr = Fr::from_be_bytes_mod_order(y);
+        let deserialize_bls_scalar = |bytes: &[u8]| {
+            if bytes >= BLS_MODULUS_BYTES.as_slice() {
+                return Err(PrecompileFailure::Error {
+                    exit_status: ExitError::Other("invalid field element".into()),
+                });
+            }
+            Ok(Fr::from_be_bytes_mod_order(bytes))
+        };
+        let z_fr = deserialize_bls_scalar(z)?;
+        let y_fr = deserialize_bls_scalar(y)?;
 
         let commitment = G1Affine::deserialize_compressed(commitment_bytes).map_err(|_| {
             PrecompileFailure::Error {
