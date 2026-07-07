@@ -2952,6 +2952,60 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
 }
 
 #[test]
+fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
+    new_test_ext(1).execute_with(|| {
+        let old_owner_coldkey = U256::from(1);
+        let old_owner_hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+        let new_owner_coldkey = U256::from(5);
+        let king_hotkey = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &new_owner_coldkey,
+            &king_hotkey
+        ));
+
+        let now = crate::staking::lock::ONE_YEAR + 1;
+        System::set_block_number(now);
+        NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+        SubtensorModule::set_tempo_unchecked(netuid, 1);
+        LastEpochBlock::<Test>::insert(netuid, now.saturating_sub(1));
+        PendingEpochAt::<Test>::insert(netuid, 0);
+
+        let locked_mass = AlphaBalance::from(1_000u64);
+        Lock::<Test>::insert(
+            (new_owner_coldkey, netuid, king_hotkey),
+            LockState {
+                locked_mass,
+                conviction: U64F64::from_num(1_000),
+                last_update: now,
+            },
+        );
+        HotkeyLock::<Test>::insert(
+            netuid,
+            king_hotkey,
+            LockState {
+                locked_mass,
+                conviction: U64F64::from_num(1_000),
+                last_update: now,
+            },
+        );
+
+        assert_eq!(SubnetOwner::<Test>::get(netuid), old_owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), old_owner_hotkey);
+
+        SubtensorModule::run_coinbase(SubtensorModule::mint_tao(0.into()));
+
+        assert_eq!(SubnetOwner::<Test>::get(netuid), new_owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), king_hotkey);
+        assert_eq!(LastEpochBlock::<Test>::get(netuid), now);
+    });
+}
+
+#[test]
 fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
     new_test_ext(1).execute_with(|| {
         let old_owner_coldkey = U256::from(1);
