@@ -75,7 +75,7 @@ jobs:
 
       - name: Research preparation
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/RaoFoundation/btcli.git
 
       - name: Checkout
         working-directory: ${{ github.workspace }}/btcli
@@ -135,7 +135,7 @@ jobs:
 
       - name: Research preparation
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/bittensor.git
+        run: git clone https://github.com/RaoFoundation/bittensor.git
 
       - name: Checkout
         working-directory: ${{ github.workspace }}/bittensor
@@ -340,7 +340,7 @@ jobs:
 
       - name: Clone Bittensor CLI repo
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/RaoFoundation/btcli.git
 
       - name: Setup Bittensor-cli from cloned repo
         working-directory: ${{ github.workspace }}/btcli
@@ -421,7 +421,7 @@ jobs:
 
       - name: Clone Bittensor SDK repo
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/bittensor.git
+        run: git clone https://github.com/RaoFoundation/bittensor.git
 
       - name: Setup Bittensor SDK from cloned repo
         working-directory: ${{ github.workspace }}/bittensor
