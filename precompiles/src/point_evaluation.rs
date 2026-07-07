@@ -258,7 +258,9 @@ mod tests {
             // pairing-based verification logic correctly accepts a valid
             // degree-1 KZG proof and correctly rejects it against the
             // production SRS.
-            let sk = Fr::from_be_bytes_mod_order(&Sha256::digest(b"KZG test vector for subtensor point_evaluation"));
+            let sk = Fr::from_be_bytes_mod_order(&Sha256::digest(
+                b"KZG test vector for subtensor point_evaluation",
+            ));
             let a = Fr::from(7u64);
             let b = Fr::from(42u64);
             let z_fr = Fr::from(3u64);
