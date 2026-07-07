@@ -1,5 +1,6 @@
 #![allow(
     unused,
+    clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
     clippy::panic,
     clippy::unwrap_used,
@@ -13,12 +14,9 @@ use alloc::collections::BTreeMap;
 use approx::assert_abs_diff_eq;
 use frame_support::assert_ok;
 use sp_core::U256;
-use substrate_fixed::{
-    transcendental::sqrt,
-    types::{I64F64, I96F32, U64F64, U96F32},
-};
+use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
-use subtensor_swap_interface::{SwapEngine, SwapHandler};
+use subtensor_swap_interface::SwapHandler;
 
 #[allow(clippy::arithmetic_side_effects)]
 fn close(value: u64, target: u64, eps: u64) {
