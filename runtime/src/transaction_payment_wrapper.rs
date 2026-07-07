@@ -69,7 +69,6 @@ impl<T: Config + pallet_proxy::Config + pallet_utility::Config + pallet_subtenso
 where
     RuntimeCallOf<T>: IsSubType<pallet_proxy::Call<T>> + IsSubType<pallet_utility::Call<T>>,
     T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
-    BalanceOf<T>: Zero,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>> + Clone,
 {
     /// Extract (real, delegate, inner_call) from a `proxy` call.
@@ -196,17 +195,15 @@ where
     /// Determine the coldkey that should pay the fee when a hotkey is the origin.
     ///
     /// Returns `Some(coldkey)` only when the call is runtime-marked as coldkey-paid
-    /// (via [`ColdkeyFeeCallFilter`]), the signer (hotkey) has an owner, and the tip
-    /// is zero. The tip is chosen by the signing hotkey, so redirecting it to the
-    /// coldkey would let a hotkey spend coldkey funds it never authorized; a tipped
-    /// call therefore always falls back to the signer paying. Returns `None`
-    /// otherwise, so the signer pays.
+    /// (via [`ColdkeyFeeCallFilter`]) and the signer (hotkey) has an owner. The coldkey
+    /// covers the protocol fee only; the signer-chosen tip is dropped by the caller
+    /// (see `validate`) so a hotkey cannot spend coldkey funds through the tip. Returns
+    /// `None` otherwise, so the signer pays.
     fn extract_coldkey_fee_payer(
         call: &RuntimeCallOf<T>,
         origin: &RuntimeOriginOf<T>,
-        tip: BalanceOf<T>,
     ) -> Option<AccountIdOf<T>> {
-        if !tip.is_zero() || !T::charges_coldkey(call) {
+        if !T::charges_coldkey(call) {
             return None;
         }
 
@@ -222,7 +219,7 @@ where
         + IsSubType<pallet_proxy::Call<T>>
         + IsSubType<pallet_utility::Call<T>>,
     T: ColdkeyFeeCallFilter<RuntimeCallOf<T>>,
-    BalanceOf<T>: Zero,
+    BalanceOf<T>: Zero + Send + Sync,
     RuntimeOriginOf<T>: AsSystemOriginSigner<AccountIdOf<T>>
         + Clone
         + From<frame_system::RawOrigin<AccountIdOf<T>>>,
@@ -259,27 +256,29 @@ where
             base.saturated_into::<TransactionPriority>()
         };
 
-        // If a real account opted in to pay fees, create a synthetic origin for fee validation.
-        // Otherwise, the signer pays as usual.
-        let fee_origin = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
-            frame_system::RawOrigin::Signed(real).into()
-        } else if let Some(coldkey) =
-            Self::extract_coldkey_fee_payer(call, &origin, self.inner.tip())
-        {
-            frame_system::RawOrigin::Signed(coldkey).into()
+        // Resolve the fee payer. A proxy `RealPaysFee` opt-in takes precedence; otherwise an
+        // owned hotkey's coldkey pays for allow-listed calls. In that case the coldkey covers
+        // the protocol fee only — the signer-chosen tip is dropped, since a tip does not buy
+        // priority in this wrapper (priority is overridden above) and billing it to the coldkey
+        // would let a hotkey drain coldkey funds. Other payers keep the original tip.
+        let (fee_origin, tip) = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
+            (frame_system::RawOrigin::Signed(real).into(), self.inner.tip())
+        } else if let Some(coldkey) = Self::extract_coldkey_fee_payer(call, &origin) {
+            (frame_system::RawOrigin::Signed(coldkey).into(), Zero::zero())
         } else {
-            origin.clone()
+            (origin.clone(), self.inner.tip())
         };
 
-        let (mut valid_transaction, val, _fee_origin) = self.inner.validate(
-            fee_origin,
-            call,
-            info,
-            len,
-            self_implicit,
-            inherited_implication,
-            source,
-        )?;
+        let (mut valid_transaction, val, _fee_origin) = ChargeTransactionPayment::<T>::from(tip)
+            .validate(
+                fee_origin,
+                call,
+                info,
+                len,
+                self_implicit,
+                inherited_implication,
+                source,
+            )?;
 
         valid_transaction.priority = overridden_priority;
 
@@ -898,22 +897,28 @@ mod tests {
         });
     }
 
-    // A signer-chosen tip is never charged to the coldkey (that would let a hotkey
-    // drain coldkey funds): a tipped group call falls back to the signing hotkey.
+    // A signer-chosen tip is dropped rather than billed to the coldkey (billing it would let
+    // a hotkey drain coldkey funds); the coldkey still pays the call's protocol fee.
     #[test]
-    fn tipped_group_call_charges_signer() {
+    fn coldkey_charge_excludes_signer_tip() {
         new_test_ext().execute_with(|| {
             let hotkey = signer();
             let coldkey = other();
 
-            pallet_subtensor::Owner::<Runtime>::insert(hotkey.clone(), coldkey);
+            pallet_subtensor::Owner::<Runtime>::insert(hotkey.clone(), coldkey.clone());
 
             let call = call_set_weights();
             let (_valid_tx, val) =
-                validate_call_with_tip(RuntimeOrigin::signed(hotkey.clone()), &call, TaoBalance::new(1_000))
+                validate_call_with_tip(RuntimeOrigin::signed(hotkey), &call, TaoBalance::new(1_000))
                     .unwrap();
 
-            assert_eq!(fee_payer(&val), hotkey);
+            match val {
+                Val::Charge { who, tip, .. } => {
+                    assert_eq!(who, coldkey);
+                    assert_eq!(tip, TaoBalance::new(0));
+                }
+                _ => panic!("expected Val::Charge"),
+            }
         });
     }
 
