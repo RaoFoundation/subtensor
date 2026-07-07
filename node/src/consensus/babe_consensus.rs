@@ -27,6 +27,7 @@ use sp_consensus::{Environment, Proposer, SelectChain, SyncOracle};
 use sp_consensus_aura::AuraApi;
 use sp_consensus_aura::sr25519::AuthorityId;
 use sp_consensus_babe::BabeApi;
+use sp_consensus_babe::inherents::BabeCreateInherentDataProviders;
 use sp_consensus_slots::SlotDuration;
 use sp_inherents::CreateInherentDataProviders;
 use sp_keystore::KeystorePtr;
@@ -179,10 +180,28 @@ impl ConsensusMechanism for BabeConsensus {
                     ));
                 }
 
+                let slot_duration = configuration.slot_duration();
+                let create_inherent_data_providers = Arc::new(move |_, ()| async move {
+                    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+                    let slot =
+                        sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                            *timestamp,
+                            slot_duration,
+                        );
+                    Ok((slot, timestamp))
+                })
+                    as BabeCreateInherentDataProviders<Block>;
+                let select_chain = sc_consensus::LongestChain::new(backend.clone());
+                let offchain_tx_pool_factory =
+                    OffchainTransactionPoolFactory::new(transaction_pool.clone());
+
                 let (babe_import, babe_link) = sc_consensus_babe::block_import(
                     configuration,
                     grandpa_block_import.clone(),
                     client.clone(),
+                    create_inherent_data_providers,
+                    select_chain,
+                    offchain_tx_pool_factory,
                 )?;
 
                 let conditional_block_import = ConditionalEVMBlockImport::new(
@@ -192,30 +211,16 @@ impl ConsensusMechanism for BabeConsensus {
                 );
 
                 let slot_duration = babe_link.config().slot_duration();
-                let create_inherent_data_providers = move |_, ()| async move {
-                    let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
-                    let slot =
-						sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-							*timestamp,
-							slot_duration,
-						);
-                    Ok((slot, timestamp))
-                };
-
                 let (import_queue, babe_worker_handle) =
                     sc_consensus_babe::import_queue(sc_consensus_babe::ImportQueueParams {
                         link: babe_link.clone(),
                         block_import: conditional_block_import.clone(),
                         justification_import: Some(Box::new(grandpa_block_import)),
                         client,
-                        select_chain: sc_consensus::LongestChain::new(backend.clone()),
-                        create_inherent_data_providers,
+                        slot_duration,
                         spawner: &task_manager.spawn_essential_handle(),
                         registry: config.prometheus_registry(),
                         telemetry,
-                        offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(
-                            transaction_pool,
-                        ),
                     })?;
 
                 self.babe_link = Some(babe_link);

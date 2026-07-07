@@ -271,7 +271,7 @@ fn construct_runtime_final_expansion(
         };
 
         #[derive(
-            Clone, Copy, PartialEq, Eq, #scrate::sp_runtime::RuntimeDebug,
+            Clone, Copy, PartialEq, Eq, #scrate::sp_runtime::Debug,
             #scrate::__private::scale_info::TypeInfo
         )]
         pub struct #name;

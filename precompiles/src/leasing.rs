@@ -7,11 +7,11 @@ use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
 use pallet_evm::AddressMapping;
 use pallet_evm::PrecompileHandle;
-use precompile_utils::{EvmResult, solidity::Codec};
+use precompile_utils::{solidity::Codec, EvmResult};
 use sp_core::{ByteArray, H256};
 use sp_runtime::{
-    Percent,
     traits::{AsSystemOriginSigner, Dispatchable, UniqueSaturatedInto},
+    Percent,
 };
 use subtensor_runtime_common::NetUid;
 
@@ -196,11 +196,11 @@ mod tests {
     #![allow(clippy::expect_used, clippy::arithmetic_side_effects)]
 
     use super::*;
-    use crate::PrecompileExt;
     use crate::mock::{
-        AccountId, Runtime, RuntimeCall, RuntimeOrigin, System, addr_from_index, fund_account,
-        mapped_account, new_test_ext, precompiles, selector_u32,
+        addr_from_index, fund_account, mapped_account, new_test_ext, precompiles, selector_u32,
+        AccountId, Runtime, RuntimeCall, RuntimeOrigin, System,
     };
+    use crate::PrecompileExt;
     use frame_support::StorageDoubleMap;
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;

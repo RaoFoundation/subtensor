@@ -24,16 +24,14 @@ use codec::Encode;
 use frame_support::{
     BoundedVec, assert_noop, assert_ok,
     pallet_prelude::{InvalidTransaction, TransactionSource},
+    traits::Authorize,
     weights::RuntimeDbWeight,
 };
 use frame_system::RawOrigin;
 use sp_core::Get;
-use sp_runtime::{
-    offchain::{
-        OffchainWorkerExt,
-        testing::{PendingRequest, TestOffchainExt},
-    },
-    traits::ValidateUnsigned,
+use sp_runtime::offchain::{
+    OffchainWorkerExt,
+    testing::{PendingRequest, TestOffchainExt},
 };
 
 // The round number used to collect drand pulses
@@ -43,6 +41,15 @@ pub const ROUND_NUMBER: u64 = 1000;
 pub const DRAND_PULSE: &str = "{\"round\":1000,\"randomness\":\"fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd\",\"signature\":\"b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39\"}";
 pub const DRAND_INFO_RESPONSE: &str = "{\"public_key\":\"83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a\",\"period\":3,\"genesis_time\":1692803367,\"hash\":\"52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971\",\"groupHash\":\"f477d5c89f21a17c863a7f937c6a6d15859414d2be09cd448d4279af331c5d3e\",\"schemeID\":\"bls-unchained-g1-rfc9380\",\"metadata\":{\"beaconID\":\"quicknet\"}}";
 const INVALID_JSON: &str = r#"{"round":1000,"randomness":"not base64??","signature":}"#;
+
+fn authorize_call(
+    call: &Call<Test>,
+    source: TransactionSource,
+) -> sp_runtime::transaction_validity::TransactionValidity {
+    call.authorize(source)
+        .expect("drand write_pulse should provide authorization")
+        .map(|(validity, _)| validity)
+}
 
 #[test]
 fn it_can_submit_valid_pulse_when_beacon_config_exists() {
@@ -79,7 +86,7 @@ fn it_can_submit_valid_pulse_when_beacon_config_exists() {
 
         // Dispatch an unsigned extrinsic.
         assert_ok!(Drand::write_pulse(
-            RuntimeOrigin::none(),
+            RawOrigin::Authorized.into(),
             pulses_payload,
             signature
         ));
@@ -128,7 +135,7 @@ fn it_rejects_invalid_pulse_due_to_bad_signature() {
 
         assert_noop!(
             Drand::write_pulse(
-                RawOrigin::None.into(),
+                RawOrigin::Authorized.into(),
                 pulses_payload.clone(),
                 Some(pulses_signature)
             ),
@@ -173,7 +180,7 @@ fn it_rejects_pulses_with_non_incremental_round_numbers() {
 
         // Dispatch an unsigned extrinsic.
         assert_ok!(Drand::write_pulse(
-            RuntimeOrigin::none(),
+            RawOrigin::Authorized.into(),
             pulses_payload.clone(),
             signature
         ));
@@ -184,7 +191,7 @@ fn it_rejects_pulses_with_non_incremental_round_numbers() {
 
         // Attempt to submit the same pulse again, which should fail
         assert_noop!(
-            Drand::write_pulse(RuntimeOrigin::none(), pulses_payload, signature),
+            Drand::write_pulse(RawOrigin::Authorized.into(), pulses_payload, signature),
             Error::<Test>::InvalidRoundNumber,
         );
     });
@@ -361,7 +368,7 @@ fn signed_cannot_submit_beacon_info() {
 }
 
 #[test]
-fn test_validate_unsigned_write_pulse() {
+fn test_authorize_write_pulse() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
         let alice = sp_keyring::Sr25519Keyring::Alice;
@@ -386,14 +393,14 @@ fn test_validate_unsigned_write_pulse() {
         };
 
         let source = TransactionSource::External;
-        let validity = Drand::validate_unsigned(source, &call);
+        let validity = authorize_call(&call, source);
 
         assert_ok!(validity);
     });
 }
 
 #[test]
-fn validate_unsigned_rejects_round_too_far_ahead() {
+fn authorize_rejects_round_too_far_ahead() {
     // A round that would leap LastStoredRound by more than the offchain worker ever
     // submits in one run is not a legitimate catch-up pulse. Drop it at the mempool
     // before it can reach dispatch (#2794).
@@ -423,14 +430,14 @@ fn validate_unsigned_rejects_round_too_far_ahead() {
         };
 
         let source = TransactionSource::External;
-        let validity = Drand::validate_unsigned(source, &call);
+        let validity = authorize_call(&call, source);
 
         assert_noop!(validity, InvalidTransaction::Stale);
     });
 }
 
 #[test]
-fn test_not_validate_unsigned_write_pulse_with_bad_proof() {
+fn test_not_authorize_write_pulse_with_bad_proof() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
         let alice = sp_keyring::Sr25519Keyring::Alice;
@@ -449,14 +456,14 @@ fn test_not_validate_unsigned_write_pulse_with_bad_proof() {
         };
 
         let source = TransactionSource::External;
-        let validity = Drand::validate_unsigned(source, &call);
+        let validity = authorize_call(&call, source);
 
         assert_noop!(validity, InvalidTransaction::BadProof);
     });
 }
 
 #[test]
-fn test_not_validate_unsigned_write_pulse_with_no_payload_signature() {
+fn test_not_authorize_write_pulse_with_no_payload_signature() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
         let alice = sp_keyring::Sr25519Keyring::Alice;
@@ -475,7 +482,7 @@ fn test_not_validate_unsigned_write_pulse_with_no_payload_signature() {
         };
 
         let source = TransactionSource::External;
-        let validity = Drand::validate_unsigned(source, &call);
+        let validity = authorize_call(&call, source);
 
         assert_noop!(validity, InvalidTransaction::BadSigner);
     });
@@ -525,7 +532,7 @@ fn can_execute_and_handle_valid_http_responses() {
 }
 
 #[test]
-fn validate_unsigned_rejects_future_block_number() {
+fn authorize_rejects_future_block_number() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
         let future_block_number = 100_000_100;
@@ -544,7 +551,7 @@ fn validate_unsigned_rejects_future_block_number() {
         };
 
         let source = TransactionSource::External;
-        let validity = Drand::validate_unsigned(source, &call);
+        let validity = authorize_call(&call, source);
 
         assert_noop!(validity, InvalidTransaction::Future);
     });

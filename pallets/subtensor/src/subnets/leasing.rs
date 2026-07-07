@@ -23,7 +23,7 @@ use frame_support::{
 };
 use frame_system::pallet_prelude::OriginFor;
 use frame_system::pallet_prelude::*;
-use sp_core::blake2_256;
+use sp_io::hashing::blake2_256;
 use sp_runtime::{Percent, traits::TrailingZeroInput};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
@@ -35,8 +35,8 @@ pub type CurrencyOf<T> = <T as Config>::Currency;
 pub type BalanceOf<T> =
     <CurrencyOf<T> as fungible::Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
-#[freeze_struct("8cc3d0594faed7dd")]
-#[derive(Encode, Decode, Eq, PartialEq, Ord, PartialOrd, RuntimeDebug, TypeInfo)]
+#[freeze_struct("9d744b7d73e5932b")]
+#[derive(Encode, Decode, Eq, PartialEq, Ord, PartialOrd, Debug, TypeInfo)]
 pub struct SubnetLease<AccountId, BlockNumber, Balance> {
     /// The beneficiary of the lease, able to operate the subnet through
     /// a proxy and taking ownership of the subnet at the end of the lease (if defined).

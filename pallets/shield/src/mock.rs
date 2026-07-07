@@ -71,7 +71,7 @@ impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
     fn find_current_author() -> Option<AuraId> {
         // Thread-local override (unit tests) → Aura fallback (benchmarks).
         MOCK_CURRENT.with(|c| c.borrow().clone()).or_else(|| {
-            let slot = Aura::current_slot_from_digests()?;
+            let slot = pallet_aura::CurrentSlot::<Test>::get();
             let auths = pallet_aura::Authorities::<Test>::get().into_inner();
             auths.get(*slot as usize % auths.len()).cloned()
         })
@@ -81,7 +81,7 @@ impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
         if let Some(val) = MOCK_NEXT_NEXT.with(|n| n.borrow().clone()) {
             return val;
         }
-        let slot = Aura::current_slot_from_digests()?.checked_add(2)?;
+        let slot = pallet_aura::CurrentSlot::<Test>::get().checked_add(2)?;
         let auths = pallet_aura::Authorities::<Test>::get().into_inner();
         auths.get(slot as usize % auths.len()).cloned()
     }

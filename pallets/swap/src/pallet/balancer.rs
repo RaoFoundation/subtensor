@@ -61,8 +61,8 @@ use subtensor_macros::freeze_struct;
 ///   - ∆y: Tao paid in/out
 ///   - w1: Base weight (a.k.a weight_base)
 ///   - w2: Quote weight (a.k.a weight_quote)
-#[freeze_struct("33a4fb0774da77c7")]
-#[derive(Clone, Encode, Decode, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+#[freeze_struct("28380267604295c9")]
+#[derive(Clone, Encode, Decode, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen)]
 pub struct Balancer {
     quote: Perquintill,
 }

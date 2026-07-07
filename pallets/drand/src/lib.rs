@@ -43,17 +43,20 @@ use codec::Encode;
 use frame_support::{pallet_prelude::*, traits::Randomness};
 use frame_system::{
     offchain::{
-        AppCrypto, CreateBare, SendUnsignedTransaction, SignedPayload, Signer, SigningTypes,
+        AppCrypto, CreateAuthorizedTransaction, SignedPayload, Signer, SigningTypes,
+        SubmitTransaction,
     },
     pallet_prelude::BlockNumberFor,
 };
 use scale_info::prelude::cmp;
 use sha2::{Digest, Sha256};
-use sp_core::blake2_256;
+use sp_io::hashing::blake2_256;
 use sp_runtime::{
     KeyTypeId, Saturating,
     traits::{Hash, One},
-    transaction_validity::{InvalidTransaction, TransactionValidity, ValidTransaction},
+    transaction_validity::{
+        InvalidTransaction, TransactionValidity, TransactionValidityWithRefund, ValidTransaction,
+    },
 };
 
 pub mod bls12_381;
@@ -161,7 +164,9 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: CreateBare<Call<Self>> + SigningTypes + frame_system::Config {
+    pub trait Config:
+        CreateAuthorizedTransaction<Call<Self>> + SigningTypes + frame_system::Config
+    {
         /// The identifier type for an offchain worker.
         type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
         /// something that knows how to verify beacon pulses
@@ -288,60 +293,34 @@ pub mod pallet {
         }
     }
 
-    #[pallet::validate_unsigned]
-    impl<T: Config> ValidateUnsigned for Pallet<T> {
-        type Call = Call<T>;
-
-        /// Validate unsigned call to this module.
-        ///
-        /// By default unsigned transactions are disallowed, but implementing the validator
-        /// here we make sure that some particular calls (the ones produced by offchain worker)
-        /// are being whitelisted and marked as valid.
-        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            match call {
-                Call::set_beacon_config {
-                    config_payload: payload,
-                    signature,
-                } => {
-                    let signature = signature.as_ref().ok_or(InvalidTransaction::BadSigner)?;
-                    Self::validate_signature_and_parameters(
-                        payload,
-                        signature,
-                        &payload.block_number,
-                        &payload.public,
-                        None,
-                    )
-                }
-                Call::write_pulse {
-                    pulses_payload: payload,
-                    signature,
-                } => {
-                    let signature = signature.as_ref().ok_or(InvalidTransaction::BadSigner)?;
-                    let rounds: Vec<RoundNumber> = payload.pulses.iter().map(|p| p.round).collect();
-                    Self::validate_signature_and_parameters(
-                        payload,
-                        signature,
-                        &payload.block_number,
-                        &payload.public,
-                        Some(&rounds),
-                    )
-                }
-                _ => InvalidTransaction::Call.into(),
-            }
-        }
-    }
-
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Verify and write a pulse from the beacon into the runtime
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::write_pulse())]
+        #[pallet::weight_of_authorize(T::WeightInfo::write_pulse())]
+        #[pallet::authorize(|
+            _source: TransactionSource,
+            pulses_payload: &PulsesPayload<T::Public, BlockNumberFor<T>>,
+            signature: &Option<T::Signature>,
+        | -> TransactionValidityWithRefund {
+            let signature = signature.as_ref().ok_or(InvalidTransaction::BadSigner)?;
+            let rounds: Vec<RoundNumber> = pulses_payload.pulses.iter().map(|p| p.round).collect();
+            Pallet::<T>::validate_signature_and_parameters(
+                pulses_payload,
+                signature,
+                &pulses_payload.block_number,
+                &pulses_payload.public,
+                Some(&rounds),
+            )
+            .map(|validity| (validity, Weight::zero()))
+        })]
         pub fn write_pulse(
             origin: OriginFor<T>,
             pulses_payload: PulsesPayload<T::Public, BlockNumberFor<T>>,
             _signature: Option<T::Signature>,
         ) -> DispatchResult {
-            ensure_none(origin)?;
+            ensure_authorized(origin)?;
             let config = BeaconConfig::<T>::get();
 
             let mut last_stored_round = LastStoredRound::<T>::get();
@@ -501,29 +480,40 @@ impl<T: Config> Pallet<T> {
             for pulse in pulses.into_iter() {
                 let round = pulse.round;
 
-                if let Some((acc, res)) = signer.send_unsigned_transaction(
-                    |account| PulsesPayload {
-                        block_number,
-                        pulses: vec![pulse.clone()],
-                        public: account.public.clone(),
-                    },
-                    |pulses_payload, signature| Call::write_pulse {
-                        pulses_payload,
-                        signature: Some(signature),
-                    },
-                ) {
-                    match res {
-                        Ok(()) => log::debug!("Drand: [{:?}] submitted round {:?}", acc.id, round),
-                        Err(e) => log::debug!(
-                            "Drand: [{:?}] failed to submit round {:?}: {:?}",
-                            acc.id,
-                            round,
-                            e
-                        ),
-                    }
-                } else {
+                let Some(account) = signer.accounts_from_keys().next() else {
                     log::debug!("Drand: No local account available to submit round {round:?}");
-                }
+                    continue;
+                };
+
+                let pulses_payload = PulsesPayload {
+                    block_number,
+                    pulses: vec![pulse.clone()],
+                    public: account.public.clone(),
+                };
+                let Some(signature) =
+                    <PulsesPayload<T::Public, BlockNumberFor<T>> as SignedPayload<T>>::sign::<
+                        T::AuthorityId,
+                    >(&pulses_payload)
+                else {
+                    log::debug!("Drand: [{:?}] failed to sign round {:?}", account.id, round);
+                    continue;
+                };
+                let call = Call::write_pulse {
+                    pulses_payload,
+                    signature: Some(signature),
+                };
+                let xt = T::create_authorized_transaction(call.into());
+                let res = SubmitTransaction::<T, Call<T>>::submit_transaction(xt);
+
+                match res {
+                    Ok(()) => log::debug!("Drand: [{:?}] submitted round {:?}", account.id, round),
+                    Err(e) => log::debug!(
+                        "Drand: [{:?}] failed to submit round {:?}: {:?}",
+                        account.id,
+                        round,
+                        e
+                    ),
+                };
             }
         }
 

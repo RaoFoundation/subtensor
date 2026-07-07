@@ -8,7 +8,8 @@
 use super::mock::*;
 use crate::*;
 use frame_support::testing_prelude::*;
-use sp_core::{H160, Pair, U256, blake2_256, ecdsa, keccak_256};
+use sp_core::{H160, Pair, U256, ecdsa, keccak_256};
+use sp_io::hashing::blake2_256;
 use std::convert::AsRef;
 
 fn public_to_evm_key(pubkey: &ecdsa::Public) -> H160 {

@@ -135,7 +135,7 @@ impl frame_system::offchain::SigningTypes for Runtime {
 pub struct FindAuraAuthors;
 impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
     fn find_current_author() -> Option<AuraId> {
-        let slot = Aura::current_slot_from_digests()?;
+        let slot = pallet_aura::CurrentSlot::<Runtime>::get();
         let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
         let author_index = *slot % authorities.len() as u64;
 
@@ -143,7 +143,7 @@ impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
     }
 
     fn find_next_next_author() -> Option<AuraId> {
-        let slot = Aura::current_slot_from_digests()?.checked_add(2)?;
+        let slot = pallet_aura::CurrentSlot::<Runtime>::get().checked_add(2)?;
         let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
         let author_index = slot % authorities.len() as u64;
 
@@ -178,9 +178,44 @@ where
     type RuntimeCall = RuntimeCall;
 }
 
-impl frame_system::offchain::CreateBare<pallet_drand::Call<Runtime>> for Runtime {
-    fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
-        UncheckedExtrinsic::new_bare(call)
+impl<C> frame_system::offchain::CreateTransaction<C> for Runtime
+where
+    RuntimeCall: From<C>,
+{
+    type Extension = TxExtension;
+
+    fn create_transaction(call: RuntimeCall, extension: Self::Extension) -> Self::Extrinsic {
+        fp_self_contained::UncheckedExtrinsic(generic::UncheckedExtrinsic::new_transaction(
+            call, extension,
+        ))
+    }
+}
+
+impl<C> frame_system::offchain::CreateAuthorizedTransaction<C> for Runtime
+where
+    RuntimeCall: From<C>,
+{
+    fn create_extension() -> Self::Extension {
+        (
+            (
+                frame_system::AuthorizeCall::<Runtime>::new(),
+                frame_system::CheckNonZeroSender::<Runtime>::new(),
+                frame_system::CheckSpecVersion::<Runtime>::new(),
+                frame_system::CheckTxVersion::<Runtime>::new(),
+                frame_system::CheckGenesis::<Runtime>::new(),
+                check_mortality::CheckMortality::<Runtime>::from(generic::Era::Immortal),
+                check_nonce::CheckNonce::<Runtime>::from(0),
+                frame_system::CheckWeight::<Runtime>::new(),
+            ),
+            (
+                ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
+                SudoTransactionExtension::<Runtime>::new(),
+                pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
+                pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
+                pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+            ),
+            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+        )
     }
 }
 
@@ -265,8 +300,12 @@ parameter_types! {
             MAXIMUM_BLOCK_WEIGHT,
             NORMAL_DISPATCH_RATIO,
         );
-    pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
-        ::max_with_normal_ratio(10 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+    pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength::builder()
+        .max_length(10 * 1024 * 1024)
+        .modify_max_length_for_class(frame_support::dispatch::DispatchClass::Normal, |m| {
+            *m = NORMAL_DISPATCH_RATIO * 10 * 1024 * 1024
+        })
+        .build();
     pub const SS58Prefix: u8 = 42;
 }
 
@@ -1464,6 +1503,7 @@ pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 // The extensions to the basic transaction logic.
 pub type SystemTxExtension = (
+    frame_system::AuthorizeCall<Runtime>,
     frame_system::CheckNonZeroSender<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
     frame_system::CheckTxVersion<Runtime>,
@@ -1588,7 +1628,7 @@ impl_runtime_apis! {
             VERSION
         }
 
-        fn execute_block(block: Block) {
+        fn execute_block(block: <Block as BlockT>::LazyBlock) {
             Executive::execute_block(block);
         }
 
@@ -1625,7 +1665,7 @@ impl_runtime_apis! {
         }
 
         fn check_inherents(
-            block: Block,
+            block: <Block as BlockT>::LazyBlock,
             data: sp_inherents::InherentData,
         ) -> sp_inherents::CheckInherentsResult {
             data.check_extrinsics(&block)
@@ -1688,8 +1728,11 @@ impl_runtime_apis! {
     }
 
     impl sp_session::SessionKeys<Block> for Runtime {
-        fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-            opaque::SessionKeys::generate(seed)
+        fn generate_session_keys(
+            owner: Vec<u8>,
+            seed: Option<Vec<u8>>,
+        ) -> sp_session::OpaqueGeneratedSessionKeys {
+            opaque::SessionKeys::generate(&owner, seed).into()
         }
 
         fn decode_session_keys(

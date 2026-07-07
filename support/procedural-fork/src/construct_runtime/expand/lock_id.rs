@@ -53,7 +53,7 @@ pub fn expand_outer_lock_id(pallet_decls: &[Pallet], scrate: &TokenStream) -> To
             Copy, Clone, Eq, PartialEq,
             #scrate::__private::codec::Encode, #scrate::__private::codec::Decode, #scrate::__private::codec::MaxEncodedLen,
             #scrate::__private::scale_info::TypeInfo,
-            #scrate::__private::RuntimeDebug,
+            #scrate::__private::Debug,
         )]
         pub enum RuntimeLockId {
             #( #lock_id_variants )*

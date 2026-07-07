@@ -574,7 +574,7 @@ pub mod pallet {
 
         /// Derive the on-chain `OrderId` as blake2_256 over the SCALE-encoded order.
         pub fn derive_order_id(order: &VersionedOrder<T::AccountId>) -> H256 {
-            H256(sp_core::hashing::blake2_256(&order.encode()))
+            H256(sp_io::hashing::blake2_256(&order.encode()))
         }
 
         /// Account derived from the pallet's `PalletId`.

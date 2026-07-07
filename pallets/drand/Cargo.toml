@@ -37,6 +37,9 @@ ark-ec.workspace = true
 ark-std.workspace = true
 ark-crypto-primitives = { workspace = true, features = ["r1cs", "snark"] }
 ark-scale = { workspace = true, features = ["hazmat"] }
+ark-ec-05 = { package = "ark-ec", version = "0.5.0", default-features = false }
+ark-scale-05 = { package = "ark-scale", version = "0.0.13", default-features = false, features = ["hazmat"] }
+ark-std-05 = { package = "ark-std", version = "0.5.0", default-features = false }
 w3f-bls.workspace = true
 sp-keyring.workspace = true
 subtensor-macros.workspace = true
@@ -72,6 +75,9 @@ std = [
 	"ark-std/std",
 	"ark-crypto-primitives/std",
 	"ark-scale/std",
+	"ark-ec-05/std",
+	"ark-scale-05/std",
+	"ark-std-05/std",
 	"w3f-bls/std",
 	"tle/std",
 	"anyhow/std",

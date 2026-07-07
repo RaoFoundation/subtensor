@@ -202,7 +202,7 @@ pub fn expand_outer_origin(
         }
 
         #[derive(
-            Clone, PartialEq, Eq, #scrate::__private::RuntimeDebug, #scrate::__private::codec::Encode,
+            Clone, PartialEq, Eq, #scrate::__private::Debug, #scrate::__private::codec::Encode,
             #scrate::__private::codec::Decode, #scrate::__private::scale_info::TypeInfo, #scrate::__private::codec::MaxEncodedLen,
         )]
         #[allow(non_camel_case_types)]

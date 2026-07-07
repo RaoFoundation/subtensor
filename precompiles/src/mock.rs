@@ -7,22 +7,23 @@ use core::{marker::PhantomData, num::NonZeroU64};
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use fp_evm::{Context, PrecompileResult};
 use frame_support::{
-    PalletId, derive_impl, parameter_types,
+    derive_impl, parameter_types,
     traits::{Everything, PrivilegeCmp, VariantCount, VariantCountOf},
     weights::Weight,
+    PalletId,
 };
-use frame_system::{EnsureRoot, limits};
+use frame_system::{limits, EnsureRoot};
 use pallet_evm::{
     AddressMapping, BalanceConverter, EnsureAddressNever, EnsureAddressRoot, EvmBalance,
     PrecompileHandle, PrecompileSet, SubstrateBalance,
 };
 use precompile_utils::testing::MockHandle;
 use scale_info::TypeInfo;
-use sp_core::{ConstU64, H160, H256, U256, crypto::AccountId32};
+use sp_core::{crypto::AccountId32, ConstU64, H160, H256, U256};
 use sp_runtime::{
-    BuildStorage, KeyTypeId, Perbill, Percent, RuntimeDebug,
     testing::TestXt,
     traits::{BlakeTwo256, ConstU32, IdentityLookup},
+    BuildStorage, KeyTypeId, Perbill, Percent,
 };
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AuthorshipInfo, NetUid, ProxyType, TaoBalance};
@@ -45,7 +46,7 @@ pub(crate) type UncheckedExtrinsic = TestXt<RuntimeCall, ()>;
     PartialOrd,
     MaxEncodedLen,
     TypeInfo,
-    RuntimeDebug,
+    Debug,
 )]
 pub enum TestBalanceStatus {
     Test,

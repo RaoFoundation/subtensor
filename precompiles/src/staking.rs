@@ -32,18 +32,18 @@
 
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use frame_support::Blake2_128Concat;
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::pallet_prelude::{StorageDoubleMap, ValueQuery};
 use frame_support::traits::{IsSubType, StorageInstance};
+use frame_support::Blake2_128Concat;
 use frame_system::RawOrigin;
 use pallet_evm::{
     AddressMapping, BalanceConverter, EvmBalance, ExitError, PrecompileFailure, PrecompileHandle,
     SubstrateBalance,
 };
 use pallet_subtensor_proxy as pallet_proxy;
+use precompile_utils::prelude::{revert, Address};
 use precompile_utils::EvmResult;
-use precompile_utils::prelude::{Address, revert};
 use sp_core::{H160, H256, U256};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto};
 use sp_std::vec;
@@ -936,12 +936,12 @@ mod tests {
     )]
 
     use super::*;
-    use crate::PrecompileExt;
     use crate::mock::{
-        AccountId, Proxy, Runtime, RuntimeCall, RuntimeOrigin, addr_from_index, assert_static_call,
-        execute_precompile, fund_account, mapped_account, new_test_ext, precompiles, selector_u32,
-        substrate_to_evm,
+        addr_from_index, assert_static_call, execute_precompile, fund_account, mapped_account,
+        new_test_ext, precompiles, selector_u32, substrate_to_evm, AccountId, Proxy, Runtime,
+        RuntimeCall, RuntimeOrigin,
     };
+    use crate::PrecompileExt;
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::{H160, H256};

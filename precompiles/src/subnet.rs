@@ -5,7 +5,7 @@ use frame_support::traits::ConstU32;
 use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
-use precompile_utils::{EvmResult, prelude::BoundedString};
+use precompile_utils::{prelude::BoundedString, EvmResult};
 use sp_core::H256;
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 use sp_std::vec;
@@ -870,11 +870,11 @@ mod tests {
     )]
 
     use super::*;
-    use crate::PrecompileExt;
     use crate::mock::{
-        AccountId, Runtime, addr_from_index, assert_static_call, mapped_account, new_test_ext,
-        precompiles, selector_u32,
+        addr_from_index, assert_static_call, mapped_account, new_test_ext, precompiles,
+        selector_u32, AccountId, Runtime,
     };
+    use crate::PrecompileExt;
     use precompile_utils::solidity::encode_with_selector;
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::{H160, H256, U256};

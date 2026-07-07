@@ -53,7 +53,7 @@ pub type Nonce = u32;
 pub const SMALL_TRANSFER_LIMIT: Balance = TaoBalance::new(500_000_000); // 0.5 TAO
 pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_000); // 0.5 Alpha
 
-#[freeze_struct("4184c565055c66a7")]
+#[freeze_struct("c841f1c4c96864e6")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -70,7 +70,7 @@ pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_0
     Ord,
     PartialEq,
     PartialOrd,
-    RuntimeDebug,
+    Debug,
     TypeInfo,
 )]
 #[serde(transparent)]
@@ -192,7 +192,7 @@ pub mod time {
     pub const DAYS: BlockNumber = HOURS * 24;
 }
 
-#[freeze_struct("2477c9af9b0c5c26")]
+#[freeze_struct("f5aa55f5130e8701")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -209,7 +209,7 @@ pub mod time {
     Ord,
     PartialEq,
     PartialOrd,
-    RuntimeDebug,
+    Debug,
     TypeInfo,
 )]
 #[serde(transparent)]
@@ -267,7 +267,7 @@ impl From<Compact<MechId>> for MechId {
     }
 }
 
-#[freeze_struct("c6bf75ee25c00b9")]
+#[freeze_struct("d204418a425fc968")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -284,7 +284,7 @@ impl From<Compact<MechId>> for MechId {
     Ord,
     PartialEq,
     PartialOrd,
-    RuntimeDebug,
+    Debug,
     TypeInfo,
 )]
 #[serde(transparent)]

@@ -3,7 +3,7 @@
 
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
-    RuntimeDebugNoBound,
+    DebugNoBound,
     dispatch::{DispatchInfo, Pays},
     traits::Get,
 };
@@ -60,7 +60,7 @@ impl<T: Config> sp_std::fmt::Debug for CheckNonce<T> {
 }
 
 /// Operation to perform from `validate` to `prepare` in [`CheckNonce`] transaction extension.
-#[derive(RuntimeDebugNoBound)]
+#[derive(DebugNoBound)]
 pub enum Val<T: Config> {
     /// Account and its nonce to check for.
     CheckNonce((T::AccountId, T::Nonce)),
@@ -70,7 +70,7 @@ pub enum Val<T: Config> {
 
 /// Operation to perform from `prepare` to `post_dispatch_details` in [`CheckNonce`] transaction
 /// extension.
-#[derive(RuntimeDebugNoBound)]
+#[derive(DebugNoBound)]
 pub enum Pre {
     /// The transaction extension weight should not be refunded.
     NonceChecked,

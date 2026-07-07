@@ -102,6 +102,7 @@ pub fn new_partial(
             config,
             telemetry.as_ref().map(|(_, telemetry)| telemetry.handle()),
             executor,
+            vec![Arc::new(sc_consensus_grandpa::GrandpaPruningFilter)],
         )?;
 
     // Prepare keystore for authoring Babe blocks.
@@ -350,6 +351,7 @@ where
             client: client.clone(),
             transaction_pool: transaction_pool.clone(),
             spawn_handle: task_manager.spawn_handle(),
+            spawn_essential_handle: task_manager.spawn_essential_handle(),
             import_queue,
             block_announce_validator_builder: None,
             warp_sync_config,
@@ -527,6 +529,7 @@ where
         tx_handler_controller,
         sync_service: sync_service.clone(),
         telemetry: telemetry.as_mut(),
+        tracing_execute_block: None,
     })?;
 
     spawn_frontier_tasks(
@@ -582,7 +585,6 @@ where
             transaction_pool.clone(),
             prometheus_registry.as_ref(),
             telemetry.as_ref().map(|x| x.handle()),
-            shield_keystore.clone(),
         );
 
         let slot_duration = consensus_mechanism.slot_duration(&client)?;
@@ -755,7 +757,6 @@ fn run_manual_seal_authorship(
         transaction_pool.clone(),
         prometheus_registry,
         telemetry.as_ref().map(|x| x.handle()),
-        shield_keystore.clone(),
     );
 
     let timestamp = Arc::new(AtomicU64::new(

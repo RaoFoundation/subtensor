@@ -258,11 +258,11 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
-    use crate::PrecompileExt;
     use crate::mock::{
-        Runtime, addr_from_index, alpha_price_to_evm, assert_static_call, new_test_ext,
-        precompiles, selector_u32,
+        addr_from_index, alpha_price_to_evm, assert_static_call, new_test_ext, precompiles,
+        selector_u32, Runtime,
     };
+    use crate::PrecompileExt;
     use precompile_utils::solidity::encode_with_selector;
     use substrate_fixed::types::I96F32;
     use subtensor_runtime_common::{AlphaBalance, TaoBalance};

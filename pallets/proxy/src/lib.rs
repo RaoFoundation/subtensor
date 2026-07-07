@@ -66,7 +66,7 @@ type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup
     PartialEq,
     Ord,
     PartialOrd,
-    RuntimeDebug,
+    Debug,
     MaxEncodedLen,
     TypeInfo,
 )]
@@ -82,7 +82,7 @@ pub struct ProxyDefinition<AccountId, ProxyType, BlockNumber> {
 }
 
 /// Details surrounding a specific instance of an announcement to make a call.
-#[derive(Encode, Decode, Clone, Copy, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+#[derive(Encode, Decode, Clone, Copy, Eq, PartialEq, Debug, MaxEncodedLen, TypeInfo)]
 #[freeze_struct("4c1b5c8c3bc489ad")]
 pub struct Announcement<AccountId, Hash, BlockNumber> {
     /// The account which made the announcement.
@@ -101,7 +101,7 @@ pub struct Announcement<AccountId, Hash, BlockNumber> {
     Copy,
     Eq,
     PartialEq,
-    RuntimeDebug,
+    Debug,
     MaxEncodedLen,
     TypeInfo,
     DecodeWithMemTracking,

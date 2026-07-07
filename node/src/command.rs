@@ -364,7 +364,10 @@ fn start_aura_service(
 fn customise_config(arg_matches: &ArgMatches, config: Configuration) -> Configuration {
     let cli = Cli::from_arg_matches(arg_matches).expect("Bad arg_matches");
 
-    let mut config = override_default_heap_pages(config, 60_000);
+    // Polkadot SDK doubles the on-chain heap strategy during block import.
+    // Keep Subtensor's historical effective import heap at 60k pages without
+    // asking Wasm to pre-grow past its maximum memory.
+    let mut config = override_default_heap_pages(config, 30_000);
 
     // If the operator did **not** supply `--rpc-rate-limit`, disable the limiter.
     if cli.run.rpc_params.rpc_rate_limit.is_none() {
@@ -437,6 +440,7 @@ fn override_default_heap_pages(config: Configuration, pages: u64) -> Configurati
             rate_limit: config.rpc.rate_limit,
             rate_limit_whitelisted_ips: config.rpc.rate_limit_whitelisted_ips,
             rate_limit_trust_proxy_headers: config.rpc.rate_limit_trust_proxy_headers,
+            request_logger_limit: config.rpc.request_logger_limit,
         },
     }
 }

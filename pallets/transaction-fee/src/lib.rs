@@ -6,10 +6,7 @@ use frame_support::{
     storage::{TransactionOutcome, with_transaction},
     traits::{
         Imbalance, IsSubType, OnUnbalanced,
-        fungible::{
-            Balanced, Credit, Debt, DecreaseIssuance, Imbalance as FungibleImbalance,
-            IncreaseIssuance, Inspect,
-        },
+        fungible::{Balanced, Credit, Debt, Inspect},
         tokens::{Precision, WithdrawConsequence},
     },
     weights::{WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial},
@@ -28,7 +25,7 @@ use sp_runtime::{
 // Pallets
 use pallet_subtensor::Call as SubtensorCall;
 use pallet_transaction_payment::Config as PTPConfig;
-use pallet_transaction_payment::OnChargeTransaction;
+use pallet_transaction_payment::{OnChargeTransaction, TxCreditHold};
 use subtensor_swap_interface::SwapHandler;
 
 // Misc
@@ -89,13 +86,9 @@ impl<T> Default for TransactionFeeHandler<T> {
     }
 }
 
-type BalancesImbalanceOf<T> = FungibleImbalance<
-    <T as pallet_balances::Config>::Balance,
-    DecreaseIssuance<AccountIdOf<T>, pallet_balances::Pallet<T>>,
-    IncreaseIssuance<AccountIdOf<T>, pallet_balances::Pallet<T>>,
->;
+type BalancesCreditOf<T> = Credit<AccountIdOf<T>, pallet_balances::Pallet<T>>;
 
-impl<T> OnUnbalanced<BalancesImbalanceOf<T>> for TransactionFeeHandler<T>
+impl<T> OnUnbalanced<BalancesCreditOf<T>> for TransactionFeeHandler<T>
 where
     T: frame_system::Config
         + pallet_balances::Config
@@ -103,7 +96,7 @@ where
         + AuthorshipInfo<AccountIdOf<T>>,
     <T as pallet_balances::Config>::Balance: Into<TaoBalance> + Copy,
 {
-    fn on_nonzero_unbalanced(imbalance: BalancesImbalanceOf<T>) {
+    fn on_nonzero_unbalanced(imbalance: BalancesCreditOf<T>) {
         if let Some(author) = T::author() {
             // Pay block author
             let _ = <pallet_balances::Pallet<T> as Balanced<_>>::resolve(&author, imbalance);
@@ -347,6 +340,13 @@ impl<F, OU> SubtensorTxFeeHandler<F, OU> {
 
         alpha_vec
     }
+}
+
+impl<T, F, OU> TxCreditHold<T> for SubtensorTxFeeHandler<F, OU>
+where
+    T: PTPConfig,
+{
+    type Credit = ();
 }
 
 impl<T, F, OU> OnChargeTransaction<T> for SubtensorTxFeeHandler<F, OU>

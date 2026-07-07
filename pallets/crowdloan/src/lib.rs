@@ -15,7 +15,7 @@ use frame_support::{
     dispatch::GetDispatchInfo,
     pallet_prelude::*,
     sp_runtime::{
-        RuntimeDebug, Saturating,
+        Debug, Saturating,
         traits::{AccountIdConversion, Dispatchable, Zero},
     },
     traits::{
@@ -53,8 +53,8 @@ pub type BoundedCallOf<T> =
     Bounded<<T as Config>::RuntimeCall, <T as frame_system::Config>::Hashing>;
 
 /// A struct containing the information about a crowdloan.
-#[freeze_struct("5db9538284491545")]
-#[derive(Encode, Decode, Eq, PartialEq, Ord, PartialOrd, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+#[freeze_struct("195bce417b5cbd62")]
+#[derive(Encode, Decode, Eq, PartialEq, Ord, PartialOrd, Debug, TypeInfo, MaxEncodedLen)]
 pub struct CrowdloanInfo<AccountId, Balance, BlockNumber, Call> {
     /// The creator of the crowdloan.
     pub creator: AccountId,

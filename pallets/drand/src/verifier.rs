@@ -23,7 +23,8 @@ use crate::{
     types::{BeaconConfiguration, Pulse, RoundNumber},
 };
 use alloc::{format, string::String, vec::Vec};
-use ark_ec::{AffineRepr, hashing::HashToCurve};
+use ark_ec::hashing::HashToCurve;
+use ark_ec_05::AffineRepr;
 use ark_serialize::CanonicalSerialize;
 use codec::Decode;
 use sha2::{Digest, Sha256};
@@ -31,8 +32,8 @@ use sp_crypto_ec_utils::bls12_381::{G1Affine as G1AffineOpt, G2Affine as G2Affin
 use tle::curves::drand::TinyBLS381;
 use w3f_bls::engine::EngineBLS;
 
-const USAGE: ark_scale::Usage = ark_scale::WIRE;
-pub type ArkScale<T> = ark_scale::ArkScale<T, USAGE>;
+const USAGE: ark_scale_05::Usage = ark_scale_05::WIRE;
+pub type ArkScale<T> = ark_scale_05::ArkScale<T, USAGE>;
 
 /// construct a message (e.g. signed by drand)
 fn message(current_round: RoundNumber, prev_sig: &[u8]) -> Vec<u8> {

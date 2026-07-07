@@ -127,6 +127,7 @@ pub fn create_benchmark_extrinsic(
     let era = sp_runtime::generic::Era::mortal(period, best_block.saturated_into());
     let extra: runtime::TxExtension = (
         (
+            frame_system::AuthorizeCall::<runtime::Runtime>::new(),
             frame_system::CheckNonZeroSender::<runtime::Runtime>::new(),
             frame_system::CheckSpecVersion::<runtime::Runtime>::new(),
             frame_system::CheckTxVersion::<runtime::Runtime>::new(),
@@ -150,6 +151,7 @@ pub fn create_benchmark_extrinsic(
         extra.clone(),
         (
             (
+                (),
                 (),
                 runtime::VERSION.spec_version,
                 runtime::VERSION.transaction_version,

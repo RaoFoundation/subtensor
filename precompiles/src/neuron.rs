@@ -4,7 +4,7 @@ use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
-use precompile_utils::{EvmResult, prelude::UnboundedBytes};
+use precompile_utils::{prelude::UnboundedBytes, EvmResult};
 use sp_core::H256;
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 use sp_std::vec::Vec;
@@ -393,11 +393,11 @@ mod tests {
     #![allow(clippy::expect_used, clippy::indexing_slicing, clippy::unwrap_used)]
 
     use super::*;
-    use crate::PrecompileExt;
     use crate::mock::{
-        AccountId, Runtime, System, addr_from_index, execute_precompile, mapped_account,
-        new_test_ext, precompiles, selector_u32,
+        addr_from_index, execute_precompile, mapped_account, new_test_ext, precompiles,
+        selector_u32, AccountId, Runtime, System,
     };
+    use crate::PrecompileExt;
     use precompile_utils::solidity::encode_with_selector;
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::{H160, H256, U256};
@@ -644,13 +644,11 @@ mod tests {
                 )
                 .execute_returns(());
 
-            assert!(
-                pallet_subtensor::WeightCommits::<Runtime>::get(
-                    NetUidStorageIndex::from(netuid),
-                    &caller_account
-                )
-                .is_none()
-            );
+            assert!(pallet_subtensor::WeightCommits::<Runtime>::get(
+                NetUidStorageIndex::from(netuid),
+                &caller_account
+            )
+            .is_none());
 
             let neuron_uid = pallet_subtensor::Pallet::<Runtime>::get_uid_for_net_and_hotkey(
                 netuid,
