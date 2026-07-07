@@ -129,6 +129,7 @@ impl Precompile for PointEvaluation {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic, clippy::unwrap_used)]
     use super::*;
     use crate::mock::{addr_from_index, new_test_ext};
     use precompile_utils::testing::MockHandle;
