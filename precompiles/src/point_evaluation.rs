@@ -1,5 +1,6 @@
+#![allow(clippy::arithmetic_side_effects)]
 extern crate alloc;
-#[allow(clippy::arithmetic_side_effects)]
+
 use alloc::vec::Vec;
 
 use fp_evm::{
@@ -49,14 +50,16 @@ impl Precompile for PointEvaluation {
         let mut input = [0u8; INPUT_LEN];
         input.copy_from_slice(handle.input());
 
-        let versioned_hash = &input[0..32];
+        let mut versioned_hash = [0u8; 32];
+        versioned_hash.copy_from_slice(&input[0..32]);
+
         let z = &input[32..64];
         let y = &input[64..96];
         let commitment_bytes = &input[96..144];
         let proof_bytes = &input[144..INPUT_LEN];
 
         let commitment_hash = Sha256::digest(commitment_bytes);
-        if versioned_hash[0] != 0x01 || versioned_hash[1..] != commitment_hash[1..] {
+        if versioned_hash[0] != 0x01 || versioned_hash.get(1..) != commitment_hash.get(1..) {
             return Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("versioned hash mismatch".into()),
             });
