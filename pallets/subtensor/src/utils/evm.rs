@@ -114,8 +114,7 @@ impl<T: Config> Pallet<T> {
         let bucket = AssociatedUidsByEvmAddress::<T>::get(netuid, evm_key);
         let already_tracked = bucket.iter().any(|(stored_uid, _)| *stored_uid == uid);
         ensure!(
-            already_tracked
-                || (bucket.len() as u32) < crate::MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS,
+            already_tracked || (bucket.len() as u32) < crate::MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS,
             Error::<T>::EvmKeyAssociationLimitExceeded
         );
         Ok(())

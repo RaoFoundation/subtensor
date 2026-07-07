@@ -79,6 +79,52 @@ fn test_migrate_associated_evm_address_index() {
 }
 
 #[test]
+fn test_migrate_associated_evm_address_index_reconciles_over_cap_buckets() {
+    new_test_ext(1).execute_with(|| {
+        let migration_name = b"migrate_associated_evm_address_index".to_vec();
+        let netuid = NetUid::from(1);
+        let evm_key = H160::repeat_byte(1);
+
+        HasMigrationRun::<Test>::remove(&migration_name);
+        AssociatedUidsByEvmAddress::<Test>::remove(netuid, evm_key);
+
+        // Seed more forward-map associations for a single address than the reverse index can hold.
+        let cap = MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS;
+        let total = cap + 8;
+        for uid in 0..total {
+            AssociatedEvmAddress::<Test>::insert(netuid, uid as u16, (evm_key, 100 + uid as u64));
+        }
+
+        crate::migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<Test>();
+
+        // The reverse index is bounded by the cap.
+        let bucket = AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_key);
+        assert_eq!(bucket.len() as u32, cap);
+
+        // The forward map was pruned to match, so the two maps agree on the cap: every remaining
+        // forward entry is present in the reverse index, and there are no extras on either side.
+        let forward: Vec<u16> = AssociatedEvmAddress::<Test>::iter_prefix(netuid)
+            .map(|(uid, _)| uid)
+            .collect();
+        assert_eq!(forward.len() as u32, cap);
+        for uid in &forward {
+            assert!(
+                bucket.iter().any(|(stored_uid, _)| stored_uid == uid),
+                "forward uid {uid} missing from reverse index"
+            );
+        }
+        for (uid, _) in bucket.iter() {
+            assert!(
+                forward.contains(uid),
+                "reverse uid {uid} missing from forward map"
+            );
+        }
+
+        assert!(HasMigrationRun::<Test>::get(&migration_name));
+    });
+}
+
+#[test]
 fn test_migrate_tao_in_refund_deployment_block() {
     new_test_ext(1).execute_with(|| {
         let deployment_block: u64 = 42;
