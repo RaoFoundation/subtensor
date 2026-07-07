@@ -262,9 +262,15 @@ where
         // priority in this wrapper (priority is overridden above) and billing it to the coldkey
         // would let a hotkey drain coldkey funds. Other payers keep the original tip.
         let (fee_origin, tip) = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
-            (frame_system::RawOrigin::Signed(real).into(), self.inner.tip())
+            (
+                frame_system::RawOrigin::Signed(real).into(),
+                self.inner.tip(),
+            )
         } else if let Some(coldkey) = Self::extract_coldkey_fee_payer(call, &origin) {
-            (frame_system::RawOrigin::Signed(coldkey).into(), Zero::zero())
+            (
+                frame_system::RawOrigin::Signed(coldkey).into(),
+                Zero::zero(),
+            )
         } else {
             (origin.clone(), self.inner.tip())
         };
@@ -908,9 +914,12 @@ mod tests {
             pallet_subtensor::Owner::<Runtime>::insert(hotkey.clone(), coldkey.clone());
 
             let call = call_set_weights();
-            let (_valid_tx, val) =
-                validate_call_with_tip(RuntimeOrigin::signed(hotkey), &call, TaoBalance::new(1_000))
-                    .unwrap();
+            let (_valid_tx, val) = validate_call_with_tip(
+                RuntimeOrigin::signed(hotkey),
+                &call,
+                TaoBalance::new(1_000),
+            )
+            .unwrap();
 
             match val {
                 Val::Charge { who, tip, .. } => {
