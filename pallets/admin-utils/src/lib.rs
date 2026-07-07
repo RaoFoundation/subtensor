@@ -1474,7 +1474,7 @@ pub mod pallet {
         /// * `recycle_or_burn`: The desired behaviour of the "burn" UID(s) for the subnet.
         ///
         #[pallet::call_index(80)]
-        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_recycle_or_burn())] // TODO: add benchmarks
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_recycle_or_burn())]
         pub fn sudo_set_recycle_or_burn(
             origin: OriginFor<T>,
             netuid: NetUid,
