@@ -180,4 +180,58 @@ mod tests {
             assert!(result.is_err());
         });
     }
+
+    #[test]
+    fn point_evaluation_success() {
+        new_test_ext().execute_with(|| {
+            use ark_serialize::CanonicalSerialize;
+
+            // Constant polynomial f(x) = 100.
+            // Commitment = 100 * G1, so C - y*G1 = 0.
+            // Proof = identity (G1 point at infinity).
+            // Verification: e(0, S-z*G2) = e(inf, G2) = 1.
+            let z_bytes = {
+                let mut buf = [0u8; 32];
+                buf[31] = 42;
+                buf
+            };
+            let y_bytes = {
+                let mut buf = [0u8; 32];
+                buf[31] = 100;
+                buf
+            };
+
+            let _z_fr = Fr::from_be_bytes_mod_order(&z_bytes);
+            let y_fr = Fr::from_be_bytes_mod_order(&y_bytes);
+
+            let g1_gen = G1Affine::generator();
+            let commitment = (G1Projective::from(g1_gen) * y_fr).into_affine();
+
+            let mut commitment_bytes = [0u8; 48];
+            commitment
+                .serialize_compressed(&mut commitment_bytes[..])
+                .unwrap();
+
+            let commitment_hash = Sha256::digest(commitment_bytes);
+
+            let mut versioned_hash = [0u8; 32];
+            versioned_hash[0] = 0x01;
+            versioned_hash[1..].copy_from_slice(&commitment_hash[1..]);
+
+            let mut proof_bytes = [0u8; 48];
+            G1Affine::identity()
+                .serialize_compressed(&mut proof_bytes[..])
+                .unwrap();
+
+            let mut input = Vec::with_capacity(192);
+            input.extend_from_slice(&versioned_hash);
+            input.extend_from_slice(&z_bytes);
+            input.extend_from_slice(&y_bytes);
+            input.extend_from_slice(&commitment_bytes);
+            input.extend_from_slice(&proof_bytes);
+
+            let result = execute_point_eval(input);
+            assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+        });
+    }
 }
