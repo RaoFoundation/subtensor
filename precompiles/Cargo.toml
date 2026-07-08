@@ -116,9 +116,12 @@ runtime-benchmarks = [
 ]
 
 [dev-dependencies]
+hex = { workspace = true, features = ["std"] }
 pallet-drand = { workspace = true, features = ["std"] }
 pallet-evm-chain-id = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, features = ["std"] }
 pallet-scheduler = { workspace = true, features = ["std"] }
 pallet-timestamp = { workspace = true, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
