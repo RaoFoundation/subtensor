@@ -32,6 +32,15 @@ fn sign_evm_message<M: AsRef<[u8]>>(pair: &ecdsa::Pair, message: M) -> ecdsa::Si
 }
 
 #[test]
+fn test_weight_usage() {
+    new_test_ext(1).execute_with(|| {
+        let write = <Test as frame_system::Config>::DbWeight::get().writes(1);
+        assert_eq!(write.ref_time(), 100_000_000);
+        assert_eq!(write.proof_size(), 0);
+    });
+}
+
+#[test]
 fn test_associate_evm_key_success() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);

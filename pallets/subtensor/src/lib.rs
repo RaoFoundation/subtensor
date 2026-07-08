@@ -16,6 +16,7 @@ use frame_support::{
     pallet_macros::import_section,
     pallet_prelude::*,
     traits::tokens::fungible,
+    weights::WeightMeter,
 };
 use scale_info::TypeInfo;
 use sp_core::Get;
@@ -92,7 +93,10 @@ pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 pub mod pallet {
     use crate::migrations;
     use crate::staking::lock::LockState;
+    use crate::subnets::dissolution::DissolveCleanupStatus;
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
+    use crate::subnets::subnet::NetworkRegistrationInfo;
+    use crate::weights::WeightInfo;
     use crate::{MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, RateLimitKey};
     use frame_support::Twox64Concat;
     use frame_support::{
@@ -102,6 +106,7 @@ pub mod pallet {
         traits::{
             OriginTrait, QueryPreimage, StorePreimage, UnfilteredDispatchable, tokens::fungible,
         },
+        weights::Weight,
     };
     use frame_system::pallet_prelude::*;
     use pallet_drand::types::RoundNumber;
@@ -2204,6 +2209,23 @@ pub mod pallet {
     pub type SubtokenEnabled<T> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultFalse<T>>;
 
+    /// --- ITEM ( dissolve_cleanup_queue ) Networks dissolved but some storage not removed yet
+    #[pallet::storage]
+    pub type DissolveCleanupQueue<T> = StorageValue<_, Vec<NetUid>, ValueQuery>;
+
+    /// --- ITEM ( current_dissolve_cleanup_status ) dissolve status for the network
+    #[pallet::storage]
+    pub type CurrentDissolveCleanupStatus<T> = StorageValue<_, DissolveCleanupStatus, OptionQuery>;
+
+    /// --- ITEM ( network_registration_queue ) Network registrations waiting to be executed.
+    #[pallet::storage]
+    pub type NetworkRegistrationQueue<T> =
+        StorageValue<_, Vec<NetworkRegistrationInfo<AccountIdOf<T>>>, ValueQuery>;
+
+    /// --- MAP ( coldkey ) --> lock_id
+    #[pallet::storage]
+    pub type NetworkRegistrationLockId<T: Config> = StorageValue<_, u32, ValueQuery>;
+
     // =======================================
     // ==== VotingPower Storage  ====
     // =======================================
@@ -3009,5 +3031,5 @@ impl<T> ProxyInterface<T> for () {
 
 /// Pallets that hold per-subnet commitments implement this to purge all state for `netuid`.
 pub trait CommitmentsInterface {
-    fn purge_netuid(netuid: NetUid);
+    fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
 }

@@ -48,7 +48,7 @@ FROM ${BASE_IMAGE} AS subtensor
 # ---- security hardening: create least-privilege user ----
 RUN addgroup --system --gid 10001 subtensor && \
   adduser  --system --uid 10001 --gid 10001 --home /home/subtensor --disabled-password subtensor
-  
+
 # Install gosu for privilege dropping
 RUN apt-get update && apt-get install -y gosu && \
   rm -rf /var/lib/apt/lists/*
@@ -71,7 +71,7 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 30333 9933 9944
 
-# Run entrypoint as root to handle permissions, then drop to subtensor user 
+# Run entrypoint as root to handle permissions, then drop to subtensor user
 # in the script
 USER root
 ENTRYPOINT ["/entrypoint.sh"]

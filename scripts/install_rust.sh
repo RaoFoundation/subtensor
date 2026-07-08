@@ -14,7 +14,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     if ! which brew >/dev/null 2>&1; then
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
     fi
-    
+
     brew update
     brew install openssl cmake llvm
     elif [[ "$(uname)" == "Linux" ]]; then

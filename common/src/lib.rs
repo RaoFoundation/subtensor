@@ -12,12 +12,16 @@ use sp_runtime::{
     MultiSignature, Vec,
     traits::{IdentifyAccount, Verify},
 };
+
+pub use sp_io::MultiRemovalResults;
 use subtensor_macros::freeze_struct;
 
 pub use currency::*;
 pub use evm_context::*;
 pub use proxy::*;
 pub use transaction_error::*;
+
+use frame_support::weights::WeightMeter;
 
 mod currency;
 mod evm_context;
@@ -350,12 +354,133 @@ impl TypeInfo for NetUidStorageIndex {
     }
 }
 
+/// Clears as many entries as the weight budget allows via `clear_prefix`, charging
+/// `per_item` for each removed entry. Returns `true` once the prefix is fully cleared.
+pub fn clear_prefix_with_meter(
+    meter: &mut WeightMeter,
+    per_item: Weight,
+    clear_prefix: impl FnOnce(u32) -> MultiRemovalResults,
+) -> bool {
+    let Some(limit) = meter.remaining().checked_div_per_component(&per_item) else {
+        return false;
+    };
+    // Saturate: a budget allowing more than u32::MAX removals is capped, not rejected.
+    let limit = u32::try_from(limit).unwrap_or(u32::MAX);
+
+    if limit == 0 {
+        return false;
+    }
+
+    let result = clear_prefix(limit);
+    meter.consume(per_item.saturating_mul(result.unique.max(result.loops).into()));
+
+    result.maybe_cursor.is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frame_support::{
+        Blake2_128Concat, storage::types::StorageDoubleMap, traits::StorageInstance,
+        weights::WeightMeter,
+    };
+    const REF_TIME_WEIGHT: u64 = 100;
+    const PROOF_SIZE_WEIGHT: u64 = 100;
+
+    struct ClearPrefixTestStorage;
+
+    impl StorageInstance for ClearPrefixTestStorage {
+        fn pallet_prefix() -> &'static str {
+            "CommonTests"
+        }
+
+        const STORAGE_PREFIX: &'static str = "ClearPrefixTestStorage";
+    }
+
+    type ClearPrefixTestMap =
+        StorageDoubleMap<ClearPrefixTestStorage, Identity, NetUid, Blake2_128Concat, u16, u32>;
 
     #[test]
     fn netuid_has_u16_bin_repr() {
         assert_eq!(NetUid(5).encode(), 5u16.encode());
+    }
+
+    #[test]
+    fn test_clear_prefix_with_meter_respects_budget() {
+        let netuid = NetUid::from(42);
+        let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
+        let mut ext = sp_io::TestExternalities::default();
+
+        ext.execute_with(|| {
+            for key in 0..3 {
+                ClearPrefixTestMap::insert(netuid, key, key as u32);
+            }
+        });
+
+        let _ = ext.commit_all();
+
+        ext.execute_with(|| {
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 3);
+
+            // Budget for exactly one entry: one entry is removed, not done yet.
+            let mut weight_meter = WeightMeter::with_limit(entry_weight);
+            assert!(!clear_prefix_with_meter(
+                &mut weight_meter,
+                entry_weight,
+                |limit| ClearPrefixTestMap::clear_prefix(netuid, limit, None),
+            ));
+
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 2);
+            assert_eq!(weight_meter.consumed(), entry_weight);
+        });
+    }
+
+    #[test]
+    fn test_clear_prefix_with_meter_zero_budget_is_noop() {
+        let netuid = NetUid::from(43);
+        let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
+        let mut ext = sp_io::TestExternalities::default();
+
+        ext.execute_with(|| {
+            ClearPrefixTestMap::insert(netuid, 0, 0u32);
+
+            let mut weight_meter = WeightMeter::with_limit(Weight::zero());
+            assert!(!clear_prefix_with_meter(
+                &mut weight_meter,
+                entry_weight,
+                |limit| ClearPrefixTestMap::clear_prefix(netuid, limit, None),
+            ));
+
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 1);
+            assert!(weight_meter.consumed().is_zero());
+        });
+    }
+
+    #[test]
+    fn test_clear_prefix_with_meter_completes_with_enough_budget() {
+        let netuid = NetUid::from(44);
+        let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
+        let mut ext = sp_io::TestExternalities::default();
+
+        ext.execute_with(|| {
+            for key in 0..3 {
+                ClearPrefixTestMap::insert(netuid, key, key as u32);
+            }
+        });
+
+        let _ = ext.commit_all();
+
+        ext.execute_with(|| {
+            // Budget for more entries than exist: everything is cleared in one call.
+            let mut weight_meter = WeightMeter::with_limit(entry_weight.saturating_mul(10));
+            assert!(clear_prefix_with_meter(
+                &mut weight_meter,
+                entry_weight,
+                |limit| ClearPrefixTestMap::clear_prefix(netuid, limit, None),
+            ));
+
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 0);
+            assert_eq!(weight_meter.consumed(), entry_weight.saturating_mul(3));
+        });
     }
 }

@@ -26,10 +26,10 @@ typeset -A PKG_PATHS
 for SOURCE_PATH in "$@"; do
     SOURCE_PATH="$(cd "$SOURCE_PATH" && pwd)"
     echo "Scanning $SOURCE_PATH for packages..." >&2
-    
+
     for cargo_toml in $(find "$SOURCE_PATH" -name "Cargo.toml" -type f 2>/dev/null); do
         pkg_name=$(yq -p toml -o yaml '.package.name // ""' "$cargo_toml" 2>/dev/null | tr -d '"')
-        
+
         if [[ -n "$pkg_name" && "$pkg_name" != "null" ]]; then
             pkg_dir="$(dirname "$cargo_toml")"
             PKG_PATHS[$pkg_name]="$pkg_dir"
@@ -49,19 +49,19 @@ while IFS= read -r line; do
     if [[ "$line" =~ ^([a-zA-Z0-9_-]+|\"[^\"]+\")\ *=\ *\{.*git\ *=\ *\" ]]; then
         # Extract package name (handle both quoted and unquoted)
         dep_name=$(echo "$line" | sed -E 's/^"?([a-zA-Z0-9_-]+)"? *=.*/\1/')
-        
+
         # Check for package alias
         if [[ "$line" =~ package\ *=\ *\"([^\"]+)\" ]]; then
             lookup_name="${match[1]}"
         else
             lookup_name="$dep_name"
         fi
-        
+
         # Check if we have this package
         if [[ -n "${PKG_PATHS[$lookup_name]}" ]]; then
             pkg_path="${PKG_PATHS[$lookup_name]}"
             echo "  $dep_name -> $pkg_path" >&2
-            
+
             # Extract features/default-features/package if present
             extras=""
             if [[ "$line" =~ default-features\ *=\ *false ]]; then
@@ -73,7 +73,7 @@ while IFS= read -r line; do
             if [[ "$line" =~ features\ *=\ *\[([^\]]*)\] ]]; then
                 extras="$extras, features = [${match[1]}]"
             fi
-            
+
             # Output new line with just path
             echo "${dep_name} = { path = \"${pkg_path}\"${extras} }"
         else
