@@ -289,7 +289,7 @@ pallet-hotfix-sufficients = { git = "https://github.com/RaoFoundation/frontier.g
 pallet-drand = { path = "pallets/drand", default-features = false }
 sp-crypto-ec-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "d093659e72bd8edaa0192bd0a726bd3ad3e12686", default-features = false }
 sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "d093659e72bd8edaa0192bd0a726bd3ad3e12686", default-features = false }
-w3f-bls = { path = "vendor/w3f-bls", default-features = false }
+w3f-bls = { git = "https://github.com/RaoFoundation/bls", rev = "0972366fd481b0c000ecd29350108bdeac6f8ae9", default-features = false }
 ark-crypto-primitives = { version = "0.4.0", default-features = false }
 ark-scale = { version = "0.0.11", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false }
@@ -300,7 +300,7 @@ ark-std = { version = "0.4.0", default-features = false }
 anyhow = { version = "1.0.81", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }
 rand_chacha = { version = "0.3.1", default-features = false }
-tle = { git = "https://github.com/ideal-lab5/timelock", rev = "5416406cfd32799e31e1795393d4916894de4468", default-features = false }
+tle = { package = "timelock", git = "https://github.com/ideal-lab5/timelock", rev = "dea59e7962f4f745452bbbb7df928e854e3d4bbc", default-features = false }
 
 pallet-shield = { path = "pallets/shield", default-features = false }
 ml-kem = { version = "0.2.2", default-features = false }
@@ -325,6 +325,6 @@ default = []
 pow-faucet = []
 
 [patch.crates-io]
-w3f-bls = { path = "vendor/w3f-bls" }
+w3f-bls = { git = "https://github.com/RaoFoundation/bls", rev = "0972366fd481b0c000ecd29350108bdeac6f8ae9" }
 zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
 zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe5d35d982f6afefb5d7e4e69f5f18" }

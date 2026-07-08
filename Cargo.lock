@@ -1752,9 +1752,9 @@ dependencies = [
  "sodiumoxide",
  "sp-core",
  "subtensor-macros",
- "tle",
+ "timelock",
  "twox-hash 2.1.2",
- "w3f-bls 0.1.3",
+ "w3f-bls",
  "web-time",
  "zeroize",
 ]
@@ -9049,8 +9049,8 @@ dependencies = [
  "subtensor-runtime-common",
  "subtensor-swap-interface",
  "subtensor-transaction-fee",
- "tle",
- "w3f-bls 0.1.3",
+ "timelock",
+ "w3f-bls",
 ]
 
 [[package]]
@@ -10078,8 +10078,8 @@ dependencies = [
  "sp-std",
  "subtensor-macros",
  "subtensor-runtime-common",
- "tle",
- "w3f-bls 0.1.3",
+ "timelock",
+ "w3f-bls",
 ]
 
 [[package]]
@@ -10336,8 +10336,8 @@ dependencies = [
  "sp-runtime",
  "sp-std",
  "subtensor-macros",
- "tle",
- "w3f-bls 0.1.3",
+ "timelock",
+ "w3f-bls",
 ]
 
 [[package]]
@@ -11650,11 +11650,11 @@ dependencies = [
  "subtensor-macros",
  "subtensor-runtime-common",
  "subtensor-swap-interface",
- "tle",
+ "timelock",
  "tracing",
  "tracing-log",
  "tracing-subscriber 0.3.19",
- "w3f-bls 0.1.3",
+ "w3f-bls",
 ]
 
 [[package]]
@@ -18436,7 +18436,7 @@ dependencies = [
  "substrate-bip39",
  "thiserror 1.0.69",
  "tracing",
- "w3f-bls 0.1.9",
+ "w3f-bls",
  "zeroize",
 ]
 
@@ -20246,6 +20246,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "timelock"
+version = "0.0.2"
+source = "git+https://github.com/ideal-lab5/timelock?rev=dea59e7962f4f745452bbbb7df928e854e3d4bbc#dea59e7962f4f745452bbbb7df928e854e3d4bbc"
+dependencies = [
+ "aes-gcm",
+ "ark-bls12-377 0.4.0",
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-poly 0.4.2",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
+ "array-bytes 6.2.3",
+ "chacha20poly1305",
+ "generic-array 0.14.7",
+ "parity-scale-codec",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "scale-info",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.8",
+ "w3f-bls",
+]
+
+[[package]]
 name = "tiny-keccak"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -20278,34 +20306,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tle"
-version = "0.1.0"
-source = "git+https://github.com/ideal-lab5/timelock?rev=5416406cfd32799e31e1795393d4916894de4468#5416406cfd32799e31e1795393d4916894de4468"
-dependencies = [
- "aes-gcm",
- "ark-bls12-377 0.4.0",
- "ark-bls12-381 0.4.0",
- "ark-ec 0.4.2",
- "ark-ff 0.4.2",
- "ark-poly 0.4.2",
- "ark-serialize 0.4.2",
- "ark-std 0.4.0",
- "array-bytes 6.2.3",
- "chacha20poly1305",
- "generic-array 0.14.7",
- "parity-scale-codec",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
- "scale-info",
- "serde",
- "serde_cbor",
- "serde_json",
- "sha2 0.10.9",
- "sha3 0.10.8",
- "w3f-bls 0.1.3",
-]
 
 [[package]]
 name = "tokio"
@@ -20937,29 +20937,8 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "w3f-bls"
-version = "0.1.3"
-dependencies = [
- "ark-bls12-377 0.4.0",
- "ark-bls12-381 0.4.0",
- "ark-ec 0.4.2",
- "ark-ff 0.4.2",
- "ark-serialize 0.4.2",
- "ark-serialize-derive 0.4.2",
- "arrayref",
- "digest 0.10.7",
- "rand 0.8.6",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
- "sha2 0.10.9",
- "sha3 0.10.8",
- "zeroize",
-]
-
-[[package]]
-name = "w3f-bls"
 version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6bfb937b3d12077654a9e43e32a4e9c20177dd9fea0f3aba673e7840bb54f32"
+source = "git+https://github.com/RaoFoundation/bls?rev=0972366fd481b0c000ecd29350108bdeac6f8ae9#0972366fd481b0c000ecd29350108bdeac6f8ae9"
 dependencies = [
  "ark-bls12-377 0.4.0",
  "ark-bls12-381 0.4.0",
