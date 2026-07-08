@@ -4516,7 +4516,7 @@ version = "1.0.0-dev"
 source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "async-trait",
- "fp-storage 2.0.0 (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-storage",
  "parity-scale-codec",
  "sp-core",
  "sp-runtime",
@@ -4528,7 +4528,7 @@ version = "1.0.0-dev"
 source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "fc-rpc",
- "fp-storage 2.0.0 (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-storage",
  "sc-client-api",
  "sc-consensus-aura",
  "sp-api",
@@ -4560,8 +4560,8 @@ version = "2.0.0-dev"
 source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "async-trait",
- "fp-consensus 2.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-consensus",
+ "fp-rpc",
  "sc-consensus",
  "sp-api",
  "sp-block-builder",
@@ -4579,9 +4579,9 @@ dependencies = [
  "ethereum",
  "fc-api",
  "fc-storage",
- "fp-consensus 2.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-storage 2.0.0 (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-consensus",
+ "fp-rpc",
+ "fp-storage",
  "futures",
  "kvdb-rocksdb",
  "log",
@@ -4607,8 +4607,8 @@ source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9
 dependencies = [
  "fc-db",
  "fc-storage",
- "fp-consensus 2.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-consensus",
+ "fp-rpc",
  "futures",
  "futures-timer",
  "log",
@@ -4635,15 +4635,15 @@ dependencies = [
  "fc-mapping-sync",
  "fc-rpc-core",
  "fc-storage",
- "fp-evm 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-storage 2.0.0 (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
+ "fp-rpc",
+ "fp-storage",
  "futures",
  "hex",
  "jsonrpsee",
  "libsecp256k1",
  "log",
- "pallet-evm 6.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "parity-scale-codec",
  "prometheus",
  "rand 0.9.2",
@@ -4696,8 +4696,8 @@ source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9
 dependencies = [
  "ethereum",
  "ethereum-types",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-storage 2.0.0 (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-rpc",
+ "fp-storage",
  "parity-scale-codec",
  "sc-client-api",
  "sp-api",
@@ -4878,24 +4878,6 @@ dependencies = [
 [[package]]
 name = "fp-account"
 version = "1.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
-dependencies = [
- "hex",
- "impl-serde",
- "libsecp256k1",
- "log",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "staging-xcm",
-]
-
-[[package]]
-name = "fp-account"
-version = "1.0.0-dev"
 source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "hex",
@@ -4909,17 +4891,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "staging-xcm",
-]
-
-[[package]]
-name = "fp-consensus"
-version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
-dependencies = [
- "ethereum",
- "parity-scale-codec",
- "sp-core",
- "sp-runtime",
 ]
 
 [[package]]
@@ -4936,29 +4907,13 @@ dependencies = [
 [[package]]
 name = "fp-ethereum"
 version = "1.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "ethereum",
  "ethereum-types",
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "frame-support",
  "parity-scale-codec",
-]
-
-[[package]]
-name = "fp-evm"
-version = "3.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
-dependencies = [
- "environmental",
- "evm",
- "frame-support",
- "num_enum",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-core",
- "sp-runtime",
 ]
 
 [[package]]
@@ -4980,27 +4935,11 @@ dependencies = [
 [[package]]
 name = "fp-rpc"
 version = "3.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
-dependencies = [
- "ethereum",
- "ethereum-types",
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "parity-scale-codec",
- "scale-info",
- "sp-api",
- "sp-core",
- "sp-runtime",
- "sp-state-machine",
-]
-
-[[package]]
-name = "fp-rpc"
-version = "3.0.0-dev"
 source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "ethereum",
  "ethereum-types",
- "fp-evm 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "parity-scale-codec",
  "scale-info",
  "sp-api",
@@ -5019,15 +4958,6 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-runtime",
-]
-
-[[package]]
-name = "fp-storage"
-version = "2.0.0"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
-dependencies = [
- "parity-scale-codec",
- "serde",
 ]
 
 [[package]]
@@ -8451,8 +8381,8 @@ dependencies = [
  "fc-rpc",
  "fc-rpc-core",
  "fc-storage",
- "fp-consensus 2.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-consensus",
+ "fp-rpc",
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "frame-metadata-hash-extension",
@@ -8541,9 +8471,9 @@ version = "4.0.0-dev"
 dependencies = [
  "ark-serialize 0.4.2",
  "ethereum",
- "fp-account 1.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-evm 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-account",
+ "fp-evm",
+ "fp-rpc",
  "fp-self-contained",
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -8572,7 +8502,7 @@ dependencies = [
  "pallet-drand",
  "pallet-election-provider-multi-phase",
  "pallet-ethereum",
- "pallet-evm 6.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "pallet-evm-chain-id",
  "pallet-evm-precompile-modexp",
  "pallet-evm-precompile-sha3fips",
@@ -9332,9 +9262,9 @@ dependencies = [
 [[package]]
 name = "pallet-base-fee"
 version = "1.0.0"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "frame-support",
  "frame-system",
  "parity-scale-codec",
@@ -9910,49 +9840,24 @@ dependencies = [
 [[package]]
 name = "pallet-ethereum"
 version = "4.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "ethereum",
  "ethereum-types",
  "evm",
- "fp-consensus 2.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-consensus",
  "fp-ethereum",
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-rpc 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-storage 2.0.0 (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
+ "fp-rpc",
+ "fp-storage",
  "frame-support",
  "frame-system",
- "pallet-evm 6.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "parity-scale-codec",
  "scale-info",
  "sp-io",
  "sp-runtime",
  "sp-version",
-]
-
-[[package]]
-name = "pallet-evm"
-version = "6.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
-dependencies = [
- "cumulus-primitives-storage-weight-reclaim",
- "environmental",
- "ethereum",
- "evm",
- "fp-account 1.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "hash-db",
- "hex-literal",
- "impl-trait-for-tuples",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
 ]
 
 [[package]]
@@ -9964,8 +9869,8 @@ dependencies = [
  "environmental",
  "ethereum",
  "evm",
- "fp-account 1.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
- "fp-evm 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-account",
+ "fp-evm",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
@@ -9983,7 +9888,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-chain-id"
 version = "1.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -9994,17 +9899,17 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-blake2"
 version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
 ]
 
 [[package]]
 name = "pallet-evm-precompile-bn128"
 version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "sp-core",
  "substrate-bn",
 ]
@@ -10012,11 +9917,11 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-dispatch"
 version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "frame-support",
- "pallet-evm 6.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "parity-scale-codec",
  "sp-runtime",
 ]
@@ -10024,27 +9929,27 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-modexp"
 version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "num",
 ]
 
 [[package]]
 name = "pallet-evm-precompile-sha3fips"
 version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "tiny-keccak",
 ]
 
 [[package]]
 name = "pallet-evm-precompile-simple"
 version = "2.0.0-dev"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
- "fp-evm 3.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "ripemd",
  "sp-io",
 ]
@@ -10110,12 +10015,12 @@ dependencies = [
 [[package]]
 name = "pallet-hotfix-sufficients"
 version = "1.0.0"
-source = "git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
+source = "git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26#d553a11551333c2457d9e64d6d912e2210a4ca26"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "pallet-evm 6.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "parity-scale-codec",
  "scale-info",
  "sp-core",
@@ -13384,7 +13289,7 @@ dependencies = [
  "derive_more 1.0.0",
  "environmental",
  "evm",
- "fp-evm 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "frame-support",
  "frame-system",
  "hex",
@@ -13392,7 +13297,7 @@ dependencies = [
  "impl-trait-for-tuples",
  "log",
  "num_enum",
- "pallet-evm 6.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "parity-scale-codec",
  "precompile-utils-macro",
  "scale-info",
@@ -18576,7 +18481,7 @@ dependencies = [
  "ark-ff 0.4.2",
  "ark-serialize 0.4.2",
  "ed25519-dalek",
- "fp-evm 3.0.0-dev (git+https://github.com/RaoFoundation/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "fp-evm",
  "frame-support",
  "frame-system",
  "hex-literal",
@@ -18586,7 +18491,7 @@ dependencies = [
  "pallet-balances",
  "pallet-crowdloan",
  "pallet-drand",
- "pallet-evm 6.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "pallet-evm-chain-id",
  "pallet-evm-precompile-blake2",
  "pallet-evm-precompile-bn128",
@@ -18671,7 +18576,7 @@ dependencies = [
  "pallet-balances",
  "pallet-crowdloan",
  "pallet-drand",
- "pallet-evm 6.0.0-dev (git+https://github.com/opentensor/frontier?rev=d553a11551333c2457d9e64d6d912e2210a4ca26)",
+ "pallet-evm",
  "pallet-evm-chain-id",
  "pallet-grandpa",
  "pallet-preimage",
