@@ -2719,27 +2719,17 @@ fn test_trim_to_max_allowed_uids() {
         let now = frame_system::Pallet::<Test>::block_number();
         BlockAtRegistration::<Test>::set(netuid, 6, now);
 
-        // Set some evm addresses (include both kept + trimmed uids)
-        AssociatedEvmAddress::<Test>::insert(
-            netuid,
-            6,
-            (sp_core::H160::from_slice(b"12345678901234567891"), now),
-        );
-        AssociatedEvmAddress::<Test>::insert(
-            netuid,
-            10,
-            (sp_core::H160::from_slice(b"12345678901234567892"), now),
-        );
-        AssociatedEvmAddress::<Test>::insert(
-            netuid,
-            12,
-            (sp_core::H160::from_slice(b"12345678901234567893"), now),
-        );
-        AssociatedEvmAddress::<Test>::insert(
-            netuid,
-            14,
-            (sp_core::H160::from_slice(b"12345678901234567894"), now),
-        );
+        // Set some evm addresses (include both kept + trimmed uids). Go through the normal
+        // setter so both the forward map and the reverse index are populated, exactly as the
+        // association extrinsic does in production.
+        let evm_addr_uid6 = sp_core::H160::from_slice(b"12345678901234567891");
+        let evm_addr_uid10 = sp_core::H160::from_slice(b"12345678901234567892");
+        let evm_addr_uid12 = sp_core::H160::from_slice(b"12345678901234567893");
+        let evm_addr_uid14 = sp_core::H160::from_slice(b"12345678901234567894");
+        SubtensorModule::set_associated_evm_address(netuid, 6, evm_addr_uid6, now);
+        SubtensorModule::set_associated_evm_address(netuid, 10, evm_addr_uid10, now);
+        SubtensorModule::set_associated_evm_address(netuid, 12, evm_addr_uid12, now);
+        SubtensorModule::set_associated_evm_address(netuid, 14, evm_addr_uid14, now);
 
         // Populate Weights and Bonds storage items to test trimming
         for uid in 0..max_n {
@@ -2880,11 +2870,30 @@ fn test_trim_to_max_allowed_uids() {
         // EVM association have been remapped correctly (uids: 6 -> 2, 14 -> 7)
         assert_eq!(
             AssociatedEvmAddress::<Test>::get(netuid, 2),
-            Some((sp_core::H160::from_slice(b"12345678901234567891"), now))
+            Some((evm_addr_uid6, now))
         );
         assert_eq!(
             AssociatedEvmAddress::<Test>::get(netuid, 7),
-            Some((sp_core::H160::from_slice(b"12345678901234567894"), now))
+            Some((evm_addr_uid14, now))
+        );
+
+        // The reverse index has been remapped in place to the new UIDs (6 -> 2, 14 -> 7),
+        // without rebuilding it from scratch.
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_addr_uid6).into_inner(),
+            vec![(2u16, now)]
+        );
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_addr_uid14).into_inner(),
+            vec![(7u16, now)]
+        );
+        // Trimmed UIDs (10, 12) were dropped from the reverse index entirely.
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_addr_uid10).is_empty());
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_addr_uid12).is_empty());
+        // uid_lookup resolves the remapped UID.
+        assert_eq!(
+            SubtensorModule::uid_lookup(netuid, evm_addr_uid6, u16::MAX),
+            vec![(2u16, now)]
         );
 
         // Non existent subnet

@@ -506,7 +506,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         TransactionKeyLastBlock::<Test>::insert((owner_hot, net, 1u16), 1u64);
 
         // EVM association indexed by (netuid, uid)
-        AssociatedEvmAddress::<Test>::insert(net, 0u16, (sp_core::H160::zero(), 1u64));
+        SubtensorModule::set_associated_evm_address(net, 0u16, sp_core::H160::zero(), 1u64);
 
         // (Optional) subnet -> lease link
         SubnetUidToLeaseId::<Test>::insert(net, 42u32);
@@ -671,6 +671,7 @@ fn dissolve_clears_all_per_subnet_storages() {
 
         // EVM association
         assert!(AssociatedEvmAddress::<Test>::get(net, 0u16).is_none());
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(net, sp_core::H160::zero()).is_empty());
 
         // Subnet -> lease link
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(net));
