@@ -31,6 +31,7 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn set_commitment() -> Weight;
 	fn set_max_space() -> Weight;
+	fn reveal_timelocked_commitments() -> Weight;
 }
 
 /// Weights for `pallet_commitments` using the Substrate node and recommended hardware.
@@ -61,6 +62,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(2_856_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+	fn reveal_timelocked_commitments() -> Weight {
+		Weight::from_parts(7_481_733_000, 635)
+	}
 }
 
 // For backwards compatibility and tests.
@@ -89,5 +93,8 @@ impl WeightInfo for () {
 	fn set_max_space() -> Weight {
 		Weight::from_parts(2_856_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	fn reveal_timelocked_commitments() -> Weight {
+		Weight::from_parts(7_481_733_000, 635)
 	}
 }
