@@ -1,0 +1,173 @@
+---
+title: Advanced submission
+description: Proxies, atomic batches, MEV-shielded submission, multisig, and raw calls.
+---
+
+These modes compose with any intent — they change *how* a transaction is
+signed and submitted, not *what* it does.
+
+## Proxy: keep the coldkey offline
+
+A registered proxy signs on behalf of the real account, so the coldkey holding
+the funds never has to be on the machine doing the work:
+
+```python
+await client.execute(intent, delegate_wallet, proxy_for="5F...real_coldkey")
+```
+
+On the CLI, `--proxy-for <ss58|wallet>` works on every `tx` command (and
+`--force-proxy-type` requires a specific proxy type). Manage delegations with
+[`add-proxy`](/docs/tx/add-proxy) / [`remove-proxy`](/docs/tx/remove-proxy),
+create standalone proxy accounts with
+[`create-pure-proxy`](/docs/tx/create-pure-proxy), and inspect with the
+[`proxies`](/docs/query/proxies) read.
+
+### Proxy types
+
+Each grant is scoped by `proxy_type` — the runtime filters every proxied call
+against the type's allowlist. Prefer the narrowest type that covers the job:
+
+- **Any** — everything the account can do, including transfers. Avoid.
+- **NonTransfer** — everything *except* balance transfers, stake transfers,
+  and coldkey swaps. Notably it can manage the account's other proxies.
+- **Transfer** — balance transfers and `transfer_stake` only.
+  **SmallTransfer** is the same but caps each transfer below 0.5 TAO
+  (0.5 alpha for stake transfers).
+- **Staking** — stake operations only: add / remove / move / swap /
+  unstake-all and their limit variants, plus `set_root_claim_type`. The
+  allowlist does **not** include `Utility.batch_all`, so batching staking
+  calls through a Staking proxy fails with `CallFiltered` — use a NonTransfer
+  proxy for batched staking.
+- **Registration** — neuron registration calls (`burned_register`,
+  `register`, `register_limit`).
+- **ChildKeys** — `set_children` and `set_childkey_take`.
+- **RootClaim** — `claim_root` only.
+- **Owner** — subnet-owner admin calls; **NonCritical** — everything except
+  registrations, coldkey swaps, and subnet dissolution;
+  **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
+
+### Deposits and limits
+
+Proxy bookkeeping is paid with **reserved** deposits, not fees: adding a
+proxy reserves a base of 0.06 TAO plus 0.033 TAO per delegation from the
+granting account, returned on removal. An account can have at most 20
+proxies. Announcements (below) reserve 0.036 TAO base plus 0.068 TAO each,
+at most 75 pending.
+
+### Delayed proxies: announce, monitor, execute
+
+A delegation granted with `delay` > 0 cannot act directly. The delegate first
+announces the *hash* of the intended call (blake2-256 of the SCALE-encoded
+call), waits out the delay, then executes with
+[`execute-proxy-announced`](/docs/tx/execute-proxy-announced) — which must
+rebuild the call with byte-identical parameters, since anything else hashes
+differently and matches no announcement. During the delay the real account
+can veto the pending call.
+
+Two operational notes. A delay only protects you if you check pending
+announcements (the `Proxy.Announcements` storage map, via `client.query`) on
+a schedule *shorter* than the delay — otherwise it is only forensic. And a
+zero-delay proxy executes with no veto window at all: treat a leaked
+zero-delay key as immediately spent, and rotate it.
+
+The SDK wraps the execute side as an intent; announcing and vetoing have no
+intent and are reachable as raw calls:
+
+```python
+# delegate announces a future call
+await client.submit_call(
+    sub.calls.Proxy.announce(real="5F...real", call_hash="0x..."), delegate_wallet
+)
+# real account vetoes it during the delay
+await client.submit_call(
+    sub.calls.Proxy.reject_announcement(delegate="5F...delegate", call_hash="0x..."),
+    real_wallet,
+)
+```
+
+## Batch: all-or-nothing
+
+Several intents in one atomic extrinsic — either every one lands or none do:
+
+```python
+await client.execute(sub.Batch(intents=[
+    {"op": "transfer", "dest_ss58": "5F...", "amount_tao": 1.0},
+    {"op": "add_stake", "hotkey_ss58": "5F...", "netuid": 1, "amount_tao": 2.0},
+]), wallet)
+```
+
+`Batch` wraps `Utility.batch_all`, the atomic variant. The chain also has
+best-effort `Utility.batch` (stops at the first failure, earlier calls stand)
+and `Utility.force_batch` (skips failures and continues) — no intent wraps
+them, but both are reachable as raw calls (below). A batch pays a transaction
+fee if any inner call is fee-bearing.
+
+## MEV-shielded submission
+
+Encrypts the call so the mempool cannot read (and front-run) it; the chain
+decrypts and applies it validator-side. A mainnet feature:
+
+```python
+await client.submit_shielded(sub.Transfer(dest_ss58="5F...", amount_tao=1.0), wallet)
+```
+
+Under the hood, the intent's call is signed as a complete inner extrinsic,
+encrypted to the chain's rotating ML-KEM-768 key
+([`mev-shield-next-key`](/docs/query/mev-shield-next-key)) with
+XChaCha20-Poly1305 for the payload, and carried inside
+`MevShield.submit_encrypted`. The same account signs both, so the outer
+wrapper takes the account's next nonce and the inner call the one after —
+the SDK pins both automatically. Both are signed with a short 8-block era;
+the chain rejects shielded wrappers signed with anything longer, so a stuck
+submission evicts from the pool within a handful of blocks. The block author
+decrypts the wrapper and includes the inner extrinsic in the block it
+builds, where it executes — and reports success or failure — like any
+normally submitted extrinsic. The wrapper's acceptance is marked by the
+pallet's `EncryptedSubmitted` event, and a successful submission carries
+`inner_extrinsic_hash` in the result data so the inner extrinsic can be
+located on chain.
+
+Shielding is for coldkey-signed operations. The chain accepts a shielded
+wrapper from any signed origin, but the SDK and CLI refuse to shield
+hotkey-signed extrinsics as policy: the wrapper pays a fee, and funding a
+hotkey with TAO to cover it defeats the key-separation model. Hotkey calls
+(weights, serving) are fee-free and gain nothing from shielding anyway.
+
+## Multisig
+
+`client.multisig(signatories, threshold)` manages k-of-n accounts; the
+[`multisig-*`](/docs/tx/multisig-execute) intents approve, execute, and cancel
+multisig calls, and the [`multisig`](/docs/query/multisig) read inspects
+pending ones. The CLI's `btcli multisig` group wraps the full flow,
+printing the co-signer commands after each approval.
+
+The first approver of a pending call reserves a deposit — 0.132 TAO base plus
+0.032 TAO per unit of threshold — returned when the multisig executes or is
+cancelled. A multisig can have at most 100 signatories.
+
+## Limit orders
+
+The chain has a `LimitOrders` pallet: resting orders (limit buy, take-profit,
+stop-loss) signed off-chain with a limit price and expiry, settled against
+the subnet's pool by an executor submitting them in batches — each order can
+restrict which relayer accounts may execute it, and a root-set global toggle
+enables the pallet. `execute_batched_orders` nets a batch's buys against its
+sells at the current price, so only the residual amount touches the pool in
+a single swap — offset-side orders fill internally with no price impact. No
+intent wraps the pallet; the calls are reachable as raw calls under
+`sub.calls.LimitOrders.*` (`execute_orders`, `execute_batched_orders`,
+`cancel_order`, `set_pallet_status`).
+
+## Raw calls: the escape hatch
+
+Every chain call in the runtime metadata is available under `sub.calls` — even
+those no intent wraps (deprecated, root/admin-only, or off-chain-signed calls,
+each recorded with a reason):
+
+```python
+call = sub.calls.Commitments.set_commitment(netuid=1, info={...})
+await client.submit_call(call, wallet, signer="hotkey")
+```
+
+Raw calls bypass intent preview, so an active `Policy` refuses them unless it
+sets `allow_raw_calls=True`.

@@ -1,0 +1,348 @@
+name: Release Train
+
+# Build-once promotion pipeline. One deterministic srtool build is promoted
+# through the networks, gated by live smoke checks and environment approvals:
+#
+#   push to main
+#     └─ build wasm once (srtool)
+#          └─ deploy devnet ── smoke-check devnet
+#               └─ deploy testnet ── smoke-check testnet ── publish SDK rc
+#                    └─ propose mainnet upgrade (env gate + triumvirate multisig)
+#
+# Properties:
+#   - the runtime is built exactly once per train; promotion is a setCode
+#     extrinsic + a smoke suite, not a rebuild
+#   - the ship lever is the spec_version bump: merges without a bump build
+#     and then no-op at every deploy guard
+#   - human gates live in environment settings, not in this file: `devnet`
+#     has no required reviewers (automatic), `testnet`/`mainnet` gates are
+#     whatever reviewers are configured on those environments
+#   - trains queue (no cancel): a stale train no-ops at each deploy because
+#     of the spec_version guard
+#
+# After the multisig executes on chain, watch-mainnet-release.yml cuts the
+# release (GitHub release, PyPI stable, crates.io, docs promotion).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runtime/**"
+      - "pallets/**"
+      - "node/**"
+      - "primitives/**"
+      - "precompiles/**"
+      - "common/**"
+      - "Cargo.lock"
+  # Restarting a train mid-way = re-run failed jobs on the existing run
+  # (the artifact is still attached); workflow_dispatch starts a fresh train.
+  workflow_dispatch:
+
+concurrency:
+  group: release-train
+  cancel-in-progress: false # trains queue; guards make stale trains no-op
+
+env:
+  DEVNET_WS: wss://dev.chain.opentensor.ai:443
+  TESTNET_WS: wss://test.finney.opentensor.ai:443
+  MAINNET_WS: wss://entrypoint-finney.opentensor.ai:443
+
+jobs:
+  # ------------------------------------------------------------------
+  # Stage 0: build the runtime once, deterministically.
+  # ------------------------------------------------------------------
+  build:
+    name: Srtool build (once per train)
+    runs-on: [self-hosted, fireactions-heavy]
+    timeout-minutes: 120
+    outputs:
+      spec_version: ${{ steps.spec.outputs.spec_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read spec_version
+        id: spec
+        run: |
+          spec=$(grep -Eo 'spec_version: *[0-9]+' runtime/src/lib.rs | head -n 1 | grep -Eo '[0-9]+')
+          : ${spec:?could not parse spec_version}
+          echo "spec_version=$spec" >> $GITHUB_OUTPUT
+
+      - name: Build srtool image
+        run: ./scripts/srtool/build-srtool-image.sh
+
+      - name: Srtool build (deterministic, metadata-hash)
+        run: |
+          cd runtime && [ -L node-subtensor ] || ln -s . node-subtensor && cd ..
+          docker run --rm --user root --platform=linux/amd64 \
+            -e PACKAGE=node-subtensor-runtime \
+            -e BUILD_OPTS="--features=metadata-hash" \
+            -e PROFILE=production \
+            -v "$HOME/.cargo":/cargo-home \
+            -v "$(pwd)":/build \
+            srtool bash -c "git config --global --add safe.directory /build && \
+              /srtool/build --app > /build/runtime/node-subtensor/srtool-output.log; \
+              code=\$?; [ \$code -ne 0 ] && cat /build/runtime/node-subtensor/srtool-output.log && exit \$code; \
+              tail -n 1 /build/runtime/node-subtensor/srtool-output.log > /build/runtime/node-subtensor/subtensor-digest.json"
+
+      - name: Collect artifact
+        run: |
+          mkdir -p wasm
+          wasm_path=$(find runtime -name 'node_subtensor_runtime.compact.compressed.wasm' -path '*srtool*' | head -n 1)
+          : ${wasm_path:?srtool wasm not found}
+          cp -v "$wasm_path" wasm/subtensor.wasm
+          cp -v runtime/subtensor-digest.json wasm/subtensor-digest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ steps.spec.outputs.spec_version }}
+          path: wasm/
+          if-no-files-found: error
+          retention-days: 90
+
+  # ------------------------------------------------------------------
+  # Stage 1: devnet — automatic.
+  # ------------------------------------------------------------------
+  deploy-devnet:
+    name: Deploy devnet
+    needs: build
+    runs-on: [self-hosted, fireactions-light]
+    environment: devnet # no required reviewers → automatic
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+
+      # Guard: skip (successfully) if the chain already runs >= this spec.
+      # This is what makes queued/stale trains no-op instead of failing.
+      - name: Check whether an upgrade is needed
+        id: guard
+        run: |
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://dev.chain.opentensor.ai" | jq -r '.result.specVersion')
+          : ${chain:?could not fetch devnet spec_version}
+          if [ "${{ needs.build.outputs.spec_version }}" -gt "$chain" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "devnet already on $chain; skipping."
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js
+        if: steps.guard.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        env:
+          # Sudo-capable devnet deploy key, stored in the devnet environment.
+          DEPLOY_SEED: ${{ secrets.DEVNET_DEPLOY_SEED }}
+        run: |
+          npm ci
+          node deploy-wasm.js ${{ env.DEVNET_WS }} "$GITHUB_WORKSPACE/wasm/subtensor.wasm"
+
+      - name: Verify on-chain spec_version
+        if: steps.guard.outputs.should_deploy == 'true'
+        run: |
+          sleep 30
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://dev.chain.opentensor.ai" | jq -r '.result.specVersion')
+          [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "devnet still on $chain"; exit 1; }
+
+  check-devnet:
+    name: Smoke-check devnet
+    needs: deploy-devnet
+    runs-on: [self-hosted, fireactions-tryruntime]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ts-tests/.nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Run devnet smoke suite
+        working-directory: ts-tests
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm moonwall test smoke_devnet
+
+  # ------------------------------------------------------------------
+  # Stage 2: testnet — automatic once devnet is green.
+  # ------------------------------------------------------------------
+  deploy-testnet:
+    name: Deploy testnet
+    needs: [build, check-devnet]
+    runs-on: [self-hosted, fireactions-light]
+    # Gate is configured on the environment: required reviewers = one-click
+    # promotion; no reviewers = automatic after devnet checks.
+    environment: testnet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+      - name: Check whether an upgrade is needed
+        id: guard
+        run: |
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://test.finney.opentensor.ai" | jq -r '.result.specVersion')
+          : ${chain:?could not fetch testnet spec_version}
+          if [ "${{ needs.build.outputs.spec_version }}" -gt "$chain" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "testnet already on $chain; skipping."
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Set up Node.js
+        if: steps.guard.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        env:
+          DEPLOY_SEED: ${{ secrets.TESTNET_DEPLOY_SEED }}
+        run: |
+          npm ci
+          node deploy-wasm.js ${{ env.TESTNET_WS }} "$GITHUB_WORKSPACE/wasm/subtensor.wasm"
+      - name: Verify on-chain spec_version
+        if: steps.guard.outputs.should_deploy == 'true'
+        run: |
+          sleep 30
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://test.finney.opentensor.ai" | jq -r '.result.specVersion')
+          [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "testnet still on $chain"; exit 1; }
+
+  check-testnet:
+    name: Smoke-check testnet
+    needs: deploy-testnet
+    runs-on: [self-hosted, fireactions-tryruntime]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ts-tests/.nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Run testnet smoke suite
+        working-directory: ts-tests
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm moonwall test smoke_testnet
+
+  # SDK rc channel rides the train: publish after testnet is green
+  # (replaces the publish-sdk-rc job in deploy-testnet.yml).
+  publish-sdk-rc:
+    name: Publish SDK rc to PyPI
+    needs: check-testnet
+    runs-on: [self-hosted, fireactions-heavy]
+    environment: testnet
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Set rc version and publish
+        working-directory: sdk/python
+        run: |
+          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' pyproject.toml | head -n 1)
+          : ${base:?could not parse base version}
+          sed -i "0,/^version = \".*\"/s//version = \"${base}rc${GITHUB_RUN_NUMBER}\"/" pyproject.toml
+          uv build --out-dir ../../dist
+          uv publish --trusted-publishing always ../../dist/*
+
+  # ------------------------------------------------------------------
+  # Stage 3: mainnet — the human gate.
+  # Environment `mainnet` required reviewers = the "ok, deploy to mainnet"
+  # click. The job then submits the CI half of the 2-of-2 deployment
+  # multisig; the triumvirate approves out-of-band, and
+  # watch-mainnet-release.yml cuts the release once it executes.
+  # ------------------------------------------------------------------
+  propose-mainnet:
+    name: Propose mainnet upgrade (multisig)
+    needs: [build, check-testnet]
+    runs-on: [self-hosted, fireactions-light]
+    environment: mainnet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+      - name: Check whether an upgrade is needed
+        id: guard
+        run: |
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://entrypoint-finney.opentensor.ai" | jq -r '.result.specVersion')
+          : ${chain:?could not fetch mainnet spec_version}
+          if [ "${{ needs.build.outputs.spec_version }}" -gt "$chain" ]; then
+            echo "should_propose=true" >> $GITHUB_OUTPUT
+          else
+            echo "mainnet already on $chain; skipping."
+            echo "should_propose=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Set up Node.js
+        if: steps.guard.outputs.should_propose == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Submit multisig proposal (CI half of deployment multisig)
+        if: steps.guard.outputs.should_propose == 'true'
+        working-directory: .github/scripts/deploy
+        env:
+          CI_SEED: ${{ secrets.MAINNET_CI_SEED }}
+        run: |
+          npm ci
+          node propose-upgrade-multisig.js ${{ env.MAINNET_WS }} \
+            "$GITHUB_WORKSPACE/wasm/subtensor.wasm" \
+            "$GITHUB_WORKSPACE/wasm/proxy_proxy_blob.hex"
+
+      # The triumvirate's first-signer procedure (scripts/deploy/README.md)
+      # downloads this artifact to verify the wasm and sign the call data.
+      - name: Record pending release
+        if: steps.guard.outputs.should_propose == 'true'
+        run: |
+          jq -n \
+            --arg sha "$GITHUB_SHA" \
+            --arg spec "${{ needs.build.outputs.spec_version }}" \
+            --slurpfile proposal .github/scripts/deploy/pending-release.json \
+            '{commit: $sha, expected_spec_version: ($spec | tonumber), proposal: $proposal[0]}' \
+            > wasm/pending-release.json
+          cat wasm/pending-release.json
+
+      - name: Upload runtime + call data artifacts
+        if: steps.guard.outputs.should_propose == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-upgrade-${{ needs.build.outputs.spec_version }}
+          path: |
+            wasm/subtensor.wasm
+            wasm/subtensor-digest.json
+            wasm/proxy_proxy_blob.hex
+            wasm/pending-release.json
+          if-no-files-found: error
+          retention-days: 90

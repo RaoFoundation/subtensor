@@ -1,261 +1,116 @@
 name: Check Rust
 
+# Lint + test gate for every PR into main. Each job is independent so a
+# formatting failure doesn't hide a test failure.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
 concurrency:
   group: check-rust-${{ github.ref }}
   cancel-in-progress: true
 
-on:
-  pull_request:
-
-  ## Allow running workflow manually from the Actions tab
-  workflow_dispatch:
-    inputs:
-      verbose:
-        description: "Output more information when triggered manually"
-        required: false
-        default: ""
-
 env:
   CARGO_TERM_COLOR: always
-  VERBOSE: ${{ github.events.input.verbose }}
+  RUST_BACKTRACE: full
 
 jobs:
-  # runs cargo fmt
-  cargo-fmt:
+  fmt:
     name: cargo fmt
     runs-on: [self-hosted, fireactions-light]
-    env:
-      RUST_BACKTRACE: full
     steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential
-
-      - name: Install Rust Nightly
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
+          cache-key: cargo-fmt
           components: rustfmt
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: cargo-fmt
-          cache-on-failure: true
-
-      - name: cargo fmt
+      - name: cargo fmt --check
         run: |
           set -euo pipefail
-          # Run cargo fmt and capture both stdout and stderr
-          output=$(cargo fmt --check --all 2>&1) || {
-            echo "❌ cargo fmt failed with non-zero exit code"
-            echo "$output"
-            exit 1
-          }
-          # Check for panic/ICE messages even if exit code was 0
-          if echo "$output" | grep -qiE "(the compiler unexpectedly panicked|panicked at|Internal Compiler Error|ICE|error: the compiler unexpectedly panicked)"; then
-            echo "❌ rustfmt panicked (ICE detected) - this should fail the build"
+          output=$(cargo fmt --check --all 2>&1) || { echo "$output"; exit 1; }
+          # rustfmt ICEs can exit 0; treat any panic in the output as failure.
+          if echo "$output" | grep -qiE "panicked at|internal compiler error"; then
             echo "$output"
             exit 1
           fi
-          echo "$output"
-          echo "✅ cargo fmt completed successfully"
 
-  cargo-clippy-default-features:
-    name: cargo clippy
+  clippy:
+    name: cargo clippy (${{ matrix.features.name }})
     runs-on: [self-hosted, fireactions-light]
     env:
-      RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - name: default
+            flags: ""
+          - name: all
+            flags: "--all-features"
     steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
+          cache-key: clippy-${{ matrix.features.name }}
           components: clippy
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets ${{ matrix.features.flags }} -- -D warnings
 
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: clippy-default-features
-          cache-on-failure: true
-
-      - name: cargo clippy --workspace --all-targets -- -D warnings
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-  cargo-check-lints:
-    name: check custom lints
+  warnings:
+    name: no cargo check warnings
     runs-on: [self-hosted, fireactions-light]
     env:
       RUSTFLAGS: -D warnings
-      RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
     steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: lints
-          cache-on-failure: true
-
-      - name: check lints
+          cache-key: lints
+      - name: cargo check (fail on warnings)
         run: |
           set -o pipefail
           cargo check 2>&1 | sed -r "s/\x1B\[[0-9;]*[mK]//g" | grep "warning:" && exit 1
           echo "No warnings found."
 
-  cargo-clippy-all-features:
-    name: cargo clippy --all-features
-    runs-on: [self-hosted, fireactions-light]
-    env:
-      RUST_BACKTRACE: full
-      SKIP_WASM_BUILD: 1
-    steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          components: clippy
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: clippy-all-features
-          cache-on-failure: true
-
-      - name: cargo clippy --workspace --all-targets --all-features -- -D warnings
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-  # runs cargo test --workspace --all-features
-  cargo-test:
+  test:
     name: cargo test
     runs-on: [self-hosted, fireactions-heavy]
     env:
-      RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
     steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: cargo-test
-          cache-on-failure: true
-
+          cache-key: cargo-test
       - name: cargo test --workspace --all-features
         run: cargo test --workspace --all-features
 
-  # ensures cargo fix has no trivial changes that can be applied
-  cargo-fix:
-    name: cargo fix
+  fix:
+    name: cargo fix leaves no diff
     runs-on: [self-hosted, fireactions-light]
     env:
-      RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1
     steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: cargo-fix
-          cache-on-failure: true
-
+          cache-key: cargo-fix
       - name: cargo fix --workspace
         run: |
-          # Run cargo fix on the project
           cargo fix --workspace
+          git diff --exit-code || { echo "'cargo fix --workspace' produced changes; apply them locally."; exit 1; }
 
-          # Check for local git changes
-          if ! git diff --exit-code; then
-              echo "There are local changes after running 'cargo fix --workspace' ❌"
-              exit 1
-          else
-              echo "No changes detected after running 'cargo fix --workspace' ✅"
-          fi
-
-  check-feature-propagation:
-    name: zepter run check
+  zepter:
+    name: zepter feature propagation
     runs-on: [self-hosted, fireactions-light]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
         with:
-          fetch-depth: 0 # Dont clone historic commits.
-
-      - name: Install dependencies
+          cache-key: zepter
+      - name: Install and run zepter
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: zepter
-          cache-on-failure: true
-
-      - name: Install Zepter
-        run: cargo install --locked -q zepter && zepter --version
-
-      - name: Check features
-        run: zepter run check
+          cargo install --locked -q zepter
+          zepter run check

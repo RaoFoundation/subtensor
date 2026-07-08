@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "py-sp-core"
+version = "0.1.0"
+description = "Substrate sp-core key primitives (sr25519/ed25519) for Python, built from the bittensor monorepo's own sp-core"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "RaoFoundation" }]
+
+[tool.maturin]
+module-name = "py_sp_core"
+features = ["extension-module"]

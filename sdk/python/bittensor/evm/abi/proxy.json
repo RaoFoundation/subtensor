@@ -1,0 +1,160 @@
+[
+  {
+    "type": "function",
+    "name": "createPureProxy",
+    "inputs": [
+      {
+        "name": "proxy_type",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "delay",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "index",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proxyCall",
+    "inputs": [
+      {
+        "name": "real",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "force_proxy_type",
+        "type": "uint8[]",
+        "internalType": "uint8[]"
+      },
+      {
+        "name": "call",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "killPureProxy",
+    "inputs": [
+      {
+        "name": "spawner",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "proxy_type",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "index",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "height",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "ext_index",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addProxy",
+    "inputs": [
+      {
+        "name": "delegate",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "proxy_type",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "delay",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeProxy",
+    "inputs": [
+      {
+        "name": "delegate",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "proxy_type",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "delay",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeProxies",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "pokeDeposit",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getProxies",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view"
+  }
+]

@@ -68,9 +68,7 @@ jobs:
             build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Utilize Shared Rust Cache
         uses: Swatinem/rust-cache@v2

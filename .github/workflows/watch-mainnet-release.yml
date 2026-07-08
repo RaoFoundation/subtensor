@@ -1,0 +1,244 @@
+name: Watch Mainnet Release
+
+# The mainnet upgrade is executed by the triumvirate signing the multisig
+# proposal submitted by the release train (release-train.yml). This watcher
+# polls the chain; once the on-chain spec_version matches main and no
+# release exists for it yet, it cuts the release:
+#   1. GitHub release v<spec_version>, with the srtool wasm + digest and
+#      multisig call data from the release train attached as assets
+#   2. Docker images via explicit dispatch of docker.yml and
+#      docker-localnet.yml (a release created with the default GITHUB_TOKEN
+#      does not emit `release: published`, so their `on: release` triggers
+#      never fire for releases cut by this workflow)
+#   3. Python SDK + py-sp-core wheels to PyPI
+#   4. Publishable Rust crates to crates.io
+#   5. Production website/docs deployment on Vercel
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: watch-mainnet-release
+  cancel-in-progress: false
+
+env:
+  MAINNET_HTTP: https://entrypoint-finney.opentensor.ai:443
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Compare chain spec_version with main
+    runs-on: [self-hosted, fireactions-light]
+    outputs:
+      ready: ${{ steps.compare.outputs.ready }}
+      spec_version: ${{ steps.compare.outputs.spec_version }}
+      sha: ${{ steps.compare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare spec versions and existing releases
+        id: compare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          local_spec=$(grep -Eo 'spec_version: *[0-9]+' runtime/src/lib.rs | head -n 1 | grep -Eo '[0-9]+')
+          : ${local_spec:?could not parse spec_version from runtime/src/lib.rs}
+
+          chain_spec=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "$MAINNET_HTTP" | jq -r '.result.specVersion')
+          : ${chain_spec:?could not fetch chain spec_version}
+
+          echo "main spec_version:     $local_spec"
+          echo "on-chain spec_version: $chain_spec"
+
+          echo "spec_version=$local_spec" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+          if [[ "$chain_spec" != "$local_spec" ]]; then
+            echo "Upgrade not executed yet (or main is ahead); nothing to do."
+            echo "ready=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Match both this workflow's tags (v424) and the legacy scheme
+          # inherited from upstream (v3.4.9-424) so an already-released
+          # runtime is never released twice.
+          if gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
+              --json tagName --jq '.[].tagName' \
+              | grep -Eq "^v${local_spec}$|-${local_spec}$"; then
+            echo "A release for spec_version $local_spec already exists; nothing to do."
+            echo "ready=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Chain is upgraded to $local_spec and no release exists yet."
+          echo "ready=true" >> $GITHUB_OUTPUT
+
+  release:
+    name: Cut GitHub release
+    needs: check
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-light]
+    permissions:
+      contents: write # create the release
+      actions: read # download the release-train artifact
+    steps:
+      # The release train uploaded the deterministic srtool build and the
+      # multisig call data as the mainnet-upgrade-<spec> workflow artifact
+      # (90-day retention). Attach it to the release so the deterministic
+      # build evidence outlives the artifact and matches the convention of
+      # the pre-train releases (subtensor.wasm + subtensor-digest.json).
+      - name: Fetch release-train artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          spec="${{ needs.check.outputs.spec_version }}"
+          artifact_id=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mainnet-upgrade-${spec}&per_page=1" \
+            --jq '.artifacts[0].id // empty')
+          : ${artifact_id:?no mainnet-upgrade-${spec} artifact found — did the release train run?}
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > artifact.zip
+          mkdir -p wasm
+          unzip -o artifact.zip -d wasm
+          ls -la wasm
+
+      - name: Create release with runtime assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ needs.check.outputs.spec_version }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "${{ needs.check.outputs.sha }}" \
+            --title "Runtime ${{ needs.check.outputs.spec_version }}" \
+            --generate-notes \
+            wasm/subtensor.wasm \
+            wasm/subtensor-digest.json \
+            wasm/proxy_proxy_blob.hex \
+            wasm/pending-release.json
+
+  publish-docker:
+    name: Dispatch Docker image publishing
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-light]
+    permissions:
+      actions: write
+    steps:
+      # Dispatch at the release tag so both workflows check out and tag the
+      # exact released sha, even if main has moved on.
+      - name: Dispatch docker workflows at the release tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ needs.check.outputs.spec_version }}"
+          gh workflow run docker.yml \
+            --repo "$GITHUB_REPOSITORY" --ref "$tag" -f tag="$tag"
+          gh workflow run docker-localnet.yml \
+            --repo "$GITHUB_REPOSITORY" --ref "$tag" -f branch-or-tag="$tag"
+
+  publish-sdk:
+    name: Publish Python SDK to PyPI
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-heavy]
+    # PyPI trusted publishing (OIDC); publishers for `bittensor` and
+    # py-sp-core are registered against this workflow + mainnet environment.
+    environment: mainnet
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Build py-sp-core wheels (manylinux)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: py-sp-core
+          command: build
+          args: --release --out ../dist
+          manylinux: auto
+
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        run: uv build --out-dir ../../dist
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*
+
+  publish-crates:
+    name: Publish Rust crates to crates.io
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-heavy]
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: publish-crates
+
+      # Workspace crates are publish = false while they depend on the
+      # patched polkadot-sdk fork. Any crate that flips publish on is
+      # picked up here automatically, in dependency order.
+      - name: Publish publishable crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          publishable=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.publish != []) | .name')
+          if [[ -z "$publishable" ]]; then
+            echo "No publishable crates in the workspace; skipping."
+            exit 0
+          fi
+          for crate in $publishable; do
+            echo "Publishing $crate..."
+            cargo publish -p "$crate" --locked || {
+              echo "Failed to publish $crate"
+              exit 1
+            }
+          done
+
+  promote-website:
+    name: Deploy production website and docs
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-heavy]
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Deploy to Vercel (production)
+        working-directory: website
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx --yes vercel build --prod --token "$VERCEL_TOKEN"
+          npx --yes vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"

@@ -4,9 +4,11 @@ set -euo pipefail
 # Generate weights.rs files for all (or a single) pallet using the standard
 # frame-benchmarking-cli --output / --template approach.
 #
-# Pallets are auto-discovered: any pallet with both benchmarking.rs and
-# weights.rs is included. If a pallet is missing from define_benchmarks!
-# in runtime/src/lib.rs, the benchmark CLI will error — no silent failures.
+# Pallets are auto-discovered: any pallet with src/weights.rs plus
+# src/benchmarking.rs (or src/benchmarks.rs) that is also registered in
+# define_benchmarks! in runtime/src/lib.rs. Unregistered pallets are filtered
+# out by discovery (silently skipped in all-pallets mode); the single-pallet
+# invocation fails with "unknown pallet".
 #
 # Usage:
 #   ./scripts/benchmark_all.sh                    # build + generate all

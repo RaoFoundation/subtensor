@@ -30,6 +30,7 @@ members = [
 	"pallets/*",
 	"precompiles",
 	"primitives/*",
+	"py-sp-core",
 	"runtime",
 	"support/*",
 	"chain-extensions",

@@ -103,11 +103,11 @@ Read the full diff. Apply the threat model from `.github/copilot-instructions.md
 
 ## Step 3 — Branch-strategy sanity
 
-If `base_ref == main` and `head_ref != testnet`:
-- This is either a hotfix or an unauthorized direct-to-main PR. The PR description must justify it explicitly. If it doesn't, raise [HIGH] regardless of diff content.
+If `base_ref == mainnet` and `head_ref != testnet`:
+- This is either a hotfix or an unauthorized direct-to-mainnet PR. The PR description must justify it explicitly. If it doesn't, raise [HIGH] regardless of diff content.
 
-If `base_ref == main` and `head_ref == testnet`:
-- This is the testnet→main release cut. You are likely running standalone (no Auditor will follow). Be especially thorough — this is the last gate before mainnet.
+If `base_ref == mainnet` and `head_ref == testnet`:
+- This is the testnet→mainnet release cut. You are likely running standalone (no Auditor will follow). Be especially thorough — this is the last gate before mainnet.
 
 ## Step 4 — Output
 

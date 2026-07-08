@@ -1,0 +1,103 @@
+---
+title: Release process
+description: How a merge to main becomes a runtime upgrade on devnet, testnet, and mainnet, and how the release train's artifacts are published.
+---
+
+Shipping is a single pipeline: **`release-train.yml`** runs on every push to
+`main`, builds the runtime once, and promotes that identical wasm through the
+networks. A second workflow, **`watch-mainnet-release.yml`**, watches the
+chain and publishes release artifacts once the mainnet upgrade actually
+executes.
+
+## The release train
+
+```
+push to main
+  └─ srtool build (once per train)
+       └─ deploy devnet ───── smoke-check devnet
+            └─ deploy testnet ── smoke-check testnet ── publish SDK rc to PyPI
+                 └─ propose mainnet upgrade (multisig)
+```
+
+### Build once (srtool)
+
+The train builds the runtime with [srtool](https://github.com/paritytech/srtool)
+— a pinned Docker build environment that makes the wasm **byte-reproducible**.
+The artifact (`subtensor.wasm` + digest) is uploaded once and reused by every
+deploy job; promotion never rebuilds. Anyone can verify the hash independently
+by running `scripts/srtool/build-srtool-image.sh` followed by
+`scripts/srtool/run-srtool.sh` locally (see
+[Repository scripts](/docs/internals/scripts)).
+
+### The ship lever: `spec_version`
+
+Every deploy job first compares the built runtime's `spec_version`
+(`runtime/src/lib.rs`) with what the target chain is running, and **no-ops
+unless the build is newer**. Consequences:
+
+- A merge without a `spec_version` bump builds and then does nothing — this
+  is deliberate, and it's why the Spec Version Check on PRs exists (label
+  `no-spec-version-bump` to opt out knowingly).
+- Stale queued trains are harmless: they no-op at each guard.
+- Rollback is not a concept here — you ship a *newer* fixed version.
+
+### Promotion gates
+
+Human approval lives in GitHub **environment settings**, not workflow code:
+
+| Stage | Environment | Gate |
+|-------|-------------|------|
+| devnet | `devnet` | none — deploys automatically, then runs the devnet smoke suite |
+| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite + SDK release candidate to PyPI |
+| mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below |
+
+Deploys to devnet and testnet are direct `setCode` transactions via the CI
+deploy key; each is followed by an on-chain `spec_version` verification and a
+smoke suite.
+
+### The mainnet multisig ceremony
+
+CI never upgrades mainnet directly. The train's final job submits a **multisig
+proposal**: the CI key is one half of a 2-of-2 deployment multisig that holds
+a `SudoUncheckedSetCode` proxy on the sudo key. The triumvirate then approves
+the proposal 2-of-3 **out-of-band** — no GitHub credential can unilaterally
+change the mainnet runtime. Until they sign, nothing happens on chain.
+
+For rehearsal, the `mainnet-clone` PR label spins up a live clone of mainnet
+running your runtime with a public endpoint
+([mainnet clone testing](/docs/internals/mainnet-clone)).
+
+## The release watcher
+
+`watch-mainnet-release.yml` polls mainnet every 10 minutes. When the on-chain
+`spec_version` matches the `main` branch and no GitHub release exists for it
+yet, it cuts the release train's artifacts:
+
+1. **GitHub release** `v<spec_version>`
+2. **Python SDK + py-sp-core wheels** to PyPI (trusted publishing)
+3. **Publishable Rust crates** to crates.io (auto-discovered; workspace crates
+   are `publish = false` while they depend on the patched polkadot-sdk fork)
+4. **Production website/docs** to Vercel
+
+This ordering means the release always reflects what is *actually running on
+mainnet*, not what was merged.
+
+### Known gap: Docker images don't publish on release
+
+`docker.yml` and `docker-localnet.yml` trigger on `release: published` and are
+what tag `ghcr.io` images (including `:latest`) for a mainnet release. However,
+the watcher creates the release with the default `GITHUB_TOKEN`, and **GitHub
+does not trigger workflows from events created by the default token** (a
+recursion guard). So the production node image is currently *not* published
+when a release is cut. Until fixed (use a PAT/app token for `gh release
+create`, or have the watcher call `gh workflow run docker.yml -f
+branch-or-tag=v<spec>`), publish manually via `docker.yml`'s
+`workflow_dispatch` with the release tag. Note the release also carries no
+attached artifacts — the srtool wasm/digest live only as 90-day workflow
+artifacts on the train run.
+
+## Hotfixes
+
+The same pipeline applies: land the fix on `main` with a `spec_version` bump
+and let the train promote it. There is no side channel that skips devnet and
+testnet validation.

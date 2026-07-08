@@ -1,0 +1,52 @@
+---
+title: Bittensor Documentation
+description: Do anything on the Bittensor chain with the Bittensor SDK and CLI — designed for agents and humans alike.
+---
+
+Bittensor is an open network where independent **subnets** produce digital
+commodities — compute, inference, storage, prediction — and the chain pays
+participants in its token, **TAO**, in proportion to the value they contribute.
+**Miners** produce the commodity, **validators** score the miners, **subnet
+creators** define the incentive mechanism, and **stakers** back validators with
+TAO.
+
+These docs cover the `bittensor` Python SDK and CLI: one install gives you a
+library (`import bittensor`) and a command line (`btcli`) that together can
+perform every user-facing operation on the chain. Both are generated from the
+chain's own runtime metadata, so they cannot drift from what the chain actually
+does — and neither can these docs, because the reference section is generated
+from the same registries.
+
+## Where to go
+
+<Cards>
+  <Card title="Quickstart" href="/docs/quickstart" description="Install, connect, first query, first transaction — in five minutes." />
+  <Card title="For agents" href="/docs/agents" description="How an agent discovers, previews, and safely executes any chain operation." />
+  <Card title="Transactions" href="/docs/tx" description="Every state-changing operation, one page each, generated from the SDK." />
+  <Card title="Queries" href="/docs/query" description="Every chain read, one page each, generated from the SDK." />
+  <Card title="Errors" href="/docs/errors" description="Every failure carries a machine-readable code and a remediation hint." />
+  <Card title="Concepts" href="/docs/concepts/network" description="The network, wallets, money, the client, and the transaction model." />
+</Cards>
+
+## Install
+
+Requires Python 3.10–3.13. Using [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install 'bittensor[cli]'
+```
+
+This installs both the `btcli` command and the `bittensor` Python package.
+For the library alone (no terminal-UI dependencies), install plain `bittensor`.
+
+## Machine-readable everything
+
+If you are an agent (or building one), you never need to scrape these pages:
+
+- [`/llms.txt`](/llms.txt) — index of every page; [`/llms-full.txt`](/llms-full.txt) — the entire docs in one file.
+- Every page is fetchable as raw markdown: append `content.md` under `/llms.mdx/docs/...` (linked from each page).
+- [`/catalog/intents.json`](/catalog/intents.json) — every transaction with its JSON schema, signer, and summary.
+- [`/catalog/reads.json`](/catalog/reads.json) — every query with parameters and docs.
+- [`/catalog/errors.json`](/catalog/errors.json) — every error code with remediation, and the full chain-error classification.
+- The same catalogs, live from the tool itself: `btcli tools` on the CLI, `sub.intents.list_tools()` in Python.

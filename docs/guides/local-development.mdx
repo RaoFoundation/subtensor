@@ -1,0 +1,143 @@
+---
+title: Local development
+description: Run a local subtensor chain and test wallets, subnets, and neurons against it.
+---
+
+A local chain is a private, isolated subtensor: you get sudo, a pre-funded dev
+account, and (by default) 0.25-second blocks — the fastest way to test
+transactions, subnet mechanics, or SDK code without spending real TAO.
+
+## Start a localnet with Docker
+
+```bash
+docker run --rm --name local_chain \
+  -p 9944:9944 -p 9945:9945 \
+  ghcr.io/opentensor/subtensor-localnet:devnet
+```
+
+Append `False` to the command to run real 12-second blocks instead of the
+default fast-blocks mode (0.25 s). `--rm` discards chain state when the
+container exits; omit it to persist state across restarts. Re-pull the image
+regularly — it tracks mainnet behavior.
+
+A fresh localnet ships with subnet 0 (root) and subnet 1 already created.
+
+## Or build from source
+
+For custom runtime flags or chain modifications, build the node yourself:
+
+```bash
+git clone https://github.com/RaoFoundation/subtensor.git
+cd subtensor
+./scripts/init.sh        # rust nightly toolchain + wasm target
+./scripts/localnet.sh    # build, purge state, launch in fast-blocks mode
+```
+
+`localnet.sh` accepts `False` (12-second blocks), `--no-purge` (keep existing
+chain state), and `--build-only` (compile and generate the chainspec without
+starting the node).
+
+On macOS, two prerequisites before building: Apple Silicon needs Rosetta
+(`softwareupdate --install-rosetta`), and OpenSSL must be installed via
+Homebrew.
+
+`localnet.sh` builds with the `pow-faucet` cargo feature (the `FEATURES` line
+in the script), which enables the `faucet` extrinsic — disabled on mainnet —
+so you can mint test TAO to any coldkey with a small proof-of-work. The grant
+is 1,000 TAO per call, a hardcoded constant in the registration pallet
+(`pallets/subtensor/src/subnets/registration.rs`) you can edit for more.
+
+## Connect
+
+The network name `local` resolves to `ws://127.0.0.1:9944`. A quick
+connectivity check that also tells you which block mode the chain runs
+([`is-fast-blocks`](/docs/query/is-fast-blocks)):
+
+```bash
+btcli query is-fast-blocks --network local
+```
+
+```python
+import bittensor as sub
+
+async with sub.Client("local") as client:
+    print(await client.block())
+```
+
+Set `BT_CHAIN_ENDPOINT` to point `local` at a different endpoint — a
+source-built localnet typically listens on `ws://127.0.0.1:9945` rather than
+9944. Any `ws://` URL also works directly as the `--network` value.
+
+## The Alice dev account
+
+Every localnet pre-funds the well-known dev account **Alice**
+(`5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`) with 1,000,000 TAO. Her
+key is derived from the standard Substrate dev URI `//Alice`, which
+corresponds to a publicly known seed. Materialize her as a local wallet with
+that seed:
+
+```bash
+btcli wallet regen-coldkey -w alice --no-password \
+  --seed 0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a
+```
+
+(The seed is public — it works only because localnet genesis funds this
+address. Never reuse dev keys outside a local chain.)
+
+In Python, any SDK call that takes a wallet also accepts a raw keypair, so you
+can skip wallet files entirely:
+
+```python
+from bittensor.keyfiles import Keypair
+import bittensor as sub
+
+alice = Keypair.create_from_uri("//Alice")
+
+async with sub.Client("local") as client:
+    result = await client.execute(
+        sub.Transfer(dest_ss58="5F...", amount_tao=1000), alice
+    )
+```
+
+## A typical development loop
+
+Create a wallet per role, fund each from Alice, then walk the subnet
+lifecycle:
+
+```bash
+btcli wallet create -w owner -H default --no-password
+btcli wallet create -w validator -H default --no-password
+btcli wallet create -w miner -H default --no-password
+
+btcli tx transfer --dest owner --amount-tao 2000 -w alice --network local -y
+btcli tx transfer --dest validator --amount-tao 100 -w alice --network local -y
+btcli tx transfer --dest miner --amount-tao 100 -w alice --network local -y
+
+btcli tx register-subnet -w owner --network local          # creates netuid 2
+btcli tx start-call --netuid 2 -w owner --network local    # activate emissions
+btcli tx burned-register --netuid 2 -w validator --network local
+btcli tx burned-register --netuid 2 -w miner --network local
+btcli query metagraph --netuid 2 --network local --json
+```
+
+See [`register-subnet`](/docs/tx/register-subnet),
+[`start-call`](/docs/tx/start-call),
+[`burned-register`](/docs/tx/burned-register), and
+[`metagraph`](/docs/query/metagraph) for the details of each step.
+
+**Fast-blocks caveat:** anything the chain measures in blocks — rate limits,
+immunity periods, activation delays, epoch tempo — elapses 48× faster than
+mainnet wall-clock time. If you are testing timing behavior, run the localnet
+with `False` (12-second blocks) instead.
+
+## Serving real traffic: run your own node
+
+Public OTF endpoints are rate-limited (roughly 1 request per second per IP).
+For serious validator, miner, or indexer workloads against mainnet or testnet,
+run your own node: a **lite node** (warp sync, ~128 GB disk, recent state
+only) covers most uses; an **archive node** (full history, ~3.5 TB and
+growing) is needed for querying blocks older than the recent window. Port 9944
+is the WebSocket port and should accept only localhost connections; port 30333
+is the p2p socket and must be reachable by peers. Full node operation is out
+of scope here — see the
+[subtensor repository](https://github.com/opentensor/subtensor) for setup.

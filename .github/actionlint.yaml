@@ -1,0 +1,8 @@
+self-hosted-runner:
+  # Fireactions-provisioned runner pools plus the dedicated benchmarking box.
+  labels:
+    - fireactions-light
+    - fireactions-heavy
+    - fireactions-tryruntime
+    - fireactions-tryruntime-finney
+    - Benchmarking

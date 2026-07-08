@@ -103,7 +103,7 @@ gh workflow run ai-review.yml --repo RaoFoundation/subtensor -f pr_number=<N>
 
 ## Required-checks setup
 
-After the first successful run, add these to branch protection on `devnet-ready`
+After the first successful run, add these to branch protection on `devnet`
 (and other protected branches) under Settings → Branches → Branch protection rules:
 
 - `ai-review / skeptic`

@@ -1,4 +1,4 @@
-name: Bittensor Bittensor E2E Test
+name: Bittensor E2E Test
 
 permissions:
   pull-requests: write
@@ -26,7 +26,8 @@ env:
   # Name the locally built localnet image under the RaoFoundation namespace
   # (lowercase — Docker requires it). The bittensor/btcli e2e harnesses read
   # LOCALNET_IMAGE_NAME from the environment, overriding their built-in default.
-  LOCALNET_IMAGE_NAME: ghcr.io/raofoundation/subtensor-localnet:devnet-ready
+  # The tag is local-only; nothing is pushed.
+  LOCALNET_IMAGE_NAME: ghcr.io/raofoundation/subtensor-localnet:ci
 
 jobs:
   check-label:

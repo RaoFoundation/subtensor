@@ -1,24 +1,27 @@
 name: Publish Localnet Docker Image
 
+# Localnet images are the chain-in-a-box used by the SDK/btcli e2e harnesses.
+# Every push to main refreshes :main and :latest; releases publish the
+# version tag (dispatched by watch-mainnet-release.yml, since its
+# GITHUB_TOKEN-created releases never emit `release: published`); dispatch
+# with pr-number builds a throwaway :pr-N image for testing downstream
+# tooling against an open PR.
+
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       branch-or-tag:
-        description: "The branch or tag to use as the Docker image tag (optional)."
+        description: "Ref to build and Docker tag to publish (optional)"
         required: false
         default: ""
       pr-number:
-        description: "PR number to build (e.g., 2283). If specified, creates tag pr-{number} and does not update latest."
+        description: "PR number to build (e.g. 2283). Creates tag pr-{number} and does not move :latest."
         required: false
         default: ""
-  push:
-    branches:
-      - devnet-ready
-      - main
-      - testnet
-      - devnet
 
 concurrency:
   group: docker-localnet-${{ github.ref }}
@@ -27,8 +30,6 @@ concurrency:
 permissions:
   contents: read
   packages: write
-  actions: read
-  security-events: write
   pull-requests: read
 
 jobs:
@@ -52,63 +53,39 @@ jobs:
               pull_number: parseInt(prNumber)
             });
             core.setOutput('head_ref', pr.head.ref);
-            core.setOutput('head_sha', pr.head.sha);
 
       - name: Determine Docker tag and ref
         id: vars
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "ref=${{ github.head_ref }}" >> $GITHUB_OUTPUT
-            echo "tag=${{ github.base_ref }}" >> $GITHUB_OUTPUT
-          elif [[ -n "${{ github.event.inputs.pr-number }}" ]]; then
-            # PR build mode: use pr-{number} as tag, don't update latest
-            pr_number="${{ github.event.inputs.pr-number }}"
-            tag="pr-${pr_number}"
-            echo "tag=$tag" >> $GITHUB_OUTPUT
-
-            # Use branch from PR info if available, otherwise use branch-or-tag input
-            if [[ -n "${{ steps.pr-info.outputs.head_ref }}" ]]; then
-              echo "ref=${{ steps.pr-info.outputs.head_ref }}" >> $GITHUB_OUTPUT
-            elif [[ -n "${{ github.event.inputs.branch-or-tag }}" ]]; then
-              echo "ref=${{ github.event.inputs.branch-or-tag }}" >> $GITHUB_OUTPUT
-            else
-              echo "ref=main" >> $GITHUB_OUTPUT
-            fi
+          if [[ -n "${{ github.event.inputs.pr-number }}" ]]; then
+            echo "tag=pr-${{ github.event.inputs.pr-number }}" >> $GITHUB_OUTPUT
+            echo "ref=${{ steps.pr-info.outputs.head_ref || github.event.inputs.branch-or-tag || 'main' }}" >> $GITHUB_OUTPUT
             echo "latest_tag=false" >> $GITHUB_OUTPUT
           else
             tag="${{ github.event.inputs.branch-or-tag || github.ref_name }}"
-            echo "ref=${{ github.event.inputs.branch-or-tag || github.ref_name }}" >> $GITHUB_OUTPUT
             echo "tag=$tag" >> $GITHUB_OUTPUT
-
-            if [[ "$tag" != "devnet-ready" ]]; then
-              echo "latest_tag=true" >> $GITHUB_OUTPUT
-            else
-              echo "latest_tag=false" >> $GITHUB_OUTPUT
-            fi
+            echo "ref=$tag" >> $GITHUB_OUTPUT
+            echo "latest_tag=true" >> $GITHUB_OUTPUT
           fi
 
-  # build artifacts for fast-runtime and non-fast-runtime
+  # Build node binaries for both runtimes on both architectures.
   artifacts:
     name: Node • ${{ matrix.runtime }} • ${{ matrix.platform.arch }}
     needs: setup
     strategy:
       matrix:
         platform:
-          # triple names used `in scripts/install_prebuilt_binaries.sh` file
+          # triple names used in scripts/install_prebuilt_binaries.sh
           - runner: [self-hosted, fireactions-heavy]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
           - runner: [ubuntu-24.04-arm]
             triple: aarch64-unknown-linux-gnu
             arch: arm64
-
         runtime: ["fast-runtime", "non-fast-runtime"]
-
     runs-on: ${{ matrix.platform.runner }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ needs.setup.outputs.ref }}
 
@@ -131,24 +108,20 @@ jobs:
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_BUILD_TARGET="${{ matrix.platform.triple }}"
-
           if [ "${{ matrix.runtime }}" = "fast-runtime" ]; then
             ./scripts/localnet.sh --build-only
           else
             ./scripts/localnet.sh False --build-only
           fi
 
-        # use `ci_target` name bc .dockerignore excludes `target`
+      # Use `ci_target` because .dockerignore excludes `target`.
       - name: Prepare artifacts for upload
         run: |
           RUNTIME="${{ matrix.runtime }}"
           TRIPLE="${{ matrix.platform.triple }}"
-
-          mkdir -p build/ci_target/${RUNTIME}/${TRIPLE}/release/
+          mkdir -p build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
           cp -v target/${RUNTIME}/${TRIPLE}/release/node-subtensor \
             build/ci_target/${RUNTIME}/${TRIPLE}/release/
-
-          mkdir -p build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
           cp -v target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
             build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
 
@@ -159,17 +132,12 @@ jobs:
           path: build/
           if-no-files-found: error
 
-  # Collect all artifacts and publish them to docker repo
+  # Collect all binaries and publish the multi-arch image.
   docker:
     needs: [setup, artifacts]
     runs-on: [self-hosted, fireactions-heavy]
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ needs.setup.outputs.ref }}
 
@@ -179,13 +147,6 @@ jobs:
           pattern: binaries-*
           path: build/
           merge-multiple: true
-
-      - name: Show current Git branch
-        run: |
-          echo "==============================="
-          echo "Current Git branch:"
-          git rev-parse --abbrev-ref HEAD
-          echo "==============================="
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -204,14 +165,13 @@ jobs:
         # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-localnet" >> $GITHUB_ENV
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile-localnet
           build-args: |
             BUILT_IN_CI="Boom shakalaka"
-
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |

@@ -1,0 +1,45 @@
+{
+  "name": "apps-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md,css,graphql|json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,css,graphql|json}\"",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "eslint-config-custom": "*",
+    "prettier": "latest",
+    "turbo": "latest"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "yarn format"
+    }
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "expo-file-system": "~16.0.9",
+    "graphql": "^16.9.0",
+    "husky": "8.0.3"
+  },
+  "packageManager": "yarn@4.3.1",
+  "resolutions": {
+    "@types/mime": "3.0.2",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "~18.0.10",
+    "send": "0.19.0",
+    "semver": "7.5.3",
+    "undici": "5.28.4",
+    "ws": "8.17.1"
+  }
+}

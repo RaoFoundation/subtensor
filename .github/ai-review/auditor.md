@@ -99,9 +99,9 @@ Apply `.github/copilot-instructions.md` in full. Particular emphasis:
 
   | Base branch | Network endpoint | CI workflow |
   | --- | --- | --- |
-  | `devnet` / `devnet-ready` | `wss://dev.chain.opentensor.ai:443` | check-devnet |
-  | `testnet` / `testnet-ready` | `wss://test.finney.opentensor.ai:443` | check-testnet |
-  | `finney` / `main` | `wss://entrypoint-finney.opentensor.ai:443` | check-finney |
+  | `devnet` | `wss://dev.chain.opentensor.ai:443` | check-devnet |
+  | `testnet` | `wss://test.finney.opentensor.ai:443` | check-testnet |
+  | `mainnet` | `wss://entrypoint-finney.opentensor.ai:443` | check-mainnet |
   | anything else | _(no spec-version check)_ | — |
 
   Also: a bump is NOT required if the PR carries the `no-spec-version-bump`

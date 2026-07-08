@@ -1,0 +1,19 @@
+.logo {
+  height: 24px;
+  display: flex;
+  align-items: flex-end;
+
+  & a {
+    transition: color 0.2s cubic-bezier(0.17, 0.04, 0.47, 1);
+    color: inherit;
+  }
+
+  &-lottie {
+    filter: invert(1);
+    transition: filter 0.2s cubic-bezier(0.17, 0.04, 0.47, 1);
+
+    &.is-dark {
+      filter: invert(0);
+    }
+  }
+}

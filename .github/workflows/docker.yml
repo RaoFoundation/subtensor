@@ -1,20 +1,20 @@
 name: Publish Docker Image
 
+# Node images publish on runtime releases and on demand. Releases cut by
+# watch-mainnet-release.yml use the default GITHUB_TOKEN, which never emits
+# `release: published`; the watcher therefore dispatches this workflow
+# directly with the release tag. Release-version tags (vN) move :latest.
+
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
-      branch-or-tag:
-        description: "Branch or tag to use for the Docker image tag and ref to checkout (optional)"
+      tag:
+        description: "Ref to build and Docker tag to publish (defaults to the dispatching ref)"
         required: false
         default: ""
-  push:
-    branches:
-      - devnet-ready
-      - devnet
-      - testnet
-      
+
 concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: true
@@ -22,35 +22,28 @@ concurrency:
 permissions:
   contents: read
   packages: write
-  actions: read
-  security-events: write
 
 jobs:
   publish:
     runs-on: [self-hosted, fireactions-heavy]
-
     steps:
-      - name: Determine Docker tag and ref
-        id: tag
+      - name: Determine tag, ref, and image name
         run: |
-          branch_or_tag="${{ github.event.inputs.branch-or-tag || github.ref_name }}"
-          echo "Determined branch or tag: $branch_or_tag"
-          echo "tag=$branch_or_tag" >> $GITHUB_ENV
-          echo "ref=$branch_or_tag" >> $GITHUB_ENV
-
-          # Check if this is a tagged release (not devnet-ready/devnet/testnet)
-          if [[ "${{ github.event_name }}" == "release" && "$branch_or_tag" != "devnet-ready" && "$branch_or_tag" != "devnet" && "$branch_or_tag" != "testnet" ]]; then
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> $GITHUB_ENV
+          echo "ref=$tag" >> $GITHUB_ENV
+          # Move :latest for release events and for dispatched release-version
+          # tags (the watcher dispatches with tag=vN because its GITHUB_TOKEN
+          # release cannot fire the `release` trigger).
+          if [[ "${{ github.event_name }}" == "release" || "$tag" =~ ^v[0-9]+$ ]]; then
             echo "latest_tag=true" >> $GITHUB_ENV
           else
             echo "latest_tag=false" >> $GITHUB_ENV
           fi
+          # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
-      - name: Determine image name
-        # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ env.ref }}
 
@@ -67,7 +60,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .

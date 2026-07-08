@@ -1,0 +1,17 @@
+{
+  "title": "Bittensor",
+  "pages": [
+    "index",
+    "quickstart",
+    "agents",
+    "cli",
+    "concepts",
+    "guides",
+    "---Reference---",
+    "tx",
+    "query",
+    "errors",
+    "---Contributing---",
+    "internals"
+  ]
+}

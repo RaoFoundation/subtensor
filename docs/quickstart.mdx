@@ -1,0 +1,109 @@
+---
+title: Quickstart
+description: Install, connect, read chain state, and submit your first transaction.
+---
+
+## 1. Install
+
+Requires Python 3.10–3.13:
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install 'bittensor[cli]'
+```
+
+The `[cli]` extra pulls in the terminal UI for the `btcli` command; plain
+`uv pip install bittensor` installs just the Python library. In anything
+unattended, pin the exact version and upgrade only to announced releases —
+see [supply-chain risk](/docs/concepts/wallets#supply-chain-risk).
+
+## 2. Configure once
+
+```bash
+btcli config set network finney   # or `test` for testnet, `local` for a dev node
+btcli config set wallet my_coldkey
+btcli config get                  # show the whole config
+```
+
+Precedence, highest first: **CLI flag > environment variable > config file >
+built-in default**. So `btcli -n test query tx-rate-limit` overrides the
+configured network for that one call. The environment variables are
+`BT_NETWORK`, `BT_WALLET`, `BT_WALLET_HOTKEY`, `BT_WALLET_PATH`.
+
+## 3. Create or import a wallet
+
+```bash
+btcli wallet create -w my_coldkey                # new coldkey + hotkey
+btcli wallet regen-coldkey -w my_coldkey         # import from mnemonic (prompted securely)
+btcli wallet list
+```
+
+A wallet has two keys: the **coldkey** holds funds and signs financial
+operations; the **hotkey** identifies you on subnets and signs operational
+calls (weights, serving). See [Wallets and keys](/docs/concepts/wallets).
+
+## 4. Read chain state
+
+Reads are free and unsigned. On the CLI (add `--json` for machine output):
+
+```bash
+btcli wallet balance my_coldkey
+btcli subnets list
+btcli query metagraph --netuid 1
+btcli query --help          # all 70+ reads, grouped by topic
+```
+
+In Python:
+
+```python
+import asyncio
+import bittensor as sub
+
+async def main():
+    async with sub.Client("finney") as client:
+        bal = await client.balances.get("5F...coldkey")
+        subnets = await client.subnets.all()
+        mg = await client.read("metagraph", netuid=1)
+
+asyncio.run(main())
+```
+
+There is a synchronous facade too:
+
+```python
+client = sub.SyncClient("finney")
+print(client.balances.get("5F...coldkey"))
+client.close()
+```
+
+## 5. Submit a transaction
+
+Every mutation supports `--dry-run`: it shows the fee, the predicted effects,
+and any policy verdict without submitting anything.
+
+```bash
+btcli tx transfer --dest 5F...dest --amount-tao 1.5 --dry-run
+btcli tx transfer --dest 5F...dest --amount-tao 1.5 -w my_coldkey
+```
+
+In Python the same two-step shape is `plan` then `execute`:
+
+```python
+from bittensor.wallet import Wallet
+
+wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
+
+async with sub.Client("finney") as client:
+    intent = sub.Transfer(dest_ss58="5F...", amount_tao=1.5)
+    plan = await client.plan(intent, wallet)     # fee, effects, warnings — nothing submitted
+    result = await client.execute(intent, wallet)
+    if not result.success:
+        print(result.error.code, result.error.remediation)
+```
+
+## Next
+
+- [The transaction model](/docs/concepts/transactions) — intents, plan/execute, Policy.
+- [Money](/docs/concepts/money) — TAO, alpha, and why the SDK refuses to mix them.
+- [For agents](/docs/agents) — discover and drive every operation programmatically.
+- [Staking](/docs/guides/staking), [Mining](/docs/guides/mining), [Validating](/docs/guides/validating), [EVM](/docs/guides/evm).

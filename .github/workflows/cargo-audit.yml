@@ -1,11 +1,9 @@
-name: cargo audit
+name: Cargo Audit
+
 on:
   pull_request:
-    types:
-      - labeled
-      - unlabeled
-      - synchronize
-      - opened
+    types: [labeled, unlabeled, synchronize, opened]
+
 concurrency:
   group: cargo-audit-${{ github.ref }}
   cancel-in-progress: true
@@ -16,32 +14,18 @@ jobs:
     runs-on: [self-hosted, fireactions-light]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cargo-audit') }}
     steps:
-      - name: Check-out repositoroy under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: cargo-audit
-          cache-on-failure: true
+          cache-key: cargo-audit
 
       - name: Install cargo-audit
         run: cargo install --force cargo-audit
 
-      - name: Display cargo-audit --version
-        run: cargo audit --version
-
       - name: cargo audit
+        # Each ignore is a known, accepted advisory; revisit when bumping
+        # polkadot-sdk since most originate in the patched fork's tree.
         run: |
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \

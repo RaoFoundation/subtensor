@@ -1,0 +1,107 @@
+---
+title: The network
+description: Subnets, miners, validators, stakers, TAO and alpha, emissions, and epochs.
+---
+
+Bittensor is a blockchain (the **subtensor** chain) that coordinates and pays
+for useful work. The work itself happens off-chain, inside **subnets**; the
+chain records who participates, measures agreement about who is doing good
+work, and emits the network's token, **TAO**, accordingly. The chain produces
+one block every 12 seconds.
+
+Subtensor is a Substrate-based chain. Each block contains **extrinsics** —
+the submitted calls — and **events**; some events are emitted by the chain's
+own per-block hooks (emissions, epoch boundaries) rather than by any
+extrinsic.
+
+## Networks and endpoints
+
+The SDK's network names resolve to public endpoints:
+
+- `finney` — mainnet, `wss://entrypoint-finney.opentensor.ai:443`
+- `test` — public testnet, `wss://test.finney.opentensor.ai:443`
+- `local` — a dev node at `ws://127.0.0.1:9944`
+
+Mainnet also has a public **lite** node at
+`wss://lite.chain.opentensor.ai:443` and an **archive** node at
+`wss://archive.chain.opentensor.ai:443`. A lite node keeps only recent
+state; to query state older than roughly 300 blocks (block-pinned reads,
+historical snapshots) you need the archive endpoint or your own archive
+node. Any `ws://` / `wss://` endpoint can be passed to
+[`Client`](/docs/concepts/client) directly.
+
+## Subnets
+
+A subnet is an independent incentive market, identified by an integer
+**netuid**. Each subnet has:
+
+- an **owner** — the coldkey that registered it, who defines the incentive
+  mechanism and sets its [hyperparameters](/docs/tx/set-hyperparameter);
+- **miners** — hotkeys registered on the subnet that produce whatever the
+  subnet's mechanism demands (inference, storage, predictions, ...);
+- **validators** — hotkeys with enough stake behind them to hold a validator
+  permit; they score miners by [setting weights](/docs/tx/set-weights);
+- a liquidity pool pairing TAO with the subnet's own token, **alpha**.
+
+Netuid 0 is the **root network**: it has no miners, no alpha token, and no
+validation work — it is the pool where TAO is staked directly. Root TAO
+stake counts toward validator stake weight on every subnet (see below) and
+earns a share of each subnet's dividends. Registration there is stake-based
+rather than burn-based; the root network's governance role is covered in the
+[governance guide](/docs/guides/governance). By convention, root (TAO) is
+priced at 1.0 wherever subnet prices are summed.
+
+Subnet slots are limited: a subnet holds at most `max_allowed_uids` neurons
+(default 256, and no lower than 64). Registering on a full subnet
+([`burned-register`](/docs/tx/burned-register)) evicts the lowest-ranked
+non-immune neuron; a freshly registered neuron is protected for an immunity
+period, then competes like everyone else.
+
+A neuron's **stake weight** on a subnet is
+`alpha_stake + tao_stake × tao_weight` — its alpha staked there, plus its
+root TAO stake scaled by the global TAO weight (currently 0.18 on mainnet,
+governance-set). Validator
+permits go to the top neurons by stake weight, up to the subnet's
+`max_allowed_validators` (default 128), recalculated every epoch.
+
+## TAO and alpha
+
+TAO is the chain's native token (1 TAO = 10⁹ rao). Each subnet also has its own
+token, alpha, traded against TAO in the subnet's pool. Staking TAO into a
+subnet swaps it to that subnet's alpha at the pool price; unstaking swaps back.
+Alpha on one subnet is not worth alpha on another — the SDK's
+[`Balance` type](/docs/concepts/money) enforces this at the type level.
+
+Spot prices come from the [`alpha-price`](/docs/query/alpha-price) read, and
+[`quote-stake`](/docs/query/quote-stake) / [`quote-unstake`](/docs/query/quote-unstake)
+simulate a swap including fees and slippage before you commit.
+
+## Emissions and epochs
+
+The chain continuously emits TAO to subnets, and within each subnet to its
+participants, in proportion to measured value. Each subnet runs on a cycle (its
+**tempo**): validators submit weights over miners during the epoch, and at the
+epoch boundary Yuma Consensus combines those weights — weighted by validator
+stake — into ranks, trust, and incentive, which set each participant's share of
+the emission. Delegated stake earns a share of its validator's dividends, minus
+the validator's [take](/docs/tx/set-take).
+
+The numbers behind all of this — halving schedules, the emission-share
+formula, the 18/41/41 per-tempo split, and the consensus math — are on the
+[Emissions](/docs/concepts/emissions) page.
+
+The [`epoch-status`](/docs/query/epoch-status) and
+[`blocks-until-next-epoch`](/docs/query/blocks-until-next-epoch) reads expose
+the timing; [`metagraph`](/docs/query/metagraph) returns the full per-neuron
+state of a subnet in one call.
+
+## Who signs what
+
+Every account is an **ss58 address** backed by a keypair. Operations divide by
+signer:
+
+- **coldkey** — owns funds: transfers, staking, registration, subnet ownership.
+- **hotkey** — operates on subnets: weights, serving an axon.
+
+The [wallets page](/docs/concepts/wallets) covers how the two keys relate and
+how to manage them.

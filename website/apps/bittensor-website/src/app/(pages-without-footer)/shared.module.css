@@ -1,0 +1,54 @@
+.page_container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: stretch;
+  font-family: 'Haffer';
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  gap: 105px;
+  padding: 100px 32px;
+  text-align: justify;
+  box-sizing: border-box;
+  max-width: 960px;
+}
+
+.title_section {
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+  margin-bottom: -50px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 52px;
+}
+
+.section > p > strong {
+  font-weight: 600;
+}
+
+.section > p > i {
+  font-style: italic;
+}
+
+.subtitle_small {
+  font-family: 'FiraCode';
+  font-size: 10px;
+  font-weight: 200;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: center;
+  margin-bottom: -8px;
+}

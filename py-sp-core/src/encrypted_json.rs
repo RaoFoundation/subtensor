@@ -1,0 +1,136 @@
+//! PolkadotJS / substrate-interface encrypted JSON keystore import.
+
+use base64::{engine::general_purpose, Engine as _};
+use pyo3::prelude::*;
+use scrypt::{scrypt, Params as ScryptParams};
+use serde::Deserialize;
+use schnorrkel::{PublicKey, SecretKey};
+use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
+use sp_core::{ed25519, Pair as PairT};
+
+use crate::{Keypair, KeypairInner, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
+
+const PKCS8_HEADER: &[u8] = &[48, 83, 2, 1, 1, 48, 5, 6, 3, 43, 101, 112, 4, 34, 4, 32];
+const PKCS8_DIVIDER: &[u8] = &[161, 35, 3, 33, 0];
+const SEC_LENGTH: usize = 64;
+const PUB_LENGTH: usize = 32;
+
+#[derive(Deserialize)]
+struct JsonStructure {
+    encoded: String,
+    encoding: JsonEncoding,
+}
+
+#[derive(Deserialize)]
+struct JsonEncoding {
+    content: Vec<String>,
+    #[serde(rename = "type")]
+    enc_type: Vec<String>,
+    version: String,
+}
+
+fn pad_right(mut data: Vec<u8>, total_len: usize, pad_byte: u8) -> Vec<u8> {
+    if data.len() < total_len {
+        data.extend(vec![pad_byte; total_len - data.len()]);
+    }
+    data
+}
+
+fn pair_from_ed25519_secret_key(secret: &[u8], pubkey: &[u8]) -> PyResult<([u8; 64], [u8; 32])> {
+    let secret_key = SecretKey::from_ed25519_bytes(secret)
+        .map_err(|_| value_err("invalid ed25519 secret key in encrypted JSON"))?;
+    let public_key = PublicKey::from_bytes(pubkey)
+        .map_err(|_| value_err("invalid sr25519 public key in encrypted JSON"))?;
+    Ok((secret_key.to_bytes(), public_key.to_bytes()))
+}
+
+fn decode_pkcs8(ciphertext: &[u8]) -> PyResult<([u8; SEC_LENGTH], [u8; PUB_LENGTH])> {
+    let mut current_offset = 0;
+    let header = &ciphertext[current_offset..current_offset + PKCS8_HEADER.len()];
+    if header != PKCS8_HEADER {
+        return Err(value_err("invalid PKCS8 header in encrypted JSON"));
+    }
+    current_offset += PKCS8_HEADER.len();
+    let secret_key = &ciphertext[current_offset..current_offset + SEC_LENGTH];
+    let mut secret_key_array = [0u8; SEC_LENGTH];
+    secret_key_array.copy_from_slice(secret_key);
+    current_offset += SEC_LENGTH;
+    let divider = &ciphertext[current_offset..current_offset + PKCS8_DIVIDER.len()];
+    if divider != PKCS8_DIVIDER {
+        return Err(value_err("invalid PKCS8 divider in encrypted JSON"));
+    }
+    current_offset += PKCS8_DIVIDER.len();
+    let public_key = &ciphertext[current_offset..current_offset + PUB_LENGTH];
+    let mut public_key_array = [0u8; PUB_LENGTH];
+    public_key_array.copy_from_slice(public_key);
+    Ok((secret_key_array, public_key_array))
+}
+
+fn value_err(msg: impl Into<String>) -> PyErr {
+    pyo3::exceptions::PyValueError::new_err(msg.into())
+}
+
+pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult<Keypair> {
+    sodiumoxide::init().map_err(|_| value_err("failed to initialize libsodium"))?;
+
+    let json_data: JsonStructure =
+        serde_json::from_str(json_data).map_err(|error| value_err(format!("invalid JSON: {error}")))?;
+
+    if json_data.encoding.version != "3" {
+        return Err(value_err("unsupported encrypted JSON format version"));
+    }
+
+    let mut encrypted = general_purpose::STANDARD
+        .decode(json_data.encoded.trim())
+        .map_err(|error| value_err(format!("invalid base64 in encrypted JSON: {error}")))?;
+
+    let password = if json_data.encoding.enc_type.iter().any(|t| t == "scrypt") {
+        if encrypted.len() < 44 {
+            return Err(value_err("encrypted JSON payload too short for scrypt params"));
+        }
+        let salt = &encrypted[0..32];
+        let n = u32::from_le_bytes(encrypted[32..36].try_into().unwrap());
+        let p = u32::from_le_bytes(encrypted[36..40].try_into().unwrap());
+        let r = u32::from_le_bytes(encrypted[40..44].try_into().unwrap());
+        let log_n: u8 = n.ilog2() as u8;
+        let params = ScryptParams::new(log_n, r, p, 32)
+            .map_err(|error| value_err(format!("invalid scrypt params: {error}")))?;
+        let mut derived_key = vec![0u8; 32];
+        scrypt(passphrase.as_bytes(), salt, &params, &mut derived_key)
+            .map_err(|error| value_err(format!("scrypt key derivation failed: {error}")))?;
+        encrypted = encrypted[44..].to_vec();
+        derived_key
+    } else {
+        pad_right(passphrase.as_bytes().to_vec(), 32, 0x00)
+    };
+
+    if encrypted.len() < 24 {
+        return Err(value_err("encrypted JSON payload too short for nonce"));
+    }
+    let nonce = Nonce::from_slice(&encrypted[0..24])
+        .ok_or_else(|| value_err("invalid nonce in encrypted JSON"))?;
+    let message = &encrypted[24..];
+    let key = Key::from_slice(&password).ok_or_else(|| value_err("invalid derived key length"))?;
+    let decrypted_data = secretbox::open(message, &nonce, &key)
+        .map_err(|_| value_err("failed to decrypt encrypted JSON (wrong passphrase?)"))?;
+    let (private_key, public_key) = decode_pkcs8(&decrypted_data)?;
+
+    if json_data.encoding.content.iter().any(|c| c == "sr25519") {
+        let (secret, converted_public_key) =
+            pair_from_ed25519_secret_key(&private_key, &public_key)?;
+        if public_key != converted_public_key {
+            return Err(value_err("sr25519 public key mismatch in encrypted JSON"));
+        }
+        Keypair::create_from_private_key(&hex::encode(secret), CRYPTO_SR25519)
+    } else if json_data.encoding.content.iter().any(|c| c == "ed25519") {
+        let seed = &private_key[..32];
+        let pair = ed25519::Pair::from_seed_slice(seed)
+            .map_err(|error| value_err(format!("invalid ed25519 seed in encrypted JSON: {error:?}")))?;
+        if pair.public().0 != public_key {
+            return Err(value_err("ed25519 public key mismatch in encrypted JSON"));
+        }
+        Ok(Keypair::from_inner(KeypairInner::Ed25519(pair), DEFAULT_SS58_FORMAT))
+    } else {
+        Err(value_err("unsupported keypair type in encrypted JSON"))
+    }
+}

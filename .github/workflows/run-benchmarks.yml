@@ -40,10 +40,7 @@ jobs:
             build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2

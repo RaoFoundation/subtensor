@@ -1,0 +1,27 @@
+.main {
+  width: stretch;
+  display: flex;
+  position: relative;
+  justify-content: center;
+  align-items: center;
+}
+
+.text_minify {
+  font-size: inherit;
+}
+
+.equ_no {
+  position: absolute;
+  right: 0px;
+}
+
+.non_minified {
+  display: flex;
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .text_minify {
+    font-size: 0.5rem;
+  }
+}

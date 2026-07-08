@@ -1,0 +1,231 @@
+---
+title: Validating
+description: Register, attract stake, score miners with weights, and manage take and childkeys.
+---
+
+A validator is a hotkey that scores miners. It needs enough stake behind it to
+hold a validator permit on the subnet, and it earns dividends (shared with its
+nominators) for setting weights that agree with consensus.
+
+## Get in position
+
+Register the hotkey on the subnet like any neuron
+([`burned-register`](/docs/tx/burned-register)), then accumulate stake — your
+own ([`add-stake`](/docs/tx/add-stake)) and delegated. Whether you hold a
+validator permit is visible in the [`metagraph`](/docs/query/metagraph).
+
+To attract delegation, publish who you are with
+[`set-identity`](/docs/tx/set-identity) and set your
+[take](/docs/tx/set-take) — the fraction of staking emissions you keep before
+distributing the rest to nominators. Take increases are rate-limited and
+capped by the chain; [`set-take`](/docs/tx/set-take) dispatches whichever of
+`increase_take`/`decrease_take` reaches your target.
+
+Validators are also the gateway to a subnet: external applications can only
+query miners through a validator's registered hotkey, which is why validators
+build API businesses on top of their position. Stake cuts both ways here —
+miners prioritize queries from higher-stake validators, and on some subnets
+miners ignore weak validators entirely.
+
+The chain minimum is far below the practical bar. Meeting the stake threshold
+and landing a top-K permit gets you consensus participation, not competitive
+returns — validating seriously typically needs five figures of TAO-equivalent
+stake (the community rule of thumb is ~20k+). And because root-validator
+returns are additive across every subnet the validator serves, serious
+validators register broadly rather than on one subnet.
+
+## Permits
+
+Every epoch, the chain recomputes validator permits from the current stake
+distribution: the top **K** neurons by stake weight get one, where K is the
+`MaxAllowedValidators` hyperparameter (default 128; owner/root settable —
+read the live value via
+[`subnet-hyperparameters`](/docs/query/subnet-hyperparameters)). A chain-wide
+minimum stake weight (`StakeThreshold`) also applies: stake below it counts as
+zero, and it doubles as the minimum stake to set weights at all. The runtime
+default is zero, but mainnet runs a non-zero threshold (around 1,000
+TAO-equivalent at the time of writing).
+
+Stake weight is not raw TAO. It is the alpha staked to your hotkey on that
+subnet, plus your TAO stake discounted by the global `TaoWeight` factor
+(governance-set; currently 0.18 on mainnet, against a runtime default of
+~0.053) — so alpha counts far more than TAO.
+
+The subnet owner's UID is exempt from both gates: it always receives a
+validator permit, and its stake is not zeroed by the threshold.
+
+The permit gates four things: setting weights on other neurons (any neuron can
+self-weight), participation in Yuma Consensus, retaining bonds, and counting
+toward active stake. Losing the permit — falling out of the top K or below the
+threshold — does **not** deregister you, but it stops your dividends and
+**deletes your bonds**, so you rebuild from zero when you regain it. With no
+emissions, a permitless validator eventually drifts to the bottom of the
+pruning order like any idle neuron.
+
+One more clock to respect: the activity cutoff. It scales with the tempo —
+cutoff = `activity_cutoff_factor` × tempo / 1000 blocks, with the factor
+defaulting to 13,889 (≈5,000 blocks at the default tempo of 360). A
+validator that hasn't submitted weights within that window is treated as
+inactive — its stake is masked out of consensus until it submits again.
+
+## Set weights
+
+[`set-weights`](/docs/tx/set-weights) is the one entry point. It conforms your
+weights to the subnet's hyperparameters (max-weight clip, u16 quantization,
+minimum weight count) and submits via whichever path the subnet runs — plain
+weights when commit-reveal is off, or a timelock-encrypted commit
+(auto-revealed by the chain) when it is on.
+
+`SetWeights` takes the scores in either shape — a `{uid: weight}` mapping
+(preferred) or parallel `uids`/`weights` lists:
+
+```python
+intent = sub.SetWeights(netuid=1, weights={0: 0.1, 1: 0.7, 2: 0.2})
+
+intent = sub.SetWeights(                        # same submission, parallel lists
+    netuid=1,
+    uids=[0, 1, 2],
+    weights=[0.1, 0.7, 0.2],
+)
+result = await client.execute(intent, wallet)   # signed by the hotkey
+```
+
+Values are **relative**, not absolute — only the proportions matter. Before
+submission they are clipped to the subnet's max-weight limit, normalized, and
+quantized to u16 (zeros dropped); the canonical implementation is `normalize`
+in `bittensor.intents` if you want to reproduce exactly what hits the chain.
+
+On subnets running multiple [mechanisms](/docs/guides/subnets#mechanisms), pass
+`mechid=` to score one mechanism (default 0 — for most subnets the only one):
+
+```python
+intent = sub.SetWeights(netuid=1, mechid=1, weights={0: 0.4, 3: 0.6})
+```
+
+On the CLI, the dedicated `btcli weights` group and the generated
+`btcli tx set-weights` submit the same operation — the group just adds
+convenience (comma-separated lists, weight-specific help):
+
+```bash
+btcli weights set --netuid 1 --uids 0,1,2 --weights 0.5,0.3,0.2 -w my_coldkey -H my_hotkey
+btcli tx set-weights --netuid 1 --uids 0,1,2 --weights 0.5,0.3,0.2 -w my_coldkey -H my_hotkey
+```
+
+`btcli weights set` takes `--netuid`, `--uids`, `--weights` (comma-separated,
+parallel), and optionally `--mechid` and `--version-key`, plus the usual
+global wallet/network flags.
+
+Before signing, the SDK preflights the checks the chain would reject on — a
+rate-limited or unregistered submission fails fast with the same error the
+chain would return, and the rate-limit error says how many blocks to wait.
+
+Chain-side rules to know:
+
+- Submissions are rate-limited per UID by `WeightsSetRateLimit` (default 100
+  blocks between sets) — read it with
+  [`weights-rate-limit`](/docs/query/weights-rate-limit).
+- Every submission carries a **weights version key**. If the subnet's stored
+  version key is higher than yours, the call fails with
+  `IncorrectWeightVersionKey`. Subnet owners bump the key to force validators
+  onto new subnet code — if you hit this error, update your subnet software.
+- Setting weights requires the same minimum stake (`StakeThreshold`) that
+  gates permits; below it the call fails with `NotEnoughStakeToSetWeights`.
+
+Timing reads: [`weights-rate-limit`](/docs/query/weights-rate-limit),
+[`blocks-since-last-update`](/docs/query/blocks-since-last-update),
+[`epoch-status`](/docs/query/epoch-status),
+[`reveal-period`](/docs/query/reveal-period).
+
+Reading back what the chain holds:
+[`client.read("weights", netuid=1)`](/docs/query/weights) returns every
+validator's row as normalized fractions, and
+[`client.read("bonds", netuid=1)`](/docs/query/bonds) the bond matrix your
+dividends flow through.
+
+## Commit-reveal
+
+Commit-reveal exists to defeat **weight copying**. Weights are public after
+consensus runs, and a lazy validator can skip evaluating miners entirely and
+submit the stake-weighted median of everyone else's revealed weights. Because
+Yuma Consensus rewards agreement with consensus, such copiers historically
+earned *better* vtrust and dividends per TAO than the honest validators they
+copied — while contributing nothing.
+
+With commit-reveal on, weights are **timelock-encrypted** when submitted: the
+ciphertext can only be decrypted (by anyone, including you) once a designated
+[Drand](https://drand.love) randomness round arrives. The reveal round is
+computed from the subnet's `commit_reveal_period`, measured in tempos
+(default 1), and the chain decrypts and applies the weights automatically at
+reveal time — there is no manual reveal step, no reveal-uptime requirement,
+and no selective-reveal exploit (earlier commit-reveal versions had manual
+reveals, which copiers abused by revealing only when it helped their vtrust).
+Copiers therefore only ever see weights that are at least one concealment
+period stale; if miner rankings moved in the meantime, copying them lands
+away from consensus and wrecks the copier's vtrust.
+
+Two caveats:
+
+- Commit-reveal only defends a subnet whose rankings actually **change**
+  over the concealment window. If miner performance is static, stale weights
+  are still accurate and copying still pays.
+- Subnet owners must keep `immunity_period` (in blocks) greater than
+  `commit_reveal_period × tempo`, or new miners can be pruned before their
+  first scores are ever revealed and counted.
+- Scores you see are stale by the reveal period. A miner you started weighting
+  only surfaces in revealed weights after the reveal period elapses, and a
+  crashed miner's score collapse is delayed the same way — don't read
+  on-chain weights as a live view of the subnet.
+
+Commit-reveal is a per-subnet toggle — check it with
+[`commit-reveal-enabled`](/docs/query/commit-reveal-enabled) and the window
+with [`reveal-period`](/docs/query/reveal-period). `set-weights` picks the
+right path automatically.
+
+**Forcing the commit path.** `sub.CommitWeights` /
+[`btcli weights commit`](/docs/tx/commit-weights) always submits a timelocked
+commit, even on subnets that would accept plain weights — same inputs and
+preflight as `SetWeights`, just the path pinned. The counterpart `reveal`
+(`sub.RevealWeights` / [`btcli weights reveal`](/docs/tx/reveal-weights))
+exists only for the **legacy salt-based** commit flow: it must reproduce the
+exact committed uids, weights, salt, and version key, and is never needed for
+timelocked commits, which the chain reveals on its own.
+
+## Bonds and liquid alpha
+
+Dividends flow through **bonds**: each validator accumulates bond value toward
+the miners it weights, as an exponential moving average, and is paid in
+proportion to bonds × miner incentive. The EMA is the incentive to evaluate
+honestly and early — a validator that identifies a good miner before consensus
+catches up builds bond value cheaply and earns more when the miner rises.
+
+With the **liquid alpha** hyperparameter enabled, the EMA rate is no longer
+one constant: it becomes dynamic per validator–miner pair, moving between the
+subnet's `alpha_low` and `alpha_high` bounds (defaults 0.7 and 0.9) based on
+how the validator's weight relates to consensus. It only takes effect on
+subnets that also have `yuma3_enabled` on — the classic bond path ignores
+it. See [emissions](/docs/concepts/emissions) for the full mechanics.
+
+## Childkeys: delegate stake weight
+
+[`set-children`](/docs/tx/set-children) lets a parent hotkey delegate a
+fraction of its stake weight to other hotkeys on one subnet — commonly used to
+point stake at a separate validating key without moving the stake itself. The
+call replaces the full child set (empty list revokes all), is rate-limited, and
+takes effect after a chain-defined cooldown. Inspect with
+[`children`](/docs/query/children) / [`parents`](/docs/query/parents) /
+[`pending-children`](/docs/query/pending-children).
+
+## Root and governance
+
+Register on the root network with [`root-register`](/docs/tx/root-register) —
+placement is stake-based. The legacy on-chain senate-vote extrinsic has been
+removed from the runtime; see [Governance](/docs/guides/governance) for how
+governance currently works.
+
+## Operational hygiene
+
+Validating is not supported on Windows (wallet operations work under WSL 2).
+Keep the coldkey off the validator box: weights are hotkey-signed, and
+anything coldkey-signed can go through a [proxy](/docs/concepts/advanced).
+Publish your endpoint with [`serve-axon`](/docs/tx/serve-axon) if your subnet's
+protocol requires validators to be reachable.

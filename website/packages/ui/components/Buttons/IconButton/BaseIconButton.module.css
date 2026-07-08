@@ -1,0 +1,31 @@
+.container {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  width: max-content;
+  font-size: 12px;
+  font-family: 'FiraCode';
+  font-weight: 400;
+  color: var(--text-primary);
+  height: max-content;
+  background-color: transparent;
+  border-style: none;
+  transition: all 0.5s ease;
+}
+.container:hover {
+  cursor: pointer;
+  color: var(--primary-light);
+}
+
+.logo_up {
+  flex-direction: column-reverse;
+}
+.logo_down {
+  flex-direction: column;
+}
+.icon_wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}

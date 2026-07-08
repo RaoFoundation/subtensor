@@ -1,55 +1,36 @@
 name: Update Chainspecs
 
+# Manual: rebuild all chainspecs and commit any changes back to the branch
+# the workflow was dispatched on.
+
+on:
+  workflow_dispatch:
+
 concurrency:
   group: update-chainspec-${{ github.ref }}
   cancel-in-progress: true
 
-on:
-  workflow_dispatch:
-    inputs:
-      verbose:
-        description: "Output more information when triggered manually"
-        required: false
-        default: ""
-
 env:
   CARGO_TERM_COLOR: always
-  VERBOSE: ${{ github.events.input.verbose }}
 
 jobs:
   update-chainspecs:
     runs-on: [self-hosted, fireactions-heavy]
     permissions:
       contents: write
-    if: >
-      github.event.pull_request.head.ref != 'devnet-ready' &&
-      github.event.pull_request.head.ref != 'devnet' &&
-      github.event.pull_request.head.ref != 'testnet' &&
-      github.event.pull_request.head.ref != 'main'
-
     env:
       RUST_BACKTRACE: full
     steps:
-      - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
+          cache-key: chainspecs
 
       - name: Build chainspecs
         run: ./scripts/build_all_chainspecs.sh
 
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        name: Commit any updated chainspecs
+      - name: Commit any updated chainspecs
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Update chainspecs

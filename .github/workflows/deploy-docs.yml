@@ -1,0 +1,47 @@
+name: Deploy Docs
+
+# Every website change on main deploys to Vercel and is aliased to the
+# staging subdomain. Production promotion happens in watch-mainnet-release.yml
+# once a runtime release executes on chain.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy staging docs to Vercel
+    runs-on: [self-hosted, fireactions-heavy]
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      # e.g. docs.bittensor.com; the deployment is aliased to staging.<domain>
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'docs.bittensor.com' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Build and deploy
+        working-directory: website
+        run: |
+          npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          npx --yes vercel build --token "$VERCEL_TOKEN"
+          url=$(npx --yes vercel deploy --prebuilt --token "$VERCEL_TOKEN")
+          echo "Deployed: $url"
+          npx --yes vercel alias set "$url" "staging.$DOCS_DOMAIN" --token "$VERCEL_TOKEN"
+          echo "Aliased to https://staging.$DOCS_DOMAIN" >> $GITHUB_STEP_SUMMARY

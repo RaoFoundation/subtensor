@@ -1,9 +1,12 @@
-name: Check Node Compat
+name: Node Compat Check
+
+# Opt-in (label `check-node-compat`): build the node from main and from the
+# PR branch, then run the compatibility harness to verify the new node can
+# sync/interoperate with the old one.
 
 on:
   pull_request:
     types: [labeled]
-    branches: [devnet-ready]
 
 concurrency:
   group: check-node-compat-${{ github.ref }}
@@ -18,73 +21,73 @@ jobs:
     runs-on: [self-hosted, fireactions-heavy]
     if: contains(github.event.pull_request.labels.*.name, 'check-node-compat')
     env:
-        RUST_BACKTRACE: full
+      RUST_BACKTRACE: full
     strategy:
       matrix:
         version:
           - name: old
-            ref: devnet-ready
+            ref: main
           - name: new
             ref: ${{ github.head_ref }}
-
     steps:
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config unzip
-        
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: "check-node-compat-${{ matrix.version.name }}"
-      
-      - name: Checkout ${{ matrix.version.name }}
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ matrix.version.ref }}
           path: ${{ matrix.version.name }}
 
+      - name: Install system dependencies
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+            build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config unzip
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Shared Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: check-node-compat-${{ matrix.version.name }}
+          workspaces: ${{ matrix.version.name }}
+
       - name: Build ${{ matrix.version.name }}
         working-directory: ${{ matrix.version.name }}
         run: cargo build --release --locked
-        
+
       - name: Upload ${{ matrix.version.name }} node binary
         uses: actions/upload-artifact@v4
         with:
           name: node-subtensor-${{ matrix.version.name }}
           path: ${{ matrix.version.name }}/target/release/node-subtensor
           retention-days: 1
-          
+
   test:
+    name: run compat harness
     needs: [build]
     runs-on: [self-hosted, fireactions-heavy]
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download old node binary
         uses: actions/download-artifact@v4
         with:
           name: node-subtensor-old
           path: /tmp/node-subtensor-old
-          
+
       - name: Download new node binary
         uses: actions/download-artifact@v4
         with:
           name: node-subtensor-new
           path: /tmp/node-subtensor-new
-          
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      - name: Install npm dependencies
-        working-directory: ${{ github.workspace }}/.github/workflows/check-node-compat
-        run: npm install
-        
       - name: Run test
-        working-directory: ${{ github.workspace }}/.github/workflows/check-node-compat
-        run: npm run test
+        working-directory: .github/workflows/check-node-compat
+        run: |
+          npm install
+          npm run test

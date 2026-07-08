@@ -1,0 +1,68 @@
+@import '../shared.module.css';
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.abstract_text {
+  text-align: center;
+  font-size: 12px;
+}
+
+.paper_title {
+  font-size: 20px;
+}
+.subtitle {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  margin-bottom: -8px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.image_container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  color: #000;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  font-size: 12px;
+
+  &_caption_no {
+    font-family: 'FiraCode';
+    font-size: 12px;
+    font-weight: 200;
+    text-transform: uppercase;
+  }
+
+  &_image {
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .image_container_image {
+    max-height: 70%;
+    width: 100%;
+  }
+}
+
+.paper_link {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  text-transform: uppercase;
+  color: #d15168;
+}
