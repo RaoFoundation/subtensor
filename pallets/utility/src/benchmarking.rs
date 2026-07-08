@@ -33,7 +33,9 @@ fn assert_last_event<T: frame_system::pallet::Config>(
     frame_system::Pallet::<T>::assert_last_event(generic_event.into());
 }
 
-fn stable_batch_calls<T>(count: u32) -> alloc::vec::Vec<<T as crate::pallet::Config>::RuntimeCall>
+fn benchmark_batch_calls<T>(
+    count: u32,
+) -> alloc::vec::Vec<<T as crate::pallet::Config>::RuntimeCall>
 where
     T: crate::pallet::Config,
     <T as crate::pallet::Config>::RuntimeCall: From<frame_system::Call<T>>,
@@ -56,7 +58,7 @@ mod benchmark {
 
     #[benchmark]
     fn batch(c: Linear<0, 1000>) {
-        let calls = vec![frame_system::Call::remark { remark: vec![] }.into(); c as usize];
+        let calls = benchmark_batch_calls::<T>(c);
         let caller = whitelisted_caller();
 
         #[extrinsic_call]
@@ -77,8 +79,8 @@ mod benchmark {
         _(RawOrigin::Signed(caller), SEED as u16, call);
     }
     #[benchmark]
-    fn batch_all(c: Linear<1, 1000>) {
-        let calls = stable_batch_calls::<T>(c);
+    fn batch_all(c: Linear<0, 1000>) {
+        let calls = benchmark_batch_calls::<T>(c);
         let caller = whitelisted_caller();
 
         frame_system::Pallet::<T>::reset_events();
@@ -103,7 +105,7 @@ mod benchmark {
 
     #[benchmark]
     fn force_batch(c: Linear<0, 1000>) {
-        let calls = vec![frame_system::Call::remark { remark: vec![] }.into(); c as usize];
+        let calls = benchmark_batch_calls::<T>(c);
         let caller = whitelisted_caller();
 
         #[extrinsic_call]

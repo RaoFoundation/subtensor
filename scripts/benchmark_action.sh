@@ -16,6 +16,9 @@ PATCH_DIR="$ROOT_DIR/.bench_patch"
 THRESHOLD="${THRESHOLD:-55}"
 STEPS="${STEPS:-50}"
 REPEAT="${REPEAT:-20}"
+# Utility batches are low-amplitude microbenchmarks; median-slopes avoids noisy intercept drift.
+UTILITY_OUTPUT_ANALYSIS="${UTILITY_OUTPUT_ANALYSIS:-median-slopes}"
+
 
 die() { echo "ERROR: $1" >&2; exit 1; }
 
@@ -76,6 +79,13 @@ for pallet in "${!OUTPUTS[@]}"; do
   echo ""
   echo "════ $pallet ════"
 
+  analysis_args=()
+  if [[ -n "${OUTPUT_ANALYSIS:-}" ]]; then
+    analysis_args+=(--output-analysis="$OUTPUT_ANALYSIS")
+  elif [[ "$pallet" == "pallet_subtensor_utility" ]]; then
+    analysis_args+=(--output-analysis="$UTILITY_OUTPUT_ANALYSIS")
+  fi
+
   if ! "$NODE_BIN" benchmark pallet \
     --runtime="$RUNTIME_WASM" \
     --genesis-builder=runtime \
@@ -88,6 +98,7 @@ for pallet in "${!OUTPUTS[@]}"; do
     --no-storage-info \
     --no-min-squares \
     --no-median-slopes \
+    "${analysis_args[@]}" \
     --output="$tmp" \
     --template="$TEMPLATE" 2>&1; then
     SUMMARY+=("$pallet: FAILED"); FAILED=1; rm -f "$tmp"; continue
