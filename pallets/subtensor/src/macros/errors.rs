@@ -319,5 +319,7 @@ mod errors {
         DynamicTempoBlockedByCommitReveal,
         /// The destination coldkey rejects incoming locked alpha.
         AccountRejectsLockedAlpha,
+        /// Need to wait more blocks to do the start call.
+        StartCallNotReady,
     }
 }

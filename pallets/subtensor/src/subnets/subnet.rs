@@ -385,7 +385,7 @@ impl<T: Config> Pallet<T> {
         ensure!(
             current_block_number
                 >= registration_block_number.saturating_add(StartCallDelay::<T>::get()),
-            Error::<T>::NeedWaitingMoreBlocksToStarCall
+            Error::<T>::StartCallNotReady
         );
         let next_block_number = current_block_number.saturating_add(1);
 

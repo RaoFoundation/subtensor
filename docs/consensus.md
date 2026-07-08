@@ -306,7 +306,7 @@ ssh -L 8888:localhost:8888 root@<your_vps_ip_address> -p <your_vps_port> -i ~/.s
 3. **Clone the Subtensor repository and checkout the relevant branch:**
 
    ```bash
-   git clone https://github.com/opentensor/subtensor.git 
+   git clone https://github.com/RaoFoundation/subtensor.git 
    cd subtensor
    git checkout main
 
