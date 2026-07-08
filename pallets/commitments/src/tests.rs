@@ -8,7 +8,7 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 use crate::{
     BalanceOf, CommitmentInfo, CommitmentOf, Config, Data, Error, Event, LastBondsReset,
     LastCommitment, MaxSpace, Pallet, Registration, RevealedCommitments, TimelockedIndex,
-    UsageTracker, UsedSpaceOf,
+    UsageTracker, UsedSpaceOf, WeightInfo,
     mock::{
         Balances, DRAND_QUICKNET_SIG_2000_HEX, DRAND_QUICKNET_SIG_HEX, RuntimeEvent, RuntimeOrigin,
         Test, TestMaxFields, insert_drand_pulse, new_test_ext, produce_ciphertext,
@@ -18,6 +18,7 @@ use frame_support::pallet_prelude::Hooks;
 use frame_support::{
     BoundedVec, assert_noop, assert_ok,
     traits::{Currency, Get, ReservableCurrency},
+    weights::constants::RocksDbWeight,
 };
 use frame_system::{Pallet as System, RawOrigin};
 
@@ -1126,7 +1127,11 @@ fn on_initialize_reveals_matured_timelocks() {
         assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
 
         System::<Test>::set_block_number(2);
-        <Pallet<Test> as Hooks<u64>>::on_initialize(2);
+        let weight = <Pallet<Test> as Hooks<u64>>::on_initialize(2);
+        let expected_weight = <Test as Config>::WeightInfo::reveal_timelocked_commitments()
+            .saturating_add(RocksDbWeight::get().reads(5))
+            .saturating_add(RocksDbWeight::get().writes(3));
+        assert_eq!(weight, expected_weight);
 
         let revealed_opt = RevealedCommitments::<Test>::get(netuid, who);
         assert!(

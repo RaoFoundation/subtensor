@@ -342,10 +342,11 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(n: BlockNumberFor<T>) -> Weight {
             match Self::reveal_timelocked_commitments() {
-                Ok(w) => w,
+                Ok(w) => <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
+                    .saturating_add(w),
                 Err(e) => {
                     log::debug!("Failed to unveil matured commitments on block {n:?}: {e:?}");
-                    Weight::from_parts(0, 0)
+                    <T as pallet::Config>::WeightInfo::reveal_timelocked_commitments()
                 }
             }
         }

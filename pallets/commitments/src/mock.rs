@@ -4,6 +4,7 @@ use frame_support::{
     derive_impl,
     pallet_prelude::{Get, TypeInfo},
     traits::{ConstU32, ConstU64},
+    weights::{Weight, constants::RocksDbWeight},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -34,7 +35,7 @@ impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type BlockWeights = ();
     type BlockLength = ();
-    type DbWeight = ();
+    type DbWeight = RocksDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Hash = H256;
@@ -94,9 +95,24 @@ impl pallet_commitments::CanCommit<u64> for TestCanCommit {
     }
 }
 
+pub struct TestWeightInfo;
+impl pallet_commitments::WeightInfo for TestWeightInfo {
+    fn set_commitment() -> Weight {
+        Weight::from_parts(0, 0)
+    }
+
+    fn set_max_space() -> Weight {
+        Weight::from_parts(0, 0)
+    }
+
+    fn reveal_timelocked_commitments() -> Weight {
+        Weight::from_parts(42, 0)
+    }
+}
+
 impl pallet_commitments::Config for Test {
     type Currency = Balances;
-    type WeightInfo = ();
+    type WeightInfo = TestWeightInfo;
     type MaxFields = TestMaxFields;
     type CanCommit = TestCanCommit;
     type FieldDeposit = ConstTao<0>;
