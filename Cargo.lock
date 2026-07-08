@@ -6156,12 +6156,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "half"
-version = "1.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
-
-[[package]]
 name = "handlebars"
 version = "5.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10060,6 +10054,7 @@ name = "pallet-commitments"
 version = "4.0.0-dev"
 dependencies = [
  "ark-serialize 0.4.2",
+ "ark-serialize 0.5.0",
  "enumflags2",
  "frame-benchmarking",
  "frame-support",
@@ -10316,6 +10311,7 @@ dependencies = [
  "ark-scale 0.0.11",
  "ark-scale 0.0.13",
  "ark-serialize 0.4.2",
+ "ark-serialize 0.5.0",
  "ark-std 0.4.0",
  "ark-std 0.5.0",
  "frame-benchmarking",
@@ -11607,6 +11603,7 @@ version = "4.0.0-dev"
 dependencies = [
  "approx",
  "ark-serialize 0.4.2",
+ "ark-serialize 0.5.0",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
@@ -17621,16 +17618,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_cbor"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bef2ebfde456fb76bbcf9f59315333decc4fda0b2b44b420243c11e0f5ec1f5"
-dependencies = [
- "half",
- "serde",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -20247,30 +20234,25 @@ dependencies = [
 
 [[package]]
 name = "timelock"
-version = "0.0.2"
-source = "git+https://github.com/ideal-lab5/timelock?rev=dea59e7962f4f745452bbbb7df928e854e3d4bbc#dea59e7962f4f745452bbbb7df928e854e3d4bbc"
+version = "0.3.0"
+source = "git+https://github.com/ideal-lab5/timelock?rev=ccccca019409c89f31fd687352db8060bfb4aae6#ccccca019409c89f31fd687352db8060bfb4aae6"
 dependencies = [
  "aes-gcm",
- "ark-bls12-377 0.4.0",
- "ark-bls12-381 0.4.0",
- "ark-ec 0.4.2",
- "ark-ff 0.4.2",
- "ark-poly 0.4.2",
- "ark-serialize 0.4.2",
- "ark-std 0.4.0",
+ "ark-bls12-377 0.5.0",
+ "ark-bls12-381 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-poly 0.5.0",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
  "array-bytes 6.2.3",
- "chacha20poly1305",
  "generic-array 0.14.7",
  "parity-scale-codec",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
+ "rand 0.8.6",
  "scale-info",
  "serde",
- "serde_cbor",
- "serde_json",
  "sha2 0.10.9",
  "sha3 0.10.8",
- "w3f-bls",
 ]
 
 [[package]]

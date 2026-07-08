@@ -207,11 +207,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 use super::*;
 use crate::{EngineBLS, MAX_TIMELOCK_COMMITMENT_SIZE_BYTES, TinyBLS381};
-use ark_serialize::CanonicalSerialize;
+use ark_serialize_05::CanonicalSerialize;
 use frame_support::BoundedVec;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 use sha2::Digest;
-use tle::{ibe::fullident::Identity, stream_ciphers::AESGCMStreamCipherProvider, tlock::tle};
+use tle::{block_ciphers::AESGCMBlockCipherProvider, ibe::fullident::Identity, tlock::tle};
 
 // Drand Quicknet public key and signature for round=1000:
 pub const DRAND_QUICKNET_PUBKEY_HEX: &str = "83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6\
@@ -262,14 +262,14 @@ pub fn produce_ciphertext(
         hasher.update(round.to_be_bytes());
         hasher.finalize().to_vec()
     };
-    let identity = Identity::new(b"", vec![msg]);
+    let identity = Identity::new(b"", &msg);
 
     // 3) Actually encrypt
     //    (just an example ephemeral secret key & RNG seed)
     let esk = [2u8; 32];
     let rng = ChaCha20Rng::seed_from_u64(0);
 
-    let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+    let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
         pub_key, esk, plaintext, identity, rng,
     )
     .expect("Encryption failed in produce_real_ciphertext");

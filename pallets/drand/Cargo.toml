@@ -32,6 +32,7 @@ sp-std.workspace = true
 sp-crypto-ec-utils = { workspace = true, features = ["bls12-381"] }
 ark-bls12-381 = { workspace = true, features = ["curve"] }
 ark-serialize = { workspace = true, features = ["derive"] }
+ark-serialize-05.workspace = true
 ark-ff.workspace = true
 ark-ec.workspace = true
 ark-std.workspace = true
@@ -70,6 +71,7 @@ std = [
 	"sp-crypto-ec-utils/std",
 	"ark-bls12-381/std",
 	"ark-serialize/std",
+	"ark-serialize-05/std",
 	"ark-ff/std",
 	"ark-ec/std",
 	"ark-std/std",

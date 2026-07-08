@@ -23,14 +23,13 @@ use crate::{
     types::{BeaconConfiguration, Pulse, RoundNumber},
 };
 use alloc::{format, string::String, vec::Vec};
-use ark_ec::hashing::HashToCurve;
-use ark_ec_05::AffineRepr;
-use ark_serialize::CanonicalSerialize;
+use ark_ec_05::{AffineRepr, hashing::HashToCurve};
+use ark_serialize_05::CanonicalSerialize;
 use codec::Decode;
 use sha2::{Digest, Sha256};
 use sp_crypto_ec_utils::bls12_381::{G1Affine as G1AffineOpt, G2Affine as G2AffineOpt};
-use tle::curves::drand::TinyBLS381;
-use w3f_bls::engine::EngineBLS;
+use tle::engines::EngineBLS;
+use tle::engines::drand::TinyBLS381;
 
 const USAGE: ark_scale_05::Usage = ark_scale_05::WIRE;
 pub type ArkScale<T> = ark_scale_05::ArkScale<T, USAGE>;

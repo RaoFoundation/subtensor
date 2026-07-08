@@ -10,7 +10,7 @@ mod mock;
 pub mod types;
 pub mod weights;
 
-use ark_serialize::CanonicalDeserialize;
+use ark_serialize_05::CanonicalDeserialize;
 use codec::Encode;
 use frame_support::IterableStorageDoubleMap;
 use frame_support::weights::WeightMeter;
@@ -25,13 +25,13 @@ use sp_runtime::SaturatedConversion;
 use sp_runtime::{Saturating, Weight, traits::Zero};
 use sp_std::{boxed::Box, vec::Vec};
 use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
+use tle::engines::EngineBLS;
 use tle::{
-    curves::drand::TinyBLS381,
-    stream_ciphers::AESGCMStreamCipherProvider,
+    block_ciphers::AESGCMBlockCipherProvider,
+    engines::drand::TinyBLS381,
     tlock::{TLECiphertext, tld},
 };
 pub use types::*;
-use w3f_bls::EngineBLS;
 pub use weights::WeightInfo;
 
 type BalanceOf<T> =
@@ -465,7 +465,7 @@ impl<T: Config> Pallet<T> {
                         };
 
                         let decrypted_bytes: Vec<u8> =
-                            tld::<TinyBLS381, AESGCMStreamCipherProvider>(commit, sig)
+                            tld::<TinyBLS381, AESGCMBlockCipherProvider>(commit, sig)
                                 .map_err(|e| {
                                     log::warn!("Failed to decrypt timelock for {who:?}: {e:?}")
                                 })

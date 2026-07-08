@@ -1,15 +1,15 @@
 use super::*;
-use ark_serialize::CanonicalDeserialize;
+use ark_serialize_05::CanonicalDeserialize;
 use codec::Decode;
 use frame_support::{dispatch, traits::OriginTrait};
 use scale_info::prelude::collections::VecDeque;
 use subtensor_runtime_common::{MechId, NetUid};
+use tle::engines::EngineBLS;
 use tle::{
-    curves::drand::TinyBLS381,
-    stream_ciphers::AESGCMStreamCipherProvider,
+    block_ciphers::AESGCMBlockCipherProvider,
+    engines::drand::TinyBLS381,
     tlock::{TLECiphertext, tld},
 };
-use w3f_bls::EngineBLS;
 
 /// Contains all necessary information to set weights.
 ///
@@ -117,7 +117,7 @@ impl<T: Config> Pallet<T> {
                     }
                 };
 
-                let decrypted_bytes: Vec<u8> = match tld::<TinyBLS381, AESGCMStreamCipherProvider>(
+                let decrypted_bytes: Vec<u8> = match tld::<TinyBLS381, AESGCMBlockCipherProvider>(
                     commit, sig,
                 ) {
                     Ok(d) => d,

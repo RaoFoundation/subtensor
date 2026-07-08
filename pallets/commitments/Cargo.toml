@@ -29,6 +29,7 @@ enumflags2.workspace = true
 pallet-drand.workspace = true
 tle.workspace = true
 ark-serialize = { workspace = true, features = ["derive"] }
+ark-serialize-05.workspace = true
 w3f-bls.workspace = true
 rand_chacha.workspace = true
 hex.workspace = true
@@ -46,6 +47,7 @@ pallet-balances.workspace = true
 default = ["std"]
 std = [
 	"ark-serialize/std",
+	"ark-serialize-05/std",
 	"codec/std",
 	"enumflags2/std",
 	"frame-benchmarking?/std",

@@ -42,7 +42,7 @@ use crate::subnets::mechanism::{GLOBAL_MAX_SUBNET_COUNT, MAX_MECHANISM_COUNT_PER
 use crate::*;
 use alloc::collections::BTreeMap;
 use approx::assert_abs_diff_eq;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize_05::{CanonicalDeserialize, CanonicalSerialize};
 use codec::Encode;
 use frame_support::{assert_noop, assert_ok};
 use frame_system::RawOrigin;
@@ -55,11 +55,11 @@ use sp_runtime::traits::{BlakeTwo256, Hash};
 use sp_std::collections::vec_deque::VecDeque;
 use substrate_fixed::types::{I32F32, U64F64};
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
+use tle::engines::EngineBLS;
 use tle::{
-    curves::drand::TinyBLS381, ibe::fullident::Identity,
-    stream_ciphers::AESGCMStreamCipherProvider, tlock::tle,
+    block_ciphers::AESGCMBlockCipherProvider, engines::drand::TinyBLS381, ibe::fullident::Identity,
+    tlock::tle,
 };
-use w3f_bls::EngineBLS;
 
 #[test]
 fn test_index_from_netuid_and_subnet() {
@@ -1318,9 +1318,9 @@ fn test_reveal_crv3_commits_sub_success() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(pub_key, esk, &serialized_payload, identity, rng).expect("encrypt");
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(pub_key, esk, &serialized_payload, identity, rng).expect("encrypt");
         let mut commit_bytes = Vec::new();
         ct.serialize_compressed(&mut commit_bytes).expect("serialize");
 
@@ -1421,9 +1421,9 @@ fn test_crv3_above_mechanism_count_fails() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(pub_key, esk, &serialized_payload, identity, rng).expect("encrypt");
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(pub_key, esk, &serialized_payload, identity, rng).expect("encrypt");
         let mut commit_bytes = Vec::new();
         ct.serialize_compressed(&mut commit_bytes).expect("serialize");
 

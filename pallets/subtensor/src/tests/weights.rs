@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::indexing_slicing, clippy::unwrap_used)]
 
-use ark_serialize::CanonicalDeserialize;
-use ark_serialize::CanonicalSerialize;
+use ark_serialize_05::CanonicalDeserialize;
+use ark_serialize_05::CanonicalSerialize;
 use codec::Compact;
 use frame_support::{
     assert_err, assert_ok,
@@ -20,13 +20,13 @@ use sp_runtime::{
 use sp_std::collections::vec_deque::VecDeque;
 use substrate_fixed::types::I32F32;
 use subtensor_runtime_common::NetUidStorageIndex;
+use tle::engines::EngineBLS;
 use tle::{
-    curves::drand::TinyBLS381,
+    block_ciphers::AESGCMBlockCipherProvider,
+    engines::drand::TinyBLS381,
     ibe::fullident::Identity,
-    stream_ciphers::AESGCMStreamCipherProvider,
     tlock::{tld, tle},
 };
-use w3f_bls::EngineBLS;
 
 use super::mock::*;
 use crate::coinbase::reveal_commits::{LegacyWeightsTlockPayload, WeightsTlockPayload};
@@ -3983,16 +3983,16 @@ pub fn tlock_encrypt_decrypt_drand_quicknet_works() {
         hasher.finalize().to_vec()
     };
 
-    let identity = Identity::new(b"", vec![message]);
+    let identity = Identity::new(b"", &message);
 
     let rng = ChaCha20Rng::seed_from_u64(0);
-    let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+    let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
         pub_key, esk, plaintext, identity, rng,
     )
     .expect("Encryption failed");
 
     // then we can decrypt the ciphertext using the signature
-    let result = tld::<TinyBLS381, AESGCMStreamCipherProvider>(ct, sig).expect("Decryption failed");
+    let result = tld::<TinyBLS381, AESGCMBlockCipherProvider>(ct, sig).expect("Decryption failed");
     assert!(result == plaintext);
 }
 
@@ -4060,9 +4060,9 @@ fn test_reveal_crv3_commits_success() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -4198,9 +4198,9 @@ fn test_reveal_crv3_commits_cannot_reveal_after_reveal_epoch() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -4649,9 +4649,9 @@ fn test_reveal_crv3_commits_multiple_commits_some_fail_some_succeed() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct_valid = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct_valid = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_valid_payload,
@@ -4667,7 +4667,7 @@ fn test_reveal_crv3_commits_multiple_commits_some_fail_some_succeed() {
 
         // Prepare an invalid payload for hotkey2
         let invalid_payload = vec![0u8; 10]; // Invalid payload
-        let ct_invalid = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct_invalid = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &invalid_payload,
@@ -4770,9 +4770,9 @@ fn test_reveal_crv3_commits_do_set_weights_failure() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -4848,9 +4848,9 @@ fn test_reveal_crv3_commits_payload_decoding_failure() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &invalid_payload,
@@ -4933,9 +4933,9 @@ fn test_reveal_crv3_commits_signature_deserialization_failure() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -5083,9 +5083,9 @@ fn test_reveal_crv3_commits_with_incorrect_identity_message() {
             hasher.update((reveal_round + 1).to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![incorrect_message]);
+        let identity = Identity::new(b"", &incorrect_message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -5321,11 +5321,11 @@ fn test_reveal_crv3_commits_multiple_valid_commits_all_processed() {
                 h.update(reveal_round.to_be_bytes());
                 h.finalize().to_vec()
             };
-            let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+            let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
                 pk,
                 esk,
                 &payload.encode(),
-                Identity::new(b"", vec![id_msg]),
+                Identity::new(b"", &id_msg),
                 ChaCha20Rng::seed_from_u64(i as u64),
             )
             .unwrap();
@@ -5433,11 +5433,11 @@ fn test_reveal_crv3_commits_max_neurons() {
                 h.update(reveal_round.to_be_bytes());
                 h.finalize().to_vec()
             };
-            let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+            let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
                 pk,
                 esk,
                 &payload.encode(),
-                Identity::new(b"", vec![id_msg]),
+                Identity::new(b"", &id_msg),
                 ChaCha20Rng::seed_from_u64(i as u64),
             )
             .unwrap();
@@ -5585,9 +5585,9 @@ fn test_reveal_crv3_commits_hotkey_check() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -5702,9 +5702,9 @@ fn test_reveal_crv3_commits_hotkey_check() {
             hasher.update(reveal_round.to_be_bytes());
             hasher.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![message]);
+        let identity = Identity::new(b"", &message);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pub_key,
             esk,
             &serialized_payload,
@@ -5831,11 +5831,11 @@ fn test_reveal_crv3_commits_retry_on_missing_pulse() {
             h.update(reveal_round.to_be_bytes());
             h.finalize().to_vec()
         };
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pk,
             esk,
             &payload.encode(),
-            Identity::new(b"", vec![id_msg]),
+            Identity::new(b"", &id_msg),
             ChaCha20Rng::seed_from_u64(0),
         )
         .unwrap();
@@ -5975,9 +5975,9 @@ fn test_reveal_crv3_commits_legacy_payload_success() {
             h.update(reveal_round.to_be_bytes());
             h.finalize().to_vec()
         };
-        let identity = Identity::new(b"", vec![msg_hash]);
+        let identity = Identity::new(b"", &msg_hash);
 
-        let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, ChaCha20Rng>(
+        let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, ChaCha20Rng>(
             pk,
             esk,
             &serialized_payload,
