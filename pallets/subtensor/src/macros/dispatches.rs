@@ -26,15 +26,13 @@ mod dispatches {
         /// --- Sets the caller weights for the incentive mechanism. The call can be
         /// made from the hotkey account so is potentially insecure, however, the damage
         /// of changing weights is minimal if caught early. This function includes all the
-        /// checks that the passed weights meet the requirements. Stored as u16s they represent
-        /// rational values in the range [0,1] which sum to 1 and can be interpreted as
-        /// probabilities. The specific weights determine how inflation propagates outward
+        /// checks that the passed weights meet the requirements. Stored weights are u16s
+        /// max-upscaled by the pallet, so the largest non-zero supplied weight is stored
+        /// as `u16::MAX`. The weights determine how inflation propagates outward
         /// from this peer.
         ///
-        /// Note: The 16 bit integers weights should represent 1.0 as the max u16.
-        /// However, the function normalizes all integers to u16_max anyway. This means that if the sum of all
-        /// elements is larger or smaller than the amount of elements * u16_max, all elements
-        /// will be corrected for this deviation.
+        /// Note: Input weights are relative. They do not need to sum to a particular
+        /// value before submission.
         ///
         /// # Args:
         /// * `origin`: (<T as frame_system::Config>Origin):
@@ -47,8 +45,7 @@ mod dispatches {
         /// 	- The edge endpoint for the weight, i.e. j for w_ij.
         ///
         /// * 'weights' (Vec<u16>):
-        /// 	- The u16 integer encoded weights. Interpreted as rational
-        ///     values in the range [0,1]. They must sum to in32::MAX.
+        /// 	- Relative u16-encoded weights, max-upscaled by the pallet before storage.
         ///
         /// * 'version_key' ( u64 ):
         /// 	- The network version key to check if the validator is up to date.
@@ -100,15 +97,13 @@ mod dispatches {
         /// --- Sets the caller weights for the incentive mechanism for mechanisms. The call
         /// can be made from the hotkey account so is potentially insecure, however, the damage
         /// of changing weights is minimal if caught early. This function includes all the
-        /// checks that the passed weights meet the requirements. Stored as u16s they represent
-        /// rational values in the range [0,1] which sum to 1 and can be interpreted as
-        /// probabilities. The specific weights determine how inflation propagates outward
+        /// checks that the passed weights meet the requirements. Stored weights are u16s
+        /// max-upscaled by the pallet, so the largest non-zero supplied weight is stored
+        /// as `u16::MAX`. The weights determine how inflation propagates outward
         /// from this peer.
         ///
-        /// Note: The 16 bit integers weights should represent 1.0 as the max u16.
-        /// However, the function normalizes all integers to u16_max anyway. This means that if the sum of all
-        /// elements is larger or smaller than the amount of elements * u16_max, all elements
-        /// will be corrected for this deviation.
+        /// Note: Input weights are relative. They do not need to sum to a particular
+        /// value before submission.
         ///
         /// # Args:
         /// * `origin`: (<T as frame_system::Config>Origin):
@@ -124,8 +119,7 @@ mod dispatches {
         /// 	- The edge endpoint for the weight, i.e. j for w_ij.
         ///
         /// * 'weights' (Vec<u16>):
-        /// 	- The u16 integer encoded weights. Interpreted as rational
-        ///     values in the range [0,1]. They must sum to in32::MAX.
+        /// 	- Relative u16-encoded weights, max-upscaled by the pallet before storage.
         ///
         /// * 'version_key' ( u64 ):
         /// 	- The network version key to check if the validator is up to date.
@@ -1105,8 +1099,7 @@ mod dispatches {
         ///     - The hotkey for which the childkey take will be set.
         ///
         /// * `take` (u16):
-        ///     - The new childkey take value. This is a percentage represented as a value between 0 and 10000,
-        ///       where 10000 represents 100%.
+        ///     - The new childkey take value, scaled so `u16::MAX` represents 100%.
         ///
         /// # Events:
         /// * `ChildkeyTakeSet`:

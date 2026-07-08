@@ -345,7 +345,7 @@ parameter_types! {
     pub const InitialColdkeySwapAnnouncementDelay: u64 =  50;
     pub const InitialColdkeySwapReannouncementDelay: u64 = 10;
     pub const InitialDissolveNetworkScheduleDuration: u64 =  5 * 24 * 60 * 60 / 12; // Default as 5 days
-    pub const InitialTaoWeight: u64 = 0; // 100% global weight.
+    pub const InitialTaoWeight: u64 = 0; // 0% TAO weight.
     pub const InitialEmaPriceHalvingPeriod: u64 = 201_600_u64; // 4 weeks
     pub const InitialStartCallDelay: u64 =  7 * 24 * 60 * 60 / 12; // Default as 7 days
     pub const InitialKeySwapOnSubnetCost: TaoBalance = TaoBalance::new(10_000_000);

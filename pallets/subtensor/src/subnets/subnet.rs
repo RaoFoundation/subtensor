@@ -23,7 +23,7 @@ impl<T: Config> Pallet<T> {
     /// This iterates through all the networks and returns a list of netuids.
     ///
     /// # Returns:
-    /// * 'Vec<u16>': Netuids of all subnets.
+    /// * `Vec<NetUid>`: Netuids of all subnets.
     ///
     pub fn get_all_subnet_netuids() -> Vec<NetUid> {
         NetworksAdded::<T>::iter()
@@ -37,7 +37,7 @@ impl<T: Config> Pallet<T> {
     /// This checks the Mechanism map for the value, defaults to 0.
     ///
     /// # Args:
-    /// * 'u16': The subnet netuid
+    /// * `NetUid`: The subnet netuid.
     ///
     /// # Returns:
     /// * 'u16': The subnet mechanism
@@ -46,13 +46,13 @@ impl<T: Config> Pallet<T> {
         SubnetMechanism::<T>::get(netuid)
     }
 
-    /// Finds the next available mechanism ID.
+    /// Finds the next available subnet netuid.
     ///
-    /// This function iterates through possible mechanism IDs starting from 0
+    /// This function iterates through possible subnet netuids starting from 1
     /// until it finds an ID that is not currently in use.
     ///
     /// # Returns
-    /// * `u16` - The next available mechanism ID.
+    /// * `NetUid` - The next available subnet netuid.
     pub fn get_next_netuid() -> NetUid {
         let mut next_netuid = NetUid::from(1); // do not allow creation of root
         let netuids = Self::get_all_subnet_netuids();
