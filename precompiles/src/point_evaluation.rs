@@ -151,8 +151,7 @@ mod tests {
     );
 
     /// Valid evaluation point from EEST `common.Z`.
-    const Z: [u8; 32] =
-        hex!("623ce31cf9759a5c8daf3a357992f9f3dd7f9339d8998bc8e68373e54f00b75e");
+    const Z: [u8; 32] = hex!("623ce31cf9759a5c8daf3a357992f9f3dd7f9339d8998bc8e68373e54f00b75e");
 
     const EXPECTED_OUTPUT: [u8; 64] = hex!(
         "0000000000000000000000000000000000000000000000000000000000001000"
@@ -219,7 +218,8 @@ mod tests {
         let vh = versioned_hash
             .map(|v| v.to_vec())
             .unwrap_or_else(|| kzg_to_versioned_hash(commitment, 0x01).to_vec());
-        let mut input = Vec::with_capacity(vh.len() + z.len() + y.len() + commitment.len() + proof.len());
+        let mut input =
+            Vec::with_capacity(vh.len() + z.len() + y.len() + commitment.len() + proof.len());
         input.extend_from_slice(&vh);
         input.extend_from_slice(z);
         input.extend_from_slice(y);
@@ -407,11 +407,7 @@ mod tests {
             let zeros32 = [0u8; 32];
             let zeros48 = [0u8; 48];
             assert_failure(precompile_input(
-                None,
-                &zeros32,
-                &zeros32,
-                &zeros48,
-                &zeros48,
+                None, &zeros32, &zeros32, &zeros48, &zeros48,
             ));
         });
     }
@@ -451,7 +447,11 @@ mod tests {
             let raw = include_str!("testdata/go_kzg_4844_verify_kzg_proof.json");
             let vectors: Vec<ExternalVector> =
                 serde_json::from_str(raw).expect("parse go_kzg_4844 vectors");
-            assert_eq!(vectors.len(), 122, "expected all well-known external vectors");
+            assert_eq!(
+                vectors.len(),
+                122,
+                "expected all well-known external vectors"
+            );
 
             let mut success_count = 0usize;
             let mut failure_count = 0usize;
