@@ -2405,14 +2405,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::Uids` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:1)
 	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedUidsByEvmAddress` (r:2 w:2)
+	/// Proof: `SubtensorModule::AssociatedUidsByEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn associate_evm_key() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `950`
 		//  Estimated: `4415`
-		// Minimum execution time: 665_262_000 picoseconds.
-		Weight::from_parts(683_967_000, 4415)
-			.saturating_add(T::DbWeight::get().reads(3_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
+		// Minimum execution time: 665_186_000 picoseconds.
+		Weight::from_parts(684_242_000, 4415)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4889,14 +4891,16 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::Uids` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:1)
 	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedUidsByEvmAddress` (r:2 w:2)
+	/// Proof: `SubtensorModule::AssociatedUidsByEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn associate_evm_key() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `950`
 		//  Estimated: `4415`
-		// Minimum execution time: 665_262_000 picoseconds.
-		Weight::from_parts(683_967_000, 4415)
-			.saturating_add(RocksDbWeight::get().reads(3_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
+		// Minimum execution time: 665_186_000 picoseconds.
+		Weight::from_parts(684_242_000, 4415)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)

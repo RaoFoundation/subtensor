@@ -2277,6 +2277,10 @@ mod pallet_benchmarks {
             AssociatedEvmAddress::<T>::get(netuid, uid),
             Some((evm_key, block_number))
         );
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<T>::get(netuid, evm_key).into_inner(),
+            vec![(uid, block_number)]
+        );
     }
 
     #[benchmark]

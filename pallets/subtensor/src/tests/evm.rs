@@ -340,6 +340,130 @@ fn test_associate_evm_key_rate_limit_exceeded() {
 }
 
 #[test]
+fn test_associate_evm_key_cap_exceeded() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+
+        let tempo: u16 = 2;
+        let modality: u16 = 2;
+        add_network(netuid, tempo, modality);
+        System::set_block_number(EvmKeyAssociateRateLimit::get());
+
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        let uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey).unwrap();
+
+        let pair = ecdsa::Pair::generate().0;
+        let evm_key = public_to_evm_key(&pair.public());
+
+        // Fill the reverse-index bucket for `evm_key` to capacity with other UIDs.
+        for i in 0..MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS as u16 {
+            SubtensorModule::set_associated_evm_address(netuid, uid + 1 + i, evm_key, 1);
+        }
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_key).len(),
+            MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS as usize
+        );
+
+        // A valid association for the real neuron's UID must be rejected: it would need a
+        // brand-new slot in an already-full bucket.
+        let block_number = frame_system::Pallet::<Test>::block_number();
+        let hashed_block_number = keccak_256(block_number.encode().as_ref());
+        let hotkey_bytes = hotkey.encode();
+        let message = [
+            hotkey_bytes.as_ref(),
+            <[u8; 32] as AsRef<[u8]>>::as_ref(&hashed_block_number),
+        ]
+        .concat();
+        let signature = sign_evm_message(&pair, message);
+
+        assert_noop!(
+            SubtensorModule::associate_evm_key(
+                RuntimeOrigin::signed(hotkey),
+                netuid,
+                evm_key,
+                block_number,
+                signature,
+            ),
+            Error::<Test>::EvmKeyAssociationLimitExceeded
+        );
+    });
+}
+
+#[test]
+fn test_evm_address_index_capacity_allows_refresh_when_full() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let evm_key = H160::from_slice(&[7u8; 20]);
+
+        // Fill the bucket to capacity with distinct UIDs 0..MAX.
+        for uid in 0..MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS as u16 {
+            SubtensorModule::set_associated_evm_address(netuid, uid, evm_key, 1);
+        }
+
+        // A UID already tracked by the full bucket may be re-associated (e.g. block refresh):
+        // it consumes no new slot.
+        let tracked_uid = 0u16;
+        assert_ok!(SubtensorModule::ensure_evm_address_index_capacity(
+            netuid,
+            tracked_uid,
+            evm_key
+        ));
+
+        // The refresh updates the stored block in place without growing the bucket.
+        SubtensorModule::set_associated_evm_address(netuid, tracked_uid, evm_key, 42);
+        let bucket = AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_key);
+        assert_eq!(bucket.len(), MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS as usize);
+        assert_eq!(
+            bucket.iter().find(|(u, _)| *u == tracked_uid).unwrap().1,
+            42
+        );
+
+        // A brand-new UID is rejected once the bucket is full.
+        assert_err!(
+            SubtensorModule::ensure_evm_address_index_capacity(
+                netuid,
+                MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS as u16,
+                evm_key
+            ),
+            Error::<Test>::EvmKeyAssociationLimitExceeded
+        );
+    });
+}
+
+#[test]
+fn test_evm_address_index_capacity_rejects_switch_onto_full_address() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let addr_a = H160::from_slice(&[0xaa; 20]);
+        let addr_b = H160::from_slice(&[0xbb; 20]);
+
+        // UID 100 currently associated to addr_a.
+        let uid = 100u16;
+        SubtensorModule::set_associated_evm_address(netuid, uid, addr_a, 1);
+
+        // addr_b is filled to capacity with other UIDs.
+        for u in 0..MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS as u16 {
+            SubtensorModule::set_associated_evm_address(netuid, u, addr_b, 1);
+        }
+
+        // Moving UID 100 onto the full addr_b must be rejected...
+        assert_err!(
+            SubtensorModule::ensure_evm_address_index_capacity(netuid, uid, addr_b),
+            Error::<Test>::EvmKeyAssociationLimitExceeded
+        );
+
+        // ...leaving UID 100 still associated to addr_a.
+        assert_eq!(
+            AssociatedEvmAddress::<Test>::get(netuid, uid).map(|(k, _)| k),
+            Some(addr_a)
+        );
+    });
+}
+
+#[test]
 fn test_associate_evm_key_uid_not_found() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
