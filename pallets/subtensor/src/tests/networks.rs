@@ -91,6 +91,12 @@ fn dissolve_defers_cleanup_until_on_idle() {
         let owner_hot = U256::from(12);
         let net = add_dynamic_network(&owner_hot, &owner_cold);
 
+        // Set up EVM association data to verify it gets cleaned up too.
+        let evm_key = sp_core::H160::from_low_u64_be(42);
+        SubtensorModule::set_associated_evm_address(net, 0u16, evm_key, 1u64);
+        assert!(AssociatedEvmAddress::<Test>::contains_key(net, 0u16));
+        assert!(!AssociatedUidsByEvmAddress::<Test>::get(net, evm_key).is_empty());
+
         assert!(SubnetOwner::<Test>::contains_key(net));
         assert!(SubnetOwnerHotkey::<Test>::contains_key(net));
         assert!(NetworkRegisteredAt::<Test>::contains_key(net));
@@ -103,12 +109,18 @@ fn dissolve_defers_cleanup_until_on_idle() {
         assert!(DissolveCleanupQueue::<Test>::get().contains(&net));
         assert!(SubnetOwner::<Test>::contains_key(net));
         assert!(NetworkRegisteredAt::<Test>::contains_key(net));
+        // EVM data still present before on_idle cleanup.
+        assert!(AssociatedEvmAddress::<Test>::contains_key(net, 0u16));
+        assert!(!AssociatedUidsByEvmAddress::<Test>::get(net, evm_key).is_empty());
 
         // Cleanup happens in on_idle.
         run_block_idle();
         assert!(!NetworkRegisteredAt::<Test>::contains_key(net));
         assert!(!SubnetOwner::<Test>::contains_key(net));
         assert!(!DissolveCleanupQueue::<Test>::get().contains(&net));
+        // EVM data cleaned up as part of NetworkMapParameters phase.
+        assert!(!AssociatedEvmAddress::<Test>::contains_key(net, 0u16));
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(net, evm_key).is_empty());
     });
 }
 
