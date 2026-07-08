@@ -411,9 +411,8 @@ impl<T: Config> Pallet<T> {
                 );
                 epochs_run_this_block = epochs_run_this_block.saturating_add(1);
 
-                // Reserved for potential future enhancements.
-                // Ownership update logic based on conviction is currently inactive by design.
-                // Self::change_subnet_owner_if_needed(netuid);
+                // Change subnet owner based on conviction.
+                Self::change_subnet_owner_if_needed(netuid);
             } else {
                 // Schedule advances below; execution skipped. Pending emissions accumulate
                 // and will be drained by the next successful epoch.

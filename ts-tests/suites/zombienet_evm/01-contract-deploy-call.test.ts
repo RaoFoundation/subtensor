@@ -204,6 +204,7 @@ describeSuite({
 
                 expect(contract.target).toBeDefined();
                 await expectDeployedContract(provider, contract.target.toString());
+                await waitForFinalizedBlocks(api, 1);
             },
         });
 
@@ -223,6 +224,7 @@ describeSuite({
 
                 expect(contract.target).toBeDefined();
                 await expectDeployedContract(provider, contract.target.toString());
+                await waitForFinalizedBlocks(api, 1);
             },
         });
 

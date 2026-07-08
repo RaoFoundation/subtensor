@@ -85,6 +85,11 @@ fn main() {
         .filter(|s| {
             !s.is_empty()
                 && s.starts_with("Merge pull request #")
+                && !s.ends_with("from RaoFoundation/devnet-ready")
+                && !s.ends_with("from RaoFoundation/testnet-ready")
+                && !s.ends_with("from RaoFoundation/devnet")
+                && !s.ends_with("from RaoFoundation/testnet")
+                // Merges predating the opentensor -> RaoFoundation org move
                 && !s.ends_with("from opentensor/devnet-ready")
                 && !s.ends_with("from opentensor/testnet-ready")
                 && !s.ends_with("from opentensor/devnet")

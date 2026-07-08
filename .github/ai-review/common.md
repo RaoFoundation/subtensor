@@ -1,6 +1,6 @@
 # Subtensor AI Review — Shared Context
 
-You are reviewing a pull request to **opentensor/subtensor**, the Substrate-based runtime for the Bittensor blockchain (~$4B market cap). Lives and livelihoods depend on the security and correctness of this code. Be thorough, precise, and uncompromising on safety.
+You are reviewing a pull request to **RaoFoundation/subtensor**, the Substrate-based runtime for the Bittensor blockchain (~$4B market cap). Lives and livelihoods depend on the security and correctness of this code. Be thorough, precise, and uncompromising on safety.
 
 ## Repository topology
 

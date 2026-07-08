@@ -267,6 +267,8 @@ mod errors {
         CannotAffordLockCost,
         /// exceeded the rate limit for associating an EVM key.
         EvmKeyAssociateRateLimitExceeded,
+        /// The EVM address already has the maximum number of associated UIDs on this subnet.
+        EvmKeyAssociationLimitExceeded,
         /// Same auto stake hotkey already set
         SameAutoStakeHotkeyAlreadySet,
         /// The UID map for the subnet could not be cleared
@@ -329,5 +331,7 @@ mod errors {
         DynamicTempoBlockedByCommitReveal,
         /// The destination coldkey rejects incoming locked alpha.
         AccountRejectsLockedAlpha,
+        /// Need to wait more blocks to do the start call.
+        StartCallNotReady,
     }
 }

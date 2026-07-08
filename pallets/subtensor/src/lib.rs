@@ -67,6 +67,15 @@ pub const MAX_SUBNET_CLAIMS: usize = 5;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
+/// Maximum number of UIDs (per subnet) that may be associated with a single EVM address.
+///
+/// This bounds the size of the `AssociatedUidsByEvmAddress` reverse-index value, keeping
+/// `uid_lookup` reads and association writes cheap and their PoV footprint small. Only the
+/// holder of an EVM key's private key can grow its bucket (each association requires a
+/// signature from that key), so this only limits how many of one's own UIDs may point at a
+/// single EVM address.
+pub const MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS: u32 = 32;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 
@@ -81,13 +90,13 @@ pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
 pub mod pallet {
-    use crate::RateLimitKey;
     use crate::migrations;
     use crate::staking::lock::LockState;
     use crate::subnets::{
         leasing::{LeaseId, SubnetLeaseOf},
         sale_offer::{SaleOfferId, SubnetSaleOfferOf},
     };
+    use crate::{MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, RateLimitKey};
     use frame_support::Twox64Concat;
     use frame_support::{
         BoundedVec,
@@ -2596,6 +2605,18 @@ pub mod pallet {
     #[pallet::storage]
     pub type AssociatedEvmAddress<T: Config> =
         StorageDoubleMap<_, Twox64Concat, NetUid, Twox64Concat, u16, (H160, u64), OptionQuery>;
+
+    /// --- DMAP (netuid, H160) --> associated UIDs and last block where ownership was proven.
+    #[pallet::storage]
+    pub type AssociatedUidsByEvmAddress<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        NetUid,
+        Twox64Concat,
+        H160,
+        BoundedVec<(u16, u64), ConstU32<MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS>>,
+        ValueQuery,
+    >;
 
     /// ========================
     /// ==== Subnet Leasing ====

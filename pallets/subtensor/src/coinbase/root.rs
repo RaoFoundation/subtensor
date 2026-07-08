@@ -376,7 +376,7 @@ impl<T: Config> Pallet<T> {
         let _ = Prometheus::<T>::clear_prefix(netuid, u32::MAX, None);
         let _ = AlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
         let _ = PendingChildKeys::<T>::clear_prefix(netuid, u32::MAX, None);
-        let _ = AssociatedEvmAddress::<T>::clear_prefix(netuid, u32::MAX, None);
+        Self::clear_associated_evm_addresses(netuid);
 
         // Commit-reveal / weights commits (all per-net prefixes):
         let mechanisms: u8 = MechanismCountCurrent::<T>::get(netuid).into();
