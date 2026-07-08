@@ -22,8 +22,10 @@ jobs:
     strategy:
       matrix:
         version:
-          - { name: old, ref: devnet-ready }
-          - { name: new, ref: ${{ github.head_ref }} }
+          - name: old
+            ref: devnet-ready
+          - name: new
+            ref: ${{ github.head_ref }}
 
     steps:
       - name: Install dependencies

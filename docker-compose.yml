@@ -8,7 +8,7 @@ volumes:
 
 services:
   common: &common
-    image: ghcr.io/opentensor/subtensor:latest
+    image: ghcr.io/raofoundation/subtensor:latest
 ## Uncomment to build from scratch:
 #    build:
 #      context: .

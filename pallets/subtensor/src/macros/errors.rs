@@ -325,7 +325,12 @@ mod errors {
         DynamicTempoBlockedByCommitReveal,
         /// The destination coldkey rejects incoming locked alpha.
         AccountRejectsLockedAlpha,
+<<<<<<< HEAD
         /// The coldkey has already registered too many subnets
         LockIdOverFlow,
+=======
+        /// Need to wait more blocks to do the start call.
+        StartCallNotReady,
+>>>>>>> devnet-ready
     }
 }

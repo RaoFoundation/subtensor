@@ -45,6 +45,10 @@ jobs:
             echo "latest_tag=false" >> $GITHUB_ENV
           fi
 
+      - name: Determine image name
+        # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -70,5 +74,5 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}:${{ env.tag }}
-            ${{ env.latest_tag == 'true' && format('ghcr.io/{0}:latest', github.repository) || '' }}
+            ${{ env.image }}:${{ env.tag }}
+            ${{ env.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}

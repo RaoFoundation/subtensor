@@ -183,7 +183,7 @@ mod hooks {
 
         #[cfg(feature = "try-runtime")]
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
-            // Disabled: https://github.com/opentensor/subtensor/pull/1166
+            // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
             Ok(())
         }

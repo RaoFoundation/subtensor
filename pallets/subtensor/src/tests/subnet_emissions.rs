@@ -151,6 +151,47 @@ fn inplace_pow_normalize_fractional_exponent() {
         })
 }
 
+#[test]
+fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(70);
+        let owner_coldkey = U256::from(71);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        // Equal prices and equal miner-burn values should produce equal shares,
+        // regardless of the stored root proportion.
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(0.0));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(0.0));
+
+        // Deliberately make root-prop unequal. The old formula would weight
+        // these equal-price subnets as 1.0 : 0.1 and fail the equality checks.
+        RootProp::<Test>::insert(n1, U96F32::saturating_from_num(1.0));
+        RootProp::<Test>::insert(n2, U96F32::saturating_from_num(0.1));
+
+        assert_abs_diff_eq!(
+            RootProp::<Test>::get(n1).to_num::<f64>(),
+            1.0_f64,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(
+            RootProp::<Test>::get(n2).to_num::<f64>(),
+            0.1_f64,
+            epsilon = 1e-9
+        );
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
+        let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
+
+        assert_abs_diff_eq!(s1, 0.5_f64, epsilon = 1e-9);
+        assert_abs_diff_eq!(s2, 0.5_f64, epsilon = 1e-9);
+        assert_abs_diff_eq!(s1 + s2, 1.0_f64, epsilon = 1e-9);
+    });
+}
+
 // /// Normal (moderate, non-zero) EMA flows across 3 subnets.
 // /// Expect: shares sum to ~1 and are monotonic with flows.
 // #[test]

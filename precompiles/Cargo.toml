@@ -2,10 +2,10 @@
 name = "subtensor-precompiles"
 version = "0.1.0"
 edition.workspace = true
-authors = ["Opentensor Foundation <https://github.com/opentensor/>"]
+authors = ["Opentensor Foundation <https://github.com/RaoFoundation/>"]
 homepage = "https://opentensor.ai/"
 publish = false
-repository = "https://github.com/opentensor/subtensor/"
+repository = "https://github.com/RaoFoundation/subtensor/"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

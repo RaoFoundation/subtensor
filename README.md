@@ -9,7 +9,7 @@
 ```
 
 # **Subtensor** <!-- omit in toc -->
-[![CodeQL](https://github.com/opentensor/subtensor/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/opentensor/subtensor/actions)
+[![CodeQL](https://github.com/RaoFoundation/subtensor/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/RaoFoundation/subtensor/actions)
 [![Discord Chat](https://img.shields.io/discord/308323056592486420.svg)](https://discord.gg/bittensor)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
