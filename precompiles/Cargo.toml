@@ -94,6 +94,9 @@ std = [
 	"substrate-fixed/std",
 	"subtensor-runtime-common/std",
 	"subtensor-swap-interface/std",
+	"hex/std",
+	"serde/std",
+	"serde_json/std"
 ]
 runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
