@@ -3,9 +3,10 @@ use frame_support::weights::WeightMeter;
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
-#[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
+#[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, Default, DecodeWithMemTracking)]
 pub enum DissolveCleanupPhase {
     /// Phase 1.1: Remove root dividend claimable entries for the subnet.
+    #[default]
     SubnetRootDividendsRootClaimable,
     /// Phase 1.2: Remove root dividend claimed entries for the subnet.
     SubnetRootDividendsRootClaimed,
@@ -51,12 +52,6 @@ pub enum DissolveCleanupPhase {
     NetworkLock,
     /// Phase 5.12: Remove decaying lock entries for this netuid.
     NetworkDecayingLock,
-}
-
-impl Default for DissolveCleanupPhase {
-    fn default() -> Self {
-        Self::SubnetRootDividendsRootClaimable
-    }
 }
 
 #[crate::freeze_struct("c524ea54893ae91a")]
