@@ -18,9 +18,9 @@ unwrap-used = "deny"
 useless_conversion = "allow"
 
 [dependencies]
-# Pin `time` to a version without the tracing-subscriber E0119 trait conflict that
-# breaks the eco-tests build on current stable rustc (transitive dep; eco-tests Cargo.lock is gitignored).
-time = { version = "=0.3.36", default-features = false }
+# Keep `time` at a floor with the stack-exhaustion fix (GHSA-r6v5-fh4h-64xc); the old
+# =0.3.36 pin for the tracing-subscriber E0119 conflict is resolved by tracing-subscriber >= 0.3.20.
+time = { version = "0.3.47", default-features = false }
 pallet-subtensor = { path = "../pallets/subtensor", default-features = false, features = ["std"] }
 pallet-alpha-assets = { path = "../pallets/alpha-assets", default-features = false, features = ["std"] }
 frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
@@ -53,7 +53,7 @@ approx = "0.5"
 sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
 tracing = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "=0.3.18", features = ["fmt", "env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
 rand = { version = "0.10.0", default-features = false, features = ["std", "thread_rng"] }
 hex-literal = "0.4.1"
 

@@ -35,16 +35,15 @@ jobs:
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Download latest bench patch artifact from heavy workflow
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
           workflow: run-benchmarks.yml
           pr: ${{ github.event.pull_request.number }}
           name: bench-patch
           path: .
-          allow_forks: true
+          allow_forks: false
           check_artifacts: true
           search_artifacts: true
           workflow_conclusion: ""
