@@ -126,7 +126,8 @@ pub extern "C" fn cr_encrypt(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs_f64();
-    let reveal_timestamp = (n_blocks as f64 * block_time + now).ceil() as u64 - crate::constants::GENESIS_TIME;
+    let reveal_timestamp =
+        (n_blocks as f64 * block_time + now).ceil() as u64 - crate::constants::GENESIS_TIME;
     let reveal_round = reveal_timestamp / crate::constants::DRAND_PERIOD;
 
     match drand::encrypt_and_compress(data, reveal_round) {
@@ -452,7 +453,15 @@ pub extern "C" fn cr_generate_commit_v2(
         current_block,
     };
 
-    match drand::generate_commit_v2(uids, values, version_key, state, subnet_reveal_epochs, block_time, hotkey) {
+    match drand::generate_commit_v2(
+        uids,
+        values,
+        version_key,
+        state,
+        subnet_reveal_epochs,
+        block_time,
+        hotkey,
+    ) {
         Ok((ct, rr)) => {
             unsafe { *round_out = rr }
             CRByteBuffer::from_vec(ct)
@@ -978,8 +987,7 @@ mod tests {
                     let msg = format!("thread-{i}-payload");
                     let mut round = 0u64;
                     let mut err: *mut c_char = ptr::null_mut();
-                    let buf =
-                        cr_encrypt(msg.as_ptr(), msg.len(), 0, 1.0, &mut round, &mut err);
+                    let buf = cr_encrypt(msg.as_ptr(), msg.len(), 0, 1.0, &mut round, &mut err);
                     assert!(err.is_null());
                     let ct = unsafe { slice::from_raw_parts(buf.ptr, buf.len) }.to_vec();
                     cr_free(buf);
@@ -1088,9 +1096,16 @@ mod tests {
             ptr::null(),
             3,
             42,
-            100, 0, 0, 50, 0, 120,
-            1, 12.0,
-            ptr::null(), 3,
+            100,
+            0,
+            0,
+            50,
+            0,
+            120,
+            1,
+            12.0,
+            ptr::null(),
+            3,
             &mut round,
             &mut err_ptr,
         );
@@ -1114,8 +1129,14 @@ mod tests {
             values.as_ptr(),
             values.len(),
             42,
-            100, 0, 0, 50, 0, 120,
-            1, 12.0,
+            100,
+            0,
+            0,
+            50,
+            0,
+            120,
+            1,
+            12.0,
             hotkey.as_ptr(),
             hotkey.len(),
             &mut round,
@@ -1145,10 +1166,14 @@ mod tests {
             values.as_ptr(),
             values.len(),
             42,
-            100, 0, 0,
-            0,   // tempo = 0
-            0, 120,
-            1, 12.0,
+            100,
+            0,
+            0,
+            0, // tempo = 0
+            0,
+            120,
+            1,
+            12.0,
             hotkey.as_ptr(),
             hotkey.len(),
             &mut round,

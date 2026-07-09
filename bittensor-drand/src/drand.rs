@@ -92,7 +92,7 @@ pub fn encrypt_and_compress(
     )
     .map_err(|e| {
         (
-            std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)),
+            std::io::Error::other(format!("{:?}", e)),
             "Encryption failed.".to_string(),
         )
     })?;
@@ -101,7 +101,7 @@ pub fn encrypt_and_compress(
     let mut ct_bytes: Vec<u8> = Vec::new();
     ct.serialize_compressed(&mut ct_bytes).map_err(|e| {
         (
-            std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)),
+            std::io::Error::other(format!("{:?}", e)),
             "Ciphertext serialization failed.".to_string(),
         )
     })?;
@@ -244,7 +244,7 @@ pub fn encrypt_commitment(
     // TLE encoding
     let ct_bytes = encrypt_and_compress(&serialized_data, reveal_round).map_err(|e| {
         (
-            std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)),
+            std::io::Error::other(format!("{:?}", e)),
             "Encryption failed.".to_string(),
         )
     })?;

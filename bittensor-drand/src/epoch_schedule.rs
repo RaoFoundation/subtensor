@@ -1,8 +1,8 @@
-/// Epoch scheduling state machine for the stateful tempo model.
-///
-/// Ports a minimal subset of `subtensor` epoch logic required to predict
-/// reveal blocks for timelock-encrypted commits.  See `constants.rs` for
-/// chain-verified bounds.
+//! Epoch scheduling state machine for the stateful tempo model.
+//!
+//! Ports a minimal subset of `subtensor` epoch logic required to predict
+//! reveal blocks for timelock-encrypted commits.  See `constants.rs` for
+//! chain-verified bounds.
 
 use crate::constants::{max_simulation_blocks, COMMIT_INCLUSION_BLOCK_OFFSET, MAX_TEMPO_U64};
 
@@ -122,8 +122,7 @@ pub fn predict_first_reveal_block(
     };
 
     // Commit epoch: extrinsic runs after run_coinbase at extrinsic_block
-    let commit_epoch =
-        current_epoch_pre_run_coinbase(&post_before_extrinsic, extrinsic_block);
+    let commit_epoch = current_epoch_pre_run_coinbase(&post_before_extrinsic, extrinsic_block);
 
     let target_epoch = commit_epoch + reveal_period_epochs;
 
@@ -222,9 +221,8 @@ mod integration {
     #[test]
     fn reveal_uses_exact_equality_not_gte() {
         let case = &predict_vectors()[2];
-        let reveal_block =
-            predict_first_reveal_block(&case.state, case.reveal_period_epochs)
-                .expect("expected reveal block");
+        let reveal_block = predict_first_reveal_block(&case.state, case.reveal_period_epochs)
+            .expect("expected reveal block");
         assert!(reveal_block > case.state.current_block);
 
         let prior = reveal_block.saturating_sub(1);
@@ -241,9 +239,7 @@ mod integration {
         let mut post_prev = post_before;
         for r in extrinsic_block..prior {
             if current_epoch_pre_run_coinbase(&post_prev, r) == target_epoch {
-                panic!(
-                    "reveal block {prior} should not satisfy equality yet (found at {r})"
-                );
+                panic!("reveal block {prior} should not satisfy equality yet (found at {r})");
             }
             post_prev = simulate_run_coinbase(&post_prev, r);
         }

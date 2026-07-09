@@ -20,6 +20,7 @@ runtime change against everything it might break.
 | `common/` | `subtensor-runtime-common` — types shared between runtime, node, and pallets (`NetUid`, balances, …) |
 | `support/` | Tooling crates: custom lints (`linting/`), proc macros (`macros/`), `procedural-fork`, `weight-tools` (the `weight-compare` CI gate), `tools` |
 | `py-sp-core/` | PyO3 bindings around `sp-core` (keypairs, signing) — the native backbone of the Python SDK, published as wheels |
+| `bittensor-drand/` | PyO3 bindings for drand timelock encryption (commit-reveal weights, general commitments) — lives here so its epoch-schedule simulation moves in lockstep with `pallets/subtensor`; published as wheels |
 | `src/` + `build.rs` (root) | A stub crate whose build script runs the custom lints in CI — not application code |
 
 ## Tests and test harnesses

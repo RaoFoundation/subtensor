@@ -118,7 +118,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bittensor-drand", specifier = ">=1.3.0,<2.0.0" },
+    { name = "bittensor-drand", directory = "../../bittensor-drand" },
     { name = "cyscale", specifier = ">=0.3.3,<1.0.0" },
     { name = "eth-account", specifier = ">=0.13,<0.14" },
     { name = "py-sp-core", directory = "../../py-sp-core" },
@@ -143,30 +143,13 @@ dev = [
 
 [[package]]
 name = "bittensor-drand"
-version = "1.3.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/36/13/36a587abc84cfa5a855879e247c3a763fe05cae02ff007f71f895ec933e2/bittensor_drand-1.3.0.tar.gz", hash = "sha256:ec3694c2226d66e2637168c8b31082d5cbbf991e350c254e340e1eb0255142fd", size = 52052 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/30/9dd759c4461dca6be6d0488035b02e1d37a8dbe7896f78dcde06203aaeb2/bittensor_drand-1.3.0-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:547b482773f5d49193f2d4a6748bb5ac88249304a350bb6595599d93d8f059ad", size = 1989953 },
-    { url = "https://files.pythonhosted.org/packages/6d/eb/e5b39af6bbb6cd19a30ea3c98a97f4421b88a4f2d448028bf33c2cc9182a/bittensor_drand-1.3.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:6d841fac9bb83d537925723b877a9447e32f48eb58066d82bb8aed1ce42adc78", size = 1914042 },
-    { url = "https://files.pythonhosted.org/packages/d9/24/b7818f10b014216bd6721263af2a0557d172d35647b66bf5ecd86107d2bd/bittensor_drand-1.3.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d783d9122d5ed1538393c230beec4279bf0d4da5760311f0a5daa19b92bb0906", size = 2145421 },
-    { url = "https://files.pythonhosted.org/packages/3a/05/1b85c410d6099da4097da9ca6ad4b902e3546119fd49630540aade8a015d/bittensor_drand-1.3.0-cp310-cp310-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:3d4a5a5751590ad8b1e707653f2b73adeea0323a22ed5a17847ab562e33b603b", size = 2250687 },
-    { url = "https://files.pythonhosted.org/packages/d0/9a/3f04fa0974be64a615dd198862b297c3ff633db3cceb8faeb93ad91963c4/bittensor_drand-1.3.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3664ee02c07d22ea834387a8d875fba785c5db7793fb16b69186e1fdee6b0b85", size = 2161428 },
-    { url = "https://files.pythonhosted.org/packages/7b/d8/4a3b885355b4b103d85f27c934e19f0a17fcc0777f0e881f3602590a0989/bittensor_drand-1.3.0-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:5a16c4463ad1e0e60af5291ae23c7e4f4edd359f9a9c4ed95d7d90dfa1561aa3", size = 1989692 },
-    { url = "https://files.pythonhosted.org/packages/60/24/665094994e36ea4481e1211ea24482940cb675aa2fda463738547cbd7179/bittensor_drand-1.3.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:b175a119f8aae002d8f75c24db0adcb5fb92f1ae3a0fd3171aa3922c85662789", size = 1913908 },
-    { url = "https://files.pythonhosted.org/packages/72/b1/992057385b0b7a76e0efda977daf71ecf263bf694ba637f167a2be6c9d16/bittensor_drand-1.3.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0af5da2d1030134a50eb6903d79eb48e9c47f2a76ed2a925b98c3188396f89db", size = 2144938 },
-    { url = "https://files.pythonhosted.org/packages/4e/42/0b7fda375748a8a9ceb822f503bfd86cf3e9a49fa33113b60f7ae8db4dec/bittensor_drand-1.3.0-cp311-cp311-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:bd75b5eb77feecb61b32bbf784bcf98a13a9f9823f815f88cb6eb3435d34b8e9", size = 2250541 },
-    { url = "https://files.pythonhosted.org/packages/af/bb/8fcdb25e61222bc7d130a04cbbf42636b7574c30d3c19d08cd5d9d69f6a6/bittensor_drand-1.3.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cfc46b0283b213bfe10a6aba09020b79e0bd7285b8653b9f02dfc2704deba8ec", size = 2161220 },
-    { url = "https://files.pythonhosted.org/packages/b0/f8/2bcfb2aecdd98e9bfc7d2f2e2fef4f340d71779645f4ab39206a85d2b009/bittensor_drand-1.3.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:e573ad16ebe12c218f5ad7d00a1919fa3602b3527e6bd2cd419255e374584abf", size = 1988663 },
-    { url = "https://files.pythonhosted.org/packages/19/40/6569a37da607a63519ea19f020034ecab3a3d3631389e829c6ccc9e98178/bittensor_drand-1.3.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b2e8351e53e20b299b6c03c26ea82be5e0480e5fe043b4c29fd64fba233c46be", size = 1912005 },
-    { url = "https://files.pythonhosted.org/packages/4b/24/46030b9ec766eee279f5eb95050ec91b212f2ab8469b26b17f654657ecf1/bittensor_drand-1.3.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7f4ba5e553248c2fbc61b6c240260e7dd75b8a655006a30307e07a4038526e07", size = 2146672 },
-    { url = "https://files.pythonhosted.org/packages/34/1d/4582fb3b27c4689408c2209d4a69c910e64634438104c45ae9060f4ea2e2/bittensor_drand-1.3.0-cp312-cp312-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:69f7d246c6bb85089b6829ce08836de00856ff3954290dcd35cb238b06a610f5", size = 2244072 },
-    { url = "https://files.pythonhosted.org/packages/0d/23/bb35315766d82d063a57ce9123b9ed778630571dd2fb11ffb540de45784c/bittensor_drand-1.3.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dd32683bf035f6122782fe77d7ed6c7c99319f33252248feff7b466f468962fd", size = 2160988 },
-    { url = "https://files.pythonhosted.org/packages/c1/da/78033f58af1df4669b7537434f34f462bd09822e7f67d9b5a0bbc1dbbd7b/bittensor_drand-1.3.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:db664c3d4923e66df5cfab4469e21a923ce5402df7bc09b1b1492fc05539b6ac", size = 1988394 },
-    { url = "https://files.pythonhosted.org/packages/8e/e6/f0f1b4b0ccc071b674ce8f99ff087e9a8bedd491fd07f7a0bd86c8632395/bittensor_drand-1.3.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:45330eca12ff79be137b7cae75cd2647e8accdd8215417bf6b29419575b31b3b", size = 1912081 },
-    { url = "https://files.pythonhosted.org/packages/bd/3f/15f4e1dec69f8279a7f11b13093f1bc4272ab84d9ec1bb587b7f639e4d0a/bittensor_drand-1.3.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:166b9d8f5139006368d4f31692e92c08689e88bc5e8a56b5ca408324e48c69fb", size = 2145656 },
-    { url = "https://files.pythonhosted.org/packages/7d/51/f17a345024313b871be74db17d2d8cba6f6fdbb7347d1edb4cb8fa092db7/bittensor_drand-1.3.0-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:eb8ad08bc1123addbe5e9ac4238829f779b61117cc5a27b16a08d4fdc5660376", size = 2243517 },
-    { url = "https://files.pythonhosted.org/packages/68/3f/8bbd8a1268fdfdf01da335e177ea47b8eaa10f909941fe429b8f093d03e0/bittensor_drand-1.3.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f239c8b7be222cfbc752050fe609d5653a913f3a8b62484bd7b3da616c61ba00", size = 2160560 },
+version = "2.0.0"
+source = { directory = "../../bittensor-drand" }
+
+[package.metadata]
+requires-dist = [
+    { name = "maturin", marker = "extra == 'dev'", specifier = "==1.7.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==0.23.7" },
 ]
 
 [[package]]

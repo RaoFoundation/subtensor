@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from itertools import accumulate
 from typing import Any, Mapping, Optional, Sequence
 
-from bittensor_drand import get_encrypted_commit
+from bittensor_drand import get_encrypted_commit_v2
 
 from .._generated import calls
 from .._generated.storage import SubtensorModule as st
@@ -246,21 +246,39 @@ async def _build_timelocked(
     """
     current_block = await substrate.block_number()
     block_hash = await substrate.block_hash(current_block)
-    tempo_raw, reveal_raw, block_time = await asyncio.gather(
+    # The epoch schedule is stateful (owner-triggered pending epochs, tempo
+    # changes), so v2 needs the full schedule state — all read at one pinned
+    # block so the simulated pipeline matches what the chain will actually run.
+    # The reveal-round math needs the real netuid; the mechanism storage index
+    # (mechid * 4096 + netuid) is only a chain storage key and would shift the
+    # reveal round for mechid >= 1.
+    (
+        tempo_raw,
+        reveal_raw,
+        last_epoch_raw,
+        pending_raw,
+        epoch_index_raw,
+        since_step_raw,
+        block_time,
+    ) = await asyncio.gather(
         substrate.query(*st.Tempo, [netuid], block_hash=block_hash),
         substrate.query(*st.RevealPeriodEpochs, [netuid], block_hash=block_hash),
+        substrate.query(*st.LastEpochBlock, [netuid], block_hash=block_hash),
+        substrate.query(*st.PendingEpochAt, [netuid], block_hash=block_hash),
+        substrate.query(*st.SubnetEpochIndex, [netuid], block_hash=block_hash),
+        substrate.query(*st.BlocksSinceLastStep, [netuid], block_hash=block_hash),
         substrate.block_time(),
     )
-    # The drand reveal-round/epoch math needs the real netuid; the mechanism
-    # storage index (mechid * 4096 + netuid) is only a chain storage key and
-    # would shift the reveal round for mechid >= 1.
-    commit_bytes, reveal_round = get_encrypted_commit(
+    commit_bytes, reveal_round = get_encrypted_commit_v2(
         uids=uids,
         weights=values,
         version_key=version_key,
+        last_epoch_block=int(last_epoch_raw or 0),
+        pending_epoch_at=int(pending_raw or 0),
+        subnet_epoch_index=int(epoch_index_raw or 0),
         tempo=int(tempo_raw),
+        blocks_since_last_step=int(since_step_raw or 0),
         current_block=current_block,
-        netuid=netuid,
         subnet_reveal_period_epochs=int(reveal_raw),
         # Detected from the chain: the drand reveal-round math depends on real
         # wall-clock block time, which is 0.25s on fast-blocks chains.

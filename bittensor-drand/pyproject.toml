@@ -1,7 +1,8 @@
 [project]
 name = "bittensor-drand"
-# version is read from Cargo.toml by maturin
-dynamic = ["version"]
+# Static (not read from Cargo.toml) so the release train can stamp PEP 440
+# rc/dev suffixes that cargo's semver would reject.
+version = "2.0.0"
 description = "Rust-backed Python library for generating timelock-encrypted weight commitments for Bittensor's commit-reveal mechanism using drand randomness."
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -36,7 +37,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/opentensor/bittensor-drand"
+Repository = "https://github.com/RaoFoundation/subtensor"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -45,6 +46,10 @@ build-backend = "maturin"
 [tool.maturin]
 include = ["bittensor_drand*", "src*"]
 exclude = ["tests*"]
+# Enable pyo3's extension-module on the dependency directly instead of via a
+# crate feature, so `cargo test --workspace --all-features` doesn't turn it on
+# (it disables libpython linking, which breaks test-binary links).
+features = ["pyo3/extension-module"]
 
 [project.optional-dependencies]
 dev = [

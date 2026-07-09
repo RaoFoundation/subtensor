@@ -16,6 +16,7 @@ on:
     paths:
       - "sdk/**"
       - "py-sp-core/**"
+      - "bittensor-drand/**"
   workflow_dispatch:
 
 concurrency:

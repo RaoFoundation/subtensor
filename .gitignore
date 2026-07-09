@@ -67,6 +67,7 @@ __pycache__/
 .coverage
 htmlcov/
 py-sp-core/dist/
+bittensor-drand/dist/
 sdk/python/dist/
 
 # Local dev logs

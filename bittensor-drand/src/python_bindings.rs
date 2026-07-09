@@ -27,6 +27,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// Returns:
 ///     Tuple[bytes, int]: encrypted commitment and reveal round.
+// The signature mirrors the chain's EpochScheduleState field-for-field; a
+// struct would only move the argument list into the Python callers.
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (uids, weights, version_key, last_epoch_block, pending_epoch_at, subnet_epoch_index, tempo, blocks_since_last_step, current_block, subnet_reveal_period_epochs, block_time, hotkey))]
 fn get_encrypted_commit_v2(
@@ -139,7 +142,8 @@ fn encrypt(
         .map_err(|e| PyValueError::new_err(format!("SystemTime error: {:?}", e)))?
         .as_secs_f64();
 
-    let reveal_timestamp = (n_blocks as f64 * block_time + now).ceil() as u64 - crate::constants::GENESIS_TIME;
+    let reveal_timestamp =
+        (n_blocks as f64 * block_time + now).ceil() as u64 - crate::constants::GENESIS_TIME;
     let reveal_round = reveal_timestamp / crate::constants::DRAND_PERIOD;
 
     let encrypted_data = drand::encrypt_and_compress(data, reveal_round)
@@ -173,11 +177,7 @@ fn encrypt(
 ///         - the encrypted payload
 ///         - the Drand reveal round number (same as input)
 #[pyfunction]
-fn encrypt_at_round(
-    py: Python,
-    data: &[u8],
-    reveal_round: u64,
-) -> PyResult<(Py<PyBytes>, u64)> {
+fn encrypt_at_round(py: Python, data: &[u8], reveal_round: u64) -> PyResult<(Py<PyBytes>, u64)> {
     // Directly encrypt with the specified reveal round
     let encrypted_data = drand::encrypt_and_compress(data, reveal_round)
         .map_err(|e| PyValueError::new_err(format!("Encryption failed: {:?}", e)))?;
@@ -223,7 +223,7 @@ fn decrypt(py: Python, encrypted_data: &[u8], no_errors: bool) -> PyResult<Optio
     };
 
     let signature_opt = drand::get_reveal_round_signature(Some(user_data.reveal_round), no_errors)
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(PyValueError::new_err)?;
 
     let signature_str = match signature_opt {
         Some(s) => s,
@@ -240,7 +240,7 @@ fn decrypt(py: Python, encrypted_data: &[u8], no_errors: bool) -> PyResult<Optio
         .map_err(|e| PyValueError::new_err(format!("Invalid hex in signature: {:?}", e)))?;
 
     let decoded_data = drand::decrypt_and_decompress(&user_data.encrypted_data, &signature_bytes)
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(PyValueError::new_err)?;
 
     Ok(Some(PyBytes::new(py, &decoded_data).into()))
 }
@@ -269,7 +269,7 @@ fn decrypt_with_signature(
         .map_err(|e| PyValueError::new_err(format!("Invalid hex in signature: {:?}", e)))?;
 
     let decoded_data = drand::decrypt_and_decompress(&user_data.encrypted_data, &signature_bytes)
-        .map_err(|e| PyValueError::new_err(e))?;
+        .map_err(PyValueError::new_err)?;
 
     Ok(PyBytes::new(py, &decoded_data).into())
 }
@@ -284,7 +284,7 @@ fn decrypt_with_signature(
 #[pyfunction]
 fn get_signature_for_round(reveal_round: u64) -> PyResult<String> {
     drand::get_reveal_round_signature(Some(reveal_round), false)
-        .map_err(|e| PyValueError::new_err(e))?
+        .map_err(PyValueError::new_err)?
         .ok_or_else(|| PyValueError::new_err("Signature not available"))
 }
 
@@ -343,7 +343,10 @@ fn encrypt_mlkem768(
         -5 => Err(PyValueError::new_err("Invalid shared secret length")),
         -6 => Err(PyValueError::new_err("AEAD encryption failed")),
         -7 => Err(PyValueError::new_err("Output buffer too small")),
-        code => Err(PyValueError::new_err(format!("Unknown error code: {}", code))),
+        code => Err(PyValueError::new_err(format!(
+            "Unknown error code: {}",
+            code
+        ))),
     }
 }
 
@@ -357,7 +360,7 @@ fn encrypt_mlkem768(
 fn mlkem_kdf_id(py: Python) -> PyResult<Py<PyBytes>> {
     let mut buf = vec![0u8; 10];
     let result = crate::ffi::mlkemffi_kdf_id(buf.as_mut_ptr(), buf.len());
-    
+
     match result {
         n if n > 0 => {
             buf.truncate(n as usize);

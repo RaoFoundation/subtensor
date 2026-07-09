@@ -189,9 +189,17 @@ jobs:
     with:
       ref: ${{ needs.check.outputs.sha }}
 
+  build-drand:
+    name: Build bittensor-drand wheels
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    uses: ./.github/workflows/build-drand-wheels.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
   publish-sdk:
     name: Publish Python SDK to PyPI
-    needs: [check, release, build-sp-core]
+    needs: [check, release, build-sp-core, build-drand]
     if: needs.check.outputs.ready == 'true'
     runs-on: [self-hosted, fireactions-heavy]
     # PyPI trusted publishing (OIDC); publishers for `bittensor` and
@@ -214,6 +222,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: sp-core-dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download bittensor-drand wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: drand-dist-*
           path: dist
           merge-multiple: true
 

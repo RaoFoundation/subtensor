@@ -1,4 +1,4 @@
-/// Single source of truth for all compile-time constants used across the crate.
+//! Single source of truth for all compile-time constants used across the crate.
 
 // ---------- Chain tempo bounds ----------
 

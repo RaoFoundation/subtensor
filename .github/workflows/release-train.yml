@@ -297,11 +297,11 @@ jobs:
   # SDK rc channel rides the train: publish after testnet is green
   # (replaces the publish-sdk-rc job in deploy-testnet.yml).
   #
-  # Both packages get the same rcN suffix, computed once here so the wheel
-  # matrix and the publish job stamp identical versions. The rc SDK pins
-  # py-sp-core exactly (==<core rc>): an rc pre-release can never win version
-  # resolution against a published final (0.1.1rcN < 0.1.1), so a floor
-  # constraint would silently resolve to the previous stable core.
+  # All packages get the same rcN suffix, computed once here so the wheel
+  # matrices and the publish job stamp identical versions. The rc SDK pins
+  # py-sp-core and bittensor-drand exactly (==<rc>): an rc pre-release can
+  # never win version resolution against a published final (0.1.1rcN < 0.1.1),
+  # so a floor constraint would silently resolve to the previous stable build.
   rc-versions:
     name: Compute rc versions
     needs: check-testnet
@@ -309,6 +309,7 @@ jobs:
     outputs:
       sdk: ${{ steps.versions.outputs.sdk }}
       core: ${{ steps.versions.outputs.core }}
+      drand: ${{ steps.versions.outputs.drand }}
     steps:
       - uses: actions/checkout@v4
       - name: Parse base versions and append rc suffix
@@ -318,8 +319,11 @@ jobs:
           : ${base:?could not parse base version from sdk/python/pyproject.toml}
           core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' py-sp-core/pyproject.toml | head -n 1)
           : ${core_base:?could not parse base version from py-sp-core/pyproject.toml}
+          drand_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' bittensor-drand/pyproject.toml | head -n 1)
+          : ${drand_base:?could not parse base version from bittensor-drand/pyproject.toml}
           echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
           echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          echo "drand=${drand_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
   build-sp-core-rc:
     name: Build py-sp-core rc wheels
@@ -328,9 +332,16 @@ jobs:
     with:
       version: ${{ needs.rc-versions.outputs.core }}
 
+  build-drand-rc:
+    name: Build bittensor-drand rc wheels
+    needs: rc-versions
+    uses: ./.github/workflows/build-drand-wheels.yml
+    with:
+      version: ${{ needs.rc-versions.outputs.drand }}
+
   publish-sdk-rc:
     name: Publish SDK rc to PyPI
-    needs: [rc-versions, build-sp-core-rc]
+    needs: [rc-versions, build-sp-core-rc, build-drand-rc]
     runs-on: [self-hosted, fireactions-heavy]
     environment: testnet
     permissions:
@@ -342,19 +353,29 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Set rc versions and pin py-sp-core
+      - name: Set rc versions and pin native packages
         run: |
           sdk_version="${{ needs.rc-versions.outputs.sdk }}"
           core_version="${{ needs.rc-versions.outputs.core }}"
+          drand_version="${{ needs.rc-versions.outputs.drand }}"
           sed -i "0,/^version = \".*\"/s//version = \"${sdk_version}\"/" sdk/python/pyproject.toml
           sed -i "s/\"py-sp-core>=[^\"]*\"/\"py-sp-core==${core_version}\"/" sdk/python/pyproject.toml
           grep -q "py-sp-core==${core_version}" sdk/python/pyproject.toml \
             || { echo "failed to pin py-sp-core in sdk/python/pyproject.toml"; exit 1; }
-          echo "Publishing py-sp-core ${core_version} and bittensor ${sdk_version} to PyPI"
+          sed -i "s/\"bittensor-drand>=[^\"]*\"/\"bittensor-drand==${drand_version}\"/" sdk/python/pyproject.toml
+          grep -q "bittensor-drand==${drand_version}" sdk/python/pyproject.toml \
+            || { echo "failed to pin bittensor-drand in sdk/python/pyproject.toml"; exit 1; }
+          echo "Publishing py-sp-core ${core_version}, bittensor-drand ${drand_version}, and bittensor ${sdk_version} to PyPI"
       - name: Download py-sp-core wheels
         uses: actions/download-artifact@v4
         with:
           pattern: sp-core-dist-*
+          path: dist
+          merge-multiple: true
+      - name: Download bittensor-drand wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: drand-dist-*
           path: dist
           merge-multiple: true
       - name: Build SDK wheel and sdist

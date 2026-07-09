@@ -20,14 +20,15 @@ from bittensor_drand import get_encrypted_commit_v2
 pip install bittensor-drand
 ```
 
-For development (build from source):
+For development this crate lives in the [subtensor monorepo](https://github.com/RaoFoundation/subtensor)
+under `bittensor-drand/`. The SDK's uv environment builds it from source
+automatically (`cd sdk/python && uv sync`), or build it standalone:
 
 ```bash
-git clone https://github.com/opentensor/bittensor-drand.git
 cd bittensor-drand
 python3 -m venv venv
 . venv/bin/activate
-pip install maturin bittensor
+pip install maturin
 maturin develop
 ```
 
