@@ -597,7 +597,7 @@ const Section4 = () => {
         <li>Our subnet can expect about 70% greater market cap at the end of the year</li>
       </ul>
       <p>
-        What if we give our subnet some competition? Let's take our previous scenario but suppose
+        What if we give our subnet some competition? Let&apos;s take our previous scenario but suppose
         that there is a group of, say, ten other subnets who have similarly desirable drift
         parameters. We find the following:
       </p>

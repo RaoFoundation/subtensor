@@ -8,6 +8,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "docs/**"
       - "website/**"
   workflow_dispatch:
 
