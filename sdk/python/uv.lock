@@ -125,8 +125,8 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.12.0" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'", specifier = ">=4.0.0" },
-    { name = "websockets", specifier = ">=14.1" },
-    { name = "xxhash" },
+    { name = "websockets", specifier = ">=14.1,<17" },
+    { name = "xxhash", specifier = ">=3.0.0" },
 ]
 
 [package.metadata.requires-dev]

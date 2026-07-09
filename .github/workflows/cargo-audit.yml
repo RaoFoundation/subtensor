@@ -35,9 +35,40 @@ jobs:
         # Each ignore is a known, accepted advisory; revisit when bumping
         # polkadot-sdk since most originate in the patched fork's tree.
         run: |
+          # RUSTSEC-2026-0020/0021/0085..0096: wasmtime 8.0.1, pinned by the
+          #   polkadot-sdk fork's sc-executor; fixed only by a major SDK bump.
+          # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101 via the fork's
+          #   libp2p networking stack.
+          # RUSTSEC-2026-0118/0119: hickory-proto via libp2p-dns (fork tree).
+          # RUSTSEC-2026-0204: crossbeam-epoch via the fork tree.
+          # RUSTSEC-2025-0137: ruint via the frontier/EVM fork tree.
+          # RUSTSEC-2025-0020 / RUSTSEC-2026-0177: pyo3 0.23 in py-sp-core;
+          #   ours — revisit when pyo3 >=0.29 is adopted.
           cargo audit --ignore RUSTSEC-2023-0091 \
                       --ignore RUSTSEC-2024-0438 \
                       --ignore RUSTSEC-2025-0009 \
                       --ignore RUSTSEC-2025-0055 \
                       --ignore RUSTSEC-2025-0073 \
-                      --ignore RUSTSEC-2025-0118
+                      --ignore RUSTSEC-2025-0118 \
+                      --ignore RUSTSEC-2026-0020 \
+                      --ignore RUSTSEC-2026-0021 \
+                      --ignore RUSTSEC-2026-0085 \
+                      --ignore RUSTSEC-2026-0086 \
+                      --ignore RUSTSEC-2026-0087 \
+                      --ignore RUSTSEC-2026-0088 \
+                      --ignore RUSTSEC-2026-0089 \
+                      --ignore RUSTSEC-2026-0091 \
+                      --ignore RUSTSEC-2026-0092 \
+                      --ignore RUSTSEC-2026-0093 \
+                      --ignore RUSTSEC-2026-0094 \
+                      --ignore RUSTSEC-2026-0095 \
+                      --ignore RUSTSEC-2026-0096 \
+                      --ignore RUSTSEC-2026-0098 \
+                      --ignore RUSTSEC-2026-0099 \
+                      --ignore RUSTSEC-2026-0104 \
+                      --ignore RUSTSEC-2026-0118 \
+                      --ignore RUSTSEC-2026-0119 \
+                      --ignore RUSTSEC-2026-0204 \
+                      --ignore RUSTSEC-2025-0137 \
+                      --ignore RUSTSEC-2025-0020 \
+                      --ignore RUSTSEC-2026-0177

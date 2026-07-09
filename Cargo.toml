@@ -120,7 +120,9 @@ toml_edit = "0.22"
 derive-syn-parse = "0.2"
 Inflector = "0.11"
 cfg-expr = "0.15"
-itertools = { version = "0.10", default-features = false }
+# use_alloc is required for Itertools::powerset (procedural-fork); it used to
+# be enabled implicitly via feature unification with the duplicated SDK tree.
+itertools = { version = "0.10", default-features = false, features = ["use_alloc"] }
 macro_magic = { version = "0.5", default-features = false }
 frame-support-procedural-tools = { version = "10.0.0", default-features = false }
 proc-macro-warning = { version = "1", default-features = false }

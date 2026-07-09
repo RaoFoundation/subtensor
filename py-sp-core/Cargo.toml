@@ -26,7 +26,3 @@ sha2 = "0.10.8"
 sodiumoxide = { version = "0.2", default-features = false, features = ["std"] }
 sp-core = { workspace = true, features = ["std", "full_crypto"] }
 zeroize = "1"
-
-[features]
-default = []
-extension-module = ["pyo3/extension-module"]

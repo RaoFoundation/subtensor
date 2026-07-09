@@ -13,4 +13,7 @@ authors = [{ name = "RaoFoundation" }]
 
 [tool.maturin]
 module-name = "py_sp_core"
-features = ["extension-module"]
+# Enable pyo3's extension-module on the dependency directly instead of via a
+# crate feature, so `cargo test --workspace --all-features` doesn't turn it on
+# (it disables libpython linking, which breaks test-binary links).
+features = ["pyo3/extension-module"]
