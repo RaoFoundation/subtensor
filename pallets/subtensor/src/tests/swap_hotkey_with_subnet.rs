@@ -2942,6 +2942,8 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
 
         let staker_coldkey = U256::from(1006);
 
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+
         // Use neuron_hotkey as subnet creator so it receives root dividends
         let netuid_1 = add_dynamic_network(&neuron_hotkey, &owner_coldkey);
 
@@ -3115,6 +3117,7 @@ fn test_swap_hotkey_auto_parent_delegation_transferred_on_root() {
         let new_hotkey = U256::from(1005);
 
         let _ = add_dynamic_network(&old_hotkey, &owner_coldkey);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
         add_balance_to_coldkey_account(&owner_coldkey, 20_000_000_000_000_000_u64.into());
 
         // Opt out of auto parent delegation on the old hotkey.

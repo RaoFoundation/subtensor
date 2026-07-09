@@ -29,7 +29,7 @@ pub fn try_restore_shares<T: Config>() -> Weight {
     let effected_netuid = 59.into();
 
     #[rustfmt::skip]
-	let diffs: [(&str, i64); 112] = [ 
+	let diffs: [(&str, i64); 112] = [
 		("5Fn9SqQhx5bhDua7AGgkKxxk3gfZ75WWBGCMPeKH1WBgPaMQ", -2375685930981_i64),
 		("5Fnhtm7cpxEbZaChnRZ8yWoF8MXVxmobkmLRehh5bkYtyZA9", -4090996138227),
 		("5C7j3w2zz1SVejRuFrb2zFWHXT7UfG7eWA87KXL1WyV5KLVR", -607494031),
