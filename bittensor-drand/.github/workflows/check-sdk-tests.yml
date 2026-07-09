@@ -1,0 +1,239 @@
+name: Bittensor SDK Test
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+concurrency:
+  group: e2e-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+env:
+  CARGO_TERM_COLOR: always
+  VERBOSE: ${{ github.event.inputs.verbose }}
+
+jobs:
+  apply-label-to-new-pr:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.draft == false }}
+    outputs:
+      should_continue_sdk: ${{ steps.check.outputs.should_continue_sdk }}
+    steps:
+      - name: Check
+        id: check
+        run: |
+          ACTION="${{ github.event.action }}"
+          if [[ "$ACTION" == "opened" || "$ACTION" == "reopened" ]]; then
+            echo "should_continue_sdk=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_continue_sdk=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Add label
+        if: steps.check.outputs.should_continue_sdk == 'true'
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: run-bittensor-sdk-tests
+
+  check-labels:
+    needs: apply-label-to-new-pr
+    runs-on: ubuntu-latest
+    if: always()
+    outputs:
+      run-sdk-tests: ${{ steps.get-labels.outputs.run-sdk-tests }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Get labels from PR
+        id: get-labels
+        run: |
+          sleep 5
+          LABELS=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name')
+          echo "Current labels: $LABELS"
+          if echo "$LABELS" | grep -q "run-bittensor-sdk-tests"; then
+            echo "run-sdk-tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "run-sdk-tests=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  find-e2e-tests:
+    needs: check-labels
+    if: always() && needs.check-labels.outputs.run-sdk-tests == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      test-files: ${{ steps.get-tests.outputs.test-files }}
+    steps:
+      - name: Research preparation
+        working-directory: ${{ github.workspace }}
+        run: git clone https://github.com/opentensor/bittensor.git
+
+      - name: Checkout
+        working-directory: ${{ github.workspace }}/bittensor
+        run: git checkout staging
+
+      - name: Install dependencies
+        run: sudo apt-get install -y jq
+
+      - name: Find e2e test files
+        id: get-tests
+        run: |
+          test_files=$(find ${{ github.workspace }}/bittensor/tests/e2e_tests -name "test*.py" | jq -R -s -c 'split("\n") | map(select(. != ""))')
+          echo "::set-output name=test-files::$test_files"
+        shell: bash
+
+  pull-docker-image:
+    needs: check-labels
+    runs-on: ubuntu-latest
+    if: always() && needs.check-labels.outputs.run-sdk-tests == 'true'
+    steps:
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+
+      - name: Pull Docker Image
+        run: docker pull ghcr.io/opentensor/subtensor-localnet:devnet-ready
+
+      - name: Save Docker Image to Cache
+        run: docker save -o subtensor-localnet.tar ghcr.io/opentensor/subtensor-localnet:devnet-ready
+
+      - name: Upload Docker Image as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: subtensor-localnet
+          path: subtensor-localnet.tar
+
+  run-e2e-tests:
+    needs:
+      - check-labels
+      - find-e2e-tests
+      - pull-docker-image
+
+    if: always() && needs.check-labels.outputs.run-sdk-tests == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        rust-branch:
+          - stable
+        rust-target:
+          - x86_64-unknown-linux-gnu
+        os:
+          - ubuntu-latest
+        test-file: ${{ fromJson(needs.find-e2e-tests.outputs.test-files) }}
+
+    env:
+      RELEASE_NAME: development
+      RUSTV: ${{ matrix.rust-branch }}
+      RUST_BACKTRACE: full
+      RUST_BIN_DIR: target/${{ matrix.rust-target }}
+      TARGET: ${{ matrix.rust-target }}
+
+    timeout-minutes: 60
+    name: "e2e tests: ${{ matrix.test-file }}"
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: actions-rs/toolchain@v1.0.6
+        with:
+          toolchain: ${{ matrix.rust-branch }}
+          components: rustfmt
+          profile: minimal
+
+      - name: Install rust/cargo dependencies
+        run: |
+          sudo apt-get update &&
+          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev protobuf-compiler jq
+
+      - name: Add wasm32-unknown-unknown target
+        run: |
+          rustup target add wasm32-unknown-unknown --toolchain stable-x86_64-unknown-linux-gnu
+          rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create Python virtual environment
+        working-directory: ${{ github.workspace }}
+        run: uv venv ${{ github.workspace }}/venv
+
+      - name: Clone Bittensor SDK repo
+        working-directory: ${{ github.workspace }}
+        run: git clone https://github.com/opentensor/bittensor.git
+
+      - name: Setup Bittensor SDK from cloned repo
+        working-directory: ${{ github.workspace }}/bittensor
+        run: |
+          source ${{ github.workspace }}/venv/bin/activate
+          git checkout staging
+          git fetch origin staging
+          uv run --active pip install --upgrade pip
+          uv run --active pip install '.[dev]'
+          uv run --active pip install maturin
+
+      - name: Install uv dependencies
+        working-directory: ${{ github.workspace }}
+        run: uv sync --all-extras --dev
+
+      - name: Checkout PR branch in bittensor-drand repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: bittensor-drand
+
+      - name: Build and install bittensor-drand repo package
+        working-directory: ${{ github.workspace }}
+        run: |
+          source ${{ github.workspace }}/venv/bin/activate
+          uv run --active maturin develop
+
+      - name: Download Cached Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: subtensor-localnet
+
+      - name: Load Docker Image
+        run: docker load -i subtensor-localnet.tar
+
+#      - name: Run tests
+#        working-directory: ${{ github.workspace }}
+#        run: |
+#          source ${{ github.workspace }}/venv/bin/activate
+#          pytest ${{ matrix.test-file }} -s
+
+      - name: Run tests with retry
+        run: |
+          source ${{ github.workspace }}/venv/bin/activate
+          set +e
+          for i in 1 2; do
+            echo "🔁 Attempt $i: Running tests"
+            pytest ${{ matrix.test-file }} -s
+            status=$?
+            if [ $status -eq 0 ]; then
+              echo "✅ Tests passed on attempt $i"
+              break
+            else
+              echo "❌ Tests failed on attempt $i"
+              if [ $i -eq 2 ]; then
+                echo "Tests failed after 2 attempts"
+                exit 1
+              fi
+              echo "Retrying..."
+              sleep 5
+            fi
+          done
