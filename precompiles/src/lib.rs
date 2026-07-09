@@ -152,11 +152,11 @@ where
             hash(8),
             hash(9),
             hash(10),
-            hash(11),
             hash(1024),
             hash(1025),
             hash(Ed25519Verify::<R::AccountId>::INDEX),
             hash(Sr25519Verify::<R::AccountId>::INDEX),
+            hash(1028),
             hash(BalanceTransferPrecompile::<R>::INDEX),
             hash(StakingPrecompile::<R>::INDEX),
             hash(SubnetPrecompile::<R>::INDEX),
@@ -222,7 +222,6 @@ where
             a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             a if a == hash(9) => Some(Bn128Add::execute(handle)),
             a if a == hash(10) => Some(PointEvaluation::execute(handle)),
-
             // Non-Frontier specific nor Ethereum precompiles :
             a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
