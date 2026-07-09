@@ -14,6 +14,8 @@ export function createTempLogger(filename: string): TempLogger {
   const fileUrl = new URL(filename, TEMP_DIR_URL);
   const buffer: string[] = [];
   let started = false;
+  const realLog = console.log.bind(console);
+  const realError = console.error.bind(console);
 
   const append = (args: unknown[]): Promise<void> => {
     const line = `${args.map(formatValue).join(" ")}\n`;
@@ -39,17 +41,23 @@ export function createTempLogger(filename: string): TempLogger {
       return Promise.resolve();
     },
     captureConsole() {
+      // Tee to the real console: CI must still see errors (a swallowed
+      // failure here once cost a debugging round-trip on a dead runner).
       console.log = (...args: unknown[]) => {
+        realLog(...args);
         void append(args);
       };
       console.error = (...args: unknown[]) => {
+        realError(...args);
         void append(args);
       };
     },
     info(...args: unknown[]) {
+      realLog(...args);
       return append(args);
     },
     error(value: unknown) {
+      realError(value);
       return append([value]);
     },
     flush() {

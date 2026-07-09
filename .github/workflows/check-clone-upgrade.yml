@@ -109,6 +109,17 @@ jobs:
           E2E_ENDPOINT: ws://127.0.0.1:9944
         run: uv run pytest -m e2e
 
+      - name: Dump clone node and harness logs
+        if: failure()
+        run: |
+          echo "===== clone-node.log (last 200 lines) ====="
+          tail -n 200 clone-node.log 2>/dev/null || echo "(missing)"
+          for f in clones/js-tests/temp/*.log; do
+            [ -f "$f" ] || continue
+            echo "===== $f ====="
+            cat "$f"
+          done
+
       - name: Stop local clone
         if: always()
         run: ./clones/scripts/stop-local-clone.sh
