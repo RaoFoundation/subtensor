@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -8,9 +9,6 @@ use frame_support::{
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
 
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
-
 /// Dispatch extension for delegate-take bounds and ownership preconditions.
 ///
 /// Signed increase/decrease take calls are checked before dispatch; unrelated
@@ -18,6 +16,13 @@ type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 pub struct CheckDelegateTake<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckDelegateTake<T> {
+    pub(crate) fn applies_to(call: &Call<T>) -> bool {
+        matches!(
+            call,
+            Call::increase_take { .. } | Call::decrease_take { .. }
+        )
+    }
+
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::increase_take { hotkey, take } | Call::decrease_take { hotkey, take } => {
@@ -42,8 +47,10 @@ where
 {
     type Pre = ();
 
-    fn weight(_call: &CallOf<T>) -> Weight {
-        <T as Config>::WeightInfo::check_delegate_take_extension()
+    fn weight(call: &CallOf<T>) -> Weight {
+        applicable_call(call, Self::applies_to)
+            .map(|_| <T as Config>::WeightInfo::check_delegate_take_extension())
+            .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
@@ -54,7 +61,7 @@ where
             return Ok(());
         };
 
-        let Some(call) = call.is_sub_type() else {
+        let Some(call) = applicable_call(call, Self::applies_to) else {
             return Ok(());
         };
 
@@ -68,7 +75,10 @@ mod tests {
     use super::*;
     use crate::{Error, tests::mock::*};
     use frame_support::{
-        assert_ok, dispatch::DispatchResultWithPostInfo, traits::ExtendedDispatchable,
+        assert_ok,
+        dispatch::{DispatchExtension, DispatchResultWithPostInfo},
+        traits::ExtendedDispatchable,
+        weights::Weight,
     };
     use sp_core::U256;
     use sp_runtime::DispatchError;
@@ -89,6 +99,39 @@ mod tests {
 
     fn err(result: DispatchResultWithPostInfo) -> DispatchError {
         result.unwrap_err().error
+    }
+
+    fn add_stake_call() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+            hotkey: U256::from(1),
+            netuid: 1u16.into(),
+            amount_staked: 1_000u64.into(),
+        })
+    }
+
+    #[test]
+    fn weight_only_charges_delegate_take_calls() {
+        let expected = <Test as crate::Config>::WeightInfo::check_delegate_take_extension();
+
+        for call in [
+            RuntimeCall::System(frame_system::Call::remark { remark: vec![] }),
+            add_stake_call(),
+        ] {
+            assert_eq!(
+                <CheckDelegateTake<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                Weight::zero()
+            );
+        }
+
+        for call in [
+            increase_take_call(U256::from(1), 0),
+            decrease_take_call(U256::from(1), 0),
+        ] {
+            assert_eq!(
+                <CheckDelegateTake<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                expected
+            );
+        }
     }
 
     #[test]

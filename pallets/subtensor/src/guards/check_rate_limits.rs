@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, TransactionType};
 use frame_support::{
@@ -9,9 +10,6 @@ use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex};
 
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
-
 /// Dispatch extension for rate-limit checks that are safe to reject before dispatch.
 ///
 /// Signed weight and network-registration calls are checked before dispatch;
@@ -19,6 +17,17 @@ type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 pub struct CheckRateLimits<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckRateLimits<T> {
+    pub(crate) fn applies_to(call: &Call<T>) -> bool {
+        matches!(
+            call,
+            Call::commit_weights { .. }
+                | Call::commit_mechanism_weights { .. }
+                | Call::set_weights { .. }
+                | Call::set_mechanism_weights { .. }
+                | Call::register_network { .. }
+        )
+    }
+
     fn check_weights_rate_limit(
         who: &T::AccountId,
         netuid: NetUid,
@@ -89,8 +98,10 @@ where
 {
     type Pre = ();
 
-    fn weight(_call: &CallOf<T>) -> Weight {
-        <T as Config>::WeightInfo::check_rate_limits_extension()
+    fn weight(call: &CallOf<T>) -> Weight {
+        applicable_call(call, Self::applies_to)
+            .map(|_| <T as Config>::WeightInfo::check_rate_limits_extension())
+            .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
@@ -101,7 +112,7 @@ where
             return Ok(());
         };
 
-        let Some(call) = call.is_sub_type() else {
+        let Some(call) = applicable_call(call, Self::applies_to) else {
             return Ok(());
         };
 
@@ -113,9 +124,12 @@ where
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::CheckRateLimits;
-    use crate::{Error, tests::mock::*};
+    use crate::{Error, tests::mock::*, weights::WeightInfo as _};
     use frame_support::{
-        assert_ok, dispatch::DispatchResultWithPostInfo, traits::ExtendedDispatchable,
+        assert_ok,
+        dispatch::{DispatchExtension, DispatchResultWithPostInfo},
+        traits::ExtendedDispatchable,
+        weights::Weight,
     };
     use frame_system::Call as SystemCall;
     use sp_core::U256;
@@ -153,6 +167,57 @@ mod tests {
 
     fn fund(coldkey: U256, amount: TaoBalance) {
         add_balance_to_coldkey_account(&coldkey, amount);
+    }
+
+    fn add_stake_call() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+            hotkey: U256::from(1),
+            netuid: 1u16.into(),
+            amount_staked: 1_000u64.into(),
+        })
+    }
+
+    #[test]
+    fn weight_only_charges_rate_limited_calls() {
+        let netuid = NetUid::from(1);
+        let expected = <Test as crate::Config>::WeightInfo::check_rate_limits_extension();
+        let charged_calls = [
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_weights {
+                netuid,
+                commit_hash: sp_core::H256::zero(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit_hash: sp_core::H256::zero(),
+            }),
+            set_weights_call(netuid, 0),
+            RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            }),
+            register_network_call(U256::from(1)),
+        ];
+
+        for call in [
+            RuntimeCall::System(SystemCall::remark { remark: vec![] }),
+            add_stake_call(),
+        ] {
+            assert_eq!(
+                <CheckRateLimits<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                Weight::zero()
+            );
+        }
+
+        for call in charged_calls {
+            assert_eq!(
+                <CheckRateLimits<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                expected
+            );
+        }
     }
 
     #[test]

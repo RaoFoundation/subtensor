@@ -252,7 +252,7 @@ jobs:
           output-schema-file: /tmp/ai-review-trusted/codex-output-schema.json
           prompt: |
             You are running as the **Skeptic** persona reviewing PR #${{ needs.decide.outputs.pr_number }}
-            in the opentensor/subtensor repository.
+            in the RaoFoundation/subtensor repository.
 
             Branch: `${{ needs.decide.outputs.head_ref }}` -> `${{ needs.decide.outputs.base_ref }}`
             Author: `${{ needs.decide.outputs.author }}`
@@ -469,7 +469,7 @@ jobs:
           output-schema-file: /tmp/ai-review-trusted/codex-output-schema.json
           prompt: |
             You are running as the **Auditor** persona reviewing PR #${{ needs.decide.outputs.pr_number }}
-            in the opentensor/subtensor repository.
+            in the RaoFoundation/subtensor repository.
 
             Branch: `${{ needs.decide.outputs.head_ref }}` -> `${{ needs.decide.outputs.base_ref }}`
             Author: `${{ needs.decide.outputs.author }}`

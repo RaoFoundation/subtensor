@@ -77,7 +77,7 @@ impl<T: Config> Pallet<T> {
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
-        AssociatedEvmAddress::<T>::remove(netuid, uid_to_replace);
+        Self::remove_associated_evm_address(netuid, uid_to_replace);
         IsNetworkMember::<T>::remove(old_hotkey.clone(), netuid);
         #[allow(unknown_lints)]
         Keys::<T>::remove(netuid, uid_to_replace);
@@ -213,7 +213,7 @@ impl<T: Config> Pallet<T> {
                     #[allow(unknown_lints)]
                     Keys::<T>::remove(netuid, neuron_uid);
                     BlockAtRegistration::<T>::remove(netuid, neuron_uid);
-                    AssociatedEvmAddress::<T>::remove(netuid, neuron_uid);
+                    Self::remove_associated_evm_address(netuid, neuron_uid);
                     for mecid in 0..mechanisms_count {
                         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
                         Weights::<T>::remove(netuid_index, neuron_uid);
@@ -345,6 +345,8 @@ impl<T: Config> Pallet<T> {
                     });
                 }
             }
+
+            Self::remap_associated_evm_address_index(netuid, &old_to_new_uid);
 
             // Clear the UID map for the subnet
             let clear_result = Uids::<T>::clear_prefix(netuid, u32::MAX, None);

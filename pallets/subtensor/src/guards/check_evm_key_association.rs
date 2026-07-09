@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -8,9 +9,6 @@ use frame_support::{
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
 
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
-
 /// Dispatch extension for EVM-key association preconditions.
 ///
 /// Signed EVM-key association calls are checked for subnet registration and
@@ -18,6 +16,10 @@ type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 pub struct CheckEvmKeyAssociation<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckEvmKeyAssociation<T> {
+    pub(crate) fn applies_to(call: &Call<T>) -> bool {
+        matches!(call, Call::associate_evm_key { .. })
+    }
+
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::associate_evm_key { netuid, .. } => {
@@ -40,8 +42,10 @@ where
 {
     type Pre = ();
 
-    fn weight(_call: &CallOf<T>) -> Weight {
-        <T as Config>::WeightInfo::check_evm_key_association_extension()
+    fn weight(call: &CallOf<T>) -> Weight {
+        applicable_call(call, Self::applies_to)
+            .map(|_| <T as Config>::WeightInfo::check_evm_key_association_extension())
+            .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
@@ -52,7 +56,7 @@ where
             return Ok(());
         };
 
-        let Some(call) = call.is_sub_type() else {
+        let Some(call) = applicable_call(call, Self::applies_to) else {
             return Ok(());
         };
 
@@ -64,10 +68,13 @@ where
 #[allow(clippy::unwrap_used, clippy::arithmetic_side_effects)]
 mod tests {
     use super::CheckEvmKeyAssociation;
-    use crate::{AssociatedEvmAddress, Error, tests::mock::*};
+    use crate::{AssociatedEvmAddress, Error, tests::mock::*, weights::WeightInfo as _};
     use codec::Encode;
     use frame_support::{
-        assert_ok, dispatch::DispatchResultWithPostInfo, traits::ExtendedDispatchable,
+        assert_ok,
+        dispatch::{DispatchExtension, DispatchResultWithPostInfo},
+        traits::ExtendedDispatchable,
+        weights::Weight,
     };
     use frame_system::Call as SystemCall;
     use sp_core::{H160, Pair, U256, ecdsa, keccak_256};
@@ -137,6 +144,37 @@ mod tests {
             associate_call(netuid, evm_key, block_number, signature),
             evm_key,
         )
+    }
+
+    fn add_stake_call() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+            hotkey: U256::from(1),
+            netuid: 1u16.into(),
+            amount_staked: 1_000u64.into(),
+        })
+    }
+
+    #[test]
+    fn weight_only_charges_evm_key_association_calls() {
+        let netuid = NetUid::from(1);
+        let expected = <Test as crate::Config>::WeightInfo::check_evm_key_association_extension();
+
+        for call in [
+            RuntimeCall::System(SystemCall::remark { remark: vec![] }),
+            add_stake_call(),
+        ] {
+            assert_eq!(
+                <CheckEvmKeyAssociation<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                Weight::zero()
+            );
+        }
+
+        assert_eq!(
+            <CheckEvmKeyAssociation<Test> as DispatchExtension<RuntimeCall>>::weight(
+                &dummy_associate_call(netuid)
+            ),
+            expected
+        );
     }
 
     #[test]

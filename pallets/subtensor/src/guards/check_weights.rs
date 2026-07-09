@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, WeightCommits};
 use frame_support::{
@@ -10,8 +11,6 @@ use sp_runtime::traits::Dispatchable;
 use sp_std::{collections::vec_deque::VecDeque, marker::PhantomData, vec::Vec};
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex};
 
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 type WeightCommitQueue = VecDeque<(H256, u64, u64, u64)>;
 
 /// Dispatch extension for weight-setting preconditions.
@@ -21,6 +20,24 @@ type WeightCommitQueue = VecDeque<(H256, u64, u64, u64)>;
 pub struct CheckWeights<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckWeights<T> {
+    pub(crate) fn applies_to(call: &Call<T>) -> bool {
+        matches!(
+            call,
+            Call::batch_commit_weights { .. }
+                | Call::batch_reveal_weights { .. }
+                | Call::batch_set_weights { .. }
+                | Call::commit_weights { .. }
+                | Call::commit_mechanism_weights { .. }
+                | Call::reveal_weights { .. }
+                | Call::reveal_mechanism_weights { .. }
+                | Call::set_weights { .. }
+                | Call::set_mechanism_weights { .. }
+                | Call::commit_timelocked_weights { .. }
+                | Call::commit_timelocked_mechanism_weights { .. }
+                | Call::commit_crv3_mechanism_weights { .. }
+        )
+    }
+
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         Self::check_input_lengths(call)?;
         Self::check_min_stake(who, call)?;
@@ -227,8 +244,10 @@ where
 {
     type Pre = ();
 
-    fn weight(_call: &CallOf<T>) -> Weight {
-        <T as Config>::WeightInfo::check_weights_extension()
+    fn weight(call: &CallOf<T>) -> Weight {
+        applicable_call(call, Self::applies_to)
+            .map(|_| <T as Config>::WeightInfo::check_weights_extension())
+            .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
@@ -239,7 +258,7 @@ where
             return Ok(());
         };
 
-        let Some(call) = call.is_sub_type() else {
+        let Some(call) = applicable_call(call, Self::applies_to) else {
             return Ok(());
         };
 
@@ -251,11 +270,14 @@ where
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::CheckWeights;
-    use crate::{Error, MAX_CRV3_COMMIT_SIZE_BYTES, tests::mock::*};
+    use crate::{Error, MAX_CRV3_COMMIT_SIZE_BYTES, tests::mock::*, weights::WeightInfo as _};
     use codec::Compact;
     use frame_support::{
-        BoundedVec, assert_ok, dispatch::DispatchResultWithPostInfo, traits::ConstU32,
+        BoundedVec, assert_ok,
+        dispatch::{DispatchExtension, DispatchResultWithPostInfo},
+        traits::ConstU32,
         traits::ExtendedDispatchable,
+        weights::Weight,
     };
     use frame_system::Call as SystemCall;
     use pallet_drand::LastStoredRound;
@@ -309,6 +331,99 @@ mod tests {
         })
     }
 
+    fn add_stake_call() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+            hotkey: U256::from(1),
+            netuid: 1u16.into(),
+            amount_staked: 1_000u64.into(),
+        })
+    }
+
+    fn checked_weight_calls(netuid: NetUid) -> Vec<RuntimeCall> {
+        let bounded_commit =
+            BoundedVec::<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>::try_from(vec![0]).unwrap();
+
+        vec![
+            set_weights_call(netuid, 0),
+            RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
+                netuids: vec![Compact(netuid)],
+                weights: vec![vec![(Compact(0_u16), Compact(1_u16))]],
+                version_keys: vec![Compact(0_u64)],
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_weights {
+                netuid,
+                commit_hash: H256::zero(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit_hash: H256::zero(),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights {
+                netuids: vec![Compact(netuid)],
+                commit_hashes: vec![H256::zero()],
+            }),
+            reveal_weights_call(netuid),
+            reveal_mechanism_weights_call(netuid, MechId::MAIN),
+            RuntimeCall::SubtensorModule(SubtensorCall::batch_reveal_weights {
+                netuid,
+                uids_list: vec![vec![0]],
+                values_list: vec![vec![1]],
+                salts_list: vec![vec![1]],
+                version_keys: vec![0],
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_weights {
+                netuid,
+                commit: bounded_commit.clone(),
+                reveal_round: 0,
+                commit_reveal_version: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit: bounded_commit.clone(),
+                reveal_round: 0,
+                commit_reveal_version: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_crv3_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit: bounded_commit,
+                reveal_round: 0,
+            }),
+        ]
+    }
+
+    #[test]
+    fn weight_only_charges_weight_related_calls() {
+        let netuid = NetUid::from(1);
+        let expected = <Test as crate::Config>::WeightInfo::check_weights_extension();
+
+        for call in [
+            RuntimeCall::System(SystemCall::remark { remark: vec![] }),
+            add_stake_call(),
+        ] {
+            assert_eq!(
+                <CheckWeights<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                Weight::zero()
+            );
+        }
+
+        for call in checked_weight_calls(netuid) {
+            assert_eq!(
+                <CheckWeights<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                expected
+            );
+        }
+    }
+
     #[test]
     fn unrelated_calls_pass_through() {
         new_test_ext(0).execute_with(|| {
@@ -360,72 +475,13 @@ mod tests {
             let netuid = NetUid::from(1);
             let hotkey = U256::from(1);
             let coldkey = U256::from(2);
-            let bounded_commit =
-                BoundedVec::<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>::try_from(vec![0]).unwrap();
             add_network_disable_commit_reveal(netuid, 1, 0);
             setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
             SubtensorModule::append_neuron(netuid, &hotkey, 0);
             crate::Owner::<Test>::insert(hotkey, coldkey);
             SubtensorModule::set_stake_threshold(1_000_000_000_000_u64);
 
-            let calls = [
-                set_weights_call(netuid, 0),
-                RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights {
-                    netuid,
-                    mecid: MechId::MAIN,
-                    dests: vec![0],
-                    weights: vec![1],
-                    version_key: 0,
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights {
-                    netuids: vec![Compact(netuid)],
-                    weights: vec![vec![(Compact(0_u16), Compact(1_u16))]],
-                    version_keys: vec![Compact(0_u64)],
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::commit_weights {
-                    netuid,
-                    commit_hash: H256::zero(),
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::commit_mechanism_weights {
-                    netuid,
-                    mecid: MechId::MAIN,
-                    commit_hash: H256::zero(),
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights {
-                    netuids: vec![Compact(netuid)],
-                    commit_hashes: vec![H256::zero()],
-                }),
-                reveal_weights_call(netuid),
-                reveal_mechanism_weights_call(netuid, MechId::MAIN),
-                RuntimeCall::SubtensorModule(SubtensorCall::batch_reveal_weights {
-                    netuid,
-                    uids_list: vec![vec![0]],
-                    values_list: vec![vec![1]],
-                    salts_list: vec![vec![1]],
-                    version_keys: vec![0],
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_weights {
-                    netuid,
-                    commit: bounded_commit.clone(),
-                    reveal_round: 0,
-                    commit_reveal_version: 0,
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
-                    netuid,
-                    mecid: MechId::MAIN,
-                    commit: bounded_commit.clone(),
-                    reveal_round: 0,
-                    commit_reveal_version: 0,
-                }),
-                RuntimeCall::SubtensorModule(SubtensorCall::commit_crv3_mechanism_weights {
-                    netuid,
-                    mecid: MechId::MAIN,
-                    commit: bounded_commit,
-                    reveal_round: 0,
-                }),
-            ];
-
-            for call in calls {
+            for call in checked_weight_calls(netuid) {
                 assert_eq!(
                     err(dispatch_with_ext(call, RuntimeOrigin::signed(hotkey))),
                     Error::<Test>::NotEnoughStakeToSetWeights.into()

@@ -7,7 +7,7 @@
 set -euo pipefail
 
 : "${PR_NUMBER:?PR_NUMBER required}"
-: "${REPO:?REPO required (e.g. opentensor/subtensor)}"
+: "${REPO:?REPO required (e.g. RaoFoundation/subtensor)}"
 : "${GH_TOKEN:?GH_TOKEN required (used here only — NOT passed to Codex)}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/ai-review-context}"
 

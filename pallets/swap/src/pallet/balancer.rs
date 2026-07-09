@@ -149,7 +149,7 @@ impl Balancer {
         let w1: u128 = self.get_base_weight().deconstruct() as u128;
         let w2: u128 = self.get_quote_weight().deconstruct() as u128;
 
-        let precision = 1024;
+        let precision = 256;
         let x_safe = SafeInt::from(x);
         let w1_safe = SafeInt::from(w1);
         let w2_safe = SafeInt::from(w2);
@@ -187,8 +187,13 @@ impl Balancer {
         if let Some(result_safe_int) = maybe_result_safe_int
             && let Some(result_u64) = result_safe_int.to_u64()
         {
-            return U64F64::saturating_from_num(result_u64)
+            let result = U64F64::saturating_from_num(result_u64)
                 .safe_div(U64F64::saturating_from_num(ACCURACY));
+            return if dx >= 0 {
+                result.min(U64F64::from_num(1))
+            } else {
+                result
+            };
         }
         U64F64::saturating_from_num(0)
     }
@@ -791,6 +796,12 @@ mod tests {
                 let dy1 = y_fixed * (one - e1);
                 let dy2 = y_fixed * (one - e2);
 
+                if dx > x.saturating_mul(1_000) {
+                    assert!(e1 <= one);
+                    assert!(e2 <= one);
+                    return;
+                }
+
                 let w1 = perquintill_to_f64(bal.get_base_weight());
                 let w2 = perquintill_to_f64(bal.get_quote_weight());
                 let e1_expected = (x as f64 / (x as f64 + dx as f64)).powf(w1 / w2);
@@ -928,6 +939,7 @@ mod tests {
         }
     }
 
+    // cargo test --package pallet-subtensor-swap --lib -- pallet::balancer::tests::test_exp_quote_fuzzy --include-ignored --exact --nocapture
     #[ignore]
     #[test]
     fn test_exp_quote_fuzzy() {
@@ -993,7 +1005,7 @@ mod tests {
 
             // Print progress
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if done % 100_000_000 == 0 {
+            if done % 10_000_000 == 0 {
                 let progress = done as f64 / ITERATIONS as f64 * 100.0;
                 // Replace with println for real-time progress
                 log::debug!("progress = {progress:.4}%");

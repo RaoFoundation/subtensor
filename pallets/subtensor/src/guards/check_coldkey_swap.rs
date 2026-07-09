@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf};
 use crate::weights::WeightInfo;
 use crate::{Call, ColdkeySwapAnnouncements, ColdkeySwapDisputes, Config, Error};
 use frame_support::{
@@ -7,9 +8,6 @@ use frame_support::{
 };
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
-
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 
 /// Dispatch extension that blocks most calls when a coldkey swap is active.
 ///
@@ -96,9 +94,14 @@ where
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::CheckColdkeySwap;
-    use crate::{ColdkeySwapAnnouncements, ColdkeySwapDisputes, Error, tests::mock::*};
+    use crate::{
+        ColdkeySwapAnnouncements, ColdkeySwapDisputes, Error, tests::mock::*,
+        weights::WeightInfo as _,
+    };
     use frame_support::{
-        BoundedVec, assert_ok, dispatch::DispatchResultWithPostInfo, traits::ExtendedDispatchable,
+        BoundedVec, assert_ok,
+        dispatch::{DispatchExtension, DispatchResultWithPostInfo},
+        traits::ExtendedDispatchable,
     };
     use frame_system::Call as SystemCall;
     use pallet_subtensor_proxy::Call as ProxyCall;
@@ -174,6 +177,18 @@ mod tests {
         <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
             origin, call,
         )
+    }
+
+    #[test]
+    fn weight_charges_all_calls_because_swap_state_can_block_any_signed_call() {
+        let expected = <Test as crate::Config>::WeightInfo::check_coldkey_swap_extension();
+
+        for call in forbidden_calls().into_iter().chain(authorized_calls()) {
+            assert_eq!(
+                <CheckColdkeySwap<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                expected
+            );
+        }
     }
 
     #[test]

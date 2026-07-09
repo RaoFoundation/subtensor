@@ -29,7 +29,7 @@ workflow will automatically use its token instead.
 
 ### Setup
 
-1. Create a GitHub App under the `opentensor` org:
+1. Create a GitHub App under the `RaoFoundation` org:
    - Settings → Developer settings → GitHub Apps → New GitHub App.
    - Webhook: not needed; disable.
    - Repository permissions:
@@ -39,7 +39,7 @@ workflow will automatically use its token instead.
      - **Metadata**: Read
    - User permissions: none.
    - "Where can this GitHub App be installed?": Only on this account.
-2. Install the App on the `opentensor/subtensor` repo (only).
+2. Install the App on the `RaoFoundation/subtensor` repo (only).
 3. From the App settings page, generate a private key (`.pem` file).
 4. In repo Settings → Secrets and variables → Actions:
    - Variables tab: add `AI_REVIEW_APP_ID` = the App's numeric ID.
@@ -98,7 +98,7 @@ the PR number. `workflow_dispatch` runs in base context with secrets
 available, performs the real review, and the required checks turn green.
 
 ```bash
-gh workflow run ai-review.yml --repo opentensor/subtensor -f pr_number=<N>
+gh workflow run ai-review.yml --repo RaoFoundation/subtensor -f pr_number=<N>
 ```
 
 ## Required-checks setup
@@ -114,7 +114,7 @@ After the first successful run, add these to branch protection on `devnet-ready`
 Manual trigger:
 
 ```bash
-gh workflow run ai-review-index-gittensor.yml --repo opentensor/subtensor
+gh workflow run ai-review-index-gittensor.yml --repo RaoFoundation/subtensor
 ```
 
 Daily cron is already configured (06:17 UTC). The indexer opens a PR with any

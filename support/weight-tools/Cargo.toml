@@ -5,7 +5,7 @@ edition.workspace = true
 license = "MIT"
 
 description = "Lightweight tools for benchmark weight management"
-repository = "https://github.com/opentensor/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 homepage = "https://bittensor.com"
 
 [[bin]]

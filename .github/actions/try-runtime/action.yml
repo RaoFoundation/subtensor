@@ -1,0 +1,99 @@
+name: "Subtensor Try Runtime"
+description: "Check Subtensor runtime migrations using try-runtime-cli"
+author: "OpenTensor Foundation"
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  runtime-package:
+    description: "The runtime package name"
+    required: true
+  node-uri:
+    description: "URI of a node to scrape state"
+    required: true
+  checks:
+    description: "Types of checks to run."
+    default: "all"
+  blocktime:
+    description: "Block time in milliseconds to use for try-runtime checks."
+    default: "12000"
+  extra-args:
+    description: "Extra args to pass to the on-runtime-upgrade subcommand."
+    default: ""
+  cache-on-failure:
+    description: "Whether to save the Rust cache even if the job fails"
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download try-runtime-cli v0.10.1
+      run: |
+        TRY_RUNTIME_BIN="$RUNNER_TEMP/try-runtime"
+        curl --fail --silent --show-error --location \
+          "https://github.com/paritytech/try-runtime-cli/releases/download/v0.10.1/try-runtime-x86_64-unknown-linux-musl" \
+          --output "$TRY_RUNTIME_BIN"
+        chmod +x "$TRY_RUNTIME_BIN"
+        echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
+      shell: bash
+
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1.3.0
+      with:
+        version: "3.6.1"
+        repo-token: ${{ github.token }}
+
+    - name: Add wasm32-unknown-unknown target
+      run: rustup target add wasm32-unknown-unknown
+      shell: bash
+
+    - name: Add rust-src component
+      run: rustup component add rust-src
+      shell: bash
+
+    - name: Fetch cache
+      uses: Swatinem/rust-cache@v2.7.0
+      with:
+        shared-key: try-runtime
+        cache-on-failure: ${{ inputs.cache-on-failure }}
+
+    - name: Build ${{ inputs.runtime-package }}
+      run: cargo build --profile production -p "$RUNTIME_PACKAGE" --features try-runtime -q --locked
+      shell: bash
+      env:
+        RUNTIME_PACKAGE: ${{ inputs.runtime-package }}
+
+    - name: Check migrations
+      run: |
+        RUNTIME_BLOB_NAME="${RUNTIME_PACKAGE//-/_}.compact.compressed.wasm"
+        RUNTIME_BLOB_PATH="./target/production/wbuild/$RUNTIME_PACKAGE/$RUNTIME_BLOB_NAME"
+        export RUST_LOG=remote-ext=debug,runtime=debug
+
+        command=(
+          "$TRY_RUNTIME_BIN"
+          --runtime "$RUNTIME_BLOB_PATH"
+          on-runtime-upgrade
+          "--checks=$CHECKS"
+          --blocktime
+          "$BLOCKTIME"
+        )
+
+        if [[ -n "$EXTRA_ARGS" ]]; then
+          read -r -a extra_args <<< "$EXTRA_ARGS"
+          command+=("${extra_args[@]}")
+        fi
+
+        command+=(live --uri "$NODE_URI")
+
+        echo "Running command:"
+        printf '%q ' "${command[@]}"
+        printf '\n'
+        "${command[@]}"
+      shell: bash
+      env:
+        RUNTIME_PACKAGE: ${{ inputs.runtime-package }}
+        NODE_URI: ${{ inputs.node-uri }}
+        CHECKS: ${{ inputs.checks }}
+        BLOCKTIME: ${{ inputs.blocktime }}
+        EXTRA_ARGS: ${{ inputs.extra-args }}

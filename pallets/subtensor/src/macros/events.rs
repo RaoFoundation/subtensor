@@ -534,6 +534,12 @@ mod events {
             alpha: AlphaBalance,
         },
 
+        /// data for a dissolved network has been cleaned up.
+        NetworkDissolveCleanupCompleted {
+            /// The subnet ID
+            netuid: NetUid,
+        },
+
         /// A coldkey swap announcement has been cleared.
         ColdkeySwapCleared {
             /// The account ID of the coldkey that cleared the announcement.
@@ -668,6 +674,24 @@ mod events {
             netuid: NetUid,
             /// Whether this coldkey's locks are now perpetual.
             enabled: bool,
+        },
+
+        /// A network registration cost has been queued.
+        NetworkRegistrationQueued {
+            /// The network registration information.
+            coldkey: T::AccountId,
+            /// The hotkey that registered the network.
+            hotkey: T::AccountId,
+            /// The mechanism that registered the network.
+            mechid: u16,
+            /// The identity that registered the network.
+            identity: Option<SubnetIdentityOfV3>,
+            /// The lock amount that registered the network.
+            lock_amount: TaoBalance,
+            /// The median subnet alpha price that registered the network.
+            median_subnet_alpha_price: U64F64,
+            /// The block at which the network was registered.
+            registration_block: u64,
         },
 
         /// A coldkey's reject locked alpha account flag was updated.
