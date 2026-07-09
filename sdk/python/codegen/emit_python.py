@@ -43,6 +43,17 @@ def _py_name(name: str) -> str:
     return f"{name}_" if keyword.iskeyword(name) else name
 
 
+def _check_unique(scope: str, names: list[str], reserved: tuple[str, ...] = ()) -> None:
+    """Fail codegen loudly on emitted-name collisions (the last def would silently win)."""
+    seen: set[str] = set()
+    for name in names:
+        if name in reserved:
+            raise ValueError(f"codegen name collision in {scope}: {name!r} shadows a preamble type")
+        if name in seen:
+            raise ValueError(f"codegen name collision in {scope}: {name!r} emitted twice")
+        seen.add(name)
+
+
 def emit_errors(ir: MetadataIR) -> str:
     lines = [_HEADER.format(spec_version=ir.spec_version)]
     lines.append("from dataclasses import dataclass\n\n")
@@ -73,9 +84,19 @@ def emit_calls(ir: MetadataIR) -> str:
     lines.append("    function: str\n")
     lines.append("    params: dict[str, Any]\n\n\n")
 
+    _check_unique(
+        "calls.py pallet classes",
+        [p.name for p in ir.pallets if p.calls],
+        reserved=("Call",),
+    )
     for pallet in sorted(ir.pallets, key=lambda p: p.index):
         if not pallet.calls:
             continue
+        _check_unique(
+            f"calls.py class {pallet.name}",
+            [_py_name(c.name) for c in pallet.calls],
+            reserved=("Call",),
+        )
         lines.append(f"class {pallet.name}:\n")
         lines.append(f'    """Call builders for the {pallet.name} pallet."""\n\n')
         for call in sorted(pallet.calls, key=lambda c: c.name):
@@ -106,9 +127,19 @@ def _emit_item_classes(
     lines.append('    """A (container, name) pair; unpack into query/constant calls."""\n\n')
     lines.append("    container: str\n")
     lines.append("    name: str\n\n\n")
+    _check_unique(
+        f"{item_class} descriptor groups",
+        [g for g, names in groups if names],
+        reserved=(item_class,),
+    )
     for group_name, names in groups:
         if not names:
             continue
+        _check_unique(
+            f"descriptor class {group_name}",
+            [_py_name(n) for n in names],
+            reserved=(item_class,),
+        )
         lines.append(f"class {group_name}:\n")
         for name in names:
             lines.append(f"    {_py_name(name)} = {item_class}({group_name!r}, {name!r})\n")
@@ -146,7 +177,7 @@ def emit_runtime_apis(ir: MetadataIR) -> str:
 
 def artifacts(ir: MetadataIR) -> dict[str, str]:
     """Filename -> content for every generated file. Single source for write + drift check."""
-    return {
+    out = {
         "__init__.py": '"""Generated wire layer. DO NOT EDIT BY HAND."""\n',
         "errors.py": emit_errors(ir),
         "calls.py": emit_calls(ir),
@@ -154,6 +185,10 @@ def artifacts(ir: MetadataIR) -> dict[str, str]:
         "constants.py": emit_constants(ir),
         "runtime_apis.py": emit_runtime_apis(ir),
     }
+    # Fail codegen (not the eventual import) on any syntax error in emitted source.
+    for filename, content in out.items():
+        compile(content, filename, "exec")
+    return out
 
 
 def write(ir: MetadataIR, out_dir: Path) -> list[Path]:

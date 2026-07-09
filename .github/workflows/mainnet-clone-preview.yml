@@ -56,13 +56,13 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config jq
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
       - name: Check-out repository under $GITHUB_WORKSPACE
         uses: actions/checkout@v4
 
       - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: clone-upgrade
           cache-on-failure: true
@@ -110,9 +110,13 @@ jobs:
 
       - name: Open tunnel to the clone RPC
         id: tunnel
+        env:
+          CLOUDFLARED_VERSION: "2026.7.1"
+          CLOUDFLARED_SHA256: "79a0ade7fc854f62c1aaef48424d9d979e8c2fcd039189d24db82b84cd146be1"
         run: |
           curl -fsSL -o /tmp/cloudflared \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          echo "${CLOUDFLARED_SHA256}  /tmp/cloudflared" | sha256sum -c -
           chmod +x /tmp/cloudflared
           nohup /tmp/cloudflared tunnel --url http://127.0.0.1:9944 --no-autoupdate > tunnel.log 2>&1 &
           for i in $(seq 1 30); do

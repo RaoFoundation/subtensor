@@ -63,7 +63,20 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> PyResult<Ke
         .get("privateKey")
         .and_then(|value| value.as_str())
     {
-        return Keypair::create_from_private_key(private_key, crypto_type);
+        let keypair = Keypair::create_from_private_key(private_key, crypto_type)?;
+        // Some legacy btwallet keyfiles use a leading-space " ss58Address" key.
+        if let Some(stored_ss58) = keyfile_dict
+            .get("ss58Address")
+            .or_else(|| keyfile_dict.get(" ss58Address"))
+            .and_then(|value| value.as_str())
+        {
+            if keypair.ss58_address() != stored_ss58 {
+                return Err(key_err(
+                    "ss58Address in keyfile does not match the address derived from privateKey",
+                ));
+            }
+        }
+        return Ok(keypair);
     }
 
     if let Some(ss58) = keyfile_dict

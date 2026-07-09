@@ -154,10 +154,10 @@ class Balance:
     def __eq__(self, other: object) -> bool:
         # Equality never raises: a different-currency balance is simply not equal,
         # so containment (`x in [...]`) and dict/set membership behave sanely.
+        # Raw ints are never equal: int equality would be currency-blind and
+        # inconsistent with hash((rao, netuid)). Compare via ordering or .rao.
         if isinstance(other, Balance):
             return self.netuid == other.netuid and self.rao == other.rao
-        if isinstance(other, int):
-            return self.rao == other
         return NotImplemented
 
     def __hash__(self) -> int:

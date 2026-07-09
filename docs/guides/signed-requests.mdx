@@ -63,6 +63,11 @@ btauth/1
 <receiver hotkey ss58, or "-" if unbound>
 ```
 
+The request target is the **percent-encoded (wire) form** on both sides —
+`/a%20b?q=1`, never the decoded `/a b`. Server frameworks usually hand you
+the decoded path, so rebuild the target from the raw/encoded value (see the
+FastAPI recipe below).
+
 Signing the method, path, and body hash means a captured signature cannot be
 replayed against a different route or payload; signing the receiver means a
 malicious miner cannot proxy a validator's request to another miner. sr25519
@@ -113,12 +118,17 @@ app = FastAPI()
 
 async def authenticated(request: Request) -> sub.http_auth.Caller:
     body = await request.body()          # raw bytes, cached by Starlette
+    # Rebuild the request target in its wire (percent-encoded) form. ASGI's
+    # `path` is percent-decoded — using it would break signatures on any
+    # encoded path — so take `raw_path` from the scope instead.
+    target = request.scope["raw_path"].decode()
+    if request.scope["query_string"]:
+        target += "?" + request.scope["query_string"].decode()
     try:
         return sub.http_auth.verify(
             request.headers, body,
             method=request.method,
-            path=request.url.path
-            + (f"?{request.url.query}" if request.url.query else ""),
+            path=target,
             self_hotkey_ss58=MY_HOTKEY,
         )
     except sub.http_auth.AuthError as e:
@@ -149,8 +159,12 @@ as the key for any rate limiting or prioritization.
 
 Discovery comes from the metagraph — each neuron's served endpoint is
 `n.axon` (`"ip:port"` or `None`, published via
-[`serve-axon`](/docs/tx/serve-axon)). An `httpx.Auth` signs every request,
-including each retry, with a fresh nonce:
+[`serve-axon`](/docs/tx/serve-axon)). An `httpx.Auth` signs each request as
+it is sent (both sides use the percent-encoded request target, matching the
+FastAPI recipe above). Application-level retries through `auth_flow` get a
+fresh nonce; note that transport-level connection retries resend the
+already-signed request and will be rejected as replays — retry at the
+application level:
 
 ```python
 import bittensor as sub
@@ -223,6 +237,11 @@ tooling:
   substrate signing context (`b"substrate"`); most libraries default to it,
   but a mismatch produces silent verification failures.
 - **ed25519** is plain RFC 8032 — Go stdlib, PyNaCl, noble-ed25519, ring.
+- Sign the exact payload bytes. (One asymmetry to know about: this SDK's
+  verifier, via `sp_core`, additionally tolerates signatures over the
+  `<Bytes>…</Bytes>`-wrapped payload for Polkadot-JS `signRaw`
+  compatibility. Other implementations are not required to accept the
+  wrapped form — and must never produce it.)
 - **JavaScript**: the nanosecond nonce exceeds `Number.MAX_SAFE_INTEGER`.
   Treat it as a string or `BigInt` end to end; a `parseInt` round-trip
   corrupts the payload you reconstruct.

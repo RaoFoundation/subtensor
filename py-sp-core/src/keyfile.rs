@@ -3,10 +3,12 @@
 use base64::{engine::general_purpose, Engine as _};
 use fernet::Fernet;
 use pbkdf2::pbkdf2_hmac;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use sha2::Sha256;
 use sodiumoxide::crypto::pwhash;
 use sodiumoxide::crypto::secretbox;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{KeyfileError, WrongPasswordError};
 
@@ -108,6 +110,9 @@ fn decrypt_password(data: &[u8], key: &str) -> PyResult<String> {
 }
 
 pub fn get_password_from_environment(env_var_name: &str) -> PyResult<Option<String>> {
+    if env_var_name.is_empty() {
+        return Err(PyValueError::new_err("env var name must not be empty"));
+    }
     match std::env::var(env_var_name) {
         Ok(encrypted_password_base64) => {
             let encrypted_password = general_purpose::STANDARD
@@ -120,7 +125,12 @@ pub fn get_password_from_environment(env_var_name: &str) -> PyResult<Option<Stri
 }
 
 pub fn save_password_to_environment(env_var_name: &str, password: &str) -> PyResult<String> {
+    if env_var_name.is_empty() {
+        return Err(PyValueError::new_err("env var name must not be empty"));
+    }
     let encrypted = xor_with_key(password.as_bytes(), env_var_name);
+    // Inherited btwallet behavior: set_var is not thread-safe and can race with
+    // concurrent getenv calls from other (non-GIL-holding) threads.
     std::env::set_var(env_var_name, general_purpose::STANDARD.encode(encrypted));
     Ok(env_var_name.to_string())
 }
@@ -128,7 +138,8 @@ pub fn save_password_to_environment(env_var_name: &str, password: &str) -> PyRes
 fn legacy_decrypt(password: &str, keyfile_data: &[u8]) -> PyResult<Vec<u8>> {
     let mut key = [0u8; 32];
     pbkdf2_hmac::<Sha256>(password.as_bytes(), LEGACY_SALT, 10_000_000, &mut key);
-    let fernet_key = general_purpose::URL_SAFE.encode(key);
+    let fernet_key = Zeroizing::new(general_purpose::URL_SAFE.encode(key));
+    key.zeroize();
     let fernet = Fernet::new(&fernet_key).ok_or_else(|| key_err("invalid legacy fernet key"))?;
     let keyfile_data_str = std::str::from_utf8(keyfile_data)
         .map_err(|e| key_err(format!("legacy keyfile is not valid utf-8: {e}")))?;

@@ -137,11 +137,18 @@ Then verify the call data embeds that exact runtime:
 python3 test-wasm.py
 ```
 
-This confirms `subtensor.wasm` hashes to `subtensor-digest.json` and that those
-exact WASM bytes appear inside `proxy_proxy_blob.hex`. It must print
+This confirms `subtensor.wasm` hashes to `subtensor-digest.json` and that
+`proxy_proxy_blob.hex` is, byte for byte, the expected
+`proxy.proxy(sudo_key, None, sudo.sudoUncheckedWeight(system.setCode(<your WASM>), <fixed weight>))`
+call — the WASM must be the `code` argument of `setCode`, and the call data can
+contain nothing else (no batches, no extra calls). It must print
 `WASM is correct` before you sign anything. Because the `subtensor.wasm` here is
-the one *you* built, a passing check proves the call data you are about to
-approve contains the runtime you compiled from source.
+the one *you* built, a passing check proves the call data executes `setCode`
+with exactly the runtime you compiled from source. The one part the script
+cannot pin offline is the 32-byte proxied account, which must be the chain's
+sudo key — `prod-approval.js` verifies the sudo key separately before
+submitting, and the proxy call fails on chain if that account is not the sudo
+key.
 
 ### 4. Note the deployment timepoint
 

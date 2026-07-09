@@ -50,7 +50,7 @@ jobs:
 
       - name: Compare against mainnet
         run: |
-          chain_spec=$(PATH=$PATH:$HOME/.cargo/.bin substrate-spec-version ${{ env.MAINNET_WS }} | tr -d '\n')
+          chain_spec=$(PATH=$PATH:$HOME/.cargo/bin substrate-spec-version ${{ env.MAINNET_WS }} | tr -d '\n')
           : ${chain_spec:?could not fetch mainnet spec_version}
           local_spec=$(cargo run -p subtensor-tools --bin spec-version | tr -d '\n')
           echo "mainnet spec_version: $chain_spec"

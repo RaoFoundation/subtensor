@@ -84,12 +84,14 @@ def clip_to_max_weight(weights: Sequence[float], limit: float) -> list[float]:
     Weights already within the limit are just sum-normalized. Otherwise a cutoff
     is found such that clipping everything above it lands the largest normalized
     weight exactly on the limit — mass is redistributed rather than discarded.
-    Degenerate inputs (all zero, or ``len * limit <= 1``, which no distribution
-    can satisfy) return the uniform distribution.
+    Empty or all-zero input raises; a limit no distribution can satisfy
+    (``len * limit <= 1``) returns the uniform distribution.
     """
     n = len(weights)
     total = float(sum(weights))
-    if total <= 0 or n * limit <= 1:
+    if n == 0 or total <= 0:
+        raise BittensorError("All weights are zero; nothing to set.")
+    if n * limit <= 1:
         return [1.0 / n] * n
 
     estimation = sorted(w / total for w in weights)
@@ -122,7 +124,10 @@ def _as_pairs(uids: Optional[Sequence[int]], weights: Any) -> tuple[list[int], l
                 "lists, not both."
             )
         items = sorted((int(uid), float(weight)) for uid, weight in weights.items())
-        return [uid for uid, _ in items], [weight for _, weight in items]
+        map_uids = [uid for uid, _ in items]
+        if len(set(map_uids)) != len(map_uids):
+            raise BittensorError("Duplicate UIDs in weights; each UID may appear once.")
+        return map_uids, [weight for _, weight in items]
     if uids is None or weights is None:
         raise BittensorError(
             "Provide weights as a {uid: weight} mapping, or uids and weights as parallel lists."
@@ -180,8 +185,8 @@ async def _preflight(substrate, hotkey_ss58: str, netuid: int, mechid: int) -> _
         and int(last_raw[uid]) > 0
     ):
         since = current_block - int(last_raw[uid])
-        if since <= rate_limit:  # chain allows only when since > rate_limit
-            remaining = rate_limit - since + 1
+        if since < rate_limit:  # chain allows when since >= rate_limit
+            remaining = rate_limit - since
             seconds = remaining * await substrate.block_time()
             raise ChainError(
                 f"Weights on netuid {netuid} were last set {since} blocks ago; the "
@@ -246,14 +251,16 @@ async def _build_timelocked(
         substrate.query(*st.RevealPeriodEpochs, [netuid], block_hash=block_hash),
         substrate.block_time(),
     )
-    storage_index = mechid * GLOBAL_MAX_SUBNET_COUNT + netuid
+    # The drand reveal-round/epoch math needs the real netuid; the mechanism
+    # storage index (mechid * 4096 + netuid) is only a chain storage key and
+    # would shift the reveal round for mechid >= 1.
     commit_bytes, reveal_round = get_encrypted_commit(
         uids=uids,
         weights=values,
         version_key=version_key,
         tempo=int(tempo_raw),
         current_block=current_block,
-        netuid=storage_index,
+        netuid=netuid,
         subnet_reveal_period_epochs=int(reveal_raw),
         # Detected from the chain: the drand reveal-round math depends on real
         # wall-clock block time, which is 0.25s on fast-blocks chains.

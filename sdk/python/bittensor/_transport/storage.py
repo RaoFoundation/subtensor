@@ -163,16 +163,17 @@ def decode_map_pairs(
         key_type = f"({', '.join(parts)})"
         hash_len = None
 
-    key_types = [key_type] * len(changes)
-    value_types = [entry.value_type] * len(changes)
     raw_keys = []
     raw_values = []
     for key_hex, value_hex in changes:
+        if value_hex is None:
+            # Key deleted between the key listing and the value fetch.
+            continue
         raw_key = bytes.fromhex(key_hex[len(prefix_hex) :])
         raw_keys.append(raw_key[hash_len:] if hash_len else raw_key)
-        raw_values.append(
-            bytes.fromhex(value_hex.removeprefix("0x")) if value_hex is not None else b""
-        )
+        raw_values.append(bytes.fromhex(value_hex.removeprefix("0x")))
+    key_types = [key_type] * len(raw_keys)
+    value_types = [entry.value_type] * len(raw_keys)
 
     decoded = codec.batch_decode(key_types + value_types, raw_keys + raw_values)
     middle = len(decoded) // 2

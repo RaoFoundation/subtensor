@@ -24,6 +24,7 @@ from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..hyperparams_view import show_hyperparameters
 from ..prompt import PromptSpec, fill_missing, interactive
+from ..tx import _parse_money
 
 app = typer.Typer(no_args_is_help=True, help="Subnet-owner config and governance.")
 
@@ -360,7 +361,7 @@ def trim_subnet(
 def stake_burn(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=StakeBurn.field_help("netuid")),
-    amount_tao: float = typer.Option(
+    amount_tao: str = typer.Option(
         ..., "--amount-tao", "--amount", help=StakeBurn.field_help("amount_tao")
     ),
     limit_price: int = typer.Option(..., "--limit-price", help=StakeBurn.field_help("limit_price")),
@@ -375,10 +376,15 @@ def stake_burn(
     irreversible once the extrinsic is included.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    try:
+        amount = _parse_money(amount_tao, False)
+    except ValueError as error:
+        app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
+        raise typer.Exit(2)
     app_ctx.submit(
         StakeBurn(
             netuid=netuid,
-            amount_tao=amount_tao,
+            amount_tao=amount,
             limit_price=limit_price,
             hotkey_ss58=hotkey_ss58,
         )

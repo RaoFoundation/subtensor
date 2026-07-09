@@ -79,8 +79,60 @@ jq -r '.body // ""' "$OUTPUT_DIR/pr.json" > "$OUTPUT_DIR/pr-body.md"
 # Files changed (paths + per-file additions/deletions; full content lives in the diff)
 gh_retry gh pr view "$PR_NUMBER" --repo "$REPO" --json files > "$OUTPUT_DIR/pr-files.json"
 
-# Full unified diff
-gh_retry gh pr diff "$PR_NUMBER" --repo "$REPO" > "$OUTPUT_DIR/pr-diff.patch"
+# Full unified diff.
+#
+# `gh pr diff` hits the `.diff` media type, which GitHub hard-caps at 300
+# changed files: on a larger PR it returns HTTP 406 "diff exceeded the maximum
+# number of files" and no amount of retrying clears it. Since the Skeptic is a
+# required check, that would leave the gate permanently red on big PRs. So try
+# `gh pr diff` first (canonical output, correct for the common case) and fall
+# back to reconstructing the unified diff from the paginated Files API, which
+# has no file-count cap.
+reconstruct_diff_from_files_api() {
+  # The Files API returns per-file `patch` hunks (omitted for binary and
+  # individually-oversized files). Rebuild a `diff --git` stream from them so
+  # the personas see the same hunks a normal diff would show.
+  gh api "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --paginate \
+    | jq -s 'add // []' \
+    | jq -r '.[] | @base64' \
+    | while read -r row; do
+        _f() { printf '%s' "$row" | base64 --decode | jq -r "$1"; }
+        local status filename previous patch old new
+        status=$(_f '.status')
+        filename=$(_f '.filename')
+        previous=$(_f '.previous_filename // ""')
+        patch=$(_f '.patch // ""')
+
+        old="a/${previous:-$filename}"
+        new="b/$filename"
+        printf 'diff --git %s %s\n' "$old" "$new"
+
+        case "$status" in
+          added)   printf -- '--- /dev/null\n+++ %s\n' "$new" ;;
+          removed) printf -- '--- %s\n+++ /dev/null\n' "$old" ;;
+          renamed)
+            printf 'rename from %s\nrename to %s\n' "${previous:-$filename}" "$filename"
+            printf -- '--- %s\n+++ %s\n' "$old" "$new"
+            ;;
+          *)       printf -- '--- %s\n+++ %s\n' "$old" "$new" ;;
+        esac
+
+        if [[ -n "$patch" ]]; then
+          printf '%s\n' "$patch"
+        else
+          printf '@@ (no textual patch — binary or file exceeded diff size limit) @@\n'
+        fi
+      done
+}
+
+if _gh_retry_inner gh pr diff "$PR_NUMBER" --repo "$REPO" > "$OUTPUT_DIR/pr-diff.patch"; then
+  :
+else
+  echo "::warning::gh pr diff failed (likely >300 files / HTTP 406); reconstructing from the Files API" >&2
+  cat /tmp/gh_retry.err >&2 2>/dev/null || true
+  rm -f /tmp/gh_retry.err
+  reconstruct_diff_from_files_api > "$OUTPUT_DIR/pr-diff.patch"
+fi
 
 # All PR comments (issue-style). `--paginate` alone writes one JSON array per
 # page; `--slurp` wraps them as [[page1], [page2], ...]; we then flatten with

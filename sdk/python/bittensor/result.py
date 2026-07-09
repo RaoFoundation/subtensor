@@ -231,10 +231,11 @@ EXPLANATIONS: dict[ErrorCode, str] = {
 # Substring fallback, used only when there is no exact name (e.g. the transaction
 # was rejected in the pool with a JSON-RPC message rather than a module error).
 _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
-    ("too low", ErrorCode.INSUFFICIENT_BALANCE),
+    # "balance too low", not a bare "too low": pool rejections like
+    # "Priority is too low" are not balance problems.
+    ("balance too low", ErrorCode.INSUFFICIENT_BALANCE),
     ("insufficient", ErrorCode.INSUFFICIENT_BALANCE),
     ("not enough", ErrorCode.INSUFFICIENT_BALANCE),
-    ("balance too low", ErrorCode.INSUFFICIENT_BALANCE),
     ("rate limit", ErrorCode.RATE_LIMITED),
     ("too fast", ErrorCode.RATE_LIMITED),
     ("bad signature", ErrorCode.INVALID_ARGUMENT),

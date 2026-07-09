@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from .._generated import calls
 from .._generated import storage as st
+from ..result import BittensorError
 from ..settings import U16_MAX
 from .base import Intent
 from .registry import register
@@ -191,6 +192,10 @@ class SetTake(Intent):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
         item = st.SubtensorModule.Delegates
         current = int(await substrate.query(item[0], item[1], [hotkey]) or 0)
+        if self.take == current:
+            raise BittensorError(
+                f"delegate take is already {current}/{U16_MAX}; nothing to change"
+            )
         call = (
             calls.SubtensorModule.decrease_take(hotkey=hotkey, take=self.take)
             if self.take < current

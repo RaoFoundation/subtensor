@@ -63,7 +63,7 @@ jobs:
           EOF
 
       - name: Build wheel (manylinux)
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           working-directory: py-sp-core
           command: build
@@ -75,7 +75,7 @@ jobs:
       # once, alongside the x86_64 wheel.
       - name: Build sdist
         if: matrix.target == 'x86_64'
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           working-directory: py-sp-core
           command: sdist
@@ -136,7 +136,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           working-directory: py-sp-core
           command: build

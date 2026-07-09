@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <!--
+    CSP: only esm.sh (the @polkadot/extension-dapp import below) and this page's
+    own inline script may run; network access is limited to the local bridge
+    websocket. 'unsafe-inline' is required because the bridge script is inline.
+    TODO: vendor @polkadot/extension-dapp locally (SRI cannot cover a bare ESM
+    import) so the esm.sh origin can be dropped entirely.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'unsafe-inline' https://esm.sh; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://esm.sh; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bittensor Extension Bridge</title>
   <style>

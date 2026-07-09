@@ -195,8 +195,12 @@ def sign_message(
 
 def verify_message(message: str, signature: str, ss58_address: str) -> bool:
     """Check a 0x-hex signature over ``message`` against an address's public key."""
-    keypair = Keypair(ss58_address=ss58_address)
-    return keypair.verify(message.encode(), bytes.fromhex(signature.removeprefix("0x")))
+    try:
+        keypair = Keypair(ss58_address=ss58_address)
+        return keypair.verify(message.encode(), bytes.fromhex(signature.removeprefix("0x")))
+    except ValueError:
+        # Malformed hex or address: not verified, per the boolean contract.
+        return False
 
 
 def open_wallet(
@@ -414,6 +418,12 @@ def decrypt_message(
     return keypair.decrypt(raw).decode()
 
 
+def _is_hotkey_companion_file(name: str) -> bool:
+    """Lock artifacts and public companion files that live beside hotkeys but
+    are not hotkeys themselves (``default.lock``, ``defaultpub.txt``)."""
+    return name.endswith(".lock") or name.endswith("pub.txt")
+
+
 def list_wallets(path: str = DEFAULT_WALLET_PATH) -> dict[str, list[str]]:
     """Map coldkey wallet name -> list of its hotkey names on disk."""
     root = Path(path).expanduser()
@@ -425,7 +435,11 @@ def list_wallets(path: str = DEFAULT_WALLET_PATH) -> dict[str, list[str]]:
             continue
         hotkeys_dir = coldkey_dir / "hotkeys"
         hotkeys = (
-            sorted(hk.name for hk in hotkeys_dir.iterdir() if hk.is_file())
+            sorted(
+                hk.name
+                for hk in hotkeys_dir.iterdir()
+                if hk.is_file() and not _is_hotkey_companion_file(hk.name)
+            )
             if hotkeys_dir.is_dir()
             else []
         )
@@ -481,8 +495,7 @@ def list_wallets_detailed(path: str = DEFAULT_WALLET_PATH) -> list[ColdkeyInfo]:
         hotkeys_dir = coldkey_dir / "hotkeys"
         if hotkeys_dir.is_dir():
             for hk in sorted(hotkeys_dir.iterdir(), key=lambda p: p.name):
-                # Skip lock artifacts (e.g. ``default.lock``); they aren't keys.
-                if hk.is_file() and not hk.name.endswith(".lock"):
+                if hk.is_file() and not _is_hotkey_companion_file(hk.name):
                     hk_ss58, hk_crypto = _read_keyfile(hk)
                     info.hotkeys.append(
                         HotkeyInfo(name=hk.name, ss58=hk_ss58, crypto_type=hk_crypto)

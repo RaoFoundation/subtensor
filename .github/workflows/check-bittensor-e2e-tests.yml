@@ -114,6 +114,10 @@ jobs:
               '
           )
           echo "Found tests: $test_matrix"
+          if [ "$test_matrix" = "[]" ] || [ -z "$test_matrix" ]; then
+            echo "No e2e tests found — failing."
+            exit 1
+          fi
           echo "test-files=$test_matrix" >> "$GITHUB_OUTPUT"
         shell: bash
 

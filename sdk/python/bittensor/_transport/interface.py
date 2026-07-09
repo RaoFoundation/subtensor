@@ -9,6 +9,7 @@ inspecting.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from hashlib import blake2b
 from typing import Any, AsyncIterator, Optional
@@ -45,6 +46,9 @@ from .storage import (
 )
 
 logger = logging.getLogger("bittensor.transport")
+
+# How long a probed finalized-head height is trusted (one mainnet block).
+_FINALIZED_TTL = 12.0
 
 
 class QueryMapResult:
@@ -143,6 +147,10 @@ class SubstrateConnection:
         self._nonces = NonceCache(self._session)
         self._block_hash_by_number: LRUCache = LRUCache(max_size=512)
         self._block_number_by_hash: LRUCache = LRUCache(max_size=512)
+        # Finalized height, re-probed at most every _FINALIZED_TTL seconds;
+        # gates the number->hash cache so a reorg can't serve stale fork hashes.
+        self._finalized_height = -1
+        self._finalized_checked_at = float("-inf")
 
     # -- lifecycle ---------------------------------------------------------------
 
@@ -186,9 +194,27 @@ class SubstrateConnection:
         block_hash = await self._session.request("chain_getBlockHash", [block_id])
         if block_hash is None:
             raise BlockNotFound(f"no block at height {block_id}")
-        self._block_hash_by_number.set(block_id, block_hash)
-        self._block_number_by_hash.set(block_hash, block_id)
+        # Only finalized number->hash mappings are cached: a hash above the
+        # finalized head can still be reorged away.
+        if block_id <= await self._known_finalized_height():
+            self._block_hash_by_number.set(block_id, block_hash)
+            self._block_number_by_hash.set(block_hash, block_id)
         return block_hash
+
+    async def _known_finalized_height(self) -> int:
+        """The finalized head height, cached for ``_FINALIZED_TTL`` seconds.
+
+        A stale (lower) value is safe: it only makes the block-hash cache skip
+        recently finalized blocks.
+        """
+        now = asyncio.get_running_loop().time()
+        if now - self._finalized_checked_at >= _FINALIZED_TTL:
+            head = await self.get_chain_finalised_head()
+            header = await self._session.request("chain_getHeader", [head])
+            if header is not None:
+                self._finalized_height = int(header["number"], 16)
+                self._finalized_checked_at = now
+        return self._finalized_height
 
     async def get_block_number(self, block_hash: Optional[str] = None) -> int:
         if block_hash is not None:
@@ -302,6 +328,11 @@ class SubstrateConnection:
         ignore_decoding_errors: bool,
     ) -> tuple[list[tuple[Any, Any]], Optional[str], bool]:
         """One page of a map query: (pairs, last_raw_key, exhausted)."""
+        if block_hash is None:
+            # Pin the head so keys and values are read at the same block; a
+            # key deleted between the two RPCs would otherwise come back as a
+            # None value.
+            block_hash = await self.get_chain_head()
         codec = await self._runtimes.codec_at(block_hash)
         entry = codec.storage_entry(module, storage_function)
         if len(entry.param_types) == 0:

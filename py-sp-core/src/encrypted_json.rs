@@ -7,6 +7,7 @@ use scrypt::{scrypt, Params as ScryptParams};
 use serde::Deserialize;
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
 use sp_core::{ed25519, Pair as PairT};
+use zeroize::Zeroizing;
 
 use crate::{Keypair, KeypairInner, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
 
@@ -36,15 +37,18 @@ fn pad_right(mut data: Vec<u8>, total_len: usize, pad_byte: u8) -> Vec<u8> {
     data
 }
 
-fn pair_from_ed25519_secret_key(secret: &[u8], pubkey: &[u8]) -> PyResult<([u8; 64], [u8; 32])> {
+fn pair_from_ed25519_secret_key(secret: &[u8]) -> PyResult<([u8; 64], [u8; 32])> {
     let secret_key = SecretKey::from_ed25519_bytes(secret)
         .map_err(|_| value_err("invalid ed25519 secret key in encrypted JSON"))?;
-    let public_key = PublicKey::from_bytes(pubkey)
-        .map_err(|_| value_err("invalid sr25519 public key in encrypted JSON"))?;
+    let public_key: PublicKey = secret_key.to_public();
     Ok((secret_key.to_bytes(), public_key.to_bytes()))
 }
 
 fn decode_pkcs8(ciphertext: &[u8]) -> PyResult<([u8; SEC_LENGTH], [u8; PUB_LENGTH])> {
+    let min_len = PKCS8_HEADER.len() + SEC_LENGTH + PKCS8_DIVIDER.len() + PUB_LENGTH;
+    if ciphertext.len() < min_len {
+        return Err(value_err("decrypted PKCS8 payload too short"));
+    }
     let mut current_offset = 0;
     let header = &ciphertext[current_offset..current_offset + PKCS8_HEADER.len()];
     if header != PKCS8_HEADER {
@@ -117,13 +121,13 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
         let log_n: u8 = n.ilog2() as u8;
         let params = ScryptParams::new(log_n, r, p, 32)
             .map_err(|error| value_err(format!("invalid scrypt params: {error}")))?;
-        let mut derived_key = vec![0u8; 32];
+        let mut derived_key = Zeroizing::new(vec![0u8; 32]);
         scrypt(passphrase.as_bytes(), salt, &params, &mut derived_key)
             .map_err(|error| value_err(format!("scrypt key derivation failed: {error}")))?;
         encrypted = encrypted[44..].to_vec();
         derived_key
     } else {
-        pad_right(passphrase.as_bytes().to_vec(), 32, 0x00)
+        Zeroizing::new(pad_right(passphrase.as_bytes().to_vec(), 32, 0x00))
     };
 
     if encrypted.len() < 24 {
@@ -133,17 +137,19 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
         .ok_or_else(|| value_err("invalid nonce in encrypted JSON"))?;
     let message = &encrypted[24..];
     let key = Key::from_slice(&password).ok_or_else(|| value_err("invalid derived key length"))?;
-    let decrypted_data = secretbox::open(message, &nonce, &key)
-        .map_err(|_| value_err("failed to decrypt encrypted JSON (wrong passphrase?)"))?;
+    let decrypted_data = Zeroizing::new(
+        secretbox::open(message, &nonce, &key)
+            .map_err(|_| value_err("failed to decrypt encrypted JSON (wrong passphrase?)"))?,
+    );
     let (private_key, public_key) = decode_pkcs8(&decrypted_data)?;
 
     if json_data.encoding.content.iter().any(|c| c == "sr25519") {
-        let (secret, converted_public_key) =
-            pair_from_ed25519_secret_key(&private_key, &public_key)?;
-        if public_key != converted_public_key {
+        let (secret, derived_public_key) = pair_from_ed25519_secret_key(&private_key)?;
+        if public_key != derived_public_key {
             return Err(value_err("sr25519 public key mismatch in encrypted JSON"));
         }
-        Keypair::create_from_private_key(&hex::encode(secret), CRYPTO_SR25519)
+        let secret_hex = Zeroizing::new(hex::encode(secret));
+        Keypair::create_from_private_key(&secret_hex, CRYPTO_SR25519)
     } else if json_data.encoding.content.iter().any(|c| c == "ed25519") {
         let seed = &private_key[..32];
         let pair = ed25519::Pair::from_seed_slice(seed).map_err(|error| {

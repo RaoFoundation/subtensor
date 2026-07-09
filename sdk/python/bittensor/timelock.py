@@ -324,13 +324,13 @@ def decrypt(
     grace = time.monotonic() + _FETCH_GRACE_SECONDS
     if deadline is not None:
         grace = min(grace, deadline)
-    last_error: Optional[BaseException] = None
+    last_error: Optional[Exception] = None
     while True:
         try:
             result = _drand_decrypt(sealed.ciphertext, False)
             if result is not None:
                 return result
-        except BaseException as error:  # the rust binding raises plain ValueError
+        except Exception as error:  # the rust binding raises plain ValueError
             last_error = error
         if time.monotonic() >= grace:
             break

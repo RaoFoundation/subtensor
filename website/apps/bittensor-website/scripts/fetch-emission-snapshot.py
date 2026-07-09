@@ -163,11 +163,15 @@ async def build_snapshot() -> dict:
     tmc_rows = fetch_tmc_subnets()
     non_root = [r for r in tmc_rows if int(r["netuid"]) != 0]
 
-    ema_price_sum = sum(tmc_num(r["latest_snapshot"].get("subnet_moving_price")) for r in non_root)
+    ema_price_sum = sum(
+        tmc_num((r.get("latest_snapshot") or {}).get("subnet_moving_price")) for r in non_root
+    )
 
-    top_rows = sorted(non_root, key=lambda r: tmc_num(r["latest_snapshot"].get("price")), reverse=True)[
-        :TOP_N
-    ]
+    top_rows = sorted(
+        non_root,
+        key=lambda r: tmc_num((r.get("latest_snapshot") or {}).get("price")),
+        reverse=True,
+    )[:TOP_N]
     top_netuids = [int(r["netuid"]) for r in top_rows]
     featured_netuid = 4 if 4 in top_netuids else top_netuids[0]
 

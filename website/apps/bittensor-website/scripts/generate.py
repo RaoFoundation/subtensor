@@ -459,24 +459,32 @@ def write_catalogs(catalog_root: Path) -> None:
 
 
 def generate(content_root: Path) -> None:
-    tx_dir = content_root / "tx"
-    query_dir = content_root / "query"
-    for d in (tx_dir, query_dir):
-        if d.exists():
-            shutil.rmtree(d)
-        d.mkdir(parents=True)
+    # Emit into a temp dir first, then swap in the results, so an exception
+    # mid-emit cannot leave the committed tree half-deleted.
+    content_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=content_root) as tmp:
+        tx_dir = Path(tmp) / "tx"
+        query_dir = Path(tmp) / "query"
+        tx_dir.mkdir()
+        query_dir.mkdir()
 
-    for op, cls in sorted(INTENTS.items()):
-        (tx_dir / f"{kebab(op)}.mdx").write_text(intent_page(op, cls))
-    (tx_dir / "index.mdx").write_text(intent_index())
-    (tx_dir / "meta.json").write_text(json.dumps(tx_meta(), indent=2) + "\n")
+        for op, cls in sorted(INTENTS.items()):
+            (tx_dir / f"{kebab(op)}.mdx").write_text(intent_page(op, cls))
+        (tx_dir / "index.mdx").write_text(intent_index())
+        (tx_dir / "meta.json").write_text(json.dumps(tx_meta(), indent=2) + "\n")
 
-    for spec in sorted(READS.values(), key=lambda s: s.name):
-        (query_dir / f"{kebab(spec.name)}.mdx").write_text(read_page(spec))
-    (query_dir / "index.mdx").write_text(read_index())
-    (query_dir / "meta.json").write_text(json.dumps(query_meta(), indent=2) + "\n")
+        for spec in sorted(READS.values(), key=lambda s: s.name):
+            (query_dir / f"{kebab(spec.name)}.mdx").write_text(read_page(spec))
+        (query_dir / "index.mdx").write_text(read_index())
+        (query_dir / "meta.json").write_text(json.dumps(query_meta(), indent=2) + "\n")
 
-    (content_root / "errors.mdx").write_text(errors_page())
+        errors = errors_page()
+
+        for src, dest in ((tx_dir, content_root / "tx"), (query_dir, content_root / "query")):
+            if dest.exists():
+                shutil.rmtree(dest)
+            src.rename(dest)
+        (content_root / "errors.mdx").write_text(errors)
 
 
 def check() -> int:

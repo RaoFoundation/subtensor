@@ -456,19 +456,21 @@ class RpcSubstrate:
     async def compose(self, call):
         """Compose a chain call from a generated ``Call`` (module, function, params)."""
         module, function, params = call
-        return await self.raw.compose_call(
-            call_module=module, call_function=function, call_params=params
+        return await self._read(
+            lambda raw: raw.compose_call(
+                call_module=module, call_function=function, call_params=params
+            )
         )
 
     async def estimate_fee(self, call, keypair) -> Balance:
         """Estimate the fee for a call without submitting it (no signature needed)."""
-        info = await self.raw.get_payment_info(call, keypair)
+        info = await self._read(lambda raw: raw.get_payment_info(call, keypair))
         fee = info.get("partial_fee", info.get("partialFee", 0))
         return Balance.from_rao(int(fee))
 
     async def estimate_weight(self, call, keypair) -> dict:
         """The dispatch weight ``{ref_time, proof_size}`` of a call, for multisig max_weight."""
-        info = await self.raw.get_payment_info(call, keypair)
+        info = await self._read(lambda raw: raw.get_payment_info(call, keypair))
         weight = info.get("weight") or {}
         return {
             "ref_time": int(weight.get("ref_time", 0)),

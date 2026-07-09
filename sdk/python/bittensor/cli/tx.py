@@ -95,10 +95,12 @@ def _parse_money(raw: Any, allow_all: bool) -> str:
             return "all"
         raise ValueError(f"expected a number, got {raw!r}")
     try:
-        Decimal(text)
+        value = Decimal(text)
     except InvalidOperation:
         expected = "a number or 'all'" if allow_all else "a number"
         raise ValueError(f"expected {expected}, got {raw!r}")
+    if not value.is_finite() or value < 0:
+        raise ValueError(f"expected a finite non-negative number, got {raw!r}")
     return text
 
 
@@ -286,7 +288,14 @@ def _make_command(intent_cls: type[Intent]):
             # "(required)" not "[required]": rich help parses square brackets as markup.
             help_text = f"{help_text} (required)" if help_text else "(required)"
         default = None if required or wallet_defaulted else f.default
-        option = typer.Option(default, cli_name, help=help_text)
+        # Bool options get a negated twin (--flag/--no-flag) so default-True
+        # fields (e.g. keep_alive) can be turned off.
+        flag_name = (
+            f"{cli_name}/--no-{cli_name[2:]}"
+            if _base_annotation(str(f.type)) == "bool"
+            else cli_name
+        )
+        option = typer.Option(default, flag_name, help=help_text)
         # Money options parse as strings so amounts stay exact and the `all`
         # sentinel survives typer; the command body validates them (_parse_money).
         opt_type = str if is_money(str(f.type)) else _option_type(str(f.type))

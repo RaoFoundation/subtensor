@@ -43,6 +43,7 @@ from ..helpers import (
     wallet_overview_rows,
 )
 from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
+from ..tx import _parse_money
 
 app = typer.Typer(no_args_is_help=True, help="Create and manage wallets.")
 
@@ -1060,7 +1061,11 @@ def wallet_history(
     ),
     limit: int = typer.Option(50, "--limit", help="Max transfers to show (newest first)."),
 ):
-    """Show recent transfers for a coldkey (TaoMarketCap indexer, mainnet only)."""
+    """Show recent transfers for a coldkey (TaoMarketCap indexer, mainnet only).
+
+    Privacy note: the queried coldkey address is sent to the third-party
+    TaoMarketCap indexer (api.taomarketcap.com) to look up its transfers.
+    """
     app_ctx: AppContext = ctx_of(ctx)
     try:
         label, _ = resolve_endpoint(app_ctx.network)
@@ -1104,8 +1109,11 @@ def wallet_transfer(
     dest_ss58: str = typer.Option(
         ..., address_cli_name("dest_ss58"), help=ss58_param_help("dest_ss58")
     ),
-    amount_tao: float = typer.Option(
-        ..., "--amount-tao", "--amount", help="Amount to send, in TAO."
+    amount_tao: str = typer.Option(
+        ...,
+        "--amount-tao",
+        "--amount",
+        help="Amount to send, in TAO. Pass `all` for the entire transferable balance.",
     ),
 ):
     """Transfer TAO to another coldkey.
@@ -1115,8 +1123,13 @@ def wallet_transfer(
     irreversible once included in a block, so double-check the destination.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    try:
+        amount = _parse_money(amount_tao, True)
+    except ValueError as error:
+        app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
+        raise typer.Exit(2)
     dest = app_ctx.resolve_address("coldkey_ss58", dest_ss58)
-    app_ctx.submit(Transfer(dest_ss58=dest, amount_tao=amount_tao))
+    app_ctx.submit(Transfer(dest_ss58=dest, amount_tao=amount))
 
 
 @app.command("inspect", rich_help_panel=PANEL_INFO)

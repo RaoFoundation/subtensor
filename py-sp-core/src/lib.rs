@@ -14,6 +14,7 @@ use sodiumoxide::crypto::sealedbox;
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
 use sp_core::crypto::{AccountId32, Pair as PairT, Ss58AddressFormat, Ss58Codec};
 use sp_core::{ed25519, sr25519, ByteArray};
+use zeroize::Zeroizing;
 
 mod encrypted_json;
 mod keyfile;
@@ -281,8 +282,11 @@ impl Keypair {
     #[staticmethod]
     #[pyo3(signature = (private_key, crypto_type=CRYPTO_SR25519))]
     fn create_from_private_key(private_key: &str, crypto_type: u8) -> PyResult<Self> {
-        let private_key_vec = hex::decode(private_key.trim_start_matches("0x"))
-            .map_err(|error| value_err(format!("invalid private_key string: {error}")))?;
+        // Don't interpolate the hex error: it echoes offending secret characters.
+        let private_key_vec = Zeroizing::new(
+            hex::decode(private_key.trim_start_matches("0x"))
+                .map_err(|_| value_err("invalid private_key hex string"))?,
+        );
 
         let inner = match crypto_type {
             CRYPTO_SR25519 => {

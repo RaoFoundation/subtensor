@@ -111,6 +111,8 @@ jobs:
 
       - name: Remove apply-benchmark-patch label
         if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo "${{ github.repository }}" \

@@ -79,7 +79,7 @@ def test_eq_hash_consistency(rao: int, netuid: int):
     x, y = Balance.from_rao(rao, netuid), Balance.from_rao(rao, netuid)
     assert x == y
     assert hash(x) == hash(y)
-    assert x == rao  # int compares against rao
+    assert x != rao  # raw ints never compare equal (currency-blind)
     assert (-x).rao == -rao
 
 

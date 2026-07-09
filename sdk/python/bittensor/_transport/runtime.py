@@ -39,6 +39,21 @@ _DISK_FORMAT_VERSION = 1
 _DISK_CACHE_MAX_FILES = 8
 
 
+def _transaction_version(runtime_info: dict) -> int:
+    """The runtime's transactionVersion, required for a signing-capable codec.
+
+    Defaulting a missing field to 0 would only surface much later as an opaque
+    ``BadProof`` at submission time, so refuse to build the codec instead.
+    """
+    version = runtime_info.get("transactionVersion")
+    if version is None:
+        raise SubstrateRequestException(
+            "state_getRuntimeVersion returned no transactionVersion; "
+            "cannot build a codec that signs correctly"
+        )
+    return int(version)
+
+
 def _disk_cache_dir() -> Path:
     override = os.getenv("BITTENSOR_RUNTIME_CACHE_DIR")
     if override:
@@ -153,9 +168,7 @@ class RuntimeManager:
             return self._head_codec
         codec = self._codecs.get(spec_version)
         if codec is None:
-            codec = await self._fetch_codec(
-                spec_version, runtime_info.get("transactionVersion", 0), None
-            )
+            codec = await self._fetch_codec(spec_version, _transaction_version(runtime_info), None)
         self._head_codec = codec
         return codec
 
@@ -175,7 +188,7 @@ class RuntimeManager:
         if codec is not None:
             return codec
         return await self._fetch_codec(
-            spec_version, runtime_info.get("transactionVersion", 0), parent_hash
+            spec_version, _transaction_version(runtime_info), parent_hash
         )
 
     async def _parent_hash(self, block_hash: str) -> str:

@@ -14,16 +14,21 @@ formats; only re-record deliberately (e.g. after a runtime upgrade changes
 metadata) and eyeball the diff.
 
 Usage:
-    python tests/record_golden.py [ws-endpoint]    # default ws://127.0.0.1:9944
+    python scripts/record_golden.py [ws-endpoint]    # default ws://127.0.0.1:9944
+
+The script submits a real //Alice transfer (to record receipt/event vectors),
+so it refuses non-local endpoints unless RECORD_GOLDEN_ALLOW_REMOTE=1 is set.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from bittensor._transport.codec import strip_option_opaque_metadata
 from bittensor._transport.interface import SubstrateConnection
@@ -33,6 +38,17 @@ from bittensor.keyfiles import Keypair
 
 ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "ws://127.0.0.1:9944"
 OUT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "golden.json"
+
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+if (
+    urlparse(ENDPOINT).hostname not in _LOCAL_HOSTS
+    and os.environ.get("RECORD_GOLDEN_ALLOW_REMOTE") != "1"
+):
+    sys.exit(
+        f"refusing to record against non-local endpoint {ENDPOINT}: this script submits "
+        "a real //Alice transfer. Set RECORD_GOLDEN_ALLOW_REMOTE=1 if that chain is a "
+        "dev chain and you mean it."
+    )
 
 SS58_FORMAT = 42
 TYPE_REGISTRY = {"types": {"Balance": "u64"}}
@@ -131,9 +147,7 @@ RUNTIME_CALL_CASES = [
 ]
 
 
-async def main() -> None:
-    sub = SubstrateConnection(ENDPOINT, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
-    await sub.initialize()
+async def record(sub: SubstrateConnection) -> dict[str, Any]:
     rpc = sub.rpc_request
     codec = await sub._runtimes.codec_at(None)
     golden: dict[str, Any] = {"endpoint": ENDPOINT}
@@ -437,7 +451,16 @@ async def main() -> None:
     info = await sub.get_payment_info(transfer, ALICE)
     golden["payment_info"] = {"keys": sorted(info.keys()), "weight": jsonable(info.get("weight"))}
 
-    await sub.close()
+    return golden
+
+
+async def main() -> None:
+    sub = SubstrateConnection(ENDPOINT, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
+    try:
+        await sub.initialize()
+        golden = await record(sub)
+    finally:
+        await sub.close()
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(golden, indent=1))

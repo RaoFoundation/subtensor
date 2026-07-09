@@ -36,7 +36,7 @@ jobs:
 
       - name: Install uv
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Set dev version

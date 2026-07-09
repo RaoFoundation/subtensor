@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -65,7 +66,14 @@ def load() -> dict[str, Any]:
         return {}
     try:
         data = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError:
+        # Preserve the corrupt file instead of letting a later save() silently
+        # overwrite whatever was in it.
+        backup = path.with_name(f"{path.name}.corrupt.{int(time.time())}")
+        with contextlib.suppress(OSError):
+            path.rename(backup)
+        return {}
+    except OSError:
         return {}
     if not isinstance(data, dict):
         return {}
@@ -73,9 +81,17 @@ def load() -> dict[str, Any]:
 
 
 def save(data: dict[str, Any]) -> Path:
+    # Atomic temp-write + rename so a crash mid-write can't truncate the
+    # config. (Cross-process locking is out of scope; last writer wins.)
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(dict(sorted(data.items())), indent=2) + "\n")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(dict(sorted(data.items())), indent=2) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 

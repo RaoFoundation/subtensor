@@ -126,8 +126,14 @@ class WalletSigner:
         """A public-only keypair — never triggers an unlock."""
         if self._keypair is not None:
             return self._keypair
-        # Hotkeys are stored unencrypted; the coldkey pub file is always plaintext.
-        return self._wallet.coldkeypub if self._role == "coldkey" else self._wallet.hotkey
+        if self._role == "coldkey":
+            return self._wallet.coldkeypub
+        try:
+            return self._wallet.hotkeypub
+        except FileNotFoundError:
+            # Legacy wallets may lack hotkeypub.txt; fall back to the hotkey
+            # file (usually plaintext, but an encrypted one would unlock here).
+            return self._wallet.hotkey
 
     def _unlock(self) -> Any:
         if self._keypair is None:
@@ -158,6 +164,10 @@ class WalletSigner:
         return self._public().ss58_format
 
     def sign(self, payload: bytes) -> bytes:
+        # The first unlock can block on getpass/Keychain/dialog subprocesses;
+        # when called from async transport code that blocks the event loop
+        # until the user responds. Unlock eagerly (or supply a password) to
+        # avoid the pause.
         return self._unlock().sign(payload)
 
     def __repr__(self) -> str:
@@ -210,5 +220,12 @@ def public_view(wallet: WalletLike, role: str = "coldkey") -> Any:
     already exposes its public parts without unlocking.
     """
     if isinstance(wallet, (Wallet, KeyedWallet)) and not isinstance(wallet, Signer):
-        return wallet.coldkeypub if role == "coldkey" else wallet.hotkey
+        if role == "coldkey":
+            return wallet.coldkeypub
+        try:
+            # Prefer the public-only hotkey view; not every wallet-shaped
+            # object (or legacy wallet on disk) has one.
+            return wallet.hotkeypub
+        except (AttributeError, FileNotFoundError):
+            return wallet.hotkey
     return wallet

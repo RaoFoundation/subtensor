@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
+from hashlib import blake2b
 from typing import Any, Optional
 
 from .. import config as cfg
@@ -165,7 +166,6 @@ def build_replay_command(
     parts.append(f"-w {shlex.quote(wallet_label)}")
     if signer_role != "coldkey":
         parts.append(f"--signer {signer_role}")
-    parts.append("--yes")
     return " ".join(parts)
 
 
@@ -349,6 +349,13 @@ async def resolve_call_spec(
     if cached:
         return cached
     if call_data:
+        data_hex = hex_bytes(call_data)
+        computed = "0x" + blake2b(bytes.fromhex(data_hex[2:]), digest_size=32).hexdigest()
+        if computed.lower() != hex_bytes(call_hash).lower():
+            raise ValueError(
+                f"--call-data does not match call hash {hex_bytes(call_hash)} "
+                f"(blake2_256 of the data is {computed})"
+            )
         spec = await decode_call_data(client, call_data)
         if spec:
             spec["call_hash"] = hex_bytes(call_hash)

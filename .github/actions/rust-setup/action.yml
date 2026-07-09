@@ -24,15 +24,16 @@ runs:
         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
           -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
           build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config \
+          python3 python3-dev \
           ${{ inputs.extra-packages }}
 
     - name: Install Rust (stable)
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
         components: ${{ inputs.components }}
 
     - name: Shared Rust cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         key: ${{ inputs.cache-key }}
         cache-on-failure: true

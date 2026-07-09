@@ -145,6 +145,14 @@ jobs:
         with:
           node-version: 20
 
+      # Install without the deploy seed in scope and with install scripts
+      # disabled, so a malicious transitive dependency cannot run an install
+      # hook that reads the sudo-capable chain key.
+      - name: Install deploy deps
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        run: npm ci --ignore-scripts
+
       - name: Deploy
         if: steps.guard.outputs.should_deploy == 'true'
         working-directory: .github/scripts/deploy
@@ -152,7 +160,6 @@ jobs:
           # Sudo-capable devnet deploy key, stored in the devnet environment.
           DEPLOY_SEED: ${{ secrets.DEVNET_DEPLOY_SEED }}
         run: |
-          npm ci
           node deploy-wasm.js ${{ env.DEVNET_WS }} "$GITHUB_WORKSPACE/wasm/subtensor.wasm"
 
       - name: Verify on-chain spec_version
@@ -190,7 +197,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: ts-tests/.nvmrc
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10
       - name: Run devnet smoke suite
@@ -235,13 +242,17 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install deploy deps
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        run: npm ci --ignore-scripts
+
       - name: Deploy
         if: steps.guard.outputs.should_deploy == 'true'
         working-directory: .github/scripts/deploy
         env:
           DEPLOY_SEED: ${{ secrets.TESTNET_DEPLOY_SEED }}
         run: |
-          npm ci
           node deploy-wasm.js ${{ env.TESTNET_WS }} "$GITHUB_WORKSPACE/wasm/subtensor.wasm"
       - name: Verify on-chain spec_version
         if: steps.guard.outputs.should_deploy == 'true'
@@ -274,7 +285,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: ts-tests/.nvmrc
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10
       - name: Run testnet smoke suite
@@ -329,7 +340,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install uv
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Set rc versions and pin py-sp-core
         run: |
@@ -389,7 +400,7 @@ jobs:
       - name: Install uv
         if: steps.guard.outputs.should_propose == 'true'
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Verify Finney EVM association cap (spec 426 migration)
         if: steps.guard.outputs.should_propose == 'true'
@@ -410,13 +421,17 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install deploy deps
+        if: steps.guard.outputs.should_propose == 'true'
+        working-directory: .github/scripts/deploy
+        run: npm ci --ignore-scripts
+
       - name: Submit multisig proposal (CI half of deployment multisig)
         if: steps.guard.outputs.should_propose == 'true'
         working-directory: .github/scripts/deploy
         env:
           CI_SEED: ${{ secrets.MAINNET_CI_SEED }}
         run: |
-          npm ci
           node propose-upgrade-multisig.js ${{ env.MAINNET_WS }} \
             "$GITHUB_WORKSPACE/wasm/subtensor.wasm" \
             "$GITHUB_WORKSPACE/wasm/proxy_proxy_blob.hex"

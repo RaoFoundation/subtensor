@@ -35,6 +35,26 @@ def _sorted_signatories(signatories: list) -> list:
     return sorted(set(signatories), key=lambda s: bytes.fromhex(ss58_decode(s)))
 
 
+def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str) -> None:
+    """Reject parameters the chain would refuse, before composing anything."""
+    if threshold < 2:
+        raise ValueError(
+            f"multisig threshold must be at least 2, got {threshold} "
+            "(use multisig_threshold_1 for 1-of-N)"
+        )
+    if threshold > len(other_signatories) + 1:
+        raise ValueError(
+            f"multisig threshold {threshold} exceeds the signatory count "
+            f"{len(other_signatories) + 1} (signer plus other_signatories)"
+        )
+    signer_id = ss58_decode(signer_ss58)
+    if any(ss58_decode(s) == signer_id for s in other_signatories):
+        raise ValueError(
+            "other_signatories must not include the signer's own account "
+            f"({signer_ss58}); list only the other members"
+        )
+
+
 async def _compose_inner(substrate, wallet: Any, spec: dict):
     """Build the inner call from a ``{"op": ..., ...args}`` spec (like a batch child)."""
     args = dict(spec)
@@ -159,6 +179,7 @@ class MultisigExecute(Intent):
     timepoint: Optional[dict] = field(default=None, metadata={"help": TIMEPOINT_HELP})
 
     async def build(self, substrate, wallet: Any):
+        _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         inner = await _compose_inner(substrate, wallet, self.call)
         max_weight = await substrate.estimate_weight(inner, public_view(wallet, "coldkey"))
         composed = await substrate.compose(
@@ -206,6 +227,7 @@ class MultisigApprove(Intent):
     timepoint: Optional[dict] = field(default=None, metadata={"help": TIMEPOINT_HELP})
 
     async def build(self, substrate, wallet: Any):
+        _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         inner = await _compose_inner(substrate, wallet, self.call)
         max_weight = await substrate.estimate_weight(inner, public_view(wallet, "coldkey"))
         if self.timepoint is None:

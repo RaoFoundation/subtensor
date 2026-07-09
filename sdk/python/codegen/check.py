@@ -24,14 +24,23 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "bittensor" / "_generated"
 
 def check_drift(endpoint: str) -> int:
     ir = dump(endpoint)
+    expected = artifacts(ir)
     mismatches = []
-    for filename, content in artifacts(ir).items():
+    for filename, content in expected.items():
         path = OUT_DIR / filename
         if not path.exists() or path.read_text() != content:
             mismatches.append(filename)
+    orphans = sorted(
+        p.name
+        for p in OUT_DIR.iterdir()
+        if p.is_file() and p.name not in expected and not p.name.startswith(".")
+    )
     if mismatches:
         print(f"DRIFT: committed generated files differ from chain metadata: {mismatches}")
         print("Run: python -m codegen <endpoint>")
+    if orphans:
+        print(f"DRIFT: files in {OUT_DIR} not produced by codegen (delete them): {orphans}")
+    if mismatches or orphans:
         return 1
     print("no drift: generated layer matches chain metadata")
     return 0
@@ -195,6 +204,71 @@ RAW_ONLY: dict[str, set[str]] = {
         # root/sudo storage limit
         "set_max_space",
     },
+    "AdminUtils": {
+        # root/sudo-origin chain administration — deliberately not agent-executable.
+        # Enumerated explicitly (not computed) so a newly added unwrapped call is
+        # flagged as missing and requires a deliberate wrap-or-raw-only decision.
+        "schedule_grandpa_change",
+        "sudo_set_adjustment_alpha",
+        "sudo_set_adjustment_interval",
+        "sudo_set_admin_freeze_window",
+        "sudo_set_alpha_sigmoid_steepness",
+        "sudo_set_alpha_values",
+        "sudo_set_bonds_penalty",
+        "sudo_set_ck_burn",
+        "sudo_set_coldkey_swap_announcement_delay",
+        "sudo_set_coldkey_swap_reannouncement_delay",
+        "sudo_set_commit_reveal_version",
+        "sudo_set_default_take",
+        "sudo_set_difficulty",
+        "sudo_set_dissolve_network_schedule_duration",
+        "sudo_set_ema_price_halving_period",
+        "sudo_set_evm_chain_id",
+        "sudo_set_kappa",
+        "sudo_set_lock_reduction_interval",
+        "sudo_set_max_allowed_validators",
+        "sudo_set_max_burn",
+        "sudo_set_max_difficulty",
+        "sudo_set_max_epochs_per_block",
+        "sudo_set_max_mechanism_count",
+        "sudo_set_max_registrations_per_block",
+        "sudo_set_min_allowed_uids",
+        "sudo_set_min_childkey_take_per_subnet",
+        "sudo_set_min_delegate_take",
+        "sudo_set_min_difficulty",
+        "sudo_set_min_non_immune_uids",
+        "sudo_set_net_tao_flow_enabled",
+        "sudo_set_network_immunity_period",
+        "sudo_set_network_min_lock_cost",
+        "sudo_set_network_rate_limit",
+        "sudo_set_network_registration_allowed",
+        "sudo_set_nominator_min_required_stake",
+        "sudo_set_owner_hparam_rate_limit",
+        "sudo_set_owner_immune_neuron_limit",
+        "sudo_set_rao_recycled",
+        "sudo_set_recycle_or_burn",
+        "sudo_set_rho",
+        "sudo_set_sn_owner_hotkey",
+        "sudo_set_stake_threshold",
+        "sudo_set_start_call_delay",
+        "sudo_set_subnet_emission_enabled",
+        "sudo_set_subnet_limit",
+        "sudo_set_subnet_moving_alpha",
+        "sudo_set_subnet_owner_cut",
+        "sudo_set_subnet_owner_hotkey",
+        "sudo_set_subtoken_enabled",
+        "sudo_set_tao_flow_cutoff",
+        "sudo_set_tao_flow_normalization_exponent",
+        "sudo_set_tao_flow_smoothing_factor",
+        "sudo_set_target_registrations_per_interval",
+        "sudo_set_tempo",
+        "sudo_set_total_issuance",
+        "sudo_set_tx_delegate_take_rate_limit",
+        "sudo_set_tx_rate_limit",
+        "sudo_set_weights_set_rate_limit",
+        "sudo_toggle_evm_precompile",
+        "swap_authorities",
+    },
     "Contracts": {
         # ink/WASM contract execution — use Ethereum tooling or the raw-call
         # escape hatch; deprecated *_old_weight variants stay for on-chain Call
@@ -213,27 +287,6 @@ RAW_ONLY: dict[str, set[str]] = {
 }
 
 
-def _admin_utils_raw_only() -> set[str]:
-    """Root-only AdminUtils sudo_set_* calls not wrapped by an intent."""
-    from bittensor._generated import calls as generated_calls
-    from bittensor.intents import REGISTRY
-
-    wrapped = {
-        call for cls in REGISTRY.values() for pallet, call in cls.wraps if pallet == "AdminUtils"
-    }
-    return {
-        name
-        for name, value in vars(generated_calls.AdminUtils).items()
-        if isinstance(value, staticmethod) and name not in wrapped
-    }
-
-
-def _effective_raw_only(pallet: str) -> set[str]:
-    if pallet == "AdminUtils":
-        return _admin_utils_raw_only()
-    return RAW_ONLY.get(pallet, set())
-
-
 def check_coverage() -> int:
     from bittensor._generated import calls as generated_calls
     from bittensor.intents import REGISTRY
@@ -243,7 +296,7 @@ def check_coverage() -> int:
     for pallet in COVERED_PALLETS:
         cls = getattr(generated_calls, pallet)
         chain_calls = {n for n, v in vars(cls).items() if isinstance(v, staticmethod)}
-        raw_only = _effective_raw_only(pallet)
+        raw_only = RAW_ONLY.get(pallet, set())
 
         missing = sorted(n for n in chain_calls if (pallet, n) not in wrapped and n not in raw_only)
         stale = sorted(n for n in raw_only if n not in chain_calls)

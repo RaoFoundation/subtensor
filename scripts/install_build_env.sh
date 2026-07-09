@@ -55,6 +55,7 @@ if [ "$OS" = "Linux" ]; then
         $SUDO apt-get install -y ca-certificates
         $SUDO apt-get install -y --no-install-recommends \
             curl build-essential protobuf-compiler clang git pkg-config libssl-dev llvm libudev-dev \
+            python3 python3-dev \
             gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
     fi
 

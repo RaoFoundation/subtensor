@@ -6,9 +6,14 @@ on:
     types: [opened, synchronize]
   workflow_dispatch:
 
+# This workflow only builds the node and validates benchmark weights; it never
+# pushes commits or edits the PR. The apply-benchmark-patch workflow is what
+# writes results back, so the validate job runs with a read-only token to keep
+# the persistent `Benchmarking` runner from holding a write-capable token while
+# it compiles PR-controlled code (arbitrary build.rs).
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: run-benchmarks-${{ github.ref }}
@@ -40,7 +45,12 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
             -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+
+      - name: Check for skip-validate-benchmarks label
+        id: skip-label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/check-skip-label.sh ${{ github.event.pull_request.number }}
 
       - name: Install system dependencies
         run: |
@@ -58,16 +68,15 @@ jobs:
           cache-on-failure: true
 
       - name: Build node with benchmarks + weight tools
+        if: steps.skip-label.outputs.skip != 'true'
         run: |
-          .github/scripts/check-skip-label.sh ${{ github.event.pull_request.number }}
           cargo build --profile production -p node-subtensor --features runtime-benchmarks
-          .github/scripts/check-skip-label.sh ${{ github.event.pull_request.number }}
           cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 
       - name: Run & validate benchmarks
+        if: steps.skip-label.outputs.skip != 'true'
         timeout-minutes: 180
         run: |
-          .github/scripts/check-skip-label.sh ${{ github.event.pull_request.number }}
           mkdir -p .bench_patch
           chmod +x scripts/benchmark_action.sh
           scripts/benchmark_action.sh

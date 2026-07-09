@@ -218,7 +218,8 @@ async def ensure_bridge(
     With ``fresh=True`` the daemon is restarted so each command gets an isolated
     session; stale bridge tabs in other browsers cannot hijack signing.
     """
-    host, port = _parse_bridge_target(bridge_url)
+    if bridge_url is not None:
+        host, port = _parse_bridge_target(bridge_url)
     url = bridge_ws_url(host, port)
 
     if fresh:

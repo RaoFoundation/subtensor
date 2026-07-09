@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import sys
 from pathlib import Path
 
 from .sp_core import (
@@ -109,20 +110,33 @@ class Keyfile:
     def _write_data(self, data: bytes, *, overwrite: bool) -> None:
         path = Path(self.path)
         if path.exists() and not overwrite:
+            # Only prompt when a human can answer; non-interactive callers
+            # get the documented refusal instead of an input() hang/EOFError.
+            if not sys.stdin.isatty():
+                raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
             answer = input(f"File {self.path} already exists. Overwrite? (y/N) ").strip().lower()
             if answer not in {"y", "yes"}:
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
         self.make_dirs()
         # Key material (including intentionally-plaintext hotkeys) must be
-        # owner-only regardless of the caller's umask. The create mode only
-        # applies to new files, so chmod also clamps a pre-existing file
-        # being overwritten.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # owner-only regardless of the caller's umask. Written to a sibling
+        # temp file and atomically renamed into place so a crash mid-write
+        # can never destroy an existing keyfile.
+        tmp = path.with_suffix(path.suffix + ".tmp")
         try:
-            os.write(fd, data)
-        finally:
-            os.close(fd)
-        os.chmod(path, 0o600)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                # The create mode only applies to new files; fchmod also
+                # clamps a leftover temp file being reused.
+                os.fchmod(fd, 0o600)
+                os.write(fd, data)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def make_dirs(self) -> None:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -161,11 +175,13 @@ class Keyfile:
             if resolved is None:
                 raise KeyfileError("password required to encrypt keyfile")
             payload = bytes(encrypt_keyfile_data(plaintext, resolved))
-            if self.should_save_to_env:
-                self.save_password_to_env(resolved)
         else:
             payload = plaintext
         self._write_data(payload, overwrite=overwrite)
+        # Only after the keyfile is actually on disk: a failed or declined
+        # write must not leave the password behind in the environment.
+        if encrypt and self.should_save_to_env:
+            self.save_password_to_env(resolved)
 
     def save_password_to_env(self, password: str | None = None) -> str:
         resolved = password or _prompt_password(

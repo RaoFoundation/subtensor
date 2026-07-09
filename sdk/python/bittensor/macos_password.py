@@ -85,6 +85,11 @@ def keychain_load(wallet_name: str) -> str | None:
 def keychain_save(wallet_name: str, password: str) -> None:
     """Store a coldkey password in the macOS Keychain (replaces any existing entry)."""
     _require_macos("macOS Keychain")
+    # A bare ``-w`` makes `security` prompt (enter + retype) and read both
+    # lines from stdin, keeping the password out of argv where any local
+    # process could read it via `ps`. A newline would desync the two prompts.
+    if "\n" in password or "\r" in password:
+        raise ValueError("password may not contain newline characters")
     subprocess.run(
         [
             "security",
@@ -106,10 +111,10 @@ def keychain_save(wallet_name: str, password: str) -> None:
             KEYCHAIN_SERVICE,
             "-a",
             keychain_account(wallet_name),
-            "-w",
-            password,
             "-U",
+            "-w",
         ],
+        input=f"{password}\n{password}\n",
         capture_output=True,
         text=True,
         check=False,

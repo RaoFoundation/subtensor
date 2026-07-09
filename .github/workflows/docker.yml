@@ -28,10 +28,17 @@ jobs:
     runs-on: [self-hosted, fireactions-heavy]
     steps:
       - name: Determine tag, ref, and image name
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          ref="$INPUT_TAG"
+          # `ref` is what we check out (a real branch/tag, may contain '/').
+          # Docker tags cannot contain '/', so derive the tag by replacing any
+          # disallowed characters — otherwise a ref like `feat/x` fails tag
+          # validation at push time.
+          tag="${ref//[^a-zA-Z0-9._-]/-}"
           echo "tag=$tag" >> $GITHUB_ENV
-          echo "ref=$tag" >> $GITHUB_ENV
+          echo "ref=$ref" >> $GITHUB_ENV
           # Move :latest for release events and for dispatched release-version
           # tags (the watcher dispatches with tag=vN because its GITHUB_TOKEN
           # release cannot fire the `release` trigger).

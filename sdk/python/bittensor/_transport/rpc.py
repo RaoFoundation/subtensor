@@ -44,6 +44,16 @@ raw_logger = logging.getLogger("bittensor.transport.raw_websocket")
 
 _STATE_DISCARDED_NEEDLE = "State already discarded for "
 
+# Requests that must never be auto-resubmitted after a reconnect: a duplicate
+# submission can hit the pool as "already imported" while the original is
+# live, and the resulting error path would clear the nonce cache under a
+# still-pending transaction.
+_NON_IDEMPOTENT_METHODS = frozenset({"author_submitExtrinsic", "author_submitAndWatchExtrinsic"})
+
+# Cap per-subscription buffering so a slow consumer cannot grow memory without
+# bound; on overflow the oldest update is dropped in favor of the newest.
+_SUBSCRIPTION_QUEUE_MAXSIZE = 2048
+
 
 class WsConnection(Protocol):
     """The slice of a websocket connection the session uses (injectable)."""
@@ -80,7 +90,7 @@ class Subscription:
         self.subscription_id = subscription_id
         self._session = session
         self._unsubscribe_method = unsubscribe_method
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=_SUBSCRIPTION_QUEUE_MAXSIZE)
         self._closed = False
 
     def __aiter__(self) -> AsyncIterator[Any]:
@@ -110,7 +120,17 @@ class Subscription:
             await self._session.request(self._unsubscribe_method, [self.subscription_id])
 
     def _push(self, item: Any) -> None:
-        self._queue.put_nowait(item)
+        while True:
+            try:
+                self._queue.put_nowait(item)
+                return
+            except asyncio.QueueFull:
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    dropped = self._queue.get_nowait()
+                    logger.warning(
+                        f"Subscription {self.subscription_id}: consumer too slow; "
+                        f"dropped oldest update {str(dropped)[:100]}"
+                    )
 
 
 _SUBSCRIPTION_END = object()
@@ -170,6 +190,10 @@ class RpcSession:
         self._supervisor: Optional[asyncio.Task] = None
         self._connected = asyncio.Event()
         self._closing = False
+        # Set when the supervisor gives up for good; ``_connected`` is then
+        # opened so parked senders wake, observe the error, and fail instead
+        # of waiting for a reconnect that will never come.
+        self._fatal_error: Optional[Exception] = None
         self._ids = itertools.count(1)
         self._pending: dict[int, _Pending] = {}
         self._subscriptions: dict[str, Subscription] = {}
@@ -195,6 +219,8 @@ class RpcSession:
             await self._connected.wait()
             return
         self._closing = False
+        self._fatal_error = None
+        self._connected.clear()
         self._supervisor = asyncio.create_task(self._run(), name="rpc-session")
         # Surface immediate connection failures to the caller instead of
         # parking them on the first request.
@@ -213,19 +239,23 @@ class RpcSession:
         self._closing = True
         if self._supervisor is not None:
             self._supervisor.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            # A supervisor that already died with a terminal connection error
+            # must not re-raise it out of close() and mask the app's error.
+            with contextlib.suppress(asyncio.CancelledError, SubstrateRequestException):
                 await self._supervisor
             self._supervisor = None
         if self._ws is not None:
             with contextlib.suppress(Exception):
                 await self._ws.close()
             self._ws = None
-        self._connected.clear()
         shutdown = SubstrateRequestException("RPC session closed")
         for pending in self._pending.values():
             if not pending.future.done():
                 pending.future.set_exception(shutdown)
         self._pending.clear()
+        # Open the gate so senders parked on ``_connected`` wake and observe
+        # ``_closing``; the next connect() clears it again.
+        self._connected.set()
         for sub in list(self._subscriptions.values()):
             sub._push(_SUBSCRIPTION_END)
         self._subscriptions.clear()
@@ -308,7 +338,11 @@ class RpcSession:
         future = asyncio.get_running_loop().create_future()
         pending = _Pending(future, frame)
         self._pending[frame["id"]] = pending
-        await self._send_pendings([pending])
+        try:
+            await self._send_pendings([pending])
+        except BaseException:
+            self._discard_pendings([pending])
+            raise
         return future
 
     async def _submit_batch(self, frames: list[dict]) -> list[asyncio.Future]:
@@ -318,8 +352,20 @@ class RpcSession:
             pending = _Pending(loop.create_future(), frame)
             self._pending[frame["id"]] = pending
             pendings.append(pending)
-        await self._send_pendings(pendings)
+        try:
+            await self._send_pendings(pendings)
+        except BaseException:
+            self._discard_pendings(pendings)
+            raise
         return [pending.future for pending in pendings]
+
+    def _discard_pendings(self, pendings: list[_Pending]) -> None:
+        """Drop entries whose submit failed, so a reconnect never resubmits a
+        frame nobody is awaiting (the caller sees the submit exception)."""
+        for pending in pendings:
+            self._pending.pop(pending.frame["id"], None)
+            if pending.future.done() and not pending.future.cancelled():
+                pending.future.exception()  # consume; the submit error is what propagates
 
     async def _send_pendings(self, pendings: list[_Pending]) -> None:
         """Send the frames of ``pendings`` that nobody has sent yet.
@@ -334,6 +380,15 @@ class RpcSession:
             await self.connect()
         while True:
             await self._connected.wait()
+            if self._closing or self._fatal_error is not None:
+                # The supervisor gave up (or close() ran) and opened the gate:
+                # fail instead of waiting for a reconnect that will never come.
+                error = self._fatal_error or SubstrateRequestException("RPC session closed")
+                for pending in pendings:
+                    self._pending.pop(pending.frame["id"], None)
+                    if not pending.future.done():
+                        pending.future.set_exception(error)
+                return
             async with self._send_lock:
                 if not self._connected.is_set():
                     continue  # connection died between the wait and the lock
@@ -352,6 +407,12 @@ class RpcSession:
                 except Exception as error:  # supervisor will notice and resubmit
                     logger.debug(f"send failed ({error!r}); leaving frame for resubmission")
                 return
+
+    def _give_up(self, error: Exception) -> None:
+        """Permanent failure: fail everything and wake parked senders."""
+        self._fatal_error = error
+        self._fail_all(error)
+        self._connected.set()
 
     def _fail_all(self, error: Exception) -> None:
         for pending in self._pending.values():
@@ -384,8 +445,8 @@ class RpcSession:
         while not self._closing:
             try:
                 self._ws = await self._dial()
-            except MaxRetriesExceeded as error:
-                self._fail_all(error)
+            except Exception as error:  # terminal: retries exhausted or fatal dial error
+                self._give_up(error)
                 raise
             # Resubmit before opening the gate, so callers parked on
             # ``_connected`` can never race the resubmission into a double send.
@@ -409,8 +470,7 @@ class RpcSession:
             if not self._retry_forever and self._consecutive_failures >= self._max_retries * len(
                 self._urls
             ):
-                error = MaxRetriesExceeded("Max retries exceeded.")
-                self._fail_all(error)
+                self._give_up(MaxRetriesExceeded("Max retries exceeded."))
                 return
             logger.info(f"Connection to {self.url} lost ({reason!r}); reconnecting")
             # Backoff between consecutive failures: keeps a connect-then-drop
@@ -450,7 +510,27 @@ class RpcSession:
 
         Runs before ``_connected`` opens, so this is the only sender; entries
         are marked ``sent`` so callers waking afterwards don't send again.
+
+        Extrinsic submissions that already went out on a previous connection
+        are never resubmitted: the original may already sit in the pool (a
+        duplicate errors as "already imported", which would clear the nonce
+        cache under a live transaction). Their futures fail with an honest
+        "fate unknown" error instead; a submission queued while disconnected
+        (never transmitted) is still sent normally.
         """
+        if not self._pending:
+            return
+        for pending in list(self._pending.values()):
+            if pending.sent and pending.frame.get("method") in _NON_IDEMPOTENT_METHODS:
+                self._pending.pop(pending.frame["id"], None)
+                if not pending.future.done():
+                    pending.future.set_exception(
+                        SubstrateRequestException(
+                            "Connection dropped while an extrinsic submission was in "
+                            "flight; the transaction may already be in the pool or on "
+                            "chain. Verify chain state before retrying."
+                        )
+                    )
         if not self._pending:
             return
         logger.debug(f"Resubmitting {len(self._pending)} in-flight request(s)")
@@ -474,8 +554,10 @@ class RpcSession:
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=self._response_timeout)
             except asyncio.TimeoutError:
-                if not self._pending and not self._subscriptions:
-                    continue  # idle silence is fine; only unanswered work times out
+                if not self._pending:
+                    # Idle silence is fine — including a legitimately quiet
+                    # subscription; only an unanswered request times out.
+                    continue
                 return TimeoutError(f"no response from {self.url} in {self._response_timeout}s")
             except ConnectionClosedOK as error:
                 if self._pending or self._subscriptions:

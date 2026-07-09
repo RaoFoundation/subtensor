@@ -36,6 +36,9 @@ jobs:
   check:
     name: Compare chain spec_version with main
     runs-on: [self-hosted, fireactions-light]
+    permissions:
+      contents: read
+      actions: read # list/download the release-train artifact
     outputs:
       ready: ${{ steps.compare.outputs.ready }}
       spec_version: ${{ steps.compare.outputs.spec_version }}
@@ -80,10 +83,12 @@ jobs:
 
           # Use the commit recorded by the release train, not HEAD — main may
           # have advanced with docs-only merges after the multisig proposal.
-          artifact_id=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mainnet-upgrade-${local_spec}&per_page=1" \
-            --jq '.artifacts[0].id // empty')
-          : ${artifact_id:?no mainnet-upgrade-${local_spec} artifact found — did the release train run?}
+          # Resolve the artifact through the provenance gate: fork PRs can plant
+          # a `mainnet-upgrade-<spec>` artifact in this repo's store, and this
+          # commit is what we later publish to PyPI/crates.io and push to
+          # `mainnet`, so it must come from a push of release-train.yml to main.
+          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$local_spec")
+          : ${artifact_id:?no trustworthy mainnet-upgrade-${local_spec} artifact found — did the release train run?}
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > /tmp/release-artifact.zip
           unzip -o /tmp/release-artifact.zip -d /tmp/release-artifact
           release_sha=$(jq -r '.commit' /tmp/release-artifact/pending-release.json)
@@ -124,10 +129,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           spec="${{ needs.check.outputs.spec_version }}"
-          artifact_id=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mainnet-upgrade-${spec}&per_page=1" \
-            --jq '.artifacts[0].id // empty')
-          : ${artifact_id:?no mainnet-upgrade-${spec} artifact found — did the release train run?}
+          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$spec")
+          : ${artifact_id:?no trustworthy mainnet-upgrade-${spec} artifact found — did the release train run?}
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > artifact.zip
           mkdir -p wasm
           unzip -o artifact.zip -d wasm
@@ -136,11 +139,13 @@ jobs:
       - name: Create release with runtime assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_VERSION: ${{ needs.check.outputs.spec_version }}
+          RELEASE_SHA: ${{ needs.check.outputs.sha }}
         run: |
-          gh release create "v${{ needs.check.outputs.spec_version }}" \
+          gh release create "v${SPEC_VERSION}" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "${{ needs.check.outputs.sha }}" \
-            --title "Runtime ${{ needs.check.outputs.spec_version }}" \
+            --target "$RELEASE_SHA" \
+            --title "Runtime ${SPEC_VERSION}" \
             --generate-notes \
             wasm/subtensor.wasm \
             wasm/subtensor-digest.json \
@@ -202,7 +207,7 @@ jobs:
 
       - name: Install uv
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Download py-sp-core wheels

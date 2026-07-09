@@ -50,6 +50,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
+from .result import BittensorError
 from .signing import WalletLike, resolve_signer
 from .sp_core import verify as _sp_core_verify
 from .wallets import CRYPTO_TYPE_NAMES, parse_crypto_type
@@ -74,7 +75,7 @@ _NO_RECEIVER = "-"
 _DEFAULT_SCHEME = "sr25519"
 
 
-class AuthError(Exception):
+class AuthError(BittensorError):
     """A signed request failed authentication.
 
     Subclasses say why; messages never echo the signature or payload, so they
@@ -132,7 +133,7 @@ class InMemoryNonceStore:
     """
 
     def __init__(self, retention: float = 60.0):
-        self._retention = retention
+        self.retention = retention
         self._seen: set[tuple[str, int]] = set()
         self._expiry: deque[tuple[float, tuple[str, int]]] = deque()
         self._lock = threading.Lock()
@@ -146,7 +147,7 @@ class InMemoryNonceStore:
             if key in self._seen:
                 return False
             self._seen.add(key)
-            self._expiry.append((now + self._retention, key))
+            self._expiry.append((now + self.retention, key))
             return True
 
 
@@ -281,11 +282,13 @@ def verify(
         nonce = int(raw_nonce)
     except ValueError:
         raise MalformedAuth(f"{HEADER_NONCE} is not a decimal integer") from None
-    scheme = lowered.get(HEADER_CRYPTO.lower(), _DEFAULT_SCHEME)
     try:
-        crypto_type = parse_crypto_type(scheme)
+        crypto_type = parse_crypto_type(lowered.get(HEADER_CRYPTO.lower(), _DEFAULT_SCHEME))
     except ValueError:
         raise MalformedAuth(f"unsupported {HEADER_CRYPTO}") from None
+    # Rebuild the canonical scheme name rather than echoing the header value,
+    # so the signed bytes are never client-influenced beyond the scheme choice.
+    scheme = CRYPTO_TYPE_NAMES[crypto_type]
     raw_signature = lowered.get(HEADER_SIGNATURE.lower())
     if raw_signature is None:
         raise MalformedAuth(f"missing {HEADER_SIGNATURE}")
@@ -327,6 +330,13 @@ def verify(
         raise BadSignature("signature does not verify against the claimed hotkey")
 
     store = nonce_store if nonce_store is not None else _default_nonce_store
+    retention = getattr(store, "retention", None)
+    if retention is not None and max_age + allowed_skew > retention:
+        raise ValueError(
+            f"nonce store retains entries for {retention:g}s but the freshness window is "
+            f"{max_age + allowed_skew:g}s — replays inside the gap would be accepted; "
+            "use a store with retention >= max_age + allowed_skew"
+        )
     if not store.check_and_store(sender, nonce):
         raise ReplayedRequest("this nonce was already accepted from this hotkey")
 

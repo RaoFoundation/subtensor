@@ -33,6 +33,7 @@ _NAMESPACES = (
 class _Loop:
     def __init__(self):
         self._loop = asyncio.new_event_loop()
+        self._shutdown = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -40,10 +41,20 @@ class _Loop:
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
+    @property
+    def is_shutdown(self) -> bool:
+        return self._shutdown
+
     def call(self, coro) -> Any:
+        if self._shutdown:
+            # A stopped loop never runs the coroutine, so .result() would
+            # hang forever; fail loudly instead.
+            coro.close()
+            raise RuntimeError("SyncClient is closed; its event loop has shut down")
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
 
     def shutdown(self) -> None:
+        self._shutdown = True
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=5)
 
@@ -260,8 +271,10 @@ class SyncClient:
                 except StopAsyncIteration:
                     return
         finally:
-            # Closing the generator needs the loop, not a connection.
-            self._loop.call(agen.aclose())
+            # Closing the generator needs the loop, not a connection. After
+            # close() the loop is gone and there is nothing left to clean up.
+            if not self._loop.is_shutdown:
+                self._loop.call(agen.aclose())
 
     def read(self, name: str, **params):
         return self._call(self._client.read(name, **params))

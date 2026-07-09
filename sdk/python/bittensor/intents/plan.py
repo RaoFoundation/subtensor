@@ -49,8 +49,16 @@ class Policy:
 
     def check(self, intent: Intent, fee: Optional[Balance]) -> list[str]:
         violations: list[str] = []
-        if self.max_fee_tao is not None and fee is not None and fee > self.max_fee_tao:
-            violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
+        if self.max_fee_tao is not None:
+            # A fee cap must not fail open: an unavailable estimate blocks
+            # execution rather than silently skipping the cap.
+            if fee is None:
+                violations.append(
+                    f"max_fee_tao {self.max_fee_tao} is configured but the fee "
+                    "could not be estimated"
+                )
+            elif fee > self.max_fee_tao:
+                violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
         if self.max_spend_tao is not None:
             spend = intent.spend()
             if spend is UNBOUNDED:

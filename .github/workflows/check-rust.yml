@@ -82,9 +82,10 @@ jobs:
           cache-key: lints
       - name: cargo check (fail on warnings)
         run: |
-          set -o pipefail
-          cargo check 2>&1 | sed -r "s/\x1B\[[0-9;]*[mK]//g" | grep "warning:" && exit 1
-          echo "No warnings found."
+          set -euo pipefail
+          # RUSTFLAGS: -D warnings promotes warnings to errors, so cargo's
+          # exit code alone fails the job on any warning.
+          cargo check
 
   test:
     name: cargo test

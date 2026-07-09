@@ -60,7 +60,9 @@ class BridgeServer:
             )
             logger.debug(f"Bridge server listening on {self.http_url}")
         if open_browser:
-            open_bridge_page(self.http_url, browser=browser)
+            open_bridge_page(
+                f"{self.http_url}?session={self.state.session_id}", browser=browser
+            )
 
     async def stop(self) -> None:
         if self._ws_server is not None:
@@ -197,7 +199,11 @@ class BridgeServer:
         if browser_connected:
             try:
                 result = await self._forward_to_browser(
-                    {"id": "status-accounts", "method": "accounts.list", "params": {}}
+                    {
+                        "id": f"status-accounts-{uuid.uuid4().hex}",
+                        "method": "accounts.list",
+                        "params": {},
+                    }
                 )
                 accounts = result.get("accounts", []) if isinstance(result, dict) else []
                 account_count = len(accounts)
