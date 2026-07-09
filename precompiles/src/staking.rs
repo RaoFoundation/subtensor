@@ -45,7 +45,9 @@ use pallet_subtensor_proxy as pallet_proxy;
 use precompile_utils::EvmResult;
 use precompile_utils::prelude::{Address, revert};
 use sp_core::{H160, H256, U256};
-use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto};
+use sp_runtime::traits::{
+    AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto, Zero,
+};
 use sp_std::vec;
 use subtensor_runtime_common::{NetUid, ProxyType, Token};
 
@@ -338,6 +340,37 @@ where
         );
 
         Ok(u64::from(stake).into())
+    }
+
+    #[precompile::public("getStakeInfoForColdkeyAndNetuid(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_stake_info_for_coldkey_and_netuid(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        netuid: u16,
+    ) -> EvmResult<Vec<(H256, U256)>> {
+        let coldkey = R::AccountId::from(coldkey.0);
+        let netuid = NetUid::from(netuid);
+
+        // StakingHotkeys index read.
+        handle.record_db_reads::<R>(1)?;
+        let hotkeys = pallet_subtensor::StakingHotkeys::<R>::get(&coldkey);
+
+        let mut stakes: Vec<(H256, U256)> = vec![];
+        for hotkey in hotkeys {
+            // Alpha share pool reads.
+            handle.record_db_reads::<R>(2)?;
+            let alpha = pallet_subtensor::Pallet::<R>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey, &coldkey, netuid,
+            );
+            if alpha.is_zero() {
+                continue;
+            }
+            let hotkey_bytes: [u8; 32] = hotkey.into();
+            stakes.push((hotkey_bytes.into(), U256::from(alpha.to_u64())));
+        }
+
+        Ok(stakes)
     }
 
     #[precompile::public("getAlphaStakedValidators(bytes32,uint256)")]
@@ -942,6 +975,7 @@ mod tests {
         execute_precompile, fund_account, mapped_account, new_test_ext, precompiles, selector_u32,
         substrate_to_evm,
     };
+    use precompile_utils::prelude::RuntimeHelper;
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::{H160, H256};
@@ -949,6 +983,7 @@ mod tests {
     use subtensor_runtime_common::{AlphaBalance, TaoBalance};
 
     const TEST_NETUID_U16: u16 = 1;
+    const SECOND_NETUID_U16: u16 = 2;
     const INVALID_NETUID_U16: u16 = 12_345;
     const TEMPO: u16 = 100;
     const RESERVE_TAO: u64 = 200_000_000_000;
@@ -962,7 +997,11 @@ mod tests {
     const ALLOWANCE_DECREASE_RAO: u64 = 2_000_000_000;
 
     fn setup_staking_subnet() -> NetUid {
-        let netuid = NetUid::from(TEST_NETUID_U16);
+        setup_staking_subnet_id(TEST_NETUID_U16)
+    }
+
+    fn setup_staking_subnet_id(netuid_u16: u16) -> NetUid {
+        let netuid = NetUid::from(netuid_u16);
         pallet_subtensor::Pallet::<Runtime>::init_new_network(netuid, TEMPO);
         pallet_subtensor::Pallet::<Runtime>::set_network_registration_allowed(netuid, true);
         pallet_subtensor::Pallet::<Runtime>::set_max_allowed_uids(netuid, 4096);
@@ -1104,6 +1143,208 @@ mod tests {
             ),
             expected,
         );
+    }
+
+    fn stake_info_selector_netuid() -> u32 {
+        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint16)")
+    }
+
+    /// Reads charged by the precompile: one for the `StakingHotkeys` index plus
+    /// two per hotkey visited (matching `get_stake_info_for_coldkey_and_netuid`).
+    fn expected_stake_info_cost(hotkey_count: usize) -> u64 {
+        let reads = 1u64.saturating_add(2u64 * hotkey_count as u64);
+        RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(reads)
+    }
+
+    #[test]
+    fn staking_precompile_v2_stake_info_filtered_by_netuid_matches_state() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1101);
+            let coldkey = mapped_account(caller);
+            let hotkey = hotkey();
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+
+            let alpha = stake_for(&hotkey, &coldkey, netuid);
+            assert!(alpha > 0, "expected non-zero stake after add_stake");
+
+            let expected: Vec<(H256, U256)> =
+                vec![(H256::from_slice(hotkey.as_ref()), U256::from(alpha))];
+
+            // One hotkey, one filtered netuid.
+            let expected_cost = expected_stake_info_cost(1);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        stake_info_selector_netuid(),
+                        (H256::from_slice(coldkey.as_ref()), TEST_NETUID_U16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(expected_cost)
+                .execute_returns_raw(encode_return_value(expected));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_stake_info_returns_all_hotkeys_on_netuid() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1102);
+            let coldkey = mapped_account(caller);
+            let hotkey_a = hotkey();
+            let hotkey_b = AccountId::from([0x33; 32]);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey_a, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            add_stake_v2(caller, &hotkey_b, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+
+            // Build the expected list in the precompile's enumeration order: over
+            // `StakingHotkeys` for the queried netuid.
+            let hotkeys = pallet_subtensor::StakingHotkeys::<Runtime>::get(&coldkey);
+            let mut expected: Vec<(H256, U256)> = vec![];
+            for hotkey_i in &hotkeys {
+                let alpha = stake_for(hotkey_i, &coldkey, netuid);
+                if alpha == 0 {
+                    continue;
+                }
+                expected.push((H256::from_slice(hotkey_i.as_ref()), U256::from(alpha)));
+            }
+            // Staked to exactly the two hotkeys we set up on this subnet.
+            assert_eq!(expected.len(), 2, "expected two non-zero stake positions");
+
+            let expected_cost = expected_stake_info_cost(hotkeys.len());
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        stake_info_selector_netuid(),
+                        (H256::from_slice(coldkey.as_ref()), TEST_NETUID_U16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(expected_cost)
+                .execute_returns_raw(encode_return_value(expected));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_stake_info_empty_for_unstaked_coldkey() {
+        new_test_ext().execute_with(|| {
+            setup_staking_subnet();
+            let caller = addr_from_index(0x1103);
+            let coldkey = mapped_account(caller);
+
+            // Coldkey never stakes: `StakingHotkeys` is empty, so the loop never
+            // runs and only the index read is charged.
+            let expected: Vec<(H256, U256)> = vec![];
+            let expected_cost = expected_stake_info_cost(0);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        stake_info_selector_netuid(),
+                        (H256::from_slice(coldkey.as_ref()), TEST_NETUID_U16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(expected_cost)
+                .execute_returns_raw(encode_return_value(expected));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_stake_info_netuid_filter_excludes_other_subnets() {
+        new_test_ext().execute_with(|| {
+            setup_staking_subnet();
+            let netuid2 = setup_staking_subnet_id(SECOND_NETUID_U16);
+            let caller = addr_from_index(0x1104);
+            let coldkey = mapped_account(caller);
+            let hotkey = hotkey();
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+
+            // The coldkey has a hotkey but no stake on netuid 2, so the filtered
+            // query returns an empty list (the pair is still visited/charged).
+            assert_eq!(stake_for(&hotkey, &coldkey, netuid2), 0);
+
+            let expected: Vec<(H256, U256)> = vec![];
+            let expected_cost = expected_stake_info_cost(1);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        stake_info_selector_netuid(),
+                        (H256::from_slice(coldkey.as_ref()), SECOND_NETUID_U16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(expected_cost)
+                .execute_returns_raw(encode_return_value(expected));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_stake_info_skips_hotkeys_with_zero_stake_on_netuid() {
+        new_test_ext().execute_with(|| {
+            let netuid1 = setup_staking_subnet();
+            setup_staking_subnet_id(SECOND_NETUID_U16);
+            let caller = addr_from_index(0x1105);
+            let coldkey = mapped_account(caller);
+            let hotkey_a = hotkey();
+            let hotkey_b = AccountId::from([0x44; 32]);
+            let hotkey_c = AccountId::from([0x55; 32]);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            // a and c staked on netuid1; b only on netuid2. All three enter the
+            // coldkey's StakingHotkeys index (it is never pruned on unstake), so a
+            // query on netuid1 must skip b (stale/zero there) mid-list.
+            add_stake_v2(caller, &hotkey_a, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            add_stake_v2(caller, &hotkey_b, SECOND_NETUID_U16, INITIAL_STAKE_RAO);
+            add_stake_v2(caller, &hotkey_c, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+
+            let hotkeys = pallet_subtensor::StakingHotkeys::<Runtime>::get(&coldkey);
+            assert_eq!(hotkeys.len(), 3, "all three hotkeys should be indexed");
+            assert_eq!(stake_for(&hotkey_b, &coldkey, netuid1), 0);
+
+            let mut expected: Vec<(H256, U256)> = vec![];
+            for hotkey_i in &hotkeys {
+                let alpha = stake_for(hotkey_i, &coldkey, netuid1);
+                if alpha == 0 {
+                    continue;
+                }
+                expected.push((H256::from_slice(hotkey_i.as_ref()), U256::from(alpha)));
+            }
+            assert_eq!(expected.len(), 2, "only the two hotkeys staked on netuid1");
+
+            // Gas is charged per index entry (all 3), not per returned row (2).
+            let expected_cost = expected_stake_info_cost(hotkeys.len());
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        stake_info_selector_netuid(),
+                        (H256::from_slice(coldkey.as_ref()), TEST_NETUID_U16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(expected_cost)
+                .execute_returns_raw(encode_return_value(expected));
+        });
     }
 
     #[test]

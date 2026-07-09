@@ -2,6 +2,12 @@ pragma solidity ^0.8.0;
 
 address constant ISTAKING_ADDRESS = 0x0000000000000000000000000000000000000805;
 
+/// A coldkey's stake position: the `hotkey` and the `stake` amount in alpha.
+struct StakeInfo {
+    bytes32 hotkey;
+    uint256 stake;
+}
+
 interface IStaking {
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey`.
@@ -150,6 +156,19 @@ interface IStaking {
         bytes32 coldkey,
         uint256 netuid
     ) external view returns (uint256);
+
+    /**
+     * @dev Returns the coldkey's non-zero stake positions on `netuid`; zero-stake
+     * hotkeys are omitted.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet to query (uint16).
+     * @return The coldkey's (hotkey, stake) positions on `netuid`.
+     */
+    function getStakeInfoForColdkeyAndNetuid(
+        bytes32 coldkey,
+        uint16 netuid
+    ) external view returns (StakeInfo[] memory);
 
     /**
      * @dev Delegates staking to a proxy account.
