@@ -3,14 +3,15 @@
  * Uses ApiPromise, not PAPI TypedApi — keep them separate.
  */
 import type { ApiPromise } from "@polkadot/api";
+import { tao } from "./balance.ts";
 import type { KeyringPair } from "@moonwall/util";
-import { SignedOrder } from "./index.js";
+import type { SignedOrder } from "./index.js";
 
 export async function devForceSetBalance(
     polkadotJs: ApiPromise,
     context: any,
     address: string,
-    amount: bigint
+    amount: bigint = tao(1e10)
 ): Promise<void> {
     await context.createBlock([
         await polkadotJs.tx.sudo

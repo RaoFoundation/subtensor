@@ -6,6 +6,7 @@
 
 use core::num::NonZeroU64;
 
+use crate::subnets::dissolution::DissolveCleanupStatus;
 use crate::utils::rate_limiting::TransactionType;
 use crate::*;
 pub use frame_support::traits::Imbalance;
@@ -19,8 +20,10 @@ use frame_support::{
 };
 use frame_system as system;
 use frame_system::{EnsureRoot, RawOrigin, limits};
+use pallet_commitments::pallet::Pallet as CommitmentsPallet;
 use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_utility as pallet_utility;
+use scale_info::TypeInfo;
 use share_pool::SafeFloat;
 use sp_core::{ConstU64, Get, H256, U256, offchain::KeyTypeId};
 use sp_runtime::Perbill;
@@ -31,9 +34,43 @@ use sp_runtime::{
 use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AuthorshipInfo, NetUid, TaoBalance};
+use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+
+#[derive(TypeInfo)]
+pub struct TestMaxFields;
+impl Get<u32> for TestMaxFields {
+    fn get() -> u32 {
+        16
+    }
+}
+
+pub struct TestCanCommit;
+impl pallet_commitments::CanCommit<U256> for TestCanCommit {
+    fn can_commit(_netuid: NetUid, _who: &U256) -> bool {
+        true
+    }
+}
+
+pub struct MockTempoInterface;
+impl pallet_commitments::GetTempoInterface for MockTempoInterface {
+    fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64 {
+        let tempo: u64 = 360; // Default tempo
+        let tempo_plus_one: u64 = tempo.checked_add(1).unwrap();
+        let netuid_plus_one: u64 = (u16::from(netuid) as u64).checked_add(1).unwrap();
+        let block_with_offset: u64 = cur_block.checked_add(netuid_plus_one).unwrap();
+
+        block_with_offset.checked_div(tempo_plus_one).unwrap_or(0)
+    }
+}
+
+// // Implement OnMetadataCommitment for U256 by creating a local wrapper type
+// pub struct TestOnMetadataCommitment;
+// impl pallet_commitments::OnMetadataCommitment<U256> for TestOnMetadataCommitment {
+//     fn on_metadata_commitment(_netuid: NetUid, _who: &U256) {}
+// }
+
 type Block = frame_system::mocking::MockBlock<Test>;
 
 // Configure a mock runtime to test the pallet.
@@ -51,7 +88,8 @@ frame_support::construct_runtime!(
         Drand: pallet_drand = 9,
         Swap: pallet_subtensor_swap = 10,
         Crowdloan: pallet_crowdloan = 11,
-        Proxy: pallet_subtensor_proxy = 12,
+        Commitments: pallet_commitments = 12,
+        Proxy: pallet_subtensor_proxy = 13,
     }
 );
 
@@ -374,6 +412,18 @@ impl pallet_subtensor_swap::Config for Test {
     type BenchmarkHelper = ();
 }
 
+// Implement pallet_commitments::Config for Test
+impl pallet_commitments::Config for Test {
+    type Currency = Balances;
+    type WeightInfo = ();
+    type CanCommit = TestCanCommit;
+    type OnMetadataCommitment = ();
+    type MaxFields = TestMaxFields;
+    type InitialDeposit = ConstTao<0>;
+    type FieldDeposit = ConstTao<0>;
+    type TempoInterface = MockTempoInterface;
+}
+
 pub struct OriginPrivilegeCmp;
 
 impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
@@ -384,7 +434,12 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 
 pub struct CommitmentsI;
 impl CommitmentsInterface for CommitmentsI {
-    fn purge_netuid(_netuid: NetUid) {}
+    fn purge_netuid(
+        netuid: NetUid,
+        weight_meter: &mut frame_support::weights::WeightMeter,
+    ) -> bool {
+        CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
+    }
 }
 
 parameter_types! {
@@ -687,6 +742,19 @@ pub(crate) fn run_to_block_ext(n: u64, enable_events: bool) {
         SubtensorModule::on_initialize(System::block_number());
         Scheduler::on_initialize(System::block_number());
     }
+}
+
+#[allow(dead_code)]
+pub(crate) fn run_block_idle() {
+    SubtensorModule::on_idle(
+        System::block_number(),
+        Weight::from_parts(u64::MAX, u64::MAX),
+    );
+}
+
+#[allow(dead_code)]
+pub(crate) fn run_network_registration_queue() {
+    run_block_idle();
 }
 
 #[allow(dead_code)]
@@ -1186,5 +1254,167 @@ pub fn remove_owner_registration_stake(netuid: NetUid) {
     assert_eq!(
         TotalHotkeyAlpha::<Test>::get(owner_hotkey, netuid),
         AlphaBalance::ZERO
+    );
+}
+
+/// Runs a weight-metered cleanup step that may pause and resume via `last_key`.
+pub fn run_resumable_cleanup_step<F>(mut step: F) -> bool
+where
+    F: FnMut(Option<Vec<u8>>) -> (bool, Option<Vec<u8>>),
+{
+    let mut last_key = None;
+    for _ in 0..100 {
+        let (done, new_key) = step(last_key);
+        if done {
+            return true;
+        }
+        last_key = new_key;
+    }
+    false
+}
+
+/// Runs a resumable per-netuid cleanup helper to completion.
+pub fn run_resumable_netuid_cleanup<F>(
+    netuid: NetUid,
+    weight_meter: &mut WeightMeter,
+    mut step: F,
+) -> bool
+where
+    F: FnMut(NetUid, &mut WeightMeter, Option<Vec<u8>>) -> (bool, Option<Vec<u8>>),
+{
+    run_resumable_cleanup_step(|last_key| step(netuid, weight_meter, last_key))
+}
+
+/// Runs a resumable per-netuid cleanup helper that reads/writes dissolve cleanup status.
+pub fn run_resumable_netuid_cleanup_with_status<F>(
+    netuid: NetUid,
+    weight_meter: &mut WeightMeter,
+    status: &mut DissolveCleanupStatus,
+    mut step: F,
+) -> bool
+where
+    F: FnMut(
+        NetUid,
+        &mut WeightMeter,
+        Option<Vec<u8>>,
+        &mut DissolveCleanupStatus,
+    ) -> (bool, Option<Vec<u8>>),
+{
+    run_resumable_cleanup_step(|last_key| step(netuid, weight_meter, last_key, status))
+}
+
+pub fn dissolve_cleanup_status(netuid: NetUid) -> DissolveCleanupStatus {
+    let mut status = DissolveCleanupStatus::new(netuid);
+    status.subnet_distributed_tao = Some(0);
+    status
+}
+
+/// Runs `get_total_alpha_value` then `settle_stakes` with one shared dissolve status.
+pub fn run_destroy_alpha_get_total_and_settle(netuid: NetUid) -> DissolveCleanupStatus {
+    let w = Weight::from_parts(u64::MAX, u64::MAX);
+    let mut weight_meter = WeightMeter::with_limit(w);
+    let mut status = dissolve_cleanup_status(netuid);
+    assert!(
+        run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut weight_meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ),
+        "destroy_alpha_in_out_stakes_get_total_alpha_value incomplete"
+    );
+    status.subnet_distributed_tao = Some(0);
+    assert!(
+        run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut weight_meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ),
+        "destroy_alpha_in_out_stakes_settle_stakes incomplete"
+    );
+    status
+}
+
+/// Runs the α-out destroy pipeline used during dissolved-network cleanup (through final destroy).
+pub fn run_destroy_alpha_in_out_stakes_full_pipeline(netuid: NetUid) {
+    let w = Weight::from_parts(u64::MAX, u64::MAX);
+    let mut weight_meter = WeightMeter::with_limit(w);
+    let mut status = dissolve_cleanup_status(netuid);
+
+    assert!(
+        run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut weight_meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_get_total_alpha_value(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ),
+        "destroy_alpha_in_out_stakes_get_total_alpha_value incomplete"
+    );
+    status.subnet_distributed_tao = Some(0);
+    assert!(
+        run_resumable_netuid_cleanup_with_status(
+            netuid,
+            &mut weight_meter,
+            &mut status,
+            |netuid, weight_meter, last_key, status| {
+                SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
+                    netuid,
+                    weight_meter,
+                    last_key,
+                    status,
+                )
+            },
+        ),
+        "destroy_alpha_in_out_stakes_settle_stakes incomplete"
+    );
+    assert!(
+        run_resumable_netuid_cleanup(
+            netuid,
+            &mut weight_meter,
+            SubtensorModule::destroy_alpha_in_out_stakes_clean_alpha,
+        ),
+        "destroy_alpha_in_out_stakes_clean_alpha incomplete"
+    );
+    assert!(
+        run_resumable_netuid_cleanup(
+            netuid,
+            &mut weight_meter,
+            SubtensorModule::destroy_alpha_in_out_stakes_clear_hotkey_totals,
+        ),
+        "destroy_alpha_in_out_stakes_clear_hotkey_totals incomplete"
+    );
+    assert!(
+        run_resumable_netuid_cleanup(
+            netuid,
+            &mut weight_meter,
+            SubtensorModule::destroy_alpha_in_out_stakes_clear_locks,
+        ),
+        "destroy_alpha_in_out_stakes_clear_locks incomplete"
+    );
+    assert!(
+        SubtensorModule::destroy_alpha_in_out_stakes(netuid, &mut weight_meter, &mut status),
+        "destroy_alpha_in_out_stakes incomplete"
     );
 }

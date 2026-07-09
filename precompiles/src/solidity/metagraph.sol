@@ -12,7 +12,7 @@ struct AxonInfo {
 }
 
 interface IMetagraph {
-  
+
   /**
    * @dev Returns the count of unique identifiers (UIDs) associated with a given network identifier (netuid).
    * @param netuid The network identifier for which to retrieve the UID count.

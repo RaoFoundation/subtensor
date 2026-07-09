@@ -188,4 +188,8 @@ impl<T: Config> Pallet<T> {
     pub fn get_coldkey_for_hotkey(hotkey: &T::AccountId) -> T::AccountId {
         Owner::<T>::get(hotkey)
     }
+
+    pub fn maybe_coldkey_for_hotkey(hotkey: &T::AccountId) -> Option<T::AccountId> {
+        Owner::<T>::try_get(hotkey).ok()
+    }
 }

@@ -18537,6 +18537,7 @@ dependencies = [
  "serde",
  "sp-arithmetic",
  "sp-core",
+ "sp-io",
  "sp-rpc",
  "sp-runtime",
  "substrate-fixed",
