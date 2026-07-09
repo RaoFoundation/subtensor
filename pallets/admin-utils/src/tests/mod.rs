@@ -1196,6 +1196,7 @@ fn test_sudo_set_liquid_alpha_enabled() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
         let enabled: bool = true;
+        NetworksAdded::<Test>::insert(netuid, true);
         assert_eq!(!enabled, SubtensorModule::get_liquid_alpha_enabled(netuid));
 
         assert_ok!(AdminUtils::sudo_set_liquid_alpha_enabled(

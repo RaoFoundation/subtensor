@@ -1536,6 +1536,7 @@ mod pallet_benchmarks {
         let logo_url = vec![];
         let add = vec![];
 
+        Subtensor::<T>::init_new_network(netuid, 1);
         SubnetOwner::<T>::insert(netuid, coldkey.clone());
         SubtokenEnabled::<T>::insert(netuid, true);
 
@@ -2090,6 +2091,24 @@ mod pallet_benchmarks {
             amount,
             Some(limit),
         );
+    }
+
+    #[benchmark]
+    fn dissolve_network() {
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 1;
+        let coldkey: T::AccountId = account("Owner", 0, 1);
+
+        // Initialize network
+        Subtensor::<T>::init_new_network(netuid, tempo);
+
+        // Set network owner
+        SubnetOwner::<T>::insert(netuid, coldkey.clone());
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, coldkey.clone(), netuid);
+
+        assert!(DissolveCleanupQueue::<T>::get().contains(&netuid));
     }
 
     #[benchmark]

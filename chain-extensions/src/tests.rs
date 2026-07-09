@@ -1727,6 +1727,11 @@ fn get_subnet_registration_state_detects_reused_netuid_generation() {
         assert_ok!(pallet_subtensor::Pallet::<mock::Test>::do_dissolve_network(
             netuid
         ));
+
+        pallet_subtensor::Pallet::<mock::Test>::remove_data_for_dissolved_networks(
+            Weight::from_parts(u64::MAX, u64::MAX),
+        );
+
         let reused_netuid = mock::add_dynamic_network(&second_hotkey, &second_coldkey);
         assert_eq!(reused_netuid, netuid);
 

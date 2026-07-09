@@ -18,8 +18,14 @@ use frame_support::pallet_prelude::Hooks;
 use frame_support::{
     BoundedVec, assert_noop, assert_ok,
     traits::{Currency, Get, ReservableCurrency},
+    weights::Weight,
 };
 use frame_system::{Pallet as System, RawOrigin};
+
+fn purge_netuid_with_meter(netuid: NetUid, limit: Weight) -> bool {
+    let mut weight_meter = frame_support::weights::WeightMeter::with_limit(limit);
+    Pallet::<Test>::purge_netuid(netuid, &mut weight_meter)
+}
 
 #[test]
 fn manual_data_type_info() {
@@ -2265,7 +2271,7 @@ fn purge_netuid_clears_only_that_netuid() {
         assert!(TimelockedIndex::<Test>::get().contains(&(net_a, who_a1)));
 
         // Act
-        Pallet::<Test>::purge_netuid(net_a);
+        purge_netuid_with_meter(net_a, Weight::from_parts(u64::MAX, u64::MAX));
 
         // NET A: everything cleared
         assert_eq!(CommitmentOf::<Test>::iter_prefix(net_a).count(), 0);
@@ -2298,8 +2304,68 @@ fn purge_netuid_clears_only_that_netuid() {
         assert!(idx_after.contains(&(net_b, who_b)));
 
         // Idempotency
-        Pallet::<Test>::purge_netuid(net_a);
+        purge_netuid_with_meter(net_a, Weight::from_parts(u64::MAX, u64::MAX));
         assert_eq!(CommitmentOf::<Test>::iter_prefix(net_a).count(), 0);
         assert!(!TimelockedIndex::<Test>::get().contains(&(net_a, who_a1)));
+    });
+}
+
+/// `purge_netuid` runs weighted prefix clears **before** the timelock-index update. The macro batch
+/// sizing uses the meter's **limit** (not accumulated consumption), so maps may already be empty
+/// when the weight budget runs out; `done == false` must still mean the timelock index
+/// row for this netuid survives until a later call with enough budget.
+#[test]
+fn purge_netuid_under_budget_may_skip_timelock_update_while_clearing_maps() {
+    new_test_ext().execute_with(|| {
+        System::<Test>::set_block_number(1);
+        let net_a = NetUid::from(77);
+        let who_a: u64 = 4001;
+
+        let empty_fields: BoundedVec<Data, <Test as Config>::MaxFields> = BoundedVec::default();
+        let info_empty: CommitmentInfo<<Test as Config>::MaxFields> = CommitmentInfo {
+            fields: empty_fields,
+        };
+        let bn = System::<Test>::block_number();
+        let reg = Registration {
+            deposit: Default::default(),
+            block: bn,
+            info: info_empty,
+        };
+        CommitmentOf::<Test>::insert(net_a, who_a, reg);
+        LastCommitment::<Test>::insert(net_a, who_a, bn);
+        LastBondsReset::<Test>::insert(net_a, who_a, bn);
+        RevealedCommitments::<Test>::insert(net_a, who_a, vec![(b"x".to_vec(), 1u64)]);
+        UsedSpaceOf::<Test>::insert(
+            net_a,
+            who_a,
+            UsageTracker {
+                last_epoch: 1,
+                used_space: 1,
+            },
+        );
+        TimelockedIndex::<Test>::mutate(|idx| {
+            idx.insert((net_a, who_a));
+        });
+
+        let write1 = <Test as frame_system::Config>::DbWeight::get().writes(1);
+        // Budget is strictly below one DB write, so the weighted prefix clears inside
+        // `purge_netuid` reliably run out of budget and report `done == false`.
+        let budget = write1.saturating_sub(Weight::from_parts(1, 1));
+
+        let done = purge_netuid_with_meter(net_a, budget);
+        assert!(
+            !done,
+            "purge_netuid must report not-done when under-budget"
+        );
+        assert!(
+            TimelockedIndex::<Test>::get().contains(&(net_a, who_a)),
+            "timelock index is only trimmed after a successful final pass; stale index entries are expected if that write is skipped"
+        );
+
+        // Full budget finishes (including timelock index), even if prior pass already cleared maps.
+        let done = purge_netuid_with_meter(net_a, Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(done);
+        assert!(CommitmentOf::<Test>::get(net_a, who_a).is_none());
+        assert!(!TimelockedIndex::<Test>::get().contains(&(net_a, who_a)));
     });
 }

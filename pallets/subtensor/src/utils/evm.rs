@@ -51,6 +51,7 @@ impl<T: Config> Pallet<T> {
         mut signature: Signature,
     ) -> dispatch::DispatchResult {
         let hotkey = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             Self::get_owning_coldkey_for_hotkey(&hotkey) != DefaultAccount::<T>::get(),
             Error::<T>::NonAssociatedColdKey
