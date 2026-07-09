@@ -73,8 +73,10 @@ sdk/python/dist/
 *.log
 
 # Claude Code configuration (skills are checked in; everything else is ignored)
+# .claude/skills is a symlink to .agents/skills (single source of truth);
+# the trailing-slash-free negation is required to re-include the symlink.
 .claude/*
-!.claude/skills/
+!.claude/skills
 .vercel
 
 # Secrets and local env files (keep .env.example committable if added)

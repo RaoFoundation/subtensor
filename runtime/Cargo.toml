@@ -2,8 +2,8 @@
 name = "node-subtensor-runtime"
 version = "4.0.0-dev"
 description = "Subtensor network"
-authors = ["Opentensor Foundation <https://github.com/RaoFoundation/>"]
-homepage = "https://opentensor.ai/"
+authors = ["Rao Foundation <https://github.com/RaoFoundation/>"]
+homepage = "https://bittensor.com"
 edition.workspace = true
 license = "Unlicense"
 publish = false

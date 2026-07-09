@@ -23,8 +23,8 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <title>Bittensor</title>
         <meta name='description' content='Internet-scale machine learning' />
         <meta name='twitter:card' content='summary_large_image' />
-        <meta name='twitter:site' content='@bittensor_' />
-        <meta name='twitter:creator' content='@opentensor' />
+        <meta name='twitter:site' content='@bittensor' />
+        <meta name='twitter:creator' content='@bittensor' />
         <meta property='og:title' content='Bittensor' />
         <meta property='og:description' content='Internet-scale machine learning' />
         <meta property='og:image' content={'/images/og_thumbs/' + ogImageFilename + '.png'} />

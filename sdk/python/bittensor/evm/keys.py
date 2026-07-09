@@ -26,12 +26,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    from eth_account import Account
-    from eth_account.signers.local import LocalAccount
-except ImportError:  # pragma: no cover - exercised only without the extra
-    Account = None  # type: ignore[assignment]
-    LocalAccount = None  # type: ignore[assignment, misc]
+from eth_account import Account
+from eth_account.signers.local import LocalAccount
 
 from ..wallets import DEFAULT_WALLET_PATH
 from .addresses import h160_to_ss58, normalize_h160
@@ -40,15 +36,6 @@ _EVM_DIR = "evmkeys"
 
 # BIP-44 Ethereum derivation path, for --from-mnemonic imports (account 0).
 ETH_DERIVATION_PATH = "m/44'/60'/0'/0/0"
-
-
-def require_eth_account() -> None:
-    """Fail with an actionable message when the optional EVM crypto dep is absent."""
-    if Account is None:
-        raise ValueError(
-            "EVM key operations need the `eth-account` package. "
-            "Install it with: uv pip install 'bittensor[evm]'"
-        )
 
 
 @dataclass
@@ -183,7 +170,6 @@ def create_evm_key(
     back to the coldkey seed. Use ``import_evm_key(mnemonic=...)`` for BIP-44
     derivation from a seed you manage yourself.
     """
-    require_eth_account()
     return _store(Account.create(), name, wallet_name, wallet_path, password, overwrite)
 
 
@@ -206,7 +192,6 @@ def import_evm_key(
     imported keystore (defaults to the storage password); ``password``
     encrypts the stored copy.
     """
-    require_eth_account()
     sources = [private_key, keystore_json, mnemonic]
     if sum(source is not None for source in sources) != 1:
         raise ValueError("provide exactly one of: private_key, keystore_json, mnemonic")
@@ -230,7 +215,6 @@ def unlock_evm_key(
     password: "str | None" = None,
 ) -> "LocalAccount":
     """Decrypt a stored EVM key into a signing account (address + private key)."""
-    require_eth_account()
     path = keyfile_path(name, wallet_name, wallet_path)
     if not path.is_file():
         get_evm_key_info(name, wallet_name, wallet_path)  # raises with the listing

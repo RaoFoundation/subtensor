@@ -113,10 +113,19 @@ class Keyfile:
             if answer not in {"y", "yes"}:
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
         self.make_dirs()
-        path.write_bytes(data)
+        # Key material (including intentionally-plaintext hotkeys) must be
+        # owner-only regardless of the caller's umask. The create mode only
+        # applies to new files, so chmod also clamps a pre-existing file
+        # being overwritten.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+        os.chmod(path, 0o600)
 
     def make_dirs(self) -> None:
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def is_encrypted(self) -> bool:
         if not self.exists_on_device() or not self.is_readable():

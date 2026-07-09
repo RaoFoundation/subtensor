@@ -65,6 +65,9 @@ jobs:
         with:
           context: .
           push: true
+          # The Dockerfile's last stage is subtensor-local; without an explicit
+          # target this workflow would publish the localnet image as production.
+          target: subtensor
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.image }}:${{ env.tag }}

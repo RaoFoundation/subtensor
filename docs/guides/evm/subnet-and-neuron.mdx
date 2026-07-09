@@ -1,0 +1,169 @@
+---
+title: Subnet and neuron operations
+description: Register a subnet, register neurons, serve an axon, and set weights — from an EVM key.
+---
+
+The `subnet` (`0x…0803`) and `neuron` (`0x…0804`) precompiles expose the
+subnet lifecycle to EVM accounts: everything the
+[subnet](/docs/guides/subnets), [mining](/docs/guides/mining), and
+[validating](/docs/guides/validating) guides do natively, dispatched from an
+EVM transaction instead of a substrate extrinsic. This walkthrough runs the
+loop on a [localnet](/docs/guides/local-development).
+
+**The one rule that explains everything here:** a precompile dispatches the
+underlying chain call with the **caller's ss58 mirror** as the signing
+account. Whatever the native extrinsic expects of its signer — coldkey for
+registration, hotkey for weights — that role falls on your EVM key's mirror.
+Consequences:
+
+- `burnedRegister(netuid, hotkey)` — the mirror is the **coldkey** (pays the
+  burn, owns the neuron); the `hotkey` argument can be any key.
+- `setWeights(...)`, `serveAxon(...)` — the mirror is the **hotkey**. For an
+  EVM key to perform these, the registered hotkey must *be* its mirror.
+
+So: to run a neuron entirely from one EVM key, register with the key's own
+mirror as the hotkey.
+
+## Setup
+
+Start a localnet and fund an EVM key (via Alice, who is pre-funded):
+
+```bash
+btcli evm key new -w alice --no-password
+btcli evm fund --amount-tao 500 -w alice --network local -y
+btcli evm balance -w alice --rpc-url http://127.0.0.1:9945
+```
+
+(On a source-built localnet the EVM RPC may be on another port, e.g.
+`http://127.0.0.1:9945` — pass `--rpc-url` or `export BT_EVM_ENDPOINT`. On a
+fresh localnet, run `btcli evm setup-localnet -w alice --network local` once:
+it sets the EVM chain ID and disables the contract-deployment whitelist.)
+
+Create a subnet to work on (natively, as in the
+[development loop](/docs/guides/local-development#a-typical-development-loop)),
+or from the EVM as shown next.
+
+## Register a subnet from the EVM
+
+```bash
+btcli evm call subnet registerNetwork 5Fhotkey… --evm-key default --network local
+```
+
+The caller's mirror becomes the subnet **owner coldkey**. There are also
+overloads that set the subnet identity in the same call (name, repo, contact,
+URL, discord, description, logo) — `btcli evm call subnet` lists them.
+
+<Callout type="warning">
+Not every owner operation is exposed as a precompile. In particular
+**activating emissions ([`start-call`](/docs/tx/start-call)) is
+substrate-only**, and a mirror account has no private key that can sign a
+substrate extrinsic. An EVM-registered subnet can still be configured and
+used (hyperparameters below work fine), but plan ownership deliberately:
+most owners register natively and use the EVM side for reads and
+hyperparameters.
+</Callout>
+
+### Hyperparameters
+
+Every owner hyperparameter has a `get`/`set` pair on the subnet precompile —
+the EVM face of [`set-hyperparameter`](/docs/tx/set-hyperparameter). Reads
+are free; writes must come from the owner (or root):
+
+```bash
+btcli evm call subnet getImmunityPeriod 2
+btcli evm call subnet getWeightsSetRateLimit 2
+btcli evm call subnet setMinBurn 2 500000 --evm-key default --network local
+btcli evm call subnet setCommitRevealWeightsEnabled 2 true --evm-key default --network local
+```
+
+## Register a neuron
+
+Burned registration, paid by the EVM key's mirror. Pass the mirror itself as
+the hotkey so the same key can set weights later:
+
+```bash
+MIRROR=$(btcli evm key list -w alice --json | jq -r '.[0].ss58_mirror')
+btcli evm call neuron burnedRegister 2 $MIRROR --evm-key default --network local
+```
+
+Confirm from either side:
+
+```bash
+btcli query metagraph --netuid 2 --network local --json | jq '.neurons[].hotkey'
+btcli evm call uid-lookup uidLookup 2 0xYOURKEY… 16   # after associate-evm-key
+```
+
+([`uid-lookup`](/docs/guides/evm/read-chain-state#from-an-evm-address-to-its-uids)
+resolves only after the hotkey↔EVM association exists; with the mirror *as*
+the hotkey you can skip association and just query the metagraph.)
+
+## Serve an axon
+
+`serveAxon` publishes the neuron's endpoint, like the native
+[`serve-axon`](/docs/tx/serve-axon). The IP is a `uint128` (IPv4 packed into
+the low 32 bits), `ipType` is 4 or 6:
+
+```bash
+# 192.168.1.10 = 0xC0A8010A = 3232235786, port 8091, IPv4, protocol 0
+btcli evm call neuron serveAxon 2 1 3232235786 8091 4 0 0 0 --evm-key default --network local
+```
+
+There is also `serveAxonTls` (adds a certificate parameter) and
+`servePrometheus`.
+
+## Set weights
+
+The caller's mirror must be a registered hotkey with weight-setting
+permission (on localnet, register both a validator neuron and something to
+weigh — see the [validating guide](/docs/guides/validating) for permits and
+rate limits, which apply unchanged):
+
+```bash
+# uids [0, 1] with weights [0, 65535], version key 0
+btcli evm call neuron setWeights 2 0,1 0,65535 0 --evm-key default --network local
+```
+
+Weights are `uint16[]` (0–65535, normalized on chain). If the subnet has
+[commit-reveal](/docs/guides/validating#commit-reveal) enabled, use
+`commitWeights(netuid, commitHash)` and `revealWeights(...)` instead of
+direct `setWeights` — same scheme as the native flow.
+
+## From Solidity
+
+Contracts can drive the same functions — a contract that registers neurons
+on behalf of users, with the contract's mirror paying the burn:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface INeuron {
+    function burnedRegister(uint16 netuid, bytes32 hotkey) external payable;
+}
+
+contract Registrar {
+    INeuron constant NEURON = INeuron(0x0000000000000000000000000000000000000804);
+    uint16 public immutable netuid;
+
+    constructor(uint16 _netuid) {
+        netuid = _netuid;
+    }
+
+    // Fund the contract with enough TAO for burns, then register any hotkey.
+    function register(bytes32 hotkey) external {
+        NEURON.burnedRegister(netuid, hotkey);
+    }
+
+    receive() external payable {}
+}
+```
+
+The burn is paid from the **contract's** native balance (its mirror is the
+coldkey), so fund the contract first — `btcli evm send --to 0xCONTRACT…`.
+
+## See also
+
+- [Running a subnet](/docs/guides/subnets) — the full native lifecycle these
+  precompiles mirror.
+- [Verify substrate keys](/docs/guides/evm/verify-keys) — associating an EVM
+  key with a hotkey, and proving key ownership in contracts.

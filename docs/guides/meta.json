@@ -1,4 +1,4 @@
 {
   "title": "Guides",
-  "pages": ["staking", "conviction", "mining", "validating", "subnets", "governance", "evm", "local-development", "timelock"]
+  "pages": ["staking", "conviction", "mining", "validating", "subnets", "signed-requests", "extension-signing", "evm", "local-development", "running-a-node", "timelock"]
 }

@@ -1,7 +1,7 @@
 # Subtensor Contributor Guide
 
 The full contributor guide lives in the rendered docs:
-**[docs.bittensor.com/docs/internals/contributing](https://docs.bittensor.com/docs/internals/contributing)**
+**[bittensor.com/docs/internals/contributing](https://bittensor.com/docs/internals/contributing)**
 (source: [`docs/internals/contributing.mdx`](./docs/internals/contributing.mdx)).
 
 The short version:

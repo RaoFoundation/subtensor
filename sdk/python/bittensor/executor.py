@@ -274,11 +274,27 @@ class Executor:
         with the chain's rotating ML-KEM-768 key (``NextKey``), and carried inside
         ``MevShield.submit_encrypted`` (signed at nonce). It stays encrypted in the
         pool until the block author decrypts and executes it, so the mempool can't
-        front-run it. Policy is enforced on the intent before anything is signed.
+        front-run it. Policy is enforced on the intent before anything is signed;
+        ``max_fee_tao`` is checked against the inner call's estimated fee (the
+        outer carrier extrinsic pays its own small fee on top).
         """
         built = await intent.build(self.substrate, wallet)
         call = built.call if isinstance(built, BuiltCall) else built
-        self._enforce(intent, None, policy)
+        fee = None
+        active = self._active_policy(policy)
+        if active is not None and active.max_fee_tao is not None:
+            # A fee guardrail must not fail open: if the estimate is
+            # unavailable the submission is blocked, unlike ``plan`` where a
+            # failed estimate only warns.
+            try:
+                fee = await self.substrate.estimate_fee(
+                    call, self._public_keypair(wallet, intent.signer)
+                )
+            except Exception as error:
+                raise PolicyError(
+                    [f"could not estimate fee to enforce max_fee_tao: {error}"]
+                ) from error
+        self._enforce(intent, fee, policy)
 
         pubkey = await self.substrate.mev_next_key()
         if not pubkey:

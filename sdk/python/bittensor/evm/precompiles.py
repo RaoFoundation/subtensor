@@ -16,17 +16,11 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-try:
-    from eth_abi import decode as abi_decode
-    from eth_abi import encode as abi_encode
-    from eth_utils import function_abi_to_4byte_selector
-except ImportError:  # pragma: no cover - exercised only without the extra
-    abi_decode = None  # type: ignore[assignment]
-    abi_encode = None  # type: ignore[assignment]
-    function_abi_to_4byte_selector = None  # type: ignore[assignment]
+from eth_abi import decode as abi_decode
+from eth_abi import encode as abi_encode
+from eth_utils import function_abi_to_4byte_selector
 
-from .addresses import is_h160, ss58_to_pubkey
-from .keys import require_eth_account
+from .addresses import is_h160, pubkey_to_ss58, ss58_to_pubkey
 
 _ABI_DIR = Path(__file__).parent / "abi"
 
@@ -156,6 +150,107 @@ PRECOMPILES: dict[str, Precompile] = {
     )
 }
 
+# Functions that still exist in the ABI but are stubbed or superseded on
+# chain. The CLI marks these in listings and warns before calling them.
+DEPRECATED_FUNCTIONS: dict[str, dict[str, str]] = {
+    "metagraph": {
+        "getRank": "always returns 0 on chain; derive standing from getIncentive",
+        "getTrust": "always returns 0 on chain; trust is no longer computed",
+    },
+}
+
+# For state-changing functions: the substrate role the caller's ss58 mirror
+# plays when the precompile dispatches the underlying chain call. This is the
+# single most surprising semantic of the precompile layer, so the CLI states
+# it in every transaction preview.
+CALLER_ROLES: dict[str, dict[str, str]] = {
+    "balance-transfer": {"transfer": "sending account (must hold the funds)"},
+    "staking-v2": {
+        "addStake": "coldkey (owns the resulting stake)",
+        "addStakeLimit": "coldkey (owns the resulting stake)",
+        "removeStake": "coldkey (must own the stake)",
+        "removeStakeLimit": "coldkey (must own the stake)",
+        "removeStakeFull": "coldkey (must own the stake)",
+        "removeStakeFullLimit": "coldkey (must own the stake)",
+        "moveStake": "coldkey (must own the stake)",
+        "transferStake": "coldkey (must own the stake)",
+        "burnAlpha": "coldkey (must own the stake)",
+        "addProxy": "delegating coldkey",
+        "removeProxy": "delegating coldkey",
+        "approve": "approving coldkey",
+        "increaseAllowance": "approving coldkey",
+        "decreaseAllowance": "approving coldkey",
+        "transferStakeFrom": "approved spender",
+    },
+    "neuron": {
+        "burnedRegister": "coldkey (pays the burn, owns the neuron)",
+        "setWeights": "hotkey (must be the registered hotkey)",
+        "commitWeights": "hotkey (must be the registered hotkey)",
+        "revealWeights": "hotkey (must be the registered hotkey)",
+        "serveAxon": "hotkey (must be the registered hotkey)",
+        "serveAxonTls": "hotkey (must be the registered hotkey)",
+        "servePrometheus": "hotkey (must be the registered hotkey)",
+    },
+    "subnet": {
+        "registerNetwork": "subnet owner coldkey (becomes the owner)",
+    },
+    "proxy": {
+        "addProxy": "delegating account",
+        "removeProxy": "delegating account",
+    },
+}
+
+# ABI parameter names whose uint values are rao (1 TAO = 1e9), not the EVM's
+# 18-decimal wei — used to render amounts as TAO in previews.
+_RAO_PARAM_NAMES = frozenset(
+    {
+        "amount",
+        "limit_price",
+        "limitPrice",
+        "absoluteAmount",
+        "increaseAmount",
+        "decreaseAmount",
+        "tao",
+        "alpha",
+        "amountRao",
+    }
+)
+
+
+def function_deprecation(precompile_name: str, function_name: str) -> "str | None":
+    """The deprecation note for a precompile function, if any."""
+    return DEPRECATED_FUNCTIONS.get(precompile_name, {}).get(function_name)
+
+
+def caller_role(precompile_name: str, function_name: str) -> "str | None":
+    """The substrate role the caller's ss58 mirror plays in this call, if known."""
+    return CALLER_ROLES.get(precompile_name, {}).get(function_name)
+
+
+def describe_arguments(fn_abi: dict, args: "list[Any]") -> dict[str, str]:
+    """Human-readable echo of coerced call arguments for a preview.
+
+    ``bytes32`` key parameters are shown with their ss58 form; uint parameters
+    known to be rao-denominated are shown in TAO — the two places where a
+    wrong-but-plausible value would otherwise sail through to a revert.
+    """
+    described: dict[str, str] = {}
+    for param, raw in zip(fn_abi["inputs"], args):
+        name, abi_type = param["name"], _canonical_type(param)
+        value = coerce_argument(abi_type, raw)
+        if abi_type == "bytes32" and isinstance(value, bytes) and len(value) == 32:
+            try:
+                described[name] = f"0x{value.hex()} (ss58 {pubkey_to_ss58('0x' + value.hex())})"
+                continue
+            except Exception:
+                pass
+        if abi_type.startswith("uint") and name in _RAO_PARAM_NAMES:
+            described[name] = f"{int(value):,} rao (= {int(value) / 10**9:,.9f} TAO/alpha)"
+            continue
+        described[name] = str(raw)
+    return described
+
+
 # Standard Ethereum precompiles also live on the Bittensor EVM (no ABI needed
 # here; listed for discovery/doctor output).
 STANDARD_PRECOMPILES: dict[str, int] = {
@@ -210,7 +305,6 @@ def coerce_argument(abi_type: str, raw: Any) -> Any:
 
 def encode_call(fn_abi: dict, args: "list[Any]") -> str:
     """ABI-encode a function call (selector + arguments) as 0x-hex calldata."""
-    require_eth_account()
     types = [_canonical_type(i) for i in fn_abi["inputs"]]
     if len(args) != len(types):
         names = ", ".join(f"{i['type']} {i['name']}" for i in fn_abi["inputs"])
@@ -222,7 +316,6 @@ def encode_call(fn_abi: dict, args: "list[Any]") -> str:
 
 def decode_result(fn_abi: dict, data: "str | bytes") -> "list[Any]":
     """Decode an eth_call result according to the function's output types."""
-    require_eth_account()
     raw = bytes.fromhex(data.removeprefix("0x")) if isinstance(data, str) else bytes(data)
     types = [_canonical_type(o) for o in fn_abi.get("outputs", [])]
     if not types or not raw:

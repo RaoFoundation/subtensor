@@ -9,13 +9,13 @@ Requires Python 3.10–3.13:
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install 'bittensor[cli]'
+uv pip install bittensor
 ```
 
-The `[cli]` extra pulls in the terminal UI for the `btcli` command; plain
-`uv pip install bittensor` installs just the Python library. In anything
-unattended, pin the exact version and upgrade only to announced releases —
-see [supply-chain risk](/docs/concepts/wallets#supply-chain-risk).
+One install gives you both the `bittensor` Python library and the `btcli`
+command. In anything unattended, pin the exact version and upgrade only to
+announced releases — see
+[supply-chain risk](/docs/concepts/wallets#supply-chain-risk).
 
 ## 2. Configure once
 

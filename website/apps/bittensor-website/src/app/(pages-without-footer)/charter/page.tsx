@@ -20,7 +20,7 @@ const page = () => {
           <p>
             As such, this document merely outlines the principles and commitments of those who use
             Bittensor as a medium to express their subjective preferences on top of its playing
-            field. It is signed by The Opentensor Foundation and other entities that believe in
+            field. It is signed by The Rao Foundation and other entities that believe in
             Bittensor&apos;s vision of decentralized AI.
           </p>
         </section>

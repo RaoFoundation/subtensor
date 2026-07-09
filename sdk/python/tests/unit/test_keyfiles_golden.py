@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -114,3 +116,25 @@ def test_keyfile_class_roundtrip(tmp_path: Path) -> None:
     keyfile.set_keypair(keypair, encrypt=True, overwrite=True, password=TEST_PASSWORD)
     restored = keyfile.get_keypair(password=TEST_PASSWORD)
     assert restored.ss58_address == keypair.ss58_address
+
+
+def test_keyfile_written_owner_only(tmp_path: Path) -> None:
+    """Key material is written 0600 (and its dir 0700) even under a wide-open umask."""
+    path = tmp_path / "wallets" / "golden" / "hotkeys" / "hotkey"
+    keyfile = Keyfile(path)
+    keypair = Keypair.create_from_uri("//Alice")
+
+    previous_umask = os.umask(0o000)
+    try:
+        keyfile.set_keypair(keypair, encrypt=False, overwrite=True)
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+    # Overwriting a file that already exists with loose permissions clamps it.
+    os.chmod(path, 0o644)
+    keyfile.set_keypair(keypair, encrypt=False, overwrite=True)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert keyfile.get_keypair().ss58_address == keypair.ss58_address

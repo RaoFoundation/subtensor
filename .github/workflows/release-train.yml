@@ -285,9 +285,41 @@ jobs:
 
   # SDK rc channel rides the train: publish after testnet is green
   # (replaces the publish-sdk-rc job in deploy-testnet.yml).
+  #
+  # Both packages get the same rcN suffix, computed once here so the wheel
+  # matrix and the publish job stamp identical versions. The rc SDK pins
+  # py-sp-core exactly (==<core rc>): an rc pre-release can never win version
+  # resolution against a published final (0.1.1rcN < 0.1.1), so a floor
+  # constraint would silently resolve to the previous stable core.
+  rc-versions:
+    name: Compute rc versions
+    needs: check-testnet
+    runs-on: [self-hosted, fireactions-light]
+    outputs:
+      sdk: ${{ steps.versions.outputs.sdk }}
+      core: ${{ steps.versions.outputs.core }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse base versions and append rc suffix
+        id: versions
+        run: |
+          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
+          : ${base:?could not parse base version from sdk/python/pyproject.toml}
+          core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' py-sp-core/pyproject.toml | head -n 1)
+          : ${core_base:?could not parse base version from py-sp-core/pyproject.toml}
+          echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+
+  build-sp-core-rc:
+    name: Build py-sp-core rc wheels
+    needs: rc-versions
+    uses: ./.github/workflows/build-sp-core-wheels.yml
+    with:
+      version: ${{ needs.rc-versions.outputs.core }}
+
   publish-sdk-rc:
     name: Publish SDK rc to PyPI
-    needs: check-testnet
+    needs: [rc-versions, build-sp-core-rc]
     runs-on: [self-hosted, fireactions-heavy]
     environment: testnet
     permissions:
@@ -299,30 +331,28 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Set rc versions and publish py-sp-core + bittensor
+      - name: Set rc versions and pin py-sp-core
         run: |
-          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
-          : ${base:?could not parse base version from sdk/python/pyproject.toml}
-          rc_suffix="rc${GITHUB_RUN_NUMBER}"
-          sdk_version="${base}${rc_suffix}"
-          core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' py-sp-core/pyproject.toml | head -n 1)
-          : ${core_base:?could not parse base version from py-sp-core/pyproject.toml}
-          core_version="${core_base}${rc_suffix}"
-          sed -i "0,/^version = \".*\"/s//version = \"${core_version}\"/" py-sp-core/pyproject.toml
+          sdk_version="${{ needs.rc-versions.outputs.sdk }}"
+          core_version="${{ needs.rc-versions.outputs.core }}"
           sed -i "0,/^version = \".*\"/s//version = \"${sdk_version}\"/" sdk/python/pyproject.toml
+          sed -i "s/\"py-sp-core>=[^\"]*\"/\"py-sp-core==${core_version}\"/" sdk/python/pyproject.toml
+          grep -q "py-sp-core==${core_version}" sdk/python/pyproject.toml \
+            || { echo "failed to pin py-sp-core in sdk/python/pyproject.toml"; exit 1; }
           echo "Publishing py-sp-core ${core_version} and bittensor ${sdk_version} to PyPI"
-      - name: Build py-sp-core wheels (manylinux)
-        uses: PyO3/maturin-action@v1
+      - name: Download py-sp-core wheels
+        uses: actions/download-artifact@v4
         with:
-          working-directory: py-sp-core
-          command: build
-          args: --release --out ../dist
-          manylinux: auto
+          pattern: sp-core-dist-*
+          path: dist
+          merge-multiple: true
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
       - name: Publish to PyPI
-        run: uv publish --trusted-publishing always dist/*
+        run: |
+          ls -la dist
+          uv publish --trusted-publishing always dist/*
 
   # ------------------------------------------------------------------
   # Stage 3: mainnet — the human gate.
@@ -356,6 +386,11 @@ jobs:
             echo "mainnet already on $chain; skipping."
             echo "should_propose=false" >> $GITHUB_OUTPUT
           fi
+      - name: Install uv
+        if: steps.guard.outputs.should_propose == 'true'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Verify Finney EVM association cap (spec 426 migration)
         if: steps.guard.outputs.should_propose == 'true'
         working-directory: sdk/python

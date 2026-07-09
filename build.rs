@@ -14,7 +14,6 @@ fn main() {
     println!("cargo:rerun-if-changed=pallets");
     println!("cargo:rerun-if-changed=node");
     println!("cargo:rerun-if-changed=runtime");
-    println!("cargo:rerun-if-changed=lints");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=support");

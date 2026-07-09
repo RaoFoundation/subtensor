@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import stat
+from pathlib import Path
 
 import pytest
-
-from bittensor.balance import Balance
-from bittensor.evm import addresses, precompiles, rpc, transactions
-from bittensor.evm.keys import require_eth_account, write_keystore_file
-from tests.harness.samples import ALICE, ALICE_HOT, BOB_HOT
-
-pytest.importorskip("eth_account")
-pytest.importorskip("eth_abi")
-pytest.importorskip("eth_utils")
-
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_utils import keccak
+
+from bittensor.balance import Balance
+from bittensor.evm import addresses, precompiles, rpc, transactions
+from bittensor.evm.keys import write_keystore_file
+from tests.harness.samples import ALICE, ALICE_HOT, BOB_HOT
 
 # Vectors for Frontier HashedAddressMapping<BlakeTwo256>: ss58(blake2_256(b"evm:" ++ h160)).
 H160_TO_SS58_VECTORS = {
@@ -90,9 +87,44 @@ class TestPrecompileEncoding:
         assert data.startswith("0x")
 
 
+# The vendored ABIs in bittensor/evm/abi must stay in sync with the canonical
+# .abi artifacts in precompiles/src/solidity (see the bittensor.evm.precompiles
+# module docstring for why they are vendored). Only checkable in the monorepo;
+# skipped in a standalone sdist/wheel checkout where precompiles/ doesn't exist.
+_VENDORED_ABI_DIR = Path(precompiles.__file__).parent / "abi"
+_CANONICAL_ABI_DIR = Path(__file__).parents[4] / "precompiles" / "src" / "solidity"
+
+
+@pytest.mark.skipif(
+    not _CANONICAL_ABI_DIR.is_dir(),
+    reason="canonical .abi files only exist in the subtensor monorepo",
+)
+class TestVendoredAbiSync:
+    @pytest.mark.parametrize(
+        "json_path",
+        sorted(_VENDORED_ABI_DIR.glob("*.json")),
+        ids=lambda p: p.stem,
+    )
+    def test_vendored_abi_matches_canonical(self, json_path: Path):
+        canonical_path = _CANONICAL_ABI_DIR / f"{json_path.stem}.abi"
+        assert canonical_path.is_file(), (
+            f"{json_path.name} has no counterpart at {canonical_path}; "
+            "remove the vendored copy or add the canonical .abi file"
+        )
+        vendored = json.loads(json_path.read_text())
+        canonical = json.loads(canonical_path.read_text())
+        assert vendored == canonical, (
+            f"{json_path.name} has drifted from {canonical_path.name}; "
+            "re-vendor it from precompiles/src/solidity"
+        )
+
+    def test_every_registered_abi_file_is_vendored(self):
+        for precompile in precompiles.PRECOMPILES.values():
+            assert (_VENDORED_ABI_DIR / precompile.abi_file).is_file()
+
+
 class TestKeystorePermissions:
     def test_write_keystore_file_is_owner_only(self, tmp_path):
-        require_eth_account()
         path = tmp_path / "nested" / "key"
         write_keystore_file(path, {"address": "0x" + "11" * 20, "crypto": {}})
         mode = path.stat().st_mode & 0o777

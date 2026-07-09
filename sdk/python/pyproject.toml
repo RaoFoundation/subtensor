@@ -19,22 +19,20 @@ dependencies = [
     # (built against the same sp-core revision as the runtime).
     "py-sp-core>=0.1.0,<0.2.0",
     "bittensor-drand>=1.3.0,<2.0.0",
-]
-
-# The library itself has no terminal-UI dependencies; the `btcli` command
-# needs them. Install with `pip install 'bittensor[cli]'` for the CLI.
-[project.optional-dependencies]
-# EVM key storage, signing, and precompile call encoding (`bittensor.evm`,
-# `btcli evm`). Address math and network constants work without it.
-evm = [
-    "eth-account>=0.13,<0.14",
-]
-cli = [
+    # `btcli` terminal UI. The CLI is a first-class part of the package, so
+    # its dependencies are unconditional.
     "typer>=0.12.0",
     "rich>=13.0.0",
-    # `btcli evm` signs EVM transactions and keystores; same pin as the evm extra.
+    # EVM key storage, signing, and precompile call encoding
+    # (`bittensor.evm`, `btcli evm`).
     "eth-account>=0.13,<0.14",
 ]
+
+# Former extras, kept as no-ops so `pip install 'bittensor[cli]'` (the old
+# documented install command) keeps working.
+[project.optional-dependencies]
+evm = []
+cli = []
 
 [project.scripts]
 btcli = "bittensor.cli.main:main"

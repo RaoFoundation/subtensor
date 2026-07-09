@@ -13,7 +13,7 @@ const communityLinks = [
   },
   {
     label: 'GITHUB',
-    url: 'https://github.com/opentensor',
+    url: 'https://github.com/RaoFoundation',
     isExternal: true,
   },
   {
@@ -23,7 +23,7 @@ const communityLinks = [
   },
   {
     label: 'YOUTUBE',
-    url: 'https://www.youtube.com/@Opentensor',
+    url: 'https://www.youtube.com/@RaoFoundation',
     isExternal: true,
   },
 ];

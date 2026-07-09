@@ -31,6 +31,7 @@ built-in default**.
 | `--yes`, `-y` | | skip confirmation prompts |
 | `--dry-run` | | preview a mutation without submitting |
 | `--quiet`, `-q` | | suppress informational output |
+| `--signer` | | `wallet` (default) or `extension` — sign in a [browser extension](/docs/guides/extension-signing) like Talisman or Polkadot.js |
 
 ## Command groups
 
@@ -41,6 +42,8 @@ built-in default**.
 - Familiar workflows also have hand-written groups that wrap the same
   machinery: `wallet`, `stake`, `subnets`, `weights`, `axon`, `proxy`,
   `multisig`, `crowd`, `lock`, `timelock`, `config`.
+- `btcli evm` — the [EVM layer](/docs/guides/evm): keys, funding, precompiles,
+  and contract deployment.
 - `btcli tools` — the JSON catalog of every transaction op with schemas,
   for agents.
 

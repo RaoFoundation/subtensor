@@ -29,12 +29,12 @@ Requires Python 3.10–3.13. Using [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install -e '.[cli]'
+uv pip install -e .
 ```
 
 This installs the `btcli` command and the `bittensor` Python package. The
-`[cli]` extra carries the terminal-UI dependencies (typer, rich); install
-plain `-e .` for the library alone.
+CLI is a first-class part of the package: its terminal-UI dependencies
+(typer, rich) and EVM signing (eth-account) are always installed.
 
 ## CLI
 
@@ -313,8 +313,7 @@ against the chain's own `address-mapping` precompile), `ss58_to_pubkey` (the
 with call encoding, and wei/TAO conversions. Substrate-side EVM intents
 (`fund_evm_key`, `evm_withdraw` via `claim-deposit` or `tx evm-withdraw`,
 `associate_evm_key`) ride the normal
-plan/execute/policy flow. EVM signing needs the `evm` extra
-(`pip install 'bittensor[evm]'`; included in `[cli]`).
+plan/execute/policy flow.
 
 ## Escape hatch: raw calls
 

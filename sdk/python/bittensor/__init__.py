@@ -33,7 +33,7 @@ root logger, so it stays silent unless your application opts in:
 
 import logging as _logging
 
-from . import evm, intents, reads, timelock, wallets
+from . import evm, http_auth, intents, reads, timelock, wallets
 from ._generated import calls, constants, storage
 from ._generated import runtime_apis as runtime_api
 from ._substrate import RpcSubstrate, Substrate
@@ -147,6 +147,9 @@ __all__ = [
     "Timelocked",
     "TimelockError",
     "TimelockNotReady",
+    # Hotkey-signed HTTP requests (btauth/1): the identity layer for
+    # miner/validator traffic. Sign and verify only — bring your own HTTP.
+    "http_auth",
     # Generated chain vocabulary (descriptors for query/runtime/constant, and
     # raw call builders for the submit_call escape hatch)
     "storage",
@@ -188,3 +191,52 @@ __all__ = [
 ]
 
 __version__ = "11.0.0.dev0"
+
+# Removed v10 API names raise with a pointer to the replacement instead of a
+# bare AttributeError, so an un-migrated script fails with instructions
+# rather than a mystery. The full mapping lives in the docs: /docs/migration.
+_NO_NEURON_STACK = (
+    "v11 has no miner/validator networking stack (axon/dendrite/synapse); "
+    "publish your endpoint with the ServeAxon intent, keep your own HTTP "
+    "layer, and authenticate requests with bittensor.http_auth"
+)
+
+_REMOVED_V10_HINTS = {
+    "Subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
+    "subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
+    "AsyncSubtensor": "use `async with bittensor.Client(network) as client:`",
+    "async_subtensor": "use `async with bittensor.Client(network) as client:`",
+    "get_async_subtensor": "use `await bittensor.Client(network).connect()`",
+    "MockSubtensor": "removed — test against a local node instead",
+    "axon": _NO_NEURON_STACK,
+    "Axon": _NO_NEURON_STACK,
+    "dendrite": _NO_NEURON_STACK,
+    "Dendrite": _NO_NEURON_STACK,
+    "Synapse": _NO_NEURON_STACK,
+    "StreamingSynapse": _NO_NEURON_STACK,
+    "SubnetsAPI": _NO_NEURON_STACK,
+    "Tensor": _NO_NEURON_STACK,
+    "logging": (
+        "use the standard `logging` module; the SDK logs under the 'bittensor' logger namespace"
+    ),
+    "trace": "use `logging.getLogger('bittensor').setLevel(logging.DEBUG)`",
+    "debug": "use `logging.getLogger('bittensor').setLevel(logging.DEBUG)`",
+    # bt.config exists in v11 but is the CLI-config module, not the old
+    # argparse Config class — only the class name can get a hint here.
+    "Config": "removed — the SDK no longer parses CLI args; pass arguments directly",
+    "Keypair": (
+        "keypairs come from bittensor.wallet.Wallet; the low-level type is "
+        "bittensor.sp_core.Keypair"
+    ),
+    "Keyfile": "use bittensor.keyfiles.Keyfile",
+}
+
+
+def __getattr__(name: str):
+    hint = _REMOVED_V10_HINTS.get(name)
+    if hint is not None:
+        raise AttributeError(
+            f"bittensor.{name} was removed in v11 — {hint}. "
+            "Migration guide: /docs/migration in the Bittensor docs."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

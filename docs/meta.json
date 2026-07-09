@@ -7,6 +7,7 @@
     "cli",
     "concepts",
     "guides",
+    "migration",
     "---Reference---",
     "tx",
     "query",

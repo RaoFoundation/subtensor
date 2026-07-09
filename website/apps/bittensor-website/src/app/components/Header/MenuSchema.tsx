@@ -14,9 +14,9 @@ export const MenuSchema = {
     },
   ],
   connect: [
-    {label: 'X', href: 'https://x.com/opentensor', isExternal: true},
+    {label: 'X', href: 'https://x.com/bittensor', isExternal: true},
     {label: 'DISCORD', href: 'https://discord.gg/qasY3HA9F9', isExternal: true},
-    {label: 'GITHUB', href: 'https://github.com/opentensor', isExternal: true},
+    {label: 'GITHUB', href: 'https://github.com/RaoFoundation', isExternal: true},
   ],
   docs: [{label: 'DOCS', href: '/docs', isExternal: false}],
 };

@@ -11,18 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-try:
-    from eth_account import Account
-    from eth_account.messages import encode_defunct
-    from eth_utils import keccak
-except ImportError:  # pragma: no cover - exercised only without the extra
-    Account = None  # type: ignore[assignment]
-    encode_defunct = None  # type: ignore[assignment]
-    keccak = None  # type: ignore[assignment]
+from eth_account.messages import encode_defunct
+from eth_utils import keccak
 
 from ..balance import Balance
 from .addresses import ss58_to_pubkey
-from .keys import require_eth_account
 from .rpc import EvmRpc, wei_to_balance
 
 if TYPE_CHECKING:
@@ -31,10 +24,13 @@ if TYPE_CHECKING:
 
 @dataclass
 class EvmTxPreview:
-    """What an EVM transaction will do, resolved before signing."""
+    """What an EVM transaction will do, resolved before signing.
+
+    ``to`` is ``None`` for contract creation (the code rides in ``data``).
+    """
 
     sender: str
-    to: str
+    to: "str | None"
     value_wei: int
     data: str
     gas: int
@@ -53,7 +49,7 @@ class EvmTxPreview:
     def to_dict(self) -> dict:
         return {
             "from": self.sender,
-            "to": self.to,
+            "to": self.to or "(contract creation)",
             "value_tao": format(self.value.decimal, "f"),
             "value_wei": self.value_wei,
             "data": self.data,
@@ -68,18 +64,22 @@ class EvmTxPreview:
 def prepare_transaction(
     rpc: EvmRpc,
     sender: str,
-    to: str,
+    to: "str | None",
     *,
     value_wei: int = 0,
     data: str = "0x",
 ) -> EvmTxPreview:
     """Resolve nonce, gas, and price for a transaction (fails early on estimate).
 
+    Pass ``to=None`` with the init code in ``data`` for contract creation.
+
     Note subtensor's ``eth_estimateGas`` fails for *any* invalid transaction —
     insufficient balance, an enabled deployment whitelist, a bad call — not
     just gas problems, so a failure here means the transaction itself is bad.
     """
-    estimate = {"from": sender, "to": to, "value": hex(value_wei), "data": data}
+    estimate = {"from": sender, "value": hex(value_wei), "data": data}
+    if to is not None:
+        estimate["to"] = to
     return EvmTxPreview(
         sender=sender,
         to=to,
@@ -100,18 +100,17 @@ def send_transaction(
     wait: bool = True,
 ) -> dict:
     """Sign a prepared transaction and submit it; returns hash (+ receipt facts)."""
-    require_eth_account()
-    signed = account.sign_transaction(
-        {
-            "to": preview.to,
-            "value": preview.value_wei,
-            "data": preview.data,
-            "gas": preview.gas,
-            "gasPrice": preview.gas_price_wei,
-            "nonce": preview.nonce,
-            "chainId": preview.chain_id,
-        }
-    )
+    tx: dict = {
+        "value": preview.value_wei,
+        "data": preview.data,
+        "gas": preview.gas,
+        "gasPrice": preview.gas_price_wei,
+        "nonce": preview.nonce,
+        "chainId": preview.chain_id,
+    }
+    if preview.to is not None:
+        tx["to"] = preview.to
+    signed = account.sign_transaction(tx)
     tx_hash = rpc.send_raw_transaction(signed.raw_transaction)
     result = {"tx_hash": tx_hash}
     if wait:
@@ -119,6 +118,8 @@ def send_transaction(
         result["block_number"] = int(receipt["blockNumber"], 16)
         result["gas_used"] = int(receipt["gasUsed"], 16)
         result["success"] = receipt.get("status") == "0x1"
+        if receipt.get("contractAddress"):
+            result["contract_address"] = receipt["contractAddress"]
     return result
 
 
@@ -132,7 +133,6 @@ def association_proof(
     block number is SCALE-encoded (u64 little-endian). Returns the 65-byte
     r||s||v signature as 0x-hex plus the block number it was produced for.
     """
-    require_eth_account()
     hotkey_pubkey = bytes.fromhex(ss58_to_pubkey(hotkey_ss58)[2:])
     block_hash = keccak(int(block_number).to_bytes(8, "little"))
     signed = account.sign_message(encode_defunct(primitive=hotkey_pubkey + block_hash))

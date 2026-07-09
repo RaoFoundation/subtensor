@@ -23,7 +23,7 @@ const page = () => {
             Dynamic TAO: Bittensor Improvement Template 1 <br />
             (BIT001)
           </p>
-          <p className={styles.subtitle}>Opentensor / Datura.ai / Synapse Labs</p>
+          <p className={styles.subtitle}>Rao Foundation / Datura.ai / Synapse Labs</p>
           <Image
             src='/images/icons/double-tao-logo.svg'
             width={40}

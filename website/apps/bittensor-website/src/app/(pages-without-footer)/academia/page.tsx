@@ -19,7 +19,7 @@ const page = () => {
           <p className={styles.paper_title}>Incentivizing Intelligence: The Bittensor Approach</p>
           <p className={styles.subtitle}>
             Jacob Steeves / Ala Shaabana / Yuqian Hu / Francois Luus / Sin Tai Liu / Jacqueline Dawn
-            Tasker-Steeves / Opentensor Foundation
+            Tasker-Steeves / Rao Foundation
           </p>
           <Image
             src='/images/icons/double-tao-logo.svg'

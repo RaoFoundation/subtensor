@@ -10,11 +10,11 @@
 ARG BASE_IMAGE=rust:latest
 FROM ${BASE_IMAGE} AS base_builder
 
-LABEL ai.opentensor.image.authors="operations@opentensor.ai" \
-  ai.opentensor.image.vendor="Opentensor Foundation" \
-  ai.opentensor.image.title="raofoundation/subtensor" \
-  ai.opentensor.image.description="Opentensor Subtensor Blockchain" \
-  ai.opentensor.image.documentation="https://docs.bittensor.com"
+LABEL com.bittensor.image.authors="operations@bittensor.com" \
+  com.bittensor.image.vendor="Rao Foundation" \
+  com.bittensor.image.title="raofoundation/subtensor" \
+  com.bittensor.image.description="Bittensor Subtensor Blockchain" \
+  com.bittensor.image.documentation="https://bittensor.com/docs"
 
 # Rust targets
 RUN rustup update stable && \

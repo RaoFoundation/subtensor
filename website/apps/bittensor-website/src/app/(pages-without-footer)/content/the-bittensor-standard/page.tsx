@@ -806,7 +806,7 @@ const page = () => {
             serves 5&#8208;10 years from now, impossible to predict the volume of global
             human&#8208;capital&#8208;machine resources under its control. While as of writing this
             admin keys to the chain are still in control of a centralized multisig inside the
-            OpenTensor Foundation, once renounced the system is free to scale towards being
+            Rao Foundation, once renounced the system is free to scale towards being
             virtually unstoppable, similar to Bitcoin.
           </p>
           <p>

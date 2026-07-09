@@ -1,6 +1,6 @@
 # Mainnet clone regression harness
 
-JavaScript regression tests against a **local clone of mainnet state**, sudo-upgraded
+TypeScript regression tests (run via `tsx`) against a **local clone of mainnet state**, sudo-upgraded
 to the runtime built from this monorepo. CI runs the smoke test plus
 `test:clone-regressions` in `check-clone-upgrade.yml` after every PR runtime
 upgrade.
@@ -10,11 +10,11 @@ upgrade.
 1. `scripts/clone-mainnet.sh` creates or refreshes a patched mainnet clone
    chainspec under `clones/` (gitignored).
 2. `scripts/start-local-clone.sh` starts a local node at `ws://127.0.0.1:9944`.
-3. `js-tests/tests/clone-smoke-test.js` confirms the websocket endpoint is usable.
-4. `js-tests/scripts/update-runtime-with-alice.js` sudo-upgrades the clone using
+3. `js-tests/tests/clone-smoke-test.ts` confirms the websocket endpoint is usable.
+4. `js-tests/scripts/update-runtime-with-alice.ts` sudo-upgrades the clone using
    the wasm from `target/release/wbuild/node-subtensor-runtime/` (built from the
    monorepo root).
-5. `npm run test:clone-regressions` runs focused JS regressions against the
+5. `npm run test:clone-regressions` runs focused regressions against the
    upgraded clone.
 6. `scripts/stop-local-clone.sh` stops the node.
 
@@ -63,5 +63,7 @@ manual-only.
 ## Notes
 
 - Clone data and chainspec files live under `clones/` (gitignored).
-- Keep new JS tests focused; prefer shared helpers in `js-tests/lib/` over
+- Keep new tests focused; prefer shared helpers in `js-tests/lib/` over
   copy-pasting chain plumbing.
+- Tests are TypeScript executed with `tsx`; `npm run typecheck` runs
+  `tsc --noEmit` over the suite.

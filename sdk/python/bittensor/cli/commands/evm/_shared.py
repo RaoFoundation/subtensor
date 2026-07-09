@@ -132,32 +132,98 @@ def _run_evm(app_ctx: AppContext, work):
         raise typer.Exit(1)
 
 
+def _diagnose_estimate_failure(
+    rpc: evm_rpc.EvmRpc,
+    sender: str,
+    *,
+    value_wei: int,
+    deploying: bool,
+) -> list[str]:
+    """Cheap probes that turn a catch-all estimate error into a likely cause.
+
+    Subtensor's ``eth_estimateGas`` rejects *any* invalid transaction, so when
+    it fails we check the usual suspects and report what we find. Probes that
+    themselves fail are skipped — this must never mask the original error.
+    """
+    findings: list[str] = []
+    try:
+        balance = rpc.get_balance_wei(sender)
+        if balance == 0:
+            findings.append(
+                f"sender {sender} has zero balance — fund it with `btcli evm fund` "
+                "(or transfer TAO to its ss58 mirror)"
+            )
+        elif value_wei and balance < value_wei:
+            findings.append(
+                f"sender balance {evm_rpc.wei_to_balance(balance)} is less than the "
+                f"attached value {evm_rpc.wei_to_balance(value_wei)}"
+            )
+    except Exception:
+        pass
+    try:
+        rpc.chain_id()
+    except Exception:
+        findings.append(
+            "the node has no EVM chain ID — on a localnet run `btcli evm setup-localnet`"
+        )
+    if deploying and not findings:
+        findings.append(
+            "if this is a localnet, contract deployment may be blocked by the "
+            "whitelist — `btcli evm setup-localnet` disables it"
+        )
+    return findings
+
+
 def _submit_evm_tx(
     app_ctx: AppContext,
     key: Optional[str],
-    to: str,
+    to: Optional[str],
     *,
     value_wei: int = 0,
     data: str = "0x",
     summary: str,
     rpc_url: Optional[str] = None,
+    preview_fields: Optional[dict[str, Any]] = None,
 ) -> Optional[dict]:
+    """Prepare, preview, confirm, sign, and submit one EVM transaction.
+
+    ``to=None`` is contract creation. ``preview_fields`` are extra
+    human-oriented rows (decoded arguments, caller role) shown with the
+    dry-run preview and before the confirmation prompt.
+    """
     info = _key_info(app_ctx, key)
     _network, rpc = _rpc(app_ctx, rpc_url)
 
-    preview = _run_evm(
-        app_ctx,
-        lambda: evm_transactions.prepare_transaction(
+    try:
+        preview = evm_transactions.prepare_transaction(
             rpc, info.address, to, value_wei=value_wei, data=data
-        ),
-    )
+        )
+    except evm_rpc.EvmRpcError as error:
+        findings = _diagnose_estimate_failure(
+            rpc, info.address, value_wei=value_wei, deploying=to is None
+        )
+        app_ctx.output.error(
+            f"EVM RPC error: {error}",
+            note="; ".join(findings)
+            if findings
+            else "subtensor reports any invalid transaction through eth_estimateGas — "
+            "insufficient balance, a bad call, an unset chain ID, or an enabled "
+            "deployment whitelist all surface here, not just gas problems",
+        )
+        raise typer.Exit(1)
+    except (ConnectionError, TimeoutError) as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
+
+    if preview_fields and not app_ctx.output.json_mode:
+        app_ctx.output.detail(None, preview_fields)
     if app_ctx.dry_run:
         app_ctx.output.detail("evm transaction preview", preview.to_dict())
         return None
     app_ctx.confirm(f"{summary} (max fee {preview.max_fee})?")
     account = _unlock(app_ctx, key)
     result = _run_evm(app_ctx, lambda: evm_transactions.send_transaction(rpc, account, preview))
-    rendered = {**result, "from": info.address, "to": to}
+    rendered = {**result, "from": info.address, "to": to or "(contract creation)"}
     if not result.get("success", True):
         app_ctx.output.error("transaction reverted", note=json.dumps(rendered))
         raise typer.Exit(1)

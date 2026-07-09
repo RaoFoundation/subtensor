@@ -6,10 +6,10 @@ are the same registries that generate the CLI (`bittensor.intents.REGISTRY`,
 `bittensor.reads.REGISTRY`) and the error taxonomy (`bittensor.error_map`,
 `bittensor.result`), so the docs cannot drift from the code.
 
-Usage (from the repo root, with a venv that has the bittensor SDK installed):
+Usage (from sdk/python, whose environment provides the bittensor SDK):
 
-    python scripts/generate.py            # regenerate in place
-    python scripts/generate.py --check    # exit 1 if committed output is stale
+    uv run python ../../website/apps/bittensor-website/scripts/generate.py            # regenerate in place
+    uv run python ../../website/apps/bittensor-website/scripts/generate.py --check    # exit 1 if committed output is stale
 """
 
 from __future__ import annotations

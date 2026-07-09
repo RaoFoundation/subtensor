@@ -24,8 +24,8 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-      # e.g. docs.bittensor.com; the deployment is aliased to staging.<domain>
-      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'docs.bittensor.com' }}
+      # e.g. bittensor.com; the deployment is aliased to staging.<domain>
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
     steps:
       - uses: actions/checkout@v4
 

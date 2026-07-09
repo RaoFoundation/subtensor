@@ -28,7 +28,8 @@ Mainnet also has a public **lite** node at
 state; to query state older than roughly 300 blocks (block-pinned reads,
 historical snapshots) you need the archive endpoint or your own archive
 node. Any `ws://` / `wss://` endpoint can be passed to
-[`Client`](/docs/concepts/client) directly.
+[`Client`](/docs/concepts/client) directly. For heavy workloads,
+[run your own node](/docs/guides/running-a-node).
 
 ## Subnets
 
@@ -47,9 +48,8 @@ Netuid 0 is the **root network**: it has no miners, no alpha token, and no
 validation work — it is the pool where TAO is staked directly. Root TAO
 stake counts toward validator stake weight on every subnet (see below) and
 earns a share of each subnet's dividends. Registration there is stake-based
-rather than burn-based; the root network's governance role is covered in the
-[governance guide](/docs/guides/governance). By convention, root (TAO) is
-priced at 1.0 wherever subnet prices are summed.
+rather than burn-based. By convention, root (TAO) is priced at 1.0 wherever
+subnet prices are summed.
 
 Subnet slots are limited: a subnet holds at most `max_allowed_uids` neurons
 (default 256, and no lower than 64). Registering on a full subnet

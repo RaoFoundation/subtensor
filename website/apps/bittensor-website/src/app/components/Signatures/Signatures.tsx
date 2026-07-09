@@ -24,7 +24,7 @@ const isSignature = (signature: any): signature is RawSignature => {
 };
 
 export const Signatures = () => {
-  const url = 'https://raw.githubusercontent.com/opentensor/bittensor-charter/main/signatures.json';
+  const url = 'https://raw.githubusercontent.com/RaoFoundation/bittensor-charter/main/signatures.json';
 
   const [signatures, setSignatures] = useState<Signature[]>([]);
 
@@ -66,7 +66,7 @@ export const Signatures = () => {
       </div>
       <br />
       <Link
-        href={'https://github.com/opentensor/bittensor-charter/'}
+        href={'https://github.com/RaoFoundation/bittensor-charter/'}
         target='_blank'
         rel='noreferrer'
         style={{fontSize: '12px'}}

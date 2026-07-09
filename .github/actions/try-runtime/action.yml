@@ -1,6 +1,6 @@
 name: "Subtensor Try Runtime"
 description: "Check Subtensor runtime migrations using try-runtime-cli"
-author: "OpenTensor Foundation"
+author: "Rao Foundation"
 branding:
   icon: "shield"
   color: "green"

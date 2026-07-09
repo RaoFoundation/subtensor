@@ -12,7 +12,7 @@ transactions, subnet mechanics, or SDK code without spending real TAO.
 ```bash
 docker run --rm --name local_chain \
   -p 9944:9944 -p 9945:9945 \
-  ghcr.io/opentensor/subtensor-localnet:devnet
+  ghcr.io/raofoundation/subtensor-localnet:devnet
 ```
 
 Append `False` to the command to run real 12-second blocks instead of the
@@ -29,7 +29,7 @@ For custom runtime flags or chain modifications, build the node yourself:
 ```bash
 git clone https://github.com/RaoFoundation/subtensor.git
 cd subtensor
-./scripts/init.sh        # rust nightly toolchain + wasm target
+./scripts/init.sh        # rust toolchain update + wasm target
 ./scripts/localnet.sh    # build, purge state, launch in fast-blocks mode
 ```
 
@@ -134,10 +134,5 @@ with `False` (12-second blocks) instead.
 
 Public OTF endpoints are rate-limited (roughly 1 request per second per IP).
 For serious validator, miner, or indexer workloads against mainnet or testnet,
-run your own node: a **lite node** (warp sync, ~128 GB disk, recent state
-only) covers most uses; an **archive node** (full history, ~3.5 TB and
-growing) is needed for querying blocks older than the recent window. Port 9944
-is the WebSocket port and should accept only localhost connections; port 30333
-is the p2p socket and must be reachable by peers. Full node operation is out
-of scope here — see the
-[subtensor repository](https://github.com/opentensor/subtensor) for setup.
+run your own node — see [Running a node](/docs/guides/running-a-node) for
+lite vs archive, Docker and source setups, and operations.

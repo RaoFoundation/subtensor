@@ -10,7 +10,7 @@ export const CodeSection = () => {
 
   const copyCode = async () => {
     navigator.clipboard.writeText(
-      '/bin/bash -c “$(curl -fsSL https://raw.githubusercontent.com/opentensor/bittensor/master/scripts/install.sh)“',
+      '/bin/bash -c “$(curl -fsSL https://raw.githubusercontent.com/RaoFoundation/bittensor/master/scripts/install.sh)“',
     );
     setCopyState(true);
     await new Promise((r) => setTimeout(r, 500)).then(() => {
@@ -32,7 +32,7 @@ export const CodeSection = () => {
         <div className={styles.copy_code} onClick={copyCode}>
           <p className={styles.section_code_truncated}>
             /bin/bash -c &ldquo;$(curl -fsSL
-            https://raw.githubusercontent.com/opentensor/bittensor/master/scripts/install.sh)&ldquo;
+            https://raw.githubusercontent.com/RaoFoundation/bittensor/master/scripts/install.sh)&ldquo;
           </p>
           <div className={styles.copy_code_icon}>
             <span

@@ -1,6 +1,6 @@
 ---
 title: Bittensor Documentation
-description: Do anything on the Bittensor chain with the Bittensor SDK and CLI — designed for agents and humans alike.
+description: Do anything on the Bittensor chain with the Bittensor SDK and CLI.
 ---
 
 Bittensor is an open network where independent **subnets** produce digital
@@ -12,10 +12,13 @@ TAO.
 
 These docs cover the `bittensor` Python SDK and CLI: one install gives you a
 library (`import bittensor`) and a command line (`btcli`) that together can
-perform every user-facing operation on the chain. Both are generated from the
-chain's own runtime metadata, so they cannot drift from what the chain actually
-does — and neither can these docs, because the reference section is generated
-from the same registries.
+perform every user-facing operation on the chain. 
+
+<Callout type="note">
+  Coming from the v10 SDK or the standalone `bittensor-cli`? The API changed
+  substantially in v11 — see [Migrating from v9/v10](/docs/migration) for exact
+  old-to-new mappings.
+</Callout>
 
 ## Where to go
 
@@ -26,6 +29,7 @@ from the same registries.
   <Card title="Queries" href="/docs/query" description="Every chain read, one page each, generated from the SDK." />
   <Card title="Errors" href="/docs/errors" description="Every failure carries a machine-readable code and a remediation hint." />
   <Card title="Concepts" href="/docs/concepts/network" description="The network, wallets, money, the client, and the transaction model." />
+  <Card title="Migrating from v9/v10" href="/docs/migration" description="Exact mappings from the legacy SDK and btcli to the unified v11 package." />
 </Cards>
 
 ## Install
@@ -34,11 +38,10 @@ Requires Python 3.10–3.13. Using [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install 'bittensor[cli]'
+uv pip install bittensor
 ```
 
 This installs both the `btcli` command and the `bittensor` Python package.
-For the library alone (no terminal-UI dependencies), install plain `bittensor`.
 
 ## Machine-readable everything
 

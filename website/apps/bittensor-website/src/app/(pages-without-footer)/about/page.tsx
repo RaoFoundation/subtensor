@@ -16,7 +16,7 @@ const page = () => {
         <section className={styles.title_section}>
           <p className={styles.paper_title}>Bittensor Paradigm</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Written by Const, core dev @ Opentensor
+            Written by Const, core dev @ Rao Foundation
           </p>
         </section>
         <section className={styles.section}>

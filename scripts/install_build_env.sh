@@ -88,8 +88,9 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y
 # Activate rust in shell
 source "$HOME/.cargo/env" || export PATH="$HOME/.cargo/bin:$PATH"
 
-rustup toolchain install 1.88.0 --profile minimal
-rustup default 1.88.0
+# Keep in sync with rust-toolchain.toml (the repo's canonical pin).
+rustup toolchain install 1.89 --profile minimal
+rustup default 1.89
 
 # Add Rust Targets
 

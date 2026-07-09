@@ -10,7 +10,9 @@ before submitting unless ``--yes`` is given.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
+import sys
 from typing import Optional
 
 import typer
@@ -378,11 +380,33 @@ def explain(
     out.explain(error_code.value, EXPLANATIONS[error_code], REMEDIATION[error_code])
 
 
-def main() -> None:
-    import sys
+def _warn_if_legacy_cli_installed() -> None:
+    """One-line stderr warning when the v9 ``bittensor-cli`` package coexists.
 
+    Both packages install a ``btcli`` console script. This (v11) one is
+    currently winning, but pip still lists the script in bittensor-cli's
+    RECORD, so ``pip uninstall bittensor-cli`` would delete it — and
+    reinstalling bittensor-cli would clobber it with the v9 CLI. Warn until
+    the stale package is gone.
+    """
+    try:
+        importlib.metadata.distribution("bittensor-cli")
+    except importlib.metadata.PackageNotFoundError:
+        return
+    print(
+        "warning: the legacy bittensor-cli package (v9 btcli) is still installed "
+        "and also owns the `btcli` command; uninstalling or reinstalling it will "
+        "break this one. Fix:\n"
+        "    pip uninstall bittensor-cli && "
+        "pip install --force-reinstall --no-deps bittensor",
+        file=sys.stderr,
+    )
+
+
+def main() -> None:
     from bittensor.wallets import is_bittensor_address
 
+    _warn_if_legacy_cli_installed()
     argv = sys.argv[1:]
     if (
         len(argv) >= 3

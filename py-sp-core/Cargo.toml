@@ -1,6 +1,6 @@
 [package]
 name = "py-sp-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 publish = false
 description = "Python bindings for Substrate sp-core key primitives, built against the workspace's sp-core so wallet crypto always matches the chain"

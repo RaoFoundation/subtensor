@@ -242,8 +242,8 @@ const walletsSectionCards: WalletCardConfig[] = [
   },
   {
     title: 'Polkadot.js',
-    primaryHref: 'https://docs.learnbittensor.org/staking-and-delegation/staking-polkadot-js',
-    primaryAriaLabel: 'Polkadot.js — Staking with Polkadot JS (Bittensor docs)',
+    primaryHref: 'https://polkadot.js.org/',
+    primaryAriaLabel: 'Polkadot.js — open website',
     description: (
       <>
         Developer-grade interface for advanced
@@ -255,8 +255,8 @@ const walletsSectionCards: WalletCardConfig[] = [
   },
   {
     title: 'Bittensor CLI',
-    primaryHref: 'https://docs.learnbittensor.org/btcli',
-    primaryAriaLabel: 'Bittensor CLI — open documentation',
+    primaryHref: 'https://github.com/RaoFoundation/btcli',
+    primaryAriaLabel: 'Bittensor CLI — open GitHub repository',
     description: 'Command-line interface for managing wallets, staking, and on-chain interactions',
     platforms: [{kind: 'cli'}],
   },

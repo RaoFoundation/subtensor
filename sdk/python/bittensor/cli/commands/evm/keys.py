@@ -11,7 +11,16 @@ from ....evm import keys as evm_keys
 from ....evm.keys import write_keystore_file
 from ...context import ctx_of
 from ...globals import with_globals, with_unlock_globals
-from ._shared import EVM_KEY_HELP, _key_fields, _key_info, _key_json, _key_ref, _password, key_app
+from ._shared import (
+    EVM_KEY_HELP,
+    _key_fields,
+    _key_info,
+    _key_json,
+    _key_ref,
+    _password,
+    _unlock,
+    key_app,
+)
 
 
 @key_app.command("new")
@@ -108,10 +117,36 @@ def key_export(
     out: Optional[str] = typer.Option(
         None, "--out", help="Write the keystore JSON to this file instead of stdout."
     ),
+    private_key: bool = typer.Option(
+        False,
+        "--private-key",
+        help="Decrypt and print the raw 0x-hex private key (for ETH_PRIVATE_KEY "
+        "in Hardhat/Foundry). Prefer the encrypted keystore where the tool "
+        "supports it.",
+    ),
 ):
-    """Export a key's keystore V3 JSON (still encrypted) for MetaMask/geth/ethers."""
+    """Export a key's keystore V3 JSON (still encrypted) for MetaMask/geth/ethers.
+
+    With `--private-key`, decrypts and prints the raw key instead — the shape
+    JS toolchains want in an environment variable:
+    `export ETH_PRIVATE_KEY=$(btcli evm key export --private-key)`.
+    """
     app_ctx = ctx_of(ctx)
     info = _key_info(app_ctx, key)
+    if private_key:
+        if out:
+            app_ctx.output.error(
+                "--private-key prints to stdout only",
+                help="a raw key on disk defeats the keystore; drop --out",
+            )
+            raise typer.Exit(2)
+        account = _unlock(app_ctx, key)
+        app_ctx.output.message(
+            f"raw private key for {info.name} ({info.address}) — anyone with this "
+            "controls the account; it never expires and cannot be revoked"
+        )
+        app_ctx.output.value("0x" + account.key.hex().removeprefix("0x"))
+        return
     keystore = evm_keys.export_evm_key(info.name, _key_ref(app_ctx, key)[0], app_ctx.wallet_path)
     if out:
         write_keystore_file(Path(out).expanduser(), keystore)

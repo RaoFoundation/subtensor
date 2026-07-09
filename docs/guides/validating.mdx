@@ -218,9 +218,14 @@ takes effect after a chain-defined cooldown. Inspect with
 ## Root and governance
 
 Register on the root network with [`root-register`](/docs/tx/root-register) —
-placement is stake-based. The legacy on-chain senate-vote extrinsic has been
-removed from the runtime; see [Governance](/docs/guides/governance) for how
-governance currently works.
+placement is stake-based, and joining a full root network evicts the member
+with the least stake. The legacy on-chain senate-vote extrinsic — and the
+collective and membership pallets behind it — have been removed from the
+runtime, so top root members no longer form a voting senate. Privileged
+operations (runtime upgrades, protocol changes) are dispatched through sudo,
+held by a multisig of Rao Foundation keys. Root stake earns cross-subnet
+dividends; see [Staking](/docs/guides/staking#root-stake-and-dividends) for
+claiming.
 
 ## Operational hygiene
 

@@ -26,7 +26,7 @@ Do not remove or rename these without updating their consumers.
 | `install_prebuilt_binaries.sh` | `Dockerfile-localnet` |
 | `localnet.sh` | E2E CI, `Dockerfile-localnet`, SDK EVM setup, and the [local development guide](/docs/guides/local-development) — spins up a local dev chain (writes `specs/local.json`, gitignored) |
 | `localnet_patch.sh` | E2E CI and `docker-localnet.yml` |
-| `srtool/build-srtool-image.sh` | `propose-mainnet-upgrade.yml` — builds the local srtool Docker image |
+| `srtool/build-srtool-image.sh` | `release-train.yml` — builds the local srtool Docker image |
 
 ## Chainspec files
 
@@ -54,7 +54,7 @@ commits the result. The localnet spec is different: `localnet.sh` generates
 
 | Script | Purpose |
 |--------|---------|
-| `code-coverage.sh` | Coverage run described in the root README (requires `cargo-tarpaulin`) |
+| `code-coverage.sh` | Manual `cargo tarpaulin` coverage run over the workspace (requires `cargo-tarpaulin`) |
 | `init.sh` | Rust toolchain init referenced by the [local development guide](/docs/guides/local-development) |
 | `map_consensus.py` | Generates the consensus plots referenced in [Yuma Consensus](/docs/internals/consensus) |
 
@@ -65,7 +65,7 @@ These have no CI consumers but are kept for occasional use.
 ### `srtool/run-srtool.sh`
 
 Reproduces the deterministic srtool runtime build locally so you can verify that
-the wasm hash CI proposed on-chain (via `propose-mainnet-upgrade.yml`, which
+the wasm hash CI proposed on-chain (via `release-train.yml`, which
 inlines the same `docker run`) matches an independent build. Run
 `srtool/build-srtool-image.sh` first to create the local `srtool` image.
 Requires `CARGO_HOME` to be set. Output lands in

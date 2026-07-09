@@ -174,9 +174,19 @@ jobs:
           gh workflow run docker-localnet.yml \
             --repo "$GITHUB_REPOSITORY" --ref "$tag" -f branch-or-tag="$tag"
 
+  # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
+  # sdist) at the released commit; the committed version is published as-is.
+  build-sp-core:
+    name: Build py-sp-core wheels
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    uses: ./.github/workflows/build-sp-core-wheels.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
   publish-sdk:
     name: Publish Python SDK to PyPI
-    needs: [check, release]
+    needs: [check, release, build-sp-core]
     if: needs.check.outputs.ready == 'true'
     runs-on: [self-hosted, fireactions-heavy]
     # PyPI trusted publishing (OIDC); publishers for `bittensor` and
@@ -195,20 +205,21 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Build py-sp-core wheels (manylinux)
-        uses: PyO3/maturin-action@v1
+      - name: Download py-sp-core wheels
+        uses: actions/download-artifact@v4
         with:
-          working-directory: py-sp-core
-          command: build
-          args: --release --out ../dist
-          manylinux: auto
+          pattern: sp-core-dist-*
+          path: dist
+          merge-multiple: true
 
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
 
       - name: Publish to PyPI
-        run: uv publish --trusted-publishing always dist/*
+        run: |
+          ls -la dist
+          uv publish --trusted-publishing always dist/*
 
   publish-crates:
     name: Publish Rust crates to crates.io

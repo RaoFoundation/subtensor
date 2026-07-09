@@ -4,7 +4,7 @@ export const learnResources: ExplorerCardData[] = [
   {
     id: 'bittensordocs',
     name: 'Bittensor Docs',
-    href: 'https://docs.bittensor.com',
+    href: 'https://bittensor.com/docs',
     imageSrc: '/assets/learn/bittensor-docs-card.png',
     leftIconSrc: '/assets/learn/bittensor-docs-icon.svg',
     logoSrc: '/assets/learn/bittensor-docs-logo.svg',

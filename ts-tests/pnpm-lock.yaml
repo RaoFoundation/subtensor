@@ -49,7 +49,7 @@ importers:
         version: 14.0.3(@polkadot/util@14.0.3)
       '@zombienet/orchestrator':
         specifier: 0.0.105
-        version: 0.0.105(@polkadot/util@14.0.3)(@types/node@25.9.2)(chokidar@3.6.0)(supports-color@8.1.1)
+        version: 0.0.105(@polkadot/util@14.0.3)(@types/node@25.9.2)(chokidar@3.6.0)
       ethereum-cryptography:
         specifier: 3.1.0
         version: 3.1.0
@@ -65,13 +65,13 @@ importers:
     devDependencies:
       '@acala-network/chopsticks':
         specifier: 1.2.3
-        version: 1.2.3(debug@4.3.7(supports-color@8.1.1))(supports-color@8.1.1)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
+        version: 1.2.3(debug@4.3.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
       '@biomejs/biome':
         specifier: 1.9.4
         version: 1.9.4
       '@moonwall/cli':
         specifier: 5.18.3
-        version: 5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7(supports-color@8.1.1))(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(supports-color@8.1.1)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)
+        version: 5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)
       '@moonwall/util':
         specifier: 5.18.3
         version: 5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(typescript@5.8.3)(yaml@2.8.2)(zod@3.25.76)
@@ -98,7 +98,7 @@ importers:
         version: 3.2.4(vitest@3.2.4)
       '@zombienet/utils':
         specifier: ^0.0.28
-        version: 0.0.28(@types/node@25.9.2)(chokidar@3.6.0)(supports-color@8.1.1)(typescript@5.8.3)
+        version: 0.0.28(@types/node@25.9.2)(chokidar@3.6.0)(typescript@5.8.3)
       bottleneck:
         specifier: 2.19.5
         version: 2.19.5
@@ -119,7 +119,7 @@ importers:
         version: 10.32.1
       solc:
         specifier: 0.8.21
-        version: 0.8.21(debug@4.3.7(supports-color@8.1.1))
+        version: 0.8.21(debug@4.3.7)
       toml:
         specifier: 3.0.0
         version: 3.0.0
@@ -134,7 +134,7 @@ importers:
         version: 2.38.0(typescript@5.8.3)(zod@3.25.76)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.9.0)
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.2)
       web3:
         specifier: 4.15.0
         version: 4.15.0(encoding@0.1.13)(typescript@5.8.3)(zod@3.25.76)
@@ -1562,7 +1562,7 @@ packages:
   '@polkadot-api/descriptors@file:.papi/descriptors':
     resolution: {directory: .papi/descriptors, type: directory}
     peerDependencies:
-      polkadot-api: '>=2.0.0'
+      polkadot-api: '>=1.21.0'
 
   '@polkadot-api/ink-contracts@0.4.0':
     resolution: {integrity: sha512-e2u5KhuYoiM+PyHsvjkI0O1nmFuC0rLH64uBerMqwK7hWENdM/ej9OqKawIzp6NQuYSHF5P4U8NBT0mjP9Y1yQ==}
@@ -3572,6 +3572,7 @@ packages:
     resolution: {integrity: sha512-Quz3MvAwHxVYNXsOByL7xI5EB2WYOeFswqaHIA3qOK3isRWTxiplBEocmmru6XmxDB2L7jDNYtYA4FyimoAFEw==}
     engines: {node: '>=8.17.0'}
     hasBin: true
+    bundledDependencies: []
 
   jsondiffpatch@0.7.6:
     resolution: {integrity: sha512-zE9+AXFq+MkTolDor2Cw1nJzLC0aleqPkYf52Kb4Kn4mJcka/gFHpGI2JBVEJCfWOvBl0OoxZS+wuLdislQcqg==}
@@ -5356,14 +5357,14 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@acala-network/chopsticks-db@1.2.3(supports-color@8.1.1)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))':
+  '@acala-network/chopsticks-db@1.2.3(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))':
     dependencies:
       '@acala-network/chopsticks-core': 1.2.3
       '@polkadot/util': 13.5.9
       idb: 8.0.3
       reflect-metadata: 0.2.2
-      sqlite3: 5.1.7(supports-color@8.1.1)
-      typeorm: 0.3.30(sqlite3@5.1.7(supports-color@8.1.1))(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
+      sqlite3: 5.1.7
+      typeorm: 0.3.30(sqlite3@5.1.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
     transitivePeerDependencies:
       - '@google-cloud/spanner'
       - '@sap/hana-client'
@@ -5425,10 +5426,10 @@ snapshots:
       '@polkadot/util': 14.0.3
       '@polkadot/wasm-util': 7.5.4(@polkadot/util@14.0.3)
 
-  '@acala-network/chopsticks@1.2.3(debug@4.3.7(supports-color@8.1.1))(supports-color@8.1.1)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))':
+  '@acala-network/chopsticks@1.2.3(debug@4.3.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))':
     dependencies:
       '@acala-network/chopsticks-core': 1.2.3
-      '@acala-network/chopsticks-db': 1.2.3(supports-color@8.1.1)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
+      '@acala-network/chopsticks-db': 1.2.3(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
       '@pnpm/npm-conf': 3.0.2
       '@polkadot/api': 16.5.6
       '@polkadot/api-augment': 16.5.6
@@ -5436,7 +5437,7 @@ snapshots:
       '@polkadot/types': 16.5.6
       '@polkadot/util': 13.5.9
       '@polkadot/util-crypto': 13.5.9(@polkadot/util@13.5.9)
-      axios: 1.17.0(debug@4.3.7(supports-color@8.1.1))(supports-color@8.1.1)
+      axios: 1.17.0(debug@4.3.7)
       comlink: 4.4.2
       dotenv: 16.6.1
       global-agent: 3.0.0
@@ -5469,7 +5470,7 @@ snapshots:
       - typeorm-aurora-data-api-driver
       - utf-8-validate
 
-  '@acala-network/chopsticks@1.4.2(debug@4.3.7(supports-color@8.1.1))(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))':
+  '@acala-network/chopsticks@1.4.2(debug@4.3.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))':
     dependencies:
       '@acala-network/chopsticks-core': 1.4.2
       '@acala-network/chopsticks-db': 1.4.2(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
@@ -5481,7 +5482,7 @@ snapshots:
       '@polkadot/types': 16.5.6
       '@polkadot/util': 14.0.3
       '@polkadot/util-crypto': 14.0.3(@polkadot/util@14.0.3)
-      axios: 1.17.0(debug@4.3.7(supports-color@8.1.1))(supports-color@8.1.1)
+      axios: 1.17.0(debug@4.3.7)
       comlink: 4.4.2
       dotenv: 16.6.1
       global-agent: 3.0.0
@@ -6272,9 +6273,9 @@ snapshots:
 
   '@js-sdsl/ordered-map@4.4.2': {}
 
-  '@moonwall/cli@5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7(supports-color@8.1.1))(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(supports-color@8.1.1)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)':
+  '@moonwall/cli@5.18.3(@polkadot/api-base@16.5.6)(@polkadot/api-derive@16.5.6)(@polkadot/api@16.5.6)(@polkadot/keyring@14.0.3(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3))(@polkadot/rpc-provider@16.5.6)(@polkadot/types-codec@16.5.6)(@polkadot/types@16.5.6)(@polkadot/util-crypto@14.0.3(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)(@types/debug@4.1.12)(@types/node@25.9.2)(chokidar@3.6.0)(debug@4.3.7)(encoding@0.1.13)(jsdom@23.2.0)(postcss@8.5.15)(rxjs@7.8.2)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))(tsx@4.22.4)(typescript@5.8.3)(zod@3.25.76)':
     dependencies:
-      '@acala-network/chopsticks': 1.4.2(debug@4.3.7(supports-color@8.1.1))(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
+      '@acala-network/chopsticks': 1.4.2(debug@4.3.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3))
       '@ast-grep/napi': 0.40.5
       '@effect/cluster': 0.55.0(@effect/platform@0.93.8(effect@3.21.3))(@effect/rpc@0.72.2(@effect/platform@0.93.8(effect@3.21.3))(effect@3.21.3))(@effect/sql@0.48.6(@effect/experimental@0.57.11(@effect/platform@0.93.8(effect@3.21.3))(effect@3.21.3))(@effect/platform@0.93.8(effect@3.21.3))(effect@3.21.3))(@effect/workflow@0.15.2(@effect/experimental@0.57.11(@effect/platform@0.93.8(effect@3.21.3))(effect@3.21.3))(@effect/platform@0.93.8(effect@3.21.3))(@effect/rpc@0.72.2(@effect/platform@0.93.8(effect@3.21.3))(effect@3.21.3))(effect@3.21.3))(effect@3.21.3)
       '@effect/experimental': 0.57.11(@effect/platform@0.93.8(effect@3.21.3))(effect@3.21.3)
@@ -6307,7 +6308,7 @@ snapshots:
       clear: 0.1.0
       cli-progress: 3.12.0
       colors: 1.4.0
-      dockerode: 4.0.9(supports-color@8.1.1)
+      dockerode: 4.0.9
       dotenv: 17.2.3
       effect: 3.21.3
       ethers: 6.16.0
@@ -7208,7 +7209,7 @@ snapshots:
       '@polkadot/api-augment': 14.3.1
       '@polkadot/api-base': 14.3.1
       '@polkadot/api-derive': 14.3.1
-      '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)
+      '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@14.0.3))(@polkadot/util@13.5.9)
       '@polkadot/rpc-augment': 14.3.1
       '@polkadot/rpc-core': 14.3.1
       '@polkadot/rpc-provider': 14.3.1
@@ -7251,10 +7252,10 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@polkadot/keyring@13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)':
+  '@polkadot/keyring@13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@14.0.3))(@polkadot/util@13.5.9)':
     dependencies:
       '@polkadot/util': 13.5.9
-      '@polkadot/util-crypto': 13.5.9(@polkadot/util@13.5.9)
+      '@polkadot/util-crypto': 13.5.9(@polkadot/util@14.0.3)
       tslib: 2.8.1
 
   '@polkadot/keyring@13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)':
@@ -7333,7 +7334,7 @@ snapshots:
 
   '@polkadot/rpc-provider@14.3.1':
     dependencies:
-      '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)
+      '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@14.0.3))(@polkadot/util@13.5.9)
       '@polkadot/types': 14.3.1
       '@polkadot/types-support': 14.3.1
       '@polkadot/util': 13.5.9
@@ -7441,7 +7442,7 @@ snapshots:
 
   '@polkadot/types@14.3.1':
     dependencies:
-      '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@13.5.9))(@polkadot/util@13.5.9)
+      '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@14.0.3))(@polkadot/util@13.5.9)
       '@polkadot/types-augment': 14.3.1
       '@polkadot/types-codec': 14.3.1
       '@polkadot/types-create': 14.3.1
@@ -7467,10 +7468,10 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@polkadot/networks': 13.5.9
       '@polkadot/util': 13.5.9
-      '@polkadot/wasm-crypto': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))
+      '@polkadot/wasm-crypto': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))
       '@polkadot/wasm-util': 7.5.4(@polkadot/util@13.5.9)
       '@polkadot/x-bigint': 13.5.9
-      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9))
+      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3))
       '@scure/base': 1.2.6
       tslib: 2.8.1
 
@@ -7521,11 +7522,11 @@ snapshots:
       bn.js: 5.2.3
       tslib: 2.8.1
 
-  '@polkadot/wasm-bridge@7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))':
+  '@polkadot/wasm-bridge@7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))':
     dependencies:
       '@polkadot/util': 13.5.9
       '@polkadot/wasm-util': 7.5.4(@polkadot/util@13.5.9)
-      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9))
+      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3))
       tslib: 2.8.1
 
   '@polkadot/wasm-bridge@7.5.4(@polkadot/util@14.0.3)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@14.0.3)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))':
@@ -7552,14 +7553,14 @@ snapshots:
       '@polkadot/util': 14.0.3
       tslib: 2.8.1
 
-  '@polkadot/wasm-crypto-init@7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))':
+  '@polkadot/wasm-crypto-init@7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))':
     dependencies:
       '@polkadot/util': 13.5.9
-      '@polkadot/wasm-bridge': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))
+      '@polkadot/wasm-bridge': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))
       '@polkadot/wasm-crypto-asmjs': 7.5.4(@polkadot/util@13.5.9)
       '@polkadot/wasm-crypto-wasm': 7.5.4(@polkadot/util@13.5.9)
       '@polkadot/wasm-util': 7.5.4(@polkadot/util@13.5.9)
-      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9))
+      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3))
       tslib: 2.8.1
 
   '@polkadot/wasm-crypto-init@7.5.4(@polkadot/util@14.0.3)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@14.0.3)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))':
@@ -7594,15 +7595,15 @@ snapshots:
       '@polkadot/wasm-util': 7.5.4(@polkadot/util@14.0.3)
       tslib: 2.8.1
 
-  '@polkadot/wasm-crypto@7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))':
+  '@polkadot/wasm-crypto@7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))':
     dependencies:
       '@polkadot/util': 13.5.9
-      '@polkadot/wasm-bridge': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))
+      '@polkadot/wasm-bridge': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))
       '@polkadot/wasm-crypto-asmjs': 7.5.4(@polkadot/util@13.5.9)
-      '@polkadot/wasm-crypto-init': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9)))
+      '@polkadot/wasm-crypto-init': 7.5.4(@polkadot/util@13.5.9)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))
       '@polkadot/wasm-crypto-wasm': 7.5.4(@polkadot/util@13.5.9)
       '@polkadot/wasm-util': 7.5.4(@polkadot/util@13.5.9)
-      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9))
+      '@polkadot/x-randomvalues': 13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3))
       tslib: 2.8.1
 
   '@polkadot/wasm-crypto@7.5.4(@polkadot/util@14.0.3)(@polkadot/x-randomvalues@13.5.9(@polkadot/util@14.0.3)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3)))':
@@ -7667,10 +7668,10 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@13.5.9))':
+  '@polkadot/x-randomvalues@13.5.9(@polkadot/util@13.5.9)(@polkadot/wasm-util@7.5.4(@polkadot/util@14.0.3))':
     dependencies:
       '@polkadot/util': 13.5.9
-      '@polkadot/wasm-util': 7.5.4(@polkadot/util@13.5.9)
+      '@polkadot/wasm-util': 7.5.4(@polkadot/util@14.0.3)
       '@polkadot/x-global': 13.5.9
       tslib: 2.8.1
 
@@ -7988,13 +7989,13 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 2.0.0
 
-  '@vitest/mocker@3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0))':
+  '@vitest/mocker@3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2))':
     dependencies:
       '@vitest/spy': 3.2.4
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2)
 
   '@vitest/pretty-format@3.2.4':
     dependencies:
@@ -8029,7 +8030,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.17
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.9.0)
+      vitest: 3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.2)
 
   '@vitest/ui@3.2.6(vitest@3.2.4)':
     dependencies:
@@ -8040,7 +8041,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.17
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.9.0)
+      vitest: 3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.2)
 
   '@vitest/utils@3.2.4':
     dependencies:
@@ -8054,12 +8055,12 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@zombienet/orchestrator@0.0.105(@polkadot/util@14.0.3)(@types/node@25.9.2)(chokidar@3.6.0)(supports-color@8.1.1)':
+  '@zombienet/orchestrator@0.0.105(@polkadot/util@14.0.3)(@types/node@25.9.2)(chokidar@3.6.0)':
     dependencies:
       '@polkadot/api': 14.3.1
       '@polkadot/keyring': 13.5.9(@polkadot/util-crypto@13.5.9(@polkadot/util@14.0.3))(@polkadot/util@14.0.3)
       '@polkadot/util-crypto': 13.5.9(@polkadot/util@14.0.3)
-      '@zombienet/utils': 0.0.28(@types/node@25.9.2)(chokidar@3.6.0)(supports-color@8.1.1)(typescript@5.8.3)
+      '@zombienet/utils': 0.0.28(@types/node@25.9.2)(chokidar@3.6.0)(typescript@5.8.3)
       JSONStream: 1.3.5
       chai: 4.5.0
       debug: 4.3.7(supports-color@8.1.1)
@@ -8118,7 +8119,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@zombienet/utils@0.0.28(@types/node@25.9.2)(chokidar@3.6.0)(supports-color@8.1.1)(typescript@5.8.3)':
+  '@zombienet/utils@0.0.28(@types/node@25.9.2)(chokidar@3.6.0)(typescript@5.8.3)':
     dependencies:
       cli-table3: 0.6.5
       debug: 4.3.7(supports-color@8.1.1)
@@ -8203,7 +8204,7 @@ snapshots:
 
   aes-js@4.0.0-beta.5: {}
 
-  agent-base@6.0.2(supports-color@8.1.1):
+  agent-base@6.0.2:
     dependencies:
       debug: 4.3.7(supports-color@8.1.1)
     transitivePeerDependencies:
@@ -8286,11 +8287,11 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.1.0
 
-  axios@1.17.0(debug@4.3.7(supports-color@8.1.1))(supports-color@8.1.1):
+  axios@1.17.0(debug@4.3.7):
     dependencies:
-      follow-redirects: 1.16.0(debug@4.3.7(supports-color@8.1.1))
+      follow-redirects: 1.16.0(debug@4.3.7)
       form-data: 4.0.5
-      https-proxy-agent: 5.0.1(supports-color@8.1.1)
+      https-proxy-agent: 5.0.1
       proxy-from-env: 2.1.0
     transitivePeerDependencies:
       - debug
@@ -8695,7 +8696,7 @@ snapshots:
 
   diff@5.2.2: {}
 
-  docker-modem@5.0.7(supports-color@8.1.1):
+  docker-modem@5.0.7:
     dependencies:
       debug: 4.3.7(supports-color@8.1.1)
       readable-stream: 3.6.2
@@ -8704,12 +8705,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  dockerode@4.0.9(supports-color@8.1.1):
+  dockerode@4.0.9:
     dependencies:
       '@balena/dockerignore': 1.0.2
       '@grpc/grpc-js': 1.14.4
       '@grpc/proto-loader': 0.7.15
-      docker-modem: 5.0.7(supports-color@8.1.1)
+      docker-modem: 5.0.7
       protobufjs: 7.6.2
       tar-fs: 2.1.4
       uuid: 10.0.0
@@ -9002,7 +9003,7 @@ snapshots:
 
   flatted@3.4.2: {}
 
-  follow-redirects@1.16.0(debug@4.3.7(supports-color@8.1.1)):
+  follow-redirects@1.16.0(debug@4.3.7):
     optionalDependencies:
       debug: 4.3.7(supports-color@8.1.1)
 
@@ -9184,10 +9185,10 @@ snapshots:
   http-cache-semantics@4.2.0:
     optional: true
 
-  http-proxy-agent@4.0.1(supports-color@8.1.1):
+  http-proxy-agent@4.0.1:
     dependencies:
       '@tootallnate/once': 1.1.2
-      agent-base: 6.0.2(supports-color@8.1.1)
+      agent-base: 6.0.2
       debug: 4.3.7(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
@@ -9200,9 +9201,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  https-proxy-agent@5.0.1(supports-color@8.1.1):
+  https-proxy-agent@5.0.1:
     dependencies:
-      agent-base: 6.0.2(supports-color@8.1.1)
+      agent-base: 6.0.2
       debug: 4.3.7(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
@@ -9538,13 +9539,13 @@ snapshots:
 
   make-error@1.3.6: {}
 
-  make-fetch-happen@9.1.0(supports-color@8.1.1):
+  make-fetch-happen@9.1.0:
     dependencies:
       agentkeepalive: 4.6.0
       cacache: 15.3.0
       http-cache-semantics: 4.2.0
-      http-proxy-agent: 4.0.1(supports-color@8.1.1)
-      https-proxy-agent: 5.0.1(supports-color@8.1.1)
+      http-proxy-agent: 4.0.1
+      https-proxy-agent: 5.0.1
       is-lambda: 1.0.1
       lru-cache: 6.0.0
       minipass: 3.3.6
@@ -9554,7 +9555,7 @@ snapshots:
       minipass-pipeline: 1.2.4
       negotiator: 0.6.4
       promise-retry: 2.0.1
-      socks-proxy-agent: 6.2.1(supports-color@8.1.1)
+      socks-proxy-agent: 6.2.1
       ssri: 8.0.1
     transitivePeerDependencies:
       - bluebird
@@ -9804,12 +9805,12 @@ snapshots:
       which: 6.0.1
     optional: true
 
-  node-gyp@8.4.1(supports-color@8.1.1):
+  node-gyp@8.4.1:
     dependencies:
       env-paths: 2.2.1
       glob: 7.2.3
       graceful-fs: 4.2.11
-      make-fetch-happen: 9.1.0(supports-color@8.1.1)
+      make-fetch-happen: 9.1.0
       nopt: 5.0.0
       npmlog: 6.0.2
       rimraf: 3.0.2
@@ -10456,9 +10457,9 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  socks-proxy-agent@6.2.1(supports-color@8.1.1):
+  socks-proxy-agent@6.2.1:
     dependencies:
-      agent-base: 6.0.2(supports-color@8.1.1)
+      agent-base: 6.0.2
       debug: 4.3.7(supports-color@8.1.1)
       socks: 2.8.9
     transitivePeerDependencies:
@@ -10471,11 +10472,11 @@ snapshots:
       smart-buffer: 4.2.0
     optional: true
 
-  solc@0.8.21(debug@4.3.7(supports-color@8.1.1)):
+  solc@0.8.21(debug@4.3.7):
     dependencies:
       command-exists: 1.2.9
       commander: 8.3.0
-      follow-redirects: 1.16.0(debug@4.3.7(supports-color@8.1.1))
+      follow-redirects: 1.16.0(debug@4.3.7)
       js-sha3: 0.8.0
       memorystream: 0.3.1
       semver: 5.7.2
@@ -10521,14 +10522,14 @@ snapshots:
 
   sql-highlight@6.1.0: {}
 
-  sqlite3@5.1.7(supports-color@8.1.1):
+  sqlite3@5.1.7:
     dependencies:
       bindings: 1.5.0
       node-addon-api: 7.1.1
       prebuild-install: 7.1.3
       tar: 6.2.1
     optionalDependencies:
-      node-gyp: 8.4.1(supports-color@8.1.1)
+      node-gyp: 8.4.1
     transitivePeerDependencies:
       - bluebird
       - supports-color
@@ -10882,7 +10883,7 @@ snapshots:
       es-errors: 1.3.0
       is-typed-array: 1.1.15
 
-  typeorm@0.3.30(sqlite3@5.1.7(supports-color@8.1.1))(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3)):
+  typeorm@0.3.30(sqlite3@5.1.7)(ts-node@10.9.2(@types/node@25.9.2)(typescript@5.8.3)):
     dependencies:
       '@sqltools/formatter': 1.2.5
       ansis: 4.3.1
@@ -10900,7 +10901,7 @@ snapshots:
       uuid: 11.1.1
       yargs: 17.7.2
     optionalDependencies:
-      sqlite3: 5.1.7(supports-color@8.1.1)
+      sqlite3: 5.1.7
       ts-node: 10.9.2(@types/node@25.9.2)(typescript@5.8.3)
     transitivePeerDependencies:
       - babel-plugin-macros
@@ -11075,27 +11076,6 @@ snapshots:
       - tsx
       - yaml
 
-  vite-node@3.2.4(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0):
-    dependencies:
-      cac: 6.7.14
-      debug: 4.4.3
-      es-module-lexer: 1.7.0
-      pathe: 2.0.3
-      vite: 7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0)
-    transitivePeerDependencies:
-      - '@types/node'
-      - jiti
-      - less
-      - lightningcss
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - supports-color
-      - terser
-      - tsx
-      - yaml
-
   vite@7.3.5(@types/node@24.13.1)(tsx@4.22.4)(yaml@2.8.2):
     dependencies:
       esbuild: 0.27.7
@@ -11124,25 +11104,11 @@ snapshots:
       tsx: 4.22.4
       yaml: 2.8.2
 
-  vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0):
-    dependencies:
-      esbuild: 0.27.7
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
-      postcss: 8.5.15
-      rollup: 4.61.1
-      tinyglobby: 0.2.17
-    optionalDependencies:
-      '@types/node': 25.9.2
-      fsevents: 2.3.3
-      tsx: 4.22.4
-      yaml: 2.9.0
-
   vitest@3.2.4(@types/debug@4.1.12)(@types/node@24.13.1)(@vitest/ui@3.2.6)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.2):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
-      '@vitest/mocker': 3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2))
       '@vitest/pretty-format': 3.2.6
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4
@@ -11182,11 +11148,11 @@ snapshots:
       - tsx
       - yaml
 
-  vitest@3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.9.0):
+  vitest@3.2.4(@types/debug@4.1.12)(@types/node@25.9.2)(@vitest/ui@3.2.4)(jsdom@23.2.0)(tsx@4.22.4)(yaml@2.8.2):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
-      '@vitest/mocker': 3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2))
       '@vitest/pretty-format': 3.2.6
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4
@@ -11204,8 +11170,8 @@ snapshots:
       tinyglobby: 0.2.17
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
-      vite: 7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0)
-      vite-node: 3.2.4(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2)
+      vite-node: 3.2.4(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/debug': 4.1.12
@@ -11230,7 +11196,7 @@ snapshots:
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
-      '@vitest/mocker': 3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 3.2.4(vite@7.3.5(@types/node@25.9.2)(tsx@4.22.4)(yaml@2.8.2))
       '@vitest/pretty-format': 3.2.6
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4

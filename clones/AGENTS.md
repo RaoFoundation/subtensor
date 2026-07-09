@@ -101,9 +101,9 @@ All prompts should be handled using the following steps that are described in mo
 1. Make the mainnet clone
 2. Start the mainnet clone
 3. Confirm block production, not just websocket availability
-4. Run clone-smoke-test.js to ensure connectivity and correct operation of the clone
+4. Run clone-smoke-test.ts to ensure connectivity and correct operation of the clone
 5. Runtime upgrade
-6. Run clone-smoke-test.js again
+6. Run clone-smoke-test.ts again
 7. Write and execute JS test
 7a. If the JS test was edited after any run, rerun the final saved test file end-to-end before cleanup.
 8. Cleanup by calling `stop-local-clone.sh`
@@ -150,17 +150,17 @@ Rules:
 Use descriptive filenames such as:
 
 ```text
-test-lock-conviction-decay.js
-test-total-issuance-slash-refund.js
-test-owner-replacement-after-conviction.js
+test-lock-conviction-decay.ts
+test-total-issuance-slash-refund.ts
+test-owner-replacement-after-conviction.ts
 ```
 
 Avoid generic names such as:
 
 ```text
-test.js
-debug.js
-tmp.js
+test.ts
+debug.ts
+tmp.ts
 ```
 
 After you execute the test, whether the functionality is confimed to work ok or fails, output the results.
@@ -192,7 +192,7 @@ Final verification rule:
 
 ## Test output logs
 
-- Route JS test command output through files under `js-tests/temp/`: do not rely on the standard output and use file i/o in the tests. Use fs for text file blocking output only. Do not try to rely on console.log when you monitor tests. Prefer using the existing `js-tests/lib/file-log.js` helper for JS test logs.
+- Route JS test command output through files under `js-tests/temp/`: do not rely on the standard output and use file i/o in the tests. Use fs for text file blocking output only. Do not try to rely on console.log when you monitor tests. Prefer using the existing `js-tests/lib/file-log.ts` helper for test logs.
 - Keep `js-tests/temp/.gitkeep` tracked and ignore generated files in that folder.
 - When reporting test results, read and summarize the relevant `js-tests/temp/*.log` file.
 - Do not leave important test output only in terminal scrollback.
@@ -202,7 +202,7 @@ Final verification rule:
 - Saved JS files that use `@polkadot/api` against `ws://127.0.0.1:9944` may hang when run inside the Codex sandbox, even though equivalent inline `node --input-type=module -e ...` probes work.
 - When running saved Polkadot JS scripts/tests against the local clone websocket, run them outside the sandbox with escalated permissions.
 - This applies to commands such as:
-  - `node tests/clone-smoke-test.js`
+  - `npx tsx tests/clone-smoke-test.ts`
   - `npm run test`
   - `npm run runtime:update:alice`
   - `npm run test:locks-conviction`

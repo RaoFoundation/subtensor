@@ -60,7 +60,7 @@ wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
 ## Back up the seed phrase
 
 A seed phrase fails in two ways: **loss** (the funds are gone permanently —
-nobody, including the Opentensor Foundation, can recover them) and **leak**
+nobody, including the Rao Foundation, can recover them) and **leak**
 (anyone who saw it can drain the wallet — respond by rotating keys, see below).
 Backups defend against loss; handling discipline defends against leak.
 
@@ -166,7 +166,7 @@ history — waiting for you to copy the wrong entry. Defenses:
 
 Always send TAO to a **coldkey** address. Transferring to a hotkey address is
 technically possible but can strand the funds. And there is no undo anywhere
-in this system: no one — the Opentensor Foundation included — can reverse a
+in this system: no one — the Rao Foundation included — can reverse a
 theft or recover lost keys.
 
 ## Key rotation and recovery
@@ -210,4 +210,4 @@ environment variable; the per-wallet variable named after the keyfile path
 `--wallet-password-file` or `BT_WALLET_PASSWORD_FILE`; the macOS Keychain
 (`btcli wallet keychain`); then an interactive prompt. A browser-extension
 signer is also available so the coldkey never touches the machine running the
-CLI — see `--signer extension`.
+CLI — see [signing with a browser extension](/docs/guides/extension-signing).

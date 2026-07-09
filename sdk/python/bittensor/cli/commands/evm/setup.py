@@ -7,11 +7,12 @@ from typing import Any, Optional
 import typer
 from rich.text import Text
 
+from .... import calls
 from ....evm import keys as evm_keys
 from ....evm import networks as evm_networks
 from ....evm import rpc as evm_rpc
 from ...context import ctx_of
-from ...globals import with_globals
+from ...globals import with_globals, with_tx_globals
 from ._shared import (
     EVM_KEY_HELP,
     PANEL_SETUP,
@@ -26,6 +27,7 @@ def register(app: typer.Typer) -> None:
     app.command("networks", rich_help_panel=PANEL_SETUP)(networks)
     app.command("config", rich_help_panel=PANEL_SETUP)(config)
     app.command("doctor", rich_help_panel=PANEL_SETUP)(doctor)
+    app.command("setup-localnet", rich_help_panel=PANEL_SETUP)(setup_localnet)
 
 
 @with_globals
@@ -100,11 +102,27 @@ def config(
     elif format == "hardhat":
         snippet = (
             "// hardhat.config.js — subtensor EVM\n"
+            "// Deployer key, either of:\n"
+            "//   export ETH_PRIVATE_KEY=$(btcli evm key export --private-key)\n"
+            "//   export ETH_KEYSTORE=./key.json ETH_KEYSTORE_PASSWORD=…   "
+            "(btcli evm key export --out key.json; no raw key leaves the file)\n"
+            'const { Wallet } = require("ethers");\n'
+            'const fs = require("fs");\n'
+            "\n"
+            "const deployerKey =\n"
+            "  process.env.ETH_PRIVATE_KEY ??\n"
+            "  (process.env.ETH_KEYSTORE\n"
+            "    ? Wallet.fromEncryptedJsonSync(\n"
+            '        fs.readFileSync(process.env.ETH_KEYSTORE, "utf8"),\n'
+            "        process.env.ETH_KEYSTORE_PASSWORD\n"
+            "      ).privateKey\n"
+            "    : undefined);\n"
+            "\n"
             "module.exports = {\n"
             '  solidity: { version: "0.8.24", settings: { evmVersion: "cancun" } },\n'
             "  networks: {\n"
             f'    subtensor: {{\n      url: "{network.rpc_url}",\n'
-            "      accounts: [process.env.ETH_PRIVATE_KEY],\n    },\n"
+            "      accounts: deployerKey ? [deployerKey] : [],\n    },\n"
             "  },\n"
             "  mocha: { timeout: 300000 }, // ~12s blocks: default timeouts are too short\n"
             "};"
@@ -180,3 +198,83 @@ def doctor(
                 f"(or transfer TAO to its mirror {info.ss58_mirror})"
             )
     app_ctx.output.detail(f"EVM endpoint: {network.name}", fields)
+
+
+@with_tx_globals
+def setup_localnet(
+    ctx: typer.Context,
+    chain_id: int = typer.Option(
+        945, "--chain-id", help="EVM chain ID to set (945 mimics testnet, 964 mainnet)."
+    ),
+    rpc_url: Optional[str] = RPC_URL_OPTION,
+):
+    """Make a fresh localnet EVM-ready: set the chain ID, disable the whitelist.
+
+    A new localnet has no EVM chain ID (MetaMask and signed transactions
+    reject it) and blocks contract deployment behind a whitelist. This
+    command submits the two sudo extrinsics that fix both, signed by the
+    configured wallet — on a localnet that's Alice, the dev sudo key.
+    """
+    app_ctx = ctx_of(ctx)
+    if app_ctx.network in ("finney", "test"):
+        app_ctx.output.error(
+            f"refusing to run against {app_ctx.network} — this command is for localnets",
+            help="pass --network local (or a ws:// endpoint) and a sudo-holding wallet",
+        )
+        raise typer.Exit(2)
+
+    _network, rpc = _rpc(app_ctx, rpc_url)
+    current_chain_id: Optional[int]
+    try:
+        current_chain_id = rpc.chain_id()
+    except (ConnectionError, TimeoutError) as error:
+        app_ctx.output.error(
+            f"EVM RPC unreachable: {error}",
+            help="start the chain first; on a source-built localnet pass "
+            "--rpc-url http://127.0.0.1:9945",
+        )
+        raise typer.Exit(1)
+    except evm_rpc.EvmRpcError:
+        current_chain_id = None
+
+    plan = []
+    if current_chain_id == chain_id:
+        app_ctx.output.message(f"chain ID already {chain_id} — skipping")
+    else:
+        plan.append(
+            (
+                f"set EVM chain ID to {chain_id}"
+                + (f" (currently {current_chain_id})" if current_chain_id else ""),
+                calls.AdminUtils.sudo_set_evm_chain_id(chain_id=chain_id),
+            )
+        )
+    plan.append(
+        ("disable the contract deployment whitelist", calls.EVM.disable_whitelist(disabled=True))
+    )
+
+    if app_ctx.dry_run:
+        app_ctx.output.detail(
+            "setup-localnet plan (each submitted as Sudo.sudo, signed by the wallet coldkey)",
+            {f"step {i + 1}": desc for i, (desc, _) in enumerate(plan)},
+        )
+        return
+    app_ctx.confirm(f"submit {len(plan)} sudo extrinsic(s) with wallet {app_ctx.wallet_name!r}?")
+
+    async def _op(client):
+        results = []
+        for description, call in plan:
+            inner = await client.compose(call)
+            result = await client.submit_call(
+                calls.Sudo.sudo(call=inner), app_ctx.signer("coldkey")
+            )
+            results.append((description, result))
+        return results
+
+    results = app_ctx.run(_op)
+    for description, result in results:
+        if not app_ctx.output.result(result, description):
+            raise typer.Exit(1)
+    app_ctx.output.message(
+        "localnet is EVM-ready — `btcli evm config --format metamask` prints the "
+        "wallet settings, `btcli evm doctor` verifies"
+    )

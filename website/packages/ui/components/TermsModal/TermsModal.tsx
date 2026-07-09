@@ -8,7 +8,7 @@ export const TermsModal = () => {
     <div className={styles.container}>
       <div className={styles.header}>
         This is a non-custodial wallet created by the <br />
-        Opentensor Foundation.
+        Rao Foundation.
       </div>
       <div className={styles.terms}>
         <p>
