@@ -1,7 +1,7 @@
 # Running subtensor node locally
 
 For General information on running Subtensors, see
-[**Subtensor Nodes** section in Bittensor Developer Documentation](https://docs.bittensor.com/subtensor-nodes).
+[**Subtensor Nodes** section in Bittensor Developer Documentation](https://docs.learnbittensor.org/subtensor-nodes).
 
 ### Running a localnet subtensor node
 

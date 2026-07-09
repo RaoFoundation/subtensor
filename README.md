@@ -13,7 +13,7 @@
 [![Discord Chat](https://img.shields.io/discord/308323056592486420.svg)](https://discord.gg/bittensor)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This repository contains Bittensor's substrate-chain. Subtensor contains the trusted logic which:
+This repository contains [Bittensor](https://docs.learnbittensor.org)'s substrate-chain. Subtensor contains the trusted logic which:
 
 1. Runs Bittensor's [consensus mechanism](./docs/consensus.md);
 2. Advertises neuron information, IPs, etc., and
@@ -57,11 +57,11 @@ Requirements:
 
 ## For Subnet Development
 
-If you are developing and testing subnet incentive mechanism, you will need to run a local subtensor node. Follow the detailed step-by-step instructions provided in the [**Subtensor Nodes** section in Bittensor Developer Documentation](https://docs.bittensor.com/subtensor-nodes).
+If you are developing and testing subnet incentive mechanism, you will need to run a local subtensor node. Follow the detailed step-by-step instructions provided in the [**Subtensor Nodes** section in Bittensor Developer Documentation](https://docs.learnbittensor.org/subtensor-nodes).
 
 ### Lite node vs Archive node
 
-For an explanation of lite node, archive node and how you can run your local subtensor node in these modes, see [Lite node vs archive node](https://docs.bittensor.com/subtensor-nodes#lite-node-vs-archive-node) section on [Bittensor Developer Docs](https://docs.bittensor.com/).
+For an explanation of lite node, archive node and how you can run your local subtensor node in these modes, see [Lite node vs archive node](https://docs.learnbittensor.org/subtensor-nodes#lite-node-vs-archive-node) section on [Bittensor Developer Docs](https://docs.learnbittensor.org/).
 
 ---
 
