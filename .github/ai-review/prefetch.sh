@@ -86,52 +86,39 @@ gh_retry gh pr view "$PR_NUMBER" --repo "$REPO" --json files > "$OUTPUT_DIR/pr-f
 # number of files" and no amount of retrying clears it. Since the Skeptic is a
 # required check, that would leave the gate permanently red on big PRs. So try
 # `gh pr diff` first (canonical output, correct for the common case) and fall
-# back to reconstructing the unified diff from the paginated Files API, which
-# has no file-count cap.
-reconstruct_diff_from_files_api() {
-  # The Files API returns per-file `patch` hunks (omitted for binary and
-  # individually-oversized files). Rebuild a `diff --git` stream from them so
-  # the personas see the same hunks a normal diff would show.
-  gh api "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --paginate \
-    | jq -s 'add // []' \
-    | jq -r '.[] | @base64' \
-    | while read -r row; do
-        _f() { printf '%s' "$row" | base64 --decode | jq -r "$1"; }
-        local status filename previous patch old new
-        status=$(_f '.status')
-        filename=$(_f '.filename')
-        previous=$(_f '.previous_filename // ""')
-        patch=$(_f '.patch // ""')
+# back to computing the same diff from the local PR checkout, which has no
+# file-count cap.
+reconstruct_diff_locally() {
+  # The Files API alternative is unsuitable: it omits `patch` for binary AND
+  # individually-oversized textual files, and a placeholder there would be a
+  # review blind spot (an attacker could oversize exactly the file they want
+  # unreviewed). Instead, produce the complete diff with local git: the
+  # workflow runs this script inside a fetch-depth-0 checkout of the PR head,
+  # so the merge base is already present and no network or credentials are
+  # needed (the checkout uses persist-credentials: false). Any failure aborts
+  # the script (set -e), so this fails closed — the personas never see a
+  # partial diff.
+  local head_sha base_ref merge_base
+  head_sha=$(jq -r '.headRefOid' "$OUTPUT_DIR/pr.json")
+  base_ref=$(jq -r '.baseRefName' "$OUTPUT_DIR/pr.json")
 
-        old="a/${previous:-$filename}"
-        new="b/$filename"
-        printf 'diff --git %s %s\n' "$old" "$new"
+  git rev-parse --is-inside-work-tree >/dev/null \
+    || { echo "::error::not inside the PR checkout; cannot reconstruct diff" >&2; return 1; }
+  [ "$(git rev-parse HEAD)" = "$head_sha" ] \
+    || { echo "::error::checkout HEAD does not match PR head $head_sha; cannot reconstruct diff" >&2; return 1; }
 
-        case "$status" in
-          added)   printf -- '--- /dev/null\n+++ %s\n' "$new" ;;
-          removed) printf -- '--- %s\n+++ /dev/null\n' "$old" ;;
-          renamed)
-            printf 'rename from %s\nrename to %s\n' "${previous:-$filename}" "$filename"
-            printf -- '--- %s\n+++ %s\n' "$old" "$new"
-            ;;
-          *)       printf -- '--- %s\n+++ %s\n' "$old" "$new" ;;
-        esac
-
-        if [[ -n "$patch" ]]; then
-          printf '%s\n' "$patch"
-        else
-          printf '@@ (no textual patch — binary or file exceeded diff size limit) @@\n'
-        fi
-      done
+  merge_base=$(git merge-base "origin/$base_ref" "$head_sha") \
+    || { echo "::error::could not resolve merge base of origin/$base_ref and $head_sha" >&2; return 1; }
+  git diff "$merge_base" "$head_sha"
 }
 
 if _gh_retry_inner gh pr diff "$PR_NUMBER" --repo "$REPO" > "$OUTPUT_DIR/pr-diff.patch"; then
   :
 else
-  echo "::warning::gh pr diff failed (likely >300 files / HTTP 406); reconstructing from the Files API" >&2
+  echo "::warning::gh pr diff failed (likely >300 files / HTTP 406); reconstructing from the local checkout" >&2
   cat /tmp/gh_retry.err >&2 2>/dev/null || true
   rm -f /tmp/gh_retry.err
-  reconstruct_diff_from_files_api > "$OUTPUT_DIR/pr-diff.patch"
+  reconstruct_diff_locally > "$OUTPUT_DIR/pr-diff.patch"
 fi
 
 # All PR comments (issue-style). `--paginate` alone writes one JSON array per
