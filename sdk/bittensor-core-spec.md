@@ -242,11 +242,10 @@ Dead weight removed *before* the new foundations are laid, so it is never
 migrated by inertia:
 
 - **drand C ABI** (`ffi.rs`, `bindings.h`, `cbindgen.toml`): zero in-repo
-  consumers (verified 2026-07-09). Removed in the consolidation phase; git
-  history preserves it, and a future non-Python consumer is better served by
-  a uniffi/napi binding crate than a hand-rolled C header. *Action before
-  deletion: one announcement/issue asking whether any external consumer
-  exists.*
+  consumers (verified 2026-07-09). Deleted outright in the consolidation
+  phase (decided 2026-07-09) — git history preserves it, re-adding a feature
+  later is cheap, and a future non-Python consumer is better served by a
+  uniffi/napi binding crate than a hand-rolled C header.
 - **`get_encrypted_commit` v1**: the SDK is already on v2; v1 is not carried
   into the core.
 - **Pre-migration alias names** (`encode_ss58`, `decode_ss58`,
@@ -327,7 +326,8 @@ becomes one — lines ~300–380 today); `cargo-audit.yml`; SDK test workflows
 in §6; `tests/harness/fake_node.py` explicitly untouched; the
 `websockets<17` cap unaffected.
 
-**Packaging/compat**: PyPI `bittensor-core` (new); `py-sp-core` and
+**Packaging/compat**: PyPI `bittensor-core` (name verified available
+2026-07-09; claim it with the first consolidation-phase release); `py-sp-core` and
 `bittensor-drand` are **frozen, not shimmed** — PyPI is immutable, so every
 existing pin keeps resolving forever, and the SDK (their only known
 structural consumer; py-sp-core exists solely for it) moves its dependency
@@ -398,10 +398,10 @@ go/no-go. The Python API freeze (§1) is what makes every gate a real exit.
 | Phase | Contents | Gate to proceed |
 | --- | --- | --- |
 | **0. Subtract + scaffold** | §7 removals (incl. repointing the stray scalecodec imports); §8 items 1–4 | Corpus recorded; wheel workflow produces installable wheels; *reassess direction here at near-zero sunk cost* |
-| **1. Consolidate** | Move `py-sp-core` + `bittensor-drand` sources into the core (mechanical, APIs frozen); freeze the old PyPI packages; release-train stamps one version | Existing golden suites green on the merged wheel; one release-train dry run |
-| **2. Runtime + codec** | §4.2–4.4; rewrite the `codec.py` seam to the core's model (§1) and update its internal consumers; delete cyscale + xxhash deps, `TYPE_REGISTRY`, and the §7.1 quirks | Shape corpus byte/shape-equal; §10 targets met (benchmark acceptance run recorded); full SDK test suite + e2e green |
-| **3. Extrinsic + digest** | Payload/assembly/multisig to core; `metadata_digest` exposed | Golden signing vectors byte-equal; digest vectors match polkadot-js |
-| **4. Ledger** | `LedgerSigner` + `--ledger` + docs guide | On-device verification against the generic app, sr25519 support confirmed (worst case: ed25519-only, expressed via `crypto_type`) |
+| **1. Consolidate** | Move `py-sp-core` + `bittensor-drand` sources into the core (mechanical, APIs frozen); delete the C ABI; freeze the old PyPI packages and claim `bittensor-core`; release-train stamps one version | Existing golden suites green on the merged wheel; one release-train dry run |
+| **2. Digest + Ledger** | `digest::metadata_digest` over raw `MetadataVersioned` bytes (standalone function now, method on `Runtime` once phase 3 lands — it does not depend on the codec work, which is why it comes early); `LedgerSigner` + `--ledger` + docs guide | Digest vectors match polkadot-js `merkleizeMetadata`; on-device verification against the generic app |
+| **3. Runtime + codec** | §4.2–4.4; rewrite the `codec.py` seam to the core's model (§1) and update its internal consumers; delete cyscale + xxhash deps, `TYPE_REGISTRY`, and the §7.1 quirks | Shape corpus byte/shape-equal; §10 targets met (benchmark acceptance run recorded); full SDK test suite + e2e green |
+| **4. Extrinsic assembly** | Payload/assembly/multisig to core | Golden signing vectors byte-equal |
 | **5. Later, separate decisions** | uniffi/napi binding crates; id-based descriptor fast path | Not scheduled; the shape corpus and §4 decisions are what keep these cheap |
 
 ## 13. Testing model
@@ -430,8 +430,12 @@ go/no-go. The Python API freeze (§1) is what makes every gate a real exit.
 - **Contributor experience**: Python-only contributors never need a Rust
   toolchain (wheels resolve from PyPI); core contributors need the workspace
   toolchain — same as today with py-sp-core, larger surface.
-- **Ledger app reality**: sr25519/derivation support in the generic app is a
-  phase-4 gate, not an assumption.
+- **Ledger readiness — largely resolved** (verified 2026-07-09): the
+  generic app supports sr25519, and this runtime already declares
+  `frame_metadata_hash_extension::CheckMetadataHash` in `TxExtension` with
+  production builds compiled `--features metadata-hash` (`runtime/build.rs`
+  enables it with `("TAO", 9)`; Dockerfile and justfile pass the feature).
+  Remaining gate: on-device verification of our derivation paths.
 - **External C ABI consumers**: ask before deleting (§7); the fallback is
   trivially re-adding a `c-abi` feature later, which is why deletion is the
   no-regrets default.
