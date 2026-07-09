@@ -1,7 +1,10 @@
 //! PolkadotJS / substrate-interface encrypted JSON keystore import.
 
+// Client-side code: slicing and arithmetic on locally validated buffers is
+// the norm here, and this crate never runs inside the runtime.
+#![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+
 use base64::{engine::general_purpose, Engine as _};
-use pyo3::prelude::*;
 use schnorrkel::{PublicKey, SecretKey};
 use scrypt::{scrypt, Params as ScryptParams};
 use serde::Deserialize;
@@ -9,7 +12,8 @@ use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
 use sp_core::{ed25519, Pair as PairT};
 use zeroize::Zeroizing;
 
-use crate::{Keypair, KeypairInner, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
+use crate::error::CoreError;
+use crate::keys::{Keypair, KeypairInner, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
 
 const PKCS8_HEADER: &[u8] = &[48, 83, 2, 1, 1, 48, 5, 6, 3, 43, 101, 112, 4, 34, 4, 32];
 const PKCS8_DIVIDER: &[u8] = &[161, 35, 3, 33, 0];
@@ -30,6 +34,10 @@ struct JsonEncoding {
     version: String,
 }
 
+fn value_err(msg: impl Into<String>) -> CoreError {
+    CoreError::Crypto(msg.into())
+}
+
 fn pad_right(mut data: Vec<u8>, total_len: usize, pad_byte: u8) -> Vec<u8> {
     if data.len() < total_len {
         data.extend(vec![pad_byte; total_len - data.len()]);
@@ -37,14 +45,14 @@ fn pad_right(mut data: Vec<u8>, total_len: usize, pad_byte: u8) -> Vec<u8> {
     data
 }
 
-fn pair_from_ed25519_secret_key(secret: &[u8]) -> PyResult<([u8; 64], [u8; 32])> {
+fn pair_from_ed25519_secret_key(secret: &[u8]) -> Result<([u8; 64], [u8; 32]), CoreError> {
     let secret_key = SecretKey::from_ed25519_bytes(secret)
         .map_err(|_| value_err("invalid ed25519 secret key in encrypted JSON"))?;
     let public_key: PublicKey = secret_key.to_public();
     Ok((secret_key.to_bytes(), public_key.to_bytes()))
 }
 
-fn decode_pkcs8(ciphertext: &[u8]) -> PyResult<([u8; SEC_LENGTH], [u8; PUB_LENGTH])> {
+fn decode_pkcs8(ciphertext: &[u8]) -> Result<([u8; SEC_LENGTH], [u8; PUB_LENGTH]), CoreError> {
     let min_len = PKCS8_HEADER.len() + SEC_LENGTH + PKCS8_DIVIDER.len() + PUB_LENGTH;
     if ciphertext.len() < min_len {
         return Err(value_err("decrypted PKCS8 payload too short"));
@@ -70,13 +78,9 @@ fn decode_pkcs8(ciphertext: &[u8]) -> PyResult<([u8; SEC_LENGTH], [u8; PUB_LENGT
     Ok((secret_key_array, public_key_array))
 }
 
-fn value_err(msg: impl Into<String>) -> PyErr {
-    pyo3::exceptions::PyValueError::new_err(msg.into())
-}
-
 /// PolkadotJS keystores commonly use n=32768, r=8, p=1. Reject pathological params
 /// so a malicious JSON cannot CPU-DoS the import path.
-fn validate_scrypt_params(n: u32, r: u32, p: u32) -> PyResult<()> {
+fn validate_scrypt_params(n: u32, r: u32, p: u32) -> Result<(), CoreError> {
     if n == 0 || !n.is_power_of_two() {
         return Err(value_err("scrypt n must be a non-zero power of two"));
     }
@@ -93,7 +97,7 @@ fn validate_scrypt_params(n: u32, r: u32, p: u32) -> PyResult<()> {
     Ok(())
 }
 
-pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult<Keypair> {
+pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> Result<Keypair, CoreError> {
     sodiumoxide::init().map_err(|_| value_err("failed to initialize libsodium"))?;
 
     let json_data: JsonStructure = serde_json::from_str(json_data)
@@ -114,9 +118,21 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
             ));
         }
         let salt = &encrypted[0..32];
-        let n = u32::from_le_bytes(encrypted[32..36].try_into().unwrap());
-        let p = u32::from_le_bytes(encrypted[36..40].try_into().unwrap());
-        let r = u32::from_le_bytes(encrypted[40..44].try_into().unwrap());
+        let n = u32::from_le_bytes(
+            encrypted[32..36]
+                .try_into()
+                .map_err(|_| value_err("encrypted JSON payload truncated"))?,
+        );
+        let p = u32::from_le_bytes(
+            encrypted[36..40]
+                .try_into()
+                .map_err(|_| value_err("encrypted JSON payload truncated"))?,
+        );
+        let r = u32::from_le_bytes(
+            encrypted[40..44]
+                .try_into()
+                .map_err(|_| value_err("encrypted JSON payload truncated"))?,
+        );
         validate_scrypt_params(n, r, p)?;
         let log_n: u8 = n.ilog2() as u8;
         let params = ScryptParams::new(log_n, r, p, 32)
@@ -149,7 +165,7 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
             return Err(value_err("sr25519 public key mismatch in encrypted JSON"));
         }
         let secret_hex = Zeroizing::new(hex::encode(secret));
-        Keypair::create_from_private_key(&secret_hex, CRYPTO_SR25519)
+        Keypair::from_private_key(&secret_hex, CRYPTO_SR25519)
     } else if json_data.encoding.content.iter().any(|c| c == "ed25519") {
         let seed = &private_key[..32];
         let pair = ed25519::Pair::from_seed_slice(seed).map_err(|error| {
@@ -169,6 +185,8 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use sp_core::{ed25519, Pair as PairT};
 

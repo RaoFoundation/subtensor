@@ -244,9 +244,9 @@ async def bench_query_map(conn: SubstrateConnection, pages: int, page_size: int)
 
 async def bench_signing(conn: SubstrateConnection) -> None:
     s = section("Local extrinsic path (compose + payload + sr25519 sign + assemble)")
-    import py_sp_core
+    import bittensor_core
 
-    kp = py_sp_core.Keypair.create_from_uri("//Alice")
+    kp = bittensor_core.Keypair.create_from_uri("//Alice")
     codec = await conn._runtimes.codec_at(None)
     dest = ss58_encode(bytes(range(32)), SS58_FORMAT)
 

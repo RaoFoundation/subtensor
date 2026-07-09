@@ -1,14 +1,14 @@
-"""Parity tests for the in-repo ``py_sp_core.Keypair`` API."""
+"""Parity tests for the in-repo ``bittensor_core.Keypair`` API."""
 
 from __future__ import annotations
 
 import pytest
 
-py_sp_core = pytest.importorskip("py_sp_core")
+bittensor_core = pytest.importorskip("bittensor_core")
 
-CRYPTO_ED25519 = py_sp_core.CRYPTO_ED25519
-CRYPTO_SR25519 = py_sp_core.CRYPTO_SR25519
-Keypair = py_sp_core.Keypair
+CRYPTO_ED25519 = bittensor_core.CRYPTO_ED25519
+CRYPTO_SR25519 = bittensor_core.CRYPTO_SR25519
+Keypair = bittensor_core.Keypair
 
 
 def test_create_from_uri_alice_address() -> None:

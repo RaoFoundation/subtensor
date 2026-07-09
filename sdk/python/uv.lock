@@ -93,10 +93,9 @@ name = "bittensor"
 version = "11.0.0.dev0"
 source = { editable = "." }
 dependencies = [
-    { name = "bittensor-drand" },
+    { name = "bittensor-core" },
     { name = "cyscale" },
     { name = "eth-account" },
-    { name = "py-sp-core" },
     { name = "rich" },
     { name = "typer" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
@@ -118,10 +117,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bittensor-drand", directory = "../../bittensor-drand" },
+    { name = "bittensor-core", directory = "../../bittensor-core-py" },
     { name = "cyscale", specifier = ">=0.3.3,<1.0.0" },
     { name = "eth-account", specifier = ">=0.13,<0.14" },
-    { name = "py-sp-core", directory = "../../py-sp-core" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.12.0" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'", specifier = ">=4.0.0" },
@@ -142,15 +140,9 @@ dev = [
 ]
 
 [[package]]
-name = "bittensor-drand"
-version = "2.0.0"
-source = { directory = "../../bittensor-drand" }
-
-[package.metadata]
-requires-dist = [
-    { name = "maturin", marker = "extra == 'dev'", specifier = "==1.7.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==0.23.7" },
-]
+name = "bittensor-core"
+version = "0.1.0"
+source = { directory = "../../bittensor-core-py" }
 
 [[package]]
 name = "ckzg"
@@ -685,11 +677,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538 },
 ]
-
-[[package]]
-name = "py-sp-core"
-version = "0.1.1"
-source = { directory = "../../py-sp-core" }
 
 [[package]]
 name = "pycryptodome"

@@ -27,13 +27,11 @@ rayon = "1.10"
 members = [
 	"bittensor-core",
 	"bittensor-core-py",
-	"bittensor-drand",
 	"common",
 	"node",
 	"pallets/*",
 	"precompiles",
 	"primitives/*",
-	"py-sp-core",
 	"runtime",
 	"support/*",
 	"chain-extensions",

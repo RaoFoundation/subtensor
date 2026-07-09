@@ -8,15 +8,15 @@ name: Publish Dev SDK
 # Install a dev build with:
 #   pip install --index-url https://test.pypi.org/simple/ \
 #     --extra-index-url https://pypi.org/simple/ --pre bittensor
-# (the extra index resolves dependencies like py-sp-core from real PyPI)
+# (the extra index resolves dependencies like bittensor-core from real PyPI)
 
 on:
   push:
     branches: [main]
     paths:
       - "sdk/**"
-      - "py-sp-core/**"
-      - "bittensor-drand/**"
+      - "bittensor-core/**"
+      - "bittensor-core-py/**"
   workflow_dispatch:
 
 concurrency:

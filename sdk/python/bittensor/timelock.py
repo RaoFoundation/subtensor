@@ -41,8 +41,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
-from bittensor_drand import decrypt as _drand_decrypt
-from bittensor_drand import encrypt_at_round as _drand_encrypt_at_round
+from bittensor_core import decrypt as _drand_decrypt
+from bittensor_core import encrypt_at_round as _drand_encrypt_at_round
 
 from .result import BittensorError
 

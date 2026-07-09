@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-py_sp_core = pytest.importorskip("py_sp_core")
+bittensor_core = pytest.importorskip("bittensor_core")
 from bittensor import sp_core  # noqa: E402
 from bittensor.wallet import Wallet  # noqa: E402
 
-Keypair = py_sp_core.Keypair
+Keypair = bittensor_core.Keypair
 
 
 def test_sp_core_backwards_compat_aliases() -> None:
     assert sp_core.verify_signature is sp_core.verify
     assert sp_core.encode_ss58 is sp_core.ss58_encode
     assert sp_core.decode_ss58 is sp_core.ss58_decode
-    assert py_sp_core.verify_signature is py_sp_core.verify
-    assert py_sp_core.encode_ss58 is py_sp_core.ss58_encode
-    assert py_sp_core.decode_ss58 is py_sp_core.ss58_decode
+    assert bittensor_core.verify_signature is bittensor_core.verify
+    assert bittensor_core.encode_ss58 is bittensor_core.ss58_encode
+    assert bittensor_core.decode_ss58 is bittensor_core.ss58_decode
 
 
 def test_keypair_sign_accepts_str_and_hex() -> None:

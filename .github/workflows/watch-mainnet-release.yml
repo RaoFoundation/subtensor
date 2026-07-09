@@ -10,7 +10,7 @@ name: Watch Mainnet Release
 #      docker-localnet.yml (a release created with the default GITHUB_TOKEN
 #      does not emit `release: published`, so their `on: release` triggers
 #      never fire for releases cut by this workflow)
-#   3. Python SDK + py-sp-core wheels to PyPI
+#   3. Python SDK + bittensor-core wheels to PyPI
 #   4. Publishable Rust crates to crates.io
 #   5. Production website/docs deployment on Vercel
 #   6. The `mainnet` branch is force-updated to the release-train commit,
@@ -181,29 +181,21 @@ jobs:
 
   # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
   # sdist) at the released commit; the committed version is published as-is.
-  build-sp-core:
-    name: Build py-sp-core wheels
+  build-core:
+    name: Build bittensor-core wheels
     needs: [check, release]
     if: needs.check.outputs.ready == 'true'
-    uses: ./.github/workflows/build-sp-core-wheels.yml
-    with:
-      ref: ${{ needs.check.outputs.sha }}
-
-  build-drand:
-    name: Build bittensor-drand wheels
-    needs: [check, release]
-    if: needs.check.outputs.ready == 'true'
-    uses: ./.github/workflows/build-drand-wheels.yml
+    uses: ./.github/workflows/build-core-wheels.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
 
   publish-sdk:
     name: Publish Python SDK to PyPI
-    needs: [check, release, build-sp-core, build-drand]
+    needs: [check, release, build-core]
     if: needs.check.outputs.ready == 'true'
     runs-on: [self-hosted, fireactions-heavy]
     # PyPI trusted publishing (OIDC); publishers for `bittensor` and
-    # py-sp-core are registered against this workflow + mainnet environment.
+    # bittensor-core are registered against this workflow + mainnet environment.
     environment: mainnet
     permissions:
       id-token: write
@@ -218,17 +210,10 @@ jobs:
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Download py-sp-core wheels
+      - name: Download bittensor-core wheels
         uses: actions/download-artifact@v4
         with:
-          pattern: sp-core-dist-*
-          path: dist
-          merge-multiple: true
-
-      - name: Download bittensor-drand wheels
-        uses: actions/download-artifact@v4
-        with:
-          pattern: drand-dist-*
+          pattern: core-dist-*
           path: dist
           merge-multiple: true
 

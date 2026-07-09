@@ -4,7 +4,9 @@
 //! reveal blocks for timelock-encrypted commits.  See `constants.rs` for
 //! chain-verified bounds.
 
-use crate::constants::{max_simulation_blocks, COMMIT_INCLUSION_BLOCK_OFFSET, MAX_TEMPO_U64};
+use crate::timelock::constants::{
+    max_simulation_blocks, COMMIT_INCLUSION_BLOCK_OFFSET, MAX_TEMPO_U64,
+};
 
 /// Snapshot of on-chain epoch schedule state at a given block.
 ///
@@ -173,9 +175,16 @@ mod tests {
 
 #[cfg(test)]
 mod integration {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects
+    )]
+
     use super::*;
-    use crate::constants::COMMIT_INCLUSION_BLOCK_OFFSET;
-    use crate::epoch_schedule_vectors::{commit_epoch_vectors, predict_vectors};
+    use crate::timelock::constants::COMMIT_INCLUSION_BLOCK_OFFSET;
+    use crate::timelock::epoch_schedule_vectors::{commit_epoch_vectors, predict_vectors};
 
     #[test]
     fn predict_first_reveal_block_table() {

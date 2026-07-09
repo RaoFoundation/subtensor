@@ -19,8 +19,8 @@ from bittensor._transport.contract import UnsignedExtrinsic
 from tests.conftest import GOLDEN_FIXTURE, golden
 from tests.conftest import golden_codec as codec
 
-py_sp_core = pytest.importorskip("py_sp_core")
-Keypair = py_sp_core.Keypair
+bittensor_core = pytest.importorskip("bittensor_core")
+Keypair = bittensor_core.Keypair
 
 pytestmark = pytest.mark.skipif(not GOLDEN_FIXTURE.exists(), reason="golden fixture not recorded")
 

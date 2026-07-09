@@ -18,11 +18,10 @@ pyo3::create_exception!(
     "Keyfile decryption failed because the password is wrong."
 );
 
-#[allow(dead_code)] // wired to the pymodule as the bound APIs land (phase 1+)
 pub fn to_py_err(error: CoreError) -> PyErr {
     match error {
         CoreError::Keyfile(msg) => KeyfileError::new_err(msg),
-        CoreError::WrongPassword => WrongPasswordError::new_err("wrong password"),
+        CoreError::WrongPassword(msg) => WrongPasswordError::new_err(msg),
         CoreError::NotInRuntime(what) => PyKeyError::new_err(what),
         CoreError::Codec(msg) | CoreError::Crypto(msg) => PyValueError::new_err(msg),
     }

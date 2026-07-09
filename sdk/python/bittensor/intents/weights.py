@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from itertools import accumulate
 from typing import Any, Mapping, Optional, Sequence
 
-from bittensor_drand import get_encrypted_commit_v2
+from bittensor_core import get_encrypted_commit_v2
 
 from .._generated import calls
 from .._generated.storage import SubtensorModule as st

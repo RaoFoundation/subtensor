@@ -20,7 +20,7 @@ from bittensor.sp_core import (
 )
 from bittensor.wallet import Wallet
 
-pytest.importorskip("py_sp_core")
+pytest.importorskip("bittensor_core")
 
 ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 TEST_MNEMONIC = (

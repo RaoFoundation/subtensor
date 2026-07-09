@@ -1,10 +1,10 @@
-"""Chain-matched key primitives backed by the in-repo ``py_sp_core`` binding."""
+"""Chain-matched key primitives backed by the in-repo ``bittensor_core`` binding."""
 
 from __future__ import annotations
 
-import py_sp_core as _backend
+import bittensor_core as _backend
 
-BACKEND = "py_sp_core"
+BACKEND = "bittensor_core"
 
 CRYPTO_ED25519 = _backend.CRYPTO_ED25519
 CRYPTO_SR25519 = _backend.CRYPTO_SR25519
@@ -12,7 +12,7 @@ Keypair = _backend.Keypair
 KeyfileError = _backend.KeyfileError
 WrongPasswordError = _backend.WrongPasswordError
 
-# Native py_sp_core names
+# Native bittensor_core names
 verify = _backend.verify
 ss58_decode = _backend.ss58_decode
 ss58_encode = _backend.ss58_encode

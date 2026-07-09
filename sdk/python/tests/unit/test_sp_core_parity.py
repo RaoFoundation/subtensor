@@ -1,14 +1,14 @@
-"""Cross-checks that py_sp_core key primitives stay internally consistent."""
+"""Cross-checks that bittensor_core key primitives stay internally consistent."""
 
 from __future__ import annotations
 
 import pytest
 
-py_sp_core = pytest.importorskip("py_sp_core")
+bittensor_core = pytest.importorskip("bittensor_core")
 
-CRYPTO_ED25519 = py_sp_core.CRYPTO_ED25519
-CRYPTO_SR25519 = py_sp_core.CRYPTO_SR25519
-Keypair = py_sp_core.Keypair
+CRYPTO_ED25519 = bittensor_core.CRYPTO_ED25519
+CRYPTO_SR25519 = bittensor_core.CRYPTO_SR25519
+Keypair = bittensor_core.Keypair
 
 
 def test_alice_address_stable() -> None:
@@ -37,8 +37,8 @@ def test_ed25519_signatures_are_byte_stable() -> None:
 
 def test_keyfile_roundtrip_preserves_signing() -> None:
     original = Keypair.create_from_uri("//Alice")
-    data = bytes(py_sp_core.serialized_keypair_to_keyfile_data(original))
-    restored = py_sp_core.deserialize_keypair_from_keyfile_data(data)
+    data = bytes(bittensor_core.serialized_keypair_to_keyfile_data(original))
+    restored = bittensor_core.deserialize_keypair_from_keyfile_data(data)
     message = b"keyfile-roundtrip"
     signature = bytes(restored.sign(message))
     assert original.verify(message, signature)

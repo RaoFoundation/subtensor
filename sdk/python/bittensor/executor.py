@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import replace
 from typing import Any, Optional
 
-from bittensor_drand import encrypt_mlkem768
+from bittensor_core import encrypt_mlkem768
 
 from ._generated import calls as generated_calls
 from ._substrate import Substrate

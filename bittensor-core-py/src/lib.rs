@@ -1,13 +1,25 @@
 //! PyO3 bindings for `bittensor-core`. No logic lives here: constructors,
 //! method forwarding, error mapping, and Python-object materialization only.
+//!
+//! The module exposes the union of the retired `py_sp_core` and
+//! `bittensor_drand` surfaces under one name, `bittensor_core`.
 
 use pyo3::prelude::*;
 
 mod errors;
+mod keys;
+mod timelock;
 
 /// The `bittensor_core` extension module (PyPI package `bittensor-core`).
 #[pymodule]
-fn bittensor_core(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn bittensor_core(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__core_version__", env!("CARGO_PKG_VERSION"))?;
+    module.add("KeyfileError", py.get_type::<errors::KeyfileError>())?;
+    module.add(
+        "WrongPasswordError",
+        py.get_type::<errors::WrongPasswordError>(),
+    )?;
+    keys::register(module)?;
+    timelock::register(module)?;
     Ok(())
 }

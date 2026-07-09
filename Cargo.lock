@@ -1622,34 +1622,41 @@ checksum = "2261d10cca569e4643e526d8dc2e62e433cc8aba21ab764233731f8d369bf394"
 [[package]]
 name = "bittensor-core"
 version = "0.1.0"
+dependencies = [
+ "ansible-vault",
+ "ark-serialize 0.4.2",
+ "base64 0.22.1",
+ "bip39",
+ "chacha20poly1305",
+ "fernet",
+ "hex",
+ "ml-kem",
+ "parity-scale-codec",
+ "pbkdf2 0.12.2",
+ "rand_core 0.6.4",
+ "reqwest",
+ "schnorrkel 0.11.5",
+ "scrypt",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sodiumoxide",
+ "sp-core",
+ "tle",
+ "tokio",
+ "twox-hash 2.1.2",
+ "w3f-bls 0.1.3",
+ "zeroize",
+]
 
 [[package]]
 name = "bittensor-core-py"
 version = "0.1.0"
 dependencies = [
  "bittensor-core",
- "pyo3",
-]
-
-[[package]]
-name = "bittensor-drand"
-version = "2.0.0"
-dependencies = [
- "ark-serialize 0.4.2",
- "chacha20poly1305",
  "hex",
- "libc",
- "ml-kem",
  "parity-scale-codec",
  "pyo3",
- "rand_core 0.6.4",
- "reqwest",
- "serde",
- "sha2 0.10.9",
- "tle",
- "tokio",
- "twox-hash 2.1.2",
- "w3f-bls 0.1.3",
 ]
 
 [[package]]
@@ -13927,27 +13934,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "py-sp-core"
-version = "0.1.1"
-dependencies = [
- "ansible-vault",
- "base64 0.22.1",
- "bip39",
- "fernet",
- "hex",
- "pbkdf2 0.12.2",
- "pyo3",
- "schnorrkel 0.11.5",
- "scrypt",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sodiumoxide",
- "sp-core",
- "zeroize",
-]
-
-[[package]]
 name = "pyo3"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13972,7 +13958,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94f6cbe86ef3bf18998d9df6e0f3fc1050a8c5efa409bf712e661a4366e010fb"
 dependencies = [
  "once_cell",
- "python3-dll-a",
  "target-lexicon",
 ]
 
@@ -14009,15 +13994,6 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn 2.0.106",
-]
-
-[[package]]
-name = "python3-dll-a"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d80ba7540edb18890d444c5aa8e1f1f99b1bdf26fb26ae383135325f4a36042b"
-dependencies = [
- "cc",
 ]
 
 [[package]]

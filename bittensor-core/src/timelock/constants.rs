@@ -49,8 +49,3 @@ pub fn max_simulation_blocks(reveal_period_epochs: u64) -> u64 {
         .saturating_mul(MAX_TEMPO_U64)
         .saturating_add(MAX_TEMPO_U64)
 }
-
-// ---------- ML-KEM ----------
-
-/// XChaCha20Poly1305 nonce length used in ML-KEM seal/open.
-pub const MLKEM_NONCE_LEN: usize = 24;

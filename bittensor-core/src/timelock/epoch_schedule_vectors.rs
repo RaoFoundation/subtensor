@@ -1,9 +1,9 @@
 //! Table-driven epoch schedule test vectors.
 //!
-//! Numeric expectations are pinned against `bittensor_drand::epoch_schedule` and
+//! Numeric expectations are pinned against `timelock::epoch_schedule` and
 //! cite the subtensor tests that motivated each scenario.
 
-use crate::epoch_schedule::{EpochScheduleError, EpochScheduleState};
+use crate::timelock::epoch_schedule::{EpochScheduleError, EpochScheduleState};
 
 pub struct PredictVector {
     pub name: &'static str,

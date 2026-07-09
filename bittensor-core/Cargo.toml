@@ -3,7 +3,7 @@ name = "bittensor-core"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "The chain-defined compute core for Bittensor clients: sp-core key primitives, keyfiles, drand timelock, ML-KEM, SCALE codec, and RFC-0078 metadata digest, built against the same crate revisions as the runtime"
+description = "The chain-defined compute core for Bittensor clients: sp-core key primitives, keyfiles, drand timelock, and ML-KEM, built against the same crate revisions as the runtime"
 license = "Apache-2.0"
 
 [lib]
@@ -11,6 +11,37 @@ name = "bittensor_core"
 crate-type = ["rlib"]
 
 [dependencies]
+# keys / keyfiles (absorbed from py-sp-core)
+ansible-vault = "0.2.1"
+base64 = "0.22.1"
+bip39 = { version = "2.0", default-features = false, features = ["std", "rand"] }
+fernet = "=0.2.1"
+hex = "0.4.3"
+pbkdf2 = "0.12.2"
+schnorrkel = "0.11.5"
+scrypt = "0.11.0"
+serde = { version = "1.0.132", features = ["derive"] }
+serde_json = "1.0.132"
+sha2 = "0.10.8"
+sodiumoxide = { version = "0.2", default-features = false, features = ["std"] }
+sp-core = { workspace = true, features = ["std", "full_crypto"] }
+zeroize = "1"
+
+# timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the
+# workspace pins (the ideal-lab5 rev and the RaoFoundation/bls fix-no-std
+# fork) so ciphertexts never drift from what pallet-drand can decrypt.
+ark-serialize = { version = "0.4.0", features = ["derive"], default-features = false }
+codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "max-encoded-len"] }
+rand_core = "0.6.4"
+reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+tle = { workspace = true, features = ["std"] }
+tokio = { version = "1.38", features = ["full"] }
+w3f-bls = { workspace = true, features = ["std"] }
+
+# mlkem
+chacha20poly1305 = "0.10"
+ml-kem = "0.2.1"
+twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"] }
 
 [lints]
 workspace = true
