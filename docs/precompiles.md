@@ -33,11 +33,11 @@ For example, index `2048` is `0x0000000000000000000000000000000000000800`.
 | 8 | `0x…0008` | Ethereum | Bn128Pairing |
 | 9 | `0x…0009` | Ethereum | Bn128Add |
 | 10 | `0x…000a` | Ethereum (Cancun) | PointEvaluation (EIP-4844) |
-| 11 | `0x…000b` | Ethereum | Blake2F |
 | 1024 | `0x…0400` | Frontier | SHA3-FIPS256 |
 | 1025 | `0x…0401` | Frontier | ECRecoverPublicKey |
 | 1026 | `0x…0402` | Crypto | Ed25519Verify |
 | 1027 | `0x…0403` | Crypto | Sr25519Verify |
+| 1028 | `0x…0404` | Ethereum | Blake2F |
 | 2048 | `0x…0800` | Subtensor | BalanceTransfer |
 | 2049 | `0x…0801` | Subtensor | Staking (v1) |
 | 2050 | `0x…0802` | Subtensor | Metagraph |
@@ -141,10 +141,6 @@ KZG point evaluation precompile from **EIP-4844** (Cancun).
 
 Source: [`precompiles/src/point_evaluation.rs`](../precompiles/src/point_evaluation.rs)
 
-### 11. Blake2F — `0x…000b`
-
-BLAKE2 compression function (`EIP-152`).
-
 ---
 
 ## Frontier / Crypto Precompiles
@@ -182,6 +178,10 @@ Verifies an sr25519 signature (Substrate native).
 | Output | 32 bytes; `1` in the last byte if valid, otherwise `0` |
 
 Solidity reference: [`sr25519Verify.sol`](../precompiles/src/solidity/sr25519Verify.sol)
+
+### 1028. Blake2F — `0x…0404`
+
+BLAKE2 compression function (`EIP-152`).
 
 ---
 
