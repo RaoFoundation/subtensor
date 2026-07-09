@@ -2,7 +2,7 @@
 
 ### Requirements
 
-- Node 18+
+- Node 20.9+
 - Yarn 4 via corepack: `corepack enable` (the version is pinned by `packageManager` in `package.json`)
 
 ### Content

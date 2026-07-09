@@ -1,36 +1,18 @@
 'use client';
 
-import React, {useState, useEffect} from 'react';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import React from 'react';
 import {usePathname} from 'next/navigation';
 import {Analytics} from '@vercel/analytics/react';
 import clsx from 'clsx';
 import {useHamburgerMenuStore} from './stores/useHamburgerMenuStore';
-import {ThemeProvider, useTheme} from './contexts/ThemeContext';
 import '@raofoundation/ui/styles/globals.css';
 import styles from './layout.module.css';
 import './global.css';
 
-const PAGES_WITH_CUSTOM_OG_IMAGES = ['about', 'academia', 'charter', 'scan', 'whitepaper'];
-
-function ThemedBody({children}: {children: React.ReactNode}) {
-  const {theme} = useTheme();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (pathname.includes('/scan')) {
-      document.documentElement.className = theme;
-    } else {
-      document.documentElement.className = 'light';
-    }
-  }, [pathname, theme]);
-
-  return <>{children}</>;
-}
+const PAGES_WITH_CUSTOM_OG_IMAGES = ['about', 'academia', 'charter', 'whitepaper'];
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
   const isHamburgerMenuVisible = useHamburgerMenuStore((state) => state.isVisible);
-  const [queryClient] = useState(() => new QueryClient());
   const pathname = usePathname();
   const pageName = pathname.split('/')[1];
   const ogImageFilename = PAGES_WITH_CUSTOM_OG_IMAGES.includes(pageName) ? pageName : 'default';
@@ -58,13 +40,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           styles.body_container,
         )}
       >
-        <ThemeProvider>
-          <QueryClientProvider client={queryClient}>
-            <ThemedBody>
-              <main className={styles.main_container}>{children}</main>
-            </ThemedBody>
-          </QueryClientProvider>
-        </ThemeProvider>
+        <main className={styles.main_container}>{children}</main>
         <Analytics />
       </body>
     </html>

@@ -10,8 +10,8 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md,css,graphql|json}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,md,css,graphql|json}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,md,css,graphql,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,css,graphql,json}\"",
     "prepare": "husky install"
   },
   "devDependencies": {
@@ -25,7 +25,7 @@
     }
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "expo-file-system": "~16.0.9",

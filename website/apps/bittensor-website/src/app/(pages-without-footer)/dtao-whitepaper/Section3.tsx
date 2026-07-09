@@ -75,7 +75,7 @@ const Section3 = () => {
         equ={`\\tau_i = \\text{amount of TAO token in the pool}`}
       />
       <p>
-        Indeed, we will sometimes informally refer to the subnet token simply as "Alpha." Moreover,
+        Indeed, we will sometimes informally refer to the subnet token simply as &quot;Alpha.&quot; Moreover,
         we let <InlineMath>p_i</InlineMath> denote the subnet token price denominated in TAO (i.e.,
         the conversion from Alpha to TAO value). Then, from our discussion of the constant product
         AMM, we may write:
