@@ -292,7 +292,9 @@ jobs:
           set +e
           for i in 1 2; do
             echo "Attempt $i: Running tests"
-            uv run pytest "${{ matrix.nodeid }}" -s
+            # -m e2e overrides the default addopts (-m 'not e2e') which would
+            # otherwise deselect the collected test and fail with "no tests ran".
+            uv run pytest "${{ matrix.nodeid }}" -s -m e2e
             status=$?
             if [ $status -eq 0 ]; then
               echo "Tests passed on attempt $i"
