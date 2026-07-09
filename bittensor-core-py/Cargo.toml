@@ -1,0 +1,18 @@
+[package]
+name = "bittensor-core-py"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "PyO3 bindings for bittensor-core (PyPI package: bittensor-core, module: bittensor_core)"
+license = "Apache-2.0"
+
+[lib]
+name = "bittensor_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+bittensor-core = { path = "../bittensor-core" }
+pyo3 = { version = "0.23", features = ["abi3-py310"] }
+
+[lints]
+workspace = true

@@ -21,16 +21,15 @@ from dataclasses import dataclass, field
 from hashlib import blake2b
 from typing import Any
 
-from scalecodec.utils.ss58 import ss58_decode
-
 from .._generated import calls
+from ..sp_core import ss58_decode
 from .base import Intent
 from .registry import register
 
 
 def coldkey_hash(ss58: str) -> str:
     """BlakeTwo256 (0x-hex) of an account's public key, as ``announce_coldkey_swap`` expects."""
-    public_key = bytes.fromhex(ss58_decode(ss58))
+    public_key = bytes(ss58_decode(ss58))
     return "0x" + blake2b(public_key, digest_size=32).hexdigest()
 
 

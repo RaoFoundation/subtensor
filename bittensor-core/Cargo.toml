@@ -1,0 +1,16 @@
+[package]
+name = "bittensor-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The chain-defined compute core for Bittensor clients: sp-core key primitives, keyfiles, drand timelock, ML-KEM, SCALE codec, and RFC-0078 metadata digest, built against the same crate revisions as the runtime"
+license = "Apache-2.0"
+
+[lib]
+name = "bittensor_core"
+crate-type = ["rlib"]
+
+[dependencies]
+
+[lints]
+workspace = true

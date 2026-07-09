@@ -21,10 +21,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from scalecodec.utils.ss58 import ss58_decode
-
 from .._generated import calls
 from ..signing import public_view
+from ..sp_core import ss58_decode
 from .base import BuiltCall, Intent
 from .registry import build as build_intent
 from .registry import register
@@ -32,7 +31,7 @@ from .registry import register
 
 def _sorted_signatories(signatories: list) -> list:
     """Other signatories must be sorted by raw account id (not ss58 text) and unique."""
-    return sorted(set(signatories), key=lambda s: bytes.fromhex(ss58_decode(s)))
+    return sorted(set(signatories), key=lambda s: bytes(ss58_decode(s)))
 
 
 def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str) -> None:
@@ -47,8 +46,8 @@ def _validate_multisig(threshold: int, other_signatories: list, signer_ss58: str
             f"multisig threshold {threshold} exceeds the signatory count "
             f"{len(other_signatories) + 1} (signer plus other_signatories)"
         )
-    signer_id = ss58_decode(signer_ss58)
-    if any(ss58_decode(s) == signer_id for s in other_signatories):
+    signer_id = bytes(ss58_decode(signer_ss58))
+    if any(bytes(ss58_decode(s)) == signer_id for s in other_signatories):
         raise ValueError(
             "other_signatories must not include the signer's own account "
             f"({signer_ss58}); list only the other members"
