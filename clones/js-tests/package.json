@@ -2,6 +2,7 @@
   "type": "module",
   "scripts": {
     "test": "node tests/clone-smoke-test.js",
+    "test:clone-regressions": "node scripts/run-clone-regressions.js",
     "patch:dev-chainspec": "node scripts/patch-dev-chainspec.js",
     "runtime:update:alice": "node scripts/update-runtime-with-alice.js",
     "test:balancer-operation": "node tests/test-balancer-operation.js",

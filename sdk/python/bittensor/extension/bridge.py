@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,8 @@ class _BridgeState:
     browser_ws: Any = None
     pending: dict[str, asyncio.Future] = field(default_factory=dict)
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    # Known only to the spawning CLI (written to ~/.bittensor/extension_bridge.token).
+    client_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
 
 
 class BridgeServer:
@@ -100,6 +103,13 @@ class BridgeServer:
         if role == "bridge":
             await self._handle_browser(websocket, hello)
         elif role == "client":
+            token = hello.get("token")
+            if not isinstance(token, str) or not secrets.compare_digest(
+                token, self.state.client_token
+            ):
+                await websocket.close(code=1008, reason="unauthorized client")
+                return
+            await websocket.send(json.dumps({"role": "ok"}))
             await self._handle_client(websocket)
         else:
             await websocket.close(code=1008, reason="unknown role")
@@ -131,6 +141,10 @@ class BridgeServer:
             if self.state.browser_ws is websocket:
                 self.state.browser_ws = None
                 logger.debug("Browser bridge page disconnected")
+            for request_id, future in list(self.state.pending.items()):
+                if not future.done():
+                    future.set_exception(RuntimeError("bridge page disconnected"))
+                self.state.pending.pop(request_id, None)
 
     async def _handle_client(self, websocket: Any) -> None:
         async for raw in websocket:

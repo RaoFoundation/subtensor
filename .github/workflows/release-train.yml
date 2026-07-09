@@ -9,6 +9,11 @@ name: Release Train
 #               └─ deploy testnet ── smoke-check testnet ── publish SDK rc
 #                    └─ propose mainnet upgrade (env gate + triumvirate multisig)
 #
+# Branch mirrors: after each successful deploy the `devnet`/`testnet` branch
+# is force-updated to the deployed commit, so those branches always contain
+# the code running on the respective chain. The `mainnet` branch is updated
+# by watch-mainnet-release.yml once the multisig executes on chain.
+#
 # Properties:
 #   - the runtime is built exactly once per train; promotion is a setCode
 #     extrinsic + a smoke suite, not a rebuild
@@ -108,6 +113,8 @@ jobs:
     runs-on: [self-hosted, fireactions-light]
     environment: devnet # no required reviewers → automatic
     timeout-minutes: 30
+    permissions:
+      contents: write # mirror the deployed commit to the devnet branch
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -156,6 +163,13 @@ jobs:
             "https://dev.chain.opentensor.ai" | jq -r '.result.specVersion')
           [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "devnet still on $chain"; exit 1; }
 
+      # Mirror: the devnet branch always points at the code now running on
+      # devnet. Force push because deploys are not fast-forwards of the
+      # previous mirror (e.g. after history rewrites or skipped trains).
+      - name: Point devnet branch at deployed commit
+        if: steps.guard.outputs.should_deploy == 'true'
+        run: git push --force origin "$GITHUB_SHA:refs/heads/devnet"
+
   check-devnet:
     name: Smoke-check devnet
     needs: deploy-devnet
@@ -186,6 +200,8 @@ jobs:
     # promotion; no reviewers = automatic after devnet checks.
     environment: testnet
     timeout-minutes: 30
+    permissions:
+      contents: write # mirror the deployed commit to the testnet branch
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -228,6 +244,10 @@ jobs:
             "https://test.finney.opentensor.ai" | jq -r '.result.specVersion')
           [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "testnet still on $chain"; exit 1; }
 
+      - name: Point testnet branch at deployed commit
+        if: steps.guard.outputs.should_deploy == 'true'
+        run: git push --force origin "$GITHUB_SHA:refs/heads/testnet"
+
   check-testnet:
     name: Smoke-check testnet
     needs: deploy-testnet
@@ -263,14 +283,30 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - name: Set rc version and publish
-        working-directory: sdk/python
+      - name: Set rc versions and publish py-sp-core + bittensor
         run: |
-          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' pyproject.toml | head -n 1)
-          : ${base:?could not parse base version}
-          sed -i "0,/^version = \".*\"/s//version = \"${base}rc${GITHUB_RUN_NUMBER}\"/" pyproject.toml
-          uv build --out-dir ../../dist
-          uv publish --trusted-publishing always ../../dist/*
+          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
+          : ${base:?could not parse base version from sdk/python/pyproject.toml}
+          rc_suffix="rc${GITHUB_RUN_NUMBER}"
+          sdk_version="${base}${rc_suffix}"
+          core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' py-sp-core/pyproject.toml | head -n 1)
+          : ${core_base:?could not parse base version from py-sp-core/pyproject.toml}
+          core_version="${core_base}${rc_suffix}"
+          sed -i "0,/^version = \".*\"/s//version = \"${core_version}\"/" py-sp-core/pyproject.toml
+          sed -i "0,/^version = \".*\"/s//version = \"${sdk_version}\"/" sdk/python/pyproject.toml
+          echo "Publishing py-sp-core ${core_version} and bittensor ${sdk_version} to PyPI"
+      - name: Build py-sp-core wheels (manylinux)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: py-sp-core
+          command: build
+          args: --release --out ../dist
+          manylinux: auto
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        run: uv build --out-dir ../../dist
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*
 
   # ------------------------------------------------------------------
   # Stage 3: mainnet — the human gate.
@@ -304,6 +340,19 @@ jobs:
             echo "mainnet already on $chain; skipping."
             echo "should_propose=false" >> $GITHUB_OUTPUT
           fi
+      - name: Verify Finney EVM association cap (spec 426 migration)
+        if: steps.guard.outputs.should_propose == 'true'
+        working-directory: sdk/python
+        run: |
+          spec="${{ needs.build.outputs.spec_version }}"
+          if [ "$spec" -lt 426 ]; then
+            echo "spec $spec < 426; skipping EVM association cap verification"
+            exit 0
+          fi
+          uv sync --frozen
+          uv run python scripts/verify_finney_evm_association_cap.py \
+            "${FINNEY_WS:-wss://entrypoint-finney.opentensor.ai:443}" \
+            --max-per-address 32
       - name: Set up Node.js
         if: steps.guard.outputs.should_propose == 'true'
         uses: actions/setup-node@v4

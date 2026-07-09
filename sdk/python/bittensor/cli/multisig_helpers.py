@@ -51,7 +51,6 @@ def _wallet_name_for_ss58(app_ctx, ss58: str) -> Optional[str]:
                 return coldkey.name
     except Exception:
         return None
-        return None
 
 
 def _portable_signatory_ref(ref: str) -> bool:

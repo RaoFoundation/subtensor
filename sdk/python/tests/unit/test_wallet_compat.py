@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 py_sp_core = pytest.importorskip("py_sp_core")
-from bittensor import sp_core
-from bittensor.wallet import Wallet
+from bittensor import sp_core  # noqa: E402
+from bittensor.wallet import Wallet  # noqa: E402
 
 Keypair = py_sp_core.Keypair
 

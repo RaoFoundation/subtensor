@@ -1,65 +1,67 @@
-# Clone Test Agent
+# Mainnet clone regression harness
 
-This project is a small harness for using Codex to create and run JavaScript regression tests against a local Subtensor mainnet clone.
+JavaScript regression tests against a **local clone of mainnet state**, sudo-upgraded
+to the runtime built from this monorepo. CI runs the smoke test plus
+`test:clone-regressions` in `check-clone-upgrade.yml` after every PR runtime
+upgrade.
 
-The goal is to make advanced local blockchain testing repeatable: build or reuse a patched mainnet clone, start a local validator node, optionally upgrade it to the runtime in `subtensor-reference/`, then run focused JS tests through `@polkadot/api`.
+## What happens
 
-## What Happens
-
-The normal workflow is:
-
-1. `scripts/clone-mainnet.sh` verifies or creates a patched mainnet clone chainspec under `../../clones`.
-2. `scripts/start-local-clone.sh` starts a local node from that chainspec at `ws://127.0.0.1:9944`.
+1. `scripts/clone-mainnet.sh` creates or refreshes a patched mainnet clone
+   chainspec under `clones/` (gitignored).
+2. `scripts/start-local-clone.sh` starts a local node at `ws://127.0.0.1:9944`.
 3. `js-tests/tests/clone-smoke-test.js` confirms the websocket endpoint is usable.
-4. `js-tests/scripts/update-runtime-with-alice.js` submits a sudo runtime upgrade from Alice using the wasm in `subtensor-reference/`.
-5. Feature tests under `js-tests/tests/` exercise runtime behavior against the upgraded local clone.
-6. `scripts/stop-local-clone.sh` stops the node so no background process is left running.
+4. `js-tests/scripts/update-runtime-with-alice.js` sudo-upgrades the clone using
+   the wasm from `target/release/wbuild/node-subtensor-runtime/` (built from the
+   monorepo root).
+5. `npm run test:clone-regressions` runs focused JS regressions against the
+   upgraded clone.
+6. `scripts/stop-local-clone.sh` stops the node.
 
-The current focused regression test is `js-tests/tests/test-balancer-operation.js`. It verifies that balancer storage is initialized, initialized balancer weights stay in the `0.45-0.55` range with at least one subnet not exactly `0.5`, balance transfers work, and epoch activity updates subnet reserves within the configured wait window.
+Full contributor walkthrough:
+[docs/internals/mainnet-clone.mdx](../docs/internals/mainnet-clone.mdx).
 
-## How To Use
+## Local usage
 
-### Manual Build Process
+From the monorepo root:
 
-This repository expects a Subtensor checkout in `../../subtensor`, plus the read-only symlink `subtensor-reference/` tree in this workspace for runtime reference and wasm upgrades, for example:
+```bash
+cargo build --release -p node-subtensor
+./clones/scripts/clone-mainnet.sh
+./clones/scripts/start-local-clone.sh   # leave running; use another terminal
+
+cd clones/js-tests
+npm ci
+npm run runtime:update:alice
+npm test                              # smoke
+npm run test:clone-regressions        # full local clone suite
+
+# from repo root when done:
+./clones/scripts/stop-local-clone.sh
+```
+
+The runtime upgrade script reads wasm from:
 
 ```text
-development/
-  subtensor/
-  agents/codex-tester/
+target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
 ```
 
-Build the node binary manually in the `subtensor/` checkout:
+Override with `RUNTIME_WASM_PATH` if needed.
 
-```sh
-cd ../../subtensor
-cargo build --release --workspace --all-targets
-```
+## Test scripts
 
-The runtime upgrade script expects this file:
+| Script | Purpose |
+|--------|---------|
+| `npm test` | Connectivity smoke test |
+| `npm run test:clone-regressions` | Curated regressions for the upgraded local clone (CI) |
+| `npm run test:<name>` | Individual tests; see `package.json` for the full list |
 
-```text
-subtensor-reference/target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
-```
-
-### Prompt Examples
-
-Use prompts like these with Codex:
-
-```text
-Write a JS test that verifies balance transfers after a runtime upgrade.
-```
-
-```text
-Write a test that verifies balancer initialization, non-default balancer weights, balance transfers, and reserve updates after an epoch.
-```
-
-```text
-Inspect the failed JS test output and node logs, explain the likely runtime issue, and make the smallest test change needed to capture it.
-```
+Tests defaulting to `ws://127.0.0.1:9944` are clone-local. Scripts prefixed
+with `testnet-` or `test:balancer-devnet-*` target live networks and are
+manual-only.
 
 ## Notes
 
-- `subtensor-reference/` is read-only reference material for tests.
-- Local clone data and chainspec files live outside this repo under `../../clones`.
-- Keep new JS tests focused and descriptive; avoid broad refactors during runtime investigations.
+- Clone data and chainspec files live under `clones/` (gitignored).
+- Keep new JS tests focused; prefer shared helpers in `js-tests/lib/` over
+  copy-pasting chain plumbing.

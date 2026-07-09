@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from bittensor.keyfiles import Keypair
 
 import bittensor as sub
+from bittensor.keyfiles import Keypair
 from tests.harness.samples import BOB, dev_wallet
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")

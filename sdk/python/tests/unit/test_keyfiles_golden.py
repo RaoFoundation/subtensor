@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from bittensor.keyfiles import Keyfile, Keypair
-from bittensor.wallet import Wallet
 from bittensor.sp_core import (
     decrypt_keyfile_data,
     deserialize_keypair_from_keyfile_data,
@@ -17,13 +16,13 @@ from bittensor.sp_core import (
     keyfile_data_is_encrypted_nacl,
     serialized_keypair_to_keyfile_data,
 )
+from bittensor.wallet import Wallet
 
 pytest.importorskip("py_sp_core")
 
 ALICE = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 TEST_MNEMONIC = (
-    "abandon abandon abandon abandon abandon abandon abandon "
-    "abandon abandon abandon abandon about"
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 )
 TEST_PASSWORD = "golden-test-password"
 
@@ -71,9 +70,7 @@ def test_legacy_fernet_fixture_roundtrip() -> None:
     except ImportError:
         pytest.skip("cryptography not installed")
 
-    legacy_salt = (
-        b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins"
-    )
+    legacy_salt = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins"
     key = hashlib.pbkdf2_hmac("sha256", TEST_PASSWORD.encode(), legacy_salt, 10_000_000)
     fernet_key = base64.urlsafe_b64encode(key)
     plaintext = bytes(serialized_keypair_to_keyfile_data(Keypair.create_from_uri("//Alice")))

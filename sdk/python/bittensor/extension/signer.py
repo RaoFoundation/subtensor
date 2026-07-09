@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from ..sp_core import CRYPTO_ED25519, CRYPTO_SR25519
-
 from ..wallets import CRYPTO_TYPE_NAMES
 from .client import BridgeClient, BridgeError, ExtensionAccount
 from .picker import pick_extension_account
@@ -14,13 +13,18 @@ from .picker import pick_extension_account
 _ACCOUNT_TYPE_TO_CRYPTO = {
     "ed25519": CRYPTO_ED25519,
     "sr25519": CRYPTO_SR25519,
-    "ecdsa": CRYPTO_ED25519,
-    "ethereum": CRYPTO_ED25519,
 }
+
+_UNSUPPORTED_EXTENSION_ACCOUNT_TYPES = frozenset({"ecdsa", "ethereum"})
 
 
 def account_crypto_type(account_type: str) -> int:
     normalized = account_type.strip().lower()
+    if normalized in _UNSUPPORTED_EXTENSION_ACCOUNT_TYPES:
+        raise ValueError(
+            f"extension account type {account_type!r} is not supported for Substrate "
+            "signing; use an sr25519 or ed25519 account in your wallet extension"
+        )
     if normalized not in _ACCOUNT_TYPE_TO_CRYPTO:
         supported = ", ".join(sorted(CRYPTO_TYPE_NAMES.values()))
         raise ValueError(

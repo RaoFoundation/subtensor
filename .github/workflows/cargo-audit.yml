@@ -9,8 +9,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   cargo-audit:
     name: cargo audit
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cargo-audit') }}
     steps:

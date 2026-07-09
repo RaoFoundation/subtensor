@@ -53,9 +53,7 @@ class Wallet:
         )
 
     def __repr__(self) -> str:
-        return (
-            f"Wallet(name={self.name!r}, hotkey={self.hotkey_str!r}, path={self.path!r})"
-        )
+        return f"Wallet(name={self.name!r}, hotkey={self.hotkey_str!r}, path={self.path!r})"
 
     @property
     def hotkey(self) -> Keypair:

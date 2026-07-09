@@ -17,8 +17,8 @@ from ._shared import (
     PANEL_SETUP,
     RPC_URL_OPTION,
     _key_info,
-    _run_evm,
     _rpc,
+    _run_evm,
 )
 
 

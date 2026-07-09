@@ -6,10 +6,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from bittensor.keyfiles import Keypair
 
 import bittensor as sub
 from bittensor.intents.coldkey import coldkey_hash
+from bittensor.keyfiles import Keypair
 from tests.harness.samples import BOB
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")

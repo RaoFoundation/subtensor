@@ -7,9 +7,9 @@ One flow test — add -> proxied transfer -> filtered call -> remove -> refused
 from __future__ import annotations
 
 import pytest
-from bittensor.keyfiles import Keypair
 
 import bittensor as sub
+from bittensor.keyfiles import Keypair
 from tests.harness.samples import BOB, BOB_HOT
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")

@@ -11,7 +11,15 @@ permissions:
   actions: read  # required to list & download artifacts across workflows
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   apply:
+    needs: trusted-pr
     if: ${{ github.event.label.name == 'apply-benchmark-patch' }}
     runs-on: Benchmarking
 

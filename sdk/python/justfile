@@ -50,6 +50,15 @@ regen endpoint="ws://127.0.0.1:9944":
     uv run python -m codegen {{endpoint}}
     uv run python scripts/record_golden.py {{endpoint}}
 
+# Regenerate docs reference pages from SDK registries (requires uv sync first).
+regen-docs:
+    uv run python ../../website/apps/bittensor-website/scripts/generate.py
+
+# Fail if committed docs pages are stale vs SDK registries.
+check-docs:
+    uv run python ../../website/apps/bittensor-website/scripts/generate.py --check
+
 # Committed _generated/ must match the node's metadata.
 drift endpoint="ws://127.0.0.1:9944":
     uv run python -m codegen.check --drift {{endpoint}}
+

@@ -17,6 +17,7 @@ from bittensor_drand import encrypt_mlkem768
 from ._generated import calls as generated_calls
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
+from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall
@@ -161,6 +162,8 @@ class Executor:
             extras = {**extras, "proxy_for": proxy_for}
 
         warnings: list[str] = list(await intent.warnings(self.substrate, origin))
+        if intent.signer == "hotkey" and proxy_for is None and charges_coldkey_fee(call):
+            warnings.append(COLDKEY_FEE_WARNING)
         fee = None
         try:
             fee = await self.substrate.estimate_fee(call, pub)

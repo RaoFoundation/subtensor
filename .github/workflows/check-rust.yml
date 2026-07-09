@@ -16,8 +16,18 @@ env:
   RUST_BACKTRACE: full
 
 jobs:
+  # Fork PRs must not run on self-hosted runners — checkout executes untrusted
+  # code from the fork head (RCE risk on persistent org hardware).
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   fmt:
     name: cargo fmt
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +47,7 @@ jobs:
 
   clippy:
     name: cargo clippy (${{ matrix.features.name }})
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     env:
       SKIP_WASM_BUILD: 1
@@ -59,6 +70,7 @@ jobs:
 
   warnings:
     name: no cargo check warnings
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     env:
       RUSTFLAGS: -D warnings
@@ -76,6 +88,7 @@ jobs:
 
   test:
     name: cargo test
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-heavy]
     env:
       SKIP_WASM_BUILD: 1
@@ -89,6 +102,7 @@ jobs:
 
   fix:
     name: cargo fix leaves no diff
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     env:
       SKIP_WASM_BUILD: 1
@@ -104,6 +118,7 @@ jobs:
 
   zepter:
     name: zepter feature propagation
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     steps:
       - uses: actions/checkout@v4

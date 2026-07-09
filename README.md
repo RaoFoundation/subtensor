@@ -102,7 +102,7 @@ Pick the path that matches what you are doing — the linked docs have the detai
 ```bash
 docker run --rm --name local_chain \
   -p 9944:9944 -p 9945:9945 \
-  ghcr.io/opentensor/subtensor-localnet:devnet
+  ghcr.io/raofoundation/subtensor-localnet:devnet
 ```
 
 Then connect with `btcli --network local query is-fast-blocks` or

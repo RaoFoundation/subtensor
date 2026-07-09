@@ -10,6 +10,13 @@ permissions:
   contents: read
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   typescript-formatting:
     runs-on: ubuntu-latest
     steps:
@@ -45,7 +52,7 @@ jobs:
   # Build the node binary in both variants and share as artifacts.
   build:
     runs-on: [self-hosted, fireactions-heavy]
-    needs: [typescript-formatting]
+    needs: [trusted-pr, typescript-formatting]
     timeout-minutes: 60
     strategy:
       matrix:
@@ -87,7 +94,7 @@ jobs:
           if-no-files-found: error
 
   run-e2e-tests:
-    needs: [build]
+    needs: [trusted-pr, build]
     runs-on: [self-hosted, fireactions-heavy]
     timeout-minutes: 30
 

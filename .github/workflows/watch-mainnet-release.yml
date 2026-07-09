@@ -13,6 +13,9 @@ name: Watch Mainnet Release
 #   3. Python SDK + py-sp-core wheels to PyPI
 #   4. Publishable Rust crates to crates.io
 #   5. Production website/docs deployment on Vercel
+#   6. The `mainnet` branch is force-updated to the release-train commit,
+#      so it always contains the code running on mainnet (the devnet and
+#      testnet branches are updated by release-train.yml at deploy time)
 
 on:
   schedule:
@@ -57,7 +60,6 @@ jobs:
           echo "on-chain spec_version: $chain_spec"
 
           echo "spec_version=$local_spec" >> $GITHUB_OUTPUT
-          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           if [[ "$chain_spec" != "$local_spec" ]]; then
             echo "Upgrade not executed yet (or main is ahead); nothing to do."
@@ -75,6 +77,19 @@ jobs:
             echo "ready=false" >> $GITHUB_OUTPUT
             exit 0
           fi
+
+          # Use the commit recorded by the release train, not HEAD — main may
+          # have advanced with docs-only merges after the multisig proposal.
+          artifact_id=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mainnet-upgrade-${local_spec}&per_page=1" \
+            --jq '.artifacts[0].id // empty')
+          : ${artifact_id:?no mainnet-upgrade-${local_spec} artifact found — did the release train run?}
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > /tmp/release-artifact.zip
+          unzip -o /tmp/release-artifact.zip -d /tmp/release-artifact
+          release_sha=$(jq -r '.commit' /tmp/release-artifact/pending-release.json)
+          : ${release_sha:?pending-release.json missing commit field}
+          echo "Release train commit: $release_sha"
+          echo "sha=$release_sha" >> $GITHUB_OUTPUT
 
           echo "Chain is upgraded to $local_spec and no release exists yet."
           echo "ready=true" >> $GITHUB_OUTPUT
@@ -120,6 +135,22 @@ jobs:
             wasm/subtensor-digest.json \
             wasm/proxy_proxy_blob.hex \
             wasm/pending-release.json
+
+      # Mirror: the mainnet branch always points at the code now running on
+      # mainnet (the release-train commit, not HEAD of main). Done via the
+      # refs API because this job never checks out the repo.
+      - name: Point mainnet branch at released commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sha="${{ needs.check.outputs.sha }}"
+          if gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/mainnet" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/mainnet" \
+              -f sha="$sha" -F force=true
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/heads/mainnet" -f sha="$sha"
+          fi
 
   publish-docker:
     name: Dispatch Docker image publishing

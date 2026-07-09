@@ -26,8 +26,16 @@ env:
   MAINNET_WS: wss://entrypoint-finney.opentensor.ai:443
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   check-spec-version:
     name: spec_version newer than mainnet
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-tryruntime-finney]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') }}
     steps:

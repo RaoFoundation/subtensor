@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import stat
-from pathlib import Path
 
 import pytest
 
@@ -20,12 +19,17 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_utils import keccak
 
-
 # Vectors for Frontier HashedAddressMapping<BlakeTwo256>: ss58(blake2_256(b"evm:" ++ h160)).
 H160_TO_SS58_VECTORS = {
-    "0x1111111111111111111111111111111111111111": "5DDYKUgyHe2Sx8a9oTZPAXrgFaTiGnYZXrecNdeC9bG7TbtX",
-    "0xabababababababababababababababababababab": "5F2S3KWCNrTLuuwPbA6b3kSBveGS27yVvQVipym8TwcvP2cs",
-    "0x1234567890123456789012345678901234567890": "5Ettm6fSye3WnsW22Z1UNYa7Mo4gm2KQdcVYHs6rYuJHnhtj",
+    "0x1111111111111111111111111111111111111111": (
+        "5DDYKUgyHe2Sx8a9oTZPAXrgFaTiGnYZXrecNdeC9bG7TbtX"
+    ),
+    "0xabababababababababababababababababababab": (
+        "5F2S3KWCNrTLuuwPbA6b3kSBveGS27yVvQVipym8TwcvP2cs"
+    ),
+    "0x1234567890123456789012345678901234567890": (
+        "5Ettm6fSye3WnsW22Z1UNYa7Mo4gm2KQdcVYHs6rYuJHnhtj"
+    ),
 }
 
 

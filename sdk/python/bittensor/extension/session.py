@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from .bridge import DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT
 from .browser import open_bridge_page
 from .client import BridgeClient, BridgeError
+from .tokens import clear_bridge_token, read_bridge_token
 
 DEFAULT_BRIDGE_PID_PATH = Path.home() / ".bittensor" / "extension_bridge.pid"
 
@@ -79,6 +80,7 @@ def _read_daemon_pid() -> Optional[int]:
         return None
     if not _process_alive(pid):
         path.unlink(missing_ok=True)
+        clear_bridge_token()
         return None
     return pid
 
@@ -115,15 +117,18 @@ def start_bridge_daemon(
     )
 
 
-async def bridge_status(url: str) -> dict:
-    async with BridgeClient(url) as client:
+async def bridge_status(url: str, *, token: Optional[str] = None) -> dict:
+    async with BridgeClient(url, token=token) as client:
         result = await client.request("bridge.status")
         return result if isinstance(result, dict) else {}
 
 
 async def bridge_is_reachable(url: str) -> bool:
+    token = read_bridge_token()
+    if not token:
+        return False
     try:
-        await bridge_status(url)
+        await bridge_status(url, token=token)
         return True
     except Exception:
         return False
@@ -248,11 +253,14 @@ async def ensure_bridge(
 def stop_bridge_daemon() -> bool:
     pid = _read_daemon_pid()
     if pid is None:
+        clear_bridge_token()
         return False
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError:
         bridge_pid_path().unlink(missing_ok=True)
+        clear_bridge_token()
         return False
     bridge_pid_path().unlink(missing_ok=True)
+    clear_bridge_token()
     return True

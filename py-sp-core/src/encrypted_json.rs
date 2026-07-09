@@ -70,6 +70,25 @@ fn value_err(msg: impl Into<String>) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(msg.into())
 }
 
+/// PolkadotJS keystores commonly use n=32768, r=8, p=1. Reject pathological params
+/// so a malicious JSON cannot CPU-DoS the import path.
+fn validate_scrypt_params(n: u32, r: u32, p: u32) -> PyResult<()> {
+    if n == 0 || !n.is_power_of_two() {
+        return Err(value_err("scrypt n must be a non-zero power of two"));
+    }
+    let log_n = n.ilog2();
+    if log_n > 18 {
+        return Err(value_err("scrypt n exceeds maximum allowed cost"));
+    }
+    if r == 0 || r > 8 {
+        return Err(value_err("scrypt r exceeds maximum allowed cost"));
+    }
+    if p == 0 || p > 1 {
+        return Err(value_err("scrypt p exceeds maximum allowed cost"));
+    }
+    Ok(())
+}
+
 pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult<Keypair> {
     sodiumoxide::init().map_err(|_| value_err("failed to initialize libsodium"))?;
 
@@ -92,6 +111,7 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
         let n = u32::from_le_bytes(encrypted[32..36].try_into().unwrap());
         let p = u32::from_le_bytes(encrypted[36..40].try_into().unwrap());
         let r = u32::from_le_bytes(encrypted[40..44].try_into().unwrap());
+        validate_scrypt_params(n, r, p)?;
         let log_n: u8 = n.ilog2() as u8;
         let params = ScryptParams::new(log_n, r, p, 32)
             .map_err(|error| value_err(format!("invalid scrypt params: {error}")))?;
@@ -132,5 +152,77 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
         Ok(Keypair::from_inner(KeypairInner::Ed25519(pair), DEFAULT_SS58_FORMAT))
     } else {
         Err(value_err("unsupported keypair type in encrypted JSON"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sp_core::{ed25519, Pair as PairT};
+
+    fn pkcs8_payload(secret: &[u8; SEC_LENGTH], public: &[u8; PUB_LENGTH]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(PKCS8_HEADER.len() + SEC_LENGTH + PKCS8_DIVIDER.len() + PUB_LENGTH);
+        out.extend_from_slice(PKCS8_HEADER);
+        out.extend_from_slice(secret);
+        out.extend_from_slice(PKCS8_DIVIDER);
+        out.extend_from_slice(public);
+        out
+    }
+
+    fn build_passphrase_ed25519_json(uri: &str, passphrase: &str) -> String {
+        sodiumoxide::init().unwrap();
+        let pair = ed25519::Pair::from_string(uri, None).expect("valid uri");
+        let raw = pair.to_raw_vec();
+        let mut secret = [0u8; SEC_LENGTH];
+        secret[..32].copy_from_slice(&raw);
+        secret[32..].copy_from_slice(pair.public().as_ref());
+        let mut public = [0u8; PUB_LENGTH];
+        public.copy_from_slice(pair.public().as_ref());
+        let plaintext = pkcs8_payload(&secret, &public);
+        let password = pad_right(passphrase.as_bytes().to_vec(), 32, 0x00);
+        let key = Key::from_slice(&password).expect("derived key");
+        let nonce = secretbox::gen_nonce();
+        let ciphertext = secretbox::seal(&plaintext, &nonce, &key);
+        let mut encoded = nonce.as_ref().to_vec();
+        encoded.extend_from_slice(&ciphertext);
+        format!(
+            r#"{{"encoded":"{}","encoding":{{"content":["pkcs8","ed25519"],"type":["xsalsa20-poly1305"],"version":"3"}}}}"#,
+            general_purpose::STANDARD.encode(encoded)
+        )
+    }
+
+    #[test]
+    fn rejects_excessive_scrypt_cost() {
+        assert!(validate_scrypt_params(1 << 19, 8, 1).is_err());
+        assert!(validate_scrypt_params(32768, 9, 1).is_err());
+        assert!(validate_scrypt_params(32768, 8, 2).is_err());
+        assert!(validate_scrypt_params(32768, 0, 1).is_err());
+    }
+
+    #[test]
+    fn accepts_standard_scrypt_cost() {
+        validate_scrypt_params(32768, 8, 1).expect("standard polkadot-js params");
+    }
+
+    #[test]
+    fn ed25519_passphrase_import_roundtrip() {
+        let uri = "//Alice";
+        let pair = ed25519::Pair::from_string(uri, None).expect("valid uri");
+        let expected = Keypair::from_inner(KeypairInner::Ed25519(pair), DEFAULT_SS58_FORMAT);
+        let json = build_passphrase_ed25519_json(uri, "test-passphrase");
+        let kp = create_from_encrypted_json(&json, "test-passphrase").expect("import");
+        assert_eq!(kp.ss58_address(), expected.ss58_address());
+    }
+
+    #[test]
+    fn ed25519_passphrase_import_wrong_password() {
+        let json = build_passphrase_ed25519_json("//Alice", "test-passphrase");
+        assert!(create_from_encrypted_json(&json, "wrong").is_err());
+    }
+
+    #[test]
+    fn rejects_unsupported_version() {
+        let json = r#"{"encoded":"AA==","encoding":{"content":["pkcs8","ed25519"],"type":["xsalsa20-poly1305"],"version":"2"}}"#;
+        assert!(create_from_encrypted_json(json, "pass").is_err());
     }
 }

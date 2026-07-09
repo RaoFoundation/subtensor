@@ -12,7 +12,15 @@ permissions:
   pull-requests: write
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   comment_on_breaking_change:
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-light]
     steps:
       - name: Check if 'breaking change' label is added

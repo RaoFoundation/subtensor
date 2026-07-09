@@ -16,8 +16,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   build:
     name: build ${{ matrix.version.name }}
+    needs: trusted-pr
     runs-on: [self-hosted, fireactions-heavy]
     if: contains(github.event.pull_request.labels.*.name, 'check-node-compat')
     env:
@@ -64,7 +72,7 @@ jobs:
 
   test:
     name: run compat harness
-    needs: [build]
+    needs: [trusted-pr, build]
     runs-on: [self-hosted, fireactions-heavy]
     steps:
       - uses: actions/checkout@v4

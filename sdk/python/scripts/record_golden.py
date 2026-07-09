@@ -25,12 +25,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from bittensor.keyfiles import Keypair
-
 from bittensor._transport.codec import strip_option_opaque_metadata
 from bittensor._transport.interface import SubstrateConnection
 from bittensor._transport.runtime_api import encode_runtime_api_params
 from bittensor._transport.storage import storage_key
+from bittensor.keyfiles import Keypair
 
 ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "ws://127.0.0.1:9944"
 OUT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "golden.json"

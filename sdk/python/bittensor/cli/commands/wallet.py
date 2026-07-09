@@ -11,7 +11,6 @@ from typing import Any, Optional, TypedDict
 
 import typer
 
-from ...keyfiles import WrongPasswordError
 from ... import config as cfg
 from ... import macos_password, wallets
 from ...balance import Balance
@@ -23,6 +22,7 @@ from ...intents import (
     SwapHotkey,
     Transfer,
 )
+from ...keyfiles import WrongPasswordError
 from ...settings import resolve_endpoint
 from .. import multisig_helpers as ms_helpers
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help

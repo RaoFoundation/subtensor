@@ -27,14 +27,13 @@ The QA engineer role does not replace the Main Workflow. It describes the defaul
 5. Preserve existing comments and formatting whenever practical.
 6. Explain suspected runtime bugs before modifying runtime logic.
 7. Prefer adding regression tests before changing runtime code.
-8. You have read-only access to the subtensor code in `./subtensor-reference` folder. Use it for reference when you write JS tests. As an expetion you are allowed to build the subtensor if you are asked to do it explicitly.
-9. Never leave background node processes running after finishing work.
+8. You have read-only access to the monorepo runtime under the repository root. Build with `cargo build --release -p node-subtensor` from the repo root when asked to upgrade the clone. Never leave background node processes running after finishing work.
 
 # Permissions
 
 You are allowed without asking permission to:
 - download and install npm packages in this folder
-- build subtensor and refresh the local mainnet clone under the sibling subtensor/clones directories
+- build the node from the monorepo root and refresh the local mainnet clone under `clones/`
 - start the existing local mainnet clone node
 - run the JS tests against ws://127.0.0.1:9944
 - check whether the local node is listening on ws://127.0.0.1:9944
@@ -57,7 +56,7 @@ Before modifying runtime logic:
 
 1. State the intended behavior you are testing.
 2. Identify the relevant runtime code, storage, extrinsics, events, errors, and permissions.
-3. Compare behavior against `./subtensor-reference` when relevant.
+3. Compare behavior against runtime source in the monorepo when relevant.
 4. Prefer writing a regression or reproduction test before changing runtime logic.
 5. Explain the suspected runtime bug before making runtime changes.
 6. Keep implementation changes minimal and directly tied to the verified issue.
@@ -112,10 +111,10 @@ All prompts should be handled using the following steps that are described in mo
 
 ## Make the mainnet clone
 
-- Run `./scripts/clone-mainnet.sh` in the foreground.
-- Wait for `../../clones/mainnet-clone` directory to appear (no longer than 1 mintue), if it does not appear, stop execution.
+- Run `./scripts/clone-mainnet.sh` from `clones/` in the foreground.
+- Wait for `clones/mainnet-clone` directory to appear (no longer than 1 minute); if it does not appear, stop execution.
 - Wait for the script to finish. It may run for extended time about 30 minutes or even longer. You may check the sync status, but having best block of 0 is normal, even if highest block is high numbers.
-- When the script exits with 0 error, check that `../../clones/mainnet-clone` folder and `../../clones/mainnet-clone-chainspec.json` file exist. If not, stop execution.
+- When the script exits with 0 error, check that `clones/mainnet-clone` folder and `clones/mainnet-clone-chainspec.json` file exist. If not, stop execution.
 
 ## Start the mainnet clone
 
@@ -139,7 +138,7 @@ js-tests/
 ```
 
 Rules:
-1. Use code in `./subtensor-reference` in read-only mode as subject under test.
+1. Use runtime source at the monorepo root as the subject under test.
 2. Never delete or overwrite tests created in previous sessions.
 3. You may modify tests created during the current session until the current testing goal is achieved.
 4. Prefer creating new files per feature, bug, or investigation.
@@ -210,10 +209,15 @@ Final verification rule:
 - If a saved JS test stalls at `ApiPromise.create({ provider })` while the node is listening and producing blocks, stop the hanging test process and rerun the saved file outside the sandbox.
 - Do not “fix” this by rewriting the test as inline Node. Final verification must still execute the saved test file.
 
-## Building subtensor
+## Building the node
 
-- Change directory to `../../subtensor`
-- Run `cargo build --release --workspace --all-targets`
+From the monorepo root:
+
+```bash
+cargo build --release -p node-subtensor
+```
+
+The runtime upgrade script reads wasm from `target/release/wbuild/node-subtensor-runtime/`.
 
 ## Testing on a live Testnet
 
@@ -233,7 +237,7 @@ Final verification rule:
 
 ## Testing on a localnet with fresh start
 
-- Start the local network using `./bittensor-reference/scripts/localnet.sh`
+- Start the local network using `./scripts/localnet.sh` from the monorepo root
 - Use endpoint `ws://127.0.0.1:9944`
 - Alice is sudo
 

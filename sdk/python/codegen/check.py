@@ -50,6 +50,9 @@ COVERED_PALLETS = (
     "LimitOrders",
     "MevShield",
     "EVM",
+    "Commitments",
+    "AdminUtils",
+    "Contracts",
 )
 
 RAW_ONLY: dict[str, set[str]] = {
@@ -185,7 +188,50 @@ RAW_ONLY: dict[str, set[str]] = {
         "poke_deposit",
         "set_real_pays_fee",
     },
+    "Commitments": {
+        # hotkey-origin commitment payload; no semantic intent yet (raw-call /
+        # governance e2e). Fee routes to the owning coldkey when non-zero.
+        "set_commitment",
+        # root/sudo storage limit
+        "set_max_space",
+    },
+    "Contracts": {
+        # ink/WASM contract execution — use Ethereum tooling or the raw-call
+        # escape hatch; deprecated *_old_weight variants stay for on-chain Call
+        # migration only
+        "call",
+        "call_old_weight",
+        "instantiate",
+        "instantiate_old_weight",
+        "instantiate_with_code",
+        "instantiate_with_code_old_weight",
+        "migrate",
+        "remove_code",
+        "set_code",
+        "upload_code",
+    },
 }
+
+
+def _admin_utils_raw_only() -> set[str]:
+    """Root-only AdminUtils sudo_set_* calls not wrapped by an intent."""
+    from bittensor._generated import calls as generated_calls
+    from bittensor.intents import REGISTRY
+
+    wrapped = {
+        call for cls in REGISTRY.values() for pallet, call in cls.wraps if pallet == "AdminUtils"
+    }
+    return {
+        name
+        for name, value in vars(generated_calls.AdminUtils).items()
+        if isinstance(value, staticmethod) and name not in wrapped
+    }
+
+
+def _effective_raw_only(pallet: str) -> set[str]:
+    if pallet == "AdminUtils":
+        return _admin_utils_raw_only()
+    return RAW_ONLY.get(pallet, set())
 
 
 def check_coverage() -> int:
@@ -197,7 +243,7 @@ def check_coverage() -> int:
     for pallet in COVERED_PALLETS:
         cls = getattr(generated_calls, pallet)
         chain_calls = {n for n, v in vars(cls).items() if isinstance(v, staticmethod)}
-        raw_only = RAW_ONLY.get(pallet, set())
+        raw_only = _effective_raw_only(pallet)
 
         missing = sorted(n for n in chain_calls if (pallet, n) not in wrapped and n not in raw_only)
         stale = sorted(n for n in raw_only if n not in chain_calls)

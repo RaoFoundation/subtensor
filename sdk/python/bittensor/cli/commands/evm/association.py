@@ -42,9 +42,7 @@ def associate(
     if app_ctx.dry_run:
         block_number = app_ctx.run(lambda client: client.block())
         account = _unlock(app_ctx, key)
-        signature, block_number = evm_transactions.association_proof(
-            account, hotkey, block_number
-        )
+        signature, block_number = evm_transactions.association_proof(account, hotkey, block_number)
         app_ctx.submit(
             AssociateEvmKey(
                 netuid=netuid,

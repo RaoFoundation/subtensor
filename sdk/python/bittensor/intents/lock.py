@@ -39,7 +39,9 @@ class LockStake(Intent):
     amount_alpha: Money = field(metadata={"help": "How much of the existing stake to lock."})
     hotkey_ss58: Optional[str] = field(
         default=None,
-        metadata={"help": "Hotkey the lock's conviction is credited to. Defaults to the wallet's own hotkey."},
+        metadata={
+            "help": "Hotkey the lock's conviction is credited to. Defaults to the wallet hotkey."
+        },
     )
 
     def __post_init__(self):

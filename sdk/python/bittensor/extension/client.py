@@ -10,6 +10,8 @@ from typing import Any, Optional
 
 from websockets.asyncio.client import connect as ws_connect
 
+from .tokens import read_bridge_token
+
 
 class BridgeError(RuntimeError):
     """The bridge or extension rejected a request."""
@@ -26,16 +28,33 @@ class ExtensionAccount:
 class BridgeClient:
     """RPC client for a running :class:`BridgeServer`."""
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, *, token: Optional[str] = None):
         self.url = url
+        self._token = token if token is not None else read_bridge_token()
         self._ws: Optional[Any] = None
         self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
         if self._ws is not None:
             return
+        if not self._token:
+            raise BridgeError(
+                "extension bridge client token is missing; "
+                "start the bridge via btcli --signer extension"
+            )
         self._ws = await ws_connect(self.url, open_timeout=5)
-        await self._ws.send(json.dumps({"role": "client"}))
+        await self._ws.send(json.dumps({"role": "client", "token": self._token}))
+        try:
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=5)
+        except Exception as error:
+            await self._ws.close()
+            self._ws = None
+            raise BridgeError("extension bridge rejected the client token") from error
+        hello = json.loads(raw)
+        if hello.get("role") != "ok":
+            await self._ws.close()
+            self._ws = None
+            raise BridgeError("extension bridge rejected the client token")
 
     async def close(self) -> None:
         if self._ws is not None:

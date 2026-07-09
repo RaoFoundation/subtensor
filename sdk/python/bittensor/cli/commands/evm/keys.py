@@ -11,7 +11,8 @@ from ....evm import keys as evm_keys
 from ....evm.keys import write_keystore_file
 from ...context import ctx_of
 from ...globals import with_globals, with_unlock_globals
-from ._shared import EVM_KEY_HELP, _key_fields, _key_json, _key_info, _key_ref, _password, key_app
+from ._shared import EVM_KEY_HELP, _key_fields, _key_info, _key_json, _key_ref, _password, key_app
+
 
 @key_app.command("new")
 @with_unlock_globals

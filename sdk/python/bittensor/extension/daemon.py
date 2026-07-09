@@ -9,10 +9,12 @@ import signal
 from pathlib import Path
 
 from .bridge import DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT, run_bridge
+from .tokens import clear_bridge_token, write_bridge_token
 
 
 async def _serve(host: str, port: int, pid_file: Path) -> None:
     server = await run_bridge(host=host, port=port, open_browser=False)
+    write_bridge_token(server.state.client_token)
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(str(os.getpid()))
     stop = asyncio.Event()
@@ -31,6 +33,7 @@ async def _serve(host: str, port: int, pid_file: Path) -> None:
         await stop.wait()
     finally:
         pid_file.unlink(missing_ok=True)
+        clear_bridge_token()
         await server.stop()
 
 

@@ -68,9 +68,7 @@ def test_encrypt_for_recipient() -> None:
     recipient = Keypair.create_from_mnemonic(mnemonic, CRYPTO_ED25519)
     sender = Keypair.create_from_mnemonic(Keypair.generate_mnemonic(), CRYPTO_ED25519)
     message = b"hello recipient"
-    ciphertext = bytes(
-        Keypair.encrypt_for(recipient.ss58_address, message, CRYPTO_ED25519)
-    )
+    ciphertext = bytes(Keypair.encrypt_for(recipient.ss58_address, message, CRYPTO_ED25519))
     assert bytes(recipient.decrypt(ciphertext)) == message
     with pytest.raises(ValueError, match="decryption failed"):
         sender.decrypt(ciphertext)

@@ -17,7 +17,9 @@ from __future__ import annotations
 import typer
 
 from ...tx import intent_command
-from . import address, association, keys, money, precompiles_cmd, setup, stake
+
+# keys and stake register their commands on key_app/stake_app at import time.
+from . import address, association, keys, money, precompiles_cmd, setup, stake  # noqa: F401
 from ._shared import PANEL_CHAIN, PANEL_KEYS, PANEL_MONEY, key_app, stake_app
 
 app = typer.Typer(
