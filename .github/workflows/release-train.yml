@@ -13,6 +13,9 @@ name: Release Train
 # is force-updated to the deployed commit, so those branches always contain
 # the code running on the respective chain. The `mainnet` branch is updated
 # by watch-mainnet-release.yml once the multisig executes on chain.
+# Those branches are locked by the "network-branch-mirrors (CI only)"
+# repository ruleset; the only bypass actor is the network-branch-mirror-ci
+# deploy key (secret MIRROR_DEPLOY_KEY), so the mirror pushes go over SSH.
 #
 # Properties:
 #   - the runtime is built exactly once per train; promotion is a setCode
@@ -113,8 +116,6 @@ jobs:
     runs-on: [self-hosted, fireactions-light]
     environment: devnet # no required reviewers → automatic
     timeout-minutes: 30
-    permissions:
-      contents: write # mirror the deployed commit to the devnet branch
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -164,11 +165,20 @@ jobs:
           [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "devnet still on $chain"; exit 1; }
 
       # Mirror: the devnet branch always points at the code now running on
-      # devnet. Force push because deploys are not fast-forwards of the
-      # previous mirror (e.g. after history rewrites or skipped trains).
+      # devnet. The branch is ruleset-locked; only the mirror deploy key may
+      # update it, so the push goes over SSH. Force push because deploys are
+      # not fast-forwards of the previous mirror.
       - name: Point devnet branch at deployed commit
         if: steps.guard.outputs.should_deploy == 'true'
-        run: git push --force origin "$GITHUB_SHA:refs/heads/devnet"
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          key_file=$(mktemp)
+          printf '%s\n' "$MIRROR_DEPLOY_KEY" > "$key_file"
+          GIT_SSH_COMMAND="ssh -i $key_file -o StrictHostKeyChecking=accept-new" \
+            git push --force "git@github.com:${GITHUB_REPOSITORY}.git" \
+            "$GITHUB_SHA:refs/heads/devnet"
+          rm -f "$key_file"
 
   check-devnet:
     name: Smoke-check devnet
@@ -200,8 +210,6 @@ jobs:
     # promotion; no reviewers = automatic after devnet checks.
     environment: testnet
     timeout-minutes: 30
-    permissions:
-      contents: write # mirror the deployed commit to the testnet branch
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -246,7 +254,15 @@ jobs:
 
       - name: Point testnet branch at deployed commit
         if: steps.guard.outputs.should_deploy == 'true'
-        run: git push --force origin "$GITHUB_SHA:refs/heads/testnet"
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          key_file=$(mktemp)
+          printf '%s\n' "$MIRROR_DEPLOY_KEY" > "$key_file"
+          GIT_SSH_COMMAND="ssh -i $key_file -o StrictHostKeyChecking=accept-new" \
+            git push --force "git@github.com:${GITHUB_REPOSITORY}.git" \
+            "$GITHUB_SHA:refs/heads/testnet"
+          rm -f "$key_file"
 
   check-testnet:
     name: Smoke-check testnet

@@ -99,10 +99,21 @@ jobs:
     needs: check
     if: needs.check.outputs.ready == 'true'
     runs-on: [self-hosted, fireactions-light]
+    # MIRROR_DEPLOY_KEY lives in the mainnet environment secrets; one
+    # approval of the run covers this and the publish jobs below.
+    environment: mainnet
     permissions:
       contents: write # create the release
       actions: read # download the release-train artifact
     steps:
+      # Checked out at the released commit with the mirror deploy key so the
+      # mainnet branch push below passes the network-branch-mirrors ruleset
+      # (the deploy key is its only bypass actor).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          ssh-key: ${{ secrets.MIRROR_DEPLOY_KEY }}
+
       # The release train uploaded the deterministic srtool build and the
       # multisig call data as the mainnet-upgrade-<spec> workflow artifact
       # (90-day retention). Attach it to the release so the deterministic
@@ -137,20 +148,11 @@ jobs:
             wasm/pending-release.json
 
       # Mirror: the mainnet branch always points at the code now running on
-      # mainnet (the release-train commit, not HEAD of main). Done via the
-      # refs API because this job never checks out the repo.
+      # mainnet (the release-train commit, not HEAD of main). Pushed over
+      # SSH with the mirror deploy key configured by the checkout above,
+      # the only actor allowed past the network-branch-mirrors ruleset.
       - name: Point mainnet branch at released commit
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          sha="${{ needs.check.outputs.sha }}"
-          if gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/mainnet" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/mainnet" \
-              -f sha="$sha" -F force=true
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/heads/mainnet" -f sha="$sha"
-          fi
+        run: git push --force origin "${{ needs.check.outputs.sha }}:refs/heads/mainnet"
 
   publish-docker:
     name: Dispatch Docker image publishing

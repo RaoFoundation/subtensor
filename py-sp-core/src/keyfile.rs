@@ -121,10 +121,7 @@ pub fn get_password_from_environment(env_var_name: &str) -> PyResult<Option<Stri
 
 pub fn save_password_to_environment(env_var_name: &str, password: &str) -> PyResult<String> {
     let encrypted = xor_with_key(password.as_bytes(), env_var_name);
-    std::env::set_var(
-        env_var_name,
-        general_purpose::STANDARD.encode(encrypted),
-    );
+    std::env::set_var(env_var_name, general_purpose::STANDARD.encode(encrypted));
     Ok(env_var_name.to_string())
 }
 
@@ -187,8 +184,8 @@ mod tests {
     #[test]
     fn ansible_vault_roundtrip() {
         let original = br#"{"ss58Address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"}"#;
-        let encrypted = ansible_vault::encrypt_vault(&original[..], "test-password")
-            .expect("ansible encrypt");
+        let encrypted =
+            ansible_vault::encrypt_vault(&original[..], "test-password").expect("ansible encrypt");
         assert!(keyfile_data_is_encrypted_ansible(encrypted.as_bytes()));
         let decrypted = decrypt_keyfile_data(encrypted.as_bytes(), Some("test-password"))
             .expect("ansible decrypt");
@@ -204,8 +201,7 @@ mod tests {
         let fernet = Fernet::new(&fernet_key).expect("fernet key");
         let encrypted = fernet.encrypt(original);
         assert!(keyfile_data_is_encrypted_legacy(encrypted.as_bytes()));
-        let decrypted =
-            decrypt_keyfile_data(encrypted.as_bytes(), Some("test-password")).unwrap();
+        let decrypted = decrypt_keyfile_data(encrypted.as_bytes(), Some("test-password")).unwrap();
         assert_eq!(decrypted, original);
     }
 }

@@ -29,7 +29,7 @@ persists is controlled per coldkey per subnet with
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet the locked stake lives on. |
 | `amount_alpha` | number \| `"all"` | yes | How much of the existing stake to lock. |
-| `hotkey_ss58` | string | no | Hotkey the lock's conviction is credited to. Defaults to the wallet's own hotkey. |
+| `hotkey_ss58` | string | no | Hotkey the lock's conviction is credited to. Defaults to the wallet hotkey. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

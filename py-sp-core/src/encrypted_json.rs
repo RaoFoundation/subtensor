@@ -2,9 +2,9 @@
 
 use base64::{engine::general_purpose, Engine as _};
 use pyo3::prelude::*;
+use schnorrkel::{PublicKey, SecretKey};
 use scrypt::{scrypt, Params as ScryptParams};
 use serde::Deserialize;
-use schnorrkel::{PublicKey, SecretKey};
 use sodiumoxide::crypto::secretbox::{self, Key, Nonce};
 use sp_core::{ed25519, Pair as PairT};
 
@@ -92,8 +92,8 @@ fn validate_scrypt_params(n: u32, r: u32, p: u32) -> PyResult<()> {
 pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult<Keypair> {
     sodiumoxide::init().map_err(|_| value_err("failed to initialize libsodium"))?;
 
-    let json_data: JsonStructure =
-        serde_json::from_str(json_data).map_err(|error| value_err(format!("invalid JSON: {error}")))?;
+    let json_data: JsonStructure = serde_json::from_str(json_data)
+        .map_err(|error| value_err(format!("invalid JSON: {error}")))?;
 
     if json_data.encoding.version != "3" {
         return Err(value_err("unsupported encrypted JSON format version"));
@@ -105,7 +105,9 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
 
     let password = if json_data.encoding.enc_type.iter().any(|t| t == "scrypt") {
         if encrypted.len() < 44 {
-            return Err(value_err("encrypted JSON payload too short for scrypt params"));
+            return Err(value_err(
+                "encrypted JSON payload too short for scrypt params",
+            ));
         }
         let salt = &encrypted[0..32];
         let n = u32::from_le_bytes(encrypted[32..36].try_into().unwrap());
@@ -144,12 +146,16 @@ pub fn create_from_encrypted_json(json_data: &str, passphrase: &str) -> PyResult
         Keypair::create_from_private_key(&hex::encode(secret), CRYPTO_SR25519)
     } else if json_data.encoding.content.iter().any(|c| c == "ed25519") {
         let seed = &private_key[..32];
-        let pair = ed25519::Pair::from_seed_slice(seed)
-            .map_err(|error| value_err(format!("invalid ed25519 seed in encrypted JSON: {error:?}")))?;
+        let pair = ed25519::Pair::from_seed_slice(seed).map_err(|error| {
+            value_err(format!("invalid ed25519 seed in encrypted JSON: {error:?}"))
+        })?;
         if pair.public().0 != public_key {
             return Err(value_err("ed25519 public key mismatch in encrypted JSON"));
         }
-        Ok(Keypair::from_inner(KeypairInner::Ed25519(pair), DEFAULT_SS58_FORMAT))
+        Ok(Keypair::from_inner(
+            KeypairInner::Ed25519(pair),
+            DEFAULT_SS58_FORMAT,
+        ))
     } else {
         Err(value_err("unsupported keypair type in encrypted JSON"))
     }
@@ -161,7 +167,8 @@ mod tests {
     use sp_core::{ed25519, Pair as PairT};
 
     fn pkcs8_payload(secret: &[u8; SEC_LENGTH], public: &[u8; PUB_LENGTH]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(PKCS8_HEADER.len() + SEC_LENGTH + PKCS8_DIVIDER.len() + PUB_LENGTH);
+        let mut out =
+            Vec::with_capacity(PKCS8_HEADER.len() + SEC_LENGTH + PKCS8_DIVIDER.len() + PUB_LENGTH);
         out.extend_from_slice(PKCS8_HEADER);
         out.extend_from_slice(secret);
         out.extend_from_slice(PKCS8_DIVIDER);

@@ -761,7 +761,7 @@
         },
         "hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey the lock's conviction is credited to. Defaults to the wallet's own hotkey."
+          "description": "Hotkey the lock's conviction is credited to. Defaults to the wallet hotkey."
         }
       },
       "required": [

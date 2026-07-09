@@ -30,8 +30,8 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> PyResult<Vec<u8>
 }
 
 pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> PyResult<Keypair> {
-    let decoded = std::str::from_utf8(keyfile_data)
-        .map_err(|_| key_err("failed to decode keyfile data"))?;
+    let decoded =
+        std::str::from_utf8(keyfile_data).map_err(|_| key_err("failed to decode keyfile data"))?;
 
     let keyfile_dict: serde_json::Value =
         serde_json::from_str(decoded).map_err(|_| key_err("failed to parse keyfile data"))?;
@@ -88,7 +88,8 @@ mod tests {
 
     #[test]
     fn sr25519_keyfile_roundtrip() {
-        let original = Keypair::create_from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let original =
+            Keypair::create_from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
         let data = serialized_keypair_to_keyfile_data(&original).unwrap();
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.crypto_type(), CRYPTO_SR25519);
@@ -104,7 +105,8 @@ mod tests {
 
     #[test]
     fn ed25519_keyfile_roundtrip() {
-        let original = Keypair::create_from_mnemonic(&test_mnemonic(), CRYPTO_ED25519, None).unwrap();
+        let original =
+            Keypair::create_from_mnemonic(&test_mnemonic(), CRYPTO_ED25519, None).unwrap();
         let data = serialized_keypair_to_keyfile_data(&original).unwrap();
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.crypto_type(), CRYPTO_ED25519);

@@ -63,8 +63,7 @@ fn public_key_from_ss58(ss58_address: &str) -> PyResult<[u8; 32]> {
 }
 
 fn ss58_from_public(public_key: [u8; 32], ss58_format: u16) -> String {
-    AccountId32::from(public_key)
-        .to_ss58check_with_version(Ss58AddressFormat::custom(ss58_format))
+    AccountId32::from(public_key).to_ss58check_with_version(Ss58AddressFormat::custom(ss58_format))
 }
 
 fn verify_with_crypto(
@@ -112,6 +111,9 @@ fn ed25519_x25519_from_pair(pair: &ed25519::Pair) -> PyResult<(box_::PublicKey, 
     Ok((x25519_pk, x25519_sk))
 }
 
+// Each Keypair is a Python-heap object holding exactly one variant; the
+// size skew between ed25519 and public-only is irrelevant here.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum KeypairInner {
     Ed25519(ed25519::Pair),
     Sr25519(sr25519::Pair),
@@ -283,20 +285,20 @@ impl Keypair {
             .map_err(|error| value_err(format!("invalid private_key string: {error}")))?;
 
         let inner = match crypto_type {
-            CRYPTO_SR25519 => KeypairInner::Sr25519(
-                sr25519::Pair::from_seed_slice(&private_key_vec)
-                    .map_err(|error| value_err(format!("invalid sr25519 private key: {error:?}")))?,
-            ),
+            CRYPTO_SR25519 => {
+                KeypairInner::Sr25519(sr25519::Pair::from_seed_slice(&private_key_vec).map_err(
+                    |error| value_err(format!("invalid sr25519 private key: {error:?}")),
+                )?)
+            }
             CRYPTO_ED25519 => {
                 let seed = if private_key_vec.len() >= 32 {
                     &private_key_vec[..32]
                 } else {
                     return Err(value_err("ed25519 private key must be at least 32 bytes"));
                 };
-                KeypairInner::Ed25519(
-                    ed25519::Pair::from_seed_slice(seed)
-                        .map_err(|error| value_err(format!("invalid ed25519 private key: {error:?}")))?,
-                )
+                KeypairInner::Ed25519(ed25519::Pair::from_seed_slice(seed).map_err(|error| {
+                    value_err(format!("invalid ed25519 private key: {error:?}"))
+                })?)
             }
             other => return Err(value_err(format!("unknown crypto type {other}"))),
         };
@@ -357,7 +359,11 @@ impl Keypair {
 
     /// Sign a message; returns the raw 64-byte signature.
     #[pyo3(signature = (message))]
-    fn sign<'py>(&self, py: Python<'py>, message: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyBytes>> {
+    fn sign<'py>(
+        &self,
+        py: Python<'py>,
+        message: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
         let message = coerce_message_bytes(message)?;
         let signature = match &self.inner {
             KeypairInner::Ed25519(pair) => as_bytes(&pair.sign(&message)),
@@ -401,7 +407,9 @@ impl Keypair {
             ));
         }
         let KeypairInner::Ed25519(pair) = &self.inner else {
-            return Err(value_err("decryption requires a keypair with a private key"));
+            return Err(value_err(
+                "decryption requires a keypair with a private key",
+            ));
         };
         ensure_sodium()?;
         let (x25519_pk, x25519_sk) = ed25519_x25519_from_pair(pair)?;
@@ -419,8 +427,7 @@ impl Keypair {
         message: &[u8],
         crypto_type: u8,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let recipient =
-            Self::py_new(Some(ss58_address), None, crypto_type, DEFAULT_SS58_FORMAT)?;
+        let recipient = Self::py_new(Some(ss58_address), None, crypto_type, DEFAULT_SS58_FORMAT)?;
         recipient.encrypt(py, message)
     }
 }
@@ -546,8 +553,11 @@ fn save_password_to_environment(env_var_name: &str, password: &str) -> PyResult<
 fn py_sp_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     ensure_sodium()?;
     m.add_class::<Keypair>()?;
-    m.add("WrongPasswordError", m.py().get_type_bound::<WrongPasswordError>())?;
-    m.add("KeyfileError", m.py().get_type_bound::<KeyfileError>())?;
+    m.add(
+        "WrongPasswordError",
+        m.py().get_type::<WrongPasswordError>(),
+    )?;
+    m.add("KeyfileError", m.py().get_type::<KeyfileError>())?;
     m.add_function(wrap_pyfunction!(verify, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_decode, m)?)?;
     m.add_function(wrap_pyfunction!(ss58_encode, m)?)?;
