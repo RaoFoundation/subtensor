@@ -16,7 +16,6 @@
 ##### Packages
 
 - **@raofoundation/ui** - shared frontend components
-- **@raofoundation/api** - Polkadot API hooks
 - **eslint-config-custom** - shared ESLint config
 - **tsconfig** - shared TypeScript configs
 
