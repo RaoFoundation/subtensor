@@ -5,6 +5,11 @@ name: Check Rust
 
 on:
   pull_request:
+  # Runs on main serve two purposes: post-merge validation, and seeding the
+  # shared sccache pool — Actions caches written on the default branch are
+  # readable by every PR, while PR-written caches stay scoped to their PR.
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
