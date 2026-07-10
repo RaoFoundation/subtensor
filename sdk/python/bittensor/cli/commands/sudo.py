@@ -391,8 +391,12 @@ def stake_burn(
     )
 
 
+app.command("buyback", hidden=True)(stake_burn)
+
+
 mechanisms_app = typer.Typer(no_args_is_help=True, help="Subnet mechanism configuration.")
 app.add_typer(mechanisms_app, name="mechanisms", rich_help_panel=PANEL_SUBNETS)
+app.add_typer(mechanisms_app, name="mech", hidden=True)
 
 
 @mechanisms_app.command("count")
@@ -454,3 +458,6 @@ def set_mechanism_emissions(
     app_ctx: AppContext = ctx_of(ctx)
     values = [int(part.strip()) for part in split.split(",") if part.strip()]
     app_ctx.submit(SetMechanismEmissionSplit(netuid=netuid, split=values))
+
+
+mechanisms_app.command("emissions-split", hidden=True)(set_mechanism_emissions)

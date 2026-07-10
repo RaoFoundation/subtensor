@@ -261,6 +261,7 @@ def process_claim(
 
 child_app = typer.Typer(no_args_is_help=True, help="Child hotkey delegation.")
 app.add_typer(child_app, name="child", rich_help_panel=PANEL_DELEGATION)
+app.add_typer(child_app, name="children", hidden=True)
 
 
 @child_app.command("get")

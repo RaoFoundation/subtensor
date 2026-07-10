@@ -42,6 +42,10 @@ built-in default**.
 - Familiar workflows also have hand-written groups that wrap the same
   machinery: `wallet`, `stake`, `subnets`, `weights`, `axon`, `proxy`,
   `multisig`, `crowd`, `lock`, `timelock`, `config`.
+- The v9 shorthands still work as hidden aliases: `w`, `st`, `s`, `su`, `c`,
+  `wt`, `cr`, `d` (plus variants like `wallets`, `subnet`, `conf`), and every
+  hyphenated command also accepts its snake_case spelling
+  (`wallet new_hotkey`, `tx add_stake`). `-h` works as `--help` everywhere.
 - `btcli evm` — the [EVM layer](/docs/guides/evm): keys, funding, precompiles,
   and contract deployment.
 - `btcli tools` — the JSON catalog of every transaction op with schemas,

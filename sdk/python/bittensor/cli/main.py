@@ -10,6 +10,7 @@ before submitting unless ``--yes`` is given.
 
 from __future__ import annotations
 
+import copy
 import importlib.metadata
 import json
 import sys
@@ -71,6 +72,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=True,
     help="btcli - a lean command line for the Bittensor chain.",
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 # Root --help is grouped into panels so it reads as a map, not a linear dump.
@@ -105,6 +107,20 @@ app.add_typer(extension.app, name="extension", rich_help_panel=PANEL_ACCOUNTS)
 
 app.add_typer(proxy.app, name="proxy", rich_help_panel=PANEL_PROXY_MULTISIG)
 app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_PROXY_MULTISIG)
+
+# Hidden group aliases carried over from the v9 btcli (`btcli w list`, etc.).
+for _sub_app, _aliases in (
+    (wallet.app, ("w", "wallets")),
+    (stake.app, ("st",)),
+    (subnets.app, ("s", "subnet")),
+    (sudo.app, ("su",)),
+    (config.app, ("c", "conf")),
+    (weights.app, ("wt", "weight")),
+    (crowd.app, ("cr", "crowdloan")),
+    (deriv.app, ("d",)),
+):
+    for _alias in _aliases:
+        app.add_typer(_sub_app, name=_alias, hidden=True)
 
 # Generated from registries, plus escape hatches / agent tooling
 app.add_typer(build_query_app(), name="query", rich_help_panel=PANEL_CHAIN)
@@ -378,6 +394,37 @@ def explain(
         out.explain_chain(matches)
         return
     out.explain(error_code.value, EXPLANATIONS[error_code], REMEDIATION[error_code])
+
+
+def _register_snake_case_aliases(root: typer.Typer) -> None:
+    """Register hidden snake_case aliases for every hyphenated command.
+
+    The v9 btcli accepted both spellings (`wallet new-hotkey` and
+    `wallet new_hotkey`); keep the underscore forms working — including for
+    the generated `query`/`tx` commands, whose registry names are snake_case
+    — without cluttering --help.
+    """
+    seen: set[int] = set()
+
+    def walk(t: typer.Typer) -> None:
+        if id(t) in seen:
+            return
+        seen.add(id(t))
+        for info in list(t.registered_commands):
+            name = info.name or info.callback.__name__.replace("_", "-")
+            if "-" not in name:
+                continue
+            alias = copy.copy(info)
+            alias.name = name.replace("-", "_")
+            alias.hidden = True
+            t.registered_commands.append(alias)
+        for group in t.registered_groups:
+            walk(group.typer_instance)
+
+    walk(root)
+
+
+_register_snake_case_aliases(app)
 
 
 def _warn_if_legacy_cli_installed() -> None:
