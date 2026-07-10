@@ -21,6 +21,40 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
+  # typescript-formatting is a required merge check, so the workflow must
+  # always trigger and that job always runs (it is cheap). The expensive node
+  # builds and zombienet suites skip themselves when the PR touches nothing
+  # they exercise; `skipped` satisfies branch protection.
+  changes:
+    name: detect e2e-relevant changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            e2e:
+              - 'ts-tests/**'
+              - 'common/**'
+              - 'node/**'
+              - 'pallets/**'
+              - 'precompiles/**'
+              - 'primitives/**'
+              - 'runtime/**'
+              - 'support/**'
+              - 'chain-extensions/**'
+              - 'src/**'
+              - 'vendor/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/typescript-e2e.yml'
+
   typescript-formatting:
     runs-on: ubuntu-latest
     steps:
@@ -56,7 +90,8 @@ jobs:
   # Build the node binary in both variants and share as artifacts.
   build:
     runs-on: [self-hosted, fireactions-heavy]
-    needs: [trusted-pr, typescript-formatting]
+    needs: [trusted-pr, typescript-formatting, changes]
+    if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
     strategy:
       matrix:

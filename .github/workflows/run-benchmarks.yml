@@ -1,9 +1,35 @@
 # .github/workflows/run-benchmarks.yml
 name: Validate-Benchmarks
 
+# Path-filtered: validate-benchmarks is not a required merge check, so a
+# workflow-level `paths:` filter is safe. If it is ever made required, this
+# filter MUST move to job-level `if:` gating (a required check whose workflow
+# never triggers is stuck "Expected" and blocks the merge).
 on:
   pull_request:
     types: [opened, synchronize]
+    paths:
+      # Anything that changes what the node/runtime compiles to (and thus
+      # measured extrinsic weights).
+      - "common/**"
+      - "node/**"
+      - "pallets/**"
+      - "precompiles/**"
+      - "primitives/**"
+      - "runtime/**"
+      - "sdk/bittensor-core/**"
+      - "sdk/bittensor-core-py/**"
+      - "support/**"
+      - "chain-extensions/**"
+      - "src/**"
+      - "vendor/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "rust-toolchain.toml"
+      # Workflow definition and helper scripts used by this run.
+      - ".github/workflows/run-benchmarks.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
 
 # This workflow only builds the node and validates benchmark weights; it never

@@ -4,8 +4,33 @@ name: Try Runtime
 # current state of each live network. This is the "will this runtime migrate
 # cleanly from what's actually deployed" gate.
 
+# Path-filtered: none of this workflow's checks are required for merge, so a
+# workflow-level `paths:` filter is safe. If any check here is ever made
+# required, this filter MUST move to job-level `if:` gating (a required check
+# whose workflow never triggers is stuck "Expected" and blocks the merge).
 on:
   pull_request:
+    paths:
+      # Anything that changes what the node/runtime compiles to.
+      - "common/**"
+      - "node/**"
+      - "pallets/**"
+      - "precompiles/**"
+      - "primitives/**"
+      - "runtime/**"
+      - "sdk/bittensor-core/**"
+      - "sdk/bittensor-core-py/**"
+      - "support/**"
+      - "chain-extensions/**"
+      - "src/**"
+      - "vendor/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "rust-toolchain.toml"
+      # Workflow and action definitions used by this run.
+      - ".github/workflows/try-runtime.yml"
+      - ".github/actions/try-runtime/**"
   workflow_dispatch:
 
 concurrency:
