@@ -1,35 +1,27 @@
 # .github/workflows/run-benchmarks.yml
 name: Validate-Benchmarks
 
-# Path-filtered: validate-benchmarks is not a required merge check, so a
-# workflow-level `paths:` filter is safe. If it is ever made required, this
-# filter MUST move to job-level `if:` gating (a required check whose workflow
-# never triggers is stuck "Expected" and blocks the merge).
+# The gate lives in a cheap `decide` job on a free GitHub runner so the one
+# persistent Benchmarking machine is only ever occupied by runs that matter:
+#   - PRs touching benchmark-relevant paths run automatically (no "someone
+#     forgot the label and weights drifted into main" hole);
+#   - PRs whose diff stays inside pallets/ benchmark only the changed pallets
+#     (PALLET_DIRS); anything wider runs the full suite;
+#   - `run-benchmarks` label forces a full run, `skip-validate-benchmarks`
+#     forces a skip;
+#   - the nightly schedule reruns the full suite against the default branch as
+#     the drift backstop (a dependency bump that changes codegen surfaces
+#     within a day; on failure, apply the bench-patch artifact via the
+#     apply-benchmark-patch label on a fix PR).
+# validate-benchmarks is not a required merge check today. If that changes,
+# this decide-job shape keeps working (the workflow always triggers and the
+# skipped job satisfies branch protection), unlike a `paths:` trigger filter.
+
 on:
   pull_request:
-    types: [opened, synchronize]
-    paths:
-      # Anything that changes what the node/runtime compiles to (and thus
-      # measured extrinsic weights).
-      - "common/**"
-      - "node/**"
-      - "pallets/**"
-      - "precompiles/**"
-      - "primitives/**"
-      - "runtime/**"
-      - "sdk/bittensor-core/**"
-      - "sdk/bittensor-core-py/**"
-      - "support/**"
-      - "chain-extensions/**"
-      - "src/**"
-      - "vendor/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "build.rs"
-      - "rust-toolchain.toml"
-      # Workflow definition and helper scripts used by this run.
-      - ".github/workflows/run-benchmarks.yml"
-      - ".github/scripts/**"
+    types: [opened, synchronize, labeled, unlabeled]
+  schedule:
+    - cron: "0 3 * * *" # nightly full-suite drift check on the default branch
   workflow_dispatch:
 
 # This workflow only builds the node and validates benchmark weights; it never
@@ -53,33 +45,80 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
+  decide:
+    name: decide whether to benchmark
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      pallet_dirs: ${{ steps.gate.outputs.pallet_dirs }}
+    steps:
+      - name: Gate on event, labels, and changed paths
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          run=""
+          dirs=""
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "$GITHUB_EVENT_NAME event: full run"
+            run=true
+          else
+            labels=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
+            if grep -qx 'skip-validate-benchmarks' <<< "$labels"; then
+              echo "skip-validate-benchmarks label present: skipping"
+              run=false
+            elif grep -qx 'run-benchmarks' <<< "$labels"; then
+              echo "run-benchmarks label present: forcing full run"
+              run=true
+            else
+              files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+                --paginate --jq '.[].filename')
+              relevant=$(grep -E '^(pallets|runtime|node|primitives|precompiles|common|support|chain-extensions|src|vendor)/|^Cargo\.(toml|lock)$|^build\.rs$|^rust-toolchain\.toml$|^\.maintain/|^scripts/(benchmark_action|discover_pallets)\.sh$|^\.github/workflows/run-benchmarks\.yml$' \
+                <<< "$files" || true)
+              if [[ -z "$relevant" ]]; then
+                echo "no benchmark-relevant paths changed: skipping"
+                run=false
+              else
+                run=true
+                nonpallet=$(grep -vE '^pallets/' <<< "$relevant" || true)
+                if [[ -z "$nonpallet" ]]; then
+                  # Weights can also shift via runtime/ or dependency changes,
+                  # but those hit the non-pallet branch; pallet-only diffs are
+                  # safe to benchmark selectively. Nightly covers the rest.
+                  dirs=$(grep -oE '^pallets/[^/]+' <<< "$relevant" | sort -u \
+                    | sed 's|^pallets/||' | tr '\n' ' ')
+                  echo "pallet-only change: restricting to: $dirs"
+                else
+                  echo "change reaches outside pallets/: full run"
+                fi
+              fi
+            fi
+          fi
+          {
+            echo "run=$run"
+            echo "pallet_dirs=$dirs"
+          } >> "$GITHUB_OUTPUT"
+
   validate-benchmarks:
-    needs: trusted-pr
+    needs: [trusted-pr, decide]
+    if: needs.decide.outputs.run == 'true'
     runs-on: Benchmarking
 
     steps:
       - name: Check out PR branch
         uses: actions/checkout@v4
         with:
-          # Fall back to the current repo/ref so workflow_dispatch runs work too.
+          # Fall back to the current repo/ref so workflow_dispatch and
+          # scheduled runs work too.
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Install GitHub CLI
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
-
-      - name: Check for skip-validate-benchmarks label
-        id: skip-label
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: .github/scripts/check-skip-label.sh ${{ github.event.pull_request.number }}
-
       - name: Install system dependencies
         run: |
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
             -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
             build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
@@ -94,14 +133,14 @@ jobs:
           cache-on-failure: true
 
       - name: Build node with benchmarks + weight tools
-        if: steps.skip-label.outputs.skip != 'true'
         run: |
           cargo build --profile production -p node-subtensor --features runtime-benchmarks
           cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 
       - name: Run & validate benchmarks
-        if: steps.skip-label.outputs.skip != 'true'
         timeout-minutes: 180
+        env:
+          PALLET_DIRS: ${{ needs.decide.outputs.pallet_dirs }}
         run: |
           mkdir -p .bench_patch
           chmod +x scripts/benchmark_action.sh
