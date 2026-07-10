@@ -5,8 +5,9 @@ Chain resolution, in order:
 1. ``E2E_ENDPOINT`` set -> attach to that node (the dev inner loop: run a
    localnet yourself and iterate without docker churn).
 2. Otherwise start a disposable docker localnet (``LOCALNET_IMAGE``, default
-   the fork's image) and tear it down at session end. ``SKIP_PULL=1`` skips
-   the pull when CI pre-loads the image.
+   the fork's image) and tear it down at session end. ``LOCALNET_IMAGE_NAME``
+   is accepted as a legacy alias for workflow compatibility. ``SKIP_PULL=1``
+   skips the pull when CI pre-loads the image.
 
 Every test in this directory is automatically marked ``e2e`` (deselected by
 the default pytest run; select with ``-m e2e``). Each module must declare
@@ -37,6 +38,10 @@ from tests.harness.samples import dev_wallet
 
 DEFAULT_IMAGE = "ghcr.io/raofoundation/subtensor-localnet:monorepo-sdk"
 CONTAINER_NAME = f"bittensor-e2e-{os.getpid()}"
+
+
+def _localnet_image() -> str:
+    return os.getenv("LOCALNET_IMAGE") or os.getenv("LOCALNET_IMAGE_NAME") or DEFAULT_IMAGE
 
 
 def pytest_collection_modifyitems(config, items):
@@ -84,7 +89,7 @@ def chain_endpoint() -> str:
         yield endpoint
         return
 
-    image = os.getenv("LOCALNET_IMAGE", DEFAULT_IMAGE)
+    image = _localnet_image()
     if not os.getenv("SKIP_PULL"):
         subprocess.run(["docker", "pull", image], check=True)
     subprocess.run(
