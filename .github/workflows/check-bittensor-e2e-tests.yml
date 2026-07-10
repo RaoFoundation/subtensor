@@ -125,6 +125,10 @@ jobs:
           set -euo pipefail
           source "$HOME/.cargo/env"
           mkdir -p build/rust-e2e
+          # The workspace/localnet build also compiles the Python binding. Keep
+          # CoreError/API compatibility in this faster job so failures surface
+          # before the expensive node builds.
+          cargo check -p bittensor-core-py
           cargo test -p bittensor-core --test e2e --no-run --message-format=json \
             > build/rust-e2e/cargo-messages.json
           executable=$(
@@ -158,6 +162,7 @@ jobs:
     needs: [check-label, trusted-pr]
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: [self-hosted, fireactions-heavy]

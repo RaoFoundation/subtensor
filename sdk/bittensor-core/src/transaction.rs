@@ -47,32 +47,133 @@ impl Wallet {
 pub enum Spend {
     None,
     Bounded(u128),
-    /// The exact amount depends on live state (`transfer_all`, `unstake_all`, …).
+    /// The exact outgoing amount depends on live state (`transfer_all`, dynamic registration, …).
     Unbounded,
 }
 
-/// A metadata-resolved call plus its product-level transaction semantics.
+/// Policy semantics proven by a trusted constructor, or the conservative
+/// classification assigned to an arbitrary metadata call.
+#[derive(Debug, Clone)]
+struct SecuritySemantics {
+    spend: Spend,
+    netuids: Vec<u16>,
+    affects_all_subnets: bool,
+    raw: bool,
+}
+
+impl SecuritySemantics {
+    fn arbitrary() -> Self {
+        Self {
+            spend: Spend::Unbounded,
+            netuids: Vec::new(),
+            // An arbitrary call may inspect or mutate any subnet. Treat its
+            // scope as unknown/all rather than letting an empty list bypass an
+            // allowlist.
+            affects_all_subnets: true,
+            raw: true,
+        }
+    }
+
+    fn trusted(
+        spend: Spend,
+        netuids: impl IntoIterator<Item = u16>,
+        affects_all_subnets: bool,
+    ) -> Self {
+        let mut netuids: Vec<u16> = netuids.into_iter().collect();
+        netuids.sort_unstable();
+        netuids.dedup();
+        Self {
+            spend,
+            netuids,
+            affects_all_subnets,
+            raw: false,
+        }
+    }
+}
+
+/// A metadata-resolved call plus immutable product-level transaction semantics.
+///
+/// The call target, parameters, signer, and policy classification are private
+/// so callers cannot change the encoded call after a trusted constructor has
+/// attached its spend/subnet semantics. Use [`IntentCall::new`] only for an
+/// arbitrary call: it is deliberately classified as raw, unbounded, and
+/// unknown/all-subnet scope. Narrower semantics are available only through
+/// fixed operation-specific constructors in this module.
 #[derive(Debug, Clone)]
 pub struct IntentCall {
     pub op: String,
     pub summary: String,
-    pub signer: SignerRole,
-    pub pallet: String,
-    pub function: String,
-    pub params: Value,
-    pub spend: Spend,
-    pub netuids: Vec<u16>,
-    pub affects_all_subnets: bool,
-    pub raw: bool,
+    signer: SignerRole,
+    pallet: String,
+    function: String,
+    params: Value,
+    security: SecuritySemantics,
 }
 
 impl IntentCall {
+    /// Construct an arbitrary metadata call.
+    ///
+    /// Arbitrary calls are always `raw`, `Spend::Unbounded`, and treated as
+    /// affecting every subnet. This fail-closed classification means they
+    /// require explicit `allow_raw_calls`, cannot pass a spend cap, and cannot
+    /// pass an explicit subnet allowlist. Callers cannot downgrade that
+    /// classification after construction.
     pub fn new(
         op: impl Into<String>,
         signer: SignerRole,
         pallet: impl Into<String>,
         function: impl Into<String>,
         params: Value,
+    ) -> Self {
+        Self::from_parts(
+            op,
+            signer,
+            pallet,
+            function,
+            params,
+            SecuritySemantics::arbitrary(),
+        )
+    }
+
+    /// Explicitly named alias for [`IntentCall::new`].
+    pub fn raw_call(
+        op: impl Into<String>,
+        signer: SignerRole,
+        pallet: impl Into<String>,
+        function: impl Into<String>,
+        params: Value,
+    ) -> Self {
+        Self::new(op, signer, pallet, function, params)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn trusted(
+        op: impl Into<String>,
+        signer: SignerRole,
+        pallet: impl Into<String>,
+        function: impl Into<String>,
+        params: Value,
+        spend: Spend,
+        netuids: impl IntoIterator<Item = u16>,
+        affects_all_subnets: bool,
+    ) -> Self {
+        Self::from_parts(
+            op,
+            signer,
+            pallet,
+            function,
+            params,
+            SecuritySemantics::trusted(spend, netuids, affects_all_subnets),
+        )
+    }
+
+    fn from_parts(
+        op: impl Into<String>,
+        signer: SignerRole,
+        pallet: impl Into<String>,
+        function: impl Into<String>,
+        params: Value,
+        security: SecuritySemantics,
     ) -> Self {
         let op = op.into();
         Self {
@@ -82,38 +183,396 @@ impl IntentCall {
             pallet: pallet.into(),
             function: function.into(),
             params,
-            spend: Spend::None,
-            netuids: Vec::new(),
-            affects_all_subnets: false,
-            raw: false,
+            security,
         }
     }
 
+    /// Stable operation name used in plans and diagnostics.
+    pub fn op(&self) -> &str {
+        &self.op
+    }
+
+    /// Signer selected by the constructor. Read-only: callers cannot change it.
+    pub fn signer_role(&self) -> SignerRole {
+        self.signer
+    }
+
+    /// Metadata call target. Read-only: callers cannot replace the trusted call.
+    pub fn pallet(&self) -> &str {
+        &self.pallet
+    }
+
+    /// Metadata function target. Read-only: callers cannot replace the trusted call.
+    pub fn function(&self) -> &str {
+        &self.function
+    }
+
+    /// SCALE input value. Read-only: callers cannot replace trusted parameters.
+    pub fn params(&self) -> &Value {
+        &self.params
+    }
+
+    /// Replace presentation text only. This cannot alter policy semantics.
     pub fn summary(mut self, summary: impl Into<String>) -> Self {
         self.summary = summary.into();
         self
     }
 
+    /// Compatibility policy floor for older call sites. This can only make a
+    /// trusted classification stricter. Arbitrary calls remain unbounded.
     pub fn spend(mut self, spend: Spend) -> Self {
-        self.spend = spend;
+        self.security.spend = strictest_spend(self.security.spend, spend);
         self
     }
 
+    /// Compatibility policy floor for older call sites. Supplied netuids are
+    /// unioned with constructor-derived scope; they can never remove scope.
     pub fn touches(mut self, netuids: impl IntoIterator<Item = u16>) -> Self {
-        self.netuids = netuids.into_iter().collect();
-        self.netuids.sort_unstable();
-        self.netuids.dedup();
+        self.security.netuids.extend(netuids);
+        self.security.netuids.sort_unstable();
+        self.security.netuids.dedup();
         self
     }
 
+    /// Broaden this call's subnet scope. There is intentionally no inverse.
     pub fn affects_all_subnets(mut self) -> Self {
-        self.affects_all_subnets = true;
+        self.security.affects_all_subnets = true;
         self
     }
 
+    /// Force the arbitrary-call classification. There is intentionally no
+    /// inverse that can turn a raw call into a trusted call.
     pub fn raw(mut self) -> Self {
-        self.raw = true;
+        self.security = SecuritySemantics::arbitrary();
         self
+    }
+
+    /// A bounded keep-alive TAO transfer.
+    pub fn transfer(dest: impl Into<String>, amount_rao: u128) -> Self {
+        Self::trusted(
+            "transfer",
+            SignerRole::Coldkey,
+            "Balances",
+            "transfer_keep_alive",
+            Value::record(vec![
+                ("dest".into(), Value::str(dest)),
+                ("value".into(), Value::Uint(amount_rao)),
+            ]),
+            Spend::Bounded(amount_rao),
+            [],
+            false,
+        )
+    }
+
+    /// A bounded TAO transfer that may reap the sender.
+    pub fn transfer_allow_death(dest: impl Into<String>, amount_rao: u128) -> Self {
+        Self::trusted(
+            "transfer",
+            SignerRole::Coldkey,
+            "Balances",
+            "transfer_allow_death",
+            Value::record(vec![
+                ("dest".into(), Value::str(dest)),
+                ("value".into(), Value::Uint(amount_rao)),
+            ]),
+            Spend::Bounded(amount_rao),
+            [],
+            false,
+        )
+    }
+
+    /// Transfer the account's full transferable balance.
+    pub fn transfer_all(dest: impl Into<String>, keep_alive: bool) -> Self {
+        Self::trusted(
+            "transfer_all",
+            SignerRole::Coldkey,
+            "Balances",
+            "transfer_all",
+            Value::record(vec![
+                ("dest".into(), Value::str(dest)),
+                ("keep_alive".into(), Value::Bool(keep_alive)),
+            ]),
+            Spend::Unbounded,
+            [],
+            false,
+        )
+    }
+
+    /// Stake a bounded amount of TAO on one subnet.
+    pub fn add_stake(hotkey: impl Into<String>, netuid: u16, amount_rao: u128) -> Self {
+        Self::trusted(
+            "add_stake",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "add_stake",
+            Value::record(vec![
+                ("hotkey".into(), Value::str(hotkey)),
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("amount_staked".into(), Value::Uint(amount_rao)),
+            ]),
+            Spend::Bounded(amount_rao),
+            [netuid],
+            false,
+        )
+    }
+
+    /// Stake a bounded amount of TAO with a limit price.
+    pub fn add_stake_limit(
+        hotkey: impl Into<String>,
+        netuid: u16,
+        amount_rao: u128,
+        limit_price_rao: u128,
+        allow_partial: bool,
+    ) -> Self {
+        Self::trusted(
+            "add_stake_limit",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "add_stake_limit",
+            Value::record(vec![
+                ("hotkey".into(), Value::str(hotkey)),
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("amount_staked".into(), Value::Uint(amount_rao)),
+                ("limit_price".into(), Value::Uint(limit_price_rao)),
+                ("allow_partial".into(), Value::Bool(allow_partial)),
+            ]),
+            Spend::Bounded(amount_rao),
+            [netuid],
+            false,
+        )
+    }
+
+    /// Remove alpha stake from one subnet. This moves value back to the signer,
+    /// so it is subnet-scoped but not an outgoing spend.
+    pub fn remove_stake(hotkey: impl Into<String>, netuid: u16, amount_alpha_rao: u128) -> Self {
+        Self::trusted(
+            "remove_stake",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "remove_stake",
+            Value::record(vec![
+                ("hotkey".into(), Value::str(hotkey)),
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("amount_unstaked".into(), Value::Uint(amount_alpha_rao)),
+            ]),
+            Spend::None,
+            [netuid],
+            false,
+        )
+    }
+
+    /// Remove alpha stake from one subnet with a limit price.
+    pub fn remove_stake_limit(
+        hotkey: impl Into<String>,
+        netuid: u16,
+        amount_alpha_rao: u128,
+        limit_price_rao: u128,
+        allow_partial: bool,
+    ) -> Self {
+        Self::trusted(
+            "remove_stake_limit",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "remove_stake_limit",
+            Value::record(vec![
+                ("hotkey".into(), Value::str(hotkey)),
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("amount_unstaked".into(), Value::Uint(amount_alpha_rao)),
+                ("limit_price".into(), Value::Uint(limit_price_rao)),
+                ("allow_partial".into(), Value::Bool(allow_partial)),
+            ]),
+            Spend::None,
+            [netuid],
+            false,
+        )
+    }
+
+    /// Register a subnet. The live registration cost is not known locally.
+    pub fn register_subnet(hotkey: impl Into<String>) -> Self {
+        Self::trusted(
+            "register_subnet",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "register_network",
+            Value::record(vec![("hotkey".into(), Value::str(hotkey))]),
+            Spend::Unbounded,
+            [],
+            false,
+        )
+    }
+
+    /// Activate one owned subnet.
+    pub fn start_call(netuid: u16) -> Self {
+        Self::trusted(
+            "start_call",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "start_call",
+            Value::record(vec![("netuid".into(), Value::Uint(u128::from(netuid)))]),
+            Spend::None,
+            [netuid],
+            false,
+        )
+    }
+
+    /// Register a hotkey by burning the subnet's live registration cost.
+    pub fn burned_register(netuid: u16, hotkey: impl Into<String>) -> Self {
+        Self::trusted(
+            "burned_register",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "burned_register",
+            Value::record(vec![
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("hotkey".into(), Value::str(hotkey)),
+            ]),
+            Spend::Unbounded,
+            [netuid],
+            false,
+        )
+    }
+
+    /// Register a hotkey on root.
+    pub fn root_register(hotkey: impl Into<String>) -> Self {
+        Self::trusted(
+            "root_register",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "root_register",
+            Value::record(vec![("hotkey".into(), Value::str(hotkey))]),
+            Spend::None,
+            [0],
+            false,
+        )
+    }
+
+    /// Move stake between hotkeys/subnets without transferring ownership.
+    pub fn move_stake(
+        origin_hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_hotkey: impl Into<String>,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+    ) -> Self {
+        Self::trusted(
+            "move_stake",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "move_stake",
+            Value::record(vec![
+                ("origin_hotkey".into(), Value::str(origin_hotkey)),
+                (
+                    "destination_hotkey".into(),
+                    Value::str(destination_hotkey),
+                ),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+            ]),
+            Spend::None,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
+    /// Swap stake between two subnets on one hotkey.
+    pub fn swap_stake(
+        hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+    ) -> Self {
+        Self::trusted(
+            "swap_stake",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "swap_stake",
+            Value::record(vec![
+                ("hotkey".into(), Value::str(hotkey)),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+            ]),
+            Spend::None,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
+    /// Transfer stake ownership to another coldkey. The alpha value is not
+    /// cheaply TAO-bounded, so a spend cap must reject it.
+    pub fn transfer_stake(
+        destination_coldkey: impl Into<String>,
+        hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+    ) -> Self {
+        Self::trusted(
+            "transfer_stake",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "transfer_stake",
+            Value::record(vec![
+                (
+                    "destination_coldkey".into(),
+                    Value::str(destination_coldkey),
+                ),
+                ("hotkey".into(), Value::str(hotkey)),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+            ]),
+            Spend::Unbounded,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
+    /// Unstake from every subnet on one hotkey.
+    pub fn unstake_all(hotkey: impl Into<String>) -> Self {
+        Self::trusted(
+            "unstake_all",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "unstake_all",
+            Value::record(vec![("hotkey".into(), Value::str(hotkey))]),
+            Spend::None,
+            [],
+            true,
+        )
+    }
+
+    /// Move all alpha stake to root across every subnet on one hotkey.
+    pub fn unstake_all_alpha(hotkey: impl Into<String>) -> Self {
+        Self::trusted(
+            "unstake_all_alpha",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "unstake_all_alpha",
+            Value::record(vec![("hotkey".into(), Value::str(hotkey))]),
+            Spend::None,
+            [],
+            true,
+        )
     }
 
     /// Construct an owner-settable subnet hyperparameter call while rejecting
@@ -156,14 +615,16 @@ impl IntentCall {
         // value)`. Positional input deliberately avoids baking generated Rust
         // field names into the semantic layer; live metadata remains the
         // authority for both order and SCALE types.
-        Ok(Self::new(
+        Ok(Self::trusted(
             "set_hyperparameter",
             SignerRole::Coldkey,
             "AdminUtils",
             function,
             Value::Tuple(vec![Value::Uint(u128::from(netuid)), value]),
-        )
-        .touches([netuid]))
+            Spend::None,
+            [netuid],
+            false,
+        ))
     }
 
     /// Construct and validate the runtime's root-claim enum.
@@ -210,14 +671,16 @@ impl IntentCall {
             Value::Dict(_) => subnets_from_root_claim(&value),
             _ => Vec::new(),
         };
-        Ok(Self::new(
+        Ok(Self::trusted(
             "set_root_claim_type",
             SignerRole::Coldkey,
             "SubtensorModule",
             "set_root_claim_type",
             Value::record(vec![("new_root_claim_type".into(), value)]),
-        )
-        .touches(netuids))
+            Spend::None,
+            netuids,
+            false,
+        ))
     }
 
     /// Set a delegate take to an absolute value, selecting the runtime's
@@ -254,7 +717,7 @@ impl IntentCall {
         } else {
             "increase_take"
         };
-        Ok(Self::new(
+        Ok(Self::trusted(
             "set_take",
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -263,6 +726,9 @@ impl IntentCall {
                 ("hotkey".into(), Value::str(hotkey)),
                 ("take".into(), Value::Uint(target)),
             ]),
+            Spend::None,
+            [],
+            false,
         )
         .summary(format!(
             "set delegate take to {:.2}% ({take} as u16)",
@@ -295,11 +761,13 @@ impl IntentCall {
         let mut netuids = BTreeSet::new();
         let mut affects_all_subnets = false;
         let mut summaries = Vec::with_capacity(children.len());
+        let mut raw = false;
         for child in &children {
             calls.push(Value::Bytes(child.encode(client)?));
-            spend = aggregate_spend(spend, child.spend);
-            netuids.extend(child.netuids.iter().copied());
-            affects_all_subnets |= child.affects_all_subnets;
+            spend = aggregate_spend(spend, child.security.spend);
+            netuids.extend(child.security.netuids.iter().copied());
+            affects_all_subnets |= child.security.affects_all_subnets;
+            raw |= child.security.raw;
             summaries.push(child.summary.clone());
         }
         Ok(Self {
@@ -313,10 +781,12 @@ impl IntentCall {
             pallet: "Utility".into(),
             function: "batch_all".into(),
             params: Value::record(vec![("calls".into(), Value::List(calls))]),
-            spend,
-            netuids: netuids.into_iter().collect(),
-            affects_all_subnets,
-            raw: children.iter().any(|child| child.raw),
+            security: SecuritySemantics {
+                spend,
+                netuids: netuids.into_iter().collect(),
+                affects_all_subnets,
+                raw,
+            },
         })
     }
 }
@@ -344,6 +814,17 @@ fn subnets_from_root_claim(value: &Value) -> Vec<u16> {
         .collect()
 }
 
+fn strictest_spend(left: Spend, right: Spend) -> Spend {
+    match (left, right) {
+        (Spend::Unbounded, _) | (_, Spend::Unbounded) => Spend::Unbounded,
+        (Spend::Bounded(left), Spend::Bounded(right)) => Spend::Bounded(left.max(right)),
+        (Spend::Bounded(value), Spend::None) | (Spend::None, Spend::Bounded(value)) => {
+            Spend::Bounded(value)
+        }
+        (Spend::None, Spend::None) => Spend::None,
+    }
+}
+
 fn aggregate_spend(left: Spend, right: Spend) -> Spend {
     match (left, right) {
         (Spend::Unbounded, _) | (_, Spend::Unbounded) => Spend::Unbounded,
@@ -366,7 +847,7 @@ pub struct Policy {
 impl Policy {
     pub fn check(&self, intent: &IntentCall, fee_rao: Option<u128>) -> Vec<String> {
         let mut violations = Vec::new();
-        if intent.raw && !self.allow_raw_calls {
+        if intent.security.raw && !self.allow_raw_calls {
             violations.push("raw calls are disabled by policy".into());
         }
         if let Some(max_fee) = self.max_fee_rao {
@@ -380,7 +861,7 @@ impl Policy {
             }
         }
         if let Some(max_spend) = self.max_spend_rao {
-            match intent.spend {
+            match intent.security.spend {
                 Spend::Bounded(spend) if spend > max_spend => violations.push(format!(
                     "spend {spend} rao exceeds max_spend_rao {max_spend}"
                 )),
@@ -390,12 +871,12 @@ impl Policy {
             }
         }
         if let Some(allowed) = &self.allowed_netuids {
-            if intent.affects_all_subnets {
+            if intent.security.affects_all_subnets {
                 violations.push(
                     "intent affects every subnet but policy only allows an explicit subset".into(),
                 );
             }
-            for netuid in &intent.netuids {
+            for netuid in &intent.security.netuids {
                 if !allowed.contains(netuid) {
                     violations.push(format!("netuid {netuid} is not allowed by policy"));
                 }
@@ -542,5 +1023,147 @@ impl<'a> Executor<'a> {
         }
         self.client
             .submit_shielded(&plan.call_data, wallet.signer(intent.signer), false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arbitrary_call_fails_closed_for_every_policy_dimension() {
+        let intent = IntentCall::new(
+            "caller_supplied",
+            SignerRole::Coldkey,
+            "Balances",
+            "transfer_keep_alive",
+            Value::record(vec![
+                ("dest".into(), Value::str("5caller-controlled")),
+                ("value".into(), Value::Uint(1)),
+            ]),
+        );
+        let policy = Policy {
+            max_spend_rao: Some(u128::MAX),
+            allowed_netuids: Some(BTreeSet::from([1])),
+            allow_raw_calls: false,
+            ..Policy::default()
+        };
+
+        let violations = policy.check(&intent, Some(0));
+        assert!(violations
+            .iter()
+            .any(|violation| violation == "raw calls are disabled by policy"));
+        assert!(violations.iter().any(|violation| violation
+            == "unbounded spend is not allowed while max_spend_rao is set"));
+        assert!(violations.iter().any(|violation| violation
+            == "intent affects every subnet but policy only allows an explicit subset"));
+    }
+
+    #[test]
+    fn allowing_raw_does_not_disable_spend_or_subnet_guardrails() {
+        let intent = IntentCall::raw_call(
+            "caller_supplied",
+            SignerRole::Coldkey,
+            "Sudo",
+            "sudo",
+            Value::Null,
+        );
+        let policy = Policy {
+            max_spend_rao: Some(u128::MAX),
+            allowed_netuids: Some(BTreeSet::from([1])),
+            allow_raw_calls: true,
+            ..Policy::default()
+        };
+
+        assert_eq!(
+            policy.check(&intent, Some(0)),
+            vec![
+                String::from("unbounded spend is not allowed while max_spend_rao is set"),
+                String::from(
+                    "intent affects every subnet but policy only allows an explicit subset",
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn trusted_transfer_uses_constructor_derived_bounded_spend() {
+        let intent = IntentCall::transfer("5trusted-destination", 10);
+        let exact = Policy {
+            max_spend_rao: Some(10),
+            ..Policy::default()
+        };
+        assert!(exact.check(&intent, Some(0)).is_empty());
+
+        let too_small = Policy {
+            max_spend_rao: Some(9),
+            ..Policy::default()
+        };
+        assert_eq!(
+            too_small.check(&intent, Some(0)),
+            vec![String::from("spend 10 rao exceeds max_spend_rao 9")]
+        );
+    }
+
+    #[test]
+    fn trusted_move_stake_uses_constructor_derived_netuids() {
+        let intent = IntentCall::move_stake("5origin", 1, "5destination", 2, 10);
+        let policy = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+        assert_eq!(
+            policy.check(&intent, Some(0)),
+            vec![String::from("netuid 2 is not allowed by policy")]
+        );
+    }
+
+    #[test]
+    fn compatibility_builders_cannot_downgrade_arbitrary_calls() {
+        let intent = IntentCall::new(
+            "caller_supplied",
+            SignerRole::Coldkey,
+            "Balances",
+            "transfer_keep_alive",
+            Value::record(vec![("value".into(), Value::Uint(1))]),
+        )
+        .spend(Spend::None)
+        .touches([]);
+        let policy = Policy {
+            max_spend_rao: Some(u128::MAX),
+            allowed_netuids: Some(BTreeSet::from([1])),
+            allow_raw_calls: true,
+            ..Policy::default()
+        };
+
+        assert_eq!(
+            policy.check(&intent, Some(0)),
+            vec![
+                String::from("unbounded spend is not allowed while max_spend_rao is set"),
+                String::from(
+                    "intent affects every subnet but policy only allows an explicit subset",
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn compatibility_builders_cannot_lower_trusted_spend_or_scope() {
+        let intent = IntentCall::transfer("5trusted-destination", 10)
+            .spend(Spend::None)
+            .touches([2]);
+        let policy = Policy {
+            max_spend_rao: Some(9),
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+
+        assert_eq!(
+            policy.check(&intent, Some(0)),
+            vec![
+                String::from("spend 10 rao exceeds max_spend_rao 9"),
+                String::from("netuid 2 is not allowed by policy"),
+            ]
+        );
     }
 }
