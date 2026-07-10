@@ -1113,7 +1113,7 @@ impl_runtime_apis! {
 		fn try_decode_shielded_tx(_uxt: <Block as BlockT>::Extrinsic) -> Option<ShieldedTransaction> {
 			None
 		}
-		
+
 		fn is_shielded_using_current_key(_key_hash: &[u8; 16]) -> bool {
 			false
 		}
