@@ -381,7 +381,7 @@ where
 {
     fn check(&self) -> Result<(), SerializationError> {
         //TODO probabaly turn into vartime and check that because vartime impl valid
-        match (self.key[1].check(), self.key[2].check()) {
+        match (self.key[0].check(), self.key[1].check()) {
             (Ok(()), Ok(())) => Ok(()),
             _ => Err(SerializationError::InvalidData),
         }
