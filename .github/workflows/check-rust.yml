@@ -137,8 +137,18 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: cargo-test
-      - name: cargo test --workspace --all-features
-        run: cargo test --workspace --all-features
+      - name: Install cargo-nextest
+        run: |
+          curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
+          cargo nextest --version
+      # nextest runs each test in its own process with better scheduling than
+      # libtest's per-binary threading — typically 2-3x faster on suites this
+      # size. It doesn't execute doctests, so those keep running via cargo
+      # test --doc (cheap: it reuses the build nextest just did).
+      - name: cargo nextest run --workspace --all-features
+        run: cargo nextest run --workspace --all-features
+      - name: cargo test --doc --workspace --all-features
+        run: cargo test --doc --workspace --all-features
 
   fix:
     name: cargo fix leaves no diff
