@@ -12,7 +12,9 @@ import asyncio
 from dataclasses import replace
 from typing import Any, Optional
 
-from bittensor_core import encrypt_mlkem768
+# Module import + attribute access (not `from bittensor_core import ...`):
+# ty cannot see into the compiled extension, so named imports fail its check.
+import bittensor_core as _core
 
 from ._generated import calls as generated_calls
 from ._substrate import Substrate
@@ -314,7 +316,7 @@ class Executor:
         inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
             call, keypair, nonce=nonce + 1, period=period
         )
-        ciphertext = encrypt_mlkem768(pubkey, inner_bytes, include_key_hash=True)
+        ciphertext = _core.encrypt_mlkem768(pubkey, inner_bytes, include_key_hash=True)
         outer = await self.substrate.compose(
             generated_calls.MevShield.submit_encrypted(ciphertext=ciphertext)
         )
