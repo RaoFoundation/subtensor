@@ -1,0 +1,58 @@
+{
+  "name": "@bittensor/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin TypeScript SDK backed by the monorepo's bittensor-core Rust SDK",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./native": {
+      "types": "./native.generated.d.ts",
+      "import": "./native.cjs",
+      "require": "./native.cjs",
+      "default": "./native.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "native.cjs",
+    "native.generated.d.ts",
+    "*.node",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.17"
+  },
+  "scripts": {
+    "build:native": "napi build --manifest-path native/Cargo.toml --output-dir . --platform --release --all-features --js native.cjs --dts native.generated.d.ts",
+    "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
+    "build": "npm run build:native && npm run build:ts",
+    "check": "npm run build && npm test",
+    "test": "node --test test/*.test.cjs",
+    "clean": "node scripts/clean.cjs",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "napi": {
+    "binaryName": "bittensor_sdk"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.7.2",
+    "@types/node": "22.15.0",
+    "typescript": "5.8.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RaoFoundation/subtensor.git",
+    "directory": "sdk/typescript-sdk"
+  },
+  "type": "commonjs",
+  "module": "dist/index.mjs"
+}

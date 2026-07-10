@@ -1,7 +1,7 @@
 import { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
 
 export async function disableWhiteListCheck(api: TypedApi<typeof subtensor>, disabled: boolean): Promise<void> {
@@ -10,7 +10,7 @@ export async function disableWhiteListCheck(api: TypedApi<typeof subtensor>, dis
         return;
     }
 
-    const alice = new Keyring({ type: "sr25519" }).addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.EVM.disable_whitelist({ disabled });
     const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
     await waitForTransactionWithRetry(api, tx, alice, "disable_whitelist", 5);
@@ -37,7 +37,7 @@ export async function forceSetChainID(api: TypedApi<typeof subtensor>, chainId: 
         return;
     }
 
-    const alice = new Keyring({ type: "sr25519" }).addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_evm_chain_id({ chain_id: chainId });
     const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
     await waitForTransactionWithRetry(api, tx, alice, "sudo_set_evm_chain_id", 5);

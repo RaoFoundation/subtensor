@@ -1,10 +1,6 @@
+import { hexToBytes, sealMevShieldTransaction } from "@bittensor/sdk";
 import type { KeyringPair } from "@moonwall/util";
-import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import type { subtensor } from "@polkadot-api/descriptors";
-import { hexToU8a } from "@polkadot/util";
-import { xxhashAsU8a } from "@polkadot/util-crypto";
-import { randomBytes } from "ethers";
-import { MlKem768 } from "mlkem";
 import { type TypedApi, Binary } from "polkadot-api";
 import { getSignerFromKeypair } from "./account.ts";
 import { waitForFinalizedBlocks } from "./transactions.ts";
@@ -17,7 +13,7 @@ const keyToBytes = (key: unknown): Uint8Array => {
         return (key as Binary).asBytes();
     }
     if (typeof key === "string") {
-        return hexToU8a(key);
+        return hexToBytes(key, "MEV shield key");
     }
     throw new Error(`Unexpected MEV shield key type: ${typeof key}`);
 };
@@ -57,19 +53,7 @@ export const getCurrentKey = async (api: TypedApi<typeof subtensor>): Promise<Ui
 };
 
 export const encryptTransaction = async (plaintext: Uint8Array, publicKey: Uint8Array): Promise<Uint8Array> => {
-    const keyHash = xxhashAsU8a(publicKey, 128);
-
-    const mlKem = new MlKem768();
-    const [kemCt, sharedSecret] = await mlKem.encap(publicKey);
-
-    const nonce = randomBytes(24);
-    const chacha = xchacha20poly1305(sharedSecret, nonce);
-    const aeadCt = chacha.encrypt(plaintext);
-
-    const kemLenBytes = new Uint8Array(2);
-    new DataView(kemLenBytes.buffer).setUint16(0, kemCt.length, true);
-
-    return new Uint8Array([...keyHash, ...kemLenBytes, ...kemCt, ...nonce, ...aeadCt]);
+    return sealMevShieldTransaction(publicKey, plaintext);
 };
 
 export const submitEncrypted = async (

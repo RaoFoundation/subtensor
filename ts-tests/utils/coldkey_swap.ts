@@ -1,6 +1,6 @@
-import { Keyring } from "@polkadot/keyring";
-import { blake2AsHex } from "@polkadot/util-crypto";
+import { blake2_256, bytesToHex } from "@bittensor/sdk";
 import type { KeyringPair } from "@moonwall/util";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
 import type { TypedApi } from "polkadot-api";
 import type { subtensor } from "@polkadot-api/descriptors";
@@ -11,19 +11,18 @@ export const REANNOUNCEMENT_DELAY = 20;
 
 /** Compute BLAKE2-256 hash of a keypair's public key as a FixedSizeBinary (used for announcements). */
 export function coldkeyHashBinary(pair: KeyringPair): FixedSizeBinary<32> {
-    return FixedSizeBinary.fromHex(blake2AsHex(pair.publicKey, 256));
+    return FixedSizeBinary.fromHex(bytesToHex(blake2_256(pair.publicKey)));
 }
 
 /** Compute BLAKE2-256 hash of a keypair's public key as hex string. */
 export function coldkeyHash(pair: KeyringPair): string {
-    return blake2AsHex(pair.publicKey, 256);
+    return bytesToHex(blake2_256(pair.publicKey));
 }
 
 // ── Sudo configuration ──────────────────────────────────────────────────
 
 export async function sudoSetAnnouncementDelay(api: TypedApi<typeof subtensor>, delay: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_coldkey_swap_announcement_delay({
         duration: delay,
     });
@@ -32,8 +31,7 @@ export async function sudoSetAnnouncementDelay(api: TypedApi<typeof subtensor>, 
 }
 
 export async function sudoSetReannouncementDelay(api: TypedApi<typeof subtensor>, delay: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_coldkey_swap_reannouncement_delay({
         duration: delay,
     });
@@ -79,8 +77,7 @@ export async function clearColdkeySwapAnnouncement(
 }
 
 export async function sudoResetColdkeySwap(api: TypedApi<typeof subtensor>, coldkeyAddress: string): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.SubtensorModule.reset_coldkey_swap({
         coldkey: coldkeyAddress,
     });
@@ -94,8 +91,7 @@ export async function sudoSwapColdkey(
     newAddress: string,
     swapCost = 0n
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.SubtensorModule.swap_coldkey({
         old_coldkey: oldAddress,
         new_coldkey: newAddress,

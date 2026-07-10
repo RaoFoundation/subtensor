@@ -23,9 +23,9 @@ importers:
       '@inquirer/prompts':
         specifier: 7.3.1
         version: 7.3.1(@types/node@25.9.2)
-      '@noble/ciphers':
-        specifier: ^2.1.1
-        version: 2.2.0
+      '@bittensor/sdk':
+        specifier: link:../sdk/typescript-sdk
+        version: link:../sdk/typescript-sdk
       '@polkadot-api/ink-contracts':
         specifier: ^0.4.1
         version: 0.4.6
@@ -62,9 +62,6 @@ importers:
       ethereum-cryptography:
         specifier: 3.1.0
         version: 3.1.0
-      mlkem:
-        specifier: ^2.7.0
-        version: 2.7.0
       polkadot-api:
         specifier: ^1.22.0
         version: 1.23.3(postcss@8.5.15)(rxjs@7.8.2)(tsx@4.22.4)(yaml@2.8.3)

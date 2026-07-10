@@ -32,6 +32,7 @@ members = [
 	"primitives/*",
 	"runtime",
 	"sdk/bittensor-core",
+	"sdk/typescript-sdk/native",
 	"sdk/bittensor-core-py",
 	"support/*",
 	"chain-extensions",
