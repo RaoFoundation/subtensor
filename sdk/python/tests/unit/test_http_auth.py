@@ -115,9 +115,7 @@ def test_round_trip(crypto_type: int, bob: Keypair) -> None:
 
 
 def test_round_trip_live_nonce_get_empty_body(alice_sr: Keypair, bob: Keypair) -> None:
-    headers = http_auth.sign(
-        alice_sr, method="GET", path="/health", receiver_ss58=bob.ss58_address
-    )
+    headers = http_auth.sign(alice_sr, method="GET", path="/health", receiver_ss58=bob.ss58_address)
     caller = http_auth.verify(
         headers,
         b"",
