@@ -17,6 +17,7 @@ use zeroize::Zeroizing;
 
 use crate::error::CoreError;
 
+mod base58;
 mod encrypted_json;
 
 /// Crypto type codes, matching the py-substrate-interface / btwallet convention.
@@ -45,8 +46,29 @@ pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
     Ok(account.into())
 }
 
+/// ss58 rendering, byte-identical to sp-core's `to_ss58check_with_version`
+/// but ~6x faster (see `base58.rs`); every decoded account id goes through
+/// here, thousands per storage-map page / metagraph payload.
 pub fn ss58_from_public(public_key: [u8; 32], ss58_format: u16) -> String {
-    AccountId32::from(public_key).to_ss58check_with_version(Ss58AddressFormat::custom(ss58_format))
+    // "SS58PRE" ++ prefix (1-2 bytes) ++ key (32) ++ checksum (2)
+    let mut buf = [0u8; 7 + 2 + 32 + 2];
+    buf[..7].copy_from_slice(b"SS58PRE");
+    let ident = ss58_format & 0b0011_1111_1111_1111;
+    let prefix_len = if ident < 64 {
+        buf[7] = ident as u8;
+        1
+    } else {
+        // Two-byte prefix encoding per the ss58 registry spec.
+        buf[7] = (((ident & 0b0000_0000_1111_1100) >> 2) as u8) | 0b0100_0000;
+        buf[8] = ((ident >> 8) as u8) | (((ident & 0b11) as u8) << 6);
+        2
+    };
+    buf[7 + prefix_len..7 + prefix_len + 32].copy_from_slice(&public_key);
+    let body_end = 7 + prefix_len + 32;
+    let checksum = sp_core::hashing::blake2_512(&buf[..body_end]);
+    buf[body_end] = checksum[0];
+    buf[body_end + 1] = checksum[1];
+    base58::base58_encode(&buf[7..body_end + 2])
 }
 
 fn verify_with_crypto(
@@ -399,6 +421,27 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;
+
+    #[test]
+    fn ss58_rendering_matches_sp_core() {
+        let mut state = 0x243f_6a88_85a3_08d3u64;
+        for format in [0u16, 2, 42, 63, 64, 255, 4096, 16383] {
+            for i in 0..50u32 {
+                let mut key = [0u8; 32];
+                key[..4].copy_from_slice(&i.to_le_bytes());
+                for b in &mut key[4..] {
+                    state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    *b = (state >> 33) as u8;
+                }
+                assert_eq!(
+                    ss58_from_public(key, format),
+                    AccountId32::from(key)
+                        .to_ss58check_with_version(Ss58AddressFormat::custom(format)),
+                    "diverged for format {format}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn alice_uri_matches_known_address() {

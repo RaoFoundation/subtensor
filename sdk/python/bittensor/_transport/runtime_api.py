@@ -16,33 +16,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .codec import LegacyCodec, RuntimeCodec, ss58_decode
+from .codec import RuntimeCodec, ss58_decode, ss58_encode
 from .errors import SubstrateRequestException
 from .rpc import RpcSession
-
-# Bittensor types needed to decode legacy (pre-V15) runtime-call results.
-_BITTENSOR_LEGACY_TYPES = {
-    "types": {
-        "Balance": "u64",
-        "StakeInfo": {
-            "type": "struct",
-            "type_mapping": [
-                ["hotkey", "AccountId"],
-                ["coldkey", "AccountId"],
-                ["stake", "Compact<u64>"],
-            ],
-        },
-    }
-}
-
-_legacy_codec: Optional[LegacyCodec] = None
-
-
-def _legacy() -> LegacyCodec:
-    global _legacy_codec
-    if _legacy_codec is None:
-        _legacy_codec = LegacyCodec(extra_types=_BITTENSOR_LEGACY_TYPES)
-    return _legacy_codec
 
 
 def _account_bytes(address: str) -> list[int]:
@@ -66,22 +42,46 @@ def _encode_accounts_vec_vec_u8(params: Any, codec: RuntimeCodec) -> bytes:
     return codec.encode("Vec<Vec<u8>>", [_account_bytes(a) for a in addresses])
 
 
+def _read_compact(data: bytes, offset: int) -> tuple[int, int]:
+    """(value, next offset) of one SCALE compact integer."""
+    mode = data[offset] & 0x03
+    if mode == 0:
+        return data[offset] >> 2, offset + 1
+    if mode == 1:
+        return int.from_bytes(data[offset : offset + 2], "little") >> 2, offset + 2
+    if mode == 2:
+        return int.from_bytes(data[offset : offset + 4], "little") >> 2, offset + 4
+    byte_count = (data[offset] >> 2) + 4
+    start = offset + 1
+    return int.from_bytes(data[start : start + byte_count], "little"), start + byte_count
+
+
 def _decode_stake_info_vec(raw: bytes, codec: RuntimeCodec) -> list[dict]:
-    """Old ``get_stake_info_for_coldkey`` results, upgraded to the new shape."""
-    stake_infos = _legacy().decode("Vec<StakeInfo>", raw)
-    return [
-        {
-            "netuid": 0,
-            "hotkey": info["hotkey"],
-            "coldkey": info["coldkey"],
-            "stake": info["stake"],
-            "locked": 0,
-            "emission": 0,
-            "drain": 0,
-            "is_registered": False,
-        }
-        for info in stake_infos
-    ]
+    """Old ``get_stake_info_for_coldkey`` results, upgraded to the new shape.
+
+    The legacy layout is hand-decoded (``Vec<StakeInfo>`` with StakeInfo =
+    ``{hotkey: AccountId, coldkey: AccountId, stake: Compact<u64>}``): it only
+    ever serves historical blocks, so it is frozen and will never grow.
+    """
+    count, offset = _read_compact(raw, 0)
+    out = []
+    for _ in range(count):
+        hotkey = ss58_encode(raw[offset : offset + 32], codec.ss58_format)
+        coldkey = ss58_encode(raw[offset + 32 : offset + 64], codec.ss58_format)
+        stake, offset = _read_compact(raw, offset + 64)
+        out.append(
+            {
+                "netuid": 0,
+                "hotkey": hotkey,
+                "coldkey": coldkey,
+                "stake": stake,
+                "locked": 0,
+                "emission": 0,
+                "drain": 0,
+                "is_registered": False,
+            }
+        )
+    return out
 
 
 def _registry_decoder(type_name: str):
@@ -159,12 +159,17 @@ LEGACY_RUNTIME_APIS: dict[str, dict[str, dict]] = {
 }
 
 
+def _output_type_name(codec: RuntimeCodec, definition: dict) -> Optional[str]:
+    type_id = int(definition["output"].removeprefix("scale_info::"))
+    return codec.type_name_of(type_id)
+
+
 def _is_legacy_method(codec: RuntimeCodec, api: str, method: str) -> bool:
     """True when the method must go through the legacy path."""
     definition = codec.runtime_api_map.get(api, {}).get(method)
     if definition is None:
         return True  # V14 runtime (or method unknown to V15 metadata)
-    return codec.type_name_of(definition["output"]) == "Vec<u8>"
+    return _output_type_name(codec, definition) == "Vec<u8>"
 
 
 def encode_runtime_api_params(
@@ -189,14 +194,14 @@ def encode_runtime_api_params(
             f"definition {len(definition['inputs'])} for '{api}.{method}'"
         )
     data = b""
-    for index, param in enumerate(definition["inputs"]):
+    for index, (name, type_string) in enumerate(definition["inputs"]):
         if isinstance(params, list):
             value = params[index]
         else:
-            if param["name"] not in params:
-                raise ValueError(f"Runtime Call param '{param['name']}' is missing")
-            value = params[param["name"]]
-        data += codec.encode(f"scale_info::{param['ty']}", value)
+            if name not in params:
+                raise ValueError(f"Runtime Call param '{name}' is missing")
+            value = params[name]
+        data += codec.encode(type_string, value)
     return data.hex()
 
 
@@ -211,7 +216,7 @@ def decode_runtime_api_result(codec: RuntimeCodec, api: str, method: str, raw: b
         )
         return definition["decoder"](inner_bytes, codec)
     definition = codec.runtime_api_map[api][method]
-    return codec.decode(f"scale_info::{definition['output']}", raw)
+    return codec.decode(definition["output"], raw)
 
 
 def _legacy_definition(api: str, method: str) -> dict:

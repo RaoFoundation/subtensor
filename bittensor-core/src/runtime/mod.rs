@@ -245,6 +245,15 @@ impl Runtime {
             .ok_or_else(|| CoreError::Codec(format!("unknown type id {id}")))
     }
 
+    /// The portable registry as JSON (`{"types": [{"id", "type": {...}}]}`).
+    ///
+    /// For registry-walking tooling (the shape-corpus recorder); not a hot
+    /// path.
+    pub fn registry_json(&self) -> Result<String, CoreError> {
+        serde_json::to_string(&self.types)
+            .map_err(|e| CoreError::Codec(format!("registry serialization failed: {e}")))
+    }
+
     /// `{"type": "Module", "name", "docs"}` inputs for a dispatch module error.
     pub fn module_error(
         &self,

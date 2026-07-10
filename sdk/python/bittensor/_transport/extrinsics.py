@@ -217,20 +217,16 @@ def attach_signature(
     codec: RuntimeCodec,
     unsigned: UnsignedExtrinsic,
     signature: bytes | str,
-    *,
-    call: Any = None,
 ) -> SignedExtrinsic:
     """Assemble the submittable extrinsic from an unsigned one plus a signature.
 
     The second half of :func:`prepare_extrinsic`: the signature may come from
-    anywhere — an in-process keypair, an extension, a QR round-trip. ``call``
-    skips re-decoding when the composed call object is still at hand.
+    anywhere — an in-process keypair, an extension, a QR round-trip. The call
+    is spliced back in from its raw bytes, so nothing needs re-composing.
     """
     signature, signature_version = _normalize_signature(signature, unsigned.crypto_type)
-    if call is None:
-        call = codec.call_from_data(unsigned.call_data)
     data, extrinsic_hash = codec.encode_signed_extrinsic(
-        call,
+        unsigned.call_data,
         public_key=unsigned.public_key,
         signature=signature,
         signature_version=signature_version,
@@ -319,7 +315,7 @@ async def create_signed_extrinsic(
         era_block_hash=era_block_hash,
         metadata_hash=await resolve_metadata_hash(codec, keypair, genesis_hash),
     )
-    return attach_signature(codec, unsigned, await sign_unsigned(unsigned, keypair), call=call)
+    return attach_signature(codec, unsigned, await sign_unsigned(unsigned, keypair))
 
 
 async def sign_unsigned(unsigned: UnsignedExtrinsic, keypair: Any) -> bytes:

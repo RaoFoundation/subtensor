@@ -32,7 +32,7 @@ from .result import (
     ExtrinsicResult,
     chain_error_from_substrate_request,
 )
-from .settings import DEFAULT_ERA_PERIOD, SS58_FORMAT, TYPE_REGISTRY, explorer_extrinsic_url
+from .settings import DEFAULT_ERA_PERIOD, SS58_FORMAT, explorer_extrinsic_url
 
 T = TypeVar("T")
 
@@ -284,7 +284,6 @@ class RpcSubstrate:
         return SubstrateConnection(
             endpoint,
             ss58_format=SS58_FORMAT,
-            type_registry=TYPE_REGISTRY,
             fallback_urls=fallbacks,
             retry_forever=self.retry_forever,
         )

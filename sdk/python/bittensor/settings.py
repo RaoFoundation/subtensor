@@ -8,7 +8,6 @@ import os
 from typing import Optional
 
 SS58_FORMAT = 42
-TYPE_REGISTRY: dict = {"types": {"Balance": "u64"}}
 
 TAO_SYMBOL = "\u03c4"  # τ
 ALPHA_SYMBOL = "\u03b1"  # α

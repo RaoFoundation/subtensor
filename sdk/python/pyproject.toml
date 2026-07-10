@@ -10,15 +10,13 @@ requires-python = ">=3.10,<3.14"
 license = { text = "Apache-2.0" }
 authors = [{ name = "RaoFoundation" }]
 dependencies = [
-    # Transport (bittensor/_transport) runtime deps
-    "cyscale>=0.3.3,<1.0.0",
     # Upper cap: tests/harness/fake_node.py mimics websockets internals
     # (exceptions/frames), so a new major needs a deliberate bump.
     "websockets>=14.1,<17",
-    "xxhash>=3.0.0",
     "typing_extensions>=4.0.0; python_version<'3.11'",
-    # Keys, keyfiles, timelock, and ML-KEM crypto: the in-repo Rust core,
-    # built against the same crate revisions as the runtime.
+    # Keys, keyfiles, timelock, ML-KEM crypto, and the SCALE codec/runtime
+    # engine: the in-repo Rust core, built against the same crate revisions
+    # as the runtime.
     "bittensor-core>=0.1.0,<0.2.0",
     # `btcli` terminal UI. The CLI is a first-class part of the package, so
     # its dependencies are unconditional.

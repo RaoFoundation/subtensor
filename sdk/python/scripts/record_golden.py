@@ -51,7 +51,6 @@ if (
     )
 
 SS58_FORMAT = 42
-TYPE_REGISTRY = {"types": {"Balance": "u64"}}
 
 ALICE = Keypair.create_from_uri("//Alice")
 BOB = Keypair.create_from_uri("//Bob")
@@ -455,7 +454,7 @@ async def record(sub: SubstrateConnection) -> dict[str, Any]:
 
 
 async def main() -> None:
-    sub = SubstrateConnection(ENDPOINT, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
+    sub = SubstrateConnection(ENDPOINT, ss58_format=SS58_FORMAT)
     try:
         await sub.initialize()
         golden = await record(sub)

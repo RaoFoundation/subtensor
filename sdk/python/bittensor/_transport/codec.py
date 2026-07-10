@@ -1,35 +1,29 @@
-"""The SCALE codec seam: the only module that imports ``scalecodec`` (cyscale).
+"""The SCALE codec seam, backed by the Rust core (``bittensor_core``).
 
 A :class:`RuntimeCodec` is one runtime's complete encode/decode capability,
-built from the raw metadata bytes of that runtime. Everything the rest of the
-transport needs from cyscale flows through this class (plus the module-level
-ss58 / multisig helpers), so replacing the codec engine later means rewriting
-this file and nothing else.
+built from the raw ``MetadataVersioned`` bytes of that runtime. Everything the
+rest of the transport needs from the codec engine flows through this class
+(plus the module-level ss58 / multisig helpers).
 
-All methods take and return plain Python values and ``bytes``. The one opaque
-type that escapes is the composed call object returned by :meth:`compose_call`
-— the SDK passes it around without looking inside, and every consumer of its
-internals lives in this package.
+All methods take and return plain Python values and ``bytes``. The one named
+value that escapes is :class:`~.contract.CallBytes` — raw SCALE call bytes
+plus the spec version they were composed against — returned by
+:meth:`RuntimeCodec.compose_call` and accepted back anywhere a call goes.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from functools import cached_property
-from hashlib import blake2b
 from typing import Any, Optional
 
-from scalecodec import ScaleBytes
-from scalecodec.base import RuntimeConfigurationObject, ScaleType
-from scalecodec.type_registry import load_type_registry_preset
-from scalecodec.types import GenericCall, MultiAccountId
-from scalecodec.utils.ss58 import is_valid_ss58_address as _is_valid_ss58
-from scalecodec.utils.ss58 import ss58_decode as _ss58_decode
-from scalecodec.utils.ss58 import ss58_encode as _ss58_encode
+import bittensor_core as _core
 
 from .const import SS58_FORMAT
 from .contract import (
+    CallBytes,
     CallIR,
     ErrorIR,
     MetadataIR,
@@ -65,76 +59,72 @@ def strip_option_opaque_metadata(data: bytes) -> Optional[bytes]:
 # --- module-level address helpers ------------------------------------------------
 
 
+def _public_key_bytes(public_key: bytes | str) -> bytes:
+    if isinstance(public_key, str):
+        return bytes.fromhex(public_key.removeprefix("0x"))
+    return bytes(public_key)
+
+
 def ss58_encode(public_key: bytes | str, ss58_format: int = SS58_FORMAT) -> str:
-    return _ss58_encode(public_key, ss58_format=ss58_format)
+    return _core.ss58_encode(_public_key_bytes(public_key), ss58_format)
 
 
 def ss58_decode(address: str, ss58_format: Optional[int] = None) -> str:
-    """Hex public key (no 0x) for an ss58 address."""
-    return _ss58_decode(address, valid_ss58_format=ss58_format)
+    """Hex public key (no 0x) for an ss58 address.
+
+    ``ss58_format`` additionally requires the address to carry exactly that
+    format prefix.
+    """
+    public_key = bytes(_core.ss58_decode(address))
+    if ss58_format is not None and _core.ss58_encode(public_key, ss58_format) != address:
+        raise ValueError(f"{address} is not an ss58 format {ss58_format} address")
+    return public_key.hex()
 
 
 def is_valid_ss58_address(value: str, ss58_format: Optional[int] = None) -> bool:
-    return _is_valid_ss58(value, valid_ss58_format=ss58_format)
-
-
-def _prime_runtime_configuration() -> None:
-    """Ensure scalecodec's global RuntimeConfiguration singleton is populated.
-
-    ``MultiAccountId.create_from_account_list`` builds its AccountId objects
-    through that singleton, which starts empty in a fresh process. Everywhere
-    else the codec passes an explicit ``RuntimeConfigurationObject``, so this
-    is only needed for the account-list helper. Instantiating the object with
-    a type registry populates the shared singleton state (scalecodec caches
-    the registry at class level); doing it once per process is enough and
-    repeat calls are cheap no-ops.
-    """
-    rc = RuntimeConfigurationObject(ss58_format=SS58_FORMAT)
-    if rc.get_decoder_class("AccountId") is None:
-        rc.update_type_registry(load_type_registry_preset(name="core") or {})
+    try:
+        ss58_decode(value, ss58_format)
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 def multisig_account(
     signatories: list[str], threshold: int, ss58_format: int = SS58_FORMAT
 ) -> MultisigAccount:
     """Derive the deterministic M-of-N multisig account for a signer set."""
-    _prime_runtime_configuration()
-    multi = MultiAccountId.create_from_account_list(signatories, threshold)
-    public_key = bytes.fromhex(multi.value.replace("0x", ""))
+    keys = [bytes.fromhex(ss58_decode(address)) for address in signatories]
+    account, sorted_keys = _core.multisig_account_id(keys, threshold)
     return MultisigAccount(
-        signatories=[ss58_encode(pub, ss58_format) for pub in multi.signatories],
+        signatories=[ss58_encode(key, ss58_format) for key in sorted_keys],
         threshold=threshold,
-        public_key=public_key,
-        ss58_address=ss58_encode(public_key, ss58_format),
+        public_key=bytes(account),
+        ss58_address=ss58_encode(bytes(account), ss58_format),
     )
 
 
-class LegacyCodec:
-    """Codec over the legacy (pre-scale-info) type registry.
+def _composed_calls_to_bytes(value: Any) -> Any:
+    """Replace embedded :class:`CallBytes` with their raw bytes, recursively.
 
-    Only the legacy Bittensor runtime-call registry uses this: old runtimes
-    whose runtime APIs return ``Vec<u8>`` payloads described by hand-written
-    type definitions instead of the portable registry.
+    The core's call encoder accepts pre-composed calls as raw SCALE bytes, so
+    nested composition (Sudo, batches, proxies, multisig) is a byte splice.
     """
-
-    def __init__(self, extra_types: Optional[dict] = None, ss58_format: int = SS58_FORMAT):
-        rc = RuntimeConfigurationObject(ss58_format=ss58_format)
-        rc.update_type_registry(load_type_registry_preset(name="legacy") or {})
-        if extra_types:
-            rc.update_type_registry(extra_types)
-        self._rc = rc
-
-    def encode(self, type_string: str, value: Any) -> bytes:
-        return bytes(self._rc.create_scale_object(type_string).encode(value).data)
-
-    def decode(self, type_string: str, data: bytes) -> Any:
-        obj = self._rc.create_scale_object(type_string, data=ScaleBytes(data))
-        return obj.decode()
+    if isinstance(value, CallBytes):
+        return value.data
+    if isinstance(value, dict):
+        return {key: _composed_calls_to_bytes(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_composed_calls_to_bytes(item) for item in value]
+    return value
 
 
 @dataclass
 class StorageEntry:
-    """Everything needed to build keys for / decode values of one storage item."""
+    """Everything needed to build keys for / decode values of one storage item.
+
+    Type references (``value_type``, ``param_types``) are ``scale_info::N``
+    strings valid for the runtime that produced the entry.
+    """
 
     pallet: str
     name: str
@@ -163,8 +153,6 @@ class RuntimeCodec:
         transaction_version: int,
         spec_name: str = "",
         ss58_format: int = SS58_FORMAT,
-        extra_types: Optional[dict] = None,
-        is_v15: bool = True,
     ):
         """``metadata_bytes`` is a raw ``MetadataVersioned`` blob (magic ``meta`` +
         version + body) — the inner bytes of ``Metadata_metadata_at_version`` for
@@ -172,243 +160,203 @@ class RuntimeCodec:
 
         ``spec_name`` (from ``state_getRuntimeVersion``) feeds the RFC-0078
         metadata digest for signers that verify the runtime before signing.
-
-        ``extra_types`` is the chain-specific type-registry overlay (for
-        Bittensor: ``{"types": {"Balance": "u64"}}``).
         """
         if metadata_bytes[:4] != _METADATA_MAGIC:
             raise ValueError("metadata bytes must start with the 'meta' magic")
-        self.metadata_bytes = metadata_bytes
+        self.metadata_bytes = bytes(metadata_bytes)
         self.spec_version = spec_version
         self.transaction_version = transaction_version
         self.spec_name = spec_name
         self.ss58_format = ss58_format
-        self.extra_types = extra_types or {}
-        self.is_v15 = is_v15
+        self._rt = _core.Runtime(metadata_bytes, spec_version, transaction_version, ss58_format)
 
-        rc = RuntimeConfigurationObject(ss58_format=ss58_format, implements_scale_info=True)
-        rc.clear_type_registry()
-        rc.update_type_registry(load_type_registry_preset(name="core") or {})
-        metadata = rc.create_scale_object("MetadataVersioned", data=ScaleBytes(metadata_bytes))
-        metadata.decode()
-        self._metadata = metadata
-        rc.set_active_spec_version_id(spec_version)
-        rc.add_portable_registry(metadata)
-        if self.extra_types:
-            rc.update_type_registry(self.extra_types)
-        # Weight encoding changed shape (v1 int -> v2 struct); probe which one
-        # this runtime uses so "Weight" always resolves.
-        try:
-            rc.create_scale_object("sp_weights::weight_v2::Weight")
-            rc.update_type_registry_types({"Weight": "sp_weights::weight_v2::Weight"})
-        except NotImplementedError:
-            rc.update_type_registry_types({"Weight": "WeightV1"})
-        self._rc = rc
+    @property
+    def is_v15(self) -> bool:
+        return self._rt.is_v15
 
     # -- generic encode/decode ---------------------------------------------------
 
     def encode(self, type_string: str, value: Any) -> bytes:
         """SCALE-encode ``value`` as ``type_string``.
 
-        A value that is already a decoded SCALE object contributes its original
-        bytes; ``None`` encodes as the 0x00 Option-None byte (matching the
-        behavior the SDK has always relied on for optional call params).
+        A composed call contributes its raw bytes; ``None`` encodes as the
+        0x00 Option-None byte (matching the behavior the SDK has always relied
+        on for optional call params).
         """
         if value is None:
             return b"\x00"
-        if isinstance(value, ScaleType):
-            if value.data is not None and value.data.data is not None:
-                return bytes(value.data.data)
-            value = value.value
-        return bytes(self._rc.create_scale_object(type_string).encode(value).data)
+        return self._rt.encode(type_string, _composed_calls_to_bytes(value))
 
     def decode(self, type_string: str, data: bytes, *, strict: bool = True) -> Any:
         """Decode SCALE ``data`` as ``type_string``, returning a plain value."""
-        obj = self._rc.create_scale_object(
-            type_string, data=ScaleBytes(data), metadata=self._metadata
-        )
-        obj.decode(check_remaining=strict)
-        return obj.value
+        return self._rt.decode(type_string, bytes(data), strict)
 
     def batch_decode(self, type_strings: list[str], datas: list[bytes]) -> list[Any]:
-        """Bulk decode on cyscale's fast path; the read-heavy hot loop."""
+        """Bulk decode in one crossing into the core; the read-heavy hot loop."""
         if not type_strings:
             return []
-        return self._rc.batch_decode(type_strings, datas)
+        return self._rt.batch_decode(type_strings, [bytes(data) for data in datas])
 
     def type_id_of(self, type_name: str) -> Optional[int]:
         """Portable-registry type id for a named type (e.g. ``Vec<NeuronInfoLite>``)."""
-        return self._registry_type_map.get(type_name)
+        return self._rt.type_id_of(type_name)
 
     def type_name_of(self, type_id: int) -> Optional[str]:
-        return self._type_id_to_name.get(type_id)
+        return self._rt.type_name_of(type_id)
+
+    def registry_types(self) -> list[dict]:
+        """The portable registry as plain data: ``[{"id", "type": {...}}]``.
+
+        For registry-walking tooling (the shape-corpus recorder); not a hot
+        path.
+        """
+        return json.loads(self._rt.registry_json())["types"]
 
     def decode_by_type_name(self, type_name: str, data: bytes) -> Any:
         """Decode by portable-registry type *name* (legacy runtime-call results)."""
         type_id = self.type_id_of(type_name)
         if type_id is None:
             raise ValueError(f"Type {type_name!r} not found in this runtime's registry")
-        return self.batch_decode([f"scale_info::{type_id}"], [data])[0]
+        return self.decode(f"scale_info::{type_id}", data)
 
     # -- calls ------------------------------------------------------------------------
 
-    def compose_call(self, module: str, function: str, params: dict) -> GenericCall:
-        call = self._rc.create_scale_object(type_string="Call", metadata=self._metadata)
-        call.encode({"call_module": module, "call_function": function, "call_args": params or {}})
-        return call
+    def compose_call(self, module: str, function: str, params: dict) -> CallBytes:
+        data = self._rt.compose_call(module, function, _composed_calls_to_bytes(params or {}))
+        return CallBytes(data=bytes(data), spec_version=self.spec_version)
 
     @staticmethod
-    def call_data(call: GenericCall) -> bytes:
-        return bytes(call.data.data)
+    def call_data(call: CallBytes | bytes) -> bytes:
+        """The raw SCALE bytes of a composed call (accepts raw bytes as-is)."""
+        if isinstance(call, CallBytes):
+            return call.data
+        return bytes(call)
 
-    @staticmethod
-    def call_hash(call: GenericCall) -> bytes:
-        return bytes(call.call_hash)
+    @classmethod
+    def call_hash(cls, call: CallBytes | bytes) -> bytes:
+        if isinstance(call, CallBytes):
+            return call.call_hash
+        return CallBytes(data=bytes(call), spec_version=0).call_hash
 
     def decode_call(self, data: bytes) -> Any:
         """Decode raw call bytes into the plain call dict (module/function/args)."""
-        return self.decode("Call", data)
+        return self._rt.decode_call(bytes(data))
 
-    def call_from_data(self, data: bytes) -> GenericCall:
-        """Rebuild a composed call object from its raw SCALE bytes.
+    def call_from_data(self, data: bytes) -> CallBytes:
+        """Rebuild a composed call value from its raw SCALE bytes.
 
-        The inverse of :meth:`call_data`; lets an extrinsic prepared in one
-        step (or process) be assembled in another without re-composing.
+        Lets an extrinsic prepared in one step (or process) be assembled in
+        another without re-composing.
         """
-        call = self._rc.create_scale_object(
-            type_string="Call", metadata=self._metadata, data=ScaleBytes(data)
-        )
-        call.decode()
-        return call
+        return CallBytes(data=bytes(data), spec_version=self.spec_version)
 
     # -- storage ------------------------------------------------------------------------
 
     def storage_entry(self, pallet: str, storage_function: str) -> StorageEntry:
-        metadata_pallet = self._metadata.get_metadata_pallet(pallet)
-        if not metadata_pallet:
-            raise StorageFunctionNotFound(f'Pallet "{pallet}" not found')
-        item = metadata_pallet.get_storage_function(storage_function)
-        if not item:
-            raise StorageFunctionNotFound(
-                f'Storage function "{pallet}.{storage_function}" not found'
-            )
+        try:
+            entry = self._rt.storage_entry(pallet, storage_function)
+        except KeyError as error:
+            raise StorageFunctionNotFound(str(error).strip("'\"")) from None
         return StorageEntry(
-            pallet=pallet,
-            name=item.value["name"],
-            prefix=metadata_pallet.value["storage"]["prefix"],
-            value_type=item.get_value_type_string(),
-            param_types=item.get_params_type_string(),
-            param_hashers=item.get_param_hashers(),
-            modifier=item.value["modifier"],
-            default_bytes=bytes(item.value_object["default"].value_object),
+            pallet=entry.pallet,
+            name=entry.name,
+            prefix=entry.prefix,
+            value_type=entry.value_type,
+            param_types=list(entry.param_types),
+            param_hashers=list(entry.param_hashers),
+            modifier=entry.modifier,
+            default_bytes=bytes(entry.default_bytes),
         )
 
-    def encode_storage_param(self, type_string: str, value: Any) -> bytes:
-        """Encode one storage-key parameter (ss58 addresses become raw AccountId)."""
-        if isinstance(value, bytes):
-            value = "0x" + value.hex()
-        if type_string == "AccountId" and isinstance(value, str) and not value.startswith("0x"):
-            value = "0x" + ss58_decode(value, self.ss58_format)
-        return bytes(self._rc.create_scale_object(type_string).encode(value).data)
+    def storage_key(self, entry: StorageEntry, params: list) -> bytes:
+        """The full storage key for one item (params may be a partial prefix)."""
+        if len(params) > len(entry.param_types):
+            raise ValueError(
+                f"Storage function {entry.pallet}.{entry.name} accepts at most "
+                f"{len(entry.param_types)} parameters, {len(params)} given"
+            )
+        return bytes(self._rt.storage_key(entry.pallet, entry.name, list(params)))
+
+    def storage_key_batch(self, entry: StorageEntry, params_list: list[list]) -> list[bytes]:
+        """Keys for many parameter sets of one item, in one crossing."""
+        return [
+            bytes(key)
+            for key in self._rt.storage_key_batch(
+                entry.pallet, entry.name, [list(params) for params in params_list]
+            )
+        ]
+
+    def decode_storage_key_params(self, entry: StorageEntry, key: bytes, *, fixed: int) -> list:
+        """Recover the free map-key components from one full storage key.
+
+        ``fixed`` leading parameters were part of the queried prefix and are
+        skipped, not returned.
+        """
+        return self._rt.decode_storage_key_params(entry.pallet, entry.name, bytes(key), fixed)
+
+    def decode_map_pairs(
+        self, entry: StorageEntry, raw_keys: list[bytes], raw_values: list[bytes], *, fixed: int
+    ) -> list[tuple[Any, Any]]:
+        """Decode one page of a storage map (keys and values) in one crossing.
+
+        Single free key yields a scalar key, multiple yield a tuple.
+        """
+        return self._rt.decode_map_pairs(entry.pallet, entry.name, raw_keys, raw_values, fixed)
+
+    def decode_map_changes(
+        self, entry: StorageEntry, changes: list[tuple[str, Optional[str]]], *, fixed: int
+    ) -> list[tuple[Any, Any]]:
+        """Decode raw ``state_queryStorageAt`` changes (hex strings) in one crossing.
+
+        ``None`` values (keys deleted between the key listing and the value
+        fetch) are skipped. Single free key yields a scalar key, multiple
+        yield a tuple.
+        """
+        # The RPC delivers changes as 2-element lists; the binding wants tuples.
+        pairs = [(k, v) for k, v in changes]
+        return self._rt.decode_map_changes(entry.pallet, entry.name, pairs, fixed)
 
     # -- constants ----------------------------------------------------------------------
 
     def constant(self, module: str, name: str) -> Any:
         """Decoded value of a pallet constant, or None when it does not exist."""
-        for pallet in self._metadata.pallets:
-            if pallet.name != module or not pallet.constants:
-                continue
-            for constant in pallet.constants:
-                if constant.value["name"] == name:
-                    return self.decode(constant.type, bytes(constant.constant_value))
-        return None
+        return self._rt.constant(module, name)
 
     # -- events / errors -------------------------------------------------------------------
 
     def module_error(self, module_index: int, error_index: int) -> dict:
         """``{"type": "Module", "name", "docs"}`` for a dispatch module error."""
-        error = self._metadata.get_module_error(module_index=module_index, error_index=error_index)
-        return {"type": "Module", "name": error.name, "docs": error.docs}
+        name, docs = self._rt.module_error(module_index, error_index)
+        return {"type": "Module", "name": name, "docs": docs}
 
     # -- extrinsics ----------------------------------------------------------------------------
 
     @property
     def extrinsic_version(self) -> int:
-        # int() unwraps the decoded SCALE U8 so consumers (and JSON export of
-        # the signer payload) get a plain number.
-        return int(self._metadata[1][1]["extrinsic"]["version"])
+        return self._rt.extrinsic_version
 
     def signed_extension_identifiers(self) -> list[str]:
         """Ordered identifiers of the runtime's signed extensions.
 
         Extension-style signers receive these in the payload JSON's
         ``signedExtensions``, so they frame the payload the way this runtime
-        expects. Entries are decoded ``SignedExtensionMetadataV14`` objects
-        whose values stringify to the identifier.
+        expects.
         """
-        extrinsic_meta = self._metadata[1][1]["extrinsic"]
-        if "signed_extensions" not in extrinsic_meta:
-            return []
-        out = []
-        for entry in extrinsic_meta["signed_extensions"]:
-            value = entry.value if hasattr(entry, "value") else entry
-            identifier = value.get("identifier") if isinstance(value, dict) else None
-            if isinstance(identifier, str):
-                out.append(identifier)
-        return out
+        return list(self._rt.signed_extension_identifiers())
 
     def encode_era(self, era: dict | str) -> bytes:
-        era_obj = self._rc.create_scale_object("Era")
-        era_obj.encode(era)
-        return bytes(era_obj.data.data)
+        return bytes(self._rt.encode_era(era))
 
     def era_birth(self, era: dict, current: int) -> int:
         """The block at which a mortal era starts (its ``birth``)."""
-        era_obj = self._rc.create_scale_object("Era")
-        era_obj.encode(era)
-        return era_obj.birth(current)
+        return _core.era_birth(int(era["period"]), int(current))
 
     def encode_compact(self, value: int) -> bytes:
-        return bytes(self._rc.create_scale_object("Compact").encode(int(value)).data)
-
-    # The signature payload is ``call ++ extra ++ additional``: each signed
-    # extension the runtime declares contributes its "extra" bytes (signed
-    # alongside the call) and then its "additional" bytes (implied data both
-    # sides must agree on). This table IS the payload wire format — order
-    # matters and is pinned by the golden signing-payload vectors.
-    _PAYLOAD_FIELDS: tuple[tuple[str, str, str], ...] = (
-        # (payload field, signed extension, which of its type slots to use)
-        ("era", "CheckMortality", "extrinsic"),
-        ("era", "CheckEra", "extrinsic"),
-        ("nonce", "CheckNonce", "extrinsic"),
-        ("tip", "ChargeTransactionPayment", "extrinsic"),
-        ("asset_id", "ChargeAssetTxPayment", "extrinsic"),
-        ("mode", "CheckMetadataHash", "extrinsic"),
-        ("spec_version", "CheckSpecVersion", "additional_signed"),
-        ("transaction_version", "CheckTxVersion", "additional_signed"),
-        ("genesis_hash", "CheckGenesis", "additional_signed"),
-        ("block_hash", "CheckMortality", "additional_signed"),
-        ("block_hash", "CheckEra", "additional_signed"),
-        ("metadata_hash", "CheckMetadataHash", "additional_signed"),
-    )
-
-    def _encode_payload_section(self, slot: str, values: dict) -> bytes:
-        """Encode the payload fields whose type comes from one extension slot
-        (``extrinsic`` = the "extra" bytes that travel in the extrinsic;
-        ``additional_signed`` = the implied bytes both sides agree on)."""
-        signed_extensions = self._metadata.get_signed_extensions()
-        section = self._rc.create_scale_object("ExtrinsicPayloadValue")
-        section.type_mapping = [
-            [field, signed_extensions[extension][field_slot]]
-            for field, extension, field_slot in self._PAYLOAD_FIELDS
-            if field_slot == slot and extension in signed_extensions
-        ]
-        section.encode(values)
-        return bytes(section.data.data)
+        return bytes(self._rt.encode("Compact", int(value)))
 
     def signature_payload_parts(
         self,
-        call: GenericCall,
+        call: CallBytes | bytes,
         *,
         era: dict | str,
         nonce: int,
@@ -425,30 +373,24 @@ class RuntimeCodec:
         that prove the runtime on-device (Ledger's generic app) need the parts
         separately to build the RFC-0078 extrinsic proof.
         """
-        signed_extensions = self._metadata.get_signed_extensions()
-        if metadata_hash is not None and "CheckMetadataHash" not in signed_extensions:
+        if metadata_hash is not None and (
+            "CheckMetadataHash" not in self.signed_extension_identifiers()
+        ):
             raise ValueError("this runtime does not declare CheckMetadataHash")
-        values = {
-            "era": era,
-            "nonce": nonce,
-            "tip": tip,
-            "spec_version": self.spec_version,
-            "genesis_hash": genesis_hash,
-            "block_hash": era_block_hash,
-            "transaction_version": self.transaction_version,
-            "asset_id": {"tip": tip, "asset_id": tip_asset_id},
-            "metadata_hash": ("0x" + metadata_hash.hex() if metadata_hash is not None else None),
-            "mode": "Enabled" if metadata_hash is not None else "Disabled",
-        }
-        return (
-            bytes(call.data.data),
-            self._encode_payload_section("extrinsic", values),
-            self._encode_payload_section("additional_signed", values),
+        extra, additional = self._rt.signature_payload_parts(
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            genesis_hash=_h256(genesis_hash),
+            era_block_hash=_h256(era_block_hash),
+            metadata_hash=metadata_hash,
         )
+        return self.call_data(call), bytes(extra), bytes(additional)
 
     def signature_payload(
         self,
-        call: GenericCall,
+        call: CallBytes | bytes,
         *,
         era: dict | str,
         nonce: int,
@@ -460,32 +402,33 @@ class RuntimeCodec:
     ) -> bytes:
         """The exact bytes a signer signs for this call.
 
-        The field order follows ``_PAYLOAD_FIELDS`` filtered to the signed
-        extensions this runtime actually declares. Payloads longer than 256
-        bytes are blake2b-256 hashed, per the Substrate signing convention.
+        Payloads longer than 256 bytes are blake2b-256 hashed, per the
+        Substrate signing convention.
 
         ``metadata_hash`` flips ``CheckMetadataHash`` to ``Enabled`` and signs
         the given RFC-0078 metadata digest into the payload — required by
         signers that verify the runtime before signing (Ledger's generic app).
         """
-        call_data, extra, additional = self.signature_payload_parts(
-            call,
-            era=era,
-            nonce=nonce,
-            tip=tip,
-            tip_asset_id=tip_asset_id,
-            genesis_hash=genesis_hash,
-            era_block_hash=era_block_hash,
-            metadata_hash=metadata_hash,
+        if metadata_hash is not None and (
+            "CheckMetadataHash" not in self.signed_extension_identifiers()
+        ):
+            raise ValueError("this runtime does not declare CheckMetadataHash")
+        return bytes(
+            self._rt.signature_payload(
+                self.call_data(call),
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
+                genesis_hash=_h256(genesis_hash),
+                era_block_hash=_h256(era_block_hash),
+                metadata_hash=metadata_hash,
+            )
         )
-        data = call_data + extra + additional
-        if len(data) > 256:
-            return blake2b(data, digest_size=32).digest()
-        return data
 
     def encode_signed_extrinsic(
         self,
-        call: GenericCall,
+        call: CallBytes | bytes,
         *,
         public_key: bytes,
         signature: bytes,
@@ -502,186 +445,64 @@ class RuntimeCodec:
         built with: the digest itself is implied data (``additional_signed``),
         only the mode byte travels in the extrinsic.
         """
-        if self.extrinsic_version != 4:
-            raise NotImplementedError(f"Extrinsic version {self.extrinsic_version} not supported")
-        extrinsic = self._rc.create_scale_object(type_string="Extrinsic", metadata=self._metadata)
-        value = {
-            "account_id": "0x" + public_key.hex(),
-            "signature": "0x" + signature.hex(),
-            # The call object goes in whole so its already-encoded bytes are
-            # embedded verbatim. Spreading call_module/call_args here would
-            # re-encode them — which scalecodec cannot do for a *decoded* call
-            # carrying a nested call (Proxy.proxy, Utility.batch, ...), the
-            # normal case when a signature returns from an offline signer.
-            "call": call,
-            "nonce": nonce,
-            "era": era,
-            "tip": tip,
-            "asset_id": {"tip": tip, "asset_id": tip_asset_id},
-            "mode": "Enabled" if metadata_hash_enabled else "Disabled",
-        }
-        # Multi-crypto chains carry the signature scheme in an enum wrapper.
-        signature_cls = self._rc.get_decoder_class("ExtrinsicSignature")
-        enum_cls = self._rc.get_decoder_class("Enum")
-        if (
-            signature_cls is not None
-            and enum_cls is not None
-            and issubclass(signature_cls, enum_cls)
-        ):
-            value["signature_version"] = signature_version
-        extrinsic.encode(value)
-        return bytes(extrinsic.data.data), "0x" + extrinsic.extrinsic_hash.hex()
+        data, extrinsic_hash = self._rt.encode_signed_extrinsic(
+            self.call_data(call),
+            public_key=bytes(public_key),
+            signature=bytes(signature),
+            signature_version=signature_version,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            metadata_hash_enabled=metadata_hash_enabled,
+        )
+        return bytes(data), "0x" + bytes(extrinsic_hash).hex()
 
     def decode_extrinsic(self, data: bytes | str, *, strict: bool = True) -> Any:
         """Decode one raw extrinsic (hex or bytes) into its plain value dict."""
         if isinstance(data, str):
             data = bytes.fromhex(data.removeprefix("0x"))
-        extrinsic = self._rc.create_scale_object(
-            type_string="Extrinsic", metadata=self._metadata, data=ScaleBytes(data)
-        )
-        extrinsic.decode(check_remaining=strict)
-        return extrinsic.value
+        return self._rt.decode_extrinsic(bytes(data), strict)
 
     # -- runtime APIs (modern, V15) -------------------------------------------------------------
 
     @cached_property
     def runtime_api_map(self) -> dict[str, dict[str, Any]]:
-        """``{api: {method: definition}}`` from V15 metadata (empty for V14)."""
-        if not self.is_v15:
-            return {}
-        v15 = self._metadata.get_metadata().value_object[1].value
-        return {
-            api_entry["name"]: {m["name"]: m for m in api_entry["methods"]}
-            for api_entry in v15["apis"]
-        }
-
-    # -- registry name map (for the legacy Bittensor runtime-call registry) ----------------------
-
-    @cached_property
-    def _name_maps(self) -> tuple[dict[str, int], dict[int, str]]:
-        registry_type_map: dict[str, int] = {}
-        type_id_to_name: dict[int, str] = {}
-        portable_registry = self._metadata.portable_registry
-        types = [st.value for st in portable_registry.value_object["types"].value_object]
-        type_by_id = {entry["id"]: entry for entry in types}
-
-        for type_entry in types:
-            type_id = type_entry["id"]
-            type_def = type_entry["type"]["def"]
-            type_path = type_entry["type"].get("path")
-            if type_entry.get("params") or "variant" in type_def:
-                continue
-            if type_path:
-                name = type_path[-1]
-                registry_type_map[name] = type_id
-                type_id_to_name[type_id] = name
-            elif "primitive" in type_def:
-                name = type_def["primitive"]
-                registry_type_map[name] = type_id
-                type_id_to_name[type_id] = name
-
-        pending = set(type_by_id) - set(type_id_to_name)
-
-        def resolve(type_id_: int) -> Optional[str]:
-            entry = type_by_id[type_id_]
-            type_def_ = entry["type"]["def"]
-            type_path_ = entry["type"].get("path", [])
-            type_params = entry["type"].get("params", [])
-            if type_path_:
-                base = type_path_[-1]
-                if type_params:
-                    inner = []
-                    for param in type_params:
-                        dep = param["type"]
-                        if dep not in type_id_to_name:
-                            return None
-                        inner.append(type_id_to_name[dep])
-                    return f"{base}<{', '.join(inner)}>"
-                if "variant" in type_def_:
-                    return None
-                return base
-            if "sequence" in type_def_:
-                inner_name = type_id_to_name.get(type_def_["sequence"]["type"])
-                return f"Vec<{inner_name}>" if inner_name else None
-            if "array" in type_def_:
-                inner_name = type_id_to_name.get(type_def_["array"]["type"])
-                length = type_def_["array"].get("len")
-                if inner_name:
-                    return f"[{inner_name}; {length}]" if length else f"[{inner_name}]"
-                return None
-            if "compact" in type_def_:
-                inner_name = type_id_to_name.get(type_def_["compact"]["type"])
-                return f"Compact<{inner_name}>" if inner_name else None
-            if "tuple" in type_def_:
-                names = []
-                for inner_id in type_def_["tuple"]:
-                    if inner_id not in type_id_to_name:
-                        return None
-                    names.append(type_id_to_name[inner_id])
-                return f"({', '.join(names)})"
-            return None
-
-        progressed = True
-        while progressed and pending:
-            progressed = False
-            for type_id in list(pending):
-                name = resolve(type_id)
-                if name is not None:
-                    type_id_to_name[type_id] = name
-                    registry_type_map[name] = type_id
-                    pending.discard(type_id)
-                    progressed = True
-        return registry_type_map, type_id_to_name
-
-    @property
-    def _registry_type_map(self) -> dict[str, int]:
-        return self._name_maps[0]
-
-    @property
-    def _type_id_to_name(self) -> dict[int, str]:
-        return self._name_maps[1]
+        """``{api: {method: {"name", "inputs": [(name, type_string)], "output":
+        type_string, "docs"}}}`` from V15 metadata (empty for V14)."""
+        return self._rt.runtime_api_map()
 
     # -- metadata IR (for codegen) -----------------------------------------------------------------
 
     def metadata_ir(self) -> MetadataIR:
-        def join_docs(docs: list) -> str:
-            return " ".join(d.strip() for d in (docs or [])).strip()
-
-        pallets: list[PalletIR] = []
-        for pallet in self._metadata.pallets:
-            calls = [
-                CallIR(
-                    name=call.name,
-                    args=[arg["name"] for arg in call.value.get("fields", [])],
-                    docs=join_docs(call.value.get("docs", [])),
-                )
-                for call in (pallet.calls or [])
-            ]
-            errors = [
-                ErrorIR(index=error_index, name=error.name, docs=join_docs(error.docs))
-                for error_index, error in enumerate(pallet.errors or [])
-            ]
-            # Skip pseudo-entries like `:__STORAGE_VERSION__:`.
-            storage = [
-                item.value["name"]
-                for item in (pallet.storage or [])
-                if ":" not in item.value["name"]
-            ]
-            constants = [c.value["name"] for c in (pallet.constants or [])]
-            pallets.append(
-                PalletIR(
-                    name=pallet.name,
-                    index=int(pallet.value["index"]),
-                    calls=calls,
-                    errors=errors,
-                    storage=storage,
-                    constants=constants,
-                )
+        ir = self._rt.metadata_ir()
+        pallets = [
+            PalletIR(
+                name=pallet["name"],
+                index=pallet["index"],
+                calls=[
+                    CallIR(name=call["name"], args=call["args"], docs=call["docs"])
+                    for call in pallet["calls"]
+                ],
+                errors=[
+                    ErrorIR(index=error["index"], name=error["name"], docs=error["docs"])
+                    for error in pallet["errors"]
+                ],
+                storage=pallet["storage"],
+                constants=pallet["constants"],
             )
+            for pallet in ir["pallets"]
+        ]
         runtime_apis = [
-            RuntimeApiIR(name=api, methods=list(methods))
-            for api, methods in self.runtime_api_map.items()
+            RuntimeApiIR(name=api["name"], methods=api["methods"]) for api in ir["runtime_apis"]
         ]
         return MetadataIR(
-            spec_version=self.spec_version, pallets=pallets, runtime_apis=runtime_apis
+            spec_version=ir["spec_version"], pallets=pallets, runtime_apis=runtime_apis
         )
+
+
+def _h256(value: str | bytes) -> bytes:
+    """32 hash bytes from 0x-hex or bytes."""
+    if isinstance(value, str):
+        value = bytes.fromhex(value.removeprefix("0x"))
+    return bytes(value)

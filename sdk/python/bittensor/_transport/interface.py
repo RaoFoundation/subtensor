@@ -119,18 +119,13 @@ class SubstrateConnection:
         url: str,
         *,
         ss58_format: int = SS58_FORMAT,
-        type_registry: Optional[dict] = None,
         fallback_urls: Optional[list[str]] = None,
         retry_forever: bool = False,
         max_retries: int = 5,
         response_timeout: float = 60.0,
         connect_factory=None,
     ):
-        """One connection to one chain endpoint (pool).
-
-        ``type_registry`` is the chain-specific type overlay applied to every
-        runtime's codec (for Bittensor: ``{"types": {"Balance": "u64"}}``).
-        """
+        """One connection to one chain endpoint (pool)."""
         self.url = url
         self.ss58_format = ss58_format
         self._session = RpcSession(
@@ -141,9 +136,7 @@ class SubstrateConnection:
             response_timeout=response_timeout,
             connect_factory=connect_factory,
         )
-        self._runtimes = RuntimeManager(
-            self._session, ss58_format=ss58_format, extra_types=type_registry
-        )
+        self._runtimes = RuntimeManager(self._session, ss58_format=ss58_format)
         self._nonces = NonceCache(self._session)
         self._block_hash_by_number: LRUCache = LRUCache(max_size=512)
         self._block_number_by_hash: LRUCache = LRUCache(max_size=512)
@@ -358,7 +351,6 @@ class SubstrateConnection:
             entry,
             params,
             changes,
-            prefix_hex,
             ignore_decoding_errors=ignore_decoding_errors,
         )
         return pairs, keys[-1], len(keys) < page_size

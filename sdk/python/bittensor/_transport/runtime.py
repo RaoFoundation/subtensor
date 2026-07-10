@@ -126,13 +126,11 @@ class RuntimeManager:
         session: RpcSession,
         *,
         ss58_format: int = SS58_FORMAT,
-        extra_types: Optional[dict] = None,
         codec_cache_size: int = 4,
         spec_cache_size: int = 512,
     ):
         self._session = session
         self._ss58_format = ss58_format
-        self._extra_types = extra_types or {}
         self._codecs: LRUCache = LRUCache(max_size=codec_cache_size)  # spec -> RuntimeCodec
         self._spec_by_block_hash: LRUCache = LRUCache(max_size=spec_cache_size)
         self._genesis_hash: Optional[str] = None
@@ -250,10 +248,10 @@ class RuntimeManager:
         genesis = await self.genesis_hash()
         cached = _load_metadata_from_disk(genesis, spec_version)
         if cached is not None:
-            metadata_bytes, tx_version, is_v15 = cached
+            metadata_bytes, tx_version, _is_v15 = cached
             try:
                 return self._make_codec(
-                    metadata_bytes, spec_version, tx_version, is_v15, spec_name=spec_name
+                    metadata_bytes, spec_version, tx_version, spec_name=spec_name
                 )
             except Exception as error:
                 # A cache entry whose body fails to decode would otherwise wedge
@@ -266,7 +264,7 @@ class RuntimeManager:
                     _disk_cache_path(genesis, spec_version).unlink()
         metadata_bytes, is_v15 = await self._download_metadata(at_hash)
         codec = self._make_codec(
-            metadata_bytes, spec_version, transaction_version, is_v15, spec_name=spec_name
+            metadata_bytes, spec_version, transaction_version, spec_name=spec_name
         )
         _save_metadata_to_disk(genesis, spec_version, metadata_bytes, transaction_version, is_v15)
         logger.debug(
@@ -280,7 +278,6 @@ class RuntimeManager:
         metadata_bytes: bytes,
         spec_version: int,
         transaction_version: int,
-        is_v15: bool,
         *,
         spec_name: str = "",
     ) -> RuntimeCodec:
@@ -290,8 +287,6 @@ class RuntimeManager:
             transaction_version=transaction_version,
             spec_name=spec_name,
             ss58_format=self._ss58_format,
-            extra_types=self._extra_types,
-            is_v15=is_v15,
         )
 
     async def _download_metadata(self, at_hash: Optional[str]) -> tuple[bytes, bool]:

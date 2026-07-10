@@ -77,19 +77,6 @@ def test_offline_roundtrip_assembles_nested_calls():
         assert decoded["call"]["call_function"] == function
 
 
-def test_attach_without_call_matches_in_process_path():
-    """The offline path and the call-in-hand path assemble identical bytes."""
-    c = codec()
-    kp = Keypair.create_from_uri("//Alice")
-    for name, call in _nested_calls().items():
-        unsigned = _prepare(call, kp)
-        signature = kp.sign(unsigned.payload)
-        offline = ex.attach_signature(c, unsigned, signature)
-        in_process = ex.attach_signature(c, unsigned, signature, call=call)
-        assert offline.data == in_process.data, f"{name}: assembly paths diverged"
-        assert offline.extrinsic_hash == in_process.extrinsic_hash
-
-
 def test_signature_normalization_forms_are_equivalent():
     """64-byte raw, 65-byte version-prefixed, and 0x-hex all assemble the same."""
     c = codec()

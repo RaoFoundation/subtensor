@@ -20,7 +20,7 @@ from bittensor._transport.contract import (
     PalletIR,
     RuntimeApiIR,
 )
-from bittensor.settings import SS58_FORMAT, TYPE_REGISTRY
+from bittensor.settings import SS58_FORMAT
 
 __all__ = [
     "CallIR",
@@ -35,7 +35,7 @@ __all__ = [
 
 async def dump_from_node(endpoint: str) -> MetadataIR:
     """Connect to a node and parse its current runtime metadata into the IR."""
-    connection = SubstrateConnection(endpoint, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
+    connection = SubstrateConnection(endpoint, ss58_format=SS58_FORMAT)
     await connection.initialize()
     try:
         return await connection.metadata_ir()

@@ -28,8 +28,8 @@ from bittensor._transport.runtime_api import (
     decode_runtime_api_result,
     encode_runtime_api_params,
 )
-from bittensor._transport.storage import decode_map_pairs, storage_prefix
-from bittensor.settings import SS58_FORMAT, TYPE_REGISTRY
+from bittensor._transport.storage import decode_map_pairs, storage_key
+from bittensor.settings import SS58_FORMAT
 
 DEFAULT_ENDPOINT = "wss://entrypoint-finney.opentensor.ai:443"
 
@@ -94,7 +94,7 @@ async def bench_connect(endpoint: str) -> SubstrateConnection:
     cache_dir = tempfile.mkdtemp(prefix="bench-md-cache-")
     os.environ["BITTENSOR_RUNTIME_CACHE_DIR"] = cache_dir
 
-    cold = SubstrateConnection(endpoint, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
+    cold = SubstrateConnection(endpoint, ss58_format=SS58_FORMAT)
     _, t_session = await timed(cold._session.connect())
     _, t_codec = await timed(cold._runtimes.codec_at(None))
     s.add("cold: websocket connect", ms(t_session))
@@ -112,14 +112,12 @@ async def bench_connect(endpoint: str) -> SubstrateConnection:
             spec_version=codec.spec_version,
             transaction_version=codec.transaction_version,
             ss58_format=SS58_FORMAT,
-            extra_types=TYPE_REGISTRY,
-            is_v15=codec.is_v15,
         )
     )
     s.add("codec build from metadata bytes (pure CPU)", ms(t_build))
     await cold.close()
 
-    warm = SubstrateConnection(endpoint, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
+    warm = SubstrateConnection(endpoint, ss58_format=SS58_FORMAT)
     _, t_warm = await timed(warm.initialize())
     s.add("warm connect total (disk-cached metadata)", ms(t_warm))
     return warm
@@ -153,9 +151,7 @@ async def bench_single_query(conn: SubstrateConnection) -> None:
     address = ss58_encode(bytes(range(32)), SS58_FORMAT)
     with Timer() as t_key:
         key = storage_key(codec, entry, [address])
-    raw, t_rpc = await timed(
-        conn._session.request("state_getStorageAt", ["0x" + key.hex(), None])
-    )
+    raw, t_rpc = await timed(conn._session.request("state_getStorageAt", ["0x" + key.hex(), None]))
     raw_bytes = bytes.fromhex(raw[2:]) if raw is not None else None
     with Timer() as t_decode:
         decode_storage_value(codec, entry, raw_bytes)
@@ -180,9 +176,7 @@ async def bench_metagraph(conn: SubstrateConnection, netuids: list[int]) -> None
         raw = bytes.fromhex(result.removeprefix("0x"))
         with Timer() as t_hex:
             bytes.fromhex(result.removeprefix("0x"))
-        t_decode = cpu_loop(
-            lambda raw=raw: decode_runtime_api_result(codec, api, method, raw)
-        )
+        t_decode = cpu_loop(lambda raw=raw: decode_runtime_api_result(codec, api, method, raw))
         total = t_enc.elapsed + t_rpc + t_decode
         s.add("payload size", mb(len(raw)))
         s.add("state_call (network incl. download)", ms(t_rpc))
@@ -199,7 +193,7 @@ async def bench_query_map(conn: SubstrateConnection, pages: int, page_size: int)
     s = section(f"query_map System.Account ({pages} pages x {page_size} keys, pinned block)")
     codec = await conn._runtimes.codec_at(None)
     entry = codec.storage_entry("System", "Account")
-    prefix_hex = "0x" + storage_prefix(entry).hex()
+    prefix_hex = "0x" + storage_key(codec, entry, []).hex()
     block_hash = await conn._session.request("chain_getFinalizedHead", [])
 
     t_keys_total = t_values_total = t_decode_total = 0.0
@@ -221,7 +215,7 @@ async def bench_query_map(conn: SubstrateConnection, pages: int, page_size: int)
         for group in response or []:
             changes.extend(group["changes"])
         with Timer() as t_dec:
-            pairs = decode_map_pairs(codec, entry, [], changes, prefix_hex)
+            pairs = decode_map_pairs(codec, entry, [], changes)
         t_keys_total += t_keys
         t_values_total += t_values
         t_decode_total += t_dec.elapsed
@@ -251,9 +245,7 @@ async def bench_signing(conn: SubstrateConnection) -> None:
     dest = ss58_encode(bytes(range(32)), SS58_FORMAT)
 
     with Timer() as t_compose:
-        call = codec.compose_call(
-            "Balances", "transfer_keep_alive", {"dest": dest, "value": 10**9}
-        )
+        call = codec.compose_call("Balances", "transfer_keep_alive", {"dest": dest, "value": 10**9})
     # Warm up genesis-hash / era caches so the loop below is pure local work.
     await conn.sign_without_nonce_tracking(call, kp, nonce=0, era="00")
 

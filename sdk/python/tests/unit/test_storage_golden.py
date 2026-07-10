@@ -90,7 +90,6 @@ def test_query_map_pairs_match_old_decoding():
             entry,
             _params(case),
             [(k, v) for k, v in case["raw_changes"]],
-            case["prefix_hex"],
         )
         got = [[_jsonable(k), _jsonable(v)] for k, v in pairs]
         expected = case["pairs"]

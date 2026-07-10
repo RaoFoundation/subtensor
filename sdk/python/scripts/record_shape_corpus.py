@@ -2,8 +2,8 @@
 
 The corpus is the codec's compatibility contract: for every type id in the
 fixture metadata's portable registry, `(type id, SCALE bytes, decoded value)`
-triples recorded from the production codec (cyscale today). Any replacement
-codec must reproduce these decoded shapes exactly — see
+triples recorded from the production codec (originally cyscale; now the Rust
+core). Any replacement codec must reproduce these decoded shapes exactly — see
 tests/unit/test_shape_corpus.py, which replays the corpus against whatever
 codec the transport currently uses.
 
@@ -150,8 +150,7 @@ def type_name(entry: dict) -> str:
 
 def main() -> None:
     codec = golden_codec()
-    portable = codec._metadata.portable_registry
-    types = [st.value for st in portable.value_object["types"].value_object]
+    types = codec.registry_types()
     types_by_id = {entry["id"]: entry for entry in types}
 
     records: list[dict] = []
@@ -187,7 +186,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     corpus = {
         "spec_version": golden()["network"]["spec_version"],
-        "codec": "cyscale",
+        "codec": "bittensor-core",
         "types_total": len(types),
         "types_covered": len(records),
         "skipped": skipped,

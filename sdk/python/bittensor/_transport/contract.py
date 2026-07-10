@@ -8,7 +8,29 @@ objects. Everything here is JSON-native or bytes.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from functools import cached_property
+from hashlib import blake2b
 from typing import Any, ClassVar, Optional
+
+
+@dataclass(frozen=True)
+class CallBytes:
+    """A composed call: raw SCALE call bytes plus the spec version they were
+    composed against.
+
+    This is the one opaque-ish value the transport hands out for composed
+    calls. It is a plain value, not a codec object: everything derived from a
+    call (its hash for multisig, batch embedding, decode-back for display) is
+    a pure function of these bytes, so the value serializes across process and
+    language boundaries for free.
+    """
+
+    data: bytes
+    spec_version: int
+
+    @cached_property
+    def call_hash(self) -> bytes:
+        return blake2b(self.data, digest_size=32).digest()
 
 
 @dataclass

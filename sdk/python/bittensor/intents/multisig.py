@@ -72,8 +72,8 @@ def _timepoint(value: Optional[dict]):
 
 
 def _call_bytes_hex(value: Any) -> str:
-    """0x-hex of a composed call's SCALE bytes (a ScaleBytes or raw bytes)."""
-    raw = getattr(value, "data", value)  # scalecodec ScaleBytes keeps bytes in .data
+    """0x-hex of a composed call's SCALE bytes (a CallBytes or raw bytes)."""
+    raw = getattr(value, "data", value)  # CallBytes keeps its bytes in .data
     if isinstance(raw, (bytes, bytearray)):
         return "0x" + bytes(raw).hex()
     text = str(value)

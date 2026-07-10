@@ -33,6 +33,4 @@ def golden_codec() -> RuntimeCodec:
         transaction_version=g["network"]["transaction_version"],
         spec_name="node-subtensor",
         ss58_format=g["network"]["ss58_format"],
-        extra_types={"types": {"Balance": "u64"}},
-        is_v15=True,
     )

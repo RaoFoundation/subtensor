@@ -16,7 +16,7 @@ from bittensor._transport.runtime_api import (
     decode_runtime_api_result,
     encode_runtime_api_params,
 )
-from bittensor.settings import SS58_FORMAT, TYPE_REGISTRY
+from bittensor.settings import SS58_FORMAT
 
 DEFAULT_ENDPOINT = "wss://entrypoint-finney.opentensor.ai:443"
 
@@ -52,7 +52,7 @@ async def main() -> None:
     args = parser.parse_args()
     netuids = [int(x) for x in args.netuids.split(",") if x.strip()]
 
-    conn = SubstrateConnection(args.endpoint, ss58_format=SS58_FORMAT, type_registry=TYPE_REGISTRY)
+    conn = SubstrateConnection(args.endpoint, ss58_format=SS58_FORMAT)
     await conn.initialize()
     try:
         for netuid in netuids:
