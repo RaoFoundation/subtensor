@@ -732,6 +732,20 @@ fn dissolve_materializes_nonzero_protocol_reservoirs_before_cleanup() {
 
         assert_ok!(SubtensorModule::do_dissolve_network(net));
 
+        // do_dissolve_network only queues the destructive cleanup, but it must
+        // materialize pending protocol reservoirs before the queued cleanup can
+        // compute stake payouts.
+        assert!(!pallet_subtensor_swap::BalancerTaoReservoir::<Test>::contains_key(net));
+        assert!(!pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::contains_key(net));
+        assert_eq!(SubnetTAO::<Test>::get(net), reservoir_tao);
+        assert_eq!(SubnetAlphaIn::<Test>::get(net), reservoir_alpha);
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&staker_cold),
+            staker_before
+        );
+
+        run_block_idle();
+
         // Reservoir alpha is treated like materialized protocol pool alpha.
         // The staker owns half the denominator, so receives half the reservoir
         // TAO pot; the protocol share is recycled.
