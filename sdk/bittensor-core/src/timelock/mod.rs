@@ -203,39 +203,34 @@ pub fn encrypt_at_round(data: &[u8], reveal_round: u64) -> Result<(Vec<u8>, u64)
 
 /// Fetch drand round info (blocking; tries each public endpoint in order).
 pub fn get_round_info(round: Option<u64>) -> Result<DrandResponse, CoreError> {
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| tl_err(format!("Failed to create Tokio runtime: {e}")))?;
+    let mut last_error = None;
 
-    rt.block_on(async {
-        let mut last_error = None;
+    for endpoint in DRAND_ENDPOINTS.iter() {
+        let url = match round {
+            Some(r) => format!("{}/{}/public/{}", endpoint, QUICKNET_CHAIN_HASH, r),
+            None => format!("{}/{}/public/latest", endpoint, QUICKNET_CHAIN_HASH),
+        };
 
-        for endpoint in DRAND_ENDPOINTS.iter() {
-            let url = match round {
-                Some(r) => format!("{}/{}/public/{}", endpoint, QUICKNET_CHAIN_HASH, r),
-                None => format!("{}/{}/public/latest", endpoint, QUICKNET_CHAIN_HASH),
-            };
+        let response = match reqwest::blocking::get(&url) {
+            Ok(resp) => resp,
+            Err(e) => {
+                last_error = Some(format!("Connection error to {}: {}", endpoint, e));
+                continue;
+            }
+        };
 
-            let response = match reqwest::get(&url).await {
-                Ok(resp) => resp,
-                Err(e) => {
-                    last_error = Some(format!("Connection error to {}: {}", endpoint, e));
-                    continue;
-                }
-            };
-
-            match response.json::<DrandResponse>().await {
-                Ok(parsed) => return Ok(parsed),
-                Err(e) => {
-                    last_error = Some(format!("Parsing error from {}: {}", endpoint, e));
-                    continue;
-                }
+        match response.json::<DrandResponse>() {
+            Ok(parsed) => return Ok(parsed),
+            Err(e) => {
+                last_error = Some(format!("Parsing error from {}: {}", endpoint, e));
+                continue;
             }
         }
+    }
 
-        Err(tl_err(last_error.unwrap_or_else(|| {
-            "Failed to get data from all Drand endpoints".to_string()
-        })))
-    })
+    Err(tl_err(last_error.unwrap_or_else(|| {
+        "Failed to get data from all Drand endpoints".to_string()
+    })))
 }
 
 /// The BLS signature (hex) for a reveal round, or `Ok(None)` on fetch errors
@@ -254,6 +249,47 @@ pub fn get_reveal_round_signature(
             "Failed to get Drand round {reveal_round:?}: {e}"
         ))),
     }
+}
+
+/// Decrypt a `UserData` envelope end-to-end: extract the reveal round, fetch
+/// the round's BLS signature from drand, and decrypt. With `no_errors`, a
+/// malformed envelope or unavailable round yields `Ok(None)`; decryption
+/// failures against a fetched signature always error (the data is present
+/// but wrong, which the caller should see).
+pub fn decrypt(encrypted_data: &[u8], no_errors: bool) -> Result<Option<Vec<u8>>, CoreError> {
+    let user_data = match UserData::decode(&mut &encrypted_data[..]) {
+        Ok(data) => data,
+        Err(_) if no_errors => return Ok(None),
+        Err(e) => return Err(tl_err(format!("Error deserializing data: {e:?}"))),
+    };
+
+    let Some(signature_hex) = get_reveal_round_signature(Some(user_data.reveal_round), no_errors)?
+    else {
+        return if no_errors {
+            Ok(None)
+        } else {
+            Err(tl_err("Signature not available"))
+        };
+    };
+
+    decrypt_with_signature_hex(&user_data.encrypted_data, &signature_hex).map(Some)
+}
+
+/// Decrypt a `UserData` envelope with an already-fetched signature. Useful
+/// when decrypting multiple ciphertexts for the same round.
+pub fn decrypt_with_signature(
+    encrypted_data: &[u8],
+    signature_hex: &str,
+) -> Result<Vec<u8>, CoreError> {
+    let user_data = UserData::decode(&mut &encrypted_data[..])
+        .map_err(|e| tl_err(format!("Error deserializing data: {e:?}")))?;
+    decrypt_with_signature_hex(&user_data.encrypted_data, signature_hex)
+}
+
+fn decrypt_with_signature_hex(encrypted: &[u8], signature_hex: &str) -> Result<Vec<u8>, CoreError> {
+    let signature_bytes = hex::decode(signature_hex)
+        .map_err(|e| tl_err(format!("Invalid hex in signature: {e:?}")))?;
+    decrypt_and_decompress(encrypted, &signature_bytes)
 }
 
 #[cfg(test)]

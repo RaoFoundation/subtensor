@@ -37,13 +37,7 @@ from .protocols import Keypair
 from .rpc import RpcSession
 from .runtime import RuntimeManager
 from .runtime_api import call_runtime_api, decode_runtime_api_result
-from .storage import (
-    decode_map_pairs,
-    decode_storage_value,
-    decode_storage_values,
-    storage_key,
-    storage_key_batch,
-)
+from .storage import decode_map_pairs, decode_storage_value, decode_storage_values
 
 logger = logging.getLogger("bittensor.transport")
 
@@ -242,7 +236,7 @@ class SubstrateConnection:
                 f"Storage function requires {len(entry.param_types)} parameters, "
                 f"{len(params)} given"
             )
-        key = storage_key(codec, entry, params)
+        key = codec.storage_key(entry, params)
         raw = await self._session.request("state_getStorageAt", ["0x" + key.hex(), block_hash])
         raw_bytes = bytes.fromhex(raw[2:]) if raw is not None else None
         return decode_storage_value(codec, entry, raw_bytes)
@@ -261,7 +255,7 @@ class SubstrateConnection:
             block_hash = await self.get_chain_head()
         codec = await self._runtimes.codec_at(block_hash)
         entry = codec.storage_entry(module, storage_function)
-        keys = storage_key_batch(codec, entry, params_list)
+        keys = codec.storage_key_batch(entry, params_list)
         key_hexes = ["0x" + key.hex() for key in keys]
         response = await self._session.request("state_queryStorageAt", [key_hexes, block_hash])
         by_key: dict[str, Optional[bytes]] = {}
@@ -335,7 +329,7 @@ class SubstrateConnection:
                 f"Storage function map can accept max {len(entry.param_types) - 1} "
                 f"parameters, {len(params)} given"
             )
-        prefix_hex = "0x" + storage_key(codec, entry, params).hex()
+        prefix_hex = "0x" + codec.storage_key(entry, params).hex()
         keys = await self._session.request(
             "state_getKeysPaged", [prefix_hex, page_size, start_key or prefix_hex, block_hash]
         )

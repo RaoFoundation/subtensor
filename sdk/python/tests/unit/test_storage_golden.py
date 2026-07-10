@@ -9,8 +9,6 @@ from bittensor._transport.storage import (
     decode_map_pairs,
     decode_storage_value,
     decode_storage_values,
-    storage_key,
-    storage_key_batch,
 )
 from tests.conftest import GOLDEN_FIXTURE, golden
 from tests.conftest import golden_codec as codec
@@ -27,7 +25,7 @@ def test_storage_keys_byte_identical():
     c = codec()
     for case in golden()["storage_keys"]:
         entry = c.storage_entry(case["pallet"], case["storage_function"])
-        key = storage_key(c, entry, _params(case))
+        key = c.storage_key(entry, _params(case))
         assert "0x" + key.hex() == case["key_hex"], (
             f"{case['pallet']}.{case['storage_function']}({case['params']}) key diverged"
         )
@@ -39,8 +37,8 @@ def test_storage_key_batch_matches_singles():
     account_cases = [k for k in g["storage_keys"] if k["storage_function"] == "Account"]
     entry = c.storage_entry("System", "Account")
     params_list = [_params(case) for case in account_cases]
-    batch = storage_key_batch(c, entry, params_list)
-    singles = [storage_key(c, entry, params) for params in params_list]
+    batch = c.storage_key_batch(entry, params_list)
+    singles = [c.storage_key(entry, params) for params in params_list]
     assert batch == singles
 
 

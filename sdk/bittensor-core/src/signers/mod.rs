@@ -4,4 +4,6 @@
 //! wheel) carries no device-transport native dependencies.
 
 #[cfg(feature = "ledger")]
+mod hid;
+#[cfg(feature = "ledger")]
 pub mod ledger;

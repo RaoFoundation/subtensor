@@ -100,10 +100,9 @@ class UnsignedExtrinsic:
     # The payload's wire seams (payload = call_data ++ included_in_extrinsic ++
     # included_in_signed_data, before any oversize hashing). Hardware signers
     # that prove the runtime on-device (Ledger's generic app) need the parts to
-    # build the RFC-0078 extrinsic proof. None on instances reconstructed from
-    # older serialized forms.
-    included_in_extrinsic: Optional[bytes] = None
-    included_in_signed_data: Optional[bytes] = None
+    # build the RFC-0078 extrinsic proof.
+    included_in_extrinsic: bytes
+    included_in_signed_data: bytes
 
     _BYTES_FIELDS: ClassVar[tuple[str, ...]] = (
         "call_data",

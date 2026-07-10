@@ -62,17 +62,15 @@ jobs:
           print(f"bittensor-core version stamped to {version}")
           EOF
 
-      # --no-default-features drops the "ledger" feature on Linux wheels:
-      # hidapi's hidraw backend links libudev, which the manylinux policy
-      # forbids, so a ledger-enabled wheel could not be tagged manylinux.
-      # Linux users who need Ledger install from the sdist (which keeps the
-      # default features) with libudev headers present.
+      # Default features include "ledger". On Linux hidapi uses its pure-Rust
+      # hidraw backend (linux-native-basic-udev), which links no libudev and
+      # no C, so the wheel stays manylinux-compliant with Ledger support in.
       - name: Build wheel (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           working-directory: sdk/bittensor-core-py
           command: build
-          args: --release --no-default-features --out ../../dist
+          args: --release --out ../../dist
           target: ${{ matrix.target }}
           manylinux: auto
 

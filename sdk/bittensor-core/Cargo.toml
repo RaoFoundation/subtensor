@@ -35,9 +35,11 @@ zeroize = "1"
 ark-serialize = { version = "0.4.0", features = ["derive"], default-features = false }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "max-encoded-len"] }
 rand_core = "0.6.4"
-reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+# blocking: the timelock surface is synchronous (asyncio stays in Python per
+# the spec); reqwest's blocking client runs its own internal runtime, so no
+# tokio dependency is needed here.
+reqwest = { version = "0.12.15", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 tle = { workspace = true, features = ["std"] }
-tokio = { version = "1.38", features = ["full"] }
 w3f-bls = { workspace = true, features = ["std"] }
 
 # mlkem
@@ -52,16 +54,28 @@ frame-metadata = { workspace = true, features = ["current", "decode", "std"] }
 merkleized-metadata = "0.5.1"
 
 # runtime + codec (the portable-registry engine). serde: the corpus recorder
-# walks the registry as plain JSON.
+# walks the registry as plain JSON. rayon: bulk decode fans out across
+# workers (codec/batch.rs).
+rayon = "1.10"
 scale-info = { workspace = true, features = ["std", "serde"] }
 
-# signers (feature "ledger"): Zondax's HID transport for the Polkadot generic app
+# signers (feature "ledger"): APDU types for the Polkadot generic app; the
+# HID transport itself lives in signers/ledger.rs on top of hidapi (below).
 ledger-apdu = { version = "0.11", optional = true }
-ledger-transport-hid = { version = "0.11", optional = true }
+
+# hidapi backend per OS: on Linux the pure-Rust hidraw backend — it links no
+# libudev and no C, which is what lets the manylinux wheels carry Ledger
+# support. Elsewhere the bundled C backend (IOKit on macOS, hid.dll on
+# Windows) needs no features and no external libraries.
+[target.'cfg(target_os = "linux")'.dependencies]
+hidapi = { version = "2.6.6", optional = true, default-features = false, features = ["linux-native-basic-udev"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+hidapi = { version = "2.6.6", optional = true, default-features = false }
 
 [features]
 default = []
-ledger = ["dep:ledger-apdu", "dep:ledger-transport-hid"]
+ledger = ["dep:ledger-apdu", "dep:hidapi"]
 
 [lints]
 workspace = true

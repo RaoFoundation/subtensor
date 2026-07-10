@@ -15,13 +15,13 @@ bittensor-core = { path = "../bittensor-core" }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false }
 hex = "0.4.3"
 pyo3 = { version = "0.23", features = ["abi3-py310"] }
-rayon = "1.10"
 scale-info = { version = "2.11.6", default-features = false }
 
 [features]
 default = ["ledger"]
-# Ledger generic-app support (HID). Disable to build a wheel without the
-# hidapi native dependency.
+# Ledger generic-app support (HID). On in every published wheel: the Linux
+# build uses hidapi's pure-Rust hidraw backend (no libudev, no C), so it is
+# manylinux-safe. Disable to build a wheel without HID support entirely.
 ledger = ["bittensor-core/ledger"]
 
 [lints]

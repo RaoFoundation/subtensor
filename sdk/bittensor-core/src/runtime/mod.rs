@@ -170,13 +170,21 @@ impl Runtime {
             .map_err(|e| CoreError::Codec(format!("cannot decode runtime metadata: {e}")))?;
         let (types, pallets, extrinsic, apis, outer_event_type, is_v15) = match prefixed.1 {
             RuntimeMetadata::V14(m) => {
-                let pallets = m.pallets.iter().map(|p| pallet_info!(p, &m.types)).collect();
+                let pallets = m
+                    .pallets
+                    .iter()
+                    .map(|p| pallet_info!(p, &m.types))
+                    .collect();
                 let extrinsic = extrinsic_info_v14(&m.extrinsic, &m.types);
                 let outer_event = find_outer_event_v14(&m.types);
                 (m.types, pallets, extrinsic, Vec::new(), outer_event, false)
             }
             RuntimeMetadata::V15(m) => {
-                let pallets = m.pallets.iter().map(|p| pallet_info!(p, &m.types)).collect();
+                let pallets = m
+                    .pallets
+                    .iter()
+                    .map(|p| pallet_info!(p, &m.types))
+                    .collect();
                 let extrinsic = extrinsic_info_v15(&m.extrinsic);
                 let apis = m.apis.iter().map(api_info_v15).collect();
                 let outer_event = Some(m.outer_enums.event_enum_ty.id);
@@ -195,7 +203,11 @@ impl Runtime {
             .enumerate()
             .map(|(i, p)| (p.name.clone(), i))
             .collect();
-        let pallet_by_index = pallets.iter().enumerate().map(|(i, p)| (p.index, i)).collect();
+        let pallet_by_index = pallets
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.index, i))
+            .collect();
         let (name_to_id, id_to_name) = build_name_maps(&types);
         Ok(Self {
             spec_version,
@@ -228,7 +240,10 @@ impl Runtime {
     }
 
     pub fn constant(&self, pallet: &str, name: &str) -> Option<&ConstantInfo> {
-        self.pallet(pallet)?.constants.iter().find(|c| c.name == name)
+        self.pallet(pallet)?
+            .constants
+            .iter()
+            .find(|c| c.name == name)
     }
 
     pub fn type_id_of(&self, name: &str) -> Option<u32> {
@@ -260,12 +275,12 @@ impl Runtime {
         module_index: u8,
         error_index: u8,
     ) -> Result<(String, Vec<String>), CoreError> {
-        let pallet = self.pallet_at(module_index).ok_or_else(|| {
-            CoreError::Codec(format!("no pallet at index {module_index}"))
-        })?;
-        let errors_type = pallet.errors_type.ok_or_else(|| {
-            CoreError::Codec(format!("pallet {} has no errors", pallet.name))
-        })?;
+        let pallet = self
+            .pallet_at(module_index)
+            .ok_or_else(|| CoreError::Codec(format!("no pallet at index {module_index}")))?;
+        let errors_type = pallet
+            .errors_type
+            .ok_or_else(|| CoreError::Codec(format!("pallet {} has no errors", pallet.name)))?;
         let ty = self.resolve(errors_type)?;
         let TypeDef::Variant(variant) = &ty.type_def else {
             return Err(CoreError::Codec("error type is not an enum".into()));
@@ -300,17 +315,14 @@ fn storage_info(
             key,
             value,
         } => {
-            let hasher_names: Vec<String> =
-                hashers.iter().map(|h| format!("{h:?}")).collect();
+            let hasher_names: Vec<String> = hashers.iter().map(|h| format!("{h:?}")).collect();
             // One hasher, one key type; several hashers hash the components
             // of a key tuple separately.
             let key_ids: Vec<u32> = if hasher_names.len() == 1 {
                 vec![key.id]
             } else {
                 match types.resolve(key.id).map(|t| &t.type_def) {
-                    Some(TypeDef::Tuple(tuple)) => {
-                        tuple.fields.iter().map(|f| f.id).collect()
-                    }
+                    Some(TypeDef::Tuple(tuple)) => tuple.fields.iter().map(|f| f.id).collect(),
                     _ => vec![key.id],
                 }
             };
@@ -327,7 +339,6 @@ fn storage_info(
         default_bytes: entry.default.clone(),
     }
 }
-
 
 fn extrinsic_info_v14(
     extrinsic: &v14::ExtrinsicMetadata<PortableForm>,

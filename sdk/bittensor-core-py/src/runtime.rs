@@ -5,213 +5,17 @@
 use std::sync::Arc;
 
 use bittensor_core::codec::extrinsic::{era_birth, multisig_account_id, TxParams};
-use bittensor_core::codec::value::{u256_decimal, Value};
 use bittensor_core::codec::{decode::Cursor, storage::storage_prefix};
-use bittensor_core::runtime::type_string::TypeSpec;
 use bittensor_core::runtime::{Runtime, StorageInfo};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyInt, PyList, PyString, PyTuple};
-use rayon::prelude::*;
+use pyo3::types::{PyBytes, PyDict, PyList};
 
 use crate::errors::to_py_err;
-
-/// Below this many items the rayon fan-out costs more than it saves.
-const PARALLEL_THRESHOLD: usize = 64;
-
-// --- Value <-> Python -----------------------------------------------------
-
-/// Per-call cache of repeated Python objects.
-///
-/// Decoded trees repeat the same field names thousands of times (one dict per
-/// map entry / per collection element); reusing one `PyString` per distinct
-/// key skips both the allocation and the re-hashing on dict insert. Big
-/// integers beyond the CPython i64 fast path repeat too (`flags` is the
-/// constant 2^127 on virtually every account). The cache lives for a single
-/// binding call, so unique strings (ss58 BTreeMap keys) cannot accumulate
-/// across calls.
-///
-/// Linear-scan `Vec`s, not `HashMap`s: a decoded shape has ~a dozen distinct
-/// field names, and this sits on the hot materialization path where SipHash
-/// per lookup costs more than a short scan. `get` caps the cache so a
-/// pathological dict (thousands of distinct string keys) degrades to plain
-/// allocation instead of quadratic scanning.
-#[derive(Default)]
-struct StrCache {
-    strings: Vec<(String, Py<PyString>)>,
-    big_uints: Vec<(u128, PyObject)>,
-}
-
-const STR_CACHE_CAP: usize = 64;
-
-impl StrCache {
-    fn get(&mut self, py: Python<'_>, s: &str) -> PyObject {
-        if let Some((_, cached)) = self.strings.iter().find(|(k, _)| k == s) {
-            return cached.clone_ref(py).into_any();
-        }
-        let obj = PyString::new(py, s).unbind();
-        if self.strings.len() < STR_CACHE_CAP {
-            self.strings.push((s.to_owned(), obj.clone_ref(py)));
-        }
-        obj.into_any()
-    }
-
-    fn get_big_uint(&mut self, py: Python<'_>, u: u128) -> PyResult<PyObject> {
-        if let Some((_, cached)) = self.big_uints.iter().find(|(k, _)| *k == u) {
-            return Ok(cached.clone_ref(py));
-        }
-        let obj: PyObject = u.into_pyobject(py)?.into_any().unbind();
-        if self.big_uints.len() < STR_CACHE_CAP {
-            self.big_uints.push((u, obj.clone_ref(py)));
-        }
-        Ok(obj)
-    }
-}
-
-/// Materialize a decoded value as the exact Python objects cyscale produced.
-fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<PyObject> {
-    value_to_py_cached(py, value, &mut StrCache::default())
-}
-
-fn value_to_py_cached(py: Python<'_>, value: &Value, cache: &mut StrCache) -> PyResult<PyObject> {
-    Ok(match value {
-        Value::Null => py.None(),
-        Value::Bool(b) => b.into_pyobject(py)?.to_owned().into_any().unbind(),
-        // 64-bit fast paths: pyo3 converts 128-bit ints through a byte-array
-        // round-trip, which dominates materialization for the common small
-        // values (balances, counters).
-        Value::Int(i) => match i64::try_from(*i) {
-            Ok(small) => small.into_pyobject(py)?.into_any().unbind(),
-            Err(_) => i.into_pyobject(py)?.into_any().unbind(),
-        },
-        Value::Uint(u) => match u64::try_from(*u) {
-            Ok(small) => small.into_pyobject(py)?.into_any().unbind(),
-            Err(_) => cache.get_big_uint(py, *u)?,
-        },
-        Value::U256(le) => py
-            .get_type::<PyInt>()
-            .call1((u256_decimal(le),))?
-            .unbind(),
-        Value::Str(s) => s.into_pyobject(py)?.into_any().unbind(),
-        Value::Bytes(b) => PyBytes::new(py, b).into_any().unbind(),
-        Value::List(items) => {
-            let converted = items
-                .iter()
-                .map(|item| value_to_py_cached(py, item, cache))
-                .collect::<PyResult<Vec<_>>>()?;
-            PyList::new(py, converted)?.into_any().unbind()
-        }
-        Value::Tuple(items) => {
-            let converted = items
-                .iter()
-                .map(|item| value_to_py_cached(py, item, cache))
-                .collect::<PyResult<Vec<_>>>()?;
-            PyTuple::new(py, converted)?.into_any().unbind()
-        }
-        Value::Dict(entries) => {
-            let dict = PyDict::new(py);
-            for (k, v) in entries {
-                let key = match k {
-                    Value::Str(s) => cache.get(py, s),
-                    other => value_to_py_cached(py, other, cache)?,
-                };
-                dict.set_item(key, value_to_py_cached(py, v, cache)?)?;
-            }
-            dict.into_any().unbind()
-        }
-    })
-}
-
-/// Accept the lenient Python inputs the codec seam always took.
-fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
-    if obj.is_none() {
-        return Ok(Value::Null);
-    }
-    // bool before int: Python bools are ints.
-    if let Ok(b) = obj.downcast::<pyo3::types::PyBool>() {
-        return Ok(Value::Bool(b.is_true()));
-    }
-    if obj.downcast::<PyInt>().is_ok() {
-        if let Ok(i) = obj.extract::<i128>() {
-            return Ok(Value::Int(i));
-        }
-        if let Ok(u) = obj.extract::<u128>() {
-            return Ok(Value::Uint(u));
-        }
-        // Bigger than u128: U256 little-endian.
-        let raw: Vec<u8> = obj
-            .call_method1("to_bytes", (32usize, "little"))?
-            .extract()?;
-        let le: [u8; 32] = raw
-            .try_into()
-            .map_err(|_| pyo3::exceptions::PyValueError::new_err("integer out of u256 range"))?;
-        return Ok(Value::U256(le));
-    }
-    if let Ok(s) = obj.extract::<String>() {
-        return Ok(Value::Str(s));
-    }
-    if let Ok(b) = obj.extract::<Vec<u8>>() {
-        // bytes/bytearray only — a list of ints also extracts to Vec<u8>, so
-        // check the concrete type first.
-        if obj.downcast::<PyBytes>().is_ok()
-            || obj.downcast::<pyo3::types::PyByteArray>().is_ok()
-        {
-            return Ok(Value::Bytes(b));
-        }
-    }
-    if let Ok(list) = obj.downcast::<PyList>() {
-        let mut items = Vec::with_capacity(list.len());
-        for item in list.iter() {
-            items.push(py_to_value(&item)?);
-        }
-        return Ok(Value::List(items));
-    }
-    if let Ok(tuple) = obj.downcast::<PyTuple>() {
-        let mut items = Vec::with_capacity(tuple.len());
-        for item in tuple.iter() {
-            items.push(py_to_value(&item)?);
-        }
-        return Ok(Value::Tuple(items));
-    }
-    if let Ok(dict) = obj.downcast::<PyDict>() {
-        let mut entries = Vec::with_capacity(dict.len());
-        for (k, v) in dict.iter() {
-            entries.push((py_to_value(&k)?, py_to_value(&v)?));
-        }
-        return Ok(Value::Dict(entries));
-    }
-    Err(pyo3::exceptions::PyTypeError::new_err(format!(
-        "cannot encode Python object of type {:?} as SCALE",
-        obj.get_type().name()?
-    )))
-}
-
-/// Materialize decoded map pages: single free key yields a scalar key,
-/// multiple yield a tuple.
-fn materialize_pairs(
-    py: Python<'_>,
-    decoded: &[(Vec<Value>, Value)],
-) -> PyResult<Vec<(PyObject, PyObject)>> {
-    let mut cache = StrCache::default();
-    let mut out = Vec::with_capacity(decoded.len());
-    for (params, value) in decoded {
-        let key_obj = if let [single] = params.as_slice() {
-            value_to_py_cached(py, single, &mut cache)?
-        } else {
-            let parts = params
-                .iter()
-                .map(|p| value_to_py_cached(py, p, &mut cache))
-                .collect::<PyResult<Vec<_>>>()?;
-            PyTuple::new(py, parts)?.into_any().unbind()
-        };
-        out.push((key_obj, value_to_py_cached(py, value, &mut cache)?));
-    }
-    Ok(out)
-}
+use crate::values::{materialize_pairs, py_to_value, value_to_py, value_to_py_cached, StrCache};
 
 fn h256_arg(name: &str, raw: &[u8]) -> PyResult<[u8; 32]> {
-    raw.try_into().map_err(|_| {
-        pyo3::exceptions::PyValueError::new_err(format!("{name} must be 32 bytes"))
-    })
+    raw.try_into()
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err(format!("{name} must be 32 bytes")))
 }
 
 // --- StorageEntry -----------------------------------------------------------
@@ -366,7 +170,10 @@ impl PyRuntime {
         strict: bool,
     ) -> PyResult<PyObject> {
         let spec = self.inner.type_spec(type_string).map_err(to_py_err)?;
-        let value = self.inner.decode_spec(&spec, data, strict).map_err(to_py_err)?;
+        let value = self
+            .inner
+            .decode_spec(&spec, data, strict)
+            .map_err(to_py_err)?;
         value_to_py(py, &value)
     }
 
@@ -379,41 +186,9 @@ impl PyRuntime {
         type_strings: Vec<String>,
         datas: Vec<Vec<u8>>,
     ) -> PyResult<Vec<PyObject>> {
-        if type_strings.len() != datas.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "type_strings and datas must have the same length",
-            ));
-        }
-        let mut specs: Vec<TypeSpec> = Vec::with_capacity(type_strings.len());
-        let mut last: Option<(&str, TypeSpec)> = None;
-        for type_string in &type_strings {
-            let spec = match &last {
-                Some((s, spec)) if *s == type_string.as_str() => spec.clone(),
-                _ => {
-                    let spec = self.inner.type_spec(type_string).map_err(to_py_err)?;
-                    last = Some((type_string.as_str(), spec.clone()));
-                    spec
-                }
-            };
-            specs.push(spec);
-        }
         let inner = &self.inner;
         let values = py
-            .allow_threads(|| {
-                if datas.len() >= PARALLEL_THRESHOLD {
-                    specs
-                        .par_iter()
-                        .zip(datas.par_iter())
-                        .map(|(spec, data)| inner.decode_spec(spec, data, true))
-                        .collect::<Result<Vec<_>, _>>()
-                } else {
-                    specs
-                        .iter()
-                        .zip(&datas)
-                        .map(|(spec, data)| inner.decode_spec(spec, data, true))
-                        .collect()
-                }
-            })
+            .allow_threads(|| inner.decode_batch(&type_strings, &datas))
             .map_err(to_py_err)?;
         let mut cache = StrCache::default();
         values
@@ -474,7 +249,10 @@ impl PyRuntime {
     /// (``call_module``/``call_function``/``call_args``/``call_hash``).
     fn decode_call(&self, py: Python<'_>, data: &[u8]) -> PyResult<PyObject> {
         let mut cursor = Cursor::new(data);
-        let value = self.inner.decode_call_value(&mut cursor).map_err(to_py_err)?;
+        let value = self
+            .inner
+            .decode_call_value(&mut cursor)
+            .map_err(to_py_err)?;
         if cursor.remaining() != 0 {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "{} undecoded bytes remain after the call",
@@ -488,7 +266,10 @@ impl PyRuntime {
 
     /// Storage-item metadata, or raises KeyError.
     fn storage_entry(&self, pallet: &str, storage_function: &str) -> PyResult<PyStorageEntry> {
-        Ok(storage_entry_py(pallet, self.entry(pallet, storage_function)?))
+        Ok(storage_entry_py(
+            pallet,
+            self.entry(pallet, storage_function)?,
+        ))
     }
 
     /// The 32-byte item prefix (``twox128(prefix) ++ twox128(name)``).
@@ -577,35 +358,10 @@ impl PyRuntime {
         raw_values: Vec<Vec<u8>>,
         fixed: usize,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
-        if raw_keys.len() != raw_values.len() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "raw_keys and raw_values must have the same length",
-            ));
-        }
         let entry = self.entry(pallet, storage_function)?;
-        let value_spec = TypeSpec::Id(entry.value_type);
         let inner = &self.inner;
-        let decode_one = |raw_key: &Vec<u8>, raw_value: &Vec<u8>| {
-            let params = inner.decode_storage_key_params(entry, raw_key, fixed)?;
-            let value = inner.decode_spec(&value_spec, raw_value, true)?;
-            Ok((params, value))
-        };
         let decoded = py
-            .allow_threads(|| {
-                if raw_keys.len() >= PARALLEL_THRESHOLD {
-                    raw_keys
-                        .par_iter()
-                        .zip(raw_values.par_iter())
-                        .map(|(k, v)| decode_one(k, v))
-                        .collect::<Result<Vec<_>, _>>()
-                } else {
-                    raw_keys
-                        .iter()
-                        .zip(&raw_values)
-                        .map(|(k, v)| decode_one(k, v))
-                        .collect()
-                }
-            })
+            .allow_threads(|| inner.decode_map_page(entry, &raw_keys, &raw_values, fixed))
             .map_err(to_py_err)?;
         materialize_pairs(py, &decoded)
     }
@@ -624,34 +380,9 @@ impl PyRuntime {
         fixed: usize,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
         let entry = self.entry(pallet, storage_function)?;
-        let value_spec = TypeSpec::Id(entry.value_type);
         let inner = &self.inner;
-        let unhex = |s: &str| {
-            hex::decode(s.trim_start_matches("0x"))
-                .map_err(|e| bittensor_core::CoreError::Codec(format!("bad hex in changes: {e}")))
-        };
-        let decode_one = |key_hex: &str, value_hex: &str| {
-            let raw_key = unhex(key_hex)?;
-            let raw_value = unhex(value_hex)?;
-            let params = inner.decode_storage_key_params(entry, &raw_key, fixed)?;
-            let value = inner.decode_spec(&value_spec, &raw_value, true)?;
-            Ok((params, value))
-        };
-        let present: Vec<(&str, &str)> = changes
-            .iter()
-            .filter_map(|(k, v)| v.as_deref().map(|v| (k.as_str(), v)))
-            .collect();
         let decoded = py
-            .allow_threads(|| {
-                if present.len() >= PARALLEL_THRESHOLD {
-                    present
-                        .par_iter()
-                        .map(|(k, v)| decode_one(k, v))
-                        .collect::<Result<Vec<_>, _>>()
-                } else {
-                    present.iter().map(|(k, v)| decode_one(k, v)).collect()
-                }
-            })
+            .allow_threads(|| inner.decode_map_changes(entry, &changes, fixed))
             .map_err(to_py_err)?;
         materialize_pairs(py, &decoded)
     }
@@ -809,7 +540,10 @@ impl PyRuntime {
     /// Decode one raw extrinsic into its plain value dict.
     #[pyo3(signature = (data, strict=true))]
     fn decode_extrinsic(&self, py: Python<'_>, data: &[u8], strict: bool) -> PyResult<PyObject> {
-        let value = self.inner.decode_extrinsic(data, strict).map_err(to_py_err)?;
+        let value = self
+            .inner
+            .decode_extrinsic(data, strict)
+            .map_err(to_py_err)?;
         value_to_py(py, &value)
     }
 
@@ -898,8 +632,7 @@ impl PyRuntime {
                 .map(|s| s.name.as_str())
                 .collect();
             entry.set_item("storage", storage)?;
-            let constants: Vec<&str> =
-                pallet.constants.iter().map(|c| c.name.as_str()).collect();
+            let constants: Vec<&str> = pallet.constants.iter().map(|c| c.name.as_str()).collect();
             entry.set_item("constants", constants)?;
             pallets.append(entry)?;
         }

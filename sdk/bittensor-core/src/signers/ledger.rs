@@ -16,10 +16,10 @@
 // length guards before slicing.
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
-use ledger_apdu::APDUCommand;
-use ledger_transport_hid::{hidapi::HidApi, TransportNativeHID};
+use ledger_apdu::{APDUAnswer, APDUCommand};
 
 use crate::error::CoreError;
+use crate::signers::hid::Transport;
 
 const CLA: u8 = 0xF9;
 const INS_GET_VERSION: u8 = 0x00;
@@ -50,7 +50,7 @@ pub struct LedgerAddress {
 
 /// One connected Ledger running the Polkadot generic app.
 pub struct LedgerDevice {
-    transport: TransportNativeHID,
+    transport: Transport,
 }
 
 impl LedgerDevice {
@@ -59,14 +59,9 @@ impl LedgerDevice {
     /// Fails with a device error when no Ledger is plugged in / unlocked or
     /// when the OS denies HID access.
     pub fn open() -> Result<Self, CoreError> {
-        let api =
-            HidApi::new().map_err(|e| CoreError::Device(format!("cannot initialize HID: {e}")))?;
-        let transport = TransportNativeHID::new(&api).map_err(|e| {
-            CoreError::Device(format!(
-                "no Ledger device found (is it connected and unlocked?): {e}"
-            ))
-        })?;
-        Ok(Self { transport })
+        Ok(Self {
+            transport: Transport::open()?,
+        })
     }
 
     /// The generic app's version, as `(major, minor, patch)`.
@@ -168,10 +163,9 @@ impl LedgerDevice {
             p2,
             data,
         };
-        let answer = self
-            .transport
-            .exchange(&command)
-            .map_err(|e| CoreError::Device(format!("HID exchange failed: {e}")))?;
+        let raw = self.transport.exchange(&command.serialize())?;
+        let answer = APDUAnswer::from_answer(raw)
+            .map_err(|_| CoreError::Device("HID response was too short".into()))?;
         match answer.retcode() {
             RETCODE_OK => Ok(answer.data().to_vec()),
             RETCODE_USER_REFUSED => Err(CoreError::Device(

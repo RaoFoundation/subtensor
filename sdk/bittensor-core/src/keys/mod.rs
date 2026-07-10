@@ -11,7 +11,7 @@
 use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sealedbox;
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
-use sp_core::crypto::{AccountId32, Pair as PairT, Ss58AddressFormat, Ss58Codec};
+use sp_core::crypto::{AccountId32, Pair as PairT, Ss58Codec};
 use sp_core::{ed25519, sr25519, ByteArray};
 use zeroize::Zeroizing;
 
@@ -419,6 +419,8 @@ pub fn verify(
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use sp_core::crypto::Ss58AddressFormat;
 
     use super::*;
 

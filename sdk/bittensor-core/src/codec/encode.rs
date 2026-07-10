@@ -6,7 +6,13 @@
 
 // Client-side codec, not runtime code: buffers grow as values encode and
 // arithmetic operates on lengths and era math.
-#![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects, clippy::cast_possible_truncation)]
+#![allow(
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation
+)]
+
+use std::cell::Cell;
 
 use scale_info::{form::PortableForm, Field, TypeDef, TypeDefPrimitive};
 
@@ -15,6 +21,45 @@ use crate::error::CoreError;
 use crate::keys::public_key_from_ss58;
 use crate::runtime::type_string::{Primitive, TypeSpec};
 use crate::runtime::Runtime;
+
+/// Recursion ceiling, mirroring `decode.rs`. Metadata is untrusted (it comes
+/// from the connected node) and `encode_fields` unwraps single-field newtypes
+/// without consuming value structure, so a self-referential composite would
+/// otherwise recurse until the stack aborts the process. Encoding has no
+/// cursor to carry depth, so a thread-local tracks it (encode never crosses
+/// threads mid-value).
+const MAX_ENCODE_DEPTH: usize = 256;
+
+thread_local! {
+    static ENCODE_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct DepthGuard;
+
+impl DepthGuard {
+    fn enter() -> Result<Self, CoreError> {
+        let depth = ENCODE_DEPTH.with(|d| {
+            let next = d.get() + 1;
+            d.set(next);
+            next
+        });
+        // The guard is constructed either way, so Drop rebalances the counter
+        // on both the error path and normal unwinding.
+        let guard = DepthGuard;
+        if depth > MAX_ENCODE_DEPTH {
+            return Err(CoreError::Codec(format!(
+                "encode recursion exceeds {MAX_ENCODE_DEPTH} levels (malformed or malicious type definition)"
+            )));
+        }
+        Ok(guard)
+    }
+}
+
+impl Drop for DepthGuard {
+    fn drop(&mut self) {
+        ENCODE_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
 
 /// Compact-encode an unsigned integer.
 pub fn compact(value: u128, out: &mut Vec<u8>) -> Result<(), CoreError> {
@@ -47,6 +92,7 @@ impl Runtime {
         value: &Value,
         out: &mut Vec<u8>,
     ) -> Result<(), CoreError> {
+        let _depth = DepthGuard::enter()?;
         match spec {
             TypeSpec::Id(id) => self.encode_id(*id, value, out),
             TypeSpec::Primitive(p) => encode_primitive_spec(*p, value, out),
@@ -128,6 +174,7 @@ impl Runtime {
     }
 
     pub fn encode_id(&self, id: u32, value: &Value, out: &mut Vec<u8>) -> Result<(), CoreError> {
+        let _depth = DepthGuard::enter()?;
         let ty = self.resolve(id)?;
         let segments = &ty.path.segments;
         let last = segments.last().map(String::as_str);
@@ -484,9 +531,7 @@ impl Runtime {
             .variants
             .iter()
             .find(|v| v.name == function)
-            .ok_or_else(|| {
-                CoreError::Codec(format!("call {pallet}.{function} not found"))
-            })?;
+            .ok_or_else(|| CoreError::Codec(format!("call {pallet}.{function} not found")))?;
         let mut out = vec![pallet_info.index, chosen.index];
         let Value::Dict(entries) = params else {
             return Err(CoreError::Codec("call params must be a dict".into()));
@@ -498,7 +543,9 @@ impl Runtime {
                 .find(|(k, _)| matches!(k, Value::Str(s) if s == name))
                 .map(|(_, v)| v)
                 .ok_or_else(|| {
-                    CoreError::Codec(format!("missing call param {name:?} for {pallet}.{function}"))
+                    CoreError::Codec(format!(
+                        "missing call param {name:?} for {pallet}.{function}"
+                    ))
                 })?;
             self.encode_id(field.ty.id, item, &mut out)?;
         }
@@ -523,7 +570,9 @@ fn coerce_uint(value: &Value) -> Result<u128, CoreError> {
             .map_err(|_| CoreError::Codec("negative value for unsigned type".into())),
         Value::Uint(u) => Ok(*u),
         Value::Bool(b) => Ok(u128::from(*b)),
-        other => Err(CoreError::Codec(format!("expected an integer, got {other}"))),
+        other => Err(CoreError::Codec(format!(
+            "expected an integer, got {other}"
+        ))),
     }
 }
 
@@ -532,7 +581,9 @@ fn coerce_int(value: &Value) -> Result<i128, CoreError> {
         Value::Int(i) => Ok(*i),
         Value::Uint(u) => i128::try_from(*u)
             .map_err(|_| CoreError::Codec("value too large for signed type".into())),
-        other => Err(CoreError::Codec(format!("expected an integer, got {other}"))),
+        other => Err(CoreError::Codec(format!(
+            "expected an integer, got {other}"
+        ))),
     }
 }
 

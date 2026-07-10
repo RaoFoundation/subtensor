@@ -19,14 +19,75 @@ use crate::keys::ss58_from_public;
 use crate::runtime::type_string::{Primitive, TypeSpec};
 use crate::runtime::Runtime;
 
+/// Recursion ceiling for the decoders. Metadata comes from the connected
+/// node and is untrusted: a self-referential type recurses without consuming
+/// bytes, and a stack overflow is an abort (not a catchable panic) — fatal on
+/// a rayon worker with no Python frame above it. Real chain values nest a
+/// couple dozen levels; 256 is far above any legitimate shape.
+const MAX_DECODE_DEPTH: usize = 256;
+
+/// Floor for the per-decode element budget, so small-but-legitimate inputs
+/// still decode. A collection element that consumes zero input bytes (e.g.
+/// `Vec<()>`) cannot be bounded by remaining input length, so the budget caps
+/// the total number of collection elements materialized across one decode.
+const MIN_ELEMENT_BUDGET: u64 = 1 << 20;
+
+/// Element-budget headroom per input byte. Every byte-consuming element needs
+/// at least one input byte, so a multiple of the input length is a generous
+/// ceiling for legitimate values while still bounding zero-width blow-ups.
+const ELEMENT_BUDGET_PER_BYTE: u64 = 256;
+
 pub struct Cursor<'a> {
     pub data: &'a [u8],
     pub offset: usize,
+    depth: usize,
+    /// Remaining collection elements this decode may still materialize (the
+    /// operation budget from the DoS-hardening review). Bounds `Vec<()>`-style
+    /// inputs where a huge compact length drives an allocation/CPU blow-up
+    /// without consuming input bytes.
+    elements_remaining: u64,
+    /// Reject non-canonical/lossy encodings (bad bools, invalid UTF-8, invalid
+    /// Unicode scalars, non-minimal compacts) instead of silently coercing.
+    pub strict: bool,
 }
 
 impl<'a> Cursor<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, offset: 0 }
+        let budget = (data.len() as u64)
+            .saturating_mul(ELEMENT_BUDGET_PER_BYTE)
+            .max(MIN_ELEMENT_BUDGET);
+        Self {
+            data,
+            offset: 0,
+            depth: 0,
+            elements_remaining: budget,
+            strict: false,
+        }
+    }
+
+    fn descend(&mut self) -> Result<(), CoreError> {
+        self.depth += 1;
+        if self.depth > MAX_DECODE_DEPTH {
+            return Err(CoreError::Codec(format!(
+                "decode recursion exceeds {MAX_DECODE_DEPTH} levels (malformed or malicious type definition)"
+            )));
+        }
+        Ok(())
+    }
+
+    fn ascend(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
+    }
+
+    /// Charge one collection element against the budget before decoding it.
+    fn charge_element(&mut self) -> Result<(), CoreError> {
+        self.elements_remaining = self.elements_remaining.checked_sub(1).ok_or_else(|| {
+            CoreError::Codec(
+                "decode exceeds its element budget (malformed or malicious collection length)"
+                    .into(),
+            )
+        })?;
+        Ok(())
     }
 
     pub fn take(&mut self, n: usize) -> Result<&'a [u8], CoreError> {
@@ -49,19 +110,32 @@ fn overrun() -> CoreError {
     CoreError::Codec("unexpected end of SCALE data".into())
 }
 
-/// Compact-decoded u128 (the four SCALE compact modes).
+/// Compact-decoded u128 (the four SCALE compact modes). In strict mode the
+/// encoding must be canonical (minimal-width for its value), matching the
+/// SCALE spec: a decoder that accepts non-minimal compacts admits multiple
+/// wire encodings for the same integer.
 pub fn compact_u128(cursor: &mut Cursor) -> Result<u128, CoreError> {
+    let strict = cursor.strict;
+    let non_canonical = || CoreError::Codec("non-canonical compact encoding".into());
     let first = cursor.byte()?;
     match first & 0b11 {
         0 => Ok(u128::from(first >> 2)),
         1 => {
             let second = cursor.byte()?;
-            Ok(u128::from(u16::from_le_bytes([first, second])) >> 2)
+            let value = u128::from(u16::from_le_bytes([first, second])) >> 2;
+            if strict && value < 0b100_0000 {
+                return Err(non_canonical());
+            }
+            Ok(value)
         }
         2 => {
             let rest = cursor.take(3)?;
             let word = u32::from_le_bytes([first, rest[0], rest[1], rest[2]]);
-            Ok(u128::from(word >> 2))
+            let value = u128::from(word >> 2);
+            if strict && value < 0b100_0000_0000_0000 {
+                return Err(non_canonical());
+            }
+            Ok(value)
         }
         _ => {
             let len = usize::from(first >> 2) + 4;
@@ -69,9 +143,18 @@ pub fn compact_u128(cursor: &mut Cursor) -> Result<u128, CoreError> {
                 return Err(CoreError::Codec("compact value wider than u128".into()));
             }
             let bytes = cursor.take(len)?;
+            // The top byte must be non-zero, otherwise a narrower mode (or
+            // fewer big-mode bytes) would encode the same value.
+            if strict && bytes.last() == Some(&0) {
+                return Err(non_canonical());
+            }
             let mut buf = [0u8; 16];
             buf[..len].copy_from_slice(bytes);
-            Ok(u128::from_le_bytes(buf))
+            let value = u128::from_le_bytes(buf);
+            if strict && value < 0b100_0000_0000_0000_0000_0000_0000_0000 {
+                return Err(non_canonical());
+            }
+            Ok(value)
         }
     }
 }
@@ -91,11 +174,20 @@ impl Runtime {
         strict: bool,
     ) -> Result<Value, CoreError> {
         let mut cursor = Cursor::new(data);
+        cursor.strict = strict;
         // cyscale's batch_decode fast path rendered a *top-level* zero-field
         // struct as () while nested ones render as {}; the corpus pins both.
         if let TypeSpec::Id(id) = spec {
             if let Ok(ty) = self.resolve(*id) {
                 if matches!(&ty.type_def, TypeDef::Composite(c) if c.fields.is_empty()) {
+                    // A zero-field composite consumes no bytes; strict mode
+                    // must still reject trailing data on this path.
+                    if strict && !data.is_empty() {
+                        return Err(CoreError::Codec(format!(
+                            "{} undecoded bytes remain",
+                            data.len()
+                        )));
+                    }
                     return Ok(Value::Tuple(Vec::new()));
                 }
             }
@@ -111,6 +203,13 @@ impl Runtime {
     }
 
     pub fn decode_value(&self, spec: &TypeSpec, cursor: &mut Cursor) -> Result<Value, CoreError> {
+        cursor.descend()?;
+        let value = self.decode_value_inner(spec, cursor);
+        cursor.ascend();
+        value
+    }
+
+    fn decode_value_inner(&self, spec: &TypeSpec, cursor: &mut Cursor) -> Result<Value, CoreError> {
         match spec {
             TypeSpec::Id(id) => self.decode_id(*id, cursor),
             TypeSpec::Primitive(p) => self.decode_primitive_spec(*p, cursor),
@@ -121,6 +220,7 @@ impl Runtime {
                 }
                 let mut items = Vec::with_capacity(len.min(1024));
                 for _ in 0..len {
+                    cursor.charge_element()?;
                     items.push(self.decode_value(inner, cursor)?);
                 }
                 Ok(Value::List(items))
@@ -138,6 +238,7 @@ impl Runtime {
                 }
                 let mut items = Vec::with_capacity(len.min(1024));
                 for _ in 0..len {
+                    cursor.charge_element()?;
                     items.push(self.decode_value(inner, cursor)?);
                 }
                 Ok(Value::List(items))
@@ -169,11 +270,7 @@ impl Runtime {
         }
     }
 
-    fn decode_primitive_spec(
-        &self,
-        p: Primitive,
-        cursor: &mut Cursor,
-    ) -> Result<Value, CoreError> {
+    fn decode_primitive_spec(&self, p: Primitive, cursor: &mut Cursor) -> Result<Value, CoreError> {
         let def = match p {
             Primitive::Bool => TypeDefPrimitive::Bool,
             Primitive::Char => TypeDefPrimitive::Char,
@@ -197,6 +294,13 @@ impl Runtime {
     /// Decode one registry type. The special cases (paths with pinned
     /// renderings) come before the structural rules.
     pub fn decode_id(&self, id: u32, cursor: &mut Cursor) -> Result<Value, CoreError> {
+        cursor.descend()?;
+        let value = self.decode_id_inner(id, cursor);
+        cursor.ascend();
+        value
+    }
+
+    fn decode_id_inner(&self, id: u32, cursor: &mut Cursor) -> Result<Value, CoreError> {
         if self.outer_event_type == Some(id) {
             return Ok(self.decode_outer_event(cursor)?.into_value());
         }
@@ -206,7 +310,8 @@ impl Runtime {
         let ty = self.resolve(id)?;
         let segments = &ty.path.segments;
         let last = segments.last().map(String::as_str);
-        if last == Some("EventRecord") && segments.first().map(String::as_str) == Some("frame_system")
+        if last == Some("EventRecord")
+            && segments.first().map(String::as_str) == Some("frame_system")
         {
             return self.decode_event_record(ty, cursor);
         }
@@ -239,7 +344,10 @@ impl Runtime {
             TypeDef::Primitive(p) => decode_primitive(p, cursor),
             TypeDef::Compact(c) => {
                 // Compact of a newtype (e.g. Compact<IndexU32>) unwraps like
-                // the plain compact int cyscale produced.
+                // the plain compact int cyscale produced. The metadata's
+                // declared width is not a reliable bound on this chain (real
+                // recorded compacts exceed their nominal `type_param`), so it
+                // is intentionally not enforced.
                 let _ = c;
                 Ok(uint_value(compact_u128(cursor)?))
             }
@@ -269,6 +377,7 @@ impl Runtime {
                 }
                 let mut items = Vec::with_capacity(len.min(4096));
                 for _ in 0..len {
+                    cursor.charge_element()?;
                     items.push(self.decode_id(s.type_param.id, cursor)?);
                 }
                 Ok(Value::List(items))
@@ -280,6 +389,7 @@ impl Runtime {
                 }
                 let mut items = Vec::with_capacity(len.min(4096));
                 for _ in 0..len {
+                    cursor.charge_element()?;
                     items.push(self.decode_id(a.type_param.id, cursor)?);
                 }
                 Ok(Value::List(items))
@@ -352,7 +462,10 @@ impl Runtime {
             return Ok(Value::Str(chosen.name.clone()));
         }
         let payload = self.decode_fields_payload(&chosen.fields, cursor)?;
-        Ok(Value::Dict(vec![(Value::Str(chosen.name.clone()), payload)]))
+        Ok(Value::Dict(vec![(
+            Value::Str(chosen.name.clone()),
+            payload,
+        )]))
     }
 
     /// MultiAddress: `Id` renders as the bare ss58 string and `Index` as the
@@ -407,6 +520,7 @@ impl Runtime {
         let len = compact_len(cursor)?;
         let mut entries = Vec::with_capacity(len.min(4096));
         for _ in 0..len {
+            cursor.charge_element()?;
             let key = self.decode_id(key_ty, cursor)?;
             let value = self.decode_id(value_ty, cursor)?;
             entries.push((key, value));
@@ -429,9 +543,7 @@ impl Runtime {
             .variants
             .iter()
             .find(|v| v.index == pallet_index)
-            .ok_or_else(|| {
-                CoreError::Codec(format!("no event pallet at index {pallet_index}"))
-            })?;
+            .ok_or_else(|| CoreError::Codec(format!("no event pallet at index {pallet_index}")))?;
         let inner_id = pallet_variant
             .fields
             .first()
@@ -511,7 +623,10 @@ impl Runtime {
             ("phase".into(), Value::Str(phase.name.clone())),
             ("extrinsic_idx".into(), extrinsic_idx),
             ("event".into(), event.clone().into_value()),
-            ("event_index".into(), Value::Int(i128::from(event.pallet_index))),
+            (
+                "event_index".into(),
+                Value::Int(i128::from(event.pallet_index)),
+            ),
             ("module_id".into(), Value::Str(event.module_id.clone())),
             ("event_id".into(), Value::Str(event.event_id.clone())),
             ("attributes".into(), event.attributes.clone()),
@@ -567,7 +682,10 @@ impl Runtime {
         for field in &function.fields {
             let value = self.decode_id(field.ty.id, cursor)?;
             args.push(Value::record(vec![
-                ("name".into(), Value::Str(field.name.clone().unwrap_or_default())),
+                (
+                    "name".into(),
+                    Value::Str(field.name.clone().unwrap_or_default()),
+                ),
                 (
                     "type".into(),
                     Value::Str(convert_type_string(
@@ -624,7 +742,9 @@ pub fn convert_type_string(name: &str) -> String {
         let lower_needle = needle.to_lowercase();
         loop {
             let lower = haystack.to_lowercase();
-            let Some(pos) = lower.find(&lower_needle) else { break };
+            let Some(pos) = lower.find(&lower_needle) else {
+                break;
+            };
             haystack.replace_range(pos..pos.saturating_add(needle.len()), "");
         }
     }
@@ -655,7 +775,9 @@ pub fn convert_type_string(name: &str) -> String {
     // VecDeque<...> renders as Vec<...> (case-insensitive replace).
     loop {
         let lower = name.to_lowercase();
-        let Some(pos) = lower.find("vecdeque<") else { break };
+        let Some(pos) = lower.find("vecdeque<") else {
+            break;
+        };
         name.replace_range(pos..pos.saturating_add("VecDeque<".len()), "Vec<");
     }
     let lower = name.to_lowercase();
@@ -678,8 +800,7 @@ pub fn convert_type_string(name: &str) -> String {
 }
 
 fn is_path(segments: &[String], expected: &[&str]) -> bool {
-    segments.len() == expected.len()
-        && segments.iter().zip(expected).all(|(a, b)| a == b)
+    segments.len() == expected.len() && segments.iter().zip(expected).all(|(a, b)| a == b)
 }
 
 fn uint_value(v: u128) -> Value {
@@ -698,17 +819,40 @@ fn bytes_value(data: &[u8]) -> Value {
 
 fn decode_primitive(p: &TypeDefPrimitive, cursor: &mut Cursor) -> Result<Value, CoreError> {
     use TypeDefPrimitive as P;
+    let strict = cursor.strict;
     Ok(match p {
-        P::Bool => Value::Bool(cursor.byte()? != 0),
+        P::Bool => {
+            let byte = cursor.byte()?;
+            if strict && byte > 1 {
+                return Err(CoreError::Codec(format!(
+                    "non-canonical bool byte {byte:#x}"
+                )));
+            }
+            Value::Bool(byte != 0)
+        }
         P::Char => {
             let raw = cursor.take(4)?;
             let code = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-            Value::Str(char::from_u32(code).unwrap_or('\u{fffd}').to_string())
+            match char::from_u32(code) {
+                Some(c) => Value::Str(c.to_string()),
+                None if strict => {
+                    return Err(CoreError::Codec(format!(
+                        "invalid Unicode scalar value {code:#x}"
+                    )))
+                }
+                None => Value::Str('\u{fffd}'.to_string()),
+            }
         }
         P::Str => {
             let len = compact_len(cursor)?;
             let raw = cursor.take(len)?;
-            Value::Str(String::from_utf8_lossy(raw).into_owned())
+            if strict {
+                let s = core::str::from_utf8(raw)
+                    .map_err(|e| CoreError::Codec(format!("invalid UTF-8 string: {e}")))?;
+                Value::Str(s.to_owned())
+            } else {
+                Value::Str(String::from_utf8_lossy(raw).into_owned())
+            }
         }
         P::U8 => Value::Int(i128::from(cursor.byte()?)),
         P::U16 => Value::Int(i128::from(u16::from_le_bytes(fixed(cursor.take(2)?)?))),

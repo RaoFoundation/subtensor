@@ -43,7 +43,12 @@ impl Value {
 
     /// Struct-style dict with string keys.
     pub fn record(fields: Vec<(String, Value)>) -> Self {
-        Value::Dict(fields.into_iter().map(|(k, v)| (Value::Str(k), v)).collect())
+        Value::Dict(
+            fields
+                .into_iter()
+                .map(|(k, v)| (Value::Str(k), v))
+                .collect(),
+        )
     }
 }
 

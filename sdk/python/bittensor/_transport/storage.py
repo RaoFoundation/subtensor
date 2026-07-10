@@ -20,18 +20,6 @@ from typing import Any, Optional
 from .codec import RuntimeCodec, StorageEntry
 
 
-def storage_key(codec: RuntimeCodec, entry: StorageEntry, params: list) -> bytes:
-    """The full storage key for one item (params may be a partial prefix)."""
-    return codec.storage_key(entry, params)
-
-
-def storage_key_batch(
-    codec: RuntimeCodec, entry: StorageEntry, params_list: list[list]
-) -> list[bytes]:
-    """Keys for many parameter sets of one item, in one crossing into the core."""
-    return codec.storage_key_batch(entry, params_list)
-
-
 def decode_storage_value(codec: RuntimeCodec, entry: StorageEntry, raw: Optional[bytes]) -> Any:
     """Decode one storage response, applying the Default/Option miss semantics."""
     if raw is not None:

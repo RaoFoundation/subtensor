@@ -5,6 +5,7 @@
 //! (ss58 strings for account ids, 0x-hex for byte arrays, `{"Variant": ...}`
 //! dicts for enums, `None` for Option).
 
+pub mod batch;
 pub mod decode;
 pub mod encode;
 pub mod extrinsic;
@@ -128,7 +129,49 @@ mod corpus_tests {
             "{} of {} corpus samples diverged (first 20):\n{}",
             failures.len(),
             checked,
-            failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n")
+            failures
+                .iter()
+                .take(20)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    /// Pathological nesting must surface as a codec error, never a stack
+    /// overflow: type specs derive from untrusted node metadata, and an
+    /// overflow aborts the process (it is not a catchable panic).
+    #[test]
+    fn pathological_nesting_errors_instead_of_overflowing() {
+        let rt = runtime();
+
+        // A 1-tuple recurses into its element without consuming bytes, so
+        // this spec models a self-referential metadata type. 1000 levels is
+        // far past the cap but shallow enough that the spec's own recursive
+        // Drop stays within the stack.
+        let mut spec = TypeSpec::Primitive(crate::runtime::type_string::Primitive::U8);
+        for _ in 0..1000 {
+            spec = TypeSpec::Tuple(vec![spec]);
+        }
+
+        let err = rt
+            .decode_spec(&spec, &[0u8], true)
+            .expect_err("deep nesting must not decode");
+        assert!(
+            err.to_string().contains("recursion"),
+            "unexpected error: {err}"
+        );
+
+        let mut value = Value::Int(0);
+        for _ in 0..1000 {
+            value = Value::Tuple(vec![value]);
+        }
+        let err = rt
+            .encode_spec(&spec, &value)
+            .expect_err("deep nesting must not encode");
+        assert!(
+            err.to_string().contains("recursion"),
+            "unexpected error: {err}"
         );
     }
 
@@ -366,9 +409,13 @@ mod corpus_tests {
             } else {
                 value_from_json(&case["era"])
             };
-            let signature =
-                hex::decode(case["signature_hex"].as_str().unwrap().trim_start_matches("0x"))
-                    .unwrap();
+            let signature = hex::decode(
+                case["signature_hex"]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("0x"),
+            )
+            .unwrap();
             let (data, hash) = rt
                 .encode_signed_extrinsic(
                     &call,
@@ -442,7 +489,8 @@ mod corpus_tests {
         let g = golden();
         let rt = runtime();
         let case = &g["calls"].as_array().unwrap()[0];
-        let data = hex::decode(case["data_hex"].as_str().unwrap().trim_start_matches("0x")).unwrap();
+        let data =
+            hex::decode(case["data_hex"].as_str().unwrap().trim_start_matches("0x")).unwrap();
         let decoded = rt.decode_spec(&TypeSpec::Call, &data, true).unwrap();
         let json = crate::codec::value::to_corpus_json(&decoded);
         assert_eq!(json["call_module"], "Balances");

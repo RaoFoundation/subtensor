@@ -66,11 +66,7 @@ pub fn storage_prefix(entry: &StorageInfo) -> Vec<u8> {
 impl Runtime {
     /// The full storage key for one item; `params` may be a partial prefix
     /// (for map iteration).
-    pub fn storage_key(
-        &self,
-        entry: &StorageInfo,
-        params: &[Value],
-    ) -> Result<Vec<u8>, CoreError> {
+    pub fn storage_key(&self, entry: &StorageInfo, params: &[Value]) -> Result<Vec<u8>, CoreError> {
         if params.len() > entry.key_types.len() {
             return Err(CoreError::Codec(format!(
                 "{}.{} accepts at most {} parameters, {} given",
@@ -127,9 +123,11 @@ impl Runtime {
                     // Reversible: hash prefix + the raw material; we cannot
                     // know the material length without decoding, so decode it.
                     let hash_len = concat_hash_len(hasher)?;
-                    let rest = key.get(prefix_len.saturating_add(hash_len)..).ok_or_else(
-                        || CoreError::Codec("storage key shorter than its prefix".into()),
-                    )?;
+                    let rest = key
+                        .get(prefix_len.saturating_add(hash_len)..)
+                        .ok_or_else(|| {
+                            CoreError::Codec("storage key shorter than its prefix".into())
+                        })?;
                     let mut cursor = Cursor::new(rest);
                     self.decode_id(entry.key_types[index], &mut cursor)?;
                     hash_len.saturating_add(cursor.offset)

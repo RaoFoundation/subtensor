@@ -86,18 +86,16 @@ refused by design — the generic app does not blind-sign.
 
 ## Platform notes
 
-- **macOS / Windows**: works out of the box with the published wheels.
-- **Linux**: the PyPI `manylinux` wheels are built without HID support
-  (the hidraw backend links `libudev`, which the manylinux policy excludes).
-  Install from the source distribution with the udev headers present:
-
-  ```bash
-  sudo apt install libudev-dev   # or the equivalent for your distro
-  pip install --no-binary bittensor-core bittensor-core
-  ```
-
-  Plus the usual udev rules for Ledger devices
-  ([ledger-udev-rules](https://github.com/LedgerHQ/udev-rules)).
+- **macOS**: works out of the box with the published wheels.
+- **Linux**: works out of the box with the published wheels too. The device
+  itself must be accessible from userspace, which usually means installing
+  the standard udev rules for Ledger devices
+  ([ledger-udev-rules](https://github.com/LedgerHQ/udev-rules)) or running
+  as a user in the appropriate group.
+- **Windows**: the SDK is WSL-only (no native wheels are published). Under
+  WSL 2 the Linux wheel applies; attach the device to the WSL VM with
+  [usbipd-win](https://github.com/dorssel/usbipd-win) and set up the udev
+  rules as on Linux.
 
 ## Troubleshooting
 

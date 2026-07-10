@@ -13,6 +13,7 @@ mod keys;
 mod ledger;
 mod runtime;
 mod timelock;
+mod values;
 
 /// The `bittensor_core` extension module (PyPI package `bittensor-core`).
 #[pymodule]

@@ -95,8 +95,10 @@ fn get_encrypted_commitment(
 
 /// Gets the latest revealed Drand round number.
 #[pyfunction(name = "get_latest_round")]
-fn get_latest_round_py() -> PyResult<u64> {
-    let response = timelock::get_round_info(None).map_err(to_py_err)?;
+fn get_latest_round_py(py: Python) -> PyResult<u64> {
+    let response = py
+        .allow_threads(|| timelock::get_round_info(None))
+        .map_err(to_py_err)?;
     Ok(response.round)
 }
 
@@ -151,48 +153,10 @@ fn encrypt_at_round(py: Python, data: &[u8], reveal_round: u64) -> PyResult<(Py<
 #[pyfunction]
 #[pyo3(signature = (encrypted_data, no_errors=true))]
 fn decrypt(py: Python, encrypted_data: &[u8], no_errors: bool) -> PyResult<Option<Py<PyBytes>>> {
-    use codec::Decode;
-
-    let user_data = match timelock::UserData::decode(&mut &encrypted_data[..]) {
-        Ok(data) => data,
-        Err(e) => {
-            return if no_errors {
-                Ok(None)
-            } else {
-                Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "Error deserializing data: {:?}",
-                    e
-                )))
-            }
-        }
-    };
-
-    let signature_opt =
-        timelock::get_reveal_round_signature(Some(user_data.reveal_round), no_errors)
-            .map_err(to_py_err)?;
-
-    let signature_str = match signature_opt {
-        Some(s) => s,
-        None => {
-            return if no_errors {
-                Ok(None)
-            } else {
-                Err(pyo3::exceptions::PyValueError::new_err(
-                    "Signature not available",
-                ))
-            }
-        }
-    };
-
-    let signature_bytes = hex::decode(signature_str).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("Invalid hex in signature: {:?}", e))
-    })?;
-
-    let decoded_data =
-        timelock::decrypt_and_decompress(&user_data.encrypted_data, &signature_bytes)
-            .map_err(to_py_err)?;
-
-    Ok(Some(PyBytes::new(py, &decoded_data).into()))
+    let decoded = py
+        .allow_threads(|| timelock::decrypt(encrypted_data, no_errors))
+        .map_err(to_py_err)?;
+    Ok(decoded.map(|data| PyBytes::new(py, &data).into()))
 }
 
 /// Decrypts data using a provided Drand signature.
@@ -212,20 +176,8 @@ fn decrypt_with_signature(
     encrypted_data: &[u8],
     signature_hex: &str,
 ) -> PyResult<Py<PyBytes>> {
-    use codec::Decode;
-
-    let user_data = timelock::UserData::decode(&mut &encrypted_data[..]).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("Error deserializing data: {:?}", e))
-    })?;
-
-    let signature_bytes = hex::decode(signature_hex).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("Invalid hex in signature: {:?}", e))
-    })?;
-
     let decoded_data =
-        timelock::decrypt_and_decompress(&user_data.encrypted_data, &signature_bytes)
-            .map_err(to_py_err)?;
-
+        timelock::decrypt_with_signature(encrypted_data, signature_hex).map_err(to_py_err)?;
     Ok(PyBytes::new(py, &decoded_data).into())
 }
 
@@ -237,8 +189,8 @@ fn decrypt_with_signature(
 /// Returns:
 ///     str: Hex-encoded BLS signature for the round.
 #[pyfunction]
-fn get_signature_for_round(reveal_round: u64) -> PyResult<String> {
-    timelock::get_reveal_round_signature(Some(reveal_round), false)
+fn get_signature_for_round(py: Python, reveal_round: u64) -> PyResult<String> {
+    py.allow_threads(|| timelock::get_reveal_round_signature(Some(reveal_round), false))
         .map_err(to_py_err)?
         .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Signature not available"))
 }

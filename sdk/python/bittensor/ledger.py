@@ -141,11 +141,6 @@ class LedgerSigner:
                 "no signing context: the transport must resolve metadata_digest "
                 "before signing (this signer cannot sign raw payloads)"
             )
-        if unsigned.included_in_extrinsic is None or unsigned.included_in_signed_data is None:
-            raise LedgerError(
-                "this UnsignedExtrinsic carries no payload parts; it was built "
-                "by an older SDK and cannot be clear-signed"
-            )
         proof = _backend.generate_extrinsic_proof(
             unsigned.call_data,
             unsigned.included_in_extrinsic,

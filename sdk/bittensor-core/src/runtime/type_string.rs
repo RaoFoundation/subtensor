@@ -97,9 +97,13 @@ impl Runtime {
             "Bytes" | "Vec<u8>" => return Ok(TypeSpec::Bytes),
             "AccountId" => return Ok(TypeSpec::AccountId),
             "Era" => return Ok(TypeSpec::Era),
-            "Call" | "GenericCall" | "RuntimeCall" => return Ok(TypeSpec::Call),
+            "Call" | "RuntimeCall" => return Ok(TypeSpec::Call),
             "Extrinsic" => return Ok(TypeSpec::Extrinsic),
-            "Compact" => return Ok(TypeSpec::Compact(Box::new(TypeSpec::Primitive(Primitive::U128)))),
+            "Compact" => {
+                return Ok(TypeSpec::Compact(Box::new(TypeSpec::Primitive(
+                    Primitive::U128,
+                ))))
+            }
             _ => {}
         }
         if let Some(inner) = strip_wrapper(s, "Vec") {
@@ -113,9 +117,9 @@ impl Runtime {
         }
         if s.starts_with('[') && s.ends_with(']') {
             let body = &s[1..s.len() - 1];
-            let (elem, len) = body.rsplit_once(';').ok_or_else(|| {
-                CoreError::Codec(format!("bad array type string {s:?}"))
-            })?;
+            let (elem, len) = body
+                .rsplit_once(';')
+                .ok_or_else(|| CoreError::Codec(format!("bad array type string {s:?}")))?;
             let len: u32 = len
                 .trim()
                 .parse()

@@ -211,7 +211,7 @@ sdk/bittensor-core/           # pure Rust, no PyO3 anywhere
     extrinsic/                # signature payload (signed-extension table),
                               #   era, assembly, multisig MultiAccountId
     digest/                   # RFC-0078 via merkleized-metadata
-    signers/ledger.rs         # feature "ledger": ledger-transport-hid +
+    signers/ledger.rs         # feature "ledger": hidapi HID transport +
                               #   Substrate generic-app protocol
 sdk/bittensor-core-py/        # PyO3 bindings only; abi3-py310; maturin
 ```

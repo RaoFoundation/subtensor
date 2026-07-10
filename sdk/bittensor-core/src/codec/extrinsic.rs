@@ -5,7 +5,7 @@
 // Client-side codec, not runtime code.
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
-use scale_info::TypeDef;
+use scale_info::{form::PortableForm, TypeDef, Variant};
 use sp_core::hashing::blake2_256;
 
 use crate::codec::decode::{compact_u128, Cursor};
@@ -43,43 +43,118 @@ const PAYLOAD_FIELDS: &[(&str, &str, Slot)] = &[
     ("asset_id", "ChargeAssetTxPayment", Slot::Extrinsic),
     ("mode", "CheckMetadataHash", Slot::Extrinsic),
     ("spec_version", "CheckSpecVersion", Slot::AdditionalSigned),
-    ("transaction_version", "CheckTxVersion", Slot::AdditionalSigned),
+    (
+        "transaction_version",
+        "CheckTxVersion",
+        Slot::AdditionalSigned,
+    ),
     ("genesis_hash", "CheckGenesis", Slot::AdditionalSigned),
     ("block_hash", "CheckMortality", Slot::AdditionalSigned),
     ("block_hash", "CheckEra", Slot::AdditionalSigned),
     ("metadata_hash", "CheckMetadataHash", Slot::AdditionalSigned),
 ];
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum Slot {
     Extrinsic,
     AdditionalSigned,
 }
 
 impl Runtime {
+    /// The fixed byte length a signature variant carries, when it wraps a
+    /// single `[u8; N]` (the MultiSignature shape). `None` for variants whose
+    /// payload is not a fixed byte array, where a length check does not apply.
+    fn variant_fixed_byte_len(&self, variant: &Variant<PortableForm>) -> Option<usize> {
+        let [field] = variant.fields.as_slice() else {
+            return None;
+        };
+        let TypeDef::Array(array) = &self.resolve(field.ty.id).ok()?.type_def else {
+            return None;
+        };
+        matches!(
+            self.resolve(array.type_param.id).ok()?.type_def,
+            TypeDef::Primitive(scale_info::TypeDefPrimitive::U8)
+        )
+        .then_some(array.len as usize)
+    }
+
     /// Encode the payload fields whose type comes from one extension slot.
+    ///
+    /// Iterates the runtime's declared signed extensions in metadata order
+    /// (the authoritative wire order) rather than a private table, so a
+    /// reordered or newly added extension cannot silently shift the payload.
+    /// `PAYLOAD_FIELDS` supplies only the semantic value for each known
+    /// extension; an extension with no known encoder must be zero-sized in
+    /// this slot, otherwise we fail closed.
     fn encode_payload_section(&self, slot: Slot, params: &TxParams) -> Result<Vec<u8>, CoreError> {
         let mut out = Vec::new();
-        for (field, extension, field_slot) in PAYLOAD_FIELDS {
-            if *field_slot != slot {
-                continue;
-            }
-            let Some(ext) = self
-                .extrinsic
-                .signed_extensions
-                .iter()
-                .find(|e| e.identifier == *extension)
-            else {
-                continue;
-            };
-            let ty = match field_slot {
+        for ext in &self.extrinsic.signed_extensions {
+            let ty = match slot {
                 Slot::Extrinsic => ext.ty,
                 Slot::AdditionalSigned => ext.additional_signed,
             };
-            let value = self.payload_field_value(field, ty, params)?;
-            self.encode_id(ty, &value, &mut out)?;
+            let field = PAYLOAD_FIELDS
+                .iter()
+                .find(|(_, identifier, field_slot)| {
+                    *identifier == ext.identifier && *field_slot == slot
+                })
+                .map(|(field, _, _)| *field);
+            match field {
+                Some(field) => {
+                    let value = self.payload_field_value(field, ty, params)?;
+                    self.encode_id(ty, &value, &mut out)?;
+                }
+                None => {
+                    if !self.type_is_zero_sized(ty)? {
+                        return Err(CoreError::Codec(format!(
+                            "signed extension {} contributes non-zero {slot:?} data with no known encoder",
+                            ext.identifier
+                        )));
+                    }
+                }
+            }
         }
         Ok(out)
+    }
+
+    /// Whether a type encodes to zero bytes (empty composite/tuple, or a
+    /// zero-length array, transitively). Used to confirm an unknown signed
+    /// extension genuinely contributes nothing to the payload.
+    fn type_is_zero_sized(&self, id: u32) -> Result<bool, CoreError> {
+        self.type_is_zero_sized_inner(id, 0)
+    }
+
+    fn type_is_zero_sized_inner(&self, id: u32, depth: usize) -> Result<bool, CoreError> {
+        // Fail closed on pathological nesting: treat as non-zero-sized.
+        if depth > 32 {
+            return Ok(false);
+        }
+        Ok(match &self.resolve(id)?.type_def {
+            TypeDef::Composite(c) => {
+                let mut zero_sized = true;
+                for f in &c.fields {
+                    if !self.type_is_zero_sized_inner(f.ty.id, depth + 1)? {
+                        zero_sized = false;
+                        break;
+                    }
+                }
+                zero_sized
+            }
+            TypeDef::Tuple(t) => {
+                let mut zero_sized = true;
+                for f in &t.fields {
+                    if !self.type_is_zero_sized_inner(f.id, depth + 1)? {
+                        zero_sized = false;
+                        break;
+                    }
+                }
+                zero_sized
+            }
+            TypeDef::Array(a) => {
+                a.len == 0 || self.type_is_zero_sized_inner(a.type_param.id, depth + 1)?
+            }
+            _ => false,
+        })
     }
 
     /// The value for one payload field, shaped for its metadata type.
@@ -204,8 +279,29 @@ impl Runtime {
         self.encode_id(address_type, &Value::Bytes(public_key.to_vec()), &mut body)?;
         // Multi-crypto chains wrap the signature in an enum carrying the
         // scheme (the MultiSignature variant byte IS the signature version).
+        // Validate the variant exists and that the raw signature matches the
+        // variant's fixed width, so a bad version/length fails closed here
+        // rather than producing a malformed extrinsic the chain will reject.
         if let Some(signature_type) = self.extrinsic.signature_type {
-            if matches!(&self.resolve(signature_type)?.type_def, TypeDef::Variant(_)) {
+            if let TypeDef::Variant(variant) = &self.resolve(signature_type)?.type_def {
+                let chosen = variant
+                    .variants
+                    .iter()
+                    .find(|v| v.index == signature_version)
+                    .ok_or_else(|| {
+                        CoreError::Codec(format!(
+                            "no signature variant with index {signature_version} in the runtime's signature enum"
+                        ))
+                    })?;
+                if let Some(expected) = self.variant_fixed_byte_len(chosen) {
+                    if signature.len() != expected {
+                        return Err(CoreError::Codec(format!(
+                            "signature is {} bytes but variant {} expects {expected}",
+                            signature.len(),
+                            chosen.name
+                        )));
+                    }
+                }
                 body.push(signature_version);
             }
         }
@@ -225,8 +321,18 @@ impl Runtime {
     pub fn decode_extrinsic(&self, data: &[u8], strict: bool) -> Result<Value, CoreError> {
         let hash = blake2_256(data);
         let mut cursor = Cursor::new(data);
+        cursor.strict = strict;
         let length = compact_u128(&mut cursor)?;
-        let version_byte = cursor.byte()?;
+        // The compact prefix frames the extrinsic body exactly: decode against
+        // a cursor bounded to those bytes and require it to be fully consumed,
+        // so a wrong framing length can never decode as if it were correct.
+        let body_len = usize::try_from(length)
+            .map_err(|_| CoreError::Codec("extrinsic length does not fit usize".into()))?;
+        let body = cursor.take(body_len)?;
+        let mut body_cursor = Cursor::new(body);
+        body_cursor.strict = strict;
+
+        let version_byte = body_cursor.byte()?;
         let signed = version_byte & 0x80 != 0;
         let version = version_byte & 0x7f;
         // Bare (unsigned) extrinsics are just a call regardless of format
@@ -249,14 +355,17 @@ impl Runtime {
                 .extrinsic
                 .address_type
                 .ok_or_else(|| CoreError::Codec("runtime metadata has no address type".into()))?;
-            fields.push(("address".into(), self.decode_id(address_type, &mut cursor)?));
+            fields.push((
+                "address".into(),
+                self.decode_id(address_type, &mut body_cursor)?,
+            ));
             let signature_type = self
                 .extrinsic
                 .signature_type
                 .ok_or_else(|| CoreError::Codec("runtime metadata has no signature type".into()))?;
             fields.push((
                 "signature".into(),
-                self.decode_id(signature_type, &mut cursor)?,
+                self.decode_id(signature_type, &mut body_cursor)?,
             ));
             for ext in &self.extrinsic.signed_extensions {
                 let field = PAYLOAD_FIELDS
@@ -266,7 +375,7 @@ impl Runtime {
                     })
                     .map(|(field, _, _)| (*field).to_string())
                     .unwrap_or_else(|| ext.identifier.clone());
-                let value = self.decode_id(ext.ty, &mut cursor)?;
+                let value = self.decode_id(ext.ty, &mut body_cursor)?;
                 // Zero-sized extras (CheckWeight & co) contribute no field.
                 if matches!(&value, Value::Dict(entries) if entries.is_empty()) {
                     continue;
@@ -274,8 +383,16 @@ impl Runtime {
                 fields.push((field, value));
             }
         }
-        let call = self.decode_call_value(&mut cursor)?;
+        let call = self.decode_call_value(&mut body_cursor)?;
         fields.push(("call".into(), call));
+        // The declared body length must match what the layout actually
+        // consumed — otherwise `extrinsic_length` would lie about the bytes.
+        if body_cursor.remaining() != 0 {
+            return Err(CoreError::Codec(format!(
+                "{} undecoded bytes remain inside the extrinsic body",
+                body_cursor.remaining()
+            )));
+        }
         if strict && cursor.remaining() != 0 {
             return Err(CoreError::Codec(format!(
                 "{} undecoded bytes remain after the extrinsic",
@@ -304,7 +421,9 @@ pub fn multisig_account_id(
     threshold: u16,
 ) -> Result<([u8; 32], Vec<[u8; 32]>), CoreError> {
     if signatories.is_empty() {
-        return Err(CoreError::Codec("multisig needs at least one signatory".into()));
+        return Err(CoreError::Codec(
+            "multisig needs at least one signatory".into(),
+        ));
     }
     let mut sorted = signatories.to_vec();
     sorted.sort_unstable();

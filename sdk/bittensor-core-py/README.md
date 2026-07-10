@@ -22,15 +22,11 @@ pip install bittensor-core
 Wheels ship for manylinux (x86_64, aarch64) and macOS (arm64, x86_64); the
 sdist builds anywhere with a Rust toolchain.
 
-Ledger support (`LedgerDevice`, HID) is compiled in everywhere except the
-manylinux wheels, whose policy excludes the `libudev` dependency the hidraw
-backend links. On Linux, install from the sdist with the udev headers
-present:
-
-```
-sudo apt install libudev-dev
-pip install --no-binary bittensor-core bittensor-core
-```
+Ledger support (`LedgerDevice`, HID) is compiled into every wheel. On Linux
+the HID transport talks to hidraw directly (no libudev, no C), so the
+manylinux wheels carry it too; you only need the usual
+[udev rules](https://github.com/LedgerHQ/udev-rules) so the device is
+accessible from userspace.
 
 ## Development
 
