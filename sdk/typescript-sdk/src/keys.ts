@@ -12,7 +12,6 @@ export type SubstrateKeyType = 'sr25519' | 'ed25519'
 export interface KeypairMetadata {
   address?: string
   name?: string
-  suri?: string
   type?: SubstrateKeyType
   [key: string]: unknown
 }
@@ -66,6 +65,21 @@ function unsupported(operation: string): never {
   )
 }
 
+/**
+ * Keep derivation secrets and mutable metadata outside the JavaScript object
+ * shape. TypeScript's `private` keyword is compile-time only and would leave
+ * class fields enumerable at runtime.
+ */
+const metadataStore = new WeakMap<object, KeypairMetadata>()
+const sourceUriStore = new WeakMap<object, string>()
+
+function sanitizeMetadata(metadata: KeypairMetadata): KeypairMetadata {
+  const sanitized = { ...metadata }
+  // `suri` may contain a mnemonic, seed, password, and derivation path.
+  delete sanitized.suri
+  return sanitized
+}
+
 export function cryptoTypeForKeyType(type: SubstrateKeyType): number {
   return type === 'ed25519' ? CRYPTO_ED25519 : CRYPTO_SR25519
 }
@@ -78,8 +92,6 @@ export function keyTypeForCryptoType(cryptoType: number): SubstrateKeyType {
 
 export class Keypair implements PolkadotCompatibleKeypair {
   private handle!: NativeKeypairHandle
-  private metadata: KeypairMetadata = {}
-  private sourceUri?: string
 
   constructor(
     ss58Address?: string | null,
@@ -95,6 +107,7 @@ export class Keypair implements PolkadotCompatibleKeypair {
         ss58Format,
       ),
     )
+    metadataStore.set(this, {})
   }
 
   private static wrap(
@@ -104,8 +117,8 @@ export class Keypair implements PolkadotCompatibleKeypair {
   ): Keypair {
     const keypair = Object.create(Keypair.prototype) as Keypair
     keypair.handle = handle
-    keypair.sourceUri = sourceUri
-    keypair.metadata = { ...metadata }
+    metadataStore.set(keypair, sanitizeMetadata(metadata))
+    if (sourceUri != null) sourceUriStore.set(keypair, sourceUri)
     return keypair
   }
 
@@ -117,7 +130,7 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromMnemonic(mnemonic, cryptoType, password ?? undefined)),
       password == null ? mnemonic : undefined,
-      { suri: password == null ? mnemonic : undefined, type: keyTypeForCryptoType(cryptoType) },
+      { type: keyTypeForCryptoType(cryptoType) },
     )
   }
 
@@ -145,7 +158,7 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromUri(uri, cryptoType)),
       uri,
-      { suri: uri, type: keyTypeForCryptoType(cryptoType) },
+      { type: keyTypeForCryptoType(cryptoType) },
     )
   }
 
@@ -241,7 +254,7 @@ export class Keypair implements PolkadotCompatibleKeypair {
   }
 
   get meta(): KeypairMetadata {
-    return this.metadata
+    return { ...(metadataStore.get(this) ?? {}) }
   }
 
   get isLocked(): boolean {
@@ -281,16 +294,20 @@ export class Keypair implements PolkadotCompatibleKeypair {
   }
 
   derive(suri: string, meta: KeypairMetadata = {}): Keypair {
-    if (this.sourceUri == null) {
+    const sourceUri = sourceUriStore.get(this)
+    if (sourceUri == null) {
       throw new Error('derivation requires a keypair created from a mnemonic or secret URI')
     }
-    const derived = Keypair.fromUri(`${this.sourceUri}${suri}`, this.cryptoType)
+    const derived = Keypair.fromUri(`${sourceUri}${suri}`, this.cryptoType)
     derived.setMeta(meta)
     return derived
   }
 
   setMeta(meta: KeypairMetadata): void {
-    this.metadata = { ...this.metadata, ...meta }
+    metadataStore.set(
+      this,
+      sanitizeMetadata({ ...(metadataStore.get(this) ?? {}), ...meta }),
+    )
   }
 
   encodePkcs8(_passphrase?: string): Uint8Array {

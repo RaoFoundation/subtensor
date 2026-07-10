@@ -34,6 +34,32 @@ test('Rust keypair is compatible with Polkadot.js and Moonwall signer expectatio
   assert.equal(alice.verify(payload, typed, alice.publicKey), true)
 })
 
+test('mnemonics and secret URIs never appear in public keypair metadata', () => {
+  const mnemonic =
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  const fromMnemonic = core.Keypair.fromMnemonic(mnemonic)
+
+  assert.equal(fromMnemonic.meta.suri, undefined)
+  assert.equal(Object.prototype.hasOwnProperty.call(fromMnemonic, 'sourceUri'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(fromMnemonic, 'metadata'), false)
+
+  fromMnemonic.setMeta({ name: 'safe', suri: mnemonic })
+  assert.equal(fromMnemonic.meta.name, 'safe')
+  assert.equal(fromMnemonic.meta.suri, undefined)
+
+  const metadataView = fromMnemonic.meta
+  metadataView.suri = mnemonic
+  assert.equal(fromMnemonic.meta.suri, undefined)
+
+  const secretUri = `${mnemonic}//review-secret`
+  const fromUri = core.Keypair.fromUri(secretUri)
+  assert.equal(fromUri.meta.suri, undefined)
+  assert.equal(Object.prototype.hasOwnProperty.call(fromUri, 'sourceUri'), false)
+
+  const derived = fromUri.derive('//child')
+  assert.equal(derived.meta.suri, undefined)
+})
+
 test('fallible Runtime construction uses the native factory', () => {
   assert.throws(
     () => new core.Runtime(Buffer.from([0, 1, 2, 3]), 1, 1),
