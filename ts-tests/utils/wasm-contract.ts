@@ -4,17 +4,21 @@ import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
 import { convertPublicKeyToSs58 } from "./address.ts";
 import { getBalance } from "./balance.ts";
-import { sendTransaction, waitForFinalizedBlocks, waitForTransactionWithRetry } from "./transactions.ts";
+import {
+    sendTransaction,
+    type TransactionResult,
+    waitForFinalizedBlocks,
+    waitForTransactionWithRetry,
+} from "./transactions.ts";
 
 export const BITTENSOR_WASM_PATH = "./ink/bittensor.wasm";
 
-export async function sendWasmContractExtrinsic(
+function buildContractCallTx(
     api: TypedApi<typeof subtensor>,
-    coldkey: KeyringPair,
     contractAddress: string,
     data: { asBytes(): Uint8Array }
-): Promise<void> {
-    const tx = api.tx.Contracts.call({
+) {
+    return api.tx.Contracts.call({
         value: BigInt(0),
         dest: MultiAddress.Id(contractAddress),
         data: Binary.fromBytes(data.asBytes()),
@@ -24,8 +28,37 @@ export async function sendWasmContractExtrinsic(
         },
         storage_deposit_limit: BigInt(1_000_000_000),
     });
+}
+
+export async function sendWasmContractExtrinsic(
+    api: TypedApi<typeof subtensor>,
+    coldkey: KeyringPair,
+    contractAddress: string,
+    data: { asBytes(): Uint8Array }
+): Promise<void> {
+    const tx = buildContractCallTx(api, contractAddress, data);
     await waitForTransactionWithRetry(api, tx, coldkey, "contracts_call", 1);
     await waitForFinalizedBlocks(api, 1);
+}
+
+/**
+ * Like sendWasmContractExtrinsic, but returns the finalized-transaction result
+ * so callers can assert on emitted pallet events instead of racing state reads
+ * against emission or finality.
+ */
+export async function sendWasmContractExtrinsicWithEvents(
+    api: TypedApi<typeof subtensor>,
+    coldkey: KeyringPair,
+    contractAddress: string,
+    data: { asBytes(): Uint8Array }
+): Promise<TransactionResult> {
+    const tx = buildContractCallTx(api, contractAddress, data);
+    const result = await sendTransaction(tx, coldkey);
+    if (!result.success) {
+        throw new Error(`contracts_call failed: ${result.errorMessage ?? "unknown error"}`);
+    }
+    await waitForFinalizedBlocks(api, 1);
+    return result;
 }
 
 /** Submit a contract call without failing when the contract reverts (expected for atomic-failure tests). */
@@ -35,16 +68,7 @@ export async function sendWasmContractExtrinsicAllowFailure(
     contractAddress: string,
     data: { asBytes(): Uint8Array }
 ): Promise<void> {
-    const tx = api.tx.Contracts.call({
-        value: BigInt(0),
-        dest: MultiAddress.Id(contractAddress),
-        data: Binary.fromBytes(data.asBytes()),
-        gas_limit: {
-            ref_time: BigInt(10_000_000_000),
-            proof_size: BigInt(10_000_000),
-        },
-        storage_deposit_limit: BigInt(1_000_000_000),
-    });
+    const tx = buildContractCallTx(api, contractAddress, data);
     await sendTransaction(tx, coldkey);
 }
 

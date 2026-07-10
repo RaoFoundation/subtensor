@@ -15,6 +15,7 @@ import {
     instantiateWasmContract,
     sendWasmContractExtrinsic,
     sendWasmContractExtrinsicAllowFailure,
+    sendWasmContractExtrinsicWithEvents,
     setTargetRegistrationsPerInterval,
     startCall,
     sudoSetAdminFreezeWindow,
@@ -850,14 +851,12 @@ describeSuite({
                     destination_netuid: netuid,
                     amount: moveAmount,
                 });
-                await sendWasmContractExtrinsic(api, coldkey, contractAddress, data);
-                const originStakeAfter = (
-                    await api.apis.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid(
-                        convertPublicKeyToSs58(hotkey.publicKey),
-                        convertPublicKeyToSs58(coldkey.publicKey),
-                        netuid
-                    )
-                )?.stake;
+                // Assert on the StakeMoved event rather than a strict decrease of the
+                // origin stake: emission credited to the origin hotkey between the
+                // before/after reads can outweigh the moved amount and flake the test.
+                const result = await sendWasmContractExtrinsicWithEvents(api, coldkey, contractAddress, data);
+                const stakeMoved = await api.event.SubtensorModule.StakeMoved.filter(result.events);
+                expect(stakeMoved.length).toBeGreaterThan(0);
                 const destStakeAfter = (
                     await api.apis.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid(
                         convertPublicKeyToSs58(hotkey2.publicKey),
@@ -865,8 +864,7 @@ describeSuite({
                         netuid
                     )
                 )?.stake;
-                expect(originStakeAfter !== undefined && destStakeAfter !== undefined).toBeTruthy();
-                expect(originStakeAfter < originStakeBefore!).toBeTruthy();
+                expect(destStakeAfter).toBeDefined();
                 expect(destStakeAfter > destStakeBefore).toBeTruthy();
             },
         });
