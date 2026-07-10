@@ -1,0 +1,79 @@
+[package]
+name = "pallet-evm"
+version = "6.0.0-dev"
+license = "Apache-2.0"
+readme = "README.md"
+description = "FRAME EVM contracts pallet."
+authors = { workspace = true }
+edition = { workspace = true }
+repository = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+environmental = { workspace = true, optional = true }
+ethereum = { workspace = true }
+evm = { workspace = true, features = ["with-codec"] }
+hash-db = { workspace = true }
+hex-literal = { workspace = true }
+impl-trait-for-tuples = "0.2.3"
+log = { workspace = true }
+scale-codec = { workspace = true }
+scale-info = { workspace = true }
+
+# Cumulus
+cumulus-primitives-storage-weight-reclaim = { workspace = true, default-features = false }
+
+# Substrate
+frame-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+# Frontier
+fp-account = { workspace = true }
+fp-evm = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+hex = { workspace = true }
+# Substrate
+pallet-balances = { workspace = true, features = ["default", "insecure_zero_ed"] }
+pallet-evm-precompile-simple = { workspace = true, features = ["default"] }
+pallet-timestamp = { workspace = true, features = ["default"] }
+
+[features]
+default = ["std"]
+std = [
+	"environmental?/std",
+	"ethereum/std",
+	"evm/std",
+	"evm/serde",
+	"hex/std",
+	"log/std",
+	"scale-codec/std",
+	"scale-info/std",
+	# Cumulus
+	"cumulus-primitives-storage-weight-reclaim/std",
+	# Substrate
+	"frame-benchmarking?/std",
+	"frame-support/std",
+	"frame-system/std",
+	"sp-core/std",
+	"sp-io/std",
+	"sp-runtime/std",
+	# Frontier
+	"fp-account/std",
+	"fp-evm/std",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+]
+forbid-evm-reentrancy = ["dep:environmental"]
