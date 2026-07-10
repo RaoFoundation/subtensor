@@ -94,10 +94,10 @@ fn collect_rust_files(dir: &Path) -> Vec<PathBuf> {
         };
         let path = entry.path();
 
-        // Skip any path that contains "target" directory
+        // Skip build artifacts and vendored third-party code
         if path
             .components()
-            .any(|component| component.as_os_str() == "target")
+            .any(|component| component.as_os_str() == "target" || component.as_os_str() == "vendor")
             || path.ends_with("build.rs")
         {
             continue;
