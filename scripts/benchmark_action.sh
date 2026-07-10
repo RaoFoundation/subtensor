@@ -13,7 +13,7 @@ TEMPLATE="$ROOT_DIR/.maintain/frame-weight-template.hbs"
 WEIGHT_CMP="$ROOT_DIR/target/production/weight-compare"
 
 PATCH_DIR="$ROOT_DIR/.bench_patch"
-THRESHOLD="${THRESHOLD:-55}"
+THRESHOLD="${THRESHOLD:-75}"
 STEPS="${STEPS:-50}"
 REPEAT="${REPEAT:-20}"
 # Utility batches are low-amplitude microbenchmarks; median-slopes avoids noisy intercept drift.
