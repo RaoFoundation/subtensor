@@ -171,9 +171,7 @@ pub fn assert_success(result: &TxOutcome) {
     assert!(
         result.success,
         "transaction failed: {} ({:?})\nevents: {:#?}",
-        result.message,
-        result.error,
-        result.events
+        result.message, result.error, result.events
     );
 }
 
@@ -184,10 +182,8 @@ pub fn amount_tao(tao: u128) -> u128 {
 pub fn random_wallet() -> Wallet {
     let mnemonic = Keypair::generate_mnemonic(12).expect("random mnemonic");
     Wallet {
-        coldkey: Keypair::from_mnemonic(&mnemonic, CRYPTO_SR25519, None)
-            .expect("random coldkey"),
-        hotkey: Keypair::from_mnemonic(&mnemonic, CRYPTO_SR25519, None)
-            .expect("random hotkey"),
+        coldkey: Keypair::from_mnemonic(&mnemonic, CRYPTO_SR25519, None).expect("random coldkey"),
+        hotkey: Keypair::from_mnemonic(&mnemonic, CRYPTO_SR25519, None).expect("random hotkey"),
     }
 }
 
@@ -275,7 +271,10 @@ pub fn wait_for_blocks(client: &Client, count: u64) {
     let start = client.block_number().expect("block number");
     let deadline = Instant::now() + Duration::from_secs(60);
     while client.block_number().expect("block number") < start.saturating_add(count) {
-        assert!(Instant::now() < deadline, "timed out waiting for {count} blocks");
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {count} blocks"
+        );
         thread::sleep(Duration::from_millis(50));
     }
 }
@@ -496,7 +495,10 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
                 ("netuid", u(netuid)),
                 ("mecid", u16v(0)),
                 ("commit", bytes(vec![1, 2, 3, 4])),
-                ("reveal_round", u64v(ctx.client.block_number()?.saturating_add(100))),
+                (
+                    "reveal_round",
+                    u64v(ctx.client.block_number()?.saturating_add(100)),
+                ),
                 ("commit_reveal_version", u64v(4)),
             ]),
         )
@@ -516,7 +518,10 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
                 ("deposit", u128v(amount_tao(100))),
                 ("min_contribution", u128v(one)),
                 ("cap", u128v(amount_tao(1_000))),
-                ("end", u64v(ctx.client.block_number()?.saturating_add(5_000))),
+                (
+                    "end",
+                    u64v(ctx.client.block_number()?.saturating_add(5_000)),
+                ),
                 ("call", Value::Null),
                 ("target_address", s(bob_cold.clone())),
             ]),
@@ -591,7 +596,7 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
                 ss58_from_public(blake2_256(&input), ctx.client.ss58_format()),
                 one,
             )
-        },
+        }
         "increase_take" => make(
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -845,7 +850,7 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
         ),
         "set_hyperparameter" => {
             IntentCall::set_hyperparameter(netuid, "immunity_period", u16v(42))?
-        },
+        }
         "set_identity" => make(
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -1036,11 +1041,18 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
             SignerRole::Coldkey,
             "SubtensorModule",
             "update_symbol",
-            record([("netuid", u(netuid)), ("symbol", bytes("β".as_bytes().to_vec()))]),
+            record([
+                ("netuid", u(netuid)),
+                ("symbol", bytes("β".as_bytes().to_vec())),
+            ]),
         )
         .touches([netuid]),
         "withdraw_crowdloan" => crowdloan_id_call(op, "withdraw", 0),
-        other => return Err(CoreError::Policy(format!("no Rust e2e sample for intent {other}"))),
+        other => {
+            return Err(CoreError::Policy(format!(
+                "no Rust e2e sample for intent {other}"
+            )))
+        }
     };
     Ok(intent)
 }
@@ -1063,13 +1075,7 @@ pub fn u16v(value: u16) -> Value {
     Value::Uint(u128::from(value))
 }
 
-pub fn serve_axon_params(
-    netuid: u16,
-    version: u32,
-    ip: u128,
-    port: u16,
-    protocol: u8,
-) -> Value {
+pub fn serve_axon_params(netuid: u16, version: u32, ip: u128, port: u16, protocol: u8) -> Value {
     record([
         ("netuid", u(netuid)),
         ("version", u32v(version)),

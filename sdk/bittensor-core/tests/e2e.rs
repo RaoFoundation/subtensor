@@ -34,12 +34,12 @@ fn value_contains_str(value: &Value, expected: &str) -> bool {
     match value {
         Value::Str(value) => value == expected,
         Value::Bytes(bytes) => std::str::from_utf8(bytes).is_ok_and(|value| value == expected),
-        Value::List(values) | Value::Tuple(values) => {
-            values.iter().any(|value| value_contains_str(value, expected))
-        }
-        Value::Dict(entries) => entries
+        Value::List(values) | Value::Tuple(values) => values
             .iter()
-            .any(|(key, value)| value_contains_str(key, expected) || value_contains_str(value, expected)),
+            .any(|value| value_contains_str(value, expected)),
+        Value::Dict(entries) => entries.iter().any(|(key, value)| {
+            value_contains_str(key, expected) || value_contains_str(value, expected)
+        }),
         _ => false,
     }
 }
@@ -52,9 +52,9 @@ fn value_contains_u128(value: &Value, expected: u128) -> bool {
     match value {
         Value::Uint(value) => *value == expected,
         Value::Int(value) => u128::try_from(*value).ok() == Some(expected),
-        Value::List(values) | Value::Tuple(values) => {
-            values.iter().any(|value| value_contains_u128(value, expected))
-        }
+        Value::List(values) | Value::Tuple(values) => values
+            .iter()
+            .any(|value| value_contains_u128(value, expected)),
         Value::Dict(entries) => entries.iter().any(|(key, value)| {
             value_contains_u128(key, expected) || value_contains_u128(value, expected)
         }),
@@ -180,13 +180,25 @@ fn test_batch_applies_all_children_atomically() {
     let eve_before = ctx.client.balance_rao(&eve).expect("Eve balance");
     let batch = IntentCall::batch(
         &ctx.client,
-        vec![transfer(dave.clone(), amount_tao(1)), transfer(eve.clone(), amount_tao(2))],
+        vec![
+            transfer(dave.clone(), amount_tao(1)),
+            transfer(eve.clone(), amount_tao(2)),
+        ],
     )
     .expect("batch composes");
-    let result = ctx.executor().execute(&batch, &ctx.alice).expect("batch submits");
+    let result = ctx
+        .executor()
+        .execute(&batch, &ctx.alice)
+        .expect("batch submits");
     assert_success(&result);
-    assert_eq!(ctx.client.balance_rao(&dave).expect("Dave balance") - dave_before, amount_tao(1));
-    assert_eq!(ctx.client.balance_rao(&eve).expect("Eve balance") - eve_before, amount_tao(2));
+    assert_eq!(
+        ctx.client.balance_rao(&dave).expect("Dave balance") - dave_before,
+        amount_tao(1)
+    );
+    assert_eq!(
+        ctx.client.balance_rao(&eve).expect("Eve balance") - eve_before,
+        amount_tao(2)
+    );
 }
 
 #[test]
@@ -209,9 +221,15 @@ fn test_failed_batch_reverts_everything() {
         ],
     )
     .expect("batch composes");
-    let result = ctx.executor().execute(&batch, &ctx.alice).expect("batch submits");
+    let result = ctx
+        .executor()
+        .execute(&batch, &ctx.alice)
+        .expect("batch submits");
     assert!(!result.success);
-    assert_eq!(ctx.client.balance_rao(&dave).expect("Dave balance"), dave_before);
+    assert_eq!(
+        ctx.client.balance_rao(&dave).expect("Dave balance"),
+        dave_before
+    );
 }
 
 #[test]
@@ -281,7 +299,10 @@ fn test_crowdloan_create_read_update() {
         ]),
     )
     .spend(Spend::Bounded(amount_tao(100)));
-    let result = ctx.executor().execute(&create, &ctx.alice).expect("create submits");
+    let result = ctx
+        .executor()
+        .execute(&create, &ctx.alice)
+        .expect("create submits");
     assert_success(&result);
 
     let next = ctx
@@ -294,24 +315,39 @@ fn test_crowdloan_create_read_update() {
         .query("Crowdloan", "Crowdloans", &[u32v(id)], None)
         .expect("crowdloan read");
     let alice_cold = ctx.alice.coldkey.ss58_address();
-    assert_eq!(field(&info, "creator").and_then(as_str), Some(alice_cold.as_str()));
+    assert_eq!(
+        field(&info, "creator").and_then(as_str),
+        Some(alice_cold.as_str())
+    );
     assert!(field(&info, "raised").and_then(as_u128).unwrap_or_default() >= amount_tao(100));
-    assert_eq!(field(&info, "cap").and_then(as_u128), Some(amount_tao(1_000)));
+    assert_eq!(
+        field(&info, "cap").and_then(as_u128),
+        Some(amount_tao(1_000))
+    );
 
     let update = IntentCall::new(
         "update_crowdloan_cap",
         SignerRole::Coldkey,
         "Crowdloan",
         "update_cap",
-        record([("crowdloan_id", u32v(id)), ("new_cap", u128v(amount_tao(2_000)))]),
+        record([
+            ("crowdloan_id", u32v(id)),
+            ("new_cap", u128v(amount_tao(2_000))),
+        ]),
     );
-    let result = ctx.executor().execute(&update, &ctx.alice).expect("update submits");
+    let result = ctx
+        .executor()
+        .execute(&update, &ctx.alice)
+        .expect("update submits");
     assert_success(&result);
     let info = ctx
         .client
         .query("Crowdloan", "Crowdloans", &[u32v(id)], None)
         .expect("crowdloan read");
-    assert_eq!(field(&info, "cap").and_then(as_u128), Some(amount_tao(2_000)));
+    assert_eq!(
+        field(&info, "cap").and_then(as_u128),
+        Some(amount_tao(2_000))
+    );
 }
 
 #[test]
@@ -327,10 +363,16 @@ fn test_nonexistent_subnet_maps_to_semantic_code() {
             ("hotkey", s(ctx.alice.hotkey.ss58_address())),
         ]),
     );
-    let result = ctx.executor().execute(&intent, &ctx.alice).expect("call submits");
+    let result = ctx
+        .executor()
+        .execute(&intent, &ctx.alice)
+        .expect("call submits");
     assert!(!result.success);
     assert_eq!(
-        result.error.as_ref().map(|error| error.semantic_code.as_str()),
+        result
+            .error
+            .as_ref()
+            .map(|error| error.semantic_code.as_str()),
         Some("subnet_not_exists")
     );
 }
@@ -359,7 +401,10 @@ fn test_compose_nested_sudo_call() {
         record([("call", bytes(inner))]),
     )
     .raw();
-    let result = ctx.executor().execute(&outer, &ctx.alice).expect("sudo submits");
+    let result = ctx
+        .executor()
+        .execute(&outer, &ctx.alice)
+        .expect("sudo submits");
     assert_success(&result);
     let after = ctx
         .client
@@ -375,7 +420,10 @@ fn test_raw_call_escape_hatch_and_commitment() {
     let hotkey = ctx.alice.hotkey.ss58_address();
     let info = record([(
         "fields",
-        list([list([Value::Dict(vec![(s("Raw5"), bytes(b"hello".to_vec()))])])]),
+        list([list([Value::Dict(vec![(
+            s("Raw5"),
+            bytes(b"hello".to_vec()),
+        )])])]),
     )]);
     let raw = IntentCall::new(
         "raw_commitment",
@@ -396,7 +444,10 @@ fn test_raw_call_escape_hatch_and_commitment() {
         .expect("raw call plans");
     assert!(!plan.ok());
 
-    let result = ctx.executor().execute(&raw, &ctx.alice).expect("commitment submits");
+    let result = ctx
+        .executor()
+        .execute(&raw, &ctx.alice)
+        .expect("commitment submits");
     assert_success(&result);
     let commitment = ctx
         .client
@@ -408,7 +459,9 @@ fn test_raw_call_escape_hatch_and_commitment() {
         )
         .expect("commitment read");
     assert!(!matches!(commitment, Value::Null));
-    assert!(value_contains_str(&commitment, "hello") || value_contains_str(&commitment, "0x68656c6c6f"));
+    assert!(
+        value_contains_str(&commitment, "hello") || value_contains_str(&commitment, "0x68656c6c6f")
+    );
     let revealed = ctx
         .client
         .query(
@@ -433,7 +486,10 @@ fn test_root_claim_type_variants() {
         ("Keep", None, "Keep"),
     ] {
         let intent = IntentCall::set_root_claim_type(claim, subnets).expect("valid claim type");
-        let result = ctx.executor().execute(&intent, &ctx.alice).expect("claim type submits");
+        let result = ctx
+            .executor()
+            .execute(&intent, &ctx.alice)
+            .expect("claim type submits");
         assert_success(&result);
         let stored = ctx
             .client
@@ -444,7 +500,10 @@ fn test_root_claim_type_variants() {
                 None,
             )
             .expect("claim type read");
-        assert_eq!(variant_name(&stored).as_deref().or_else(|| as_str(&stored)), Some(expected));
+        assert_eq!(
+            variant_name(&stored).as_deref().or_else(|| as_str(&stored)),
+            Some(expected)
+        );
         if expected == "KeepSubnets" {
             assert!(value_contains_u128(&stored, u128::from(netuid)));
         }
@@ -504,8 +563,17 @@ fn test_coldkey_swap_announcement_flow() {
         )
         .expect("announcement read");
     assert!(!matches!(announcement, Value::Null));
-    assert!(tuple(&announcement).first().and_then(as_u128).unwrap_or_default() > 0);
-    assert_eq!(value_bytes(&tuple(&announcement)[1]).as_deref(), Some(hash.as_slice()));
+    assert!(
+        tuple(&announcement)
+            .first()
+            .and_then(as_u128)
+            .unwrap_or_default()
+            > 0
+    );
+    assert_eq!(
+        value_bytes(&tuple(&announcement)[1]).as_deref(),
+        Some(hash.as_slice())
+    );
     let disputed = ctx
         .client
         .query(
@@ -541,7 +609,10 @@ fn test_key_association() {
         "try_associate_hotkey",
         record([("hotkey", s(ctx.alice.hotkey.ss58_address()))]),
     );
-    let result = ctx.executor().execute(&intent, &ctx.alice).expect("association submits");
+    let result = ctx
+        .executor()
+        .execute(&intent, &ctx.alice)
+        .expect("association submits");
     assert_success(&result);
     let associated = ctx
         .client
@@ -559,7 +630,10 @@ fn test_key_association() {
 fn test_plan_simulates_real_fee() {
     let ctx = TestContext::new();
     let intent = transfer(ctx.bob.coldkey.ss58_address(), amount_tao(1));
-    let plan = ctx.executor().plan(&intent, &ctx.alice).expect("transfer plans");
+    let plan = ctx
+        .executor()
+        .plan(&intent, &ctx.alice)
+        .expect("transfer plans");
     assert!(plan.fee_rao.is_some_and(|fee| fee > 0));
 }
 
@@ -571,14 +645,9 @@ fn test_policy_blocks_with_live_fee() {
         max_spend_rao: Some(amount_tao(1)),
         ..Policy::default()
     };
-    let result = ctx.executor().execute_with(
-        &intent,
-        &ctx.alice,
-        Some(&policy),
-        None,
-        None,
-        true,
-    );
+    let result = ctx
+        .executor()
+        .execute_with(&intent, &ctx.alice, Some(&policy), None, None, true);
     assert!(matches!(result, Err(CoreError::Policy(_))));
 }
 
@@ -675,11 +744,7 @@ fn test_netuid_allowlist_blocks_live() {
     assert!(!plan.ok());
 }
 
-fn pending_multisig(
-    ctx: &TestContext,
-    account: &str,
-    call_hash: &[u8; 32],
-) -> Value {
+fn pending_multisig(ctx: &TestContext, account: &str, call_hash: &[u8; 32]) -> Value {
     ctx.client
         .query(
             "Multisig",
@@ -727,10 +792,16 @@ fn test_pending_op_open_read_cancel() {
         inner.clone(),
         None,
     );
-    let _ = ctx.executor().execute(&open, &ctx.alice).expect("open multisig submits");
+    let _ = ctx
+        .executor()
+        .execute(&open, &ctx.alice)
+        .expect("open multisig submits");
 
     let pending = pending_multisig(&ctx, &fixture.address, &hash);
-    assert!(!matches!(pending, Value::Null), "no pending multisig operation");
+    assert!(
+        !matches!(pending, Value::Null),
+        "no pending multisig operation"
+    );
     let approvals = field(&pending, "approvals").expect("approvals field");
     assert!(value_contains_str(approvals, &alice));
     let when = field(&pending, "when").expect("timepoint").clone();
@@ -750,7 +821,10 @@ fn test_pending_op_open_read_cancel() {
             ("call_hash", bytes(hash.to_vec())),
         ]),
     );
-    let result = ctx.executor().execute(&cancel, &ctx.alice).expect("cancel submits");
+    let result = ctx
+        .executor()
+        .execute(&cancel, &ctx.alice)
+        .expect("cancel submits");
     assert_success(&result);
     assert!(matches!(
         pending_multisig(&ctx, &fixture.address, &hash),
@@ -774,7 +848,10 @@ fn test_account_object_m_of_n_executes() {
     assert!(fixture.address.starts_with('5'));
 
     let funding = transfer(fixture.address.clone(), amount_tao(20));
-    let result = ctx.executor().execute(&funding, &ctx.alice).expect("funding submits");
+    let result = ctx
+        .executor()
+        .execute(&funding, &ctx.alice)
+        .expect("funding submits");
     assert_success(&result);
 
     let recipient = Wallet::from_uris("//Eve", "//Eve//hot")
@@ -785,7 +862,10 @@ fn test_account_object_m_of_n_executes() {
         .encode(&ctx.client)
         .expect("payout composes");
     let hash = call_hash(&payout);
-    let before = ctx.client.balance_rao(&recipient).expect("recipient balance");
+    let before = ctx
+        .client
+        .balance_rao(&recipient)
+        .expect("recipient balance");
 
     let first = multisig_execute_intent(
         &fixture,
@@ -793,9 +873,17 @@ fn test_account_object_m_of_n_executes() {
         payout.clone(),
         None,
     );
-    let result = ctx.executor().execute(&first, &ctx.alice).expect("first approval submits");
+    let result = ctx
+        .executor()
+        .execute(&first, &ctx.alice)
+        .expect("first approval submits");
     assert_success(&result);
-    assert_eq!(ctx.client.balance_rao(&recipient).expect("recipient balance"), before);
+    assert_eq!(
+        ctx.client
+            .balance_rao(&recipient)
+            .expect("recipient balance"),
+        before
+    );
 
     let pending = pending_multisig(&ctx, &fixture.address, &hash);
     let when = field(&pending, "when").expect("timepoint").clone();
@@ -805,10 +893,16 @@ fn test_account_object_m_of_n_executes() {
         payout,
         Some(when),
     );
-    let result = ctx.executor().execute(&second, &ctx.bob).expect("second approval submits");
+    let result = ctx
+        .executor()
+        .execute(&second, &ctx.bob)
+        .expect("second approval submits");
     assert_success(&result);
     assert_eq!(
-        ctx.client.balance_rao(&recipient).expect("recipient balance") - before,
+        ctx.client
+            .balance_rao(&recipient)
+            .expect("recipient balance")
+            - before,
         amount_tao(5)
     );
 }
@@ -835,7 +929,10 @@ fn test_proxy_flow() {
             ("delay", u32v(0)),
         ]),
     );
-    let result = ctx.executor().execute(&add, &ctx.alice).expect("add proxy submits");
+    let result = ctx
+        .executor()
+        .execute(&add, &ctx.alice)
+        .expect("add proxy submits");
     assert_success(&result);
     let proxies = ctx
         .client
@@ -887,7 +984,10 @@ fn test_proxy_flow() {
             ("delay", u32v(0)),
         ]),
     );
-    let result = ctx.executor().execute(&remove, &ctx.alice).expect("remove proxy submits");
+    let result = ctx
+        .executor()
+        .execute(&remove, &ctx.alice)
+        .expect("remove proxy submits");
     assert_success(&result);
     let proxies = ctx
         .client
@@ -920,7 +1020,9 @@ fn test_subnets_all_batched() {
     let ctx = TestContext::new();
     let subnets = ctx.client.subnets(None).expect("subnets read");
     assert!(subnets.len() >= 2);
-    assert!(subnets.windows(2).all(|pair| pair[0].netuid < pair[1].netuid));
+    assert!(subnets
+        .windows(2)
+        .all(|pair| pair[0].netuid < pair[1].netuid));
 }
 
 #[test]
@@ -950,12 +1052,7 @@ fn test_generic_accessors_over_generated_descriptors() {
     assert!(as_u128(&ed).is_some_and(|value| value > 0));
     let neurons = ctx
         .client
-        .runtime_call(
-            "NeuronInfoRuntimeApi",
-            "get_neurons_lite",
-            &[u16v(1)],
-            None,
-        )
+        .runtime_call("NeuronInfoRuntimeApi", "get_neurons_lite", &[u16v(1)], None)
         .expect("neurons runtime call");
     assert!(matches!(neurons, Value::List(_)));
 }
@@ -1024,12 +1121,7 @@ fn test_metagraph_fast_path_matches_runtime() {
     let fast = ctx.client.neurons(1, None).expect("fast neurons read");
     let raw = ctx
         .client
-        .runtime_call(
-            "NeuronInfoRuntimeApi",
-            "get_neurons_lite",
-            &[u16v(1)],
-            None,
-        )
+        .runtime_call("NeuronInfoRuntimeApi", "get_neurons_lite", &[u16v(1)], None)
         .expect("raw neurons read");
     assert_eq!(fast.len(), value_list(&raw).len());
     assert!(fast
@@ -1044,19 +1136,10 @@ fn test_snapshot_pins_reads_to_one_block() {
     assert!(snapshot.block_number > 0);
     let live = ctx
         .client
-        .runtime_call(
-            "NeuronInfoRuntimeApi",
-            "get_neurons_lite",
-            &[u16v(1)],
-            None,
-        )
+        .runtime_call("NeuronInfoRuntimeApi", "get_neurons_lite", &[u16v(1)], None)
         .expect("live neurons");
     let pinned = snapshot
-        .runtime_call(
-            "NeuronInfoRuntimeApi",
-            "get_neurons_lite",
-            &[u16v(1)],
-        )
+        .runtime_call("NeuronInfoRuntimeApi", "get_neurons_lite", &[u16v(1)])
         .expect("pinned neurons");
     assert_eq!(value_list(&live).len(), value_list(&pinned).len());
     assert!(
@@ -1077,12 +1160,7 @@ fn test_leases_read() {
     assert!(leases.iter().all(|(key, _)| as_u128(key).is_some()));
     let missing = ctx
         .client
-        .query(
-            "SubtensorModule",
-            "SubnetLeases",
-            &[u32v(999_999)],
-            None,
-        )
+        .query("SubtensorModule", "SubnetLeases", &[u32v(999_999)], None)
         .expect("missing lease read");
     assert!(matches!(missing, Value::Null));
 }
@@ -1091,7 +1169,10 @@ fn test_leases_read() {
 fn test_block_subscription_streams_increasing_headers() {
     let ctx = TestContext::new();
     let mut blocks = ctx.client.blocks(false);
-    let first = blocks.next().expect("first header").expect("first header result");
+    let first = blocks
+        .next()
+        .expect("first header")
+        .expect("first header result");
     let second = blocks
         .next()
         .expect("second header")
@@ -1109,7 +1190,10 @@ fn test_transfer_moves_exactly_the_amount() {
         .execute(&transfer(bob.clone(), amount_tao(3)), &ctx.alice)
         .expect("transfer submits");
     assert_success(&result);
-    assert_eq!(ctx.client.balance_rao(&bob).expect("Bob balance") - before, amount_tao(3));
+    assert_eq!(
+        ctx.client.balance_rao(&bob).expect("Bob balance") - before,
+        amount_tao(3)
+    );
 }
 
 #[test]
@@ -1140,7 +1224,9 @@ fn test_delegation_lifecycle() {
     let netuid = ctx.owned_subnet();
     let cold = ctx.alice.coldkey.ss58_address();
     let hot = ctx.alice.hotkey.ss58_address();
-    let _ = ctx.executor().execute(&root_register(hot.clone()), &ctx.alice);
+    let _ = ctx
+        .executor()
+        .execute(&root_register(hot.clone()), &ctx.alice);
 
     let delegate = ctx
         .client
@@ -1184,8 +1270,8 @@ fn test_delegation_lifecycle() {
         .min(u128::from(u16::MAX));
     if target != current {
         let target_u16 = u16::try_from(target).expect("delegate take fits u16");
-        let set_take = IntentCall::set_take(&ctx.client, hot.clone(), target_u16)
-            .expect("set take intent");
+        let set_take =
+            IntentCall::set_take(&ctx.client, hot.clone(), target_u16).expect("set take intent");
         let result = ctx
             .executor()
             .execute(&set_take, &ctx.alice)
@@ -1239,11 +1325,12 @@ fn test_delegation_lifecycle() {
         let Value::Tuple(parts) = entry else {
             return false;
         };
-        parts.first().is_some_and(|value| value_contains_str(value, &cold))
+        parts
+            .first()
+            .is_some_and(|value| value_contains_str(value, &cold))
             && parts.get(1).is_some_and(|positions| {
                 value_list(positions).iter().any(|position| {
-                    field(position, "netuid").and_then(as_u128)
-                        == Some(u128::from(netuid))
+                    field(position, "netuid").and_then(as_u128) == Some(u128::from(netuid))
                 })
             })
     }));
@@ -1259,7 +1346,10 @@ fn test_delegation_lifecycle() {
         .expect("stake positions");
     assert!(value_list(&positions).iter().any(|position| {
         field(position, "netuid").and_then(as_u128) == Some(u128::from(netuid))
-            && field(position, "stake").and_then(as_u128).unwrap_or_default() > 0
+            && field(position, "stake")
+                .and_then(as_u128)
+                .unwrap_or_default()
+                > 0
     }));
 }
 
@@ -1393,7 +1483,10 @@ fn test_identity_coldkey_and_subnet() {
         .client
         .query("SubtensorModule", "IdentitiesV2", &[s(coldkey)], None)
         .expect("identity read");
-    assert_eq!(field(&stored, "name").and_then(text_bytes).as_deref(), Some("E2E Alice"));
+    assert_eq!(
+        field(&stored, "name").and_then(text_bytes).as_deref(),
+        Some("E2E Alice")
+    );
 
     let subnet_identity = IntentCall::new(
         "set_subnet_identity",
@@ -1410,12 +1503,7 @@ fn test_identity_coldkey_and_subnet() {
     assert_success(&result);
     let stored = ctx
         .client
-        .query(
-            "SubtensorModule",
-            "SubnetIdentitiesV3",
-            &[u(netuid)],
-            None,
-        )
+        .query("SubtensorModule", "SubnetIdentitiesV3", &[u(netuid)], None)
         .expect("subnet identity read");
     assert_eq!(
         field(&stored, "subnet_name")
@@ -1436,10 +1524,7 @@ fn test_auto_stake_destination() {
         SignerRole::Coldkey,
         "SubtensorModule",
         "set_coldkey_auto_stake_hotkey",
-        record([
-            ("netuid", u(netuid)),
-            ("hotkey", s(hotkey.clone())),
-        ]),
+        record([("netuid", u(netuid)), ("hotkey", s(hotkey.clone()))]),
     )
     .touches([netuid]);
     let _ = ctx.executor().execute(&intent, &ctx.alice);

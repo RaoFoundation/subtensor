@@ -118,11 +118,7 @@ impl IntentCall {
 
     /// Construct an owner-settable subnet hyperparameter call while rejecting
     /// root-only or compound parameters before signing.
-    pub fn set_hyperparameter(
-        netuid: u16,
-        name: &str,
-        value: Value,
-    ) -> Result<Self, CoreError> {
+    pub fn set_hyperparameter(netuid: u16, name: &str, value: Value) -> Result<Self, CoreError> {
         let (function, is_bool) = match name {
             "immunity_period" => ("sudo_set_immunity_period", false),
             "min_allowed_weights" => ("sudo_set_min_allowed_weights", false),
@@ -135,9 +131,7 @@ impl IntentCall {
             "max_allowed_uids" => ("sudo_set_max_allowed_uids", false),
             "burn_increase_mult" => ("sudo_set_burn_increase_mult", false),
             "burn_half_life" => ("sudo_set_burn_half_life", false),
-            "commit_reveal_weights_enabled" => {
-                ("sudo_set_commit_reveal_weights_enabled", true)
-            }
+            "commit_reveal_weights_enabled" => ("sudo_set_commit_reveal_weights_enabled", true),
             "liquid_alpha_enabled" => ("sudo_set_liquid_alpha_enabled", true),
             "network_pow_registration_allowed" => {
                 ("sudo_set_network_pow_registration_allowed", true)
@@ -146,9 +140,7 @@ impl IntentCall {
             "bonds_reset_enabled" => ("sudo_set_bonds_reset_enabled", true),
             "transfers_enabled" => ("sudo_set_toggle_transfer", true),
             "owner_cut_enabled" => ("sudo_set_owner_cut_enabled", true),
-            "owner_cut_auto_lock_enabled" => {
-                ("sudo_set_owner_cut_auto_lock_enabled", true)
-            }
+            "owner_cut_auto_lock_enabled" => ("sudo_set_owner_cut_auto_lock_enabled", true),
             other => {
                 return Err(CoreError::Policy(format!(
                     "unknown or owner-unsettable hyperparameter {other}"
@@ -286,7 +278,9 @@ impl IntentCall {
     /// and subnet policy metadata across every child.
     pub fn batch(client: &Client, children: Vec<Self>) -> Result<Self, CoreError> {
         let Some(first) = children.first() else {
-            return Err(CoreError::Policy("batch requires at least one child".into()));
+            return Err(CoreError::Policy(
+                "batch requires at least one child".into(),
+            ));
         };
         if children.iter().any(|child| child.op == "batch") {
             return Err(CoreError::Policy("nested batches are not supported".into()));
@@ -310,7 +304,11 @@ impl IntentCall {
         }
         Ok(Self {
             op: "batch".into(),
-            summary: format!("atomic batch of {}: {}", children.len(), summaries.join("; ")),
+            summary: format!(
+                "atomic batch of {}: {}",
+                children.len(),
+                summaries.join("; ")
+            ),
             signer: first.signer,
             pallet: "Utility".into(),
             function: "batch_all".into(),
@@ -376,9 +374,8 @@ impl Policy {
                 Some(fee) if fee > max_fee => violations.push(format!(
                     "estimated fee {fee} rao exceeds max_fee_rao {max_fee}"
                 )),
-                None => violations.push(
-                    "fee estimation failed, so max_fee_rao cannot be enforced safely".into(),
-                ),
+                None => violations
+                    .push("fee estimation failed, so max_fee_rao cannot be enforced safely".into()),
                 _ => {}
             }
         }
@@ -387,9 +384,8 @@ impl Policy {
                 Spend::Bounded(spend) if spend > max_spend => violations.push(format!(
                     "spend {spend} rao exceeds max_spend_rao {max_spend}"
                 )),
-                Spend::Unbounded => violations.push(
-                    "unbounded spend is not allowed while max_spend_rao is set".into(),
-                ),
+                Spend::Unbounded => violations
+                    .push("unbounded spend is not allowed while max_spend_rao is set".into()),
                 _ => {}
             }
         }

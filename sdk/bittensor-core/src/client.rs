@@ -505,12 +505,8 @@ impl Client {
 
     pub fn estimate_fee(&self, call_data: &[u8], signer: &Keypair) -> Result<u128, CoreError> {
         let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (extrinsic, _) = self.sign_extrinsic(
-            call_data,
-            signer,
-            nonce,
-            Some(DEFAULT_ERA_PERIOD),
-        )?;
+        let (extrinsic, _) =
+            self.sign_extrinsic(call_data, signer, nonce, Some(DEFAULT_ERA_PERIOD))?;
         let value = self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))?;
         let object = value
             .as_object()
@@ -524,12 +520,8 @@ impl Client {
 
     pub fn estimate_weight(&self, call_data: &[u8], signer: &Keypair) -> Result<Value, CoreError> {
         let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (extrinsic, _) = self.sign_extrinsic(
-            call_data,
-            signer,
-            nonce,
-            Some(DEFAULT_ERA_PERIOD),
-        )?;
+        let (extrinsic, _) =
+            self.sign_extrinsic(call_data, signer, nonce, Some(DEFAULT_ERA_PERIOD))?;
         let value = self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))?;
         let weight = value
             .as_object()
@@ -592,12 +584,8 @@ impl Client {
         let public_key = value_bytes(&next_key)
             .ok_or_else(|| CoreError::Rpc("MevShield.NextKey is unavailable".into()))?;
         let nonce = self.account_next_index(&signer.ss58_address())?;
-        let (inner, inner_hash) = self.sign_extrinsic(
-            call_data,
-            signer,
-            nonce + 1,
-            Some(DEFAULT_ERA_PERIOD),
-        )?;
+        let (inner, inner_hash) =
+            self.sign_extrinsic(call_data, signer, nonce + 1, Some(DEFAULT_ERA_PERIOD))?;
         let ciphertext = mlkem::seal(&public_key, &inner, true)?;
         let outer = self.compose_call(
             "MevShield",
@@ -635,24 +623,10 @@ impl Client {
 
     pub fn subnets(&self, block_hash: Option<&str>) -> Result<Vec<SubnetInfo>, CoreError> {
         let added = self.query_map("SubtensorModule", "NetworksAdded", &[], block_hash)?;
-        let tempos = value_map_u16(self.query_map(
-            "SubtensorModule",
-            "Tempo",
-            &[],
-            block_hash,
-        )?);
-        let burns = value_map_u128(self.query_map(
-            "SubtensorModule",
-            "Burn",
-            &[],
-            block_hash,
-        )?);
-        let counts = value_map_u16(self.query_map(
-            "SubtensorModule",
-            "SubnetworkN",
-            &[],
-            block_hash,
-        )?);
+        let tempos = value_map_u16(self.query_map("SubtensorModule", "Tempo", &[], block_hash)?);
+        let burns = value_map_u128(self.query_map("SubtensorModule", "Burn", &[], block_hash)?);
+        let counts =
+            value_map_u16(self.query_map("SubtensorModule", "SubnetworkN", &[], block_hash)?);
         let mut out = Vec::new();
         for (key, value) in added {
             if !matches!(value, Value::Bool(true)) {
@@ -743,10 +717,7 @@ impl Client {
         let quote = self.runtime_call(
             "SwapRuntimeApi",
             "sim_swap_tao_for_alpha",
-            &[
-                Value::Uint(u128::from(netuid)),
-                Value::Uint(amount_rao),
-            ],
+            &[Value::Uint(u128::from(netuid)), Value::Uint(amount_rao)],
             block_hash,
         )?;
         Ok(SwapQuote {
@@ -804,9 +775,9 @@ impl Client {
                 params.push(JsonValue::String(hash.to_string()));
             }
             let value = self.rpc_value("state_getKeysPaged", JsonValue::Array(params))?;
-            let page = value.as_array().ok_or_else(|| {
-                CoreError::Rpc("state_getKeysPaged returned a non-array".into())
-            })?;
+            let page = value
+                .as_array()
+                .ok_or_else(|| CoreError::Rpc("state_getKeysPaged returned a non-array".into()))?;
             if page.is_empty() {
                 break;
             }
@@ -843,9 +814,9 @@ impl Client {
             params.push(JsonValue::String(hash.to_string()));
         }
         let value = self.rpc_value("state_queryStorageAt", JsonValue::Array(params))?;
-        let sets = value.as_array().ok_or_else(|| {
-            CoreError::Rpc("state_queryStorageAt returned a non-array".into())
-        })?;
+        let sets = value
+            .as_array()
+            .ok_or_else(|| CoreError::Rpc("state_queryStorageAt returned a non-array".into()))?;
         let changes = sets
             .first()
             .and_then(JsonValue::as_object)
@@ -869,7 +840,11 @@ impl Client {
         }
         Ok(keys
             .iter()
-            .map(|key| by_key.remove(&hex_prefixed(key).to_ascii_lowercase()).flatten())
+            .map(|key| {
+                by_key
+                    .remove(&hex_prefixed(key).to_ascii_lowercase())
+                    .flatten()
+            })
             .collect())
     }
 
@@ -1035,12 +1010,7 @@ pub struct Snapshot<'a> {
 }
 
 impl Snapshot<'_> {
-    pub fn query(
-        &self,
-        pallet: &str,
-        storage: &str,
-        params: &[Value],
-    ) -> Result<Value, CoreError> {
+    pub fn query(&self, pallet: &str, storage: &str, params: &[Value]) -> Result<Value, CoreError> {
         self.client
             .query(pallet, storage, params, Some(&self.block_hash))
     }
@@ -1096,10 +1066,7 @@ impl Iterator for BlockStream<'_> {
             };
             match head {
                 Ok(header) => {
-                    if self
-                        .last_number
-                        .is_none_or(|last| header.number > last)
-                    {
+                    if self.last_number.is_none_or(|last| header.number > last) {
                         self.last_number = Some(header.number);
                         return Some(Ok(header));
                     }
@@ -1237,7 +1204,12 @@ fn runtime_api_method<'a>(
         .apis
         .iter()
         .find(|candidate| candidate.name == api)
-        .and_then(|candidate| candidate.methods.iter().find(|candidate| candidate.name == method))
+        .and_then(|candidate| {
+            candidate
+                .methods
+                .iter()
+                .find(|candidate| candidate.name == method)
+        })
         .ok_or_else(|| CoreError::NotInRuntime(format!("runtime API {api}.{method}")))
 }
 
@@ -1287,12 +1259,15 @@ fn dispatch_error(runtime: &Runtime, value: &Value) -> Result<DispatchError, Cor
 
 fn semantic_error_code(name: &str) -> String {
     let canonical = match name {
-        "SubNetworkDoesNotExist" | "SubnetDoesNotExist" | "SubnetNotExists"
+        "SubNetworkDoesNotExist"
+        | "SubnetDoesNotExist"
+        | "SubnetNotExists"
         | "SubNetDoesNotExist" => "subnet_not_exists",
         "NotProxy" => "not_proxy",
         "NoPermission" | "NotAllowed" | "Unproxyable" => "not_allowed",
-        "HotKeyNotRegisteredInNetwork" | "HotkeyNotRegisteredInSubNet"
-        | "NotRegistered" => "not_registered",
+        "HotKeyNotRegisteredInNetwork" | "HotkeyNotRegisteredInSubNet" | "NotRegistered" => {
+            "not_registered"
+        }
         "TxRateLimitExceeded" | "SettingWeightsTooFast" => "rate_limited",
         _ => return snake_case(name),
     };
@@ -1328,9 +1303,8 @@ fn event_is(record: &Value, module: &str, name: &str) -> bool {
 }
 
 fn event_attributes(record: &Value) -> Option<&Value> {
-    field(record, "attributes").or_else(|| {
-        field(record, "event").and_then(|event| field(event, "attributes"))
-    })
+    field(record, "attributes")
+        .or_else(|| field(record, "event").and_then(|event| field(event, "attributes")))
 }
 
 pub fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
