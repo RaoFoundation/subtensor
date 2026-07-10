@@ -24,10 +24,7 @@ export function keyringPairFromUri(uri: string, type: "sr25519" | "ed25519" = "s
 }
 
 /** Create a compatible pair from a mnemonic without invoking JavaScript crypto. */
-export function keyringPairFromMnemonic(
-    mnemonic: string,
-    type: "sr25519" | "ed25519" = "sr25519"
-): KeyringPair {
+export function keyringPairFromMnemonic(mnemonic: string, type: "sr25519" | "ed25519" = "sr25519"): KeyringPair {
     return createSdkKeyringPairFromMnemonic(mnemonic, type);
 }
 
