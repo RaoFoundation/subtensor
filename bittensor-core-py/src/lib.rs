@@ -11,6 +11,7 @@ mod errors;
 mod keys;
 #[cfg(feature = "ledger")]
 mod ledger;
+mod runtime;
 mod timelock;
 
 /// The `bittensor_core` extension module (PyPI package `bittensor-core`).
@@ -25,6 +26,7 @@ fn bittensor_core(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> 
     module.add("LedgerError", py.get_type::<errors::LedgerError>())?;
     digest::register(module)?;
     keys::register(module)?;
+    runtime::register(module)?;
     #[cfg(feature = "ledger")]
     ledger::register(module)?;
     timelock::register(module)?;

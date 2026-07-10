@@ -21,7 +21,9 @@ pbkdf2 = "0.12.2"
 schnorrkel = "0.11.5"
 scrypt = "0.11.0"
 serde = { version = "1.0.132", features = ["derive"] }
-serde_json = "1.0.132"
+# arbitrary_precision: corpus fixtures and decoded values carry full-width
+# u128/u256 integers that must survive JSON round-trips digit-exact.
+serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
 sha2 = "0.10.8"
 sodiumoxide = { version = "0.2", default-features = false, features = ["std"] }
 sp-core = { workspace = true, features = ["std", "full_crypto"] }
@@ -48,6 +50,9 @@ twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"]
 # its RUNTIME_METADATA_HASH with.
 frame-metadata = { workspace = true, features = ["current", "decode", "std"] }
 merkleized-metadata = "0.5.1"
+
+# runtime + codec (the portable-registry engine)
+scale-info = { workspace = true, features = ["std"] }
 
 # signers (feature "ledger"): Zondax's HID transport for the Polkadot generic app
 ledger-apdu = { version = "0.11", optional = true }

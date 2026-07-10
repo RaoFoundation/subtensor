@@ -9,11 +9,13 @@
 //!
 //! See `sdk/bittensor-core-spec.md` for the full design.
 
+pub mod codec;
 pub mod digest;
 pub mod error;
 pub mod keyfiles;
 pub mod keys;
 pub mod mlkem;
+pub mod runtime;
 pub mod signers;
 pub mod timelock;
 

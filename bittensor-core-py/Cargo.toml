@@ -15,6 +15,7 @@ bittensor-core = { path = "../bittensor-core" }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false }
 hex = "0.4.3"
 pyo3 = { version = "0.23", features = ["abi3-py310"] }
+scale-info = { version = "2.11.6", default-features = false }
 
 [features]
 default = ["ledger"]
