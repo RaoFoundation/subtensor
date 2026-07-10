@@ -70,7 +70,7 @@ Look up the PR author's gittensor association:
 
 1. Read `.github/ai-review/known-gittensor-accounts.json` (auto-maintained from on-chain bounty data).
 2. Read `.github/ai-review/gittensor-accounts.txt` (nucleus-curated supplement).
-3. If neither matches, apply the heuristic: ≥70% of the author's recent merged PRs are to gittensor-whitelisted repos (subtensor / opentensor / latent-to / etc.) AND average PR size is small. If so, classify as `LIKELY`.
+3. If neither matches, apply the heuristic: ≥70% of the author's recent merged PRs are to gittensor-whitelisted repos (subtensor / RaoFoundation / opentensor / latent-to / etc.) AND average PR size is small. If so, classify as `LIKELY`.
 
 Tier the author:
 - **KNOWN** (on-chain or curated): high confidence gittensor miner.

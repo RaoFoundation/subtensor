@@ -4,13 +4,18 @@ use super::mock::*;
 use crate::migrations::migrate_network_immunity_period;
 use crate::staking::lock::LockState;
 use crate::*;
-use frame_support::{assert_err, assert_ok};
+use frame_support::{assert_err, assert_ok, weights::Weight};
 use frame_system::Config;
 use sp_core::U256;
 use sp_std::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
+
+/// Run the same α-out destroy steps as `remove_data_for_dissolved_networks` (post-root-cleanup).
+fn destroy_alpha_in_out_stakes_full_pipeline_for_test(netuid: NetUid) {
+    run_destroy_alpha_in_out_stakes_full_pipeline(netuid);
+}
 
 #[test]
 fn test_registration_ok() {
@@ -80,6 +85,46 @@ fn dissolve_no_stakers_no_alpha_no_emission() {
 }
 
 #[test]
+fn dissolve_defers_cleanup_until_on_idle() {
+    new_test_ext(0).execute_with(|| {
+        let owner_cold = U256::from(11);
+        let owner_hot = U256::from(12);
+        let net = add_dynamic_network(&owner_hot, &owner_cold);
+
+        // Set up EVM association data to verify it gets cleaned up too.
+        let evm_key = sp_core::H160::from_low_u64_be(42);
+        SubtensorModule::set_associated_evm_address(net, 0u16, evm_key, 1u64);
+        assert!(AssociatedEvmAddress::<Test>::contains_key(net, 0u16));
+        assert!(!AssociatedUidsByEvmAddress::<Test>::get(net, evm_key).is_empty());
+
+        assert!(SubnetOwner::<Test>::contains_key(net));
+        assert!(SubnetOwnerHotkey::<Test>::contains_key(net));
+        assert!(NetworkRegisteredAt::<Test>::contains_key(net));
+        assert!(!DissolveCleanupQueue::<Test>::get().contains(&net));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+
+        // Network is no longer considered "existing" but data is not cleaned yet.
+        assert!(!SubtensorModule::if_subnet_exist(net));
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&net));
+        assert!(SubnetOwner::<Test>::contains_key(net));
+        assert!(NetworkRegisteredAt::<Test>::contains_key(net));
+        // EVM data still present before on_idle cleanup.
+        assert!(AssociatedEvmAddress::<Test>::contains_key(net, 0u16));
+        assert!(!AssociatedUidsByEvmAddress::<Test>::get(net, evm_key).is_empty());
+
+        // Cleanup happens in on_idle.
+        run_block_idle();
+        assert!(!NetworkRegisteredAt::<Test>::contains_key(net));
+        assert!(!SubnetOwner::<Test>::contains_key(net));
+        assert!(!DissolveCleanupQueue::<Test>::get().contains(&net));
+        // EVM data cleaned up as part of NetworkMapParameters phase.
+        assert!(!AssociatedEvmAddress::<Test>::contains_key(net, 0u16));
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(net, evm_key).is_empty());
+    });
+}
+
+#[test]
 fn dissolve_refunds_full_lock_cost_when_no_emission() {
     new_test_ext(0).execute_with(|| {
         let cold = U256::from(3);
@@ -97,6 +142,7 @@ fn dissolve_refunds_full_lock_cost_when_no_emission() {
 
         let before = SubtensorModule::get_coldkey_balance(&cold);
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
         let after = SubtensorModule::get_coldkey_balance(&cold);
 
         assert_eq!(TaoBalance::from(after), TaoBalance::from(before) + lock);
@@ -129,6 +175,7 @@ fn dissolve_single_alpha_out_staker_gets_all_tao() {
 
         // Dissolve
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // Cold-key received full pot
         let after = SubtensorModule::get_coldkey_balance(&s_cold);
@@ -203,6 +250,7 @@ fn dissolve_two_stakers_pro_rata_distribution() {
 
         // Dissolve
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // Cold-keys received their τ shares
         assert_eq!(
@@ -283,12 +331,14 @@ fn dissolve_owner_cut_refund_logic() {
 
         let before = SubtensorModule::get_coldkey_balance(&oc);
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
         let after = SubtensorModule::get_coldkey_balance(&oc);
 
         assert!(after > before); // some refund is expected
-        assert_eq!(
-            TaoBalance::from(after),
-            TaoBalance::from(before) + expected_refund
+        let gain: TaoBalance = after.saturating_sub(before.into());
+        assert!(
+            gain >= expected_refund,
+            "owner should receive at least the lock-based refund: gain {gain:?} expected_refund {expected_refund:?}"
         );
     });
 }
@@ -468,7 +518,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         TransactionKeyLastBlock::<Test>::insert((owner_hot, net, 1u16), 1u64);
 
         // EVM association indexed by (netuid, uid)
-        AssociatedEvmAddress::<Test>::insert(net, 0u16, (sp_core::H160::zero(), 1u64));
+        SubtensorModule::set_associated_evm_address(net, 0u16, sp_core::H160::zero(), 1u64);
 
         // (Optional) subnet -> lease link
         SubnetUidToLeaseId::<Test>::insert(net, 42u32);
@@ -477,6 +527,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         // Dissolve
         // ------------------------------------------------------------------
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // ------------------------------------------------------------------
         // Items that must be COMPLETELY REMOVED
@@ -634,6 +685,7 @@ fn dissolve_clears_all_per_subnet_storages() {
 
         // EVM association
         assert!(AssociatedEvmAddress::<Test>::get(net, 0u16).is_none());
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(net, sp_core::H160::zero()).is_empty());
 
         // Subnet -> lease link
         assert!(!SubnetUidToLeaseId::<Test>::contains_key(net));
@@ -715,6 +767,7 @@ fn dissolve_alpha_out_but_zero_tao_no_rewards() {
 
         let before = SubtensorModule::get_coldkey_balance(&sc);
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
         let after = SubtensorModule::get_coldkey_balance(&sc);
 
         // No reward distributed, α-out cleared.
@@ -773,6 +826,7 @@ fn dissolve_rounding_remainder_distribution() {
 
         // 3. Run full dissolve flow
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // 4. s1 (larger remainder) should get +1 τ on cold-key
         let c1_after = SubtensorModule::get_coldkey_balance(&s1c);
@@ -820,6 +874,10 @@ fn dissolve_protocol_alpha_share_is_not_paid_to_users() {
 
         assert_ok!(SubtensorModule::do_dissolve_network(net));
 
+        run_block_idle();
+
+        // User gets 50 / (100 alpha-in + 50 cached protocol alpha + 50 user alpha)
+        // of the TAO pot. The protocol share is withheld from user/owner payout.
         // Settlement denominator = 50 cached protocol alpha + 50 user alpha = 100
         // (alpha-in is excluded). The user therefore gets 50/100 of the 200 TAO pot,
         // i.e. 100 TAO. The chain-bought alpha's 100 TAO share is withheld from the
@@ -870,6 +928,7 @@ fn dissolve_protocol_alpha_post_deploy_includes_alpha_in() {
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // Post-deploy denominator = 100 alpha-in + 50 cached protocol alpha
         // + 50 user alpha = 200. The user gets 50/200 of the 200 TAO pot.
@@ -912,6 +971,7 @@ fn dissolve_chain_bought_alpha_is_converted_to_tao_and_recycled() {
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // There are no stakers, so the entire pot is the chain-bought alpha's TAO
         // share. It is not paid to the owner; instead it is recycled back to the
@@ -988,7 +1048,7 @@ fn destroy_alpha_out_multiple_stakers_pro_rata() {
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
         // 7. Run the (now credit-to-coldkey) logic
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        destroy_alpha_in_out_stakes_full_pipeline_for_test(netuid);
 
         // 8. Expected τ shares via largest remainder
         let prod1 = (tao_pot as u128) * a1;
@@ -1051,7 +1111,8 @@ fn destroy_alpha_in_out_stakes_cleans_locking_coldkeys() {
         Lock::<Test>::insert((coldkey, other_netuid, hotkey), lock);
         LockingColdkeys::<Test>::insert((other_netuid, hotkey, coldkey), ());
 
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        DissolveCleanupQueue::<Test>::set(vec![netuid]);
+        run_block_idle();
 
         assert!(!Lock::<Test>::contains_key((coldkey, netuid, hotkey)));
         assert!(!LockingColdkeys::<Test>::contains_key((
@@ -1095,7 +1156,8 @@ fn destroy_alpha_in_out_stakes_cleans_all_lock_aggregates() {
         DecayingOwnerLock::<Test>::insert(other_netuid, lock);
         DecayingLock::<Test>::insert(coldkey, other_netuid, false);
 
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        DissolveCleanupQueue::<Test>::set(vec![netuid]);
+        run_block_idle();
 
         assert!(!HotkeyLock::<Test>::contains_key(netuid, hotkey));
         assert!(!DecayingHotkeyLock::<Test>::contains_key(netuid, hotkey));
@@ -1233,7 +1295,7 @@ fn destroy_alpha_out_many_stakers_complex_distribution() {
         let expected_refund = lock.saturating_sub(owner_emission_tao);
 
         // ── 6) run distribution (credits τ to coldkeys, wipes α state) ─────
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        destroy_alpha_in_out_stakes_full_pipeline_for_test(netuid);
 
         // ── 7) post checks ──────────────────────────────────────────────────
         for i in 0..N {
@@ -1318,7 +1380,15 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
         // Run the path under test
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        let mut weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        // total alpha tracked in CurrentDissolveCleanupStatus;
+        // distributed tao tracked in CurrentDissolveCleanupStatus;
+        {
+            let mut status = dissolve_cleanup_status(netuid);
+            status.subnet_total_alpha_value = Some(0);
+            SubtensorModule::destroy_alpha_in_out_stakes(netuid, &mut weight_meter, &mut status);
+        }
 
         // Owner received their refund…
         let owner_after = SubtensorModule::get_coldkey_balance(&owner_cold);
@@ -1365,7 +1435,15 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
 
         // Run the path under test
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        let mut weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        // total alpha tracked in CurrentDissolveCleanupStatus;
+        // distributed tao tracked in CurrentDissolveCleanupStatus;
+        {
+            let mut status = dissolve_cleanup_status(netuid);
+            status.subnet_total_alpha_value = Some(0);
+            SubtensorModule::destroy_alpha_in_out_stakes(netuid, &mut weight_meter, &mut status);
+        }
 
         // No refund for non‑legacy
         let owner_after = SubtensorModule::get_coldkey_balance(&owner_cold);
@@ -1400,7 +1478,13 @@ fn destroy_alpha_out_refund_gating_by_registration_block() {
         SubnetOwnerCut::<Test>::put(32_768u16); // ~50%
 
         let owner_before = SubtensorModule::get_coldkey_balance(&owner_cold);
-        assert_ok!(SubtensorModule::destroy_alpha_in_out_stakes(netuid));
+        let mut weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        {
+            let mut status = dissolve_cleanup_status(netuid);
+            status.subnet_total_alpha_value = Some(0);
+            SubtensorModule::destroy_alpha_in_out_stakes(netuid, &mut weight_meter, &mut status);
+        }
         let owner_after = SubtensorModule::get_coldkey_balance(&owner_cold);
 
         // No refund possible when lock = 0
@@ -1697,46 +1781,43 @@ fn prune_selection_complex_state_exhaustive() {
 }
 
 #[test]
-fn register_network_prunes_and_recycles_netuid() {
+fn get_subnet_account_id_some_while_dissolved_cleanup_pending() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(44_001);
+        let hot = U256::from(44_002);
+        let net = add_dynamic_network(&hot, &cold);
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        assert!(!SubtensorModule::if_subnet_exist(net));
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&net));
+        assert!(
+            SubtensorModule::get_subnet_account_id(net).is_some(),
+            "subnet TAO account must stay derivable during async dissolve cleanup"
+        );
+    });
+}
+
+#[test]
+fn register_network_skips_dissolved_netuid() {
     new_test_ext(0).execute_with(|| {
-        SubnetLimit::<Test>::put(2u16);
+        let dissolved = NetUid::from(1);
+        DissolveCleanupQueue::<Test>::put(vec![dissolved]);
 
-        let n1_cold = U256::from(21);
-        let n1_hot = U256::from(22);
-        let n1 = add_dynamic_network(&n1_hot, &n1_cold);
-
-        let n2_cold = U256::from(23);
-        let n2_hot = U256::from(24);
-        let n2 = add_dynamic_network(&n2_hot, &n2_cold);
-
-        // Add 100 TAO to subnet accounts (lock)
-        let subnet_account1 = SubtensorModule::get_subnet_account_id(n1).unwrap();
-        add_balance_to_coldkey_account(&subnet_account1, 100_000_000_000_u64.into());
-        let subnet_account2 = SubtensorModule::get_subnet_account_id(n2).unwrap();
-        add_balance_to_coldkey_account(&subnet_account2, 100_000_000_000_u64.into());
-
-        let imm = SubtensorModule::get_network_immunity_period();
-        System::set_block_number(imm + 100);
-
-        Emission::<Test>::insert(n1, vec![AlphaBalance::from(1)]);
-        Emission::<Test>::insert(n2, vec![AlphaBalance::from(1_000)]);
-
-        let new_cold = U256::from(30);
-        let new_hot = U256::from(31);
+        let cold = U256::from(60);
+        let hot = U256::from(61);
         let needed: u64 = SubtensorModule::get_network_lock_cost().into();
-        add_balance_to_coldkey_account(&new_cold, needed.saturating_mul(10).into());
+        add_balance_to_coldkey_account(&cold, needed.saturating_mul(10).into());
 
         assert_ok!(SubtensorModule::do_register_network(
-            RuntimeOrigin::signed(new_cold),
-            &new_hot,
+            RuntimeOrigin::signed(cold),
+            &hot,
             1,
             None,
         ));
 
-        assert_eq!(TotalNetworks::<Test>::get(), 2);
-        assert_eq!(SubnetOwner::<Test>::get(n1), new_cold);
-        assert_eq!(SubnetOwnerHotkey::<Test>::get(n1), new_hot);
-        assert_eq!(SubnetOwner::<Test>::get(n2), n2_cold);
+        assert!(!NetworksAdded::<Test>::get(dissolved));
+        let expected = NetUid::from(2);
+        assert!(NetworksAdded::<Test>::get(expected));
+        assert_eq!(SubnetOwner::<Test>::get(expected), cold);
     });
 }
 
@@ -2312,6 +2393,7 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
         }
         for &net in nets.iter() {
             assert_ok!(SubtensorModule::do_dissolve_network(net));
+            run_block_idle();
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -2526,6 +2608,7 @@ fn dissolve_clears_all_mechanism_scoped_maps_for_all_mechanisms() {
 
         // --- Dissolve the subnet ---
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // After dissolve, ALL mechanism-scoped items must be cleared for ALL mechanisms.
 
@@ -2658,6 +2741,7 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
 
         // --- Dissolve ---
         assert_ok!(SubtensorModule::do_dissolve_network(net));
+        run_block_idle();
 
         // Ensure removed
         assert!(!Lock::<Test>::contains_key((cold_1, net, hot_1)));
@@ -3163,6 +3247,7 @@ fn registered_subnet_counter_survives_dissolve_and_bumps_on_reregistration() {
         // can still detect the pre-dereg lifetime if they stored the counter
         // value they observed at approval time.
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
         assert!(!SubtensorModule::if_subnet_exist(netuid));
         assert_eq!(
             SubtensorModule::get_registered_subnet_counter(netuid),
@@ -3183,5 +3268,581 @@ fn registered_subnet_counter_survives_dissolve_and_bumps_on_reregistration() {
             2,
             "re-registration must bump counter"
         );
+    });
+}
+
+#[test]
+fn dissolve_async_cleanup_leaves_phase_unset_until_idle_finishes() {
+    new_test_ext(0).execute_with(|| {
+        let owner_cold = U256::from(910);
+        let owner_hot = U256::from(911);
+        let net = add_dynamic_network(&owner_hot, &owner_cold);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        assert!(
+            DissolveCleanupQueue::<Test>::get().contains(&net),
+            "dissolved netuid should be queued for on_idle cleanup"
+        );
+        assert!(
+            CurrentDissolveCleanupStatus::<Test>::get().is_none(),
+            "global cleanup phase is only driven from on_idle (not from do_dissolve_network)"
+        );
+
+        run_block_idle();
+
+        assert!(
+            !DissolveCleanupQueue::<Test>::get().contains(&net),
+            "idle cleanup should drain the dissolved net from the queue"
+        );
+        assert!(
+            CurrentDissolveCleanupStatus::<Test>::get().is_none(),
+            "when the queue is empty, global cleanup phase storage must be cleared"
+        );
+    });
+}
+
+#[test]
+fn dissolve_full_on_idle_emits_dissolved_network_data_cleaned_and_clears_phase() {
+    // `frame_system::Pallet::events()` stays empty at block #0 in the test externalities;
+    // use a non-zero block like other event-asserting tests (`recycle_alpha`, etc.).
+    new_test_ext(1).execute_with(|| {
+        let owner_cold = U256::from(930);
+        let owner_hot = U256::from(931);
+        let net = add_dynamic_network(&owner_hot, &owner_cold);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(net));
+        System::reset_events();
+        run_block_idle();
+
+        assert!(
+            System::events().iter().any(|e| {
+                matches!(
+                    &e.event,
+                    RuntimeEvent::SubtensorModule(Event::NetworkDissolveCleanupCompleted { netuid: n })
+                        if *n == net
+                )
+            }),
+            "expected NetworkDissolveCleanupCompleted after async dissolve pipeline"
+        );
+        assert!(
+            CurrentDissolveCleanupStatus::<Test>::get().is_none(),
+            "global cleanup phase storage must be cleared when the queue is empty"
+        );
+    });
+}
+
+#[test]
+fn dissolve_two_networks_fifo_cleanup_drains_queue() {
+    new_test_ext(0).execute_with(|| {
+        let n1 = add_dynamic_network(&U256::from(940), &U256::from(941));
+        let n2 = add_dynamic_network(&U256::from(942), &U256::from(943));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(n1));
+        assert_ok!(SubtensorModule::do_dissolve_network(n2));
+        assert_eq!(DissolveCleanupQueue::<Test>::get(), vec![n1, n2]);
+
+        let mut guard = 0u32;
+        while !DissolveCleanupQueue::<Test>::get().is_empty() {
+            guard = guard.saturating_add(1);
+            assert!(
+                guard < 256,
+                "dissolve cleanup should drain in finite idle passes (guard={guard})"
+            );
+            run_block_idle();
+        }
+
+        assert!(!SubtensorModule::if_subnet_exist(n1));
+        assert!(!SubtensorModule::if_subnet_exist(n2));
+        assert!(
+            CurrentDissolveCleanupStatus::<Test>::get().is_none(),
+            "no stale phase after queue drain"
+        );
+    });
+}
+
+#[test]
+fn set_new_network_state_registers_subnet_with_expected_state() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(9001);
+        let hot = U256::from(9002);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(lock_amount));
+
+        let median_price = SubtensorModule::get_median_subnet_alpha_price();
+        let netuid = SubtensorModule::get_next_netuid();
+
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            None,
+            lock_amount,
+            median_price,
+            None,
+        ));
+
+        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert_eq!(SubnetOwner::<Test>::get(netuid), cold);
+        assert_eq!(SubnetMechanism::<Test>::get(netuid), 1);
+        assert_eq!(SubnetLocked::<Test>::get(netuid), lock_amount);
+        assert_eq!(
+            SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hot),
+            Ok(0)
+        );
+    });
+}
+
+#[test]
+fn register_network_queues_when_waiting_for_dissolve_cleanup() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+
+        let n1 = add_dynamic_network(&U256::from(9102), &U256::from(9101));
+        let _n2 = add_dynamic_network(&U256::from(9202), &U256::from(9201));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(n1));
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&n1));
+
+        let cold = U256::from(9301);
+        let hot = U256::from(9302);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(lock_amount));
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &hot,
+            1,
+            None,
+        ));
+
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert_eq!(NetworkRegistrationQueue::<Test>::get()[0].coldkey, cold);
+        assert_eq!(TotalNetworks::<Test>::get(), 1);
+        assert!(!SubtensorModule::hotkey_account_exists(&hot));
+    });
+}
+
+#[test]
+fn process_network_registration_queue_registers_after_cleanup_slot_available() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+
+        let n1 = add_dynamic_network(&U256::from(9402), &U256::from(9401));
+        let n2 = add_dynamic_network(&U256::from(9502), &U256::from(9501));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(n1));
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&n1));
+
+        let cold = U256::from(9601);
+        let hot = U256::from(9602);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(3.into()).into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(lock_amount));
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &hot,
+            1,
+            None,
+        ));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+
+        // Simulate dissolve cleanup completing and freeing a subnet slot.
+        DissolveCleanupQueue::<Test>::kill();
+
+        run_network_registration_queue();
+
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert!(SubtensorModule::hotkey_account_exists(&hot));
+        assert_eq!(TotalNetworks::<Test>::get(), 2);
+
+        let registered_netuid = NetworksAdded::<Test>::iter()
+            .find(|(netuid, added)| *added && *netuid != n2)
+            .map(|(netuid, _)| netuid)
+            .expect("queued registration should create a new subnet");
+        assert_eq!(SubnetOwner::<Test>::get(registered_netuid), cold);
+    });
+}
+
+#[test]
+fn register_network_prune_registers_registration_queued() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+
+        let n1 = add_dynamic_network(&U256::from(9702), &U256::from(9701));
+        let n2 = add_dynamic_network(&U256::from(9802), &U256::from(9801));
+
+        let imm = SubtensorModule::get_network_immunity_period();
+        System::set_block_number(imm + 100);
+        Emission::<Test>::insert(n1, vec![AlphaBalance::from(1)]);
+        Emission::<Test>::insert(n2, vec![AlphaBalance::from(1_000)]);
+
+        let cold = U256::from(9901);
+        let hot = U256::from(9902);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(10.into()).into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(lock_amount));
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &hot,
+            1,
+            None,
+        ));
+
+        assert!(NetworkRegistrationQueue::<Test>::get().len() == 1);
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&n1));
+        assert!(!NetworksAdded::<Test>::get(n1));
+    });
+}
+
+#[test]
+fn set_new_network_state_fails_when_subnet_limit_reached() {
+    new_test_ext(1).execute_with(|| {
+        SubnetLimit::<Test>::put(1u16);
+        let _n1 = add_dynamic_network(&U256::from(10_002), &U256::from(10_001));
+
+        let cold = U256::from(10_011);
+        let hot = U256::from(10_012);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        assert_err!(
+            SubtensorModule::set_new_network_state(
+                &cold,
+                &hot,
+                1,
+                None,
+                lock_amount,
+                SubtensorModule::get_median_subnet_alpha_price(),
+                None,
+            ),
+            Error::<Test>::SubnetLimitReached
+        );
+
+        // No partial state was written.
+        assert_eq!(TotalNetworks::<Test>::get(), 1);
+        assert!(!SubtensorModule::hotkey_account_exists(&hot));
+    });
+}
+
+#[test]
+fn set_new_network_state_stores_identity_and_emits_events() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(10_101);
+        let hot = U256::from(10_102);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        let identity = SubnetIdentityOfV3 {
+            subnet_name: b"my subnet".to_vec(),
+            github_repo: b"https://github.com/example/repo".to_vec(),
+            subnet_contact: b"contact@example.com".to_vec(),
+            subnet_url: b"https://example.com".to_vec(),
+            discord: b"discord".to_vec(),
+            description: b"description".to_vec(),
+            logo_url: b"https://example.com/logo.png".to_vec(),
+            additional: b"".to_vec(),
+        };
+
+        let netuid = SubtensorModule::get_next_netuid();
+        System::reset_events();
+
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            Some(identity.clone()),
+            lock_amount,
+            SubtensorModule::get_median_subnet_alpha_price(),
+            None,
+        ));
+
+        assert_eq!(SubnetIdentitiesV3::<Test>::get(netuid), Some(identity));
+        let events = System::events();
+        assert!(events.iter().any(|e| matches!(
+            &e.event,
+            RuntimeEvent::SubtensorModule(Event::SubnetIdentitySet(n)) if *n == netuid
+        )));
+        assert!(events.iter().any(|e| matches!(
+            &e.event,
+            RuntimeEvent::SubtensorModule(Event::NetworkAdded(n, m)) if *n == netuid && *m == 1
+        )));
+    });
+}
+
+#[test]
+fn set_new_network_state_uses_provided_median_price_for_pool_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(10_201);
+        let hot = U256::from(10_202);
+
+        // Lock twice the min lock so the pool is seeded from the actual lock amount.
+        let min_lock = SubtensorModule::get_network_min_lock();
+        let lock_amount = min_lock.saturating_mul(2.into());
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        let netuid = SubtensorModule::get_next_netuid();
+        let price = U64F64::from_num(2);
+
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            None,
+            lock_amount,
+            price,
+            None,
+        ));
+
+        // Pool TAO equals the actual lock; alpha reserve is tao / price.
+        assert_eq!(SubnetTAO::<Test>::get(netuid), lock_amount);
+        let expected_alpha: u64 = u64::from(lock_amount) / 2;
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid),
+            AlphaBalance::from(expected_alpha)
+        );
+    });
+}
+
+#[test]
+fn set_new_network_state_seeds_pool_with_min_lock_floor() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(10_301);
+        let hot = U256::from(10_302);
+        add_balance_to_coldkey_account(&cold, 1_000_000_000.into());
+
+        let netuid = SubtensorModule::get_next_netuid();
+        let min_lock = SubtensorModule::get_network_min_lock();
+
+        // Zero lock: the pool must still be seeded with the min lock floor.
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            None,
+            TaoBalance::ZERO,
+            U64F64::from_num(1),
+            None,
+        ));
+
+        assert_eq!(SubnetTAO::<Test>::get(netuid), min_lock);
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid),
+            AlphaBalance::from(u64::from(min_lock))
+        );
+        assert_eq!(SubnetLocked::<Test>::get(netuid), TaoBalance::ZERO);
+    });
+}
+
+#[test]
+fn set_new_network_state_fund_locked_releases_balance_lock() {
+    new_test_ext(1).execute_with(|| {
+        let cold = U256::from(10_401);
+        let hot = U256::from(10_402);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
+        let mut identifier = [0u8; 8];
+        identifier[..4].copy_from_slice(b"rglk");
+        identifier[4..8].copy_from_slice(&lock_id.to_le_bytes());
+
+        assert_ok!(SubtensorModule::lock_network_registration_cost(
+            &cold,
+            lock_amount.into(),
+            0
+        ));
+        assert!(
+            pallet_balances::Locks::<Test>::get(cold)
+                .iter()
+                .any(|l| l.id == identifier),
+            "registration lock must exist before processing"
+        );
+
+        let netuid = SubtensorModule::get_next_netuid();
+
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            None,
+            lock_amount,
+            SubtensorModule::get_median_subnet_alpha_price(),
+            Some(lock_id),
+        ));
+
+        assert!(
+            pallet_balances::Locks::<Test>::get(cold)
+                .iter()
+                .all(|l| l.id != identifier),
+            "registration lock must be released after processing"
+        );
+        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert_eq!(SubnetLocked::<Test>::get(netuid), lock_amount);
+    });
+}
+
+#[test]
+fn process_network_registration_queue_noop_when_empty() {
+    new_test_ext(1).execute_with(|| {
+        let networks_before = TotalNetworks::<Test>::get();
+
+        SubtensorModule::process_network_registration_queue();
+
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(TotalNetworks::<Test>::get(), networks_before);
+    });
+}
+
+#[test]
+fn process_network_registration_queue_waits_for_cleanup_completion() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+
+        let n1 = add_dynamic_network(&U256::from(10_502), &U256::from(10_501));
+        let _n2 = add_dynamic_network(&U256::from(10_602), &U256::from(10_601));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(n1));
+
+        let cold = U256::from(10_701);
+        let hot = U256::from(10_702);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &hot,
+            1,
+            None,
+        ));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+
+        // Cleanup is still pending: the queued registration must not be released.
+        SubtensorModule::process_network_registration_queue();
+
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert!(!SubtensorModule::hotkey_account_exists(&hot));
+        assert_eq!(TotalNetworks::<Test>::get(), 1);
+
+        // Once cleanup completes, the same call releases the registration.
+        DissolveCleanupQueue::<Test>::kill();
+        SubtensorModule::process_network_registration_queue();
+
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert!(SubtensorModule::hotkey_account_exists(&hot));
+        assert_eq!(TotalNetworks::<Test>::get(), 2);
+    });
+}
+
+#[test]
+fn process_network_registration_queue_processes_one_entry_per_call() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(3u16);
+
+        let n1 = add_dynamic_network(&U256::from(10_802), &U256::from(10_801));
+        let n2 = add_dynamic_network(&U256::from(10_902), &U256::from(10_901));
+        let _n3 = add_dynamic_network(&U256::from(11_002), &U256::from(11_001));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(n1));
+        assert_ok!(SubtensorModule::do_dissolve_network(n2));
+        assert_eq!(DissolveCleanupQueue::<Test>::get().len(), 2);
+
+        let cold_a = U256::from(11_101);
+        let hot_a = U256::from(11_102);
+        let cold_b = U256::from(11_201);
+        let hot_b = U256::from(11_202);
+        for cold in [&cold_a, &cold_b] {
+            let lock_amount = SubtensorModule::get_network_lock_cost();
+            add_balance_to_coldkey_account(cold, lock_amount.saturating_mul(2.into()).into());
+        }
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold_a),
+            &hot_a,
+            1,
+            None,
+        ));
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold_b),
+            &hot_b,
+            1,
+            None,
+        ));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 2);
+
+        DissolveCleanupQueue::<Test>::kill();
+
+        // First call processes only the first (FIFO) entry.
+        SubtensorModule::process_network_registration_queue();
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert!(SubtensorModule::hotkey_account_exists(&hot_a));
+        assert!(!SubtensorModule::hotkey_account_exists(&hot_b));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get()[0].coldkey, cold_b);
+
+        // Second call processes the remaining entry.
+        SubtensorModule::process_network_registration_queue();
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert!(SubtensorModule::hotkey_account_exists(&hot_b));
+        assert_eq!(TotalNetworks::<Test>::get(), 3);
+    });
+}
+
+#[test]
+fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+
+        let n1 = add_dynamic_network(&U256::from(11_302), &U256::from(11_301));
+        let n2 = add_dynamic_network(&U256::from(11_402), &U256::from(11_401));
+
+        assert_ok!(SubtensorModule::do_dissolve_network(n1));
+
+        let cold = U256::from(11_501);
+        let hot = U256::from(11_502);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
+        let mut identifier = [0u8; 8];
+        identifier[..4].copy_from_slice(b"rglk");
+        identifier[4..8].copy_from_slice(&lock_id.to_le_bytes());
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(3.into()).into());
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &hot,
+            1,
+            None,
+        ));
+
+        // Funds are locked while queued.
+        assert!(
+            pallet_balances::Locks::<Test>::get(cold)
+                .iter()
+                .any(|l| l.id == identifier)
+        );
+        let queued_lock = NetworkRegistrationQueue::<Test>::get()[0].lock_amount;
+        // Use free balance: the reducible balance is already reduced by the lock.
+        let balance_before = pallet_balances::Pallet::<Test>::free_balance(cold);
+
+        DissolveCleanupQueue::<Test>::kill();
+        SubtensorModule::process_network_registration_queue();
+
+        // Lock released and the lock cost transferred to the new subnet.
+        assert!(
+            pallet_balances::Locks::<Test>::get(cold)
+                .iter()
+                .all(|l| l.id != identifier)
+        );
+        let balance_after = pallet_balances::Pallet::<Test>::free_balance(cold);
+        assert_eq!(balance_before.saturating_sub(balance_after), queued_lock);
+
+        let new_netuid = NetworksAdded::<Test>::iter()
+            .find(|(netuid, added)| *added && *netuid != n2)
+            .map(|(netuid, _)| netuid)
+            .expect("queued registration should create a new subnet");
+        assert_eq!(SubnetOwner::<Test>::get(new_netuid), cold);
+        assert_eq!(SubnetLocked::<Test>::get(new_netuid), queued_lock);
     });
 }

@@ -3,6 +3,7 @@ use frame_support::{
     ensure,
     pallet_prelude::{DispatchError, Zero},
     traits::Get,
+    weights::WeightMeter,
 };
 use safe_math::*;
 use sp_arithmetic::Perquintill;
@@ -354,7 +355,14 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Clear **protocol-owned** liquidity and wipe all swap state for `netuid`.
-    pub fn do_clear_protocol_liquidity(netuid: NetUid) {
+    pub fn do_clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        let clear_weight = T::DbWeight::get().reads_writes(6, 7);
+        if !weight_meter.can_consume(clear_weight) {
+            return false;
+        }
+        weight_meter.consume(clear_weight);
+        // / 1) Force-close protocol liquidity, burning proceeds.
+
         // Reservoir balances are materialized protocol liquidity that never became
         // price-active. Fold them into the reserve abstraction first so cleanup
         // clears them through the same path as active protocol liquidity.
@@ -363,7 +371,6 @@ impl<T: Config> Pallet<T> {
         T::TaoReserve::increase_provided(netuid.into(), reservoir_tao);
         T::AlphaReserve::increase_provided(netuid.into(), reservoir_alpha);
 
-        // 1) Force-close protocol liquidity, burning proceeds.
         let burned_tao = T::TaoReserve::reserve(netuid.into());
         let burned_alpha = T::AlphaReserve::reserve(netuid.into());
 
@@ -378,6 +385,8 @@ impl<T: Config> Pallet<T> {
         log::debug!(
             "clear_protocol_liquidity: netuid={netuid:?}, protocol_burned: τ={burned_tao:?}, α={burned_alpha:?}; state cleared"
         );
+
+        true
     }
 }
 
@@ -482,6 +491,9 @@ impl<T: Config> SwapHandler for Pallet<T> {
         Self::max_price_inner()
     }
 
+    fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        Self::do_clear_protocol_liquidity(netuid, weight_meter)
+    }
     fn adjust_protocol_liquidity(
         netuid: NetUid,
         tao_delta: TaoBalance,
@@ -501,10 +513,6 @@ impl<T: Config> SwapHandler for Pallet<T> {
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid) {
         BalancerTaoReservoir::<T>::remove(netuid);
         BalancerAlphaReservoir::<T>::remove(netuid);
-    }
-
-    fn clear_protocol_liquidity(netuid: NetUid) {
-        Self::do_clear_protocol_liquidity(netuid);
     }
 
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>) {

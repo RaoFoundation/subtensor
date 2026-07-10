@@ -16,6 +16,7 @@ use frame_support::{
     pallet_macros::import_section,
     pallet_prelude::*,
     traits::tokens::fungible,
+    weights::WeightMeter,
 };
 use scale_info::TypeInfo;
 use sp_core::Get;
@@ -82,6 +83,15 @@ where
     }
 }
 
+/// Maximum number of UIDs (per subnet) that may be associated with a single EVM address.
+///
+/// This bounds the size of the `AssociatedUidsByEvmAddress` reverse-index value, keeping
+/// `uid_lookup` reads and association writes cheap and their PoV footprint small. Only the
+/// holder of an EVM key's private key can grow its bucket (each association requires a
+/// signature from that key), so this only limits how many of one's own UIDs may point at a
+/// single EVM address.
+pub const MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS: u32 = 32;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 
@@ -96,10 +106,13 @@ pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 #[frame_support::pallet]
 #[allow(clippy::expect_used)]
 pub mod pallet {
-    use crate::RateLimitKey;
     use crate::migrations;
     use crate::staking::lock::LockState;
+    use crate::subnets::dissolution::DissolveCleanupStatus;
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
+    use crate::subnets::subnet::NetworkRegistrationInfo;
+    use crate::weights::WeightInfo;
+    use crate::{MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, RateLimitKey};
     use frame_support::Twox64Concat;
     use frame_support::{
         BoundedVec,
@@ -108,6 +121,7 @@ pub mod pallet {
         traits::{
             OriginTrait, QueryPreimage, StorePreimage, UnfilteredDispatchable, tokens::fungible,
         },
+        weights::Weight,
     };
     use frame_system::pallet_prelude::*;
     use pallet_drand::types::RoundNumber;
@@ -2210,6 +2224,23 @@ pub mod pallet {
     pub type SubtokenEnabled<T> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultFalse<T>>;
 
+    /// --- ITEM ( dissolve_cleanup_queue ) Networks dissolved but some storage not removed yet
+    #[pallet::storage]
+    pub type DissolveCleanupQueue<T> = StorageValue<_, Vec<NetUid>, ValueQuery>;
+
+    /// --- ITEM ( current_dissolve_cleanup_status ) dissolve status for the network
+    #[pallet::storage]
+    pub type CurrentDissolveCleanupStatus<T> = StorageValue<_, DissolveCleanupStatus, OptionQuery>;
+
+    /// --- ITEM ( network_registration_queue ) Network registrations waiting to be executed.
+    #[pallet::storage]
+    pub type NetworkRegistrationQueue<T> =
+        StorageValue<_, Vec<NetworkRegistrationInfo<AccountIdOf<T>>>, ValueQuery>;
+
+    /// --- MAP ( coldkey ) --> lock_id
+    #[pallet::storage]
+    pub type NetworkRegistrationLockId<T: Config> = StorageValue<_, u32, ValueQuery>;
+
     // =======================================
     // ==== VotingPower Storage  ====
     // =======================================
@@ -2609,6 +2640,18 @@ pub mod pallet {
     pub type AssociatedEvmAddress<T: Config> =
         StorageDoubleMap<_, Twox64Concat, NetUid, Twox64Concat, u16, (H160, u64), OptionQuery>;
 
+    /// --- DMAP (netuid, H160) --> associated UIDs and last block where ownership was proven.
+    #[pallet::storage]
+    pub type AssociatedUidsByEvmAddress<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        NetUid,
+        Twox64Concat,
+        H160,
+        BoundedVec<(u16, u64), ConstU32<MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS>>,
+        ValueQuery,
+    >;
+
     /// ========================
     /// ==== Subnet Leasing ====
     /// ========================
@@ -3003,5 +3046,5 @@ impl<T> ProxyInterface<T> for () {
 
 /// Pallets that hold per-subnet commitments implement this to purge all state for `netuid`.
 pub trait CommitmentsInterface {
-    fn purge_netuid(netuid: NetUid);
+    fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
 }

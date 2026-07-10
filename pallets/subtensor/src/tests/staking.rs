@@ -4333,8 +4333,22 @@ fn test_move_stake_limit_partial() {
 
         // Registration now goes through the burn/swap path, which initializes swap V3 state.
         // Clear that state first so the manual reserve fixture below actually controls price.
-        <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(origin_netuid);
-        <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(destination_netuid);
+        let mut origin_weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(
+                origin_netuid,
+                &mut origin_weight_meter
+            )
+        );
+        let mut destination_weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(
+                destination_netuid,
+                &mut destination_weight_meter
+            )
+        );
 
         // Force-set alpha in and tao reserve to make price equal 1.5 on both origin and destination,
         // but there's much more liquidity on destination, so its price wouldn't go up when restaked.

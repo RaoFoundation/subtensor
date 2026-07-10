@@ -2,12 +2,12 @@
 name = "node-subtensor-runtime"
 version = "4.0.0-dev"
 description = "Subtensor network"
-authors = ["Opentensor Foundation <https://github.com/opentensor/>"]
+authors = ["Opentensor Foundation <https://github.com/RaoFoundation/>"]
 homepage = "https://opentensor.ai/"
 edition.workspace = true
 license = "Unlicense"
 publish = false
-repository = "https://github.com/opentensor/subtensor/"
+repository = "https://github.com/RaoFoundation/subtensor/"
 
 [lints]
 workspace = true
@@ -329,7 +329,7 @@ runtime-benchmarks = [
 	# Smart Tx fees pallet
 	"subtensor-transaction-fee/runtime-benchmarks",
 	"pallet-shield/runtime-benchmarks",
-	
+
 	"subtensor-runtime-common/runtime-benchmarks",
 	"subtensor-chain-extensions/runtime-benchmarks",
 	"pallet-limit-orders/runtime-benchmarks",

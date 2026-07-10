@@ -1181,6 +1181,7 @@ fn test_do_swap_hotkey_err_new_hotkey_not_clean_for_root() {
         let other_coldkey = U256::from(4);
 
         Owner::<Test>::insert(old_hotkey, coldkey);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
         TotalNetworks::<Test>::put(1);
         SubtensorModule::set_last_tx_block(&coldkey, 0);
 

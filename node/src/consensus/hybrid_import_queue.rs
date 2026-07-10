@@ -116,7 +116,7 @@ impl BlockImport<Block> for HybridBlockImport {
     ) -> Result<ImportResult, Self::Error> {
         // The Babe and Aura `BlockImport` implementations both defer to the inner
         // client's `check_block` implementation defined here:
-        // https://github.com/opentensor/polkadot-sdk/blob/d13f915d8a1f55af53fd51fdb4544c47badddc7e/substrate/client/service/src/client/client.rs#L1748.
+        // https://github.com/RaoFoundation/polkadot-sdk/blob/d13f915d8a1f55af53fd51fdb4544c47badddc7e/substrate/client/service/src/client/client.rs#L1748.
         self.client.check_block(block).await.map_err(Into::into)
     }
 

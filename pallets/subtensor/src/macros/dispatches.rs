@@ -5,7 +5,7 @@ use frame_support::pallet_macros::pallet_section;
 /// This can later be imported into the pallet using [`import_section`].
 #[pallet_section]
 mod dispatches {
-    use crate::weights::WeightInfo;
+    use frame_support::pallet_prelude::DispatchResultWithPostInfo;
     use frame_support::traits::schedule::v3::Anon as ScheduleAnon;
     use frame_system::pallet_prelude::BlockNumberFor;
     use sp_core::ecdsa::Signature;
@@ -1231,9 +1231,7 @@ mod dispatches {
         /// Remove a user's subnetwork
         /// The caller must be the owner of the network
         #[pallet::call_index(61)]
-        #[pallet::weight(Weight::from_parts(119_000_000, 0)
-		.saturating_add(T::DbWeight::get().reads(6))
-		.saturating_add(T::DbWeight::get().writes(31)))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dissolve_network())]
         pub fn dissolve_network(
             origin: OriginFor<T>,
             _coldkey: T::AccountId,
@@ -1982,6 +1980,7 @@ mod dispatches {
             symbol: Vec<u8>,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
+            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
             Self::ensure_symbol_exists(&symbol)?;
             Self::ensure_symbol_available(&symbol)?;
@@ -2233,6 +2232,7 @@ mod dispatches {
             new_value: u64,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
+            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
             ensure!(
                 new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),

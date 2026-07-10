@@ -133,6 +133,7 @@ impl<T: Config> Pallet<T> {
         amount: TaoBalance,
         limit: Option<TaoBalance>,
     ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         with_transaction(|| {
             let result = (|| {
                 let alpha = if let Some(limit) = limit {

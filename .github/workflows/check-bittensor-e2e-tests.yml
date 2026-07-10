@@ -23,6 +23,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
+  # Name the locally built localnet image under the RaoFoundation namespace
+  # (lowercase — Docker requires it). The bittensor/btcli e2e harnesses read
+  # LOCALNET_IMAGE_NAME from the environment, overriding their built-in default.
+  LOCALNET_IMAGE_NAME: ghcr.io/raofoundation/subtensor-localnet:devnet-ready
 
 jobs:
   check-label:
@@ -75,7 +79,7 @@ jobs:
 
       - name: Research preparation
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/RaoFoundation/btcli.git
 
       - name: Checkout
         working-directory: ${{ github.workspace }}/btcli
@@ -135,7 +139,7 @@ jobs:
 
       - name: Research preparation
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/bittensor.git
+        run: git clone https://github.com/RaoFoundation/bittensor.git
 
       - name: Checkout
         working-directory: ${{ github.workspace }}/bittensor
@@ -340,7 +344,7 @@ jobs:
 
       - name: Clone Bittensor CLI repo
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
+        run: git clone https://github.com/RaoFoundation/btcli.git
 
       - name: Setup Bittensor-cli from cloned repo
         working-directory: ${{ github.workspace }}/btcli
@@ -361,7 +365,7 @@ jobs:
         run: docker load -i subtensor-localnet.tar
 
       - name: Retag Docker Image
-        run: docker tag localnet ghcr.io/opentensor/subtensor-localnet:devnet-ready
+        run: docker tag localnet "$LOCALNET_IMAGE_NAME"
 
       - name: Run with retry
         working-directory: ${{ github.workspace }}/btcli
@@ -421,7 +425,7 @@ jobs:
 
       - name: Clone Bittensor SDK repo
         working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/bittensor.git
+        run: git clone https://github.com/RaoFoundation/bittensor.git
 
       - name: Setup Bittensor SDK from cloned repo
         working-directory: ${{ github.workspace }}/bittensor
@@ -442,7 +446,7 @@ jobs:
         run: docker load -i subtensor-localnet.tar
 
       - name: Retag Docker Image
-        run: docker tag localnet ghcr.io/opentensor/subtensor-localnet:devnet-ready
+        run: docker tag localnet "$LOCALNET_IMAGE_NAME"
 
       - name: Run with retry
         working-directory: ${{ github.workspace }}/bittensor

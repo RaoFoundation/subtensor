@@ -4,7 +4,7 @@ volumes:
 
 services:
   common: &common
-    image: ghcr.io/opentensor/subtensor:latest-local
+    image: ghcr.io/raofoundation/subtensor:latest-local
     cpu_count: 4
     mem_limit: 40000000000
     memswap_limit: 80000000000

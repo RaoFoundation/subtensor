@@ -6,6 +6,7 @@
 )]
 
 use approx::assert_abs_diff_eq;
+use frame_support::weights::WeightMeter;
 use frame_support::{assert_noop, assert_ok};
 use sp_arithmetic::Perquintill;
 use sp_runtime::DispatchError;
@@ -947,7 +948,11 @@ fn test_clear_protocol_liquidity_clears_nonzero_reservoirs() {
         // Sanity: PalSwap is not initialized
         assert!(PalSwapInitialized::<Test>::get(netuid));
 
-        Pallet::<Test>::do_clear_protocol_liquidity(netuid);
+        // ACT
+        assert!(Pallet::<Test>::do_clear_protocol_liquidity(
+            netuid,
+            &mut WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX))
+        ));
 
         assert!(!FeeRate::<Test>::contains_key(netuid));
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
@@ -972,7 +977,10 @@ fn test_clear_protocol_liquidity_green_path() {
 
         // --- Act ---
         // Green path: just clear protocol liquidity and wipe all V3 state.
-        Pallet::<Test>::do_clear_protocol_liquidity(netuid);
+        assert!(Pallet::<Test>::do_clear_protocol_liquidity(
+            netuid,
+            &mut WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX))
+        ));
 
         // Flags
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
@@ -981,7 +989,10 @@ fn test_clear_protocol_liquidity_green_path() {
         assert!(!FeeRate::<Test>::contains_key(netuid));
 
         // --- And it's idempotent ---
-        Pallet::<Test>::do_clear_protocol_liquidity(netuid);
+        assert!(Pallet::<Test>::do_clear_protocol_liquidity(
+            netuid,
+            &mut WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX))
+        ));
         assert!(!PalSwapInitialized::<Test>::contains_key(netuid));
     });
 }
