@@ -25,12 +25,18 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from hashlib import blake2b
 from typing import Any, Optional
 
 from .codec import RuntimeCodec
 from .contract import SignedExtrinsic, SigningContext, UnsignedExtrinsic
 from .errors import SubstrateRequestException
-from .protocols import ExtensionPayloadSigner, Keypair, MetadataVerifyingSigner
+from .protocols import (
+    ExtensionPayloadSigner,
+    Keypair,
+    MetadataVerifyingSigner,
+    UnsignedExtrinsicSigner,
+)
 from .rpc import RpcSession
 from .utils.receipt import (
     build_system_error_message,
@@ -147,8 +153,22 @@ def prepare_extrinsic(
     self-contained: it can cross a process boundary (QR display, file export)
     and later be reunited with a signature via :func:`attach_signature`.
     """
+    call_data, included_in_extrinsic, included_in_signed_data = codec.signature_payload_parts(
+        call,
+        era=era,
+        nonce=nonce,
+        tip=tip,
+        tip_asset_id=tip_asset_id,
+        genesis_hash=genesis_hash,
+        era_block_hash=era_block_hash,
+        metadata_hash=metadata_hash,
+    )
+    payload = call_data + included_in_extrinsic + included_in_signed_data
+    if len(payload) > 256:
+        # Substrate signing convention: oversized payloads are signed by hash.
+        payload = blake2b(payload, digest_size=32).digest()
     return UnsignedExtrinsic(
-        call_data=codec.call_data(call),
+        call_data=call_data,
         address=address,
         public_key=bytes(public_key),
         crypto_type=crypto_type,
@@ -161,16 +181,7 @@ def prepare_extrinsic(
         spec_version=codec.spec_version,
         transaction_version=codec.transaction_version,
         metadata_hash=metadata_hash,
-        payload=codec.signature_payload(
-            call,
-            era=era,
-            nonce=nonce,
-            tip=tip,
-            tip_asset_id=tip_asset_id,
-            genesis_hash=genesis_hash,
-            era_block_hash=era_block_hash,
-            metadata_hash=metadata_hash,
-        ),
+        payload=payload,
         payload_json=signer_payload_json(
             codec,
             call=call,
@@ -183,6 +194,8 @@ def prepare_extrinsic(
             era_block_hash=era_block_hash,
             metadata_hash=metadata_hash,
         ),
+        included_in_extrinsic=included_in_extrinsic,
+        included_in_signed_data=included_in_signed_data,
     )
 
 
@@ -245,6 +258,7 @@ async def resolve_metadata_hash(
         SigningContext(
             metadata_bytes=codec.metadata_bytes,
             spec_version=codec.spec_version,
+            spec_name=codec.spec_name,
             transaction_version=codec.transaction_version,
             ss58_format=codec.ss58_format,
             genesis_hash=genesis_hash,
@@ -311,10 +325,17 @@ async def create_signed_extrinsic(
 async def sign_unsigned(unsigned: UnsignedExtrinsic, keypair: Any) -> bytes:
     """Obtain a signature for a prepared extrinsic from an in-process signer.
 
-    Dispatches on the signer's shape: :class:`ExtensionPayloadSigner` (takes
-    the Polkadot-JS payload JSON) when matched, else ``sign`` over the raw
-    payload bytes; either may be a coroutine.
+    Dispatches on the signer's shape: :class:`UnsignedExtrinsicSigner` (takes
+    the whole prepared extrinsic — hardware clear-signing),
+    :class:`ExtensionPayloadSigner` (takes the Polkadot-JS payload JSON) when
+    matched, else ``sign`` over the raw payload bytes; any may be a coroutine.
     """
+    if isinstance(keypair, UnsignedExtrinsicSigner):
+        signed = keypair.sign_unsigned_extrinsic(unsigned)
+        if inspect.isawaitable(signed):
+            signed = await signed
+        assert isinstance(signed, bytes)
+        return signed
     if isinstance(keypair, ExtensionPayloadSigner):
         result = keypair.sign_extrinsic_payload(unsigned.payload_json)
         if inspect.isawaitable(result):

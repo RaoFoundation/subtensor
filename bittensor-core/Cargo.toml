@@ -43,5 +43,19 @@ chacha20poly1305 = "0.10"
 ml-kem = "0.2.1"
 twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"] }
 
+# digest (RFC-0078 merkleized metadata). frame-metadata inherits the workspace
+# pin so the digest is computed over the same metadata types the runtime bakes
+# its RUNTIME_METADATA_HASH with.
+frame-metadata = { workspace = true, features = ["current", "decode", "std"] }
+merkleized-metadata = "0.5.1"
+
+# signers (feature "ledger"): Zondax's HID transport for the Polkadot generic app
+ledger-apdu = { version = "0.11", optional = true }
+ledger-transport-hid = { version = "0.11", optional = true }
+
+[features]
+default = []
+ledger = ["dep:ledger-apdu", "dep:ledger-transport-hid"]
+
 [lints]
 workspace = true

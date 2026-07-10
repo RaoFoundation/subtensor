@@ -1,8 +1,13 @@
 from typing import Awaitable, Optional, Protocol, runtime_checkable
 
-from .contract import SigningContext
+from .contract import SigningContext, UnsignedExtrinsic
 
-__all__: list[str] = ["ExtensionPayloadSigner", "Keypair", "MetadataVerifyingSigner"]
+__all__: list[str] = [
+    "ExtensionPayloadSigner",
+    "Keypair",
+    "MetadataVerifyingSigner",
+    "UnsignedExtrinsicSigner",
+]
 
 
 # For reference only
@@ -69,3 +74,18 @@ class MetadataVerifyingSigner(Protocol):
     """
 
     def metadata_digest(self, context: SigningContext) -> bytes | Awaitable[bytes]: ...
+
+
+@runtime_checkable
+class UnsignedExtrinsicSigner(Protocol):
+    """A signer that takes the whole prepared :class:`UnsignedExtrinsic`
+    instead of raw payload bytes.
+
+    Hardware devices that prove the runtime on-device (Ledger's generic app)
+    need the payload's wire seams (``call_data`` / ``included_in_extrinsic`` /
+    ``included_in_signed_data``) to build the RFC-0078 extrinsic proof they
+    display and verify before signing — the flattened (and possibly
+    blake2b-hashed) ``payload`` alone is not enough.
+    """
+
+    def sign_unsigned_extrinsic(self, unsigned: UnsignedExtrinsic) -> bytes | Awaitable[bytes]: ...

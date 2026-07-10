@@ -16,5 +16,11 @@ codec = { package = "parity-scale-codec", version = "3.7.5", default-features = 
 hex = "0.4.3"
 pyo3 = { version = "0.23", features = ["abi3-py310"] }
 
+[features]
+default = ["ledger"]
+# Ledger generic-app support (HID). Disable to build a wheel without the
+# hidapi native dependency.
+ledger = ["bittensor-core/ledger"]
+
 [lints]
 workspace = true

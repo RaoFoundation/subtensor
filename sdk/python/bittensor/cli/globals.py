@@ -227,7 +227,7 @@ _UNLOCK = [
     ),
 ]
 
-# Choosing and filtering the extension signing backend (mutations only).
+# Choosing and filtering the signing backend (mutations only).
 _SIGNER = [
     (
         "signer_backend",
@@ -235,7 +235,37 @@ _SIGNER = [
         typer.Option(
             None,
             "--signer",
-            help="Signing backend: wallet (default) or extension.",
+            help="Signing backend: wallet (default), extension, or ledger.",
+            rich_help_panel=PANEL_EXTENSION,
+        ),
+    ),
+    (
+        "ledger",
+        bool,
+        typer.Option(
+            False,
+            "--ledger",
+            help="Sign on a Ledger device (Polkadot generic app); shorthand for --signer ledger.",
+            rich_help_panel=PANEL_EXTENSION,
+        ),
+    ),
+    (
+        "ledger_account",
+        Optional[int],
+        typer.Option(
+            None,
+            "--ledger-account",
+            help="Ledger derivation account (m/44'/354'/ACCOUNT'/0'/index'). Default 0.",
+            rich_help_panel=PANEL_EXTENSION,
+        ),
+    ),
+    (
+        "ledger_index",
+        Optional[int],
+        typer.Option(
+            None,
+            "--ledger-index",
+            help="Ledger derivation address index (m/44'/354'/account'/0'/INDEX'). Default 0.",
             rich_help_panel=PANEL_EXTENSION,
         ),
     ),
@@ -350,6 +380,12 @@ def apply(ctx: typer.Context, kwargs: dict[str, Any]) -> None:
         obj.keychain_password = True
     if v := kwargs.pop("signer_backend", None):
         obj.signer_backend = v
+    if kwargs.pop("ledger", False):
+        obj.signer_backend = "ledger"
+    if (v := kwargs.pop("ledger_account", None)) is not None:
+        obj.ledger_account = v
+    if (v := kwargs.pop("ledger_index", None)) is not None:
+        obj.ledger_index = v
     if v := kwargs.pop("signer_address", None):
         obj.signer_address = v
     if v := kwargs.pop("extension_source", None):

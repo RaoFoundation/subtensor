@@ -241,7 +241,7 @@ def confirm_wallet(
     name is confirmed in the same round (skipped by ``--wallet-hotkey``/``-H``
     or ``BT_WALLET_HOTKEY``); ``hotkey_must_exist=False`` accepts any name.
     """
-    skip = app_ctx.assume_yes or app_ctx.uses_extension_signer()
+    skip = app_ctx.assume_yes or app_ctx.uses_external_signer()
     specs: list[PromptSpec] = []
     if not app_ctx.wallet_given and not skip:
         parse: Parser = (

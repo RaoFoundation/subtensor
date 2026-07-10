@@ -168,7 +168,12 @@ class RuntimeManager:
             return self._head_codec
         codec = self._codecs.get(spec_version)
         if codec is None:
-            codec = await self._fetch_codec(spec_version, _transaction_version(runtime_info), None)
+            codec = await self._fetch_codec(
+                spec_version,
+                _transaction_version(runtime_info),
+                None,
+                spec_name=str(runtime_info.get("specName") or ""),
+            )
         self._head_codec = codec
         return codec
 
@@ -188,7 +193,10 @@ class RuntimeManager:
         if codec is not None:
             return codec
         return await self._fetch_codec(
-            spec_version, _transaction_version(runtime_info), parent_hash
+            spec_version,
+            _transaction_version(runtime_info),
+            parent_hash,
+            spec_name=str(runtime_info.get("specName") or ""),
         )
 
     async def _parent_hash(self, block_hash: str) -> str:
@@ -201,7 +209,12 @@ class RuntimeManager:
         return parent
 
     async def _fetch_codec(
-        self, spec_version: int, transaction_version: int, at_hash: Optional[str]
+        self,
+        spec_version: int,
+        transaction_version: int,
+        at_hash: Optional[str],
+        *,
+        spec_name: str = "",
     ) -> RuntimeCodec:
         # Concurrent callers for the same spec share one fetch.
         existing = self._inflight.get(spec_version)
@@ -211,7 +224,9 @@ class RuntimeManager:
         future: asyncio.Future = loop.create_future()
         self._inflight[spec_version] = future
         try:
-            codec = await self._build_codec(spec_version, transaction_version, at_hash)
+            codec = await self._build_codec(
+                spec_version, transaction_version, at_hash, spec_name=spec_name
+            )
             self._codecs.set(spec_version, codec)
             future.set_result(codec)
             return codec
@@ -225,14 +240,21 @@ class RuntimeManager:
             self._inflight.pop(spec_version, None)
 
     async def _build_codec(
-        self, spec_version: int, transaction_version: int, at_hash: Optional[str]
+        self,
+        spec_version: int,
+        transaction_version: int,
+        at_hash: Optional[str],
+        *,
+        spec_name: str = "",
     ) -> RuntimeCodec:
         genesis = await self.genesis_hash()
         cached = _load_metadata_from_disk(genesis, spec_version)
         if cached is not None:
             metadata_bytes, tx_version, is_v15 = cached
             try:
-                return self._make_codec(metadata_bytes, spec_version, tx_version, is_v15)
+                return self._make_codec(
+                    metadata_bytes, spec_version, tx_version, is_v15, spec_name=spec_name
+                )
             except Exception as error:
                 # A cache entry whose body fails to decode would otherwise wedge
                 # this spec version forever; discard it and download fresh.
@@ -243,7 +265,9 @@ class RuntimeManager:
                 with suppress(OSError):
                     _disk_cache_path(genesis, spec_version).unlink()
         metadata_bytes, is_v15 = await self._download_metadata(at_hash)
-        codec = self._make_codec(metadata_bytes, spec_version, transaction_version, is_v15)
+        codec = self._make_codec(
+            metadata_bytes, spec_version, transaction_version, is_v15, spec_name=spec_name
+        )
         _save_metadata_to_disk(genesis, spec_version, metadata_bytes, transaction_version, is_v15)
         logger.debug(
             f"Runtime {spec_version}: metadata downloaded "
@@ -252,12 +276,19 @@ class RuntimeManager:
         return codec
 
     def _make_codec(
-        self, metadata_bytes: bytes, spec_version: int, transaction_version: int, is_v15: bool
+        self,
+        metadata_bytes: bytes,
+        spec_version: int,
+        transaction_version: int,
+        is_v15: bool,
+        *,
+        spec_name: str = "",
     ) -> RuntimeCodec:
         return RuntimeCodec(
             metadata_bytes,
             spec_version=spec_version,
             transaction_version=transaction_version,
+            spec_name=spec_name,
             ss58_format=self._ss58_format,
             extra_types=self._extra_types,
             is_v15=is_v15,

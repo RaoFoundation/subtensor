@@ -161,6 +161,7 @@ class RuntimeCodec:
         *,
         spec_version: int,
         transaction_version: int,
+        spec_name: str = "",
         ss58_format: int = SS58_FORMAT,
         extra_types: Optional[dict] = None,
         is_v15: bool = True,
@@ -168,6 +169,9 @@ class RuntimeCodec:
         """``metadata_bytes`` is a raw ``MetadataVersioned`` blob (magic ``meta`` +
         version + body) — the inner bytes of ``Metadata_metadata_at_version`` for
         V15, or the ``state_getMetadata`` response for V14.
+
+        ``spec_name`` (from ``state_getRuntimeVersion``) feeds the RFC-0078
+        metadata digest for signers that verify the runtime before signing.
 
         ``extra_types`` is the chain-specific type-registry overlay (for
         Bittensor: ``{"types": {"Balance": "u64"}}``).
@@ -177,6 +181,7 @@ class RuntimeCodec:
         self.metadata_bytes = metadata_bytes
         self.spec_version = spec_version
         self.transaction_version = transaction_version
+        self.spec_name = spec_name
         self.ss58_format = ss58_format
         self.extra_types = extra_types or {}
         self.is_v15 = is_v15
@@ -387,6 +392,60 @@ class RuntimeCodec:
         ("metadata_hash", "CheckMetadataHash", "additional_signed"),
     )
 
+    def _encode_payload_section(self, slot: str, values: dict) -> bytes:
+        """Encode the payload fields whose type comes from one extension slot
+        (``extrinsic`` = the "extra" bytes that travel in the extrinsic;
+        ``additional_signed`` = the implied bytes both sides agree on)."""
+        signed_extensions = self._metadata.get_signed_extensions()
+        section = self._rc.create_scale_object("ExtrinsicPayloadValue")
+        section.type_mapping = [
+            [field, signed_extensions[extension][field_slot]]
+            for field, extension, field_slot in self._PAYLOAD_FIELDS
+            if field_slot == slot and extension in signed_extensions
+        ]
+        section.encode(values)
+        return bytes(section.data.data)
+
+    def signature_payload_parts(
+        self,
+        call: GenericCall,
+        *,
+        era: dict | str,
+        nonce: int,
+        tip: int,
+        tip_asset_id: Optional[int],
+        genesis_hash: str,
+        era_block_hash: str,
+        metadata_hash: Optional[bytes] = None,
+    ) -> tuple[bytes, bytes, bytes]:
+        """The signature payload split at its wire seams:
+        ``(call_data, included_in_extrinsic, included_in_signed_data)``.
+
+        Their concatenation is the exact unhashed payload. Hardware signers
+        that prove the runtime on-device (Ledger's generic app) need the parts
+        separately to build the RFC-0078 extrinsic proof.
+        """
+        signed_extensions = self._metadata.get_signed_extensions()
+        if metadata_hash is not None and "CheckMetadataHash" not in signed_extensions:
+            raise ValueError("this runtime does not declare CheckMetadataHash")
+        values = {
+            "era": era,
+            "nonce": nonce,
+            "tip": tip,
+            "spec_version": self.spec_version,
+            "genesis_hash": genesis_hash,
+            "block_hash": era_block_hash,
+            "transaction_version": self.transaction_version,
+            "asset_id": {"tip": tip, "asset_id": tip_asset_id},
+            "metadata_hash": ("0x" + metadata_hash.hex() if metadata_hash is not None else None),
+            "mode": "Enabled" if metadata_hash is not None else "Disabled",
+        }
+        return (
+            bytes(call.data.data),
+            self._encode_payload_section("extrinsic", values),
+            self._encode_payload_section("additional_signed", values),
+        )
+
     def signature_payload(
         self,
         call: GenericCall,
@@ -409,33 +468,17 @@ class RuntimeCodec:
         the given RFC-0078 metadata digest into the payload — required by
         signers that verify the runtime before signing (Ledger's generic app).
         """
-        payload = self._rc.create_scale_object("ExtrinsicPayloadValue")
-        signed_extensions = self._metadata.get_signed_extensions()
-        payload.type_mapping = [["call", "CallBytes"]] + [
-            [field, signed_extensions[extension][slot]]
-            for field, extension, slot in self._PAYLOAD_FIELDS
-            if extension in signed_extensions
-        ]
-        if metadata_hash is not None and "CheckMetadataHash" not in signed_extensions:
-            raise ValueError("this runtime does not declare CheckMetadataHash")
-        payload.encode(
-            {
-                "call": str(call.data),
-                "era": era,
-                "nonce": nonce,
-                "tip": tip,
-                "spec_version": self.spec_version,
-                "genesis_hash": genesis_hash,
-                "block_hash": era_block_hash,
-                "transaction_version": self.transaction_version,
-                "asset_id": {"tip": tip, "asset_id": tip_asset_id},
-                "metadata_hash": (
-                    "0x" + metadata_hash.hex() if metadata_hash is not None else None
-                ),
-                "mode": "Enabled" if metadata_hash is not None else "Disabled",
-            }
+        call_data, extra, additional = self.signature_payload_parts(
+            call,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+            genesis_hash=genesis_hash,
+            era_block_hash=era_block_hash,
+            metadata_hash=metadata_hash,
         )
-        data = bytes(payload.data.data)
+        data = call_data + extra + additional
         if len(data) > 256:
             return blake2b(data, digest_size=32).digest()
         return data

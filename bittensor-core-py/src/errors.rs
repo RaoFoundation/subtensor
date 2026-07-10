@@ -18,11 +18,20 @@ pyo3::create_exception!(
     "Keyfile decryption failed because the password is wrong."
 );
 
+pyo3::create_exception!(
+    bittensor_core,
+    LedgerError,
+    pyo3::exceptions::PyException,
+    "A hardware signing device could not be reached, rejected the request, \
+     or the user declined on-device."
+);
+
 pub fn to_py_err(error: CoreError) -> PyErr {
     match error {
         CoreError::Keyfile(msg) => KeyfileError::new_err(msg),
         CoreError::WrongPassword(msg) => WrongPasswordError::new_err(msg),
         CoreError::NotInRuntime(what) => PyKeyError::new_err(what),
         CoreError::Codec(msg) | CoreError::Crypto(msg) => PyValueError::new_err(msg),
+        CoreError::Device(msg) => LedgerError::new_err(msg),
     }
 }

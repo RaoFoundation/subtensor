@@ -6,8 +6,11 @@
 
 use pyo3::prelude::*;
 
+mod digest;
 mod errors;
 mod keys;
+#[cfg(feature = "ledger")]
+mod ledger;
 mod timelock;
 
 /// The `bittensor_core` extension module (PyPI package `bittensor-core`).
@@ -19,7 +22,11 @@ fn bittensor_core(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> 
         "WrongPasswordError",
         py.get_type::<errors::WrongPasswordError>(),
     )?;
+    module.add("LedgerError", py.get_type::<errors::LedgerError>())?;
+    digest::register(module)?;
     keys::register(module)?;
+    #[cfg(feature = "ledger")]
+    ledger::register(module)?;
     timelock::register(module)?;
     Ok(())
 }

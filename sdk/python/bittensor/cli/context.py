@@ -20,6 +20,7 @@ from .. import config as cfg
 from .. import wallets
 from ..client import Client
 from ..extension.client import BridgeError
+from ..ledger import LedgerError, LedgerSigner
 from ..result import BittensorError, ExtrinsicResult
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
@@ -84,8 +85,12 @@ class AppContext:
     extension_source: Optional[str] = None
     extension_bridge_url: Optional[str] = None
     extension_browser: Optional[str] = None
+    # Ledger derivation path (m/44'/354'/account'/0'/index').
+    ledger_account: int = 0
+    ledger_index: int = 0
     _extension_selection: Optional[object] = None
     _extension_bridge_ws_url: Optional[str] = None
+    _ledger_signer: Optional[object] = None
 
     def reset_extension_session(self) -> None:
         self._extension_selection = None
@@ -97,6 +102,31 @@ class AppContext:
 
     def uses_extension_signer(self) -> bool:
         return (self.signer_backend or "").strip().lower() == "extension"
+
+    def uses_ledger_signer(self) -> bool:
+        return (self.signer_backend or "").strip().lower() == "ledger"
+
+    def uses_external_signer(self) -> bool:
+        """The signing key lives outside the local wallet files (extension or
+        Ledger), so wallet confirmation and wallet-derived addressing don't
+        apply."""
+        return self.uses_extension_signer() or self.uses_ledger_signer()
+
+    def ledger_signer(self):
+        """Connect to the Ledger (once per invocation) and return the signer.
+
+        Fails with a clean error when no device is reachable or the Polkadot
+        app isn't open.
+        """
+        if self._ledger_signer is None:
+            signer = LedgerSigner(account=self.ledger_account, index=self.ledger_index)
+            if not self.output.quiet and not self.output.json_mode:
+                self.output.message(
+                    f"using ledger account {signer.ss58_address} "
+                    f"(m/44'/354'/{self.ledger_account}'/0'/{self.ledger_index}')"
+                )
+            self._ledger_signer = signer
+        return self._ledger_signer
 
     async def extension_signer(self, *, pick_account: bool = False):
         """Connect to the bridge and return an extension-backed signer."""
@@ -160,14 +190,16 @@ class AppContext:
         return self.extension_browser or config.get("extension_browser")
 
     async def resolve_signing_wallet(self, role: str = "coldkey", *, pick_account: bool = False):
-        """Return the configured signer for ``role`` (local wallet or extension).
+        """Return the configured signer for ``role`` (local wallet, extension,
+        or Ledger).
 
-        With the extension backend the picked account *is* the signing key for
-        either role — for hotkey intents, pick the extension account holding
-        the hotkey.
+        With an external backend the selected account *is* the signing key for
+        either role — for hotkey intents, pick the account holding the hotkey.
         """
         if self.uses_extension_signer():
             return await self.extension_signer(pick_account=pick_account)
+        if self.uses_ledger_signer():
+            return self.ledger_signer()
         return self.signer(role)
 
     def signer(self, role: str = "coldkey"):
@@ -381,7 +413,7 @@ class AppContext:
 
         async def _plan(client):
             signer = await self.resolve_signing_wallet(intent.signer, pick_account=True)
-            plan_target = signer if self.uses_extension_signer() else wallet
+            plan_target = signer if self.uses_external_signer() else wallet
             try:
                 return await client.plan(intent, plan_target, **options)
             finally:
@@ -464,7 +496,7 @@ class AppContext:
         reviewers can act straight from `multisig pending`."""
         if not result.success or not result.data.get("multisig_call_hash"):
             return
-        if self.uses_extension_signer():
+        if self.uses_external_signer():
             return  # no local wallet to derive the signer address from
         try:
             wallet = self.wallet()
@@ -526,6 +558,12 @@ class AppContext:
             raise typer.Exit(1)
         except BridgeError as error:
             self.output.error(str(error))
+            raise typer.Exit(1)
+        except LedgerError as error:
+            self.output.error(
+                str(error),
+                help="check the device is connected, unlocked, and the Polkadot app is open",
+            )
             raise typer.Exit(1)
         except RuntimeError as error:
             if "different loop" in str(error).lower():

@@ -20,6 +20,9 @@ pub enum CoreError {
     Codec(String),
     /// Crypto operation failed (bad key length, invalid signature bytes...).
     Crypto(String),
+    /// A hardware signing device could not be reached, rejected the request,
+    /// or the user declined on-device.
+    Device(String),
 }
 
 impl fmt::Display for CoreError {
@@ -30,6 +33,7 @@ impl fmt::Display for CoreError {
             CoreError::NotInRuntime(what) => write!(f, "{what} not found in this runtime"),
             CoreError::Codec(msg) => write!(f, "codec error: {msg}"),
             CoreError::Crypto(msg) => write!(f, "crypto error: {msg}"),
+            CoreError::Device(msg) => write!(f, "device error: {msg}"),
         }
     }
 }

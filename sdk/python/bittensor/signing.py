@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Protocol, Union, runtime_checkable
 
+from .ledger import LedgerSigner  # noqa: F401  (re-export: hardware signing backend)
 from .wallet import Wallet
 from .wallets import signing_keypair
 

@@ -22,6 +22,16 @@ pip install bittensor-core
 Wheels ship for manylinux (x86_64, aarch64) and macOS (arm64, x86_64); the
 sdist builds anywhere with a Rust toolchain.
 
+Ledger support (`LedgerDevice`, HID) is compiled in everywhere except the
+manylinux wheels, whose policy excludes the `libudev` dependency the hidraw
+backend links. On Linux, install from the sdist with the udev headers
+present:
+
+```
+sudo apt install libudev-dev
+pip install --no-binary bittensor-core bittensor-core
+```
+
 ## Development
 
 The Rust logic lives in the sibling `bittensor-core` crate; this crate is

@@ -35,6 +35,7 @@ class SigningContext:
 
     metadata_bytes: bytes  # raw MetadataVersioned blob (V15 when available)
     spec_version: int
+    spec_name: str  # from state_getRuntimeVersion; part of the RFC-0078 digest
     transaction_version: int
     ss58_format: int
     genesis_hash: str
@@ -74,12 +75,21 @@ class UnsignedExtrinsic:
     metadata_hash: Optional[bytes]  # CheckMetadataHash digest; None = mode Disabled
     payload: bytes  # the exact bytes to sign
     payload_json: dict  # Polkadot-JS SignerPayloadJSON
+    # The payload's wire seams (payload = call_data ++ included_in_extrinsic ++
+    # included_in_signed_data, before any oversize hashing). Hardware signers
+    # that prove the runtime on-device (Ledger's generic app) need the parts to
+    # build the RFC-0078 extrinsic proof. None on instances reconstructed from
+    # older serialized forms.
+    included_in_extrinsic: Optional[bytes] = None
+    included_in_signed_data: Optional[bytes] = None
 
     _BYTES_FIELDS: ClassVar[tuple[str, ...]] = (
         "call_data",
         "public_key",
         "metadata_hash",
         "payload",
+        "included_in_extrinsic",
+        "included_in_signed_data",
     )
 
     @property

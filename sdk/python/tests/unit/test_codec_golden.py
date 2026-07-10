@@ -74,6 +74,29 @@ def test_signature_payloads_match():
     assert "0x" + payload.hex() == mortal["payload_hex"]
 
 
+def test_signature_payload_parts_concatenate_to_payload():
+    g = golden()
+    c = codec()
+    transfer = c.compose_call(
+        "Balances", "transfer_keep_alive", {"dest": g["ss58"][1]["address"], "value": 12345}
+    )
+    immortal = g["signature_payloads"][0]
+    call_data, extra, additional = c.signature_payload_parts(
+        transfer,
+        era="00",
+        nonce=immortal["nonce"],
+        tip=0,
+        tip_asset_id=None,
+        genesis_hash=g["network"]["genesis_hash"],
+        era_block_hash=g["network"]["genesis_hash"],
+    )
+    assert "0x" + (call_data + extra + additional).hex() == immortal["payload_hex"]
+    assert "0x" + call_data.hex() == immortal["call_data_hex"]
+    # The implied section carries spec/tx version + genesis + era block hash
+    # (+ the CheckMetadataHash Option byte); it never travels in the extrinsic.
+    assert len(additional) >= 72
+
+
 def test_signed_extrinsic_encoding_matches():
     g = golden()
     c = codec()

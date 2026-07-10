@@ -53,6 +53,7 @@ from .extension import (
 )
 from .intents import REGISTRY as _INTENT_REGISTRY
 from .intents import Intent, Plan, Policy
+from .ledger import LedgerError, LedgerSigner
 from .metagraph import Metagraph, MetagraphNeuron, NeuronCommitment
 from .multisig import Multisig
 from .reads import (
@@ -182,6 +183,9 @@ __all__ = [
     "ensure_bridge",
     "run_bridge",
     "stop_bridge_daemon",
+    # Ledger hardware signing (Polkadot generic app, RFC-0078 clear-signing)
+    "LedgerSigner",
+    "LedgerError",
     "CRYPTO_ED25519",
     "CRYPTO_SR25519",
     "DEFAULT_CRYPTO_TYPE",
