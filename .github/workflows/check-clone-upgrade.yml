@@ -52,7 +52,9 @@ jobs:
       - name: Start local clone
         run: |
           nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
-          for i in $(seq 1 90); do
+          # Genesis init from the ~2 GB mainnet-clone chainspec takes several
+          # minutes before the RPC server comes up, so allow up to 15 minutes.
+          for i in $(seq 1 450); do
             if curl -sf -H "Content-Type: application/json" \
               -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
               http://127.0.0.1:9944 > /dev/null; then
