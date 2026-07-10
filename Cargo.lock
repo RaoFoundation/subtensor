@@ -20296,7 +20296,6 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "w3f-bls"
 version = "0.1.3"
-source = "git+https://github.com/RaoFoundation/bls?branch=fix-no-std#4ac443d11a6c9fdebe329d113702ad7387ba1688"
 dependencies = [
  "ark-bls12-377",
  "ark-bls12-381 0.4.0",

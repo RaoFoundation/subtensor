@@ -35,8 +35,8 @@ sp-core = { workspace = true, features = ["std", "full_crypto"] }
 zeroize = "1"
 
 # timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the
-# workspace pins (the ideal-lab5 rev and the RaoFoundation/bls fix-no-std
-# fork) so ciphertexts never drift from what pallet-drand can decrypt.
+# workspace pins (the ideal-lab5 rev and the vendored no-std fork in
+# vendor/w3f-bls) so ciphertexts never drift from what pallet-drand can decrypt.
 ark-serialize = { version = "0.4.0", features = ["derive"], default-features = false }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "max-encoded-len"] }
 rand_core = "0.6.4"

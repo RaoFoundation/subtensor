@@ -36,7 +36,7 @@ members = [
 	"support/*",
 	"chain-extensions",
 ]
-exclude = ["eco-tests"]
+exclude = ["eco-tests", "vendor/w3f-bls"]
 resolver = "2"
 
 [workspace.package]
@@ -288,7 +288,7 @@ pallet-hotfix-sufficients = { git = "https://github.com/RaoFoundation/frontier",
 pallet-drand = { path = "pallets/drand", default-features = false }
 sp-crypto-ec-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
 sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-w3f-bls = { git = "https://github.com/RaoFoundation/bls", branch = "fix-no-std", default-features = false }
+w3f-bls = { path = "vendor/w3f-bls", default-features = false }
 ark-crypto-primitives = { version = "0.4.0", default-features = false }
 ark-scale = { version = "0.0.11", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false }
@@ -324,7 +324,7 @@ default = []
 pow-faucet = []
 
 [patch.crates-io]
-w3f-bls = { git = "https://github.com/RaoFoundation/bls", branch = "fix-no-std" }
+w3f-bls = { path = "vendor/w3f-bls" }
 zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
 zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe5d35d982f6afefb5d7e4e69f5f18" }
 

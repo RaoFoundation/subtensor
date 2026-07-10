@@ -58,4 +58,4 @@ rand = { version = "0.10.0", default-features = false, features = ["std", "threa
 hex-literal = "0.4.1"
 
 [patch.crates-io]
-w3f-bls = { git = "https://github.com/RaoFoundation/bls", branch = "fix-no-std" }
+w3f-bls = { path = "../vendor/w3f-bls" }

@@ -20,6 +20,7 @@ runtime change against everything it might break.
 | `common/` | `subtensor-runtime-common` — types shared between runtime, node, and pallets (`NetUid`, balances, …) |
 | `support/` | Tooling crates: custom lints (`linting/`), proc macros (`macros/`), `procedural-fork`, `weight-tools` (the `weight-compare` CI gate), `tools` |
 | `src/` + `build.rs` (root) | A stub crate whose build script runs the custom lints in CI — not application code |
+| `vendor/` | Vendored third-party crates: `w3f-bls` (upstream 0.1.3 plus a no-std fix, formerly the RaoFoundation/bls fork) — consumed by `pallets/drand`, the runtime, and `sdk/bittensor-core`, and patched over the crates.io version so `tle` uses the same copy |
 
 ## Tests and test harnesses
 

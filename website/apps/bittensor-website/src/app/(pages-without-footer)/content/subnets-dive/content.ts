@@ -52,8 +52,6 @@ The calling \`owner_wallet\` owns the subnet. This wallet will receive an 18% pe
 
 Owner keys are also fully permissioned to call sudo operation on your subnet. This can be used for setting hyperparameters such as the network \`min_weights\`.
 
-A subnet template is [avialable here](https://github.com/RaoFoundation/bittensor-subnet-template) to get you started defining an incentive mechanism.
-
 #### What is the root network?
 The 'root' network is a meta subnet with id 0. This network determines the proportion of the network's block emission to be distributed to each subnet network. This is currently set to  1 TAO for every block mined.
 
