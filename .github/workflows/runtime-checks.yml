@@ -258,14 +258,48 @@ jobs:
   # For every PR: sudo-upgrade a local clone of mainnet with the proposed
   # runtime, then run the clone regression suite, the SDK metadata drift gate,
   # and the SDK e2e suite against the upgraded chain. Consumes the
-  # node-release artifact instead of building. Auto-skips (via the `build`
-  # need) when the PR touches nothing runtime-relevant.
+  # node-release artifact instead of building, and restores the nightly
+  # mainnet-snapshot artifact instead of re-scraping mainnet state (falls back
+  # to a live scrape when no snapshot exists or the `fresh-mainnet-clone`
+  # label is set). Auto-skips (via the `build` need) when the PR touches
+  # nothing runtime-relevant.
+  #
+  # The regression tests are wall-clock-bound (they wait on 12-second blocks)
+  # and mutate chain state, so they can't share one node concurrently.
+  # Instead each shard boots its own clone from the snapshot and runs a
+  # subset, preserving the suite's original relative order within each shard.
   clone-upgrade:
-    name: Sudo-upgrade mainnet clone and test
+    name: clone-upgrade (${{ matrix.shard.name }})
     needs: [trusted-pr, changes, build]
     runs-on: [self-hosted, fireactions-heavy]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
-    timeout-minutes: 180
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      # Cross-run artifact download (the nightly mainnet snapshot).
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: balancer
+            tests: >-
+              test-balancer-operation.ts
+              test-balancer-edge-emission-issuance.ts
+            sdk: false
+          - name: locks
+            tests: >-
+              test-locks-conviction.ts
+              test-lock-dust-cleanup.ts
+              test-proxy-filter-security-regressions.ts
+            sdk: false
+          - name: stake-sdk
+            tests: >-
+              test-hotkey-swap-and-proxy-stake.ts
+              test-net-tao-flow-emission-allocation.ts
+              test-total-issuance-trackers.ts
+              test-alpha-deprecated-stake-histogram.ts
+            sdk: true
     steps:
       - uses: actions/checkout@v4
 
@@ -283,7 +317,37 @@ jobs:
         with:
           node-version: 20
 
+      - name: Restore mainnet snapshot
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'fresh-mainnet-clone') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only trust snapshots produced on the default branch — schedule and
+          # dispatch runs of refresh-mainnet-snapshot execute main's code, so
+          # a PR can never poison the snapshot another PR consumes.
+          run_id=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/refresh-mainnet-snapshot.yml/runs?branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].id // empty' || true)
+          if [ -z "$run_id" ]; then
+            echo "No snapshot available; falling back to a live mainnet scrape."
+            exit 0
+          fi
+          if ! gh run download "$run_id" -n mainnet-snapshot -D /tmp/mainnet-snapshot; then
+            echo "Snapshot download failed (likely expired); falling back to a live scrape."
+            exit 0
+          fi
+          tar -xzf /tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
+          rm -rf /tmp/mainnet-snapshot
+          echo "Restored snapshot from run $run_id."
+          # Tells start-local-clone.sh to keep the pre-initialized database
+          # instead of wiping it and re-running genesis init.
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+
       - name: Create mainnet clone
+        # No-op when the snapshot restored the chainspec; otherwise scrapes
+        # mainnet state live (first run, expired snapshot, or the
+        # fresh-mainnet-clone label).
         run: ./clones/scripts/clone-mainnet.sh
 
       - name: Start local clone
@@ -291,6 +355,8 @@ jobs:
           nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
           # Genesis init from the ~2 GB mainnet-clone chainspec takes several
           # minutes before the RPC server comes up, so allow up to 15 minutes.
+          # (With a restored snapshot the db is pre-initialized and this is
+          # nearly instant.)
           for i in $(seq 1 450); do
             if curl -sf -H "Content-Type: application/json" \
               -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
@@ -314,24 +380,30 @@ jobs:
         working-directory: clones/js-tests
         run: npm test
 
-      - name: Run clone regression tests
+      - name: Run clone regression tests (shard subset)
         working-directory: clones/js-tests
+        env:
+          CLONE_REGRESSION_TESTS: ${{ matrix.shard.tests }}
         run: npm run test:clone-regressions
 
       - name: Install uv
+        if: ${{ matrix.shard.sdk }}
         run: |
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Sync SDK environment
+        if: ${{ matrix.shard.sdk }}
         working-directory: sdk/python
         run: uv sync --locked --all-extras --dev
 
       - name: Metadata drift gate (committed _generated vs upgraded clone)
+        if: ${{ matrix.shard.sdk }}
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
 
       - name: SDK e2e tests against upgraded clone
+        if: ${{ matrix.shard.sdk }}
         working-directory: sdk/python
         env:
           E2E_ENDPOINT: ws://127.0.0.1:9944
@@ -351,6 +423,39 @@ jobs:
       - name: Stop local clone
         if: always()
         run: ./clones/scripts/stop-local-clone.sh
+
+  # Branch protection requires a check named exactly "Sudo-upgrade mainnet
+  # clone and test"; the shard matrix above produces differently-named jobs,
+  # so this fan-in preserves the required-check name. Passes when every shard
+  # succeeded, or when the whole suite legitimately skipped (docs-only PR or
+  # the skip-clone-upgrade label). Anything else — including a build failure
+  # cascading into skipped shards — fails.
+  clone-upgrade-gate:
+    name: Sudo-upgrade mainnet clone and test
+    needs: [changes, build, clone-upgrade]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate shard results
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          SHARDS: ${{ needs.clone-upgrade.result }}
+          BUILD: ${{ needs.build.result }}
+          LABEL_SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
+        run: |
+          echo "changes=$CHANGES shards=$SHARDS build=$BUILD label-skip=$LABEL_SKIP"
+          # A failed path-filter job must not read as "nothing runtime-related
+          # changed" — that would let build+shards skip and the gate pass.
+          if [ "$CHANGES" != "success" ]; then
+            exit 1
+          fi
+          if [ "$SHARDS" = "success" ]; then
+            exit 0
+          fi
+          if [ "$SHARDS" = "skipped" ] && { [ "$LABEL_SKIP" = "true" ] || [ "$BUILD" = "skipped" ]; }; then
+            exit 0
+          fi
+          exit 1
 
   docs-website:
     name: Docs and website build

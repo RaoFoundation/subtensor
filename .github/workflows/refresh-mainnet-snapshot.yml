@@ -1,0 +1,98 @@
+name: Refresh Mainnet Snapshot
+
+# Nightly producer for the clone-upgrade suite: scrapes mainnet state once,
+# builds the patched chainspec, genesis-inits the local-chain database, and
+# publishes both as the `mainnet-snapshot` artifact. PR runs of runtime-checks
+# download the latest main-branch snapshot instead of each spending 15-20 min
+# re-scraping identical state from the finney RPC.
+#
+# Security: PR jobs only consume snapshots produced by runs of this workflow
+# on the default branch (schedule and dispatch both execute main's code), so a
+# PR can never feed a poisoned snapshot to another PR. Day-old mainnet state
+# is just as representative for an upgrade test as live state — and a pinned
+# snapshot is more reproducible than a fresh scrape. A PR that changes the
+# spec-patching logic itself (node/src/clone_spec.rs) can apply the
+# `fresh-mainnet-clone` label to bypass the snapshot and scrape live.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-mainnet-snapshot
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  snapshot:
+    name: scrape mainnet and publish snapshot
+    runs-on: [self-hosted, fireactions-heavy]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: runtime-checks
+
+      - name: Add wasm target and rust-src
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Build node-subtensor (release)
+        run: cargo build --release -p node-subtensor
+
+      - name: Scrape mainnet and build patched chainspec
+        run: ./clones/scripts/clone-mainnet.sh
+
+      - name: Genesis-init the local clone database
+        run: |
+          nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
+          # Genesis init from the ~2 GB chainspec takes several minutes before
+          # the RPC server comes up.
+          up=false
+          for _ in $(seq 1 450); do
+            if curl -sf -H "Content-Type: application/json" \
+              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
+              http://127.0.0.1:9944 > /dev/null; then
+              up=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$up" != true ]; then
+            echo "Clone node failed to start:"
+            cat clone-node.log
+            exit 1
+          fi
+          ./clones/scripts/stop-local-clone.sh
+          # pkill returns before the node finishes flushing the db; wait for
+          # the process to actually exit before packaging.
+          for _ in $(seq 1 60); do
+            pgrep -f "node-subtensor.*--base-path clones/mainnet-clone" > /dev/null || break
+            sleep 2
+          done
+
+      - name: Package snapshot
+        run: |
+          tar -czf mainnet-snapshot.tar.gz \
+            clones/mainnet-clone-chainspec.json \
+            clones/mainnet-clone
+          ls -lh mainnet-snapshot.tar.gz
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-snapshot
+          path: mainnet-snapshot.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          # The tarball is already gzipped.
+          compression-level: 0
