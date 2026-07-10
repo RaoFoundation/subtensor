@@ -38,5 +38,5 @@ The Rust logic lives in the sibling `bittensor-core` crate; this crate is
 bindings only. Build a development wheel from the repo root:
 
 ```
-uvx maturin develop -m bittensor-core-py/Cargo.toml
+uvx maturin develop -m sdk/bittensor-core-py/Cargo.toml
 ```

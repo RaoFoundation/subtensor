@@ -25,14 +25,14 @@ rayon = "1.10"
 
 [workspace]
 members = [
-	"bittensor-core",
-	"bittensor-core-py",
 	"common",
 	"node",
 	"pallets/*",
 	"precompiles",
 	"primitives/*",
 	"runtime",
+	"sdk/bittensor-core",
+	"sdk/bittensor-core-py",
 	"support/*",
 	"chain-extensions",
 ]

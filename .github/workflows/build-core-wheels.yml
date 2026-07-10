@@ -24,7 +24,7 @@ on:
         default: ""
       version:
         description: >-
-          Version to stamp into bittensor-core-py/pyproject.toml before
+          Version to stamp into sdk/bittensor-core-py/pyproject.toml before
           building (empty = build the committed version)
         type: string
         default: ""
@@ -53,11 +53,11 @@ jobs:
           import re
           from pathlib import Path
           version = os.environ["CORE_VERSION"]
-          path = Path("bittensor-core-py/pyproject.toml")
+          path = Path("sdk/bittensor-core-py/pyproject.toml")
           text, count = re.subn(
               r'^version = ".*"$', f'version = "{version}"', path.read_text(), count=1, flags=re.M
           )
-          assert count == 1, "version line not found in bittensor-core-py/pyproject.toml"
+          assert count == 1, "version line not found in sdk/bittensor-core-py/pyproject.toml"
           path.write_text(text)
           print(f"bittensor-core version stamped to {version}")
           EOF
@@ -70,9 +70,9 @@ jobs:
       - name: Build wheel (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
-          working-directory: bittensor-core-py
+          working-directory: sdk/bittensor-core-py
           command: build
-          args: --release --no-default-features --out ../dist
+          args: --release --no-default-features --out ../../dist
           target: ${{ matrix.target }}
           manylinux: auto
 
@@ -82,9 +82,9 @@ jobs:
         if: matrix.target == 'x86_64'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
-          working-directory: bittensor-core-py
+          working-directory: sdk/bittensor-core-py
           command: sdist
-          args: --out ../dist
+          args: --out ../../dist
 
       - uses: actions/upload-artifact@v4
         with:
@@ -119,11 +119,11 @@ jobs:
           import re
           from pathlib import Path
           version = os.environ["CORE_VERSION"]
-          path = Path("bittensor-core-py/pyproject.toml")
+          path = Path("sdk/bittensor-core-py/pyproject.toml")
           text, count = re.subn(
               r'^version = ".*"$', f'version = "{version}"', path.read_text(), count=1, flags=re.M
           )
-          assert count == 1, "version line not found in bittensor-core-py/pyproject.toml"
+          assert count == 1, "version line not found in sdk/bittensor-core-py/pyproject.toml"
           path.write_text(text)
           print(f"bittensor-core version stamped to {version}")
           EOF
@@ -143,9 +143,9 @@ jobs:
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
-          working-directory: bittensor-core-py
+          working-directory: sdk/bittensor-core-py
           command: build
-          args: --release --out ../dist
+          args: --release --out ../../dist
           target: ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v4

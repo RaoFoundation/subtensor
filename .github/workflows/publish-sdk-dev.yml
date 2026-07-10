@@ -15,8 +15,8 @@ on:
     branches: [main]
     paths:
       - "sdk/**"
-      - "bittensor-core/**"
-      - "bittensor-core-py/**"
+      - "sdk/bittensor-core/**"
+      - "sdk/bittensor-core-py/**"
   workflow_dispatch:
 
 concurrency:

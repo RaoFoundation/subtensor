@@ -49,7 +49,7 @@ packages = ["bittensor"]
 # In the monorepo, bittensor-core resolves to the workspace crate; published
 # wheels fall back to the PyPI release of the same package.
 [tool.uv.sources]
-bittensor-core = { path = "../../bittensor-core-py" }
+bittensor-core = { path = "../bittensor-core-py" }
 
 [dependency-groups]
 dev = [

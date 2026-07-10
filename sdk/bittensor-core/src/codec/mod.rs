@@ -53,7 +53,7 @@ mod corpus_tests {
     fn golden() -> serde_json::Value {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../sdk/python/tests/fixtures/golden.json"
+            "/../python/tests/fixtures/golden.json"
         );
         let raw = std::fs::read_to_string(path).expect("golden.json fixture exists");
         serde_json::from_str(&raw).unwrap()
@@ -87,7 +87,7 @@ mod corpus_tests {
     fn decoder_reproduces_the_shape_corpus() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../sdk/python/tests/fixtures/shape_corpus/corpus.json"
+            "/../python/tests/fixtures/shape_corpus/corpus.json"
         );
         let raw = std::fs::read_to_string(path).expect("shape corpus recorded");
         let corpus: serde_json::Value = serde_json::from_str(&raw).unwrap();

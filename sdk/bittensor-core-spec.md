@@ -189,7 +189,7 @@ caller above `codec.py`/`sp_core.py` changes an except clause.
 ## 5. Crate architecture
 
 ```
-bittensor-core/               # pure Rust, no PyO3 anywhere
+sdk/bittensor-core/           # pure Rust, no PyO3 anywhere
   src/
     keys/                     # absorbs py-sp-core: sr25519/ed25519 Keypair,
                               #   mnemonic/seed/uri/PolkadotJS-json import,
@@ -213,7 +213,7 @@ bittensor-core/               # pure Rust, no PyO3 anywhere
     digest/                   # RFC-0078 via merkleized-metadata
     signers/ledger.rs         # feature "ledger": ledger-transport-hid +
                               #   Substrate generic-app protocol
-bittensor-core-py/            # PyO3 bindings only; abi3-py310; maturin
+sdk/bittensor-core-py/        # PyO3 bindings only; abi3-py310; maturin
 ```
 
 Rules:

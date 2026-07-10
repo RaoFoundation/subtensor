@@ -66,7 +66,7 @@ __pycache__/
 *.egg-info/
 .coverage
 htmlcov/
-bittensor-core-py/dist/
+sdk/bittensor-core-py/dist/
 sdk/python/dist/
 
 # Local dev logs

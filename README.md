@@ -48,7 +48,7 @@ contracts alongside native Substrate extrinsics.
 | EVM | [`precompiles/`](./precompiles/) | Precompiles that expose substrate functionality to EVM contracts. |
 | Wasm contracts | [`chain-extensions/`](./chain-extensions/), [`ink-contract/`](./ink-contract/) | Chain extensions and ink! contract sources. |
 | Shared Rust | [`common/`](./common/), [`primitives/`](./primitives/), [`support/`](./support/) | Shared types, math primitives, lints, macros, weight tooling. |
-| Native crypto | [`bittensor-core/`](./bittensor-core/) | The Rust core for Bittensor clients (keypairs, keyfiles, drand timelock, ML-KEM) — built against the same crate revisions as the chain; Python bindings in [`bittensor-core-py/`](./bittensor-core-py/). |
+| Client core | [`sdk/bittensor-core/`](./sdk/bittensor-core/) | The Rust core for Bittensor clients (keypairs, keyfiles, SCALE codec, extrinsic assembly, RFC-0078 digest, drand timelock, ML-KEM) — built against the same crate revisions as the chain; Python bindings in [`sdk/bittensor-core-py/`](./sdk/bittensor-core-py/). |
 | Python SDK | [`sdk/python/`](./sdk/python/) | The `bittensor` package and `btcli` CLI. Generated from chain metadata so reads, writes, and docs cannot drift. |
 | Documentation | [`docs/`](./docs/) | Source for bittensor.com/docs. `docs/tx/`, `docs/query/`, and `docs/errors.mdx` are generated — do not hand-edit. |
 | Website | [`website/`](./website/) | Yarn + Turbo monorepo; `apps/bittensor-website` renders marketing pages and these docs. |
@@ -126,7 +126,7 @@ The node binary is `node-subtensor` (`cargo build --release` →
 
 ```bash
 cd sdk/python
-just sync    # uv environment; builds bittensor-core from ../bittensor-core-py
+just sync    # uv environment; builds bittensor-core from ../bittensor-core-py (in sdk/)
 just check   # lint, typecheck, unit tests, codegen gates (same as CI)
 ```
 

@@ -19,14 +19,14 @@ just check    # all offline gates, same as CI: lint, typecheck, unit tests, code
 ```
 
 The SDK's native module (`bittensor_core` — crypto, SCALE codec, extrinsic
-assembly) is the `bittensor-core-py` crate at the repo root. In the monorepo
-it resolves as a uv path source, so `just sync` builds the wheel from source —
-you need the repo's [Rust toolchain](/docs/internals/rust-setup) for SDK
-development here (PyPI users get prebuilt wheels). After changing the Rust
-side, rebuild the installed module:
+assembly) is the `sdk/bittensor-core-py` crate. In the monorepo it resolves
+as a uv path source, so `just sync` builds the wheel from source — you need
+the repo's [Rust toolchain](/docs/internals/rust-setup) for SDK development
+here (PyPI users get prebuilt wheels). After changing the Rust side, rebuild
+the installed module:
 
 ```bash
-uv sync --reinstall-package bittensor-core   # or: maturin develop --release -m ../../bittensor-core-py/Cargo.toml
+uv sync --reinstall-package bittensor-core   # or: maturin develop --release -m ../bittensor-core-py/Cargo.toml
 ```
 
 ## The test layers
