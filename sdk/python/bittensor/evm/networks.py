@@ -2,8 +2,9 @@
 
 Chain IDs are on-chain state (``EVMChainId`` pallet) but fixed in practice:
 964 on mainnet (UTF-8 for the TAO symbol) and 945 on testnet (UTF-8 for the
-alpha symbol). A fresh localnet has no chain ID until one is set with the
-``AdminUtils.sudo_set_evm_chain_id`` sudo extrinsic.
+alpha symbol). A fresh localnet boots with the generic substrate chain ID 42
+from its chainspec genesis; ``btcli evm setup-localnet`` replaces it (945 by
+default) via the ``AdminUtils.sudo_set_evm_chain_id`` sudo extrinsic.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class EvmNetwork:
     name: str
-    chain_id: "int | None"  # None: localnet, unset until sudo_set_evm_chain_id
+    chain_id: "int | None"  # None: localnet — genesis 42 until sudo_set_evm_chain_id
     rpc_url: str  # HTTP JSON-RPC (eth_*) endpoint
     currency_symbol: str = "TAO"
     # 1 TAO is 1e18 in EVM transaction values (Ethereum's 18 decimals) but

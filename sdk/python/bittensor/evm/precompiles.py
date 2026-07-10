@@ -136,6 +136,12 @@ PRECOMPILES: dict[str, Precompile] = {
             "The chain's own h160 -> ss58-mirror mapping (addressMapping(address) -> bytes32).",
         ),
         Precompile(
+            "voting-power",
+            2061,
+            "votingPower.json",
+            "Validator voting power (stake EMA) per subnet: per-hotkey, totals, tracking state.",
+        ),
+        Precompile(
             "ed25519-verify",
             1026,
             "ed25519Verify.json",

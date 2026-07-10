@@ -26,6 +26,29 @@
             },
             {
                 "internalType": "bytes32",
+                "name": "hotkey",
+                "type": "bytes32"
+            },
+            {
+                "internalType": "uint64",
+                "name": "limitPrice",
+                "type": "uint64"
+            }
+        ],
+        "name": "registerLimit",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint16",
+                "name": "netuid",
+                "type": "uint16"
+            },
+            {
+                "internalType": "bytes32",
                 "name": "commitHash",
                 "type": "bytes32"
             }

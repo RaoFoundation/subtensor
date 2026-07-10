@@ -38,8 +38,8 @@
       },
       {
         "name": "call",
-        "type": "bytes",
-        "internalType": "bytes"
+        "type": "uint8[]",
+        "internalType": "uint8[]"
       }
     ],
     "outputs": [],
@@ -66,8 +66,8 @@
       },
       {
         "name": "height",
-        "type": "uint16",
-        "internalType": "uint16"
+        "type": "uint32",
+        "internalType": "uint32"
       },
       {
         "name": "ext_index",
@@ -151,8 +151,25 @@
     "outputs": [
       {
         "name": "",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
+        "type": "tuple[]",
+        "internalType": "struct IProxy.ProxyInfo[]",
+        "components": [
+          {
+            "name": "delegate",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "proxy_type",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "delay",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "view"

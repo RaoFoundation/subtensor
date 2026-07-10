@@ -31,6 +31,10 @@ interface ISubnet {
 
     function getServingRateLimit(uint16 netuid) external view returns (uint64);
 
+    function getNetworkRegistrationBlock(
+        uint16 netuid
+    ) external view returns (uint64);
+
     function setServingRateLimit(
         uint16 netuid,
         uint64 servingRateLimit

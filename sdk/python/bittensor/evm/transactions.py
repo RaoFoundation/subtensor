@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from eth_account.messages import encode_defunct
-from eth_utils import keccak
+from eth_utils import keccak, to_checksum_address
 
 from ..balance import Balance
 from .addresses import ss58_to_pubkey
@@ -109,7 +109,8 @@ def send_transaction(
         "chainId": preview.chain_id,
     }
     if preview.to is not None:
-        tx["to"] = preview.to
+        # eth-account rejects all-lowercase h160s as failed EIP-55 checksums.
+        tx["to"] = to_checksum_address(preview.to)
     signed = account.sign_transaction(tx)
     tx_hash = rpc.send_raw_transaction(signed.raw_transaction)
     result = {"tx_hash": tx_hash}

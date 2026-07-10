@@ -109,6 +109,10 @@ btcli evm balance -w my_coldkey
 `fund` transfers TAO from the coldkey to the EVM key's **ss58 mirror**
 (substrate extrinsic, coldkey-signed). The balance then appears on the EVM
 side — MetaMask shows it with **18 decimals** (see [Decimals](#the-decimals-trap)).
+The mirror is an ordinary substrate account, so the existential deposit
+(500 rao) stays locked in it and is invisible from the EVM side: fund 1 TAO
+into a fresh key and the EVM balance reads τ0.999999500. It's withheld once,
+not per transfer.
 
 Preview first with `--dry-run`:
 
@@ -193,9 +197,10 @@ btcli evm claim-deposit --amount-tao 1 -w my_coldkey
 
 ## `btcli evm` command reference
 
-All commands accept `-w` / `--wallet`, `-n` / `--network`, `--dry-run`,
-`--yes`, and `--json` like the rest of btcli. EVM transaction commands
-also accept `--rpc-url` to override the network's JSON-RPC endpoint.
+All commands accept `-w` / `--wallet`, `-n` / `--network`, and `--json` like
+the rest of btcli; commands that submit something also accept `--dry-run` and
+`--yes` (read-only commands don't). EVM transaction commands additionally
+accept `--rpc-url` to override the network's JSON-RPC endpoint.
 
 ### EVM keys (`btcli evm key …`)
 
@@ -283,12 +288,12 @@ called.
 | --- | --- | --- |
 | Mainnet (finney) | `https://lite.chain.opentensor.ai` | 964 |
 | Testnet | `https://test.chain.opentensor.ai` | 945 |
-| Localnet | `http://127.0.0.1:9944` | none until set |
+| Localnet | `http://127.0.0.1:9944` | 42 at genesis |
 
 Mainnet is also on [ChainList](https://chainlist.org) as chain **964**. A fresh
-localnet has no EVM chain ID and blocks contract deployment behind a
-whitelist — `btcli evm setup-localnet -w alice` fixes both in one command
-(`--chain-id 945` by default).
+localnet boots with the generic substrate chain ID **42** and blocks contract
+deployment behind a whitelist — `btcli evm setup-localnet -w alice` fixes both
+in one command (`--chain-id 945` by default).
 
 Override the RPC for any command:
 
@@ -327,11 +332,13 @@ index `2053` → `0x…0805`):
 | neuron | 2052 | `0x804` | Weights, registration, serving. |
 | staking-v2 | 2053 | `0x805` | add/remove/move/transfer stake (amounts in rao). |
 | uid-lookup | 2054 | `0x806` | UIDs for an EVM address on a subnet. |
+| storage-query | 2055 | `0x807` | Raw substrate storage reads (allow-listed pallet prefixes). |
 | alpha | 2056 | `0x808` | Subnet alpha token info. |
 | crowdloan | 2057 | `0x809` | Crowdloan from EVM. |
 | leasing | 2058 | `0x80a` | Subnet leasing. |
 | proxy | 2059 | `0x80b` | Proxy delegations. |
 | address-mapping | 2060 | `0x80c` | On-chain h160 → mirror bytes32. |
+| voting-power | 2061 | `0x80d` | Validator voting power (stake EMA) per subnet. |
 | ed25519-verify | 1026 | `0x402` | Verify ed25519 (prove ss58 ownership). |
 | sr25519-verify | 1027 | `0x403` | Verify sr25519. |
 

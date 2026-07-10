@@ -37,7 +37,7 @@ def networks(ctx: typer.Context):
     rows = [
         [
             n.name,
-            str(n.chain_id) if n.chain_id else "unset (localnet)",
+            str(n.chain_id) if n.chain_id else "42 at genesis (setup-localnet: 945)",
             n.rpc_url,
             n.currency_symbol,
         ]
@@ -85,7 +85,8 @@ def config(
                 "Network name": display_name,
                 "RPC URL": network.rpc_url,
                 "Chain ID": network.chain_id
-                or "set it on the localnet first (see `btcli evm doctor`)",
+                or "42 at genesis; run `btcli evm doctor` for the live value "
+                "(`setup-localnet` sets 945)",
                 "Currency symbol": network.currency_symbol,
             },
             json_fields={
