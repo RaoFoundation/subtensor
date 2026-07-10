@@ -35,20 +35,20 @@ fn main() {
             PublicKey::<TinyBLS377>(<TinyBLS377 as EngineBLS>::PublicKeyGroup::zero());
 
         //sign and aggegate
-        keypairs
-            .iter_mut()
-            .for_each(|k| {
-                prover_aggregator.add_signature(&k.sign(&message));
-                aggregated_public_key.0 += k.public.0;
-            });
-        
+        keypairs.iter_mut().for_each(|k| {
+            prover_aggregator.add_signature(&k.sign(&message));
+            aggregated_public_key.0 += k.public.0;
+        });
+
         let mut verifier_aggregator = SignatureAggregatorAssumingPoP::<TinyBLS377>::new(message);
-	//get the signature and already aggregated public key from the prover
+        //get the signature and already aggregated public key from the prover
         verifier_aggregator.add_signature(&(&prover_aggregator).signature());
         verifier_aggregator.add_publickey(&aggregated_public_key);
 
         //aggregate public keys in signature group
-        pub_keys_in_sig_grp.iter().for_each(|pk| {verifier_aggregator.add_auxiliary_public_key(pk);});
+        pub_keys_in_sig_grp.iter().for_each(|pk| {
+            verifier_aggregator.add_auxiliary_public_key(pk);
+        });
 
         assert!(
             verifier_aggregator.verify_using_aggregated_auxiliary_public_keys::<Sha256>(),
