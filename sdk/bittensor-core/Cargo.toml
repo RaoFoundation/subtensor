@@ -16,6 +16,11 @@ ansible-vault = "0.2.1"
 base64 = "0.22.1"
 bip39 = { version = "2.0", default-features = false, features = ["std", "rand"] }
 fernet = "=0.2.1"
+# Not used directly: fernet needs openssl, and "vendored" makes openssl-sys
+# compile and statically link its own OpenSSL. Without it the wheel links the
+# build machine's libssl — absent in manylinux containers (build failure) and
+# Homebrew-pathed on macOS runners (broken wheel for anyone without it).
+openssl = { version = "0.10", features = ["vendored"] }
 hex = "0.4.3"
 pbkdf2 = "0.12.2"
 schnorrkel = "0.11.5"

@@ -65,6 +65,12 @@ jobs:
       # Default features include "ledger". On Linux hidapi uses its pure-Rust
       # hidraw backend (linux-native-basic-udev), which links no libudev and
       # no C, so the wheel stays manylinux-compliant with Ledger support in.
+      #
+      # before-script-linux: openssl-src (the vendored OpenSSL that fernet's
+      # openssl-sys builds) runs its Configure with Perl modules (IPC::Cmd)
+      # that the CentOS-based manylinux images strip from their minimal perl;
+      # the Ubuntu-based rust-cross images used for cross targets have a full
+      # perl and take the no-op branch.
       - name: Build wheel (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -73,6 +79,10 @@ jobs:
           args: --release --out ../../dist
           target: ${{ matrix.target }}
           manylinux: auto
+          before-script-linux: |
+            if command -v yum >/dev/null && ! perl -MIPC::Cmd -e 1 2>/dev/null; then
+              yum install -y perl-core
+            fi
 
       # The sdist is the fallback for platforms without a wheel; build it
       # once, alongside the x86_64 wheel.
