@@ -332,6 +332,23 @@ impl Runtime {
             return Ok(());
         }
         if fields.len() == 1 {
+            // Legacy-codec compat: scalecodec's newtype encode (a composite
+            // with one unnamed field, e.g. BoundedVec) consumed one
+            // list-nesting level, so legacy callers double-wrap sequence
+            // payloads — `CommitmentInfo { fields: [[{"Raw5": ...}]] }`.
+            // Unwrap that shape when the inner type is a sequence; the flat
+            // shape stays untouched because its sole element is not a list.
+            if let Value::List(items) | Value::Tuple(items) = value {
+                if items.len() == 1
+                    && matches!(items[0], Value::List(_))
+                    && matches!(
+                        self.resolve(fields[0].ty.id).map(|t| &t.type_def),
+                        Ok(TypeDef::Sequence(_))
+                    )
+                {
+                    return self.encode_id(fields[0].ty.id, &items[0], out);
+                }
+            }
             return self.encode_id(fields[0].ty.id, value, out);
         }
         let items = coerce_list(value)?;
