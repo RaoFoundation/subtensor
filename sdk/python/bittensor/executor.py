@@ -296,7 +296,16 @@ class Executor:
                 ) from error
         self._enforce(intent, fee, policy)
 
+        # NextKey rotates every block and is legitimately absent for a beat
+        # when an upcoming author hasn't announced its key yet (always the
+        # case in a chain's first blocks). Wait it out for a couple of
+        # blocks before concluding the pallet is inactive.
         pubkey = await self.substrate.mev_next_key()
+        for _ in range(2):
+            if pubkey:
+                break
+            await asyncio.sleep(await self.substrate.block_time())
+            pubkey = await self.substrate.mev_next_key()
         if not pubkey:
             raise ChainError("MEV Shield NextKey not available; is the MevShield pallet active?")
 
