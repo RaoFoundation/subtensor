@@ -122,3 +122,7 @@ class BridgeClient:
         if not isinstance(result, dict):
             raise BridgeError("bridge returned an invalid bytes signature")
         return result
+
+    async def report_transaction_result(self, success: bool) -> None:
+        """Tell the bridge page that the submitted transaction has finished."""
+        await self.request("transaction.result", {"success": success})

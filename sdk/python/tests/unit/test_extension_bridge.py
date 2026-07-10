@@ -75,3 +75,20 @@ async def test_bridge_browser_requires_matching_session() -> None:
                 await asyncio.wait_for(ws.recv(), timeout=2)
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("success", [True, False])
+async def test_client_reports_transaction_result(monkeypatch, success: bool) -> None:
+    client = BridgeClient("ws://127.0.0.1:1/ws", token="test-token")
+    requests = []
+
+    async def fake_request(method, params=None):
+        requests.append((method, params))
+        return {"acknowledged": True}
+
+    monkeypatch.setattr(client, "request", fake_request)
+
+    await client.report_transaction_result(success)
+
+    assert requests == [("transaction.result", {"success": success})]
