@@ -18,6 +18,17 @@ just sync     # uv sync --locked --all-extras --dev
 just check    # all offline gates, same as CI: lint, typecheck, unit tests, codegen-static
 ```
 
+The SDK's native module (`bittensor_core` — crypto, SCALE codec, extrinsic
+assembly) is the `bittensor-core-py` crate at the repo root. In the monorepo
+it resolves as a uv path source, so `just sync` builds the wheel from source —
+you need the repo's [Rust toolchain](/docs/internals/rust-setup) for SDK
+development here (PyPI users get prebuilt wheels). After changing the Rust
+side, rebuild the installed module:
+
+```bash
+uv sync --reinstall-package bittensor-core   # or: maturin develop --release -m ../../bittensor-core-py/Cargo.toml
+```
+
 ## The test layers
 
 | Layer | Needs a chain? | Command |
@@ -53,6 +64,14 @@ Two mechanisms make the offline suite possible:
   (`test_codec_golden.py`, `test_storage_golden.py`) replay these through the
   codec using only the recorded metadata, proving the wire format stays
   byte-identical without a node.
+- **Shape corpus** (`tests/fixtures/shape_corpus/`, committed): the codec's
+  decoded-*shape* contract — `(type id, SCALE bytes, decoded value)` triples
+  sampled across the whole portable registry. `test_shape_corpus.py` replays
+  it through whatever codec the transport currently uses, and the Rust core
+  runs the same corpus natively (`cargo test -p bittensor-core`), so the
+  Python objects a decode produces can never silently change shape.
+  Re-record with `scripts/record_shape_corpus.py` only when the contract
+  itself is meant to change.
 
 ## E2E tests
 

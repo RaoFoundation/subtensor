@@ -1,6 +1,15 @@
 # bittensor-core: one Rust core under every client surface
 
-Status: draft spec + execution plan (branch `bittensor-core-exploration`)
+Status: **implemented through phase 4** (branch `bittensor-core-exploration`,
+2026-07-10). Phases 0–4 are landed: the corpus and crate scaffold (phase 0),
+py-sp-core + bittensor-drand consolidated into `bittensor-core` (phase 1),
+RFC-0078 digest + `LedgerSigner` + `--ledger` (phase 2), the Rust
+runtime/codec as the production `codec.py` seam with cyscale/xxhash/
+`TYPE_REGISTRY` deleted (phase 3), and payload/assembly/multisig in core
+with byte-equal golden vectors (phase 4 — pulled forward into phases 2–3).
+§10 records the acceptance benchmark against the targets. Remaining: the
+phase 5 "later, separate decisions" (uniffi/napi bindings, id-based
+descriptor fast path), unscheduled by design.
 
 ## 1. What we would have built on day one
 
@@ -350,16 +359,23 @@ startup time).
 
 ## 10. Performance targets (gate the codec phase on these)
 
-Baselines from `bench_transport.py` on finney, 2026-07-09:
+Baselines from `bench_transport.py` on finney, 2026-07-09; acceptance run
+2026-07-10 on the same machine/endpoint after phase 3 landed:
 
-| Metric | Baseline | Target |
-| --- | --- | --- |
-| Codec/Runtime build from metadata bytes | 337 ms | ≤15 ms |
-| SCALE decode throughput (metagraph/neurons payloads) | 3–6 MB/s | ≥50 MB/s |
-| `compose_call` | 1.1 ms | ≤50 µs |
-| Sign + assemble extrinsic | 0.1 ms | no regression |
-| `query_map` decode (System.Account) | 92k entries/s | ≥500k entries/s |
-| Warm `btcli` connect (ws + codec) | ~1.1 s | ~0.75 s (network floor) |
+| Metric | Baseline | Target | Accepted |
+| --- | --- | --- | --- |
+| Codec/Runtime build from metadata bytes | 337 ms | ≤15 ms | **4 ms** |
+| SCALE decode throughput (metagraph/neurons payloads) | 3–6 MB/s | ≥50 MB/s | **60–77 MB/s** |
+| `compose_call` | 1.1 ms | ≤50 µs | **<50 µs** (below timer resolution) |
+| Sign + assemble extrinsic | 0.1 ms | no regression | **0.03 ms** (29k/s) |
+| `query_map` decode (System.Account) | 92k entries/s | ≥500k entries/s | **599k entries/s** |
+| Warm `btcli` connect (ws + codec) | ~1.1 s | ~0.75 s (network floor) | **~0.6 s** |
+
+What paid for the last two rows: decode hot paths cross the FFI once per
+page, run the SCALE + ss58 work off the GIL (rayon-parallel above 64
+entries), materialize Python objects behind a per-call repeated-object
+cache, and ss58 rendering uses a limb-based base58 (~6x over the generic
+byte-at-a-time algorithm, pinned byte-identical to sp-core's).
 
 Batches inherit these: a 1,000-op `Batch` composes in ~50 ms instead of
 ~1.1 s, in one FFI crossing. Submission/inclusion remain chain-bound — we
