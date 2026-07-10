@@ -175,7 +175,10 @@ jobs:
         # and we fall through to the PR copies under nucleus CI approval.
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --depth=1
+          # Full-history fetch: prefetch.sh falls back to `git merge-base` when
+          # the PR diff exceeds the gh API cap, and a shallow base tip has no
+          # ancestry to connect to the head checkout.
+          git fetch origin "$BASE_REF"
           mkdir -p /tmp/ai-review-trusted
           for f in .github/ai-review/common.md \
                    .github/ai-review/skeptic.md \
@@ -394,7 +397,10 @@ jobs:
         # and we fall through to the PR copies under nucleus CI approval.
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --depth=1
+          # Full-history fetch: prefetch.sh falls back to `git merge-base` when
+          # the PR diff exceeds the gh API cap, and a shallow base tip has no
+          # ancestry to connect to the head checkout.
+          git fetch origin "$BASE_REF"
           mkdir -p /tmp/ai-review-trusted
           for f in .github/ai-review/common.md \
                    .github/ai-review/skeptic.md \
