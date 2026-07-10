@@ -1,0 +1,371 @@
+name: Runtime Checks
+
+# Build-once, fan-out gate for every PR: one job compiles the runtime wasm and
+# the release node binary, then try-runtime (devnet/testnet/mainnet), the
+# spec-version comparison, and the mainnet clone-upgrade suite all consume the
+# artifacts instead of rebuilding. Consolidates the former try-runtime.yml,
+# check-spec-version.yml, and check-clone-upgrade.yml (artifacts are scoped to
+# a single workflow run, so the fan-out jobs must live in one file).
+
+on:
+  pull_request:
+    types: [labeled, unlabeled, synchronize, opened, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: runtime-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  WS_ENDPOINT: ws://127.0.0.1:9944
+  MAINNET_RPC: https://entrypoint-finney.opentensor.ai
+
+jobs:
+  # Fork PRs must not run on self-hosted runners — checkout executes untrusted
+  # code from the fork head (RCE risk on persistent org hardware).
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
+  # "Sudo-upgrade mainnet clone and test" and "Docs and website build" are
+  # required merge checks, so this workflow must always trigger (a required
+  # check whose workflow never runs is stuck "Expected" and blocks the merge).
+  # Jobs skip themselves when the PR touches nothing they exercise; a
+  # `skipped` conclusion satisfies branch protection.
+  changes:
+    name: detect relevant changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      runtime: ${{ steps.filter.outputs.runtime }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            runtime:
+              - 'common/**'
+              - 'node/**'
+              - 'pallets/**'
+              - 'precompiles/**'
+              - 'primitives/**'
+              - 'runtime/**'
+              - 'support/**'
+              - 'chain-extensions/**'
+              - 'src/**'
+              - 'vendor/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - 'rust-toolchain.toml'
+              - 'clones/**'
+              - 'sdk/**'
+              - 'website/apps/bittensor-website/scripts/**'
+              - '.github/workflows/runtime-checks.yml'
+              - '.github/actions/rust-setup/**'
+            docs:
+              - 'website/**'
+              - 'sdk/python/**'
+              - '.github/workflows/runtime-checks.yml'
+
+  # The single compile of this workflow. Two artifacts:
+  #   try-runtime-wasm — production profile + try-runtime feature, used by the
+  #     three try-runtime network checks.
+  #   node-release — release node binary + its wbuild runtime wasm, used by
+  #     the clone-upgrade suite (start-local-clone.sh expects the binary at
+  #     target/release/node-subtensor; update-runtime-with-alice.ts expects the
+  #     wasm at target/release/wbuild/node-subtensor-runtime/).
+  build:
+    name: build runtime artifacts
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
+    runs-on: [self-hosted, fireactions-heavy]
+    timeout-minutes: 60
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: runtime-checks
+
+      - name: Add wasm target and rust-src
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Build runtime wasm (production, try-runtime feature)
+        run: cargo build --profile production -p node-subtensor-runtime --features try-runtime -q --locked
+
+      - name: Build node-subtensor (release)
+        run: cargo build --release -p node-subtensor
+
+      - name: Upload try-runtime wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: try-runtime-wasm
+          path: target/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload release node + runtime wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-release
+          path: |
+            target/release/node-subtensor
+            target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          if-no-files-found: error
+          retention-days: 3
+
+  # For every PR: run try-runtime's on-runtime-upgrade checks against the
+  # current state of each live network, using the shared wasm artifact and the
+  # prebuilt try-runtime-cli — no Rust toolchain on these runners.
+  try-runtime:
+    name: try-runtime ${{ matrix.network.name }}
+    needs: build
+    runs-on: ${{ matrix.network.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        network:
+          # NOTE: the hostnames are misleading — archive.dev.opentensor.ai
+          # serves the TESTNET archive on :8443 and the MAINNET archive on
+          # :443 (verified by genesis hash; try-runtime wants archive nodes,
+          # which is why we don't use the entrypoint hostnames). The
+          # "Verify endpoint" step below enforces each URI's identity.
+          - name: devnet
+            uri: wss://dev.chain.opentensor.ai:443
+            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+            runner: [self-hosted, fireactions-tryruntime]
+          - name: testnet
+            uri: wss://archive.dev.opentensor.ai:8443
+            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+            runner: [self-hosted, fireactions-tryruntime]
+          - name: mainnet
+            uri: wss://archive.dev.opentensor.ai:443
+            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+            runner: [self-hosted, fireactions-tryruntime-finney]
+    steps:
+      - name: Verify endpoint serves the expected network
+        run: |
+          http_uri="${{ matrix.network.uri }}"
+          http_uri="${http_uri/wss:/https:}"
+          genesis=$(curl -sS -m 30 -H 'Content-Type: application/json' \
+            -d '{"id":1,"jsonrpc":"2.0","method":"chain_getBlockHash","params":[0]}' \
+            "$http_uri" | sed -n 's/.*"result":"\(0x[0-9a-f]*\)".*/\1/p')
+          echo "endpoint genesis: $genesis"
+          if [ "$genesis" != "${{ matrix.network.genesis }}" ]; then
+            echo "::error::${{ matrix.network.name }} endpoint $http_uri serves genesis $genesis, expected ${{ matrix.network.genesis }}"
+            exit 1
+          fi
+
+      - name: Download runtime wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: try-runtime-wasm
+          path: runtime-blob
+
+      - name: Download try-runtime-cli v0.10.1
+        run: |
+          TRY_RUNTIME_BIN="$RUNNER_TEMP/try-runtime"
+          curl --fail --silent --show-error --location \
+            "https://github.com/paritytech/try-runtime-cli/releases/download/v0.10.1/try-runtime-x86_64-unknown-linux-musl" \
+            --output "$TRY_RUNTIME_BIN"
+          chmod +x "$TRY_RUNTIME_BIN"
+          echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
+
+      - name: Check migrations
+        env:
+          NODE_URI: ${{ matrix.network.uri }}
+        run: |
+          export RUST_LOG=remote-ext=debug,runtime=debug
+          "$TRY_RUNTIME_BIN" \
+            --runtime runtime-blob/node_subtensor_runtime.compact.compressed.wasm \
+            on-runtime-upgrade \
+            --checks=all \
+            --blocktime 12000 \
+            --disable-spec-version-check --no-weight-warnings \
+            live --uri "$NODE_URI"
+
+  # Runtime-affecting PRs must carry a spec_version newer than what mainnet is
+  # running — otherwise the release train will build the merge and then no-op
+  # at every deploy guard. Label a PR `no-spec-version-bump` when the change
+  # deliberately ships without a runtime release. No compilation: the local
+  # value is the literal in runtime/src/lib.rs (grep fails loudly unless it
+  # matches exactly once) and mainnet's comes from one RPC call.
+  spec-version:
+    name: spec_version newer than mainnet
+    needs: [trusted-pr, changes]
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') && (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare against mainnet
+        run: |
+          set -euo pipefail
+          matches=$(grep -cE '^\s*spec_version: [0-9]+,' runtime/src/lib.rs)
+          if [ "$matches" -ne 1 ]; then
+            echo "::error::expected exactly one 'spec_version: <n>,' literal in runtime/src/lib.rs, found $matches"
+            exit 1
+          fi
+          local_spec=$(grep -oE '^\s*spec_version: [0-9]+,' runtime/src/lib.rs | grep -oE '[0-9]+')
+          chain_spec=$(curl -sS -m 30 -H 'Content-Type: application/json' \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "$MAINNET_RPC" | jq -er '.result.specVersion')
+          echo "mainnet spec_version: $chain_spec"
+          echo "local spec_version:   $local_spec"
+          if [ "$local_spec" -le "$chain_spec" ]; then
+            echo "spec_version must be bumped above mainnet's, or label the PR 'no-spec-version-bump'."
+            exit 1
+          fi
+
+  # For every PR: sudo-upgrade a local clone of mainnet with the proposed
+  # runtime, then run the clone regression suite and the Python SDK suite
+  # against the upgraded chain. Consumes the node-release artifact instead of
+  # building. Auto-skips (via the `build` need) when the PR touches nothing
+  # runtime-relevant.
+  clone-upgrade:
+    name: Sudo-upgrade mainnet clone and test
+    needs: [trusted-pr, changes, build]
+    runs-on: [self-hosted, fireactions-heavy]
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release node + runtime wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: node-release
+          path: target/release
+
+      - name: Make node binary executable
+        run: chmod +x target/release/node-subtensor
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Create mainnet clone
+        run: ./clones/scripts/clone-mainnet.sh
+
+      - name: Start local clone
+        run: |
+          nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
+          # Genesis init from the ~2 GB mainnet-clone chainspec takes several
+          # minutes before the RPC server comes up, so allow up to 15 minutes.
+          for i in $(seq 1 450); do
+            if curl -sf -H "Content-Type: application/json" \
+              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
+              http://127.0.0.1:9944 > /dev/null; then
+              echo "Clone node is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Clone node failed to start:"
+          cat clone-node.log
+          exit 1
+
+      - name: Sudo-upgrade clone with proposed runtime
+        working-directory: clones/js-tests
+        run: |
+          npm ci
+          npm run runtime:update:alice
+
+      - name: Run clone smoke tests
+        working-directory: clones/js-tests
+        run: npm test
+
+      - name: Run clone regression tests
+        working-directory: clones/js-tests
+        run: npm run test:clone-regressions
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: SDK offline checks (same as just check)
+        working-directory: sdk/python
+        run: |
+          uv sync --locked --all-extras --dev
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run ty check --exit-zero-on-warning bittensor
+          uv run pytest
+          uv run python -m codegen.check --coverage
+          uv run python -m codegen.check --names
+
+      - name: Metadata drift gate (committed _generated vs upgraded clone)
+        working-directory: sdk/python
+        run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
+
+      - name: Docs drift gate (generated tx/query/errors pages)
+        working-directory: sdk/python
+        run: uv run python ../../website/apps/bittensor-website/scripts/generate.py --check
+
+      - name: SDK e2e tests against upgraded clone
+        working-directory: sdk/python
+        env:
+          E2E_ENDPOINT: ws://127.0.0.1:9944
+        run: uv run pytest -m e2e
+
+      - name: Dump clone node and harness logs
+        if: failure()
+        run: |
+          echo "===== clone-node.log (last 200 lines) ====="
+          tail -n 200 clone-node.log 2>/dev/null || echo "(missing)"
+          for f in clones/js-tests/temp/*.log; do
+            [ -f "$f" ] || continue
+            echo "===== $f ====="
+            cat "$f"
+          done
+
+      - name: Stop local clone
+        if: always()
+        run: ./clones/scripts/stop-local-clone.sh
+
+  docs-website:
+    name: Docs and website build
+    needs: [trusted-pr, changes]
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: [self-hosted, fireactions-heavy]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Docs drift gate (generated tx/query/errors pages)
+        working-directory: sdk/python
+        run: |
+          uv sync --locked --all-extras --dev
+          uv run python ../../website/apps/bittensor-website/scripts/generate.py --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Build docs site
+        working-directory: website
+        run: |
+          yarn install --immutable
+          yarn turbo run build --filter=@raofoundation/bittensor-website

@@ -25,9 +25,50 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
+  # Every check in this workflow is a required merge check, so the workflow
+  # itself must always trigger (a required check whose workflow never runs is
+  # stuck "Expected" and blocks the merge). Instead, jobs skip themselves when
+  # the PR touches no Rust-relevant paths; a `skipped` conclusion satisfies
+  # branch protection. No checkout: for pull_request events the filter reads
+  # the changed-file list from the API, so no untrusted code is executed.
+  changes:
+    name: detect rust changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            rust:
+              - 'common/**'
+              - 'node/**'
+              - 'pallets/**'
+              - 'precompiles/**'
+              - 'primitives/**'
+              - 'runtime/**'
+              - 'sdk/bittensor-core/**'
+              - 'sdk/bittensor-core-py/**'
+              - 'support/**'
+              - 'chain-extensions/**'
+              - 'src/**'
+              - 'vendor/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'build.rs'
+              - 'rust-toolchain.toml'
+              - 'zepter.yaml'
+              - '.github/workflows/check-rust.yml'
+              - '.github/actions/rust-setup/**'
+
   fmt:
     name: cargo fmt
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +88,8 @@ jobs:
 
   clippy:
     name: cargo clippy (${{ matrix.features.name }})
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     env:
       SKIP_WASM_BUILD: 1
@@ -70,7 +112,8 @@ jobs:
 
   warnings:
     name: no cargo check warnings
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     env:
       RUSTFLAGS: -D warnings
@@ -89,7 +132,8 @@ jobs:
 
   test:
     name: cargo test
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-heavy]
     env:
       SKIP_WASM_BUILD: 1
@@ -103,7 +147,8 @@ jobs:
 
   fix:
     name: cargo fix leaves no diff
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     env:
       SKIP_WASM_BUILD: 1
@@ -119,7 +164,8 @@ jobs:
 
   zepter:
     name: zepter feature propagation
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     steps:
       - uses: actions/checkout@v4
