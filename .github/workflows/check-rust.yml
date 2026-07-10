@@ -39,31 +39,24 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
     steps:
-      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+      # Plain gh-api file listing instead of a marketplace action: the org's
+      # Actions allowlist rejects unlisted third-party actions (startup_failure).
+      - name: Filter changed paths
         id: filter
         if: github.event_name == 'pull_request'
-        with:
-          filters: |
-            rust:
-              - 'common/**'
-              - 'node/**'
-              - 'pallets/**'
-              - 'precompiles/**'
-              - 'primitives/**'
-              - 'runtime/**'
-              - 'sdk/bittensor-core/**'
-              - 'sdk/bittensor-core-py/**'
-              - 'support/**'
-              - 'chain-extensions/**'
-              - 'src/**'
-              - 'vendor/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'build.rs'
-              - 'rust-toolchain.toml'
-              - 'zepter.yaml'
-              - '.github/workflows/check-rust.yml'
-              - '.github/actions/rust-setup/**'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
+          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/rust-setup/)'
+          if grep -qE "$pattern" <<< "$files"; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no Rust-relevant paths changed"
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
 
   fmt:
     name: cargo fmt
