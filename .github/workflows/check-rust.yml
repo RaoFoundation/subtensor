@@ -83,7 +83,9 @@ jobs:
     name: cargo clippy (${{ matrix.features.name }})
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    # Compile-bound (~20 min on the light boxes with a cold cache); the heavy
+    # pool's extra cores cut the wall time roughly in half.
+    runs-on: [self-hosted, fireactions-heavy]
     env:
       SKIP_WASM_BUILD: 1
     strategy:
@@ -142,7 +144,8 @@ jobs:
     name: cargo fix leaves no diff
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    # Compile-bound, same reasoning as clippy.
+    runs-on: [self-hosted, fireactions-heavy]
     env:
       SKIP_WASM_BUILD: 1
     steps:

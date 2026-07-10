@@ -142,10 +142,14 @@ jobs:
             uri: wss://archive.dev.opentensor.ai:8443
             genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
             runner: [self-hosted, fireactions-tryruntime]
+          # Mainnet used to need the dedicated fireactions-tryruntime-finney
+          # box (one machine, so runs queued behind each other for 25+ min).
+          # Now that this job downloads a wasm and scrapes state instead of
+          # compiling, the shared pool handles it.
           - name: mainnet
             uri: wss://archive.dev.opentensor.ai:443
             genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
-            runner: [self-hosted, fireactions-tryruntime-finney]
+            runner: [self-hosted, fireactions-tryruntime]
     steps:
       - name: Verify endpoint serves the expected network
         run: |
@@ -221,11 +225,41 @@ jobs:
             exit 1
           fi
 
+  # Ruff, ty, pytest, and the codegen checks need no chain and no Rust
+  # artifact; running them inside clone-upgrade serialized minutes of Python
+  # checks behind a multi-GB chainspec genesis init. The docs drift gate that
+  # also lived there is covered by docs-website (its path filter includes
+  # sdk/python/, the only input that can move the generated pages).
+  sdk-checks:
+    name: SDK offline checks
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
+    runs-on: [self-hosted, fireactions-light]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: SDK offline checks (same as just check)
+        working-directory: sdk/python
+        run: |
+          uv sync --locked --all-extras --dev
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run ty check --exit-zero-on-warning bittensor
+          uv run pytest
+          uv run python -m codegen.check --coverage
+          uv run python -m codegen.check --names
+
   # For every PR: sudo-upgrade a local clone of mainnet with the proposed
-  # runtime, then run the clone regression suite and the Python SDK suite
-  # against the upgraded chain. Consumes the node-release artifact instead of
-  # building. Auto-skips (via the `build` need) when the PR touches nothing
-  # runtime-relevant.
+  # runtime, then run the clone regression suite, the SDK metadata drift gate,
+  # and the SDK e2e suite against the upgraded chain. Consumes the
+  # node-release artifact instead of building. Auto-skips (via the `build`
+  # need) when the PR touches nothing runtime-relevant.
   clone-upgrade:
     name: Sudo-upgrade mainnet clone and test
     needs: [trusted-pr, changes, build]
@@ -289,24 +323,13 @@ jobs:
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: SDK offline checks (same as just check)
+      - name: Sync SDK environment
         working-directory: sdk/python
-        run: |
-          uv sync --locked --all-extras --dev
-          uv run ruff check .
-          uv run ruff format --check .
-          uv run ty check --exit-zero-on-warning bittensor
-          uv run pytest
-          uv run python -m codegen.check --coverage
-          uv run python -m codegen.check --names
+        run: uv sync --locked --all-extras --dev
 
       - name: Metadata drift gate (committed _generated vs upgraded clone)
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
-
-      - name: Docs drift gate (generated tx/query/errors pages)
-        working-directory: sdk/python
-        run: uv run python ../../website/apps/bittensor-website/scripts/generate.py --check
 
       - name: SDK e2e tests against upgraded clone
         working-directory: sdk/python
