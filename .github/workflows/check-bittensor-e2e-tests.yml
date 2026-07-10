@@ -23,8 +23,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
-  # The in-repo SDK e2e harness reads LOCALNET_IMAGE_NAME from the environment.
-  LOCALNET_IMAGE_NAME: ghcr.io/raofoundation/subtensor-localnet:ci
+  # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
+  LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
 
 jobs:
   trusted-pr:
@@ -282,7 +282,7 @@ jobs:
         run: docker load -i subtensor-localnet.tar
 
       - name: Retag Docker Image
-        run: docker tag localnet "$LOCALNET_IMAGE_NAME"
+        run: docker tag localnet "$LOCALNET_IMAGE"
 
       - name: Run with retry
         working-directory: sdk/python
