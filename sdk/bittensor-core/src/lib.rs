@@ -1,14 +1,13 @@
-//! The chain-defined compute core for Bittensor clients.
+//! The chain-defined compute core and native Rust SDK for Bittensor clients.
 //!
-//! One rule decides what lives here: Rust owns everything whose right answer
-//! is defined by the chain (crypto, SCALE, extrinsic payloads, metadata
-//! digests); the client SDKs own everything whose right answer is a product
-//! decision (intents, policy, CLI UX, transports). This crate contains no
-//! binding code — `bittensor-core-py` (and future uniffi/napi siblings)
-//! expose it to other languages.
+//! Rust owns the chain-defined pieces (crypto, SCALE, extrinsic payloads,
+//! metadata digests) and now also exposes a thin native client and semantic
+//! transaction executor over those primitives. Binding crates may reuse the
+//! same client or expose only the compute surface to another language.
 //!
 //! See `sdk/bittensor-core-spec.md` for the full design.
 
+pub mod client;
 pub mod codec;
 pub mod digest;
 pub mod error;
@@ -18,5 +17,8 @@ pub mod mlkem;
 pub mod runtime;
 pub mod signers;
 pub mod timelock;
+pub mod transaction;
 
+pub use client::Client;
 pub use error::CoreError;
+pub use transaction::{Executor, IntentCall, Plan, Policy, SignerRole, Spend, Wallet};

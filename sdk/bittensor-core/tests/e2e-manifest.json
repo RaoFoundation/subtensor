@@ -1,0 +1,454 @@
+[
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[add_proxy]",
+    "test": "intent_add_proxy"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[add_stake]",
+    "test": "intent_add_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[add_stake_limit]",
+    "test": "intent_add_stake_limit"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[announce_coldkey_swap]",
+    "test": "intent_announce_coldkey_swap"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[associate_evm_key]",
+    "test": "intent_associate_evm_key"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[associate_hotkey]",
+    "test": "intent_associate_hotkey"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[batch]",
+    "test": "intent_batch"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[burned_register]",
+    "test": "intent_burned_register"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[claim_root]",
+    "test": "intent_claim_root"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[clear_coldkey_swap_announcement]",
+    "test": "intent_clear_coldkey_swap_announcement"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[commit_weights]",
+    "test": "intent_commit_weights"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[contribute_crowdloan]",
+    "test": "intent_contribute_crowdloan"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[create_crowdloan]",
+    "test": "intent_create_crowdloan"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[create_pure_proxy]",
+    "test": "intent_create_pure_proxy"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[decrease_take]",
+    "test": "intent_decrease_take"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[dispute_coldkey_swap]",
+    "test": "intent_dispute_coldkey_swap"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[dissolve_crowdloan]",
+    "test": "intent_dissolve_crowdloan"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[evm_withdraw]",
+    "test": "intent_evm_withdraw"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[execute_proxy_announced]",
+    "test": "intent_execute_proxy_announced"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[finalize_crowdloan]",
+    "test": "intent_finalize_crowdloan"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[fund_evm_key]",
+    "test": "intent_fund_evm_key"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[increase_take]",
+    "test": "intent_increase_take"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[kill_pure_proxy]",
+    "test": "intent_kill_pure_proxy"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[lock_stake]",
+    "test": "intent_lock_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[move_lock]",
+    "test": "intent_move_lock"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[move_stake]",
+    "test": "intent_move_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[multisig_approve]",
+    "test": "intent_multisig_approve"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[multisig_cancel]",
+    "test": "intent_multisig_cancel"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[multisig_execute]",
+    "test": "intent_multisig_execute"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[multisig_threshold_1]",
+    "test": "intent_multisig_threshold_1"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[refund_crowdloan]",
+    "test": "intent_refund_crowdloan"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[register_leased_network]",
+    "test": "intent_register_leased_network"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[register_subnet]",
+    "test": "intent_register_subnet"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[remove_proxies]",
+    "test": "intent_remove_proxies"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[remove_proxy]",
+    "test": "intent_remove_proxy"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[remove_stake]",
+    "test": "intent_remove_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[remove_stake_limit]",
+    "test": "intent_remove_stake_limit"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[reset_axon]",
+    "test": "intent_reset_axon"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[reveal_weights]",
+    "test": "intent_reveal_weights"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[root_register]",
+    "test": "intent_root_register"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[serve_axon]",
+    "test": "intent_serve_axon"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[serve_axon_tls]",
+    "test": "intent_serve_axon_tls"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[serve_prometheus]",
+    "test": "intent_serve_prometheus"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_auto_stake]",
+    "test": "intent_set_auto_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_childkey_take]",
+    "test": "intent_set_childkey_take"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_children]",
+    "test": "intent_set_children"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_crowdloan_max_contribution]",
+    "test": "intent_set_crowdloan_max_contribution"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_hyperparameter]",
+    "test": "intent_set_hyperparameter"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_identity]",
+    "test": "intent_set_identity"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_mechanism_count]",
+    "test": "intent_set_mechanism_count"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_mechanism_emission_split]",
+    "test": "intent_set_mechanism_emission_split"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_perpetual_lock]",
+    "test": "intent_set_perpetual_lock"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_root_claim_type]",
+    "test": "intent_set_root_claim_type"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_subnet_identity]",
+    "test": "intent_set_subnet_identity"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_take]",
+    "test": "intent_set_take"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[set_weights]",
+    "test": "intent_set_weights"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[stake_burn]",
+    "test": "intent_stake_burn"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[start_call]",
+    "test": "intent_start_call"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[swap_coldkey_announced]",
+    "test": "intent_swap_coldkey_announced"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[swap_hotkey]",
+    "test": "intent_swap_hotkey"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[swap_stake]",
+    "test": "intent_swap_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[terminate_lease]",
+    "test": "intent_terminate_lease"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[transfer]",
+    "test": "intent_transfer"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[transfer_all]",
+    "test": "intent_transfer_all"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[transfer_stake]",
+    "test": "intent_transfer_stake"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[trim_subnet]",
+    "test": "intent_trim_subnet"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[unstake_all]",
+    "test": "intent_unstake_all"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[unstake_all_alpha]",
+    "test": "intent_unstake_all_alpha"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[update_crowdloan_cap]",
+    "test": "intent_update_crowdloan_cap"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[update_crowdloan_end]",
+    "test": "intent_update_crowdloan_end"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[update_crowdloan_min_contribution]",
+    "test": "intent_update_crowdloan_min_contribution"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[update_symbol]",
+    "test": "intent_update_symbol"
+  },
+  {
+    "label": "test_intent_sweep.py::test_intent_plans_against_live_metadata[withdraw_crowdloan]",
+    "test": "intent_withdraw_crowdloan"
+  },
+  {
+    "label": "test_batch_mev.py::test_batch_applies_all_children_atomically",
+    "test": "test_batch_applies_all_children_atomically"
+  },
+  {
+    "label": "test_batch_mev.py::test_failed_batch_reverts_everything",
+    "test": "test_failed_batch_reverts_everything"
+  },
+  {
+    "label": "test_batch_mev.py::test_policy_aggregates_spend_across_batch",
+    "test": "test_policy_aggregates_spend_across_batch"
+  },
+  {
+    "label": "test_batch_mev.py::test_mev_shield_next_key_is_mlkem768",
+    "test": "test_mev_shield_next_key_is_mlkem768"
+  },
+  {
+    "label": "test_batch_mev.py::test_submit_shielded_runs_full_pipeline",
+    "test": "test_submit_shielded_runs_full_pipeline"
+  },
+  {
+    "label": "test_crowdloan.py::test_crowdloan_create_read_update",
+    "test": "test_crowdloan_create_read_update"
+  },
+  {
+    "label": "test_errors.py::test_nonexistent_subnet_maps_to_semantic_code",
+    "test": "test_nonexistent_subnet_maps_to_semantic_code"
+  },
+  {
+    "label": "test_governance.py::test_compose_nested_sudo_call",
+    "test": "test_compose_nested_sudo_call"
+  },
+  {
+    "label": "test_governance.py::test_raw_call_escape_hatch_and_commitment",
+    "test": "test_raw_call_escape_hatch_and_commitment"
+  },
+  {
+    "label": "test_governance.py::test_root_claim_type_variants",
+    "test": "test_root_claim_type_variants"
+  },
+  {
+    "label": "test_governance.py::test_keep_subnets_requires_subnets",
+    "test": "test_keep_subnets_requires_subnets"
+  },
+  {
+    "label": "test_governance.py::test_coldkey_swap_announcement_flow",
+    "test": "test_coldkey_swap_announcement_flow"
+  },
+  {
+    "label": "test_governance.py::test_key_association",
+    "test": "test_key_association"
+  },
+  {
+    "label": "test_intent_sweep.py::test_plan_simulates_real_fee",
+    "test": "test_plan_simulates_real_fee"
+  },
+  {
+    "label": "test_intent_sweep.py::test_policy_blocks_with_live_fee",
+    "test": "test_policy_blocks_with_live_fee"
+  },
+  {
+    "label": "test_intent_sweep.py::test_spend_cap_blocks_value_movers",
+    "test": "test_spend_cap_blocks_value_movers"
+  },
+  {
+    "label": "test_intent_sweep.py::test_netuid_allowlist_blocks_live",
+    "test": "test_netuid_allowlist_blocks_live"
+  },
+  {
+    "label": "test_multisig.py::test_pending_op_open_read_cancel",
+    "test": "test_pending_op_open_read_cancel"
+  },
+  {
+    "label": "test_multisig.py::test_account_object_m_of_n_executes",
+    "test": "test_account_object_m_of_n_executes"
+  },
+  {
+    "label": "test_proxy.py::test_proxy_flow",
+    "test": "test_proxy_flow"
+  },
+  {
+    "label": "test_reads.py::test_block_number",
+    "test": "test_block_number"
+  },
+  {
+    "label": "test_reads.py::test_subnets_all_batched",
+    "test": "test_subnets_all_batched"
+  },
+  {
+    "label": "test_reads.py::test_balance_and_existential_deposit",
+    "test": "test_balance_and_existential_deposit"
+  },
+  {
+    "label": "test_reads.py::test_generic_accessors_over_generated_descriptors",
+    "test": "test_generic_accessors_over_generated_descriptors"
+  },
+  {
+    "label": "test_reads.py::test_reads_catalog_nonempty",
+    "test": "test_reads_catalog_nonempty"
+  },
+  {
+    "label": "test_reads.py::test_typed_reads",
+    "test": "test_typed_reads"
+  },
+  {
+    "label": "test_reads.py::test_quote_stake_slippage_and_fee",
+    "test": "test_quote_stake_slippage_and_fee"
+  },
+  {
+    "label": "test_reads.py::test_metagraph_fast_path_matches_runtime",
+    "test": "test_metagraph_fast_path_matches_runtime"
+  },
+  {
+    "label": "test_reads.py::test_snapshot_pins_reads_to_one_block",
+    "test": "test_snapshot_pins_reads_to_one_block"
+  },
+  {
+    "label": "test_reads.py::test_leases_read",
+    "test": "test_leases_read"
+  },
+  {
+    "label": "test_reads.py::test_block_subscription_streams_increasing_headers",
+    "test": "test_block_subscription_streams_increasing_headers"
+  },
+  {
+    "label": "test_staking.py::test_transfer_moves_exactly_the_amount",
+    "test": "test_transfer_moves_exactly_the_amount"
+  },
+  {
+    "label": "test_staking.py::test_add_stake_increases_stake",
+    "test": "test_add_stake_increases_stake"
+  },
+  {
+    "label": "test_staking.py::test_delegation_lifecycle",
+    "test": "test_delegation_lifecycle"
+  },
+  {
+    "label": "test_subnet_lifecycle.py::test_owned_subnet_is_registered",
+    "test": "test_owned_subnet_is_registered"
+  },
+  {
+    "label": "test_subnet_lifecycle.py::test_serving_endpoints",
+    "test": "test_serving_endpoints"
+  },
+  {
+    "label": "test_subnet_lifecycle.py::test_owner_sets_hyperparameter",
+    "test": "test_owner_sets_hyperparameter"
+  },
+  {
+    "label": "test_subnet_lifecycle.py::test_unsettable_hyperparameter_rejected_at_construction",
+    "test": "test_unsettable_hyperparameter_rejected_at_construction"
+  },
+  {
+    "label": "test_subnet_lifecycle.py::test_identity_coldkey_and_subnet",
+    "test": "test_identity_coldkey_and_subnet"
+  },
+  {
+    "label": "test_subnet_lifecycle.py::test_auto_stake_destination",
+    "test": "test_auto_stake_destination"
+  }
+]

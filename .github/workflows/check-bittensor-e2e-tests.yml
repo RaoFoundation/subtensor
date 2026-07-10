@@ -23,8 +23,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
-  # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
-  LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
+  # The in-repo Rust SDK e2e harness reads LOCALNET_IMAGE_NAME.
+  LOCALNET_IMAGE_NAME: ghcr.io/raofoundation/subtensor-localnet:ci
 
 jobs:
   trusted-pr:
@@ -88,38 +88,70 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: "false"
-
-      - name: Collect in-repo SDK e2e tests
+      - name: Verify the Rust e2e migration manifest
         id: get-tests
-        working-directory: sdk/python
+        shell: bash
         run: |
           set -euo pipefail
-          uv sync --locked --all-extras --dev
-          test_matrix=$(
-            uv run pytest -q --collect-only -m e2e \
-            | sed -n '/^tests\/e2e\//p' \
-            | jq -R -s -c '
-                split("\n")
-                | map(select(. != ""))
-                | map({nodeid: ., label: (sub("^tests/e2e/"; "") | sub("\\.py$"; ""))})
-              '
-          )
-          echo "Found tests: $test_matrix"
-          if [ "$test_matrix" = "[]" ] || [ -z "$test_matrix" ]; then
-            echo "No e2e tests found — failing."
-            exit 1
-          fi
+          manifest=sdk/bittensor-core/tests/e2e-manifest.json
+          jq -e 'length == 113' "$manifest" >/dev/null
+          jq -e 'map(.label) | length == (unique | length)' "$manifest" >/dev/null
+          jq -e 'map(.test) | length == (unique | length)' "$manifest" >/dev/null
+          jq -e 'all(.[]; (.label | startswith("test_")) and ((.test | startswith("intent_")) or (.test | startswith("test_"))))' "$manifest" >/dev/null
+          test_matrix=$(jq -c . "$manifest")
+          echo "Found $(jq length "$manifest") migrated Rust e2e tests"
           echo "test-files=$test_matrix" >> "$GITHUB_OUTPUT"
+
+  build-rust-e2e-test-binary:
+    needs: [check-label, find-e2e-tests]
+    if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+
+      - name: Install Rust + build dependencies
+        run: |
+          chmod +x ./scripts/install_build_env.sh
+          ./scripts/install_build_env.sh
+
+      - name: Compile once and prove manifest completeness
         shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env"
+          mkdir -p build/rust-e2e
+          cargo test -p bittensor-core --test e2e --no-run --message-format=json \
+            > build/rust-e2e/cargo-messages.json
+          executable=$(
+            jq -r '
+              select(.reason == "compiler-artifact")
+              | select(.target.name == "e2e")
+              | select(.target.kind | index("test"))
+              | .executable // empty
+            ' build/rust-e2e/cargo-messages.json | tail -n 1
+          )
+          test -n "$executable"
+          cp "$executable" build/rust-e2e/bittensor-core-e2e
+          chmod +x build/rust-e2e/bittensor-core-e2e
+
+          jq -r '.[].test' sdk/bittensor-core/tests/e2e-manifest.json \
+            | sort > build/rust-e2e/expected-tests.txt
+          build/rust-e2e/bittensor-core-e2e --list --format terse \
+            | sed -n 's/: test$//p' \
+            | sort > build/rust-e2e/compiled-tests.txt
+          diff -u build/rust-e2e/expected-tests.txt build/rust-e2e/compiled-tests.txt
+
+      - name: Upload compiled Rust e2e binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: bittensor-core-e2e
+          path: build/rust-e2e/bittensor-core-e2e
+          if-no-files-found: error
 
   artifacts:
     name: Node • ${{ matrix.runtime }} • ${{ matrix.platform.arch }}
@@ -245,6 +277,7 @@ jobs:
     needs:
       - check-label
       - find-e2e-tests
+      - build-rust-e2e-test-binary
       - build-image-with-current-branch
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     runs-on: ubuntu-latest
@@ -255,23 +288,13 @@ jobs:
         include: ${{ fromJson(needs.find-e2e-tests.outputs.test-files) }}
 
     timeout-minutes: 60
-    name: "sdk: ${{ matrix.label }}"
+    name: "sdk-rust: ${{ matrix.label }}"
     steps:
-      - name: Check-out repository
-        uses: actions/checkout@v4
+      - name: Download compiled Rust e2e binary
+        uses: actions/download-artifact@v4
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: "false"
-
-      - name: Install in-repo SDK
-        working-directory: sdk/python
-        run: |
-          uv sync --locked --all-extras --dev
+          name: bittensor-core-e2e
+          path: rust-e2e
 
       - name: Download Cached Docker Image
         uses: actions/download-artifact@v4
@@ -282,27 +305,30 @@ jobs:
         run: docker load -i subtensor-localnet.tar
 
       - name: Retag Docker Image
-        run: docker tag localnet "$LOCALNET_IMAGE"
+        run: docker tag localnet "$LOCALNET_IMAGE_NAME"
 
       - name: Run with retry
-        working-directory: sdk/python
         env:
           SKIP_PULL: 1
+          RUST_BACKTRACE: 1
         run: |
           set +e
+          chmod +x rust-e2e/bittensor-core-e2e
           for i in 1 2; do
-            echo "Attempt $i: Running tests"
-            # -m e2e overrides the default addopts (-m 'not e2e') which would
-            # otherwise deselect the collected test and fail with "no tests ran".
-            uv run pytest "${{ matrix.nodeid }}" -s -m e2e
+            echo "Attempt $i: Running ${{ matrix.test }}"
+            rust-e2e/bittensor-core-e2e \
+              "${{ matrix.test }}" \
+              --exact \
+              --nocapture \
+              --test-threads=1
             status=$?
             if [ $status -eq 0 ]; then
-              echo "Tests passed on attempt $i"
+              echo "Test passed on attempt $i"
               break
             else
-              echo "Tests failed on attempt $i"
+              echo "Test failed on attempt $i"
               if [ $i -eq 2 ]; then
-                echo "Tests failed after 2 attempts"
+                echo "Test failed after 2 attempts"
                 exit 1
               fi
               echo "Retrying..."
