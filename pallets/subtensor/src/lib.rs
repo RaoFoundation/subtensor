@@ -68,6 +68,21 @@ pub const MAX_SUBNET_CLAIMS: usize = 5;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
+pub struct SubtensorDustRemoval<T>(PhantomData<T>);
+impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
+    for SubtensorDustRemoval<T>
+where
+    T: Config + pallet_balances::Config,
+    <T as pallet_balances::Config>::Balance: Into<TaoBalance> + Copy,
+{
+    fn on_nonzero_unbalanced(dust: pallet_balances::CreditOf<T, ()>) {
+        let amount: TaoBalance = frame_support::traits::Imbalance::peek(&dust).into();
+        TotalIssuance::<T>::mutate(|total| {
+            *total = total.saturating_sub(amount);
+        });
+    }
+}
+
 /// Maximum number of UIDs (per subnet) that may be associated with a single EVM address.
 ///
 /// This bounds the size of the `AssociatedUidsByEvmAddress` reverse-index value, keeping

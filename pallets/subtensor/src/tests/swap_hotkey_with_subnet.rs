@@ -872,7 +872,7 @@ fn test_swap_owner_new_hotkey_owned_by_another_coldkey() {
     });
 }
 
-// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --test swap_hotkey_with_subnet -- test_swap_owner_new_hotkey_already_exists --exact --nocapture
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::swap_hotkey_with_subnet::test_swap_owner_new_hotkey_already_exists --exact --nocapture
 #[test]
 fn test_swap_owner_new_hotkey_already_exists() {
     new_test_ext(1).execute_with(|| {
