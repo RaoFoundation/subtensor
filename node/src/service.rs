@@ -40,6 +40,62 @@ use crate::ethereum::{
 
 const LOG_TARGET: &str = "node-service";
 
+fn is_testnet_genesis(hash: H256) -> bool {
+    hash == H256::from(hex_literal::hex!(
+        "8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+    ))
+}
+
+#[allow(clippy::expect_used)]
+fn testnet_genesis_grandpa_authorities() -> sp_consensus_grandpa::AuthorityList {
+    use sp_consensus_grandpa::AuthorityId;
+    use sp_core::ByteArray;
+
+    [
+        hex_literal::hex!("dc832c3b7bdfc721e90e5ee9e532c06b62a0def3c79dab5324460d938db6600a"),
+        hex_literal::hex!("c8a00ef71912b3868b101cb70ebd029999d1c9b6a1390122a98f60d72b9a0fc4"),
+        hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
+        hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
+        hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
+        hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
+    ]
+    .into_iter()
+    .map(|bytes| {
+        (
+            AuthorityId::from_slice(&bytes).expect("authority IDs are exactly 32 bytes"),
+            1,
+        )
+    })
+    .collect()
+}
+
+fn testnet_warp_hard_forks() -> Vec<sc_consensus_grandpa::AuthoritySetHardFork<Block>> {
+    let authorities = testnet_genesis_grandpa_authorities();
+
+    [
+        (
+            1,
+            4_589_686,
+            hex_literal::hex!("2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"),
+        ),
+        (
+            3,
+            5_534_451,
+            hex_literal::hex!("4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"),
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(set_id, number, hash)| sc_consensus_grandpa::AuthoritySetHardFork {
+            set_id,
+            block: (H256::from(hash), number),
+            authorities: authorities.clone(),
+            last_finalized: None,
+        },
+    )
+    .collect()
+}
+
 /// The minimum period of blocks on which justifications will be
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
@@ -320,25 +376,35 @@ where
     let warp_sync_config = if sealing.is_some() {
         None
     } else {
-        let set_id = match config.chain_spec.chain_type() {
-            // Finney patch
-            ChainType::Live => 3,
-            // Testnet patch
-            ChainType::Development => 2,
-            // All others (e.g. localnet)
-            _ => 0,
-        };
-        log::warn!(
-            "Grandpa warp sync patch enabled. Chain type = {:?}. Set ID = {set_id}",
-            config.chain_spec.chain_type()
-        );
         net_config.add_notification_protocol(grandpa_protocol_config);
-        let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
+        let genesis_hash = client.block_hash(0u32)?.expect("Genesis block exists; qed");
+        let shared_authority_set = grandpa_link.shared_authority_set().clone();
+        let warp_sync: Arc<dyn WarpSyncProvider<Block>> = if is_testnet_genesis(genesis_hash) {
+            log::warn!("Testnet GRANDPA warp sync checkpoints enabled.");
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
                 backend.clone(),
-                grandpa_link.shared_authority_set().clone(),
+                shared_authority_set,
+                sc_consensus_grandpa::warp_proof::HardForks::new_hard_forked_authorities(
+                    testnet_warp_hard_forks(),
+                ),
+            ))
+        } else {
+            let set_id = match config.chain_spec.chain_type() {
+                // Finney patch
+                ChainType::Live => 3,
+                // All others (e.g. localnet)
+                _ => 0,
+            };
+            log::warn!(
+                "Grandpa warp sync patch enabled. Chain type = {:?}. Set ID = {set_id}",
+                config.chain_spec.chain_type()
+            );
+            Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
+                backend.clone(),
+                shared_authority_set,
                 sc_consensus_grandpa::warp_proof::HardForks::new_initial_set_id(set_id),
-            ));
+            ))
+        };
 
         Some(WarpSyncConfig::WithProvider(warp_sync))
     };
@@ -892,4 +958,39 @@ fn copy_keys(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn testnet_warp_checkpoints_are_genesis_scoped_and_ordered() {
+        let genesis = H256::from(hex_literal::hex!(
+            "8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+        ));
+        assert!(is_testnet_genesis(genesis));
+        assert!(!is_testnet_genesis(H256::zero()));
+
+        let checkpoints = testnet_warp_hard_forks();
+        assert_eq!(checkpoints.len(), 2);
+        assert_eq!(checkpoints[0].set_id, 1);
+        assert_eq!(checkpoints[0].block.1, 4_589_686);
+        assert_eq!(
+            checkpoints[0].block.0,
+            H256::from(hex_literal::hex!(
+                "2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"
+            ))
+        );
+        assert_eq!(checkpoints[1].set_id, 3);
+        assert_eq!(checkpoints[1].block.1, 5_534_451);
+        assert_eq!(
+            checkpoints[1].block.0,
+            H256::from(hex_literal::hex!(
+                "4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"
+            ))
+        );
+        assert_eq!(checkpoints[0].authorities.len(), 6);
+        assert_eq!(checkpoints[0].authorities, checkpoints[1].authorities);
+    }
 }
