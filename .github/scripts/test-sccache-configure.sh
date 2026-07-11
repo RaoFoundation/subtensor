@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+trap 'printf "sccache configuration test failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly CONFIGURE="$SCRIPT_DIR/sccache-configure.sh"
