@@ -1598,8 +1598,12 @@ function blockFrom(value: unknown): number | string | null | undefined {
 }
 
 function normalizeCall(callLike: Exclude<CallLike, ByteLike>): [string, string, ScaleValue] {
-  if (Array.isArray(callLike)) return [callLike[0], callLike[1], callLike[2] ?? {}]
+  if (isCallTuple(callLike)) return [callLike[0], callLike[1], callLike[2] ?? {}]
   return [callLike.pallet ?? callLike.module ?? '', callLike.call ?? callLike.function ?? '', callLike.params ?? {}]
+}
+
+function isCallTuple(callLike: Exclude<CallLike, ByteLike>): callLike is readonly [string, string, ScaleValue?] {
+  return Array.isArray(callLike)
 }
 
 function hex(bytes: ByteLike): string {

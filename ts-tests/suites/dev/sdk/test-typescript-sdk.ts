@@ -32,11 +32,9 @@ describeSuite({
                     expect(
                         events?.some(
                             (event) =>
-                                (event as { module_id?: string; event_id?: string }).module_id ===
-                                    "System" &&
-                                (event as { module_id?: string; event_id?: string }).event_id ===
-                                    "ExtrinsicSuccess",
-                        ),
+                                (event as { module_id?: string; event_id?: string }).module_id === "System" &&
+                                (event as { module_id?: string; event_id?: string }).event_id === "ExtrinsicSuccess"
+                        )
                     ).to.be.true;
                 } finally {
                     await client.close();

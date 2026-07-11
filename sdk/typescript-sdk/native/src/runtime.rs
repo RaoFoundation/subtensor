@@ -778,11 +778,11 @@ impl NativeRuntime {
     pub fn compose_call(
         &self,
         pallet: String,
-        function: String,
+        call_function: String,
         params: JsonValue,
     ) -> NapiResult<Buffer> {
         self.inner
-            .compose_call(&pallet, &function, &from_wire(params)?)
+            .compose_call(&pallet, &call_function, &from_wire(params)?)
             .napi()
             .map(Into::into)
     }
