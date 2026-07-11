@@ -182,7 +182,7 @@ jobs:
           if-no-files-found: error
 
   artifacts:
-    name: Node • ${{ matrix.runtime }} • ${{ matrix.platform.arch }}
+    name: Node • fast-runtime • ${{ matrix.platform.arch }}
     needs: [check-label, trusted-pr]
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     strategy:
@@ -192,7 +192,6 @@ jobs:
           - runner: [self-hosted, fireactions-heavy]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
-        runtime: ["fast-runtime", "non-fast-runtime"]
 
     runs-on: ${{ matrix.platform.runner }}
 
@@ -223,15 +222,13 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_BUILD_TARGET="${{ matrix.platform.triple }}"
 
-          if [ "${{ matrix.runtime }}" = "fast-runtime" ]; then
-            ./scripts/localnet.sh --build-only
-          else
-            ./scripts/localnet.sh False --build-only
-          fi
+          # Historical Python E2Es used Docker's default `True`, so this
+          # migration intentionally validates the same fast-runtime localnet.
+          ./scripts/localnet.sh --build-only
 
       - name: Prepare artifacts for upload
         run: |
-          RUNTIME="${{ matrix.runtime }}"
+          RUNTIME="fast-runtime"
           TRIPLE="${{ matrix.platform.triple }}"
 
           BINARY_PATH="target/${RUNTIME}/${TRIPLE}/release/node-subtensor"
@@ -258,7 +255,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.platform.triple }}-${{ matrix.runtime }}
+          name: binaries-${{ matrix.platform.triple }}-fast-runtime
           path: build/
           if-no-files-found: error
 
@@ -291,7 +288,7 @@ jobs:
           docker info | grep "Docker Root Dir"
 
       - name: Build Docker Image
-        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t localnet .
+        run: docker build -f sdk/bittensor-core/tests/Dockerfile.localnet-fast -t localnet .
 
       - name: Save Docker Image as Tar
         run: docker save -o /mnt/data/subtensor-localnet.tar localnet
