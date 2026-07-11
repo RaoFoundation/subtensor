@@ -326,10 +326,13 @@ jobs:
           # Only trust snapshots produced on the default branch — schedule and
           # dispatch runs of refresh-mainnet-snapshot execute main's code, so
           # a PR can never poison the snapshot another PR consumes.
+          # gh api prints the JSON error body to stdout on 404 (e.g. before
+          # the snapshot workflow ever ran on main), so validate the id shape
+          # rather than trusting non-empty output.
           run_id=$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/workflows/refresh-mainnet-snapshot.yml/runs?branch=main&status=success&per_page=1" \
-            --jq '.workflow_runs[0].id // empty' || true)
-          if [ -z "$run_id" ]; then
+            --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)
+          if ! [[ "$run_id" =~ ^[0-9]+$ ]]; then
             echo "No snapshot available; falling back to a live mainnet scrape."
             exit 0
           fi
@@ -374,7 +377,11 @@ jobs:
         working-directory: clones/js-tests
         run: |
           npm ci
-          npm run runtime:update:alice
+          # Right after genesis the node occasionally rejects the first
+          # extrinsic with "bad signature" (observed: 1 of 3 shards failed at
+          # +8s while the identical tx succeeded on the others seconds later).
+          # Setting the same runtime code twice is idempotent, so retry once.
+          npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
 
       - name: Run clone smoke tests
         working-directory: clones/js-tests
