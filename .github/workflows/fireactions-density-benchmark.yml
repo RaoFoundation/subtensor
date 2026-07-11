@@ -24,7 +24,11 @@ concurrency:
 
 jobs:
   benchmark:
-    name: ${{ matrix.profile.name }} / ${{ matrix.workload }} / ${{ inputs.cache_mode || 'warm-r2' }}
+    # This matrix measures per-host batch makespan and throughput. Because each
+    # density has different co-tenancy, do not treat individual job durations
+    # as a clean per-core scaling curve; the isolated round covers that next.
+    name: ${{ matrix.profile.name }} / ${{ matrix.workload }} / ${{ inputs.cache_mode || 'cold-local' }}
+    if: github.ref_name == 'codex/fireactions-runner-density-experiment'
     runs-on: [self-hosted, "${{ matrix.profile.label }}"]
     timeout-minutes: 120
     env:
@@ -73,7 +77,7 @@ jobs:
             echo "- Runner: \`${RUNNER_NAME}\`"
             echo "- Logical CPUs visible: \`$(nproc)\`"
             echo "- Memory visible: \`$(awk '/MemTotal/ { printf \"%.1f GiB\", $2 / 1024 / 1024 }' /proc/meminfo)\`"
-            echo "- Cache mode: \`${{ inputs.cache_mode || 'warm-r2' }}\`"
+            echo "- Cache mode: \`${{ inputs.cache_mode || 'cold-local' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Add runtime build targets
@@ -87,7 +91,7 @@ jobs:
         id: workload
         shell: bash
         env:
-          CACHE_MODE: ${{ inputs.cache_mode || 'warm-r2' }}
+          CACHE_MODE: ${{ inputs.cache_mode || 'cold-local' }}
           WORKLOAD: ${{ matrix.workload }}
         run: |
           set -euo pipefail
