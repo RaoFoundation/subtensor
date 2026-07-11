@@ -2,9 +2,11 @@
 
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const { createRequire } = require('node:module')
 const os = require('node:os')
 const path = require('node:path')
 const test = require('node:test')
+const { pathToFileURL } = require('node:url')
 
 const core = require('../dist/index.js')
 
@@ -82,12 +84,12 @@ function fakeSigningClient(runtime, callData) {
   const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
   client.runtimeAt = async () => runtime
   client.callData = async () => Buffer.from(callData)
-  client.accountNextIndex = async (address) => {
-    client.lastNonceAddress = address
-    return 12
-  }
   client.genesisHash = async () => `0x${'41'.repeat(32)}`
-  client.rpc = async (method) => {
+  client.rpc = async (method, params = []) => {
+    if (method === 'system_accountNextIndex') {
+      client.lastNonceAddress = params[0]
+      return 12
+    }
     if (method === 'state_getRuntimeVersion') {
       return {
         specName: 'node-subtensor',
@@ -242,12 +244,40 @@ test('package exposes a WASM browser subset without the Node native addon', () =
   assert.equal(Object.prototype.hasOwnProperty.call(packageJson.exports['.'], 'browser'), false)
   assert.equal(packageJson.exports['.'].node.import, './dist/index.mjs')
   assert.equal(packageJson.exports['./browser'].import, './dist/browser.mjs')
+  assert.equal(Object.prototype.hasOwnProperty.call(packageJson.exports['./browser'], 'require'), false)
   assert.equal(packageJson.exports['./native'].node.import, './native.cjs')
 
   const browserSource = fs.readFileSync(path.join(root, 'dist', 'browser.js'), 'utf8')
   assert.equal(browserSource.includes('./native'), false)
   assert.equal(browserSource.includes('node:buffer'), false)
   assert.equal(browserSource.includes('.node'), false)
+})
+
+test('browser package subpath is ESM-only for package consumers', async (t) => {
+  const packageRoot = path.join(__dirname, '..')
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-sdk-package-'))
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }))
+  const scope = path.join(temp, 'node_modules', '@bittensor')
+  fs.mkdirSync(scope, { recursive: true })
+  fs.symlinkSync(packageRoot, path.join(scope, 'sdk'), 'dir')
+
+  const consumerRequire = createRequire(path.join(temp, 'consumer.cjs'))
+  assert.throws(
+    () => consumerRequire('@bittensor/sdk/browser'),
+    (error) => error.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || error.code === 'ERR_REQUIRE_ESM',
+  )
+
+  const consumer = path.join(temp, 'consumer.mjs')
+  fs.writeFileSync(
+    consumer,
+    [
+      "import * as browser from '@bittensor/sdk/browser'",
+      "export const ok = typeof browser.initBrowser === 'function' && typeof browser.Keypair === 'function'",
+      '',
+    ].join('\n'),
+  )
+  const imported = await import(`${pathToFileURL(consumer).href}?${Date.now()}`)
+  assert.equal(imported.ok, true)
 })
 
 test('browser Runtime exposes WASM codec, call, storage, and extrinsic helpers', async () => {
@@ -839,6 +869,38 @@ test('JsonRpcTransport bounds retries and supports request cancellation', async 
   )
 })
 
+test('Client accepts an injected WebSocket factory when no global WebSocket exists', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  restore()
+  const original = globalThis.WebSocket
+  globalThis.WebSocket = undefined
+  t.after(() => {
+    globalThis.WebSocket = original
+  })
+
+  const urls = []
+  FakeWebSocket.onSend = (socket, message) => {
+    queueMicrotask(() => socket.serverMessage({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: '0x1234',
+    }))
+  }
+
+  const client = new core.Client('local', {
+    endpoint: 'ws://node-a',
+    webSocketFactory(url) {
+      urls.push(url)
+      return new FakeWebSocket(url)
+    },
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+
+  assert.equal(await client.rpc('state_getMetadata'), '0x1234')
+  assert.deepEqual(urls, ['ws://node-a'])
+})
+
 test('Client expires head runtime metadata and invalidates it on runtime upgrade', async () => {
   const { client, calls, setHeadVersion } = fakeRuntimeCacheClient({
     headRuntimeTtlMs: 1_000,
@@ -961,6 +1023,130 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.deepEqual(captures.encoded.signature, Buffer.alloc(64, 9))
   assert.equal(captures.encoded.signatureVersion, core.CRYPTO_SR25519)
   assert.equal(captures.encoded.params.metadataHashEnabled, false)
+})
+
+test('Client estimateFee peeks the chain nonce without reserving it', async () => {
+  const callData = Buffer.from([9, 8, 7])
+  const { runtime, captures } = fakeSigningRuntime({
+    runtimeApis() {
+      return {
+        TransactionPaymentApi: {
+          query_info: {
+            outputTypeId: 1,
+          },
+        },
+      }
+    },
+    decodeTypeId() {
+      return { partial_fee: 123n }
+    },
+  })
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 8)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const typedSignature = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    Buffer.alloc(64, 4),
+  ])
+  const nonceReads = []
+  client.rpc = async (method, params = []) => {
+    if (method === 'system_accountNextIndex') {
+      nonceReads.push(params[0])
+      return 7
+    }
+    if (method === 'state_getRuntimeVersion') {
+      return {
+        specName: 'node-subtensor',
+        specVersion: runtime.specVersion,
+        transactionVersion: runtime.transactionVersion,
+      }
+    }
+    if (method === 'system_properties') {
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    if (method === 'state_call') return '0x00'
+    throw new Error(`unexpected RPC ${method}`)
+  }
+  const signer = {
+    address,
+    publicKey,
+    signRaw() {
+      return { signature: `0x${typedSignature.toString('hex')}` }
+    },
+  }
+
+  const fee = await client.estimateFee(callData, signer)
+  const firstRealNonce = await client.accountNextIndex(address)
+  const secondRealNonce = await client.accountNextIndex(address)
+
+  assert.equal(fee.rao, 123n)
+  assert.equal(captures.payloadParams.nonce, 7)
+  assert.equal(firstRealNonce, 7)
+  assert.equal(secondRealNonce, 8)
+  assert.deepEqual(nonceReads, [address, address])
+})
+
+test('Client serializes concurrent initial nonce reservations', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const address = core.ss58FromPublic(Buffer.alloc(32, 11), 42)
+  let reads = 0
+  let releaseRead
+  const readGate = new Promise((resolve) => {
+    releaseRead = resolve
+  })
+  client.rpc = async (method, params = []) => {
+    assert.equal(method, 'system_accountNextIndex')
+    assert.equal(params[0], address)
+    reads += 1
+    await readGate
+    return 14
+  }
+
+  const first = client.accountNextIndex(address)
+  const second = client.accountNextIndex(address)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(reads, 1)
+  releaseRead()
+
+  assert.deepEqual(await Promise.all([first, second]), [14, 15])
+  assert.equal(reads, 1)
+})
+
+test('Client releases only the failed reserved nonce', async () => {
+  const callData = Buffer.from([3, 2, 1])
+  const { runtime } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 12)
+  const address = core.ss58FromPublic(publicKey, 42)
+  let releaseSign
+  let signStarted
+  const signGate = new Promise((resolve) => {
+    releaseSign = resolve
+  })
+  const started = new Promise((resolve) => {
+    signStarted = resolve
+  })
+  const signer = {
+    address,
+    publicKey,
+    async signRaw() {
+      signStarted()
+      await signGate
+      throw new Error('signer declined')
+    },
+  }
+
+  const signing = client.signExtrinsic(callData, signer, { period: null })
+  await started
+  const independentlyReserved = await client.accountNextIndex(address)
+  releaseSign()
+  await assert.rejects(signing, /signer declined/)
+  const reusable = await client.accountNextIndex(address)
+  const next = await client.accountNextIndex(address)
+
+  assert.equal(independentlyReserved, 13)
+  assert.equal(reusable, 12)
+  assert.equal(next, 14)
 })
 
 test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', async () => {

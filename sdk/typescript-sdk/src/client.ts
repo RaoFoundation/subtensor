@@ -33,6 +33,9 @@ export interface ClientOptions {
   fallbackEndpoints?: string[]
   retryForever?: boolean
   autoConnect?: boolean
+  webSocket?: WebSocketConstructor
+  webSocketConstructor?: WebSocketConstructor
+  webSocketFactory?: WebSocketFactory
   headRuntimeTtlMs?: number
   historicalRuntimeCacheSize?: number
   requestTimeoutMs?: number
@@ -50,6 +53,9 @@ export interface RpcRequestOptions {
 }
 
 export interface JsonRpcTransportOptions {
+  webSocket?: WebSocketConstructor
+  webSocketConstructor?: WebSocketConstructor
+  webSocketFactory?: WebSocketFactory
   requestTimeoutMs?: number
   maxRequestRetries?: number
   retryBackoffMs?: number
@@ -154,6 +160,7 @@ export interface ExtrinsicResult {
 export interface SignedExtrinsicResult extends SignedExtrinsic {
   hex: string
   signerAddress: string
+  nonce: number
 }
 
 export interface ExtrinsicWatcher {
@@ -221,19 +228,40 @@ interface HeadRuntimeCacheEntry extends RuntimeCacheEntry {
   expiresAtMs: number
 }
 
+type NonceStatus = 'reserved' | 'submitted' | 'confirmed' | 'failed' | 'reusable'
+
+interface NonceAccountState {
+  next?: number
+  reusable: number[]
+  statuses: Map<number, NonceStatus>
+  queue: Promise<void>
+}
+
+interface NonceReservation {
+  address: string
+  nonce: number
+}
+
+const MANAGED_NONCE = Symbol('managedNonce')
+
+type ManagedSignedExtrinsicResult = SignedExtrinsicResult & {
+  [MANAGED_NONCE]?: NonceReservation
+}
+
 interface NormalizedSignature {
   signature: Buffer
   cryptoType: number
 }
 
-type WebSocketLike = {
+export type WebSocketLike = {
   readyState: number
   send(data: string): void
   close(): void
   addEventListener(type: string, listener: (event: { data?: unknown }) => void): void
 }
 
-type WebSocketConstructor = new (url: string) => WebSocketLike
+export type WebSocketConstructor = new (url: string) => WebSocketLike
+export type WebSocketFactory = (url: string) => WebSocketLike
 
 export class JsonRpcError extends Error {
   readonly code?: number
@@ -278,6 +306,8 @@ export class JsonRpcTransport {
   private readonly maxRequestRetries: number
   private readonly retryBackoffMs: number
   private readonly maxRetryBackoffMs: number
+  private readonly webSocketConstructor?: WebSocketConstructor
+  private readonly webSocketFactory?: WebSocketFactory
   private endpointIndex = 0
   private id = 1
   private socket?: WebSocketLike
@@ -299,6 +329,8 @@ export class JsonRpcTransport {
     this.maxRequestRetries = nonNegativeInteger(options.maxRequestRetries, DEFAULT_MAX_REQUEST_RETRIES)
     this.retryBackoffMs = nonNegativeNumber(options.retryBackoffMs, DEFAULT_RETRY_BACKOFF_MS)
     this.maxRetryBackoffMs = nonNegativeNumber(options.maxRetryBackoffMs, DEFAULT_MAX_RETRY_BACKOFF_MS)
+    this.webSocketConstructor = options.webSocketConstructor ?? options.webSocket
+    this.webSocketFactory = options.webSocketFactory
   }
 
   get endpoint(): string {
@@ -447,14 +479,17 @@ export class JsonRpcTransport {
     if (this.socket?.readyState === 1) return this.socket
     if (this.connecting != null) return this.connecting
 
-    const WebSocketImpl = (globalThis as unknown as { WebSocket?: WebSocketConstructor }).WebSocket
-    if (WebSocketImpl == null) {
-      throw new ChainError('WebSocket is not available; use Node 20.17+ or pass an HTTP endpoint')
-    }
-
     this.connecting = new Promise((resolve, reject) => {
       const request = withRequestSignal(options)
-      const socket = new WebSocketImpl(this.endpoint)
+      let socket: WebSocketLike
+      try {
+        socket = this.createWebSocket(this.endpoint)
+      } catch (error) {
+        request.cleanup()
+        this.connecting = undefined
+        reject(error)
+        return
+      }
       let settled = false
       const cleanup = () => request.cleanup()
       const fail = (error: Error) => {
@@ -484,6 +519,19 @@ export class JsonRpcTransport {
       socket.addEventListener('message', (event) => this.handleMessage(event.data))
     })
     return this.connecting
+  }
+
+  private createWebSocket(url: string): WebSocketLike {
+    if (this.webSocketFactory != null) return this.webSocketFactory(url)
+    const WebSocketImpl =
+      this.webSocketConstructor ??
+      (globalThis as unknown as { WebSocket?: WebSocketConstructor }).WebSocket
+    if (WebSocketImpl == null) {
+      throw new ChainError(
+        'WebSocket is not available; pass webSocketFactory or webSocketConstructor, or use an HTTP endpoint',
+      )
+    }
+    return new WebSocketImpl(url)
   }
 
   private handleMessage(data: unknown): void {
@@ -596,13 +644,16 @@ export class Client {
   private runtimesBySpecVersion = new Map<number, RuntimeCacheEntry>()
   private historicalRuntimeCache = new Map<string, RuntimeCacheEntry>()
   private genesis?: string
-  private nonceCache = new Map<string, number>()
+  private nonceAccounts = new Map<string, NonceAccountState>()
 
   constructor(network: string = 'finney', options: ClientOptions = {}) {
     const [label, endpoint] = resolveEndpoint(options.endpoint ?? network)
     this.network = label
     this.endpoint = endpoint
     this.transport = new JsonRpcTransport(endpoint, options.fallbackEndpoints, options.retryForever, {
+      webSocket: options.webSocket,
+      webSocketConstructor: options.webSocketConstructor,
+      webSocketFactory: options.webSocketFactory,
       requestTimeoutMs: options.requestTimeoutMs,
       maxRequestRetries: options.maxRequestRetries,
       retryBackoffMs: options.retryBackoffMs,
@@ -1064,13 +1115,13 @@ export class Client {
 
   async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
     let resolved: ResolvedSigner | undefined
-    let shouldClearNonce = false
+    let reservation: NonceReservation | undefined
     try {
       const runtime = await this.runtimeAt()
       const callData = await this.callData(call)
       resolved = await this.resolveSigner(signer, runtime)
-      const nonce = options.nonce ?? (await this.accountNextIndex(resolved.ss58Address))
-      shouldClearNonce = options.nonce == null
+      reservation = options.nonce == null ? await this.reserveNonce(resolved.ss58Address) : undefined
+      const nonce = options.nonce ?? reservation!.nonce
       const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
       const { era, eraBlockHash } = await this.normalizeEra(period)
       const tip = balanceRao(options.tip ?? 0)
@@ -1128,23 +1179,23 @@ export class Client {
         tipAssetId,
         metadataHashEnabled: metadataHash != null,
       })
-      return { ...signed, hex: hex(signed.bytes), signerAddress: resolved.ss58Address }
+      const result: ManagedSignedExtrinsicResult = {
+        ...signed,
+        hex: hex(signed.bytes),
+        signerAddress: resolved.ss58Address,
+        nonce,
+      }
+      if (reservation != null) result[MANAGED_NONCE] = reservation
+      return result
     } catch (error) {
-      if (shouldClearNonce && resolved != null) this.clearNonce(resolved.ss58Address)
+      if (reservation != null) await this.failNonce(reservation, true)
       throw error
     }
   }
 
   async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    let signerAddress = staticSignerAddress(signer)
-    try {
-      const signed = await this.signExtrinsic(call, signer, options)
-      signerAddress = signed.signerAddress
-      return await this.submitSigned(signed, signed.signerAddress, options)
-    } catch (error) {
-      if (signerAddress != null) this.clearNonce(signerAddress)
-      throw error
-    }
+    const signed = await this.signExtrinsic(call, signer, options)
+    return this.submitSigned(signed, signed.signerAddress, options)
   }
 
   async submitSigned(
@@ -1156,17 +1207,25 @@ export class Client {
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
+    const reservation = managedNonceReservation(extrinsic)
+    let submitted = false
     try {
       if (!options.waitForInclusion && !options.waitForFinalization) {
-        const submitted = String(await this.rpc('author_submitExtrinsic', [hex(bytes)]))
-        return { success: true, message: 'Submitted', extrinsicHash: submitted, events: [] }
+        const hash = String(await this.rpc('author_submitExtrinsic', [hex(bytes)]))
+        submitted = true
+        if (reservation != null) await this.submitNonce(reservation)
+        return { success: true, message: 'Submitted', extrinsicHash: hash, events: [] }
       }
       const watcher = await this.watchSigned(bytes, {
         waitForFinalization: options.waitForFinalization ?? false,
       })
-      return await watcher.result
+      submitted = true
+      if (reservation != null) await this.submitNonce(reservation)
+      const result = await watcher.result
+      if (reservation != null) await this.confirmNonce(reservation)
+      return result
     } catch (error) {
-      if (signerAddress != null) this.clearNonce(signerAddress)
+      if (reservation != null) await this.failNonce(reservation, !submitted || nonceReusableAfterSubmissionError(error))
       throw error
     }
   }
@@ -1195,26 +1254,84 @@ export class Client {
     }
   }
 
-  async accountNextIndex(address: string, useCache = true): Promise<number> {
-    if (useCache && this.nonceCache.has(address)) {
-      const nonce = this.nonceCache.get(address)!
-      this.nonceCache.set(address, nonce + 1)
-      return nonce
-    }
+  async peekNextIndex(address: string): Promise<number> {
     const nonce = Number(await this.rpc('system_accountNextIndex', [address]))
-    this.nonceCache.set(address, nonce + 1)
     return nonce
   }
 
+  async accountNextIndex(address: string, useCache = true): Promise<number> {
+    if (!useCache) return this.peekNextIndex(address)
+    return (await this.reserveNonce(address)).nonce
+  }
+
   clearNonce(address: string): void {
-    this.nonceCache.delete(address)
+    this.nonceAccounts.delete(address)
+  }
+
+  private async reserveNonce(address: string): Promise<NonceReservation> {
+    return this.withNonceAccount(address, async (state) => {
+      if (state.next == null) state.next = await this.peekNextIndex(address)
+      const nonce = state.reusable.shift() ?? state.next
+      if (nonce === state.next) state.next += 1
+      state.statuses.set(nonce, 'reserved')
+      return { address, nonce }
+    })
+  }
+
+  private async submitNonce(reservation: NonceReservation): Promise<void> {
+    await this.withNonceAccount(reservation.address, (state) => {
+      state.statuses.set(reservation.nonce, 'submitted')
+    })
+  }
+
+  private async confirmNonce(reservation: NonceReservation): Promise<void> {
+    await this.withNonceAccount(reservation.address, (state) => {
+      state.statuses.set(reservation.nonce, 'confirmed')
+      pruneNonceStatuses(state)
+    })
+  }
+
+  private async failNonce(reservation: NonceReservation, reusable: boolean): Promise<void> {
+    await this.withNonceAccount(reservation.address, (state) => {
+      const current = state.statuses.get(reservation.nonce)
+      if (current === 'confirmed') return
+      state.statuses.set(reservation.nonce, reusable ? 'reusable' : 'failed')
+      if (reusable && !state.reusable.includes(reservation.nonce)) {
+        state.reusable.push(reservation.nonce)
+        state.reusable.sort((left, right) => left - right)
+      }
+      pruneNonceStatuses(state)
+    })
+  }
+
+  private withNonceAccount<T>(
+    address: string,
+    operation: (state: NonceAccountState) => T | Promise<T>,
+  ): Promise<T> {
+    const state = this.nonceAccount(address)
+    const run = state.queue.then(() => operation(state), () => operation(state))
+    state.queue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  private nonceAccount(address: string): NonceAccountState {
+    let state = this.nonceAccounts.get(address)
+    if (state == null) {
+      state = {
+        reusable: [],
+        statuses: new Map(),
+        queue: Promise.resolve(),
+      }
+      this.nonceAccounts.set(address, state)
+    }
+    return state
   }
 
   async estimateFee(call: CallLike, signer: SignerLike): Promise<Balance> {
     const runtime = await this.runtimeAt()
     const account = await this.resolveSigner(signer, runtime)
     const signed = await this.signExtrinsic(call, signer, {
-      nonce: await this.accountNextIndex(account.ss58Address, false),
+      nonce: await this.peekNextIndex(account.ss58Address),
       period: null,
     })
     const length = Buffer.alloc(4)
@@ -2122,6 +2239,26 @@ function accountAddress(account?: SignerAccount | null): string | undefined {
 function staticSignerAddress(signer: unknown): string | undefined {
   const value = signer as { ss58Address?: unknown; address?: unknown }
   return stringValue(value.ss58Address) ?? stringValue(value.address)
+}
+
+function managedNonceReservation(extrinsic: unknown): NonceReservation | undefined {
+  if (extrinsic == null || typeof extrinsic !== 'object') return undefined
+  if (Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array) return undefined
+  return (extrinsic as ManagedSignedExtrinsicResult)[MANAGED_NONCE]
+}
+
+function nonceReusableAfterSubmissionError(error: unknown): boolean {
+  if (error instanceof JsonRpcError) return true
+  if (!(error instanceof ChainError)) return false
+  return /\b(dropped|invalid)\b/i.test(error.message)
+}
+
+function pruneNonceStatuses(state: NonceAccountState): void {
+  if (state.statuses.size <= 512) return
+  for (const [nonce, status] of state.statuses) {
+    if (state.statuses.size <= 256) break
+    if (status === 'confirmed' || status === 'failed') state.statuses.delete(nonce)
+  }
 }
 
 function stringValue(value: unknown): string | undefined {
