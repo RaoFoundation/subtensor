@@ -1,9 +1,28 @@
 'use strict'
 
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 const test = require('node:test')
 
 const core = require('../dist/index.js')
+
+test('package exposes a WASM browser subset without the Node native addon', () => {
+  const root = path.join(__dirname, '..')
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+  )
+
+  assert.equal(packageJson.browser, './dist/browser.mjs')
+  assert.equal(packageJson.exports['.'].browser.import, './dist/browser.mjs')
+  assert.equal(packageJson.exports['./browser'].import, './dist/browser.mjs')
+  assert.equal(packageJson.exports['./native'].node.import, './native.cjs')
+
+  const browserSource = fs.readFileSync(path.join(root, 'dist', 'browser.js'), 'utf8')
+  assert.equal(browserSource.includes('./native'), false)
+  assert.equal(browserSource.includes('node:buffer'), false)
+  assert.equal(browserSource.includes('.node'), false)
+})
 
 test('sr25519 keypair forwards signing and SS58 work to Rust', () => {
   const alice = core.Keypair.fromUri('//Alice')
