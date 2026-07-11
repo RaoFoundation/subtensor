@@ -103,7 +103,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
             -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-            build-essential chromium clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
+            build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
@@ -118,6 +118,56 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: ts-tests/.nvmrc
+
+      - name: Install Chromium
+        run: |
+          set -euo pipefail
+
+          resolve_chrome() {
+            for candidate in "${CHROME_BIN:-}" "${CHROMIUM_BIN:-}" chromium chromium-browser google-chrome google-chrome-stable /usr/bin/chromium /usr/bin/chromium-browser /snap/bin/chromium /opt/google/chrome/chrome; do
+              [ -n "$candidate" ] || continue
+              resolved=""
+              if [ -x "$candidate" ]; then
+                resolved="$candidate"
+              elif resolved="$(command -v "$candidate" 2>/dev/null)"; then
+                :
+              fi
+              if [ -n "$resolved" ] && "$resolved" --version >/dev/null 2>&1; then
+                printf '%s\n' "$resolved"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          install_chromium_package() {
+            sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+            for package in chromium chromium-browser; do
+              if apt-cache show "$package" >/dev/null 2>&1; then
+                sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+                  -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+                  "$package" || true
+                if resolve_chrome >/dev/null; then
+                  return 0
+                fi
+              fi
+            done
+            return 1
+          }
+
+          if ! chrome_bin="$(resolve_chrome)"; then
+            if ! install_chromium_package; then
+              echo "::error::Unable to install a runnable Chromium browser for TypeScript SDK browser tests"
+              exit 1
+            fi
+            if ! chrome_bin="$(resolve_chrome)"; then
+              echo "::error::Chromium install completed but no runnable browser executable was found"
+              exit 1
+            fi
+          fi
+
+          "$chrome_bin" --version
+          echo "CHROME_BIN=$chrome_bin" >> "$GITHUB_ENV"
 
       - name: Install wasm-pack
         run: |

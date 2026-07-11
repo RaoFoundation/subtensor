@@ -213,6 +213,10 @@ function findChrome() {
     'chromium-browser',
     'google-chrome',
     'google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    '/opt/google/chrome/chrome',
   ].filter(Boolean)
   for (const candidate of candidates) {
     const result = spawnSync(candidate, ['--version'], { stdio: 'ignore' })
