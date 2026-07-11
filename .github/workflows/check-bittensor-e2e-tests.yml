@@ -3,6 +3,9 @@ name: Bittensor E2E Test
 permissions:
   pull-requests: write
   contents: read
+  # Push/pull the per-PR localnet image on GHCR. Fork PRs never reach the
+  # image jobs (they need the trusted-pr gate), so this is non-fork only.
+  packages: write
 
 concurrency:
   group: e2e-cli-${{ github.ref }}
@@ -49,6 +52,10 @@ env:
   VERBOSE: ${{ github.event.inputs.verbose }}
   # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
+  # Per-commit tag on GHCR: built once, pulled by every test job. Registry
+  # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
+  # because layers download compressed and in parallel.
+  LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet:ci-${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   trusted-pr:
@@ -263,16 +270,17 @@ jobs:
           docker info | grep "Docker Root Dir"
 
       - name: Build Docker Image
-        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t localnet .
+        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t "$LOCALNET_IMAGE_CI" .
 
-      - name: Save Docker Image as Tar
-        run: docker save -o /mnt/data/subtensor-localnet.tar localnet
-
-      - name: Upload Docker Image as Artifact
-        uses: actions/upload-artifact@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          name: subtensor-localnet
-          path: /mnt/data/subtensor-localnet.tar
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker Image to GHCR
+        run: docker push "$LOCALNET_IMAGE_CI"
 
   run-sdk-e2e-tests:
     needs:
@@ -307,16 +315,18 @@ jobs:
         run: |
           uv sync --locked --all-extras --dev
 
-      - name: Download Cached Docker Image
-        uses: actions/download-artifact@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          name: subtensor-localnet
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load Docker Image
-        run: docker load -i subtensor-localnet.tar
+      - name: Pull Docker Image
+        run: docker pull "$LOCALNET_IMAGE_CI"
 
       - name: Retag Docker Image
-        run: docker tag localnet "$LOCALNET_IMAGE"
+        run: docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"
 
       - name: Run with retry
         working-directory: sdk/python
