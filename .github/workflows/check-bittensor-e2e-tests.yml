@@ -316,13 +316,14 @@ jobs:
         env:
           SKIP_PULL: 1
           RUST_BACKTRACE: 1
+          TEST_NAME: ${{ matrix.test }}
         run: |
           set +e
           chmod +x rust-e2e/bittensor-core-e2e
           for i in 1 2; do
-            echo "Attempt $i: Running ${{ matrix.test }}"
+            echo "Attempt $i: Running $TEST_NAME"
             rust-e2e/bittensor-core-e2e \
-              "${{ matrix.test }}" \
+              "$TEST_NAME" \
               --exact \
               --nocapture \
               --test-threads=1
