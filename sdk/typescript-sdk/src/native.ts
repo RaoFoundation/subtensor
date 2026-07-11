@@ -2,6 +2,7 @@
 
 export interface NativeKeypairHandle {
   readonly cryptoType: number
+  readonly kind: 'Ed25519' | 'Sr25519' | 'PublicOnly'
   readonly publicKey: Buffer
   readonly privateKey?: Buffer | null
   readonly ss58Address: string
@@ -53,6 +54,30 @@ export interface NativeExtrinsicParams {
   metadataHashEnabled: boolean
 }
 
+export interface NativePartialDecode {
+  value: unknown
+  offset: number
+  remaining: number
+}
+
+export interface NativeCursorHandle {
+  readonly data: Buffer
+  readonly offset: number
+  readonly remaining: number
+  readonly strict: boolean
+  setStrict(strict: boolean): void
+  seek(offset: number): void
+  reset(data: Buffer, strict: boolean, offset: number): void
+  take(length: number): Buffer
+  byte(): number
+  decodeCompactU128(): bigint
+  decodeCompactLength(): bigint
+}
+
+export interface NativeCursorConstructor {
+  fromBytes(data: Buffer, strict: boolean, offset: number): NativeCursorHandle
+}
+
 export interface NativeRuntimeHandle {
   readonly specVersion: number
   readonly transactionVersion: number
@@ -62,15 +87,54 @@ export interface NativeRuntimeHandle {
   readonly outerEventType?: number | null
   readonly metadataBytes: Buffer
   decode(typeString: string, data: Buffer, strict: boolean): unknown
-  decodePartial(typeString: string, data: Buffer, offset: number, strict: boolean): { value: unknown; offset: number; remaining: number }
+  decodePartial(
+    typeString: string,
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
   decodeTypeId(typeId: number, data: Buffer, strict: boolean): unknown
-  decodeTypeIdPartial(typeId: number, data: Buffer, offset: number, strict: boolean): { value: unknown; offset: number; remaining: number }
+  decodeTypeIdPartial(
+    typeId: number,
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
   decodeBatch(typeStrings: string[], data: Buffer[]): unknown[]
   encode(typeString: string, value: unknown): Buffer
   encodeTypeId(typeId: number, value: unknown): Buffer
   typeIdOf(name: string): number | null | undefined
   typeNameOf(id: number): string | null | undefined
   typeSpec(typeString: string): unknown
+  decodeSpec(spec: unknown, data: Buffer, strict: boolean): unknown
+  decodeSpecDescriptor(spec: unknown, data: Buffer, strict: boolean): unknown
+  decodeValue(
+    spec: unknown,
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
+  decodeValueDescriptor(
+    spec: unknown,
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
+  decodeTypeIdDescriptor(typeId: number, data: Buffer, strict: boolean): unknown
+  decodeTypeIdDescriptorPartial(
+    typeId: number,
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
+  encodeSpec(spec: unknown, value: unknown): Buffer
+  encodeSpecDescriptor(spec: unknown, value: unknown): Buffer
+  encodeValue(spec: unknown, value: unknown, prefix?: Buffer | null): Buffer
+  encodeValueDescriptor(spec: unknown, value: unknown, prefix?: Buffer | null): Buffer
+  encodeId(typeId: number, value: unknown, prefix?: Buffer | null): Buffer
+  encodeIdDescriptor(typeId: number, value: unknown, prefix?: Buffer | null): Buffer
+  coerceAccountId(value: unknown): Buffer
+  coerceAccountIdDescriptor(value: unknown): Buffer
   resolveType(id: number): unknown
   registryJson(): string
   registry(): unknown
@@ -79,31 +143,76 @@ export interface NativeRuntimeHandle {
   pallets(): unknown[]
   extrinsicInfo(): unknown
   runtimeApis(): unknown
+  runtimeApiInfos(): unknown
   runtimeSnapshot(): unknown
   composeCall(pallet: string, fn: string, params: unknown): Buffer
   decodeCall(data: Buffer): unknown
+  decodeCallValue(
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
+  decodeCallValueDescriptor(
+    data: Buffer,
+    offset: number,
+    strict: boolean,
+  ): NativePartialDecode
   storageEntry(pallet: string, storageFunction: string): NativeStorageEntry
   storagePrefix(pallet: string, storageFunction: string): Buffer
   storageKey(pallet: string, storageFunction: string, params: unknown): Buffer
-  storageKeyBatch(pallet: string, storageFunction: string, paramsList: unknown): Buffer[]
-  decodeStorageKeyParams(pallet: string, storageFunction: string, key: Buffer, fixed: number): unknown
-  decodeMapPairs(pallet: string, storageFunction: string, rawKeys: Buffer[], rawValues: Buffer[], fixed: number): NativeMapPair[]
-  decodeMapChanges(pallet: string, storageFunction: string, changes: NativeStorageChange[], fixed: number): NativeMapPair[]
+  storageKeyBatch(
+    pallet: string,
+    storageFunction: string,
+    paramsList: unknown,
+  ): Buffer[]
+  decodeStorageKeyParams(
+    pallet: string,
+    storageFunction: string,
+    key: Buffer,
+    fixed: number,
+  ): unknown
+  decodeMapPairs(
+    pallet: string,
+    storageFunction: string,
+    rawKeys: Buffer[],
+    rawValues: Buffer[],
+    fixed: number,
+  ): NativeMapPair[]
+  decodeMapChanges(
+    pallet: string,
+    storageFunction: string,
+    changes: NativeStorageChange[],
+    fixed: number,
+  ): NativeMapPair[]
   constant(pallet: string, name: string): { found: boolean; value: unknown }
   constantInfo(pallet: string, name: string): unknown | null | undefined
   moduleError(moduleIndex: number, errorIndex: number): { name: string; docs: string[] }
   signedExtensionIdentifiers(): string[]
   encodeEra(era: unknown): Buffer
-  signaturePayloadParts(params: NativeTxParams): { includedInExtrinsic: Buffer; includedInSignedData: Buffer }
+  signaturePayloadParts(params: NativeTxParams): {
+    includedInExtrinsic: Buffer
+    includedInSignedData: Buffer
+  }
   signaturePayload(callData: Buffer, params: NativeTxParams): Buffer
-  encodeSignedExtrinsic(callData: Buffer, publicKey: Buffer, signature: Buffer, signatureVersion: number, params: NativeExtrinsicParams): { bytes: Buffer; hash: Buffer }
+  encodeSignedExtrinsic(
+    callData: Buffer,
+    publicKey: Buffer,
+    signature: Buffer,
+    signatureVersion: number,
+    params: NativeExtrinsicParams,
+  ): { bytes: Buffer; hash: Buffer }
   decodeExtrinsic(data: Buffer, strict: boolean): unknown
   runtimeApiMap(): unknown
   metadataIr(): unknown
 }
 
 export interface NativeRuntimeConstructor {
-  fromMetadata(metadataBytes: Buffer, specVersion: number, transactionVersion: number, ss58Format: number): NativeRuntimeHandle
+  fromMetadata(
+    metadataBytes: Buffer,
+    specVersion: number,
+    transactionVersion: number,
+    ss58Format: number,
+  ): NativeRuntimeHandle
 }
 
 export interface NativeEpochScheduleState {
@@ -117,7 +226,12 @@ export interface NativeEpochScheduleState {
 
 export interface NativeLedgerHandle {
   appVersion(): { major: number; minor: number; patch: number }
-  address(account: number, index: number, ss58Prefix: number, confirm: boolean): { publicKey: Buffer; ss58Address: string }
+  address(
+    account: number,
+    index: number,
+    ss58Prefix: number,
+    confirm: boolean,
+  ): { publicKey: Buffer; ss58Address: string }
   sign(account: number, index: number, payload: Buffer, proof: Buffer): Buffer
 }
 
@@ -127,6 +241,7 @@ export interface NativeLedgerConstructor {
 
 export interface NativeBinding {
   NativeRuntime: NativeRuntimeConstructor
+  NativeCursor: NativeCursorConstructor
   NativeLedgerDevice: NativeLedgerConstructor
 
   bindingVersion(): string
@@ -135,16 +250,47 @@ export interface NativeBinding {
   wireRoundtrip(value: unknown): unknown
   valueToCorpusJson(value: unknown): unknown
   u256LeToDecimal(raw: Buffer): string
+  coreValueDescriptorRoundtrip(value: unknown): unknown
+  coreValueDescriptorToWire(value: unknown): unknown
+  wireToCoreValueDescriptor(value: unknown): unknown
+  coreValueDescriptorToCorpusJson(value: unknown): unknown
+  coreValueDescriptorDisplay(value: unknown): string
+  coreValueString(value: string): unknown
+  coreValueHex(value: Buffer): unknown
+  coreValueRecord(fields: Array<{ name: string; value: unknown }>): unknown
+  coreValueNull(): unknown
+  coreValueBool(value: boolean): unknown
+  coreValueInt(value: bigint): unknown
+  coreValueUint(value: bigint): unknown
+  coreValueU256Le(raw: Buffer): unknown
+  coreValueBytes(value: Buffer): unknown
+  coreValueList(items: unknown[]): unknown
+  coreValueTuple(items: unknown[]): unknown
+  coreValueDict(entries: Array<{ key: unknown; value: unknown }>): unknown
 
-  keypairNew(ss58Address: string | null | undefined, publicKey: Buffer | null | undefined, cryptoType: number, ss58Format: number): NativeKeypairHandle
-  keypairFromMnemonic(mnemonic: string, cryptoType: number, password?: string | null): NativeKeypairHandle
+  keypairNew(
+    ss58Address: string | null | undefined,
+    publicKey: Buffer | null | undefined,
+    cryptoType: number,
+    ss58Format: number,
+  ): NativeKeypairHandle
+  keypairFromMnemonic(
+    mnemonic: string,
+    cryptoType: number,
+    password?: string | null,
+  ): NativeKeypairHandle
   keypairFromSeed(seed: Buffer, cryptoType: number): NativeKeypairHandle
   keypairFromUri(uri: string, cryptoType: number): NativeKeypairHandle
   keypairFromPrivateKey(privateKey: string, cryptoType: number): NativeKeypairHandle
   keypairFromEncryptedJson(jsonData: string, passphrase: string): NativeKeypairHandle
   generateMnemonic(nWords: number): string
   encryptFor(ss58Address: string, message: Buffer, cryptoType: number): Buffer
-  verifySignature(message: Buffer, signature: Buffer, ss58Address: string, cryptoType: number): boolean
+  verifySignature(
+    message: Buffer,
+    signature: Buffer,
+    ss58Address: string,
+    cryptoType: number,
+  ): boolean
   publicKeyFromSs58(ss58Address: string): Buffer
   ss58FromPublic(publicKey: Buffer, ss58Format: number): string
   serializeKeypair(keypair: NativeKeypairHandle): Buffer
@@ -162,18 +308,37 @@ export interface NativeBinding {
   cryptoSr25519(): number
   defaultSs58Format(): number
 
+  convertTypeString(name: string): string
+  primitiveFromName(name: string): string | null | undefined
+  normalizeTypeSpec(spec: unknown): unknown
   eraBirth(period: bigint, current: bigint): bigint
-  multisigAccountId(signatories: Buffer[], threshold: number): { accountId: Buffer; sortedSignatories: Buffer[] }
+  multisigAccountId(
+    signatories: Buffer[],
+    threshold: number,
+  ): { accountId: Buffer; sortedSignatories: Buffer[] }
   multisigSs58(accountId: Buffer, ss58Format: number): string
   encodeCompact(value: bigint): Buffer
-  decodeCompactU128(data: Buffer, strict: boolean): { value: bigint; offset: number; remaining: number }
-  decodeCompactLength(data: Buffer, strict: boolean): { value: bigint; offset: number; remaining: number }
+  decodeCompactU128(
+    data: Buffer,
+    strict: boolean,
+  ): { value: bigint; offset: number; remaining: number }
+  decodeCompactLength(
+    data: Buffer,
+    strict: boolean,
+  ): { value: bigint; offset: number; remaining: number }
   hashStorageParam(hasher: string, data: Buffer): Buffer
+  storagePrefixFor(prefix: string, name: string): Buffer
   concatHashLength(hasher: string): number
   parallelDecodeThreshold(): number
 
   metadataDigest(metadataBytes: Buffer, info: Record<string, unknown>): Buffer
-  generateExtrinsicProof(callData: Buffer, includedInExtrinsic: Buffer, includedInSignedData: Buffer, metadataBytes: Buffer, info: Record<string, unknown>): Buffer
+  generateExtrinsicProof(
+    callData: Buffer,
+    includedInExtrinsic: Buffer,
+    includedInSignedData: Buffer,
+    metadataBytes: Buffer,
+    info: Record<string, unknown>,
+  ): Buffer
 
   mlkemSeal(publicKey: Buffer, plaintext: Buffer, includeKeyHash: boolean): Buffer
   mlkemTwox128(data: Buffer): Buffer
@@ -182,21 +347,65 @@ export interface NativeBinding {
 
   timelockEncryptAndCompress(data: Buffer, revealRound: bigint): Buffer
   timelockDecryptAndDecompress(encryptedData: Buffer, signatureBytes: Buffer): Buffer
-  timelockGenerateCommitV2(uids: number[], values: number[], versionKey: bigint, state: NativeEpochScheduleState, subnetRevealPeriodEpochs: bigint, blockTime: number, hotkey: Buffer): { ciphertext: Buffer; revealRound: bigint }
-  timelockEncryptCommitment(data: string, blocksUntilReveal: bigint, blockTime: number): { ciphertext: Buffer; revealRound: bigint }
-  timelockEncryptNBlocks(data: Buffer, nBlocks: bigint, blockTime: number): { ciphertext: Buffer; revealRound: bigint }
-  timelockEncryptAtRound(data: Buffer, revealRound: bigint): { ciphertext: Buffer; revealRound: bigint }
+  timelockGenerateCommitV2(
+    uids: number[],
+    values: number[],
+    versionKey: bigint,
+    state: NativeEpochScheduleState,
+    subnetRevealPeriodEpochs: bigint,
+    blockTime: number,
+    hotkey: Buffer,
+  ): { ciphertext: Buffer; revealRound: bigint }
+  timelockEncryptCommitment(
+    data: string,
+    blocksUntilReveal: bigint,
+    blockTime: number,
+  ): { ciphertext: Buffer; revealRound: bigint }
+  timelockEncryptNBlocks(
+    data: Buffer,
+    nBlocks: bigint,
+    blockTime: number,
+  ): { ciphertext: Buffer; revealRound: bigint }
+  timelockEncryptAtRound(
+    data: Buffer,
+    revealRound: bigint,
+  ): { ciphertext: Buffer; revealRound: bigint }
   timelockGetRoundInfo(round?: bigint | null): { round: bigint; signature: string }
-  timelockGetRevealRoundSignature(revealRound: bigint | null | undefined, noErrors: boolean): string | null | undefined
-  timelockDecrypt(encryptedData: Buffer, noErrors: boolean): Buffer | null | undefined
+  timelockGetRevealRoundSignature(
+    revealRound: bigint | null | undefined,
+    noErrors: boolean,
+  ): string | null | undefined
+  timelockDecrypt(
+    encryptedData: Buffer,
+    noErrors: boolean,
+  ): Buffer | null | undefined
   timelockDecryptWithSignature(encryptedData: Buffer, signatureHex: string): Buffer
   epochShouldRun(state: NativeEpochScheduleState, block: bigint): boolean
   epochCurrentPreRunCoinbase(state: NativeEpochScheduleState, block: bigint): bigint
-  epochSimulateRunCoinbase(state: NativeEpochScheduleState, block: bigint): NativeEpochScheduleState
-  epochAdvanceBlocks(state: NativeEpochScheduleState, start: bigint, end: bigint): NativeEpochScheduleState
-  epochPredictFirstRevealBlock(state: NativeEpochScheduleState, revealPeriodEpochs: bigint): bigint
+  epochSimulateRunCoinbase(
+    state: NativeEpochScheduleState,
+    block: bigint,
+  ): NativeEpochScheduleState
+  epochAdvanceBlocks(
+    state: NativeEpochScheduleState,
+    start: bigint,
+    end: bigint,
+  ): NativeEpochScheduleState
+  epochPredictFirstRevealBlock(
+    state: NativeEpochScheduleState,
+    revealPeriodEpochs: bigint,
+  ): bigint
+  epochPredictFirstRevealBlockResult(
+    state: NativeEpochScheduleState,
+    revealPeriodEpochs: bigint,
+  ): { ok: boolean; block?: bigint | null; error?: string | null }
   encodeWeightsTlockPayload(value: Record<string, unknown>): Buffer
-  decodeWeightsTlockPayload(data: Buffer): { hotkey: Buffer; uids: number[]; values: number[]; versionKey: bigint }
+  decodeWeightsTlockPayload(data: Buffer): {
+    hotkey: Buffer
+    uids: number[]
+    values: number[]
+    versionKey: bigint
+  }
   encodeTimelockUserData(value: Record<string, unknown>): Buffer
   decodeTimelockUserData(data: Buffer): { encryptedData: Buffer; revealRound: bigint }
   timelockMaxTempo(): number

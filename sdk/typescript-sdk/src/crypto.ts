@@ -39,6 +39,9 @@ export function generateExtrinsicProof(
 
 export const MLKEM_NONCE_LENGTH = native.mlkemNonceLength()
 export const MLKEM_KDF_ID = Buffer.from(native.mlkemKdfId())
+/** Rust-name aliases. */
+export const MLKEM_NONCE_LEN = MLKEM_NONCE_LENGTH
+export const KDF_ID = MLKEM_KDF_ID
 
 export function mlkemSeal(
   publicKey: ByteLike,

@@ -7,11 +7,9 @@
 use std::sync::Arc;
 
 use bittensor_core::codec::batch::PARALLEL_THRESHOLD;
-use bittensor_core::codec::decode::{compact_len, compact_u128, Cursor};
+use bittensor_core::codec::decode::{compact_len, compact_u128, convert_type_string, Cursor};
 use bittensor_core::codec::encode::compact;
-use bittensor_core::codec::extrinsic::{
-    era_birth, multisig_account_id, multisig_ss58, TxParams,
-};
+use bittensor_core::codec::extrinsic::{era_birth, multisig_account_id, multisig_ss58, TxParams};
 use bittensor_core::codec::storage::{concat_hash_len, hash_param, storage_prefix};
 use bittensor_core::codec::Value;
 use bittensor_core::runtime::type_string::{Primitive, TypeSpec};
@@ -23,7 +21,9 @@ use scale_info::TypeDef;
 use serde_json::{json, Map, Value as JsonValue};
 
 use crate::errors::{into_napi, invalid_arg, CoreResultExt, NapiResult};
-use crate::values::{from_wire, to_wire, values_from_wire, values_to_wire};
+use crate::values::{
+    from_descriptor, from_wire, to_descriptor, to_wire, values_from_wire, values_to_wire,
+};
 
 #[napi(object)]
 pub struct NativeStorageEntry {
@@ -116,6 +116,121 @@ pub struct NativeCompactDecode {
 }
 
 #[napi]
+pub struct NativeCursor {
+    data: Vec<u8>,
+    offset: usize,
+    strict: bool,
+}
+
+impl NativeCursor {
+    fn consume<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Cursor<'_>) -> Result<T, CoreError>,
+    ) -> NapiResult<T> {
+        let tail = self
+            .data
+            .get(self.offset..)
+            .ok_or_else(|| invalid_arg("cursor offset is beyond the input buffer"))?;
+        let mut cursor = Cursor::new(tail);
+        cursor.strict = self.strict;
+        let result = operation(&mut cursor).napi()?;
+        self.offset = self.offset.saturating_add(cursor.offset);
+        Ok(result)
+    }
+}
+
+#[napi]
+impl NativeCursor {
+    #[napi(factory, js_name = "fromBytes")]
+    pub fn from_bytes(data: Buffer, strict: bool, offset: u32) -> NapiResult<Self> {
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("cursor offset does not fit usize"))?;
+        if offset > data.len() {
+            return Err(invalid_arg("cursor offset is beyond the input buffer"));
+        }
+        Ok(Self {
+            data: data.as_ref().to_vec(),
+            offset,
+            strict,
+        })
+    }
+
+    #[napi(getter)]
+    pub fn data(&self) -> Buffer {
+        self.data.clone().into()
+    }
+
+    #[napi(getter)]
+    pub fn offset(&self) -> NapiResult<u32> {
+        u32::try_from(self.offset).map_err(|_| invalid_arg("cursor offset exceeds u32"))
+    }
+
+    #[napi(getter)]
+    pub fn remaining(&self) -> NapiResult<u32> {
+        u32::try_from(self.data.len().saturating_sub(self.offset))
+            .map_err(|_| invalid_arg("cursor remaining byte count exceeds u32"))
+    }
+
+    #[napi(getter)]
+    pub fn strict(&self) -> bool {
+        self.strict
+    }
+
+    #[napi(js_name = "setStrict")]
+    pub fn set_strict(&mut self, strict: bool) {
+        self.strict = strict;
+    }
+
+    #[napi]
+    pub fn seek(&mut self, offset: u32) -> NapiResult<()> {
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("cursor offset does not fit usize"))?;
+        if offset > self.data.len() {
+            return Err(invalid_arg("cursor offset is beyond the input buffer"));
+        }
+        self.offset = offset;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn reset(&mut self, data: Buffer, strict: bool, offset: u32) -> NapiResult<()> {
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("cursor offset does not fit usize"))?;
+        if offset > data.len() {
+            return Err(invalid_arg("cursor offset is beyond the input buffer"));
+        }
+        self.data = data.as_ref().to_vec();
+        self.offset = offset;
+        self.strict = strict;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn take(&mut self, length: u32) -> NapiResult<Buffer> {
+        let length =
+            usize::try_from(length).map_err(|_| invalid_arg("take length does not fit usize"))?;
+        self.consume(|cursor| cursor.take(length).map(ToOwned::to_owned))
+            .map(Into::into)
+    }
+
+    #[napi]
+    pub fn byte(&mut self) -> NapiResult<u8> {
+        self.consume(Cursor::byte)
+    }
+
+    #[napi(js_name = "decodeCompactU128")]
+    pub fn decode_compact_u128(&mut self) -> NapiResult<BigInt> {
+        self.consume(compact_u128).map(BigInt::from)
+    }
+
+    #[napi(js_name = "decodeCompactLength")]
+    pub fn decode_compact_length(&mut self) -> NapiResult<BigInt> {
+        self.consume(compact_len)
+            .map(|value| BigInt::from(value as u128))
+    }
+}
+
+#[napi]
 pub struct NativeRuntime {
     inner: Arc<Runtime>,
 }
@@ -147,6 +262,86 @@ impl NativeRuntime {
                 .map(|value| h256("metadataHash", value.as_ref()))
                 .transpose()?,
         })
+    }
+
+    fn partial_decode(
+        &self,
+        value: &Value,
+        base_offset: usize,
+        cursor: &Cursor<'_>,
+        descriptor: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        let absolute = base_offset.saturating_add(cursor.offset);
+        Ok(NativePartialDecode {
+            value: if descriptor {
+                to_descriptor(value)?
+            } else {
+                to_wire(value)?
+            },
+            offset: u32::try_from(absolute)
+                .map_err(|_| invalid_arg("decoded offset exceeds u32"))?,
+            remaining: u32::try_from(cursor.remaining())
+                .map_err(|_| invalid_arg("remaining byte count exceeds u32"))?,
+        })
+    }
+
+    fn decode_value_inner(
+        &self,
+        spec: &TypeSpec,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+        descriptor: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("offset does not fit usize"))?;
+        let tail = data
+            .as_ref()
+            .get(offset..)
+            .ok_or_else(|| invalid_arg("offset is beyond the input buffer"))?;
+        let mut cursor = Cursor::new(tail);
+        cursor.strict = strict;
+        let value = self.inner.decode_value(spec, &mut cursor).napi()?;
+        self.partial_decode(&value, offset, &cursor, descriptor)
+    }
+
+    fn decode_id_inner(
+        &self,
+        type_id: u32,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+        descriptor: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("offset does not fit usize"))?;
+        let tail = data
+            .as_ref()
+            .get(offset..)
+            .ok_or_else(|| invalid_arg("offset is beyond the input buffer"))?;
+        let mut cursor = Cursor::new(tail);
+        cursor.strict = strict;
+        let value = self.inner.decode_id(type_id, &mut cursor).napi()?;
+        self.partial_decode(&value, offset, &cursor, descriptor)
+    }
+
+    fn decode_call_value_inner(
+        &self,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+        descriptor: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("offset does not fit usize"))?;
+        let tail = data
+            .as_ref()
+            .get(offset..)
+            .ok_or_else(|| invalid_arg("offset is beyond the input buffer"))?;
+        let mut cursor = Cursor::new(tail);
+        cursor.strict = strict;
+        let value = self.inner.decode_call_value(&mut cursor).napi()?;
+        self.partial_decode(&value, offset, &cursor, descriptor)
     }
 }
 
@@ -207,12 +402,7 @@ impl NativeRuntime {
     }
 
     #[napi]
-    pub fn decode(
-        &self,
-        type_string: String,
-        data: Buffer,
-        strict: bool,
-    ) -> NapiResult<JsonValue> {
+    pub fn decode(&self, type_string: String, data: Buffer, strict: bool) -> NapiResult<JsonValue> {
         let spec = self.inner.type_spec(&type_string).napi()?;
         let value = self
             .inner
@@ -230,8 +420,8 @@ impl NativeRuntime {
         strict: bool,
     ) -> NapiResult<NativePartialDecode> {
         let spec = self.inner.type_spec(&type_string).napi()?;
-        let offset = usize::try_from(offset)
-            .map_err(|_| invalid_arg("offset does not fit usize"))?;
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("offset does not fit usize"))?;
         let tail = data
             .as_ref()
             .get(offset..)
@@ -271,8 +461,8 @@ impl NativeRuntime {
         offset: u32,
         strict: bool,
     ) -> NapiResult<NativePartialDecode> {
-        let offset = usize::try_from(offset)
-            .map_err(|_| invalid_arg("offset does not fit usize"))?;
+        let offset =
+            usize::try_from(offset).map_err(|_| invalid_arg("offset does not fit usize"))?;
         let tail = data
             .as_ref()
             .get(offset..)
@@ -337,6 +527,189 @@ impl NativeRuntime {
         Ok(type_spec_json(&spec))
     }
 
+    #[napi(js_name = "decodeSpec")]
+    pub fn decode_spec_native(
+        &self,
+        spec: JsonValue,
+        data: Buffer,
+        strict: bool,
+    ) -> NapiResult<JsonValue> {
+        let spec = type_spec_from_json(spec)?;
+        let value = self
+            .inner
+            .decode_spec(&spec, data.as_ref(), strict)
+            .napi()?;
+        to_wire(&value)
+    }
+
+    #[napi(js_name = "decodeSpecDescriptor")]
+    pub fn decode_spec_descriptor(
+        &self,
+        spec: JsonValue,
+        data: Buffer,
+        strict: bool,
+    ) -> NapiResult<JsonValue> {
+        let spec = type_spec_from_json(spec)?;
+        let value = self
+            .inner
+            .decode_spec(&spec, data.as_ref(), strict)
+            .napi()?;
+        to_descriptor(&value)
+    }
+
+    #[napi(js_name = "decodeValue")]
+    pub fn decode_value_native(
+        &self,
+        spec: JsonValue,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        let spec = type_spec_from_json(spec)?;
+        self.decode_value_inner(&spec, data, offset, strict, false)
+    }
+
+    #[napi(js_name = "decodeValueDescriptor")]
+    pub fn decode_value_descriptor(
+        &self,
+        spec: JsonValue,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        let spec = type_spec_from_json(spec)?;
+        self.decode_value_inner(&spec, data, offset, strict, true)
+    }
+
+    #[napi(js_name = "decodeTypeIdDescriptor")]
+    pub fn decode_type_id_descriptor(
+        &self,
+        type_id: u32,
+        data: Buffer,
+        strict: bool,
+    ) -> NapiResult<JsonValue> {
+        let value = self
+            .inner
+            .decode_spec(&TypeSpec::Id(type_id), data.as_ref(), strict)
+            .napi()?;
+        to_descriptor(&value)
+    }
+
+    #[napi(js_name = "decodeTypeIdDescriptorPartial")]
+    pub fn decode_type_id_descriptor_partial(
+        &self,
+        type_id: u32,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        self.decode_id_inner(type_id, data, offset, strict, true)
+    }
+
+    #[napi(js_name = "encodeSpec")]
+    pub fn encode_spec_native(&self, spec: JsonValue, value: JsonValue) -> NapiResult<Buffer> {
+        let spec = type_spec_from_json(spec)?;
+        self.inner
+            .encode_spec(&spec, &from_wire(value)?)
+            .napi()
+            .map(Into::into)
+    }
+
+    #[napi(js_name = "encodeSpecDescriptor")]
+    pub fn encode_spec_descriptor(&self, spec: JsonValue, value: JsonValue) -> NapiResult<Buffer> {
+        let spec = type_spec_from_json(spec)?;
+        self.inner
+            .encode_spec(&spec, &from_descriptor(value)?)
+            .napi()
+            .map(Into::into)
+    }
+
+    #[napi(js_name = "encodeValue")]
+    pub fn encode_value_native(
+        &self,
+        spec: JsonValue,
+        value: JsonValue,
+        prefix: Option<Buffer>,
+    ) -> NapiResult<Buffer> {
+        let spec = type_spec_from_json(spec)?;
+        let mut output = prefix
+            .as_ref()
+            .map(|value| value.as_ref().to_vec())
+            .unwrap_or_default();
+        self.inner
+            .encode_value(&spec, &from_wire(value)?, &mut output)
+            .napi()?;
+        Ok(output.into())
+    }
+
+    #[napi(js_name = "encodeValueDescriptor")]
+    pub fn encode_value_descriptor(
+        &self,
+        spec: JsonValue,
+        value: JsonValue,
+        prefix: Option<Buffer>,
+    ) -> NapiResult<Buffer> {
+        let spec = type_spec_from_json(spec)?;
+        let mut output = prefix
+            .as_ref()
+            .map(|value| value.as_ref().to_vec())
+            .unwrap_or_default();
+        self.inner
+            .encode_value(&spec, &from_descriptor(value)?, &mut output)
+            .napi()?;
+        Ok(output.into())
+    }
+
+    #[napi(js_name = "encodeId")]
+    pub fn encode_id_native(
+        &self,
+        type_id: u32,
+        value: JsonValue,
+        prefix: Option<Buffer>,
+    ) -> NapiResult<Buffer> {
+        let mut output = prefix
+            .as_ref()
+            .map(|value| value.as_ref().to_vec())
+            .unwrap_or_default();
+        self.inner
+            .encode_id(type_id, &from_wire(value)?, &mut output)
+            .napi()?;
+        Ok(output.into())
+    }
+
+    #[napi(js_name = "encodeIdDescriptor")]
+    pub fn encode_id_descriptor(
+        &self,
+        type_id: u32,
+        value: JsonValue,
+        prefix: Option<Buffer>,
+    ) -> NapiResult<Buffer> {
+        let mut output = prefix
+            .as_ref()
+            .map(|value| value.as_ref().to_vec())
+            .unwrap_or_default();
+        self.inner
+            .encode_id(type_id, &from_descriptor(value)?, &mut output)
+            .napi()?;
+        Ok(output.into())
+    }
+
+    #[napi(js_name = "coerceAccountId")]
+    pub fn coerce_account_id_native(&self, value: JsonValue) -> NapiResult<Buffer> {
+        self.inner
+            .coerce_account_id(&from_wire(value)?)
+            .napi()
+            .map(|value| value.to_vec().into())
+    }
+
+    #[napi(js_name = "coerceAccountIdDescriptor")]
+    pub fn coerce_account_id_descriptor(&self, value: JsonValue) -> NapiResult<Buffer> {
+        self.inner
+            .coerce_account_id(&from_descriptor(value)?)
+            .napi()
+            .map(|value| value.to_vec().into())
+    }
+
     #[napi]
     pub fn resolve_type(&self, id: u32) -> NapiResult<JsonValue> {
         let ty = self.inner.resolve(id).napi()?;
@@ -382,6 +755,11 @@ impl NativeRuntime {
     }
 
     #[napi]
+    pub fn runtime_api_infos(&self) -> JsonValue {
+        runtime_api_infos_json(&self.inner)
+    }
+
+    #[napi]
     pub fn runtime_snapshot(&self) -> JsonValue {
         json!({
             "specVersion": self.inner.spec_version,
@@ -392,6 +770,7 @@ impl NativeRuntime {
             "pallets": self.inner.pallets.iter().map(pallet_json).collect::<Vec<_>>(),
             "extrinsic": extrinsic_json(&self.inner),
             "runtimeApis": runtime_api_map_json(&self.inner),
+            "runtimeApiInfos": runtime_api_infos_json(&self.inner),
         })
     }
 
@@ -421,6 +800,26 @@ impl NativeRuntime {
         to_wire(&value)
     }
 
+    #[napi(js_name = "decodeCallValue")]
+    pub fn decode_call_value_native(
+        &self,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        self.decode_call_value_inner(data, offset, strict, false)
+    }
+
+    #[napi(js_name = "decodeCallValueDescriptor")]
+    pub fn decode_call_value_descriptor(
+        &self,
+        data: Buffer,
+        offset: u32,
+        strict: bool,
+    ) -> NapiResult<NativePartialDecode> {
+        self.decode_call_value_inner(data, offset, strict, true)
+    }
+
     #[napi]
     pub fn storage_entry(
         &self,
@@ -434,11 +833,7 @@ impl NativeRuntime {
     }
 
     #[napi]
-    pub fn storage_prefix(
-        &self,
-        pallet: String,
-        storage_function: String,
-    ) -> NapiResult<Buffer> {
+    pub fn storage_prefix(&self, pallet: String, storage_function: String) -> NapiResult<Buffer> {
         Ok(storage_prefix(self.entry(&pallet, &storage_function)?).into())
     }
 
@@ -490,11 +885,7 @@ impl NativeRuntime {
         let fixed = usize::try_from(fixed).map_err(|_| invalid_arg("fixed does not fit usize"))?;
         let values = self
             .inner
-            .decode_storage_key_params(
-                self.entry(&pallet, &storage_function)?,
-                key.as_ref(),
-                fixed,
-            )
+            .decode_storage_key_params(self.entry(&pallet, &storage_function)?, key.as_ref(), fixed)
             .napi()?;
         values_to_wire(&values)
     }
@@ -544,21 +935,13 @@ impl NativeRuntime {
             .collect();
         let decoded = self
             .inner
-            .decode_map_changes(
-                self.entry(&pallet, &storage_function)?,
-                &changes,
-                fixed,
-            )
+            .decode_map_changes(self.entry(&pallet, &storage_function)?, &changes, fixed)
             .napi()?;
         decoded.into_iter().map(map_pair_native).collect()
     }
 
     #[napi]
-    pub fn constant(
-        &self,
-        pallet: String,
-        name: String,
-    ) -> NapiResult<NativeOptionalValue> {
+    pub fn constant(&self, pallet: String, name: String) -> NapiResult<NativeOptionalValue> {
         let Some(constant) = self.inner.constant(&pallet, &name) else {
             return Ok(NativeOptionalValue {
                 found: false,
@@ -587,11 +970,7 @@ impl NativeRuntime {
     }
 
     #[napi]
-    pub fn module_error(
-        &self,
-        module_index: u8,
-        error_index: u8,
-    ) -> NapiResult<NativeModuleError> {
+    pub fn module_error(&self, module_index: u8, error_index: u8) -> NapiResult<NativeModuleError> {
         let (name, docs) = self.inner.module_error(module_index, error_index).napi()?;
         Ok(NativeModuleError { name, docs })
     }
@@ -682,10 +1061,7 @@ impl NativeRuntime {
 
     #[napi]
     pub fn decode_extrinsic(&self, data: Buffer, strict: bool) -> NapiResult<JsonValue> {
-        let value = self
-            .inner
-            .decode_extrinsic(data.as_ref(), strict)
-            .napi()?;
+        let value = self.inner.decode_extrinsic(data.as_ref(), strict).napi()?;
         to_wire(&value)
     }
 
@@ -784,6 +1160,75 @@ fn type_spec_json(spec: &TypeSpec) -> JsonValue {
     }
 }
 
+fn type_spec_from_json(value: JsonValue) -> NapiResult<TypeSpec> {
+    type_spec_from_json_at(value, 0)
+}
+
+fn type_spec_from_json_at(value: JsonValue, depth: usize) -> NapiResult<TypeSpec> {
+    if depth > 256 {
+        return Err(invalid_arg("type spec nesting exceeds 256 levels"));
+    }
+    let JsonValue::Object(mut map) = value else {
+        return Err(invalid_arg("type spec must be an object"));
+    };
+    let kind = map
+        .remove("kind")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .ok_or_else(|| invalid_arg("type spec is missing string `kind`"))?;
+    let inner = |map: &mut Map<String, JsonValue>| -> NapiResult<TypeSpec> {
+        let value = map
+            .remove("inner")
+            .ok_or_else(|| invalid_arg(format!("{kind} type spec is missing `inner`")))?;
+        type_spec_from_json_at(value, depth + 1)
+    };
+    match kind.as_str() {
+        "id" => map
+            .remove("id")
+            .and_then(|value| value.as_u64())
+            .and_then(|value| u32::try_from(value).ok())
+            .map(TypeSpec::Id)
+            .ok_or_else(|| invalid_arg("id type spec needs a u32 `id`")),
+        "primitive" => {
+            let name = map
+                .remove("name")
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .ok_or_else(|| invalid_arg("primitive type spec needs string `name`"))?;
+            Primitive::from_name(&name)
+                .map(TypeSpec::Primitive)
+                .ok_or_else(|| invalid_arg(format!("unknown primitive type {name:?}")))
+        }
+        "sequence" => inner(&mut map).map(|value| TypeSpec::Sequence(Box::new(value))),
+        "option" => inner(&mut map).map(|value| TypeSpec::Option(Box::new(value))),
+        "array" => {
+            let inner = inner(&mut map)?;
+            let length = map
+                .remove("length")
+                .and_then(|value| value.as_u64())
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| invalid_arg("array type spec needs a u32 `length`"))?;
+            Ok(TypeSpec::Array(Box::new(inner), length))
+        }
+        "tuple" => {
+            let items = map
+                .remove("items")
+                .and_then(|value| value.as_array().cloned())
+                .ok_or_else(|| invalid_arg("tuple type spec needs array `items`"))?;
+            items
+                .into_iter()
+                .map(|item| type_spec_from_json_at(item, depth + 1))
+                .collect::<NapiResult<Vec<_>>>()
+                .map(TypeSpec::Tuple)
+        }
+        "compact" => inner(&mut map).map(|value| TypeSpec::Compact(Box::new(value))),
+        "bytes" => Ok(TypeSpec::Bytes),
+        "accountId" => Ok(TypeSpec::AccountId),
+        "era" => Ok(TypeSpec::Era),
+        "call" => Ok(TypeSpec::Call),
+        "extrinsic" => Ok(TypeSpec::Extrinsic),
+        _ => Err(invalid_arg(format!("unknown type spec kind {kind:?}"))),
+    }
+}
+
 fn primitive_name(primitive: Primitive) -> &'static str {
     match primitive {
         Primitive::Bool => "bool",
@@ -872,6 +1317,35 @@ fn runtime_api_map_json(runtime: &Runtime) -> JsonValue {
     JsonValue::Object(apis)
 }
 
+fn runtime_api_infos_json(runtime: &Runtime) -> JsonValue {
+    JsonValue::Array(
+        runtime
+            .apis
+            .iter()
+            .map(|api| {
+                json!({
+                    "name": api.name,
+                    "methods": api.methods.iter().map(|method| {
+                        json!({
+                            "name": method.name,
+                            "inputs": method.inputs.iter().map(|param| {
+                                json!({
+                                    "name": param.name,
+                                    "typeId": param.ty,
+                                    "type": format!("scale_info::{}", param.ty),
+                                })
+                            }).collect::<Vec<_>>(),
+                            "output": method.output,
+                            "outputType": format!("scale_info::{}", method.output),
+                            "docs": method.docs,
+                        })
+                    }).collect::<Vec<_>>(),
+                })
+            })
+            .collect(),
+    )
+}
+
 fn metadata_ir_json(runtime: &Runtime) -> NapiResult<JsonValue> {
     let join_docs = |docs: &[String]| -> String {
         docs.iter()
@@ -934,6 +1408,21 @@ fn metadata_ir_json(runtime: &Runtime) -> NapiResult<JsonValue> {
     }))
 }
 
+#[napi(js_name = "convertTypeString")]
+pub fn convert_type_string_native(name: String) -> String {
+    convert_type_string(&name)
+}
+
+#[napi(js_name = "primitiveFromName")]
+pub fn primitive_from_name_native(name: String) -> Option<String> {
+    Primitive::from_name(&name).map(|primitive| primitive_name(primitive).to_owned())
+}
+
+#[napi(js_name = "normalizeTypeSpec")]
+pub fn normalize_type_spec(spec: JsonValue) -> NapiResult<JsonValue> {
+    Ok(type_spec_json(&type_spec_from_json(spec)?))
+}
+
 #[napi(js_name = "eraBirth")]
 pub fn era_birth_native(period: BigInt, current: BigInt) -> NapiResult<BigInt> {
     Ok(BigInt::from(era_birth(
@@ -986,10 +1475,7 @@ pub fn encode_compact(value: BigInt) -> NapiResult<Buffer> {
 }
 
 #[napi(js_name = "decodeCompactU128")]
-pub fn decode_compact_u128(
-    data: Buffer,
-    strict: bool,
-) -> NapiResult<NativeCompactDecode> {
+pub fn decode_compact_u128(data: Buffer, strict: bool) -> NapiResult<NativeCompactDecode> {
     let mut cursor = Cursor::new(data.as_ref());
     cursor.strict = strict;
     let value = compact_u128(&mut cursor).napi()?;
@@ -1003,10 +1489,7 @@ pub fn decode_compact_u128(
 }
 
 #[napi(js_name = "decodeCompactLength")]
-pub fn decode_compact_length(
-    data: Buffer,
-    strict: bool,
-) -> NapiResult<NativeCompactDecode> {
+pub fn decode_compact_length(data: Buffer, strict: bool) -> NapiResult<NativeCompactDecode> {
     let mut cursor = Cursor::new(data.as_ref());
     cursor.strict = strict;
     let value = compact_len(&mut cursor).napi()?;
@@ -1022,6 +1505,20 @@ pub fn decode_compact_length(
 #[napi(js_name = "hashStorageParam")]
 pub fn hash_storage_param(hasher: String, data: Buffer) -> NapiResult<Buffer> {
     hash_param(&hasher, data.as_ref()).napi().map(Into::into)
+}
+
+#[napi(js_name = "storagePrefixFor")]
+pub fn storage_prefix_for(prefix: String, name: String) -> Buffer {
+    storage_prefix(&StorageInfo {
+        name,
+        prefix,
+        modifier: "Optional".to_owned(),
+        hashers: Vec::new(),
+        key_types: Vec::new(),
+        value_type: 0,
+        default_bytes: Vec::new(),
+    })
+    .into()
 }
 
 #[napi(js_name = "concatHashLength")]

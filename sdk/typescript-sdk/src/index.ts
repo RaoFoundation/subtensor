@@ -6,9 +6,11 @@ export * from './crypto'
 export * from './errors'
 export * from './keys'
 export * from './ledger'
+export * from './modules'
 export * from './runtime'
 export * from './timelock'
 export * from './types'
+export * from './value'
 export { fromWire, toWire, WIRE_TAG }
 
 /**

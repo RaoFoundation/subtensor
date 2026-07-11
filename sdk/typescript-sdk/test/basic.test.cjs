@@ -120,3 +120,126 @@ test('ESM consumers receive the same named exports', async () => {
   assert.equal(esm.BINDING_VERSION, core.BINDING_VERSION)
   assert.equal(esm.Keypair, core.Keypair)
 })
+
+test('exact codec::Value descriptors preserve every Rust enum variant', () => {
+  const descriptor = core.coreValueDict([
+    { key: core.coreValueString('int'), value: core.coreValueInt(-(2n ** 127n)) },
+    { key: core.coreValueString('uint'), value: core.coreValueUint(2n ** 128n - 1n) },
+    {
+      key: core.coreValueString('u256'),
+      value: core.coreValueU256Le(Buffer.alloc(32, 0xff)),
+    },
+    {
+      key: core.coreValueString('containers'),
+      value: core.coreValueTuple([
+        core.coreValueList([core.coreValueBytes(Buffer.from([1, 2, 3]))]),
+        core.coreValueString('text'),
+      ]),
+    },
+  ])
+
+  const normalized = core.normalizeCoreValue(descriptor)
+  assert.equal(normalized.kind, 'dict')
+  assert.equal(normalized.entries[0].value.kind, 'int')
+  assert.equal(normalized.entries[1].value.kind, 'uint')
+  assert.equal(normalized.entries[2].value.kind, 'u256')
+  assert.equal(normalized.entries[3].value.kind, 'tuple')
+  assert.equal(
+    core.u256LeToDecimal(Buffer.alloc(32, 0xff)),
+    '115792089237316195423570985008687907853269984665640564039457584007913129639935',
+  )
+})
+
+test('public Cursor and TypeSpec APIs are forwarded to Rust', () => {
+  const encoded = core.encodeCompact(16384n)
+  const cursor = new core.ScaleCursor(Buffer.concat([Buffer.from([9]), encoded]), true)
+  assert.equal(cursor.byte(), 9)
+  assert.equal(cursor.decodeCompactU128(), 16384n)
+  assert.equal(cursor.remaining, 0)
+
+  assert.deepEqual(core.typeSpec.array(core.typeSpec.primitive('u8'), 32), {
+    kind: 'array',
+    inner: { kind: 'primitive', name: 'u8' },
+    length: 32,
+  })
+  assert.equal(core.primitiveFromName('String'), 'str')
+  assert.equal(core.convertTypeString('Vec<u8>'), 'Bytes')
+})
+
+test('epoch errors are available as exact Rust variants without throwing', () => {
+  const state = {
+    lastEpochBlock: 0n,
+    pendingEpochAt: 0n,
+    subnetEpochIndex: 0n,
+    tempo: 0,
+    blocksSinceLastStep: 0n,
+    currentBlock: 0n,
+  }
+  assert.deepEqual(core.predictFirstRevealBlockResult(state, 1n), {
+    ok: false,
+    block: null,
+    error: 'TempoIsZero',
+  })
+})
+
+test('module-shaped export mirrors the public Rust crate', () => {
+  assert.equal(core.rustCore.keys.Keypair, core.Keypair)
+  assert.equal(core.rustCore.codec.decode.Cursor, core.ScaleCursor)
+  assert.equal(core.rustCore.codec.batch.PARALLEL_THRESHOLD, core.PARALLEL_THRESHOLD)
+  assert.equal(core.rustCore.mlkem.MLKEM_NONCE_LEN, 24)
+  assert.equal(core.rustCore.timelock.constants.GENESIS_TIME, core.GENESIS_TIME)
+  assert.deepEqual(core.rustCore.timelock.epoch_schedule.EpochScheduleError, [
+    'BoundExceeded',
+    'TempoIsZero',
+  ])
+})
+
+test('arbitrary StorageInfo helpers call Rust directly', () => {
+  const entry = {
+    pallet: 'System',
+    name: 'Account',
+    prefix: 'System',
+    modifier: 'Default',
+    valueType: 'scale_info::0',
+    valueTypeId: 0,
+    paramTypes: [],
+    paramTypeIds: [],
+    paramHashers: [],
+    defaultBytes: Buffer.alloc(0),
+  }
+  assert.equal(
+    core.storagePrefixFor(entry).toString('hex'),
+    '26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9',
+  )
+})
+
+test('prototype-sensitive decoded keys never become object prototypes', () => {
+  const dangerous = new Map([
+    ['__proto__', { polluted: true }],
+    ['constructor', 7n],
+  ])
+  const output = core.wireRoundtrip(dangerous)
+  assert.ok(output instanceof Map)
+  assert.equal(output.get('__proto__').polluted, true)
+  assert.equal(output.get('constructor'), 7n)
+  assert.equal({}.polluted, undefined)
+})
+
+test('native keypair exposes the exact Rust backing variant', () => {
+  assert.equal(core.Keypair.fromUri('//Alice').kind, 'Sr25519')
+  assert.equal(new core.Keypair(core.Keypair.fromUri('//Alice').ss58Address).kind, 'PublicOnly')
+})
+
+test('raw native escape hatch includes the complete low-level bridge', () => {
+  for (const name of [
+    'coreValueDescriptorRoundtrip',
+    'convertTypeString',
+    'normalizeTypeSpec',
+    'storagePrefixFor',
+    'epochPredictFirstRevealBlockResult',
+  ]) {
+    assert.equal(typeof core.native[name], 'function', `${name} is exported`)
+  }
+  assert.equal(typeof core.native.NativeCursor.fromBytes, 'function')
+  assert.equal(typeof core.native.NativeRuntime.fromMetadata, 'function')
+})

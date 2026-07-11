@@ -5,7 +5,7 @@
 )]
 
 use bittensor_core::timelock::constants;
-use bittensor_core::timelock::epoch_schedule::{self, EpochScheduleState};
+use bittensor_core::timelock::epoch_schedule::{self, EpochScheduleError, EpochScheduleState};
 use bittensor_core::timelock::{self, UserData, WeightsTlockPayload};
 use codec::{Decode, Encode};
 use napi::bindgen_prelude::{BigInt, Buffer};
@@ -33,6 +33,13 @@ pub struct NativeCiphertextRound {
 pub struct NativeDrandResponse {
     pub round: BigInt,
     pub signature: String,
+}
+
+#[napi(object)]
+pub struct NativeEpochScheduleResult {
+    pub ok: bool,
+    pub block: Option<BigInt>,
+    pub error: Option<String>,
 }
 
 #[napi(object)]
@@ -65,10 +72,7 @@ fn state_from_native(value: &NativeEpochScheduleState) -> NapiResult<EpochSchedu
         pending_epoch_at: bigint_u64("pendingEpochAt", &value.pending_epoch_at)?,
         subnet_epoch_index: bigint_u64("subnetEpochIndex", &value.subnet_epoch_index)?,
         tempo: value.tempo,
-        blocks_since_last_step: bigint_u64(
-            "blocksSinceLastStep",
-            &value.blocks_since_last_step,
-        )?,
+        blocks_since_last_step: bigint_u64("blocksSinceLastStep", &value.blocks_since_last_step)?,
         current_block: bigint_u64("currentBlock", &value.current_block)?,
     })
 }
@@ -93,12 +97,9 @@ fn ciphertext_round(value: (Vec<u8>, u64)) -> NativeCiphertextRound {
 
 #[napi(js_name = "timelockEncryptAndCompress")]
 pub fn encrypt_and_compress(data: Buffer, reveal_round: BigInt) -> NapiResult<Buffer> {
-    timelock::encrypt_and_compress(
-        data.as_ref(),
-        bigint_u64("revealRound", &reveal_round)?,
-    )
-    .napi()
-    .map(Into::into)
+    timelock::encrypt_and_compress(data.as_ref(), bigint_u64("revealRound", &reveal_round)?)
+        .napi()
+        .map(Into::into)
 }
 
 #[napi(js_name = "timelockDecryptAndDecompress")]
@@ -126,10 +127,7 @@ pub fn generate_commit_v2(
         values,
         bigint_u64("versionKey", &version_key)?,
         state_from_native(&state)?,
-        bigint_u64(
-            "subnetRevealPeriodEpochs",
-            &subnet_reveal_period_epochs,
-        )?,
+        bigint_u64("subnetRevealPeriodEpochs", &subnet_reveal_period_epochs)?,
         block_time,
         hotkey.as_ref().to_vec(),
     )
@@ -158,23 +156,16 @@ pub fn encrypt_n_blocks(
     n_blocks: BigInt,
     block_time: f64,
 ) -> NapiResult<NativeCiphertextRound> {
-    timelock::encrypt_n_blocks(
-        data.as_ref(),
-        bigint_u64("nBlocks", &n_blocks)?,
-        block_time,
-    )
-    .napi()
-    .map(ciphertext_round)
+    timelock::encrypt_n_blocks(data.as_ref(), bigint_u64("nBlocks", &n_blocks)?, block_time)
+        .napi()
+        .map(ciphertext_round)
 }
 
 #[napi(js_name = "timelockEncryptAtRound")]
 pub fn encrypt_at_round(data: Buffer, reveal_round: BigInt) -> NapiResult<NativeCiphertextRound> {
-    timelock::encrypt_at_round(
-        data.as_ref(),
-        bigint_u64("revealRound", &reveal_round)?,
-    )
-    .napi()
-    .map(ciphertext_round)
+    timelock::encrypt_at_round(data.as_ref(), bigint_u64("revealRound", &reveal_round)?)
+        .napi()
+        .map(ciphertext_round)
 }
 
 #[napi(js_name = "timelockGetRoundInfo")]
@@ -210,10 +201,7 @@ pub fn decrypt(encrypted_data: Buffer, no_errors: bool) -> NapiResult<Option<Buf
 }
 
 #[napi(js_name = "timelockDecryptWithSignature")]
-pub fn decrypt_with_signature(
-    encrypted_data: Buffer,
-    signature_hex: String,
-) -> NapiResult<Buffer> {
+pub fn decrypt_with_signature(encrypted_data: Buffer, signature_hex: String) -> NapiResult<Buffer> {
     timelock::decrypt_with_signature(encrypted_data.as_ref(), &signature_hex)
         .napi()
         .map(Into::into)
@@ -232,10 +220,12 @@ pub fn current_epoch_pre_run_coinbase(
     state: NativeEpochScheduleState,
     block: BigInt,
 ) -> NapiResult<BigInt> {
-    Ok(BigInt::from(epoch_schedule::current_epoch_pre_run_coinbase(
-        &state_from_native(&state)?,
-        bigint_u64("block", &block)?,
-    )))
+    Ok(BigInt::from(
+        epoch_schedule::current_epoch_pre_run_coinbase(
+            &state_from_native(&state)?,
+            bigint_u64("block", &block)?,
+        ),
+    ))
 }
 
 #[napi(js_name = "epochSimulateRunCoinbase")]
@@ -273,6 +263,35 @@ pub fn predict_first_reveal_block(
     )
     .map(BigInt::from)
     .map_err(|error| invalid_arg(error.to_string()))
+}
+
+#[napi(js_name = "epochPredictFirstRevealBlockResult")]
+pub fn predict_first_reveal_block_result(
+    state: NativeEpochScheduleState,
+    reveal_period_epochs: BigInt,
+) -> NapiResult<NativeEpochScheduleResult> {
+    let result = epoch_schedule::predict_first_reveal_block(
+        &state_from_native(&state)?,
+        bigint_u64("revealPeriodEpochs", &reveal_period_epochs)?,
+    );
+    Ok(match result {
+        Ok(block) => NativeEpochScheduleResult {
+            ok: true,
+            block: Some(BigInt::from(block)),
+            error: None,
+        },
+        Err(error) => NativeEpochScheduleResult {
+            ok: false,
+            block: None,
+            error: Some(
+                match error {
+                    EpochScheduleError::BoundExceeded => "BoundExceeded",
+                    EpochScheduleError::TempoIsZero => "TempoIsZero",
+                }
+                .to_owned(),
+            ),
+        },
+    })
 }
 
 #[napi(js_name = "encodeWeightsTlockPayload")]

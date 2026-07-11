@@ -100,7 +100,7 @@ function toWireAt(value: ScaleValue, depth: number): WireValue {
     }
   }
 
-  const output: Record<string, WireValue> = {}
+  const output: Record<string, WireValue> = Object.create(null)
   for (const [key, item] of entries) {
     if (item === undefined) {
       throw new TypeError(`SCALE object field ${JSON.stringify(key)} is undefined`)
@@ -155,7 +155,7 @@ function fromWireAt(value: unknown, depth: number): ScaleValue {
     return output
   }
 
-  const output: Record<string, ScaleValue> = {}
+  const output: Record<string, ScaleValue> = Object.create(null)
   for (const [key, item] of Object.entries(object)) {
     output[key] = fromWireAt(item, depth + 1)
   }

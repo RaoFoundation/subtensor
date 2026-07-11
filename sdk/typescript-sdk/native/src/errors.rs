@@ -6,12 +6,8 @@ pub type NapiResult<T> = napi::Result<T>;
 pub fn into_napi(error: CoreError) -> Error {
     let (code, status, message) = match error {
         CoreError::Keyfile(message) => ("KEYFILE", Status::GenericFailure, message),
-        CoreError::WrongPassword(message) => {
-            ("WRONG_PASSWORD", Status::GenericFailure, message)
-        }
-        CoreError::NotInRuntime(message) => {
-            ("NOT_IN_RUNTIME", Status::InvalidArg, message)
-        }
+        CoreError::WrongPassword(message) => ("WRONG_PASSWORD", Status::GenericFailure, message),
+        CoreError::NotInRuntime(message) => ("NOT_IN_RUNTIME", Status::InvalidArg, message),
         CoreError::Codec(message) => ("CODEC", Status::InvalidArg, message),
         CoreError::Crypto(message) => ("CRYPTO", Status::InvalidArg, message),
         CoreError::Device(message) => ("DEVICE", Status::GenericFailure, message),

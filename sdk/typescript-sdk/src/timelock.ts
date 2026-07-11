@@ -5,6 +5,7 @@ import type {
   ByteLike,
   CiphertextRound,
   DrandResponse,
+  EpochScheduleResult,
   EpochScheduleState,
   IntegerLike,
   TimelockUserData,
@@ -37,6 +38,8 @@ export const MAX_TEMPO = native.timelockMaxTempo()
 export const MAX_TEMPO_U64 = native.timelockMaxTempoU64()
 export const DRAND_PUBLIC_KEY = native.timelockDrandPublicKey()
 export const DRAND_GENESIS_TIME = native.timelockGenesisTime()
+/** Rust-name alias. */
+export const GENESIS_TIME = DRAND_GENESIS_TIME
 export const DRAND_PERIOD = native.timelockDrandPeriod()
 export const QUICKNET_CHAIN_HASH = native.timelockQuicknetChainHash()
 export const DRAND_ENDPOINTS = Object.freeze(native.timelockDrandEndpoints())
@@ -214,6 +217,28 @@ export function predictFirstRevealBlock(
   )
 }
 
+export const EpochScheduleError = Object.freeze([
+  'BoundExceeded',
+  'TempoIsZero',
+] as const)
+
+export function predictFirstRevealBlockResult(
+  state: EpochScheduleState,
+  revealPeriodEpochs: IntegerLike,
+): EpochScheduleResult {
+  return nativeCall(() => {
+    const result = native.epochPredictFirstRevealBlockResult(
+      nativeState(state),
+      toBigInt(revealPeriodEpochs, 'revealPeriodEpochs'),
+    )
+    return {
+      ok: result.ok,
+      block: result.block ?? null,
+      error: (result.error as EpochScheduleResult['error'] | undefined) ?? null,
+    }
+  })
+}
+
 export function encodeWeightsTlockPayload(payload: WeightsTlockPayload): Buffer {
   return nativeCall(() =>
     native.encodeWeightsTlockPayload({
@@ -258,6 +283,7 @@ export const timelock = Object.freeze({
   simulateRunCoinbase,
   advanceBlocks,
   predictFirstRevealBlock,
+  predictFirstRevealBlockResult,
   encodeWeightsTlockPayload,
   decodeWeightsTlockPayload,
   encodeTimelockUserData,

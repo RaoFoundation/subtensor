@@ -8,6 +8,7 @@ export const CRYPTO_SR25519 = nativeCall(() => native.cryptoSr25519())
 export const DEFAULT_SS58_FORMAT = nativeCall(() => native.defaultSs58Format())
 
 export type SubstrateKeyType = 'sr25519' | 'ed25519'
+export type KeypairKind = 'Ed25519' | 'Sr25519' | 'PublicOnly'
 
 export interface KeypairMetadata {
   address?: string
@@ -217,6 +218,10 @@ export class Keypair implements PolkadotCompatibleKeypair {
 
   get cryptoType(): number {
     return this.handle.cryptoType
+  }
+
+  get kind(): KeypairKind {
+    return this.handle.kind
   }
 
   get publicKey(): Buffer {

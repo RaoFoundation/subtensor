@@ -1,7 +1,5 @@
 use bittensor_core::keyfiles;
-use bittensor_core::keys::{
-    self, Keypair, CRYPTO_ED25519, CRYPTO_SR25519, DEFAULT_SS58_FORMAT,
-};
+use bittensor_core::keys::{self, Keypair, CRYPTO_ED25519, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 
@@ -23,6 +21,18 @@ impl NativeKeypair {
     #[napi(getter)]
     pub fn crypto_type(&self) -> u8 {
         self.inner.crypto_type()
+    }
+
+    #[napi(getter)]
+    pub fn kind(&self) -> String {
+        if self.inner.private_key_bytes().is_none() {
+            return "PublicOnly".to_owned();
+        }
+        match self.inner.crypto_type() {
+            CRYPTO_ED25519 => "Ed25519".to_owned(),
+            CRYPTO_SR25519 => "Sr25519".to_owned(),
+            _ => "PublicOnly".to_owned(),
+        }
     }
 
     #[napi(getter)]
@@ -59,10 +69,7 @@ impl NativeKeypair {
 
     #[napi]
     pub fn encrypt(&self, message: Buffer) -> NapiResult<Buffer> {
-        self.inner
-            .encrypt(message.as_ref())
-            .napi()
-            .map(Into::into)
+        self.inner.encrypt(message.as_ref()).napi().map(Into::into)
     }
 
     #[napi]
@@ -117,10 +124,7 @@ pub fn keypair_from_uri(uri: String, crypto_type: u8) -> NapiResult<NativeKeypai
 }
 
 #[napi(js_name = "keypairFromPrivateKey")]
-pub fn keypair_from_private_key(
-    private_key: String,
-    crypto_type: u8,
-) -> NapiResult<NativeKeypair> {
+pub fn keypair_from_private_key(private_key: String, crypto_type: u8) -> NapiResult<NativeKeypair> {
     Keypair::from_private_key(&private_key, crypto_type)
         .napi()
         .map(NativeKeypair::new)
@@ -144,11 +148,7 @@ pub fn generate_mnemonic(n_words: u32) -> NapiResult<String> {
 }
 
 #[napi(js_name = "encryptFor")]
-pub fn encrypt_for(
-    ss58_address: String,
-    message: Buffer,
-    crypto_type: u8,
-) -> NapiResult<Buffer> {
+pub fn encrypt_for(ss58_address: String, message: Buffer, crypto_type: u8) -> NapiResult<Buffer> {
     Keypair::encrypt_for(&ss58_address, message.as_ref(), crypto_type)
         .napi()
         .map(Into::into)
@@ -208,10 +208,7 @@ pub fn encrypt_keyfile_data(keyfile_data: Buffer, password: String) -> NapiResul
 }
 
 #[napi(js_name = "decryptKeyfileData")]
-pub fn decrypt_keyfile_data(
-    keyfile_data: Buffer,
-    password: Option<String>,
-) -> NapiResult<Buffer> {
+pub fn decrypt_keyfile_data(keyfile_data: Buffer, password: Option<String>) -> NapiResult<Buffer> {
     keyfiles::decrypt_keyfile_data(keyfile_data.as_ref(), password.as_deref())
         .napi()
         .map(Into::into)
@@ -248,10 +245,7 @@ pub fn get_password_from_environment(env_var_name: String) -> NapiResult<Option<
 }
 
 #[napi(js_name = "savePasswordToEnvironment")]
-pub fn save_password_to_environment(
-    env_var_name: String,
-    password: String,
-) -> NapiResult<String> {
+pub fn save_password_to_environment(env_var_name: String, password: String) -> NapiResult<String> {
     keyfiles::save_password_to_environment(&env_var_name, &password).napi()
 }
 

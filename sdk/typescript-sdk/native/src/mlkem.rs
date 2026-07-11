@@ -5,18 +5,10 @@ use napi_derive::napi;
 use crate::errors::{CoreResultExt, NapiResult};
 
 #[napi(js_name = "mlkemSeal")]
-pub fn seal(
-    public_key: Buffer,
-    plaintext: Buffer,
-    include_key_hash: bool,
-) -> NapiResult<Buffer> {
-    mlkem::seal(
-        public_key.as_ref(),
-        plaintext.as_ref(),
-        include_key_hash,
-    )
-    .napi()
-    .map(Into::into)
+pub fn seal(public_key: Buffer, plaintext: Buffer, include_key_hash: bool) -> NapiResult<Buffer> {
+    mlkem::seal(public_key.as_ref(), plaintext.as_ref(), include_key_hash)
+        .napi()
+        .map(Into::into)
 }
 
 #[napi(js_name = "mlkemTwox128")]
