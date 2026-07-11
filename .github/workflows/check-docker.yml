@@ -16,6 +16,7 @@ on:
       - "runtime/**"
       - "sdk/bittensor-core/**"
       - "sdk/bittensor-core-py/**"
+      - "sdk/bittensor-core-wasm/**"
       - "support/**"
       - "chain-extensions/**"
       - "src/**"

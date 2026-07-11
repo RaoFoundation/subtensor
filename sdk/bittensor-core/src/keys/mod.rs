@@ -8,8 +8,11 @@
 // the norm here, and this crate never runs inside the runtime.
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+#[cfg(feature = "host")]
 use sodiumoxide::crypto::box_;
+#[cfg(feature = "host")]
 use sodiumoxide::crypto::sealedbox;
+#[cfg(feature = "host")]
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
 use sp_core::crypto::{AccountId32, Pair as PairT, Ss58Codec};
 use sp_core::{ed25519, sr25519, ByteArray};
@@ -18,6 +21,7 @@ use zeroize::Zeroizing;
 use crate::error::CoreError;
 
 mod base58;
+#[cfg(feature = "host")]
 mod encrypted_json;
 
 /// Crypto type codes, matching the py-substrate-interface / btwallet convention.
@@ -30,6 +34,7 @@ fn crypto_err(msg: impl Into<String>) -> CoreError {
     CoreError::Crypto(msg.into())
 }
 
+#[cfg(feature = "host")]
 pub(crate) fn ensure_sodium() -> Result<(), CoreError> {
     sodiumoxide::init().map_err(|_| crypto_err("failed to initialize libsodium"))?;
     Ok(())
@@ -94,6 +99,7 @@ fn verify_with_crypto(
     }
 }
 
+#[cfg(feature = "host")]
 fn ed25519_to_x25519_pk(public_key: &[u8; 32]) -> Result<box_::PublicKey, CoreError> {
     ensure_sodium()?;
     let ed25519_pk = sign_ed25519::PublicKey::from_slice(public_key)
@@ -102,6 +108,7 @@ fn ed25519_to_x25519_pk(public_key: &[u8; 32]) -> Result<box_::PublicKey, CoreEr
         .map_err(|_| crypto_err("failed to convert ed25519 public key to x25519"))
 }
 
+#[cfg(feature = "host")]
 fn ed25519_x25519_from_pair(
     pair: &ed25519::Pair,
 ) -> Result<(box_::PublicKey, box_::SecretKey), CoreError> {
@@ -302,6 +309,7 @@ impl Keypair {
     }
 
     /// Import a keypair from a PolkadotJS encrypted JSON keystore (v3).
+    #[cfg(feature = "host")]
     pub fn from_encrypted_json(json_data: &str, passphrase: &str) -> Result<Self, CoreError> {
         encrypted_json::create_from_encrypted_json(json_data, passphrase)
     }
@@ -334,6 +342,7 @@ impl Keypair {
         self.inner.private_key_bytes()
     }
 
+    #[cfg(feature = "host")]
     pub(crate) fn from_inner(inner: KeypairInner, ss58_format: u16) -> Self {
         Self { inner, ss58_format }
     }
@@ -361,6 +370,7 @@ impl Keypair {
     }
 
     /// Encrypt a message to this keypair's ed25519 public key (sealed box).
+    #[cfg(feature = "host")]
     pub fn encrypt(&self, message: &[u8]) -> Result<Vec<u8>, CoreError> {
         if self.crypto_type() != CRYPTO_ED25519 {
             return Err(crypto_err(
@@ -373,6 +383,7 @@ impl Keypair {
     }
 
     /// Decrypt a sealed-box ciphertext with this ed25519 keypair's private key.
+    #[cfg(feature = "host")]
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CoreError> {
         if self.crypto_type() != CRYPTO_ED25519 {
             return Err(crypto_err(
@@ -391,6 +402,7 @@ impl Keypair {
     }
 
     /// Encrypt a message for a recipient SS58 address (ed25519 sealed box).
+    #[cfg(feature = "host")]
     pub fn encrypt_for(
         ss58_address: &str,
         message: &[u8],

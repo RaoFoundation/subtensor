@@ -11,6 +11,7 @@
 // indices for the slices captured by each closure.
 #![allow(clippy::indexing_slicing)]
 
+#[cfg(feature = "host")]
 use rayon::prelude::*;
 
 use crate::codec::value::Value;
@@ -24,7 +25,10 @@ pub const PARALLEL_THRESHOLD: usize = 64;
 /// One decoded map entry: the free key components and the value.
 pub type DecodedPair = (Vec<Value>, Value);
 
-/// Run `f` over `0..len`, in parallel above the threshold.
+/// Run `f` over `0..len`, in parallel above the threshold. Without the
+/// `host` feature (e.g. browser WASM, where there are no threads) every
+/// batch runs serially; the API and results are identical.
+#[cfg(feature = "host")]
 fn run_indexed<T: Send>(
     len: usize,
     f: impl Fn(usize) -> Result<T, CoreError> + Sync,
@@ -34,6 +38,14 @@ fn run_indexed<T: Send>(
     } else {
         (0..len).map(f).collect()
     }
+}
+
+#[cfg(not(feature = "host"))]
+fn run_indexed<T: Send>(
+    len: usize,
+    f: impl Fn(usize) -> Result<T, CoreError> + Sync,
+) -> Result<Vec<T>, CoreError> {
+    (0..len).map(f).collect()
 }
 
 impl Runtime {
