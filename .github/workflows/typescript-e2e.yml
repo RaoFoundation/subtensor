@@ -119,7 +119,7 @@ jobs:
         with:
           node-version-file: ts-tests/.nvmrc
 
-      - name: Install Chromium
+      - name: Install browser for TypeScript SDK browser tests
         run: |
           set -euo pipefail
 
@@ -140,28 +140,35 @@ jobs:
             return 1
           }
 
-          install_chromium_package() {
+          install_google_chrome() {
+            arch="$(dpkg --print-architecture)"
+            if [ "$arch" != "amd64" ]; then
+              echo "::error::No supported non-snap browser installer is configured for architecture $arch"
+              return 1
+            fi
             sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-            for package in chromium chromium-browser; do
-              if apt-cache show "$package" >/dev/null 2>&1; then
-                sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
-                  -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-                  "$package" || true
-                if resolve_chrome >/dev/null; then
-                  return 0
-                fi
-              fi
-            done
-            return 1
+            sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+              -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+              ca-certificates curl gnupg
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+              | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/google-linux-signing-keyring.gpg
+            sudo chmod 0644 /etc/apt/keyrings/google-linux-signing-keyring.gpg
+            echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-linux-signing-keyring.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+              | sudo tee /etc/apt/sources.list.d/google-chrome.list >/dev/null
+            sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+              -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+              google-chrome-stable
           }
 
           if ! chrome_bin="$(resolve_chrome)"; then
-            if ! install_chromium_package; then
-              echo "::error::Unable to install a runnable Chromium browser for TypeScript SDK browser tests"
+            if ! install_google_chrome; then
+              echo "::error::Unable to install a runnable browser for TypeScript SDK browser tests"
               exit 1
             fi
             if ! chrome_bin="$(resolve_chrome)"; then
-              echo "::error::Chromium install completed but no runnable browser executable was found"
+              echo "::error::Browser install completed but no runnable executable was found"
               exit 1
             fi
           fi
