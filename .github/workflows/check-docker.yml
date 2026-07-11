@@ -26,11 +26,18 @@ on:
       - "build.rs"
       - "rust-toolchain.toml"
       - "Dockerfile"
+      - "Dockerfile.prebuilt"
+      - "Cross.toml"
+      - ".github/actions/build-production-binary/**"
+      - ".github/actions/rust-setup/**"
       - ".github/workflows/check-docker.yml"
 
 concurrency:
   group: check-docker-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   trusted-pr:
@@ -40,18 +47,73 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
-  build:
-    name: docker build
+  binary:
+    name: production binary (${{ matrix.platform.arch }})
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/build-production-binary
+        with:
+          arch: ${{ matrix.platform.arch }}
+          target: ${{ matrix.platform.target }}
+          cache-key: docker-production-${{ matrix.platform.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-node-${{ matrix.platform.arch }}
+          path: build/ci_target/${{ matrix.platform.arch }}/node-subtensor
+          if-no-files-found: error
+
+  image:
+    name: docker image (${{ matrix.arch }}, no push)
+    needs: [trusted-pr, binary]
+    runs-on: [self-hosted, fireactions-turbo]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: production-node-${{ matrix.arch }}
+          path: build/ci_target/${{ matrix.arch }}
+
       - name: Set up QEMU
+        if: matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        run: docker build .
+      - name: Build Docker image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          platforms: linux/${{ matrix.arch }}
+          tags: subtensor-ci:${{ matrix.arch }}
+          load: true
+          push: false
+
+      - name: Verify image architecture and executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(docker image inspect subtensor-ci:${{ matrix.arch }} --format '{{.Architecture}}')
+          test "$actual" = "${{ matrix.arch }}"
+          docker run --rm --platform linux/${{ matrix.arch }} \
+            subtensor-ci:${{ matrix.arch }} --version

@@ -1,0 +1,64 @@
+name: "Build production node binary"
+description: "Build and validate a production node binary for one Linux architecture"
+
+inputs:
+  arch:
+    description: "OCI architecture name (amd64 or arm64)"
+    required: true
+  target:
+    description: "Rust target triple"
+    required: true
+  cache-key:
+    description: "Architecture-specific Rust cache key"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - uses: ./.github/actions/rust-setup
+      with:
+        cache-key: ${{ inputs.cache-key }}
+
+    - name: Install pinned cross compiler driver
+      shell: bash
+      run: |
+        cargo install cross \
+          --git https://github.com/cross-rs/cross \
+          --rev 64b5bb4d3d34de062552b9a2093affe77b4ad16a \
+          --locked
+
+    - name: Build production binary
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        cross build \
+          --target "$TARGET" \
+          --package node-subtensor \
+          --profile production \
+          --features metadata-hash \
+          --locked
+
+    - name: Validate and stage binary
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        binary="target/${TARGET}/production/node-subtensor"
+        test -x "$binary"
+
+        machine=$(readelf -h "$binary" | awk -F: '/Machine:/ {gsub(/^[[:space:]]+/, "", $2); print $2}')
+        case "$ARCH:$machine" in
+          amd64:*X86-64*|arm64:AArch64) ;;
+          *)
+            echo "Unexpected ELF architecture for $ARCH: $machine" >&2
+            exit 1
+            ;;
+        esac
+
+        install -Dm0755 "$binary" "build/ci_target/${ARCH}/node-subtensor"
+        echo "Staged $ARCH binary: $(du -h "build/ci_target/${ARCH}/node-subtensor" | cut -f1)"
