@@ -1,7 +1,7 @@
 name: "Rust setup"
 description: >-
-  Common prologue for Rust jobs: system dependencies, stable toolchain with
-  optional components, and the shared Swatinem cache.
+  Common prologue for Rust jobs: system dependencies, stable toolchain,
+  shared R2 sccache, and Cargo registry/git caching.
 
 inputs:
   cache-key:
@@ -12,6 +12,15 @@ inputs:
     default: ""
   extra-packages:
     description: "Extra apt packages beyond the standard build set"
+    default: ""
+  sccache-credential-mode:
+    description: "reader for CI; writer only for the protected main cache warmer"
+    default: "reader"
+  sccache-writer-access-key-id:
+    description: "Protected writer access key; used only when writer mode is selected"
+    default: ""
+  sccache-writer-secret-access-key:
+    description: "Protected writer secret; used only when writer mode is selected"
     default: ""
 
 runs:
@@ -60,10 +69,7 @@ runs:
         } >> "$GITHUB_ENV"
 
     # Registry/git-dependency cache only. Target-dir caching is deliberately
-    # off: nine jobs each snapshotting a multi-GB target dir thrashed the
-    # repo's 10 GB Actions-cache quota (constant LRU eviction, so most jobs
-    # ran cold anyway). Compiled objects are cached per-crate by sccache
-    # below, in one pool all Rust jobs share.
+    # off: compiled objects are shared per-crate through R2 sccache below.
     - name: Cargo registry cache
       uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
@@ -71,40 +77,9 @@ runs:
         cache-targets: false
         cache-on-failure: true
 
-    - name: Install sccache
-      shell: bash
-      run: |
-        set -euo pipefail
-        version=v0.16.0
-        curl --fail --silent --show-error --location \
-          "https://github.com/mozilla/sccache/releases/download/${version}/sccache-${version}-x86_64-unknown-linux-musl.tar.gz" \
-          | tar -xz -C /tmp
-        sudo install -m 755 "/tmp/sccache-${version}-x86_64-unknown-linux-musl/sccache" /usr/local/bin/sccache
-        sccache --version
-
-    # The GHA cache backend needs the runner's cache-service URL and token,
-    # which GitHub only exposes to JS actions — hence the github-script hop
-    # (first-party, so no Actions-allowlist problem).
-    - name: Expose Actions cache credentials for sccache
-      uses: actions/github-script@v7
+    - name: Shared R2 compiler cache
+      uses: ./.github/actions/sccache-setup
       with:
-        script: |
-          for (const name of [
-            "ACTIONS_RESULTS_URL",
-            "ACTIONS_CACHE_URL",
-            "ACTIONS_CACHE_SERVICE_V2",
-            "ACTIONS_RUNTIME_TOKEN",
-          ]) {
-            if (process.env[name]) core.exportVariable(name, process.env[name]);
-          }
-
-    - name: Enable sccache
-      shell: bash
-      run: |
-        {
-          echo "RUSTC_WRAPPER=sccache"
-          echo "SCCACHE_GHA_ENABLED=true"
-          # sccache cannot cache incremental compilation, and CI never reuses
-          # a working tree, so incremental is pure overhead here.
-          echo "CARGO_INCREMENTAL=0"
-        } >> "$GITHUB_ENV"
+        credential-mode: ${{ inputs.sccache-credential-mode }}
+        writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
+        writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}

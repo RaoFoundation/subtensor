@@ -1,0 +1,56 @@
+name: "R2 sccache setup"
+description: "Enable the shared R2 compiler cache when its trusted configuration is available"
+
+inputs:
+  credential-mode:
+    description: "reader for ordinary CI; writer only for the protected main cache warmer"
+    default: "reader"
+  writer-access-key-id:
+    description: "Protected Environment writer access key; ignored in reader mode"
+    default: ""
+  writer-secret-access-key:
+    description: "Protected Environment writer secret; ignored in reader mode"
+    default: ""
+
+outputs:
+  enabled:
+    description: "Whether sccache passed its R2 startup check"
+    value: ${{ steps.activate.outputs.enabled }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate sccache configuration
+      id: prepare
+      shell: bash
+      env:
+        SCCACHE_CREDENTIAL_MODE: ${{ inputs.credential-mode }}
+        AWS_ACCESS_KEY_ID: ${{ inputs.writer-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.writer-secret-access-key }}
+      run: |
+        config_file="$RUNNER_TEMP/subtensor-sccache-${GITHUB_RUN_ID}-${GITHUB_JOB}.json"
+        "$GITHUB_ACTION_PATH/../../scripts/sccache-configure.sh" prepare \
+          "$SCCACHE_CREDENTIAL_MODE" \
+          "$config_file" \
+          "$GITHUB_OUTPUT"
+
+    - name: Install sccache v0.15.0
+      id: install
+      if: steps.prepare.outputs.available == 'true'
+      continue-on-error: true
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+      with:
+        version: "v0.15.0"
+
+    - name: Enable sccache after R2 startup check
+      id: activate
+      if: always()
+      shell: bash
+      env:
+        SCCACHE_CONFIG_FILE: ${{ steps.prepare.outputs.config-file }}
+        SCCACHE_INSTALL_OUTCOME: ${{ steps.install.outcome }}
+      run: |
+        "$GITHUB_ACTION_PATH/../../scripts/sccache-configure.sh" activate \
+          "$SCCACHE_CONFIG_FILE" \
+          "$GITHUB_ENV" \
+          "$GITHUB_OUTPUT"
