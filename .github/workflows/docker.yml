@@ -24,8 +24,97 @@ permissions:
   packages: write
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.ref.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Resolve immutable source revision
+        id: ref
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  binary:
+    name: production binary (${{ matrix.platform.arch }})
+    needs: setup
+    runs-on: [self-hosted, fireactions-turbo]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - uses: ./.github/actions/build-production-binary
+        with:
+          arch: ${{ matrix.platform.arch }}
+          target: ${{ matrix.platform.target }}
+          cache-key: docker-production-${{ matrix.platform.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-node-${{ matrix.platform.arch }}
+          path: build/ci_target/${{ matrix.platform.arch }}/node-subtensor
+          if-no-files-found: error
+
+  image:
+    name: validate image (${{ matrix.arch }}, no push)
+    needs: [setup, binary]
+    runs-on: [self-hosted, fireactions-turbo]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: production-node-${{ matrix.arch }}
+          path: build/ci_target/${{ matrix.arch }}
+
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          platforms: linux/${{ matrix.arch }}
+          tags: subtensor-release-check:${{ matrix.arch }}
+          load: true
+          push: false
+
+      - name: Verify image architecture and executable
+        run: |
+          set -euo pipefail
+          actual=$(docker image inspect subtensor-release-check:${{ matrix.arch }} --format '{{.Architecture}}')
+          test "$actual" = "${{ matrix.arch }}"
+          docker run --rm --platform linux/${{ matrix.arch }} \
+            subtensor-release-check:${{ matrix.arch }} --version
+
   publish:
-    runs-on: [self-hosted, fireactions-heavy]
+    needs: [setup, binary, image]
+    runs-on: [self-hosted, fireactions-turbo]
+    timeout-minutes: 30
     steps:
       - name: Determine tag, ref, and image name
         env:
@@ -52,7 +141,19 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.ref }}
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - name: Download AMD64 production binary
+        uses: actions/download-artifact@v5
+        with:
+          name: production-node-amd64
+          path: build/ci_target/amd64
+
+      - name: Download ARM64 production binary
+        uses: actions/download-artifact@v5
+        with:
+          name: production-node-arm64
+          path: build/ci_target/arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -71,10 +172,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.prebuilt
           push: true
-          # The Dockerfile's last stage is subtensor-local; without an explicit
-          # target this workflow would publish the localnet image as production.
-          target: subtensor
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.image }}:${{ env.tag }}
