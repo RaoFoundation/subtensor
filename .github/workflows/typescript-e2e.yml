@@ -118,6 +118,12 @@ jobs:
         with:
           node-version-file: ts-tests/.nvmrc
 
+      - name: Install wasm-pack
+        run: |
+          curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
+            | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
+          wasm-pack --version
+
       - name: Build and test TypeScript SDK
         run: |
           npm --prefix sdk/typescript-sdk ci
