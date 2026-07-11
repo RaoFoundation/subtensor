@@ -30,7 +30,10 @@ test('Rust keypair is compatible with Polkadot.js and Moonwall signer expectatio
   assert.equal(raw.length, 64)
   assert.equal(typed.length, 65)
   assert.equal(typed[0], core.CRYPTO_SR25519)
-  assert.deepEqual(typed.subarray(1), raw)
+
+  // sr25519 uses a randomized nonce, so two independently created signatures
+  // for the same payload are both valid but are not required to be identical.
+  assert.equal(alice.verify(payload, raw, alice.publicKey), true)
   assert.equal(alice.verify(payload, typed, alice.publicKey), true)
 })
 
