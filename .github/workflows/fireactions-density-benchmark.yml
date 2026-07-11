@@ -1,4 +1,4 @@
-name: Fireactions three-host hybrid benchmark
+name: Fireactions packed two-host hybrid benchmark
 
 on:
   push:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   benchmark:
-    name: hybrid-3-host / ${{ matrix.workload }} / warm-r2
+    name: hybrid-2-host-packed / ${{ matrix.workload }} / warm-r2
     if: github.ref_name == 'codex/fireactions-runner-density-experiment'
     runs-on: [self-hosted, "${{ matrix.label }}"]
     timeout-minutes: 120
@@ -28,9 +28,9 @@ jobs:
           # Keep the dependency critical path on a true 16-core runner.
           - workload: runtime-artifacts
             label: fireactions-density-16c
-          # Everything else can spread across two physical hosts, each with
-          # four 8-core VMs. GitHub has no host-aware placement guarantee, so
-          # runner names are collected after the run to verify actual spread.
+          # Six 8-core slots share two physical hosts: two slots beside the
+          # 16-core critical-path runner and four slots on the second host.
+          # Total advertised vCPU remains equal to real hardware threads.
           - workload: clippy-default
             label: fireactions-density-8c
           - workload: clippy-all
