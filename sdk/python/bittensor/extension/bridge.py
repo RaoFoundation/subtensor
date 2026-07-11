@@ -60,9 +60,7 @@ class BridgeServer:
             )
             logger.debug(f"Bridge server listening on {self.http_url}")
         if open_browser:
-            open_bridge_page(
-                f"{self.http_url}?session={self.state.session_id}", browser=browser
-            )
+            open_bridge_page(f"{self.http_url}?session={self.state.session_id}", browser=browser)
 
     async def stop(self) -> None:
         if self._ws_server is not None:

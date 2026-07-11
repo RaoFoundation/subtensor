@@ -18,7 +18,9 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// * `u64` - The total alpha issuance for the specified subnet.
     pub fn get_alpha_issuance(netuid: NetUid) -> AlphaBalance {
-        SubnetAlphaIn::<T>::get(netuid).saturating_add(SubnetAlphaOut::<T>::get(netuid))
+        SubnetAlphaIn::<T>::get(netuid)
+            .saturating_add(SubnetAlphaOut::<T>::get(netuid))
+            .saturating_add(T::SwapInterface::protocol_alpha_reservoir(netuid))
     }
 
     pub fn get_moving_alpha_price(netuid: NetUid) -> U64F64 {

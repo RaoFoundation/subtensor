@@ -18,7 +18,9 @@ from dataclasses import dataclass, field
 from itertools import accumulate
 from typing import Any, Mapping, Optional, Sequence
 
-from bittensor_core import get_encrypted_commit_v2
+# Module import + attribute access (not `from bittensor_core import ...`):
+# ty cannot see into the compiled extension, so named imports fail its check.
+import bittensor_core as _core
 
 from .._generated import calls
 from .._generated.storage import SubtensorModule as st
@@ -269,7 +271,7 @@ async def _build_timelocked(
         substrate.query(*st.BlocksSinceLastStep, [netuid], block_hash=block_hash),
         substrate.block_time(),
     )
-    commit_bytes, reveal_round = get_encrypted_commit_v2(
+    commit_bytes, reveal_round = _core.get_encrypted_commit_v2(
         uids=uids,
         weights=values,
         version_key=version_key,

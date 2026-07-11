@@ -59,9 +59,7 @@ def quote_open(
     ctx: typer.Context,
     side: str = typer.Option(..., "--side", help="Position side: short or long."),
     netuid: int = typer.Option(..., "--netuid", help="Subnet whose derivative market to quote."),
-    amount_tao: str = typer.Option(
-        ..., "--amount-tao", "--amount", help="Position input, in TAO."
-    ),
+    amount_tao: str = typer.Option(..., "--amount-tao", "--amount", help="Position input, in TAO."),
 ):
     """Quote opening a derivative position.
 
@@ -135,9 +133,7 @@ def open_position(
     ctx: typer.Context,
     side: str = typer.Option(..., "--side", help="Position side: short or long."),
     netuid: int = typer.Option(..., "--netuid", help="Subnet to open the position on."),
-    amount_tao: str = typer.Option(
-        ..., "--amount-tao", "--amount", help="Position input, in TAO."
-    ),
+    amount_tao: str = typer.Option(..., "--amount-tao", "--amount", help="Position input, in TAO."),
     limit_price: Optional[int] = typer.Option(
         None,
         "--limit-price",
@@ -178,9 +174,7 @@ def top_up(
     ctx: typer.Context,
     side: str = typer.Option(..., "--side", help="Position side: short or long."),
     netuid: int = typer.Option(..., "--netuid", help="Subnet the position lives on."),
-    amount_tao: str = typer.Option(
-        ..., "--amount-tao", "--amount", help="Top-up amount, in TAO."
-    ),
+    amount_tao: str = typer.Option(..., "--amount-tao", "--amount", help="Top-up amount, in TAO."),
 ):
     """Top up an existing derivative position."""
     app_ctx: AppContext = ctx_of(ctx)

@@ -193,9 +193,7 @@ class SetTake(Intent):
         item = st.SubtensorModule.Delegates
         current = int(await substrate.query(item[0], item[1], [hotkey]) or 0)
         if self.take == current:
-            raise BittensorError(
-                f"delegate take is already {current}/{U16_MAX}; nothing to change"
-            )
+            raise BittensorError(f"delegate take is already {current}/{U16_MAX}; nothing to change")
         call = (
             calls.SubtensorModule.decrease_take(hotkey=hotkey, take=self.take)
             if self.take < current

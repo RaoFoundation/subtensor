@@ -1,9 +1,23 @@
 # .github/workflows/run-benchmarks.yml
 name: Validate-Benchmarks
 
+# Benchmark validation is opt-in per PR: run-to-run variance on the reference
+# machine was flagging noise as drift (e.g. batch_all measured 3.8ms, 34.7ms,
+# and 9.9ms across three consecutive runs of identical code), so PRs only
+# benchmark when the `run-benchmarks` label is applied. The nightly schedule
+# reruns the full suite against the default branch as the drift backstop (on
+# failure, apply the bench-patch artifact via the apply-benchmark-patch label
+# on a fix PR). The gate lives in a cheap `decide` job on a free GitHub runner
+# so skipped PRs never occupy the persistent Benchmarking machine.
+# validate-benchmarks is not a required merge check today. If that changes,
+# this decide-job shape keeps working (the workflow always triggers and the
+# skipped job satisfies branch protection), unlike a `paths:` trigger filter.
+
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, labeled, unlabeled]
+  schedule:
+    - cron: "0 3 * * *" # nightly full-suite drift check on the default branch
   workflow_dispatch:
 
 # This workflow only builds the node and validates benchmark weights; it never
@@ -27,33 +41,45 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
+  decide:
+    name: decide whether to benchmark
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - name: Gate on event and label
+        id: gate
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "$GITHUB_EVENT_NAME event: full run"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif jq -e '.pull_request.labels[].name | select(. == "run-benchmarks")' "$GITHUB_EVENT_PATH" > /dev/null; then
+            echo "run-benchmarks label present: running"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no run-benchmarks label: skipping (nightly run covers drift)"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   validate-benchmarks:
-    needs: trusted-pr
+    needs: [trusted-pr, decide]
+    if: needs.decide.outputs.run == 'true'
     runs-on: Benchmarking
 
     steps:
       - name: Check out PR branch
         uses: actions/checkout@v4
         with:
-          # Fall back to the current repo/ref so workflow_dispatch runs work too.
+          # Fall back to the current repo/ref so workflow_dispatch and
+          # scheduled runs work too.
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Install GitHub CLI
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
-
-      - name: Check for skip-validate-benchmarks label
-        id: skip-label
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: .github/scripts/check-skip-label.sh ${{ github.event.pull_request.number }}
-
       - name: Install system dependencies
         run: |
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
             -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
             build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
@@ -68,13 +94,11 @@ jobs:
           cache-on-failure: true
 
       - name: Build node with benchmarks + weight tools
-        if: steps.skip-label.outputs.skip != 'true'
         run: |
           cargo build --profile production -p node-subtensor --features runtime-benchmarks
           cargo build --profile production -p subtensor-weight-tools --bin weight-compare
 
       - name: Run & validate benchmarks
-        if: steps.skip-label.outputs.skip != 'true'
         timeout-minutes: 180
         run: |
           mkdir -p .bench_patch

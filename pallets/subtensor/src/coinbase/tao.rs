@@ -36,32 +36,20 @@ impl<T: Config> Pallet<T> {
         SubnetTAO::<T>::get(netuid)
     }
 
-    /// Internal function that transfers and updates subtensor pallet total issuance
-    /// in case of dust collection.
+    /// Internal function that transfers TAO and allows the origin account to be reaped.
+    ///
+    /// Dust collection is handled by the runtime's Balances `DustRemoval` implementation.
     fn transfer_allow_death_update_ti(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
         amount: BalanceOf<T>,
     ) -> DispatchResult {
-        // If account balance remainder drops below ED, then account is killed, balance
-        // is lost, and we need to reduce total issuance in subtensor pallet. Measure
-        // balance TI before and after to detect the dust.
-        let balances_ti_before = <T as pallet::Config>::Currency::total_issuance();
-
         <T as pallet::Config>::Currency::transfer(
             origin_coldkey,
             destination_coldkey,
             amount,
             Preservation::Expendable,
         )?;
-
-        let balances_ti_after = <T as pallet::Config>::Currency::total_issuance();
-        if balances_ti_after < balances_ti_before {
-            let burned = balances_ti_before.saturating_sub(balances_ti_after);
-            TotalIssuance::<T>::mutate(|total| {
-                *total = total.saturating_sub(burned);
-            });
-        }
 
         Ok(())
     }
@@ -287,6 +275,25 @@ impl<T: Config> Pallet<T> {
             Ok(()) => Ok(remainder),
             Err(unresolved_to_spend) => Err(unresolved_to_spend.merge(remainder)),
         }
+    }
+
+    /// Withdraw TAO from an account into a fresh credit.
+    ///
+    /// This is useful when a previous `spend_tao` resolve must be undone without
+    /// changing total issuance.
+    pub fn withdraw_tao_as_credit(
+        coldkey: &T::AccountId,
+        amount: BalanceOf<T>,
+    ) -> Result<CreditOf<T>, DispatchError> {
+        let credit = <T as Config>::Currency::withdraw(
+            coldkey,
+            amount,
+            Precision::Exact,
+            Preservation::Expendable,
+            Fortitude::Polite,
+        )?;
+
+        Ok(credit)
     }
 
     /// Finalizes the unused part of the minted TAO.

@@ -1,7 +1,31 @@
 name: Docker Build Check
 
+# Path-filtered: `docker build` is not a required merge check, so a
+# workflow-level `paths:` filter is safe. If it is ever made required, this
+# filter MUST move to job-level `if:` gating (a required check whose workflow
+# never triggers is stuck "Expected" and blocks the merge).
 on:
   pull_request:
+    paths:
+      # Anything the Dockerfile's cargo build consumes.
+      - "common/**"
+      - "node/**"
+      - "pallets/**"
+      - "precompiles/**"
+      - "primitives/**"
+      - "runtime/**"
+      - "sdk/bittensor-core/**"
+      - "sdk/bittensor-core-py/**"
+      - "support/**"
+      - "chain-extensions/**"
+      - "src/**"
+      - "vendor/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "rust-toolchain.toml"
+      - "Dockerfile"
+      - ".github/workflows/check-docker.yml"
 
 concurrency:
   group: check-docker-${{ github.ref }}

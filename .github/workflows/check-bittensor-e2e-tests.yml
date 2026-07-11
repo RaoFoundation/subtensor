@@ -8,10 +8,34 @@ concurrency:
   group: e2e-cli-${{ github.ref }}
   cancel-in-progress: true
 
+# Path-filtered: none of this workflow's checks are required for merge, so a
+# workflow-level `paths:` filter is safe. If any check here is ever made
+# required, this filter MUST move to job-level `if:` gating (a required check
+# whose workflow never triggers is stuck "Expected" and blocks the merge).
 on:
   pull_request:
     branches: ["*"]
     types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      # Anything that changes the node/runtime the e2e suites run against.
+      - "common/**"
+      - "node/**"
+      - "pallets/**"
+      - "precompiles/**"
+      - "primitives/**"
+      - "runtime/**"
+      - "support/**"
+      - "chain-extensions/**"
+      - "src/**"
+      - "vendor/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "rust-toolchain.toml"
+      - "Dockerfile-localnet"
+      # The SDK/CLI code under test.
+      - "sdk/**"
+      - ".github/workflows/check-bittensor-e2e-tests.yml"
 
   workflow_dispatch:
     inputs:

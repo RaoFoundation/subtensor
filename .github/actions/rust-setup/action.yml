@@ -32,8 +32,79 @@ runs:
       with:
         components: ${{ inputs.components }}
 
-    - name: Shared Rust cache
+    - name: Fast linker and CI debuginfo trim
+      shell: bash
+      run: |
+        # mold links in a fraction of GNU ld's time, and cargo test alone
+        # links dozens of test binaries. Guarded so a runner image without
+        # the mold package falls back to the default linker instead of
+        # failing every Rust job at setup.
+        if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mold; then
+          mkdir -p "$HOME/.cargo"
+          cat >> "$HOME/.cargo/config.toml" <<'EOF'
+        [target.x86_64-unknown-linux-gnu]
+        linker = "clang"
+        rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+        EOF
+          echo "mold enabled as linker"
+        else
+          echo "mold unavailable; keeping default linker"
+        fi
+        # Nothing in CI consumes full debuginfo; line tables keep panic
+        # backtraces readable while cutting codegen time and disk I/O.
+        # (Jobs that export RUSTFLAGS, like the warnings check, override the
+        # config rustflags above — harmless, since cargo check never links.)
+        {
+          echo "CARGO_PROFILE_DEV_DEBUG=line-tables-only"
+          echo "CARGO_PROFILE_TEST_DEBUG=line-tables-only"
+        } >> "$GITHUB_ENV"
+
+    # Registry/git-dependency cache only. Target-dir caching is deliberately
+    # off: nine jobs each snapshotting a multi-GB target dir thrashed the
+    # repo's 10 GB Actions-cache quota (constant LRU eviction, so most jobs
+    # ran cold anyway). Compiled objects are cached per-crate by sccache
+    # below, in one pool all Rust jobs share.
+    - name: Cargo registry cache
       uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         key: ${{ inputs.cache-key }}
+        cache-targets: false
         cache-on-failure: true
+
+    - name: Install sccache
+      shell: bash
+      run: |
+        set -euo pipefail
+        version=v0.16.0
+        curl --fail --silent --show-error --location \
+          "https://github.com/mozilla/sccache/releases/download/${version}/sccache-${version}-x86_64-unknown-linux-musl.tar.gz" \
+          | tar -xz -C /tmp
+        sudo install -m 755 "/tmp/sccache-${version}-x86_64-unknown-linux-musl/sccache" /usr/local/bin/sccache
+        sccache --version
+
+    # The GHA cache backend needs the runner's cache-service URL and token,
+    # which GitHub only exposes to JS actions — hence the github-script hop
+    # (first-party, so no Actions-allowlist problem).
+    - name: Expose Actions cache credentials for sccache
+      uses: actions/github-script@v7
+      with:
+        script: |
+          for (const name of [
+            "ACTIONS_RESULTS_URL",
+            "ACTIONS_CACHE_URL",
+            "ACTIONS_CACHE_SERVICE_V2",
+            "ACTIONS_RUNTIME_TOKEN",
+          ]) {
+            if (process.env[name]) core.exportVariable(name, process.env[name]);
+          }
+
+    - name: Enable sccache
+      shell: bash
+      run: |
+        {
+          echo "RUSTC_WRAPPER=sccache"
+          echo "SCCACHE_GHA_ENABLED=true"
+          # sccache cannot cache incremental compilation, and CI never reuses
+          # a working tree, so incremental is pure overhead here.
+          echo "CARGO_INCREMENTAL=0"
+        } >> "$GITHUB_ENV"

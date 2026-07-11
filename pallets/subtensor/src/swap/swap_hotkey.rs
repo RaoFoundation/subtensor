@@ -49,16 +49,21 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NonAssociatedColdKey
         );
 
-        // 3. If the new hotkey already exists globally, ensure the coldkey owns it
+        // 3. Initialize the weight for this operation. The coldkey/old_hotkey
+        // ownership check above reads Owner twice.
+        let mut weight = T::DbWeight::get().reads(2);
+
+        // 4. If the new hotkey already exists globally, ensure the coldkey owns it
+        weight.saturating_accrue(T::DbWeight::get().reads(1));
         if Self::hotkey_account_exists(new_hotkey) {
+            weight.saturating_accrue(T::DbWeight::get().reads(2));
             ensure!(
                 Self::coldkey_owns_hotkey(&coldkey, new_hotkey),
                 Error::<T>::NonAssociatedColdKey
             );
+        } else {
+            weight.saturating_accrue(T::DbWeight::get().reads(1));
         }
-
-        // 4. Initialize the weight for this operation
-        let mut weight = T::DbWeight::get().reads(2);
 
         // 5. Ensure the new hotkey is different from the old one
         ensure!(old_hotkey != new_hotkey, Error::<T>::NewHotKeyIsSameWithOld);

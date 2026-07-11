@@ -5,6 +5,11 @@ name: Check Rust
 
 on:
   pull_request:
+  # Runs on main serve two purposes: post-merge validation, and seeding the
+  # shared sccache pool — Actions caches written on the default branch are
+  # readable by every PR, while PR-written caches stay scoped to their PR.
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -25,9 +30,43 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
+  # Every check in this workflow is a required merge check, so the workflow
+  # itself must always trigger (a required check whose workflow never runs is
+  # stuck "Expected" and blocks the merge). Instead, jobs skip themselves when
+  # the PR touches no Rust-relevant paths; a `skipped` conclusion satisfies
+  # branch protection. No checkout: for pull_request events the filter reads
+  # the changed-file list from the API, so no untrusted code is executed.
+  changes:
+    name: detect rust changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      # Plain gh-api file listing instead of a marketplace action: the org's
+      # Actions allowlist rejects unlisted third-party actions (startup_failure).
+      - name: Filter changed paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
+          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/rust-setup/)'
+          if grep -qE "$pattern" <<< "$files"; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no Rust-relevant paths changed"
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
   fmt:
     name: cargo fmt
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     steps:
       - uses: actions/checkout@v4
@@ -47,8 +86,11 @@ jobs:
 
   clippy:
     name: cargo clippy (${{ matrix.features.name }})
-    needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    # Compile-bound (~20 min on the light boxes with a cold cache); the heavy
+    # pool's extra cores cut the wall time roughly in half.
+    runs-on: [self-hosted, fireactions-heavy]
     env:
       SKIP_WASM_BUILD: 1
     strategy:
@@ -70,7 +112,8 @@ jobs:
 
   warnings:
     name: no cargo check warnings
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     env:
       RUSTFLAGS: -D warnings
@@ -89,8 +132,11 @@ jobs:
 
   test:
     name: cargo test
-    needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    # Turbo pool: longest job in this workflow (see runtime-checks.yml for
+    # the two-replica routing budget).
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -98,13 +144,25 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: cargo-test
-      - name: cargo test --workspace --all-features
-        run: cargo test --workspace --all-features
+      - name: Install cargo-nextest
+        run: |
+          curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
+          cargo nextest --version
+      # nextest runs each test in its own process with better scheduling than
+      # libtest's per-binary threading — typically 2-3x faster on suites this
+      # size. It doesn't execute doctests, so those keep running via cargo
+      # test --doc (cheap: it reuses the build nextest just did).
+      - name: cargo nextest run --workspace --all-features
+        run: cargo nextest run --workspace --all-features
+      - name: cargo test --doc --workspace --all-features
+        run: cargo test --doc --workspace --all-features
 
   fix:
     name: cargo fix leaves no diff
-    needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    # Compile-bound, same reasoning as clippy.
+    runs-on: [self-hosted, fireactions-heavy]
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -119,7 +177,8 @@ jobs:
 
   zepter:
     name: zepter feature propagation
-    needs: trusted-pr
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-light]
     steps:
       - uses: actions/checkout@v4

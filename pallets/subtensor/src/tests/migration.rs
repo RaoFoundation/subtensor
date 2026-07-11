@@ -200,14 +200,17 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (coldkey_to_move, netuid, old_hotkey),
             moved_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_to_move), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, old_hotkey),
             discarded_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_with_conflict), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, new_hotkey),
             existing_destination_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, new_hotkey, coldkey_with_conflict), ());
         DecayingLock::<Test>::insert(coldkey_to_move, netuid, false);
         DecayingLock::<Test>::insert(coldkey_with_conflict, netuid, false);
         DecayingLock::<Test>::insert(chained_coldkey, chained_netuid, false);
@@ -225,6 +228,10 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (chained_coldkey, chained_netuid, chained_first_hotkey),
             chained_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert(
+            (chained_netuid, chained_first_hotkey, chained_coldkey),
+            (),
+        );
         HotkeyLock::<Test>::insert(chained_netuid, chained_first_hotkey, chained_lock.clone());
 
         let weight =
@@ -234,14 +241,34 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
         assert!(HasMigrationRun::<Test>::get(&migration_name));
         assert!(Lock::<Test>::get((coldkey_to_move, netuid, old_hotkey)).is_none());
         assert!(Lock::<Test>::get((coldkey_with_conflict, netuid, old_hotkey)).is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_to_move
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_with_conflict
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_to_move, netuid, new_hotkey)),
             Some(moved_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_to_move
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_with_conflict, netuid, new_hotkey)),
             Some(existing_destination_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_with_conflict
+        )));
         assert!(HotkeyLock::<Test>::get(netuid, old_hotkey).is_none());
 
         let new_aggregate = HotkeyLock::<Test>::get(netuid, new_hotkey)
@@ -270,10 +297,25 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             chained_middle_hotkey
         ))
         .is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_first_hotkey,
+            chained_coldkey
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_middle_hotkey,
+            chained_coldkey
+        )));
         assert_eq!(
             Lock::<Test>::get((chained_coldkey, chained_netuid, chained_final_hotkey)),
             Some(chained_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_final_hotkey,
+            chained_coldkey
+        )));
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_first_hotkey).is_none());
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_middle_hotkey).is_none());
         assert_eq!(
@@ -4768,6 +4810,7 @@ fn test_migrate_subnet_balances() {
 fn test_migrate_fix_total_issuance_evm_fees() {
     new_test_ext(1).execute_with(|| {
         const MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_evm_fees";
+        const DUST_MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_after_dust_collection";
 
         let account = U256::from(42);
         let balances_total_issuance = TaoBalance::from(123_456_789_u64);
@@ -4788,16 +4831,29 @@ fn test_migrate_fix_total_issuance_evm_fees() {
         assert!(!weight.is_zero(), "weight must be non-zero");
         assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
         assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
 
         let second_wrong_value = TaoBalance::from(555_u64);
         TotalIssuance::<Test>::put(second_wrong_value);
 
         crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
 
+        assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
+        assert!(HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
+
+        let third_wrong_value = TaoBalance::from(777_u64);
+        TotalIssuance::<Test>::put(third_wrong_value);
+
+        crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
+
         assert_eq!(
             TotalIssuance::<Test>::get(),
-            second_wrong_value,
-            "migration must not run more than once"
+            third_wrong_value,
+            "migration must not run after all known migration keys have run"
         );
     });
 }

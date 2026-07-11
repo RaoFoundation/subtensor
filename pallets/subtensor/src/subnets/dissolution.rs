@@ -106,6 +106,18 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetNotExists
         );
 
+        // Since TotalStake is updated on this level, purge reservoirs here into reserves and TotalStake
+        let reservoir_tao = T::SwapInterface::protocol_tao_reservoir(netuid);
+        let reservoir_alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
+        T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
+        Self::increase_provided_tao_reserve(netuid, reservoir_tao);
+        Self::increase_provided_alpha_reserve(netuid, reservoir_alpha);
+        if !reservoir_tao.is_zero() {
+            TotalStake::<T>::mutate(|total| {
+                *total = total.saturating_add(reservoir_tao);
+            });
+        }
+
         let mut dissolved_networks = DissolveCleanupQueue::<T>::get();
         ensure!(
             !dissolved_networks.contains(&netuid),

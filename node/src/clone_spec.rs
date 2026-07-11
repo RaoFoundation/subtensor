@@ -433,6 +433,16 @@ fn patch_raw_spec(spec: &mut Value, validators: &[&'static str]) -> CloneResult<
 
     remove_by_prefix(top, &storage_prefix("Session"));
 
+    // The dynamic-tempo epoch scheduler anchors on absolute block numbers
+    // (`LastEpochBlock + tempo`, `PendingEpochAt`). Mainnet state carries
+    // mainnet-scale values (~8.6M), but the clone restarts numbering at 0, so
+    // `blocks_since = current - last` saturates to 0 and no subnet would run
+    // an epoch for millions of blocks. Dropping the entries resets them to
+    // their ValueQuery default (0), which restores the legacy behaviour of
+    // each subnet's first epoch firing within its first `tempo` blocks.
+    remove_by_prefix(top, &storage_key("SubtensorModule", "LastEpochBlock"));
+    remove_by_prefix(top, &storage_key("SubtensorModule", "PendingEpochAt"));
+
     set_validator_balances(top, validators);
 
     clear_top_level(spec);

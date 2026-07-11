@@ -134,7 +134,13 @@ async function main() {
   assertConvictionAtLeast(
     decayingOwnerAggregate,
     ownerHotkeyLockAmount,
-    "DecayingOwnerLock should retain immediate owner conviction"
+    "DecayingOwnerLock should retain immediate owner conviction",
+    // The lock starts decaying the moment the perpetual flag is cleared, and
+    // a couple of 12s blocks elapse before this read (observed on the CI
+    // clone: ~2 blocks of decay, ~1.9M mass on a 583B lock). Allow 30 blocks
+    // of decay with 2x headroom — still orders of magnitude stricter than
+    // the failure mode this guards against (conviction ramping from zero).
+    rates.unlockRate * 30n * 2n
   );
   await assertNoAggregateLock("decayingHotkeyLock", netuid, ownerHotkey, "owner-hotkey lock should not use general DecayingHotkeyLock");
   console.log("decaying owner aggregate lock:", formatLock(decayingOwnerAggregate));
@@ -747,11 +753,12 @@ function parseBigIntish(value) {
   throw new Error(`could not decode conviction bits from ${value}`);
 }
 
-function assertConvictionAtLeast(lock, wholeConviction, label) {
-  const wholeBits = wholeConviction << 64n;
+function assertConvictionAtLeast(lock, wholeConviction, label, decayAllowance = 0n) {
+  const wholeBits = (wholeConviction - decayAllowance) << 64n;
   assert.ok(
     lock.convictionBits >= wholeBits,
-    `${label}: conviction ${lock.conviction} is less than ${wholeConviction}`
+    `${label}: conviction ${lock.conviction} is less than ${wholeConviction}` +
+      (decayAllowance > 0n ? ` (minus decay allowance ${decayAllowance})` : "")
   );
 }
 
