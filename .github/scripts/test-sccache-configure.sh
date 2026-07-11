@@ -181,6 +181,16 @@ for trusted_event in push workflow_dispatch; do
   assert_contains "$tmp/output" 'available=true'
 done
 
+for trusted_event in push workflow_dispatch; do
+  reset_outputs
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  export GITHUB_EVENT_NAME="$trusted_event"
+  export GITHUB_REF=refs/heads/codex/subtensor-r2-sccache
+  "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-pr2855-$trusted_event.log"
+  assert_contains "$tmp/output" 'available=true'
+done
+
 for trusted_event in schedule workflow_dispatch; do
   reset_outputs
   export AWS_ACCESS_KEY_ID=writer-access-key-test
