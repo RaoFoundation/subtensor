@@ -13,12 +13,12 @@ LABEL com.bittensor.image.authors="operations@bittensor.com" \
   com.bittensor.image.description="Bittensor Subtensor Blockchain" \
   com.bittensor.image.documentation="https://bittensor.com/docs"
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  adduser ca-certificates gosu libssl3 libstdc++6 libudev1 && \
+  rm -rf /var/lib/apt/lists/*
+
 RUN addgroup --system --gid 10001 subtensor && \
   adduser --system --uid 10001 --gid 10001 --home /home/subtensor --disabled-password subtensor
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  ca-certificates gosu libssl3 libstdc++6 libudev1 && \
-  rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /data && chown -R subtensor:subtensor /data
 WORKDIR /home/subtensor
