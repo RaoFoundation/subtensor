@@ -21,7 +21,7 @@ jobs:
 
   comment_on_breaking_change:
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     steps:
       - name: Check if 'breaking change' label is added
         if: github.event.label.name == 'breaking-change'

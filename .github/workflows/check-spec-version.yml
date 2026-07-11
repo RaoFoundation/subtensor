@@ -36,7 +36,7 @@ jobs:
   check-spec-version:
     name: spec_version newer than mainnet
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-tryruntime-finney]
+    runs-on: [self-hosted, fireactions-turbo]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') }}
     steps:
       - uses: actions/checkout@v4

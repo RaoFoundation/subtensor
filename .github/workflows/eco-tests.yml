@@ -25,7 +25,7 @@ jobs:
   eco-tests:
     name: cargo test (eco-tests)
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1

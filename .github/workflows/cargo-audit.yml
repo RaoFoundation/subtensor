@@ -19,7 +19,7 @@ jobs:
   cargo-audit:
     name: cargo audit
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-cargo-audit') }}
     steps:
       - uses: actions/checkout@v4

@@ -18,7 +18,7 @@ jobs:
   build:
     name: docker build
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo]
     steps:
       - uses: actions/checkout@v4
 

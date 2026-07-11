@@ -28,7 +28,7 @@ jobs:
   fmt:
     name: cargo fmt
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rust-setup
@@ -48,7 +48,7 @@ jobs:
   clippy:
     name: cargo clippy (${{ matrix.features.name }})
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       SKIP_WASM_BUILD: 1
     strategy:
@@ -71,7 +71,7 @@ jobs:
   warnings:
     name: no cargo check warnings
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       RUSTFLAGS: -D warnings
       SKIP_WASM_BUILD: 1
@@ -90,7 +90,7 @@ jobs:
   test:
     name: cargo test
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -104,7 +104,7 @@ jobs:
   fix:
     name: cargo fix leaves no diff
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -120,7 +120,7 @@ jobs:
   zepter:
     name: zepter feature propagation
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rust-setup

@@ -28,7 +28,7 @@ jobs:
   clone-upgrade:
     name: Sudo-upgrade mainnet clone and test
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 180
     steps:
@@ -127,7 +127,7 @@ jobs:
   docs-website:
     name: Docs and website build
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo]
     steps:
       - uses: actions/checkout@v4
 
