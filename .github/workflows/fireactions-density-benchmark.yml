@@ -1,9 +1,7 @@
 name: Fireactions packed two-host hybrid benchmark
 
 on:
-  push:
-    branches:
-      - codex/fireactions-runner-density-experiment
+  workflow_dispatch:
 
 permissions:
   contents: read
