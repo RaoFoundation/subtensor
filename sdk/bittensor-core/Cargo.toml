@@ -32,6 +32,7 @@ serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
 sha2 = "0.10.8"
 sodiumoxide = { version = "0.2", default-features = false, features = ["std"] }
 sp-core = { workspace = true, features = ["std", "full_crypto"] }
+subtensor-macros.workspace = true
 zeroize = "1"
 
 # timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the

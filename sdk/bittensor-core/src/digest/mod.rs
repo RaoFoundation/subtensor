@@ -20,6 +20,7 @@ use merkleized_metadata::{
     generate_metadata_digest, generate_proof_for_extrinsic_parts, types::ExtrinsicMetadata,
     ExtraInfo, FrameMetadataPrepared, Proof, SignedExtrinsicData,
 };
+use subtensor_macros::freeze_struct;
 
 use crate::error::CoreError;
 
@@ -55,6 +56,7 @@ impl ChainInfo {
 /// The upstream crate's `ExtraInfo` doesn't derive `Encode`; the field order
 /// here is pinned by the app's parser (spec_version, spec_name, base58_prefix,
 /// decimals, token_symbol — the RFC-0078 `MetadataDigest::V1` tail order).
+#[freeze_struct("edb2a68250293f5")]
 #[derive(Encode)]
 struct ExtraInfoEncoded {
     spec_version: u32,
@@ -79,6 +81,7 @@ impl From<ExtraInfo> for ExtraInfoEncoded {
 /// The proof blob wire shape the Ledger generic app expects: the merkle proof
 /// of the types the extrinsic touches, the extrinsic metadata, and the chain
 /// constants — SCALE-encoded in this order.
+#[freeze_struct("e1038cfe3b767760")]
 #[derive(Encode)]
 struct MetadataProof {
     proof: Proof,
@@ -236,7 +239,12 @@ mod tests {
         let field =
             |name: &str| -> Vec<u8> { hex::decode(vector[name].as_str().unwrap()).unwrap() };
         let metadata = golden_metadata_v15();
-        let spec_version = vector["spec_version"].as_u64().unwrap() as u32;
+        let spec_version = {
+            let serde_json::Value::Number(number) = &vector["spec_version"] else {
+                panic!("ledger proof vector spec_version is not a number")
+            };
+            number.to_string().parse::<u32>().unwrap()
+        };
         let proof = generate_extrinsic_proof(
             &field("call_data_hex"),
             &field("included_in_extrinsic_hex"),

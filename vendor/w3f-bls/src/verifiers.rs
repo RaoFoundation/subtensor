@@ -268,7 +268,7 @@ pub fn verify_using_aggregated_auxiliary_public_keys<
 
     //Simplify from here on.
     for (m, pk) in itr {
-        publickeys.push(pk.borrow().0.clone());
+        publickeys.push(pk.0.clone());
         messages.push(
             m.hash_to_signature_curve::<E>()
                 + E::SignatureGroupAffine::generator() * pseudo_random_scalar,

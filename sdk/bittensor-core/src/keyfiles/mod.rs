@@ -206,8 +206,10 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
 
     let crypto_type = keyfile_dict
         .get("cryptoType")
-        .and_then(|value| value.as_u64())
-        .map(|value| value as u8)
+        .and_then(|value| match value {
+            serde_json::Value::Number(number) => number.to_string().parse::<u8>().ok(),
+            _ => None,
+        })
         .unwrap_or(CRYPTO_SR25519);
 
     if let Some(secret_phrase) = keyfile_dict

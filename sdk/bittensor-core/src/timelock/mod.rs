@@ -19,6 +19,7 @@ use rand_core::{OsRng, RngCore};
 use serde::Deserialize;
 use sha2::Digest;
 use std::time::{SystemTime, UNIX_EPOCH};
+use subtensor_macros::freeze_struct;
 use tle::{
     curves::drand::TinyBLS381,
     ibe::fullident::Identity,
@@ -43,6 +44,7 @@ fn now_unix() -> Result<std::time::Duration, CoreError> {
         .map_err(|e| tl_err(format!("SystemTime error: {e:?}")))
 }
 
+#[freeze_struct("705b0f6dde3ed6e")]
 #[derive(Encode, Decode, Debug, PartialEq)]
 pub struct WeightsTlockPayload {
     pub hotkey: Vec<u8>,
@@ -51,6 +53,7 @@ pub struct WeightsTlockPayload {
     pub version_key: u64,
 }
 
+#[freeze_struct("b96b617eb03c11a6")]
 #[derive(Encode, Decode)]
 pub struct UserData {
     pub encrypted_data: Vec<u8>,

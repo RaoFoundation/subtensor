@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(dead_code))]
+
 mod digest;
 mod errors;
 mod keys;

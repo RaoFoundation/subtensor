@@ -33,10 +33,8 @@ mod corpus_tests {
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Value::Int(i128::from(i))
-                } else if let Some(u) = n.as_u64() {
-                    Value::Uint(u128::from(u))
                 } else {
-                    panic!("fixture number {n} is not an integer")
+                    Value::Uint(n.to_string().parse().unwrap())
                 }
             }
             serde_json::Value::String(s) => Value::Str(s.clone()),
@@ -60,6 +58,25 @@ mod corpus_tests {
         serde_json::from_str(&raw).unwrap()
     }
 
+    fn json_u64(value: &serde_json::Value) -> u64 {
+        let serde_json::Value::Number(number) = value else {
+            panic!("fixture value {value:?} is not a number")
+        };
+        number.to_string().parse().unwrap()
+    }
+
+    fn json_u32(value: &serde_json::Value) -> u32 {
+        u32::try_from(json_u64(value)).unwrap()
+    }
+
+    fn json_u16(value: &serde_json::Value) -> u16 {
+        u16::try_from(json_u64(value)).unwrap()
+    }
+
+    fn json_u8(value: &serde_json::Value) -> u8 {
+        u8::try_from(json_u64(value)).unwrap()
+    }
+
     fn golden_metadata_v15() -> Vec<u8> {
         let golden = golden();
         let hex_str = golden["metadata"]["v15_hex"]
@@ -75,9 +92,9 @@ mod corpus_tests {
         let g = golden();
         Runtime::parse(
             &golden_metadata_v15(),
-            g["network"]["spec_version"].as_u64().unwrap() as u32,
-            g["network"]["transaction_version"].as_u64().unwrap() as u32,
-            g["network"]["ss58_format"].as_u64().unwrap() as u16,
+            json_u32(&g["network"]["spec_version"]),
+            json_u32(&g["network"]["transaction_version"]),
+            json_u16(&g["network"]["ss58_format"]),
         )
         .expect("golden metadata parses")
     }
@@ -94,7 +111,7 @@ mod corpus_tests {
         let corpus: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let rt = runtime();
         assert_eq!(
-            corpus["spec_version"].as_u64().unwrap() as u32,
+            json_u32(&corpus["spec_version"]),
             rt.spec_version,
             "corpus and golden fixture must be recorded from the same runtime"
         );
@@ -102,7 +119,7 @@ mod corpus_tests {
         let mut failures: Vec<String> = Vec::new();
         let mut checked = 0usize;
         for ty in corpus["types"].as_array().unwrap() {
-            let id = ty["id"].as_u64().unwrap() as u32;
+            let id = json_u32(&ty["id"]);
             let name = ty["name"].as_str().unwrap();
             for (i, sample) in ty["samples"].as_array().unwrap().iter().enumerate() {
                 let scale_hex = sample["scale_hex"].as_str().unwrap();
@@ -352,7 +369,7 @@ mod corpus_tests {
                 &call,
                 &crate::codec::extrinsic::TxParams {
                     era: Value::str("00"),
-                    nonce: immortal["nonce"].as_u64().unwrap(),
+                    nonce: json_u64(&immortal["nonce"]),
                     tip: 0,
                     tip_asset_id: None,
                     genesis_hash: genesis,
@@ -381,7 +398,7 @@ mod corpus_tests {
                             Value::Int(i128::from(mortal["era"]["current"].as_i64().unwrap())),
                         ),
                     ]),
-                    nonce: mortal["nonce"].as_u64().unwrap(),
+                    nonce: json_u64(&mortal["nonce"]),
                     tip: 0,
                     tip_asset_id: None,
                     genesis_hash: genesis,
@@ -421,11 +438,11 @@ mod corpus_tests {
                     &call,
                     h256(case["public_key_hex"].as_str().unwrap()),
                     &signature,
-                    case["signature_version"].as_u64().unwrap() as u8,
+                    json_u8(&case["signature_version"]),
                     &crate::codec::extrinsic::TxParams {
                         era,
-                        nonce: case["nonce"].as_u64().unwrap(),
-                        tip: case["tip"].as_u64().unwrap().into(),
+                        nonce: json_u64(&case["nonce"]),
+                        tip: json_u64(&case["tip"]).into(),
                         tip_asset_id: None,
                         genesis_hash: [0; 32],
                         era_block_hash: [0; 32],
@@ -464,7 +481,7 @@ mod corpus_tests {
     #[test]
     fn multisig_accounts_match_the_golden_vectors() {
         let g = golden();
-        let ss58_format = g["network"]["ss58_format"].as_u64().unwrap() as u16;
+        let ss58_format = json_u16(&g["network"]["ss58_format"]);
         for case in g["multisig"].as_array().unwrap() {
             let signatories: Vec<[u8; 32]> = case["signatories"]
                 .as_array()
@@ -472,7 +489,7 @@ mod corpus_tests {
                 .iter()
                 .map(|s| crate::keys::public_key_from_ss58(s.as_str().unwrap()).unwrap())
                 .collect();
-            let threshold = case["threshold"].as_u64().unwrap() as u16;
+            let threshold = json_u16(&case["threshold"]);
             let (account, sorted) =
                 crate::codec::extrinsic::multisig_account_id(&signatories, threshold).unwrap();
             assert_eq!(

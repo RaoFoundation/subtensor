@@ -1164,6 +1164,13 @@ fn type_spec_from_json(value: JsonValue) -> NapiResult<TypeSpec> {
     type_spec_from_json_at(value, 0)
 }
 
+fn json_u32(value: JsonValue) -> Option<u32> {
+    let JsonValue::Number(number) = value else {
+        return None;
+    };
+    number.to_string().parse::<u32>().ok()
+}
+
 fn type_spec_from_json_at(value: JsonValue, depth: usize) -> NapiResult<TypeSpec> {
     if depth > 256 {
         return Err(invalid_arg("type spec nesting exceeds 256 levels"));
@@ -1184,8 +1191,7 @@ fn type_spec_from_json_at(value: JsonValue, depth: usize) -> NapiResult<TypeSpec
     match kind.as_str() {
         "id" => map
             .remove("id")
-            .and_then(|value| value.as_u64())
-            .and_then(|value| u32::try_from(value).ok())
+            .and_then(json_u32)
             .map(TypeSpec::Id)
             .ok_or_else(|| invalid_arg("id type spec needs a u32 `id`")),
         "primitive" => {
@@ -1203,8 +1209,7 @@ fn type_spec_from_json_at(value: JsonValue, depth: usize) -> NapiResult<TypeSpec
             let inner = inner(&mut map)?;
             let length = map
                 .remove("length")
-                .and_then(|value| value.as_u64())
-                .and_then(|value| u32::try_from(value).ok())
+                .and_then(json_u32)
                 .ok_or_else(|| invalid_arg("array type spec needs a u32 `length`"))?;
             Ok(TypeSpec::Array(Box::new(inner), length))
         }

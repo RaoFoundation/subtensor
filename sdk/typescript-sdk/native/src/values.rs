@@ -45,20 +45,21 @@ fn from_wire_at(value: JsonValue, depth: usize) -> NapiResult<Value> {
 }
 
 fn number_to_value(number: Number) -> NapiResult<Value> {
-    if let Some(value) = number.as_i64() {
-        return Ok(Value::Int(i128::from(value)));
+    let text = number.to_string();
+    if text.starts_with('-') {
+        return text
+            .parse::<i128>()
+            .map(Value::Int)
+            .map_err(|_| invalid_arg(format!("SCALE values must use integers; got {number}")));
     }
-    if let Some(value) = number.as_u64() {
-        let value = u128::from(value);
-        return Ok(if value <= i128::MAX as u128 {
-            Value::Int(value as i128)
-        } else {
-            Value::Uint(value)
-        });
-    }
-    Err(invalid_arg(format!(
-        "SCALE values must use integers; got {number}"
-    )))
+    let value = text
+        .parse::<u128>()
+        .map_err(|_| invalid_arg(format!("SCALE values must use integers; got {number}")))?;
+    Ok(if value <= i128::MAX as u128 {
+        Value::Int(value as i128)
+    } else {
+        Value::Uint(value)
+    })
 }
 
 fn object_from_wire(mut map: Map<String, JsonValue>, depth: usize) -> NapiResult<Value> {
