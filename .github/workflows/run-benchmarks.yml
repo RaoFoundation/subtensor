@@ -87,13 +87,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
-      # The dedicated Benchmarking/AX41 runner does not expose the MMDS reader
-      # contract yet. Keep its target cache until that host is migrated.
-      - name: Cache Rust build
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+
+      - name: Cache Cargo registry and git data
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: bench-${{ hashFiles('**/Cargo.lock') }}
           cache-on-failure: true
+          cache-targets: false
 
       - name: Build node with benchmarks + weight tools
         run: |

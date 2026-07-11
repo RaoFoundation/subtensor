@@ -46,7 +46,9 @@ jobs:
       - name: Require protected writer activation
         shell: bash
         run: |
-          if [[ "${SCCACHE_ENABLED:-}" != true || "${RUSTC_WRAPPER:-}" != sccache ]]; then
+          if [[ "${SCCACHE_ENABLED:-}" != true ||
+                "${SCCACHE_BACKEND:-}" != r2 ||
+                "${RUSTC_WRAPPER:-}" != sccache ]]; then
             echo "::error::protected R2 writer did not activate"
             exit 1
           fi

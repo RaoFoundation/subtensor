@@ -166,6 +166,10 @@ assert_contains "$tmp/output" 'available=true'
 grep -v '^::add-mask::' "$tmp/writer-main.log" > "$tmp/writer-main-public.log"
 assert_not_contains "$tmp/writer-main-public.log" 'writer-access-key-test'
 assert_not_contains "$tmp/writer-main-public.log" 'writer-secret-key-test'
+SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/writer-activate.log"
+assert_contains "$tmp/output" 'enabled=true'
+assert_contains "$tmp/env" 'SCCACHE_BACKEND=r2'
+assert_contains "$tmp/env" 'RUSTC_WRAPPER=sccache'
 
 for trusted_event in push workflow_dispatch; do
   reset_outputs
@@ -193,9 +197,9 @@ export GITHUB_REF=refs/heads/main
 "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-missing.log"
 assert_contains "$tmp/output" 'available=false'
 
-# A read-only backend can report denied writes without affecting the compiler.
+# Keep read-only write errors visible in the stats contract. The live turbo
+# integration compile proves those errors do not fail rustc invocations.
 "$tmp/bin/sccache" --show-stats >"$tmp/stats"
 assert_contains "$tmp/stats" 'Cache write errors                   1'
-true
 
 printf 'sccache configuration tests passed\n'
