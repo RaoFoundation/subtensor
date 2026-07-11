@@ -223,6 +223,27 @@ async function main() {
   );
   const ownerUnlockedAlpha = ownerAlphaAdded - ownerTransferBefore.lockedMass;
   const ownerSameSubnetTransferAmount = ownerUnlockedAlpha + ownerTransferBefore.lockedMass / 2n;
+  // Coldkeys reject incoming locked alpha by default (AccountFlags opt-in via
+  // setRejectLockedAlpha). Prove the default holds before opting in — this is
+  // the security property the flag exists for.
+  await expectDispatchError(
+    api.tx.subtensorModule.transferStake(
+      ownerTransferDestination.address,
+      ownerHotkey,
+      netuid,
+      netuid,
+      ownerSameSubnetTransferAmount
+    ),
+    ownerStakeSource,
+    "owner-coldkey transferStake to non-opted-in destination",
+    "AccountRejectsLockedAlpha"
+  );
+  await submitAndWait(
+    api,
+    ownerTransferDestination,
+    api.tx.subtensorModule.setRejectLockedAlpha(false),
+    "opt owner transfer destination into receiving locked alpha"
+  );
   await submitAndWait(
     api,
     ownerStakeSource,
@@ -326,6 +347,14 @@ async function main() {
     "same-subnet transfer amount must exceed unlocked alpha to move part of the lock"
   );
 
+  // The transfer moves part of the lock, so the destination must have opted
+  // into locked alpha (coldkeys reject it by default).
+  await submitAndWait(
+    api,
+    destination,
+    api.tx.subtensorModule.setRejectLockedAlpha(false),
+    "opt destination into receiving locked alpha"
+  );
   await submitAndWait(
     api,
     source,
@@ -476,6 +505,7 @@ function assertLockMetadataAvailable() {
     ["SubtensorModule.lockStake", api.tx.subtensorModule?.lockStake],
     ["SubtensorModule.moveLock", api.tx.subtensorModule?.moveLock],
     ["SubtensorModule.setPerpetualLock", api.tx.subtensorModule?.setPerpetualLock],
+    ["SubtensorModule.setRejectLockedAlpha", api.tx.subtensorModule?.setRejectLockedAlpha],
     ["SubtensorModule.addStake", api.tx.subtensorModule?.addStake],
     ["SubtensorModule.removeStakeLimit", api.tx.subtensorModule?.removeStakeLimit],
     ["SubtensorModule.transferStake", api.tx.subtensorModule?.transferStake],

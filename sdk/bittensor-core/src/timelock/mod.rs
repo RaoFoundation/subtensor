@@ -18,6 +18,9 @@ use codec::{Decode, Encode};
 use rand_core::{OsRng, RngCore};
 use serde::Deserialize;
 use sha2::Digest;
+// std::time::SystemTime::now() panics on wasm32-unknown-unknown; web-time is
+// a Date.now()-backed drop-in with the same types on that target.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use subtensor_macros::freeze_struct;
 use tle::{
@@ -27,12 +30,13 @@ use tle::{
     tlock::{tld, tle, TLECiphertext},
 };
 use w3f_bls::EngineBLS;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::CoreError;
-use constants::{
-    DRAND_ENDPOINTS, DRAND_PERIOD, DRAND_PUBLIC_KEY, GENESIS_TIME, QUICKNET_CHAIN_HASH,
-    SECURITY_BLOCK_OFFSET,
-};
+#[cfg(feature = "host")]
+use constants::{DRAND_ENDPOINTS, QUICKNET_CHAIN_HASH};
+use constants::{DRAND_PERIOD, DRAND_PUBLIC_KEY, GENESIS_TIME, SECURITY_BLOCK_OFFSET};
 
 fn tl_err(msg: impl Into<String>) -> CoreError {
     CoreError::Crypto(msg.into())
@@ -64,6 +68,16 @@ pub struct UserData {
 pub struct DrandResponse {
     pub round: u64,
     pub signature: String,
+}
+
+/// The drand reveal round a `UserData` envelope was encrypted to. Portable
+/// counterpart to [`decrypt`]: a host without network access in the core
+/// (e.g. a browser shell) extracts the round here, fetches the signature
+/// itself, and finishes with [`decrypt_with_signature`].
+pub fn reveal_round(encrypted_data: &[u8]) -> Result<u64, CoreError> {
+    let user_data = UserData::decode(&mut &encrypted_data[..])
+        .map_err(|e| tl_err(format!("Error deserializing data: {e:?}")))?;
+    Ok(user_data.reveal_round)
 }
 
 /// Timelock-encrypt `serialized_data` to the drand quicknet round
@@ -205,6 +219,7 @@ pub fn encrypt_at_round(data: &[u8], reveal_round: u64) -> Result<(Vec<u8>, u64)
 }
 
 /// Fetch drand round info (blocking; tries each public endpoint in order).
+#[cfg(feature = "host")]
 pub fn get_round_info(round: Option<u64>) -> Result<DrandResponse, CoreError> {
     let mut last_error = None;
 
@@ -238,6 +253,7 @@ pub fn get_round_info(round: Option<u64>) -> Result<DrandResponse, CoreError> {
 
 /// The BLS signature (hex) for a reveal round, or `Ok(None)` on fetch errors
 /// when `no_errors` is set.
+#[cfg(feature = "host")]
 pub fn get_reveal_round_signature(
     reveal_round: Option<u64>,
     no_errors: bool,
@@ -259,6 +275,7 @@ pub fn get_reveal_round_signature(
 /// malformed envelope or unavailable round yields `Ok(None)`; decryption
 /// failures against a fetched signature always error (the data is present
 /// but wrong, which the caller should see).
+#[cfg(feature = "host")]
 pub fn decrypt(encrypted_data: &[u8], no_errors: bool) -> Result<Option<Vec<u8>>, CoreError> {
     let user_data = match UserData::decode(&mut &encrypted_data[..]) {
         Ok(data) => data,
