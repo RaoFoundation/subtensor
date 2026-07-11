@@ -25,6 +25,207 @@ test('package exposes a WASM browser subset without the Node native addon', () =
   assert.equal(browserSource.includes('.node'), false)
 })
 
+test('browser Runtime exposes WASM codec, call, storage, and extrinsic helpers', async () => {
+  const browser = require('../dist/browser.js')
+
+  class FakeRuntime {
+    constructor(metadataBytes, specVersion, transactionVersion, ss58Format) {
+      this.metadataBytes = metadataBytes
+      this.specVersion = specVersion
+      this.transactionVersion = transactionVersion
+      this.ss58Format = ss58Format
+      this.isV15 = true
+      this.extrinsicVersion = 4
+    }
+
+    decode(typeString, data, strict = true) {
+      return { typeString, first: data[0], strict }
+    }
+
+    batchDecode(typeStrings, data) {
+      return data.map((item, index) => ({ typeString: typeStrings[index], first: item[0] }))
+    }
+
+    encode(_typeString, value) {
+      return Uint8Array.of(value.value)
+    }
+
+    typeIdOf(name) {
+      return name === 'Known' ? 7 : undefined
+    }
+
+    typeNameOf(id) {
+      return id === 7 ? 'Known' : undefined
+    }
+
+    registryJson() {
+      return '{"ok":true}'
+    }
+
+    composeCall(pallet, fn) {
+      return Uint8Array.of(pallet.length, fn.length)
+    }
+
+    decodeCall(data) {
+      return { len: data.length }
+    }
+
+    storageEntry(pallet, storageFunction) {
+      return {
+        pallet,
+        name: storageFunction,
+        prefix: pallet,
+        modifier: 'Default',
+        valueType: 'scale_info::1',
+        paramTypes: ['scale_info::0'],
+        paramHashers: ['Blake2_128Concat'],
+        defaultBytes: Uint8Array.of(9),
+      }
+    }
+
+    storagePrefix() {
+      return Uint8Array.of(1)
+    }
+
+    storageKey(_pallet, _storageFunction, params) {
+      return Uint8Array.of(params.length)
+    }
+
+    storageKeyBatch(_pallet, _storageFunction, paramsList) {
+      return paramsList.map((params) => Uint8Array.of(params.length))
+    }
+
+    decodeStorageKeyParams(_pallet, _storageFunction, key, fixed = 0) {
+      return [fixed, key[0]]
+    }
+
+    decodeMapPairs(_pallet, _storageFunction, rawKeys, rawValues) {
+      return rawKeys.map((key, index) => [key[0], rawValues[index][0]])
+    }
+
+    decodeMapChanges(_pallet, _storageFunction, changes) {
+      return changes.map(([key, value]) => [key, value])
+    }
+
+    constant() {
+      return 55
+    }
+
+    moduleError() {
+      return ['BadOrigin', ['doc']]
+    }
+
+    signedExtensionIdentifiers() {
+      return ['CheckNonce']
+    }
+
+    encodeEra(era) {
+      return Uint8Array.of(era.period)
+    }
+
+    signaturePayloadParts() {
+      return [Uint8Array.of(1), Uint8Array.of(2)]
+    }
+
+    signaturePayload(callData, _era, nonce) {
+      return Uint8Array.of(callData[0], Number(nonce))
+    }
+
+    encodeSignedExtrinsic(callData, _publicKey, _signature, signatureVersion) {
+      return [Uint8Array.of(callData[0], signatureVersion), Uint8Array.of(3, 4)]
+    }
+
+    decodeExtrinsic(data, strict = true) {
+      return { len: data.length, strict }
+    }
+
+    runtimeApiMap() {
+      return { Api: { method: { name: 'method', inputs: [], output: 'scale_info::0', docs: [] } } }
+    }
+
+    metadataIr() {
+      return { specVersion: 1, pallets: [], runtimeApis: [] }
+    }
+  }
+
+  await browser.initBrowser(async () => ({
+    Runtime: FakeRuntime,
+    eraBirth: (period, current) => Number(current) - (Number(current) % Number(period)),
+    multisigAccountId: (signatories, threshold) => [
+      Uint8Array.of(threshold),
+      signatories.slice().reverse(),
+    ],
+  }))
+
+  const runtime = new browser.Runtime(Uint8Array.of(1), 10, 20, 42)
+  assert.equal(runtime.specVersion, 10)
+  assert.equal(runtime.transactionVersion, 20)
+  assert.equal(runtime.ss58Format, 42)
+  assert.equal(runtime.isV15, true)
+  assert.equal(runtime.extrinsicVersion, 4)
+  assert.deepEqual(runtime.decode('u8', Uint8Array.of(5)), { typeString: 'u8', first: 5, strict: true })
+  assert.deepEqual(runtime.decodeBatch(['u8'], [Uint8Array.of(6)]), [{ typeString: 'u8', first: 6 }])
+  assert.deepEqual(runtime.encode('u8', { value: 7 }), Uint8Array.of(7))
+  assert.equal(runtime.typeIdOf('Known'), 7)
+  assert.equal(runtime.typeNameOf(7), 'Known')
+  assert.equal(runtime.registryJson(), '{"ok":true}')
+  assert.deepEqual(runtime.composeCall('System', 'remark', {}), Uint8Array.of(6, 6))
+  assert.deepEqual(runtime.decodeCall(Uint8Array.of(1, 2, 3)), { len: 3 })
+  assert.deepEqual(runtime.storageEntry('System', 'Account').defaultBytes, Uint8Array.of(9))
+  assert.deepEqual(runtime.storagePrefix('System', 'Account'), Uint8Array.of(1))
+  assert.deepEqual(runtime.storageKey('System', 'Account', ['Alice']), Uint8Array.of(1))
+  assert.deepEqual(runtime.storageKeyBatch('System', 'Account', [['Alice'], ['Alice', 'Bob']]), [
+    Uint8Array.of(1),
+    Uint8Array.of(2),
+  ])
+  assert.deepEqual(runtime.decodeStorageKeyParams('System', 'Account', Uint8Array.of(8), 1), [1, 8])
+  assert.deepEqual(
+    runtime.decodeMapPairs('System', 'Account', [Uint8Array.of(1)], [Uint8Array.of(2)]),
+    [{ key: 1, value: 2 }],
+  )
+  assert.deepEqual(
+    runtime.decodeMapChanges('System', 'Account', [{ key: '0x01', value: '0x02' }]),
+    [{ key: '0x01', value: '0x02' }],
+  )
+  assert.equal(runtime.constant('Balances', 'ExistentialDeposit'), 55)
+  assert.deepEqual(runtime.moduleError(0, 0), { name: 'BadOrigin', docs: ['doc'] })
+  assert.deepEqual(runtime.signedExtensionIdentifiers(), ['CheckNonce'])
+  assert.deepEqual(runtime.encodeEra({ period: 64, current: 128 }), Uint8Array.of(64))
+  assert.deepEqual(
+    runtime.signaturePayloadParts({
+      era: '00',
+      nonce: 2,
+      genesisHash: Uint8Array.of(0),
+      eraBlockHash: Uint8Array.of(0),
+    }),
+    { includedInExtrinsic: Uint8Array.of(1), includedInSignedData: Uint8Array.of(2) },
+  )
+  assert.deepEqual(
+    runtime.signaturePayload(Uint8Array.of(9), {
+      era: '00',
+      nonce: 2,
+      genesisHash: Uint8Array.of(0),
+      eraBlockHash: Uint8Array.of(0),
+    }),
+    Uint8Array.of(9, 2),
+  )
+  assert.deepEqual(
+    runtime.encodeSignedExtrinsic(Uint8Array.of(9), Uint8Array.of(1), Uint8Array.of(2), 1, {
+      era: '00',
+      nonce: 2,
+    }),
+    { bytes: Uint8Array.of(9, 1), hash: Uint8Array.of(3, 4) },
+  )
+  assert.deepEqual(runtime.decodeExtrinsic(Uint8Array.of(1, 2), false), { len: 2, strict: false })
+  assert.deepEqual(runtime.runtimeApis(), runtime.runtimeApiMap())
+  assert.deepEqual(runtime.metadataIr(), { specVersion: 1, pallets: [], runtimeApis: [] })
+  assert.equal(browser.eraBirth(64, 130), 128)
+  assert.deepEqual(
+    browser.multisigAccountId([Uint8Array.of(1), Uint8Array.of(2)], 2),
+    { accountId: Uint8Array.of(2), sortedSignatories: [Uint8Array.of(2), Uint8Array.of(1)] },
+  )
+})
+
 test('sr25519 keypair forwards signing and SS58 work to Rust', () => {
   const alice = core.Keypair.fromUri('//Alice')
   assert.equal(

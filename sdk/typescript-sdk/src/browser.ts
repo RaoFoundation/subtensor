@@ -1,3 +1,8 @@
+import type {
+  ModuleError,
+  ScaleValue,
+} from './types'
+
 export const CRYPTO_ED25519 = 0
 export const CRYPTO_SR25519 = 1
 export const DEFAULT_SS58_FORMAT = 42
@@ -20,10 +25,105 @@ export interface KeypairSignOptions {
   withType?: boolean
 }
 
+export interface BrowserStorageEntry {
+  pallet: string
+  name: string
+  prefix: string
+  modifier: string
+  valueType: string
+  paramTypes: string[]
+  paramHashers: string[]
+  defaultBytes: Uint8Array
+}
+
+export interface BrowserStorageChange {
+  key: string
+  value?: string | null
+}
+
+export interface BrowserMapPair<K = ScaleValue, V = ScaleValue> {
+  key: K
+  value: V
+}
+
+export interface BrowserPayloadParts {
+  includedInExtrinsic: Uint8Array
+  includedInSignedData: Uint8Array
+}
+
+export interface BrowserTransactionParams {
+  era: ScaleValue
+  nonce: BrowserIntegerLike
+  tip?: BrowserIntegerLike
+  tipAssetId?: BrowserIntegerLike | null
+  genesisHash: BrowserByteLike
+  eraBlockHash: BrowserByteLike
+  metadataHash?: BrowserByteLike | null
+}
+
+export interface BrowserSignedExtrinsicParams {
+  era: ScaleValue
+  nonce: BrowserIntegerLike
+  tip?: BrowserIntegerLike
+  tipAssetId?: BrowserIntegerLike | null
+  metadataHashEnabled?: boolean
+}
+
+export interface BrowserSignedExtrinsic {
+  bytes: Uint8Array
+  hash: Uint8Array
+}
+
+export interface BrowserMultisigAccount {
+  accountId: Uint8Array
+  sortedSignatories: Uint8Array[]
+}
+
+export type BrowserRuntimeApiMap = Record<
+  string,
+  Record<
+    string,
+    {
+      name: string
+      inputs: Array<[string, string]>
+      output: string
+      docs: string[]
+    }
+  >
+>
+
+export interface BrowserMetadataIrCall {
+  name: string
+  args: string[]
+  docs: string
+}
+
+export interface BrowserMetadataIrError {
+  index: number
+  name: string
+  docs: string
+}
+
+export interface BrowserMetadataIrPallet {
+  name: string
+  index: number
+  calls: BrowserMetadataIrCall[]
+  errors: BrowserMetadataIrError[]
+  storage: string[]
+  constants: string[]
+}
+
+export interface BrowserMetadataIr {
+  specVersion: number
+  pallets: BrowserMetadataIrPallet[]
+  runtimeApis: Array<{ name: string; methods: string[] }>
+}
+
 export interface BrowserWasmModule {
   default?: () => Promise<unknown> | unknown
   coreVersion(): string
   Keypair: BrowserWasmKeypairConstructor
+  Runtime: BrowserWasmRuntimeConstructor
   CryptoType: {
     Ed25519: number
     Sr25519: number
@@ -70,6 +170,8 @@ export interface BrowserWasmModule {
     includeKeyHash?: boolean,
   ): Uint8Array
   mlkemKdfId(): Uint8Array
+  eraBirth(period: BrowserIntegerLike, current: BrowserIntegerLike): number
+  multisigAccountId(signatories: Uint8Array[], threshold: number): [Uint8Array, Uint8Array[]]
 }
 
 export interface BrowserWasmKeypair {
@@ -99,6 +201,91 @@ export interface BrowserWasmKeypairConstructor {
   fromUri(uri: string, cryptoType?: number): BrowserWasmKeypair
   fromPrivateKey(privateKey: string, cryptoType?: number): BrowserWasmKeypair
   generateMnemonic(nWords?: number): string
+}
+
+export interface BrowserWasmRuntime {
+  readonly specVersion: number
+  readonly transactionVersion: number
+  readonly ss58Format: number
+  readonly isV15: boolean
+  readonly extrinsicVersion: number
+  decode(typeString: string, data: Uint8Array, strict?: boolean): unknown
+  batchDecode(typeStrings: string[], data: Uint8Array[]): unknown[]
+  encode(typeString: string, value: ScaleValue): Uint8Array
+  typeIdOf(name: string): number | undefined
+  typeNameOf(id: number): string | undefined
+  registryJson(): string
+  composeCall(pallet: string, fn: string, params: ScaleValue): Uint8Array
+  decodeCall(data: Uint8Array): unknown
+  storageEntry(pallet: string, storageFunction: string): BrowserStorageEntry
+  storagePrefix(pallet: string, storageFunction: string): Uint8Array
+  storageKey(pallet: string, storageFunction: string, params: ScaleValue[]): Uint8Array
+  storageKeyBatch(pallet: string, storageFunction: string, paramsList: ScaleValue[][]): Uint8Array[]
+  decodeStorageKeyParams(
+    pallet: string,
+    storageFunction: string,
+    key: Uint8Array,
+    fixed?: number,
+  ): unknown[]
+  decodeMapPairs(
+    pallet: string,
+    storageFunction: string,
+    rawKeys: Uint8Array[],
+    rawValues: Uint8Array[],
+    fixed?: number,
+  ): Array<[unknown, unknown]>
+  decodeMapChanges(
+    pallet: string,
+    storageFunction: string,
+    changes: Array<[string, string | null]>,
+    fixed?: number,
+  ): Array<[unknown, unknown]>
+  constant(pallet: string, name: string): unknown
+  moduleError(moduleIndex: number, errorIndex: number): [string, string[]]
+  signedExtensionIdentifiers(): string[]
+  encodeEra(era: ScaleValue): Uint8Array
+  signaturePayloadParts(
+    era: ScaleValue,
+    nonce: BrowserIntegerLike,
+    tip: BrowserIntegerLike,
+    tipAssetId: BrowserIntegerLike | null,
+    genesisHash: Uint8Array,
+    eraBlockHash: Uint8Array,
+    metadataHash?: Uint8Array,
+  ): [Uint8Array, Uint8Array]
+  signaturePayload(
+    callData: Uint8Array,
+    era: ScaleValue,
+    nonce: BrowserIntegerLike,
+    tip: BrowserIntegerLike,
+    tipAssetId: BrowserIntegerLike | null,
+    genesisHash: Uint8Array,
+    eraBlockHash: Uint8Array,
+    metadataHash?: Uint8Array,
+  ): Uint8Array
+  encodeSignedExtrinsic(
+    callData: Uint8Array,
+    publicKey: Uint8Array,
+    signature: Uint8Array,
+    signatureVersion: number,
+    era: ScaleValue,
+    nonce: BrowserIntegerLike,
+    tip: BrowserIntegerLike,
+    tipAssetId: BrowserIntegerLike | null,
+    metadataHashEnabled?: boolean,
+  ): [Uint8Array, Uint8Array]
+  decodeExtrinsic(data: Uint8Array, strict?: boolean): unknown
+  runtimeApiMap(): BrowserRuntimeApiMap
+  metadataIr(): BrowserMetadataIr
+}
+
+export interface BrowserWasmRuntimeConstructor {
+  new (
+    metadataBytes: Uint8Array,
+    specVersion: number,
+    transactionVersion: number,
+    ss58Format?: number,
+  ): BrowserWasmRuntime
 }
 
 export type BrowserWasmLoader = () => Promise<BrowserWasmModule>
@@ -195,6 +382,264 @@ function keyTypeForCryptoType(cryptoType: number): SubstrateKeyType {
   if (cryptoType === CRYPTO_ED25519) return 'ed25519'
   if (cryptoType === CRYPTO_SR25519) return 'sr25519'
   throw new RangeError(`unsupported crypto type ${cryptoType}`)
+}
+
+function copyStorageEntry(entry: BrowserStorageEntry): BrowserStorageEntry {
+  return {
+    ...entry,
+    paramTypes: entry.paramTypes.slice(),
+    paramHashers: entry.paramHashers.slice(),
+    defaultBytes: copyBytes(entry.defaultBytes, 'defaultBytes'),
+  }
+}
+
+function copyByteList(values: Uint8Array[]): Uint8Array[] {
+  return values.map((value) => copyBytes(value))
+}
+
+function mapPairs<K, V>(pairs: Array<[unknown, unknown]>): Array<BrowserMapPair<K, V>> {
+  return pairs.map(([key, value]) => ({ key: key as K, value: value as V }))
+}
+
+function metadataHashArg(value?: BrowserByteLike | null): Uint8Array | undefined {
+  return value == null ? undefined : toBytes(value, 'metadataHash')
+}
+
+export class Runtime {
+  private readonly handle: BrowserWasmRuntime
+
+  constructor(
+    metadataBytes: BrowserByteLike,
+    specVersion: number,
+    transactionVersion: number,
+    ss58Format = DEFAULT_SS58_FORMAT,
+  ) {
+    this.handle = new (wasmSync().Runtime)(
+      toBytes(metadataBytes, 'metadataBytes'),
+      specVersion,
+      transactionVersion,
+      ss58Format,
+    )
+  }
+
+  get specVersion(): number {
+    return this.handle.specVersion
+  }
+
+  get transactionVersion(): number {
+    return this.handle.transactionVersion
+  }
+
+  get ss58Format(): number {
+    return this.handle.ss58Format
+  }
+
+  get isV15(): boolean {
+    return this.handle.isV15
+  }
+
+  get extrinsicVersion(): number {
+    return this.handle.extrinsicVersion
+  }
+
+  decode<T extends ScaleValue = ScaleValue>(
+    typeString: string,
+    data: BrowserByteLike,
+    strict = true,
+  ): T {
+    return this.handle.decode(typeString, toBytes(data, 'data'), strict) as T
+  }
+
+  decodeBatch<T extends ScaleValue = ScaleValue>(
+    typeStrings: string[],
+    data: BrowserByteLike[],
+  ): T[] {
+    return this.handle.batchDecode(typeStrings, data.map((value) => toBytes(value, 'data'))) as T[]
+  }
+
+  encode(typeString: string, value: ScaleValue): Uint8Array {
+    return copyBytes(this.handle.encode(typeString, value))
+  }
+
+  typeIdOf(name: string): number | null {
+    return this.handle.typeIdOf(name) ?? null
+  }
+
+  typeNameOf(id: number): string | null {
+    return this.handle.typeNameOf(id) ?? null
+  }
+
+  registryJson(): string {
+    return this.handle.registryJson()
+  }
+
+  composeCall(pallet: string, fn: string, params: ScaleValue): Uint8Array {
+    return copyBytes(this.handle.composeCall(pallet, fn, params))
+  }
+
+  decodeCall<T extends ScaleValue = ScaleValue>(data: BrowserByteLike): T {
+    return this.handle.decodeCall(toBytes(data, 'data')) as T
+  }
+
+  storageEntry(pallet: string, storageFunction: string): BrowserStorageEntry {
+    return copyStorageEntry(this.handle.storageEntry(pallet, storageFunction))
+  }
+
+  storagePrefix(pallet: string, storageFunction: string): Uint8Array {
+    return copyBytes(this.handle.storagePrefix(pallet, storageFunction))
+  }
+
+  storageKey(
+    pallet: string,
+    storageFunction: string,
+    params: ScaleValue[] = [],
+  ): Uint8Array {
+    return copyBytes(this.handle.storageKey(pallet, storageFunction, params))
+  }
+
+  storageKeyBatch(
+    pallet: string,
+    storageFunction: string,
+    paramsList: ScaleValue[][],
+  ): Uint8Array[] {
+    return copyByteList(this.handle.storageKeyBatch(pallet, storageFunction, paramsList))
+  }
+
+  decodeStorageKeyParams<T extends ScaleValue = ScaleValue>(
+    pallet: string,
+    storageFunction: string,
+    key: BrowserByteLike,
+    fixed = 0,
+  ): T[] {
+    return this.handle.decodeStorageKeyParams(
+      pallet,
+      storageFunction,
+      toBytes(key, 'key'),
+      fixed,
+    ) as T[]
+  }
+
+  decodeMapPairs<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
+    pallet: string,
+    storageFunction: string,
+    rawKeys: BrowserByteLike[],
+    rawValues: BrowserByteLike[],
+    fixed = 0,
+  ): Array<BrowserMapPair<K, V>> {
+    return mapPairs<K, V>(
+      this.handle.decodeMapPairs(
+        pallet,
+        storageFunction,
+        rawKeys.map((value) => toBytes(value, 'rawKey')),
+        rawValues.map((value) => toBytes(value, 'rawValue')),
+        fixed,
+      ),
+    )
+  }
+
+  decodeMapChanges<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
+    pallet: string,
+    storageFunction: string,
+    changes: BrowserStorageChange[],
+    fixed = 0,
+  ): Array<BrowserMapPair<K, V>> {
+    return mapPairs<K, V>(
+      this.handle.decodeMapChanges(
+        pallet,
+        storageFunction,
+        changes.map((change) => [change.key, change.value ?? null]),
+        fixed,
+      ),
+    )
+  }
+
+  constant<T extends ScaleValue = ScaleValue>(pallet: string, name: string): T | undefined {
+    return this.handle.constant(pallet, name) as T | undefined
+  }
+
+  moduleError(moduleIndex: number, errorIndex: number): ModuleError {
+    const [name, docs] = this.handle.moduleError(moduleIndex, errorIndex)
+    return { name, docs: docs.slice() }
+  }
+
+  signedExtensionIdentifiers(): string[] {
+    return this.handle.signedExtensionIdentifiers().slice()
+  }
+
+  encodeEra(era: ScaleValue): Uint8Array {
+    return copyBytes(this.handle.encodeEra(era))
+  }
+
+  signaturePayloadParts(params: BrowserTransactionParams): BrowserPayloadParts {
+    const [includedInExtrinsic, includedInSignedData] = this.handle.signaturePayloadParts(
+      params.era,
+      params.nonce,
+      params.tip ?? 0,
+      params.tipAssetId ?? null,
+      toBytes(params.genesisHash, 'genesisHash'),
+      toBytes(params.eraBlockHash, 'eraBlockHash'),
+      metadataHashArg(params.metadataHash),
+    )
+    return {
+      includedInExtrinsic: copyBytes(includedInExtrinsic),
+      includedInSignedData: copyBytes(includedInSignedData),
+    }
+  }
+
+  signaturePayload(callData: BrowserByteLike, params: BrowserTransactionParams): Uint8Array {
+    return copyBytes(
+      this.handle.signaturePayload(
+        toBytes(callData, 'callData'),
+        params.era,
+        params.nonce,
+        params.tip ?? 0,
+        params.tipAssetId ?? null,
+        toBytes(params.genesisHash, 'genesisHash'),
+        toBytes(params.eraBlockHash, 'eraBlockHash'),
+        metadataHashArg(params.metadataHash),
+      ),
+    )
+  }
+
+  encodeSignedExtrinsic(
+    callData: BrowserByteLike,
+    publicKey: BrowserByteLike,
+    signature: BrowserByteLike,
+    signatureVersion: number,
+    params: BrowserSignedExtrinsicParams,
+  ): BrowserSignedExtrinsic {
+    const [bytes, hash] = this.handle.encodeSignedExtrinsic(
+      toBytes(callData, 'callData'),
+      toBytes(publicKey, 'publicKey'),
+      toBytes(signature, 'signature'),
+      signatureVersion,
+      params.era,
+      params.nonce,
+      params.tip ?? 0,
+      params.tipAssetId ?? null,
+      params.metadataHashEnabled ?? false,
+    )
+    return { bytes: copyBytes(bytes), hash: copyBytes(hash) }
+  }
+
+  decodeExtrinsic<T extends ScaleValue = ScaleValue>(
+    data: BrowserByteLike,
+    strict = true,
+  ): T {
+    return this.handle.decodeExtrinsic(toBytes(data, 'data'), strict) as T
+  }
+
+  runtimeApiMap(): BrowserRuntimeApiMap {
+    return this.handle.runtimeApiMap()
+  }
+
+  runtimeApis(): BrowserRuntimeApiMap {
+    return this.runtimeApiMap()
+  }
+
+  metadataIr(): BrowserMetadataIr {
+    return this.handle.metadataIr()
+  }
 }
 
 export class Keypair {
@@ -380,6 +825,24 @@ export async function ready(): Promise<BrowserWasmModule> {
 
 export function coreVersion(): string {
   return wasmSync().coreVersion()
+}
+
+export function eraBirth(period: BrowserIntegerLike, current: BrowserIntegerLike): number {
+  return wasmSync().eraBirth(period, current)
+}
+
+export function multisigAccountId(
+  signatories: BrowserByteLike[],
+  threshold: number,
+): BrowserMultisigAccount {
+  const [accountId, sortedSignatories] = wasmSync().multisigAccountId(
+    signatories.map((value) => toBytes(value, 'signatory')),
+    threshold,
+  )
+  return {
+    accountId: copyBytes(accountId),
+    sortedSignatories: copyByteList(sortedSignatories),
+  }
 }
 
 export function verifySignature(
