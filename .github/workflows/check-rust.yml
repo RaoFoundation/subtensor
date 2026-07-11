@@ -189,7 +189,10 @@ jobs:
       # Behavioral gate for the JS marshalling seam: the smoke test replays
       # the golden fixtures (byte-exact calls, storage keys, signature
       # payloads) plus the BigInt/u256/depth boundary probes that a type
-      # check can never see. --dev skips wasm-opt; speed over binary size.
+      # check can never see. Release profile, not --dev: the unoptimized
+      # build overflows wasm's per-function locals limit (wasm-bindgen
+      # rejects it with "too many locals"), and release is the artifact
+      # that actually ships to npm.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -200,7 +203,7 @@ jobs:
           wasm-pack --version
       - name: wasm smoke test (node)
         run: |
-          wasm-pack build sdk/bittensor-core-wasm --dev --target nodejs --out-dir pkg-node
+          wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node
           node sdk/bittensor-core-wasm/tests/smoke.mjs
 
   fix:
