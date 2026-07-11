@@ -1,19 +1,9 @@
-name: Fireactions runner density benchmark
+name: Fireactions Bittensor artifact scaling benchmark
 
 on:
   push:
     branches:
       - codex/fireactions-runner-density-experiment
-  workflow_dispatch:
-    inputs:
-      cache_mode:
-        description: Compiler-cache mode for this benchmark round
-        required: true
-        default: warm-r2
-        type: choice
-        options:
-          - warm-r2
-          - cold-local
 
 permissions:
   contents: read
@@ -24,10 +14,7 @@ concurrency:
 
 jobs:
   benchmark:
-    # This matrix measures per-host batch makespan and throughput. Because each
-    # density has different co-tenancy, do not treat individual job durations
-    # as a clean per-core scaling curve; the isolated round covers that next.
-    name: ${{ matrix.profile.name }} / ${{ matrix.workload }} / ${{ inputs.cache_mode || 'cold-local' }}
+    name: ${{ matrix.profile.name }} / bittensor-${{ matrix.runtime }} / cold-local
     if: github.ref_name == 'codex/fireactions-runner-density-experiment'
     runs-on: [self-hosted, "${{ matrix.profile.label }}"]
     timeout-minutes: 120
@@ -46,26 +33,32 @@ jobs:
             label: fireactions-density-4c
           - name: 4x16-oversubscribed
             label: fireactions-density-16c-over
-        workload:
-          - clippy-default
-          - clippy-all
-          - cargo-fix
-          - eco-tests
-          - node-release
-          - node-fast-runtime
-          - workspace-test-build
-          - runtime-artifacts
+        runtime:
+          - fast-runtime
+          - non-fast-runtime
 
     steps:
       - name: Check out benchmark source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Install Rust and benchmark dependencies
-        uses: ./.github/actions/rust-setup
-        with:
-          cache-key: density-${{ matrix.workload }}
-          components: clippy
-          extra-packages: time
+      # Reproduce the production Bittensor E2E artifact build path instead of
+      # substituting a simpler cargo build. This intentionally includes the
+      # workflow's pinned Rust toolchain and cross-compiler setup.
+      - name: Install exact Bittensor build environment
+        shell: bash
+        run: |
+          chmod +x ./scripts/install_build_env.sh
+          ./scripts/install_build_env.sh
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends time
+
+      - name: Shared R2 compiler cache bootstrap
+        uses: ./.github/actions/sccache-setup
+
+      - name: Patch limits for local run
+        shell: bash
+        run: |
+          chmod +x ./scripts/localnet_patch.sh
+          ./scripts/localnet_patch.sh
 
       - name: Record guest allocation
         shell: bash
@@ -74,65 +67,30 @@ jobs:
             echo "### Runner allocation"
             echo
             echo "- Profile: \`${{ matrix.profile.name }}\`"
+            echo "- Runtime: \`${{ matrix.runtime }}\`"
             echo "- Runner: \`${RUNNER_NAME}\`"
             echo "- Logical CPUs visible: \`$(nproc)\`"
             echo "- Memory visible: \`$(awk '/MemTotal/ { printf \"%.1f GiB\", $2 / 1024 / 1024 }' /proc/meminfo)\`"
-            echo "- Cache mode: \`${{ inputs.cache_mode || 'cold-local' }}\`"
+            echo "- Cache mode: \`cold-local\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Add runtime build targets
-        if: matrix.workload == 'runtime-artifacts'
-        shell: bash
-        run: |
-          rustup target add wasm32-unknown-unknown
-          rustup component add rust-src
-
-      - name: Run representative workload
-        id: workload
+      - name: Build exact Bittensor artifacts
         shell: bash
         env:
-          CACHE_MODE: ${{ inputs.cache_mode || 'cold-local' }}
-          WORKLOAD: ${{ matrix.workload }}
+          RUNTIME: ${{ matrix.runtime }}
         run: |
           set -euo pipefail
 
-          case "$WORKLOAD" in
-            clippy-default)
-              command='SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings'
-              ;;
-            clippy-all)
-              command='SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings'
-              ;;
-            cargo-fix)
-              command='SKIP_WASM_BUILD=1 cargo fix --workspace'
-              ;;
-            eco-tests)
-              command='SKIP_WASM_BUILD=1 cargo test --manifest-path eco-tests/Cargo.toml'
-              ;;
-            node-release)
-              command='cargo build --profile release -p node-subtensor'
-              ;;
-            node-fast-runtime)
-              command='cargo build --profile release --features fast-runtime -p node-subtensor'
-              ;;
-            workspace-test-build)
-              command='SKIP_WASM_BUILD=1 cargo test --workspace --all-features --locked --no-run'
-              ;;
-            runtime-artifacts)
-              command='cargo build --profile production -p node-subtensor-runtime --features try-runtime --locked && cargo build --release -p node-subtensor'
-              ;;
-            *)
-              echo "Unknown workload: $WORKLOAD" >&2
-              exit 2
-              ;;
-          esac
+          # Disable the MMDS-provided R2 wrapper for a clean CPU-scaling
+          # comparison. Each profile runs the same two builds concurrently.
+          unset RUSTC_WRAPPER
+          export PATH="$HOME/.cargo/bin:$PATH"
+          export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
 
-          if [[ "$CACHE_MODE" == cold-local ]]; then
-            unset RUSTC_WRAPPER
-            echo "R2 sccache disabled for cold-local CPU-scaling round"
-          elif [[ "${SCCACHE_ENABLED:-}" != true || "${SCCACHE_BACKEND:-}" != r2 ]]; then
-            echo "warm-r2 was requested but the R2 compiler cache is unavailable" >&2
-            exit 1
+          if [[ "$RUNTIME" == fast-runtime ]]; then
+            command='./scripts/localnet.sh --build-only'
+          else
+            command='./scripts/localnet.sh False --build-only'
           fi
 
           started_at=$(date +%s)
@@ -144,9 +102,8 @@ jobs:
 
           {
             echo
-            echo "### Workload result"
+            echo "### Exact Bittensor build result"
             echo
-            echo "- Workload: \`$WORKLOAD\`"
             echo "- Command: \`$command\`"
             echo "- Elapsed wall time: \`$((finished_at - started_at))s\`"
             echo "- Exit status: \`$status\`"
@@ -160,18 +117,3 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           exit "$status"
-
-      - name: Report compiler-cache statistics
-        if: always()
-        shell: bash
-        run: |
-          if command -v sccache >/dev/null 2>&1; then
-            {
-              echo
-              echo "### sccache statistics"
-              echo
-              echo '```text'
-              sccache --show-stats 2>&1 || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
