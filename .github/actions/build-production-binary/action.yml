@@ -36,6 +36,7 @@ runs:
         set -euo pipefail
         rust_sysroot=$(rustc --print sysroot)
         export LD_LIBRARY_PATH="${rust_sysroot}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        export WASM_BUILD_WORKSPACE_HINT="$GITHUB_WORKSPACE"
         cross build \
           --target "$TARGET" \
           --package node-subtensor \
