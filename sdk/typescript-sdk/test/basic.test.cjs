@@ -63,6 +63,16 @@ test('mnemonics and secret URIs never appear in public keypair metadata', () => 
   assert.equal(derived.meta.suri, undefined)
 })
 
+test('private key bytes are not exported to JavaScript', () => {
+  const alice = core.Keypair.fromUri('//Alice')
+  assert.equal(Object.prototype.hasOwnProperty.call(alice, 'privateKey'), false)
+  assert.equal('privateKey' in alice, false)
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(core.native.NativeKeypair.prototype, 'privateKey'),
+    false,
+  )
+})
+
 test('fallible Runtime construction uses the native factory', () => {
   assert.throws(
     () => new core.Runtime(Buffer.from([0, 1, 2, 3]), 1, 1),

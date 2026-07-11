@@ -138,6 +138,10 @@ pub enum KeypairInner {
 }
 
 impl KeypairInner {
+    fn has_private_key(&self) -> bool {
+        matches!(self, KeypairInner::Ed25519(_) | KeypairInner::Sr25519(_))
+    }
+
     fn private_key_bytes(&self) -> Option<Vec<u8>> {
         match self {
             KeypairInner::Ed25519(pair) => Some(pair.to_raw_vec()),
@@ -375,6 +379,7 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            derivation_source: None,
         })
     }
 
@@ -421,6 +426,10 @@ impl Keypair {
 
     pub fn ss58_format(&self) -> u16 {
         self.ss58_format
+    }
+
+    pub fn has_private_key(&self) -> bool {
+        self.inner.has_private_key()
     }
 
     pub fn private_key_bytes(&self) -> Option<Vec<u8>> {

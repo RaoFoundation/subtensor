@@ -224,11 +224,6 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return this.publicKey
   }
 
-  get privateKey(): Buffer | null {
-    const value = this.handle.privateKey
-    return value == null ? null : Buffer.from(value)
-  }
-
   get ss58Address(): string {
     return this.handle.ss58Address
   }

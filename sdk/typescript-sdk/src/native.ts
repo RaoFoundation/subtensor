@@ -4,7 +4,6 @@ export interface NativeKeypairHandle {
   readonly cryptoType: number
   readonly kind: 'Ed25519' | 'Sr25519' | 'PublicOnly'
   readonly publicKey: Buffer
-  readonly privateKey?: Buffer | null
   readonly ss58Address: string
   readonly ss58Format: number
   derive(path: string): NativeKeypairHandle

@@ -25,7 +25,7 @@ impl NativeKeypair {
 
     #[napi(getter)]
     pub fn kind(&self) -> String {
-        if self.inner.private_key_bytes().is_none() {
+        if !self.inner.has_private_key() {
             return "PublicOnly".to_owned();
         }
         match self.inner.crypto_type() {
@@ -38,11 +38,6 @@ impl NativeKeypair {
     #[napi(getter)]
     pub fn public_key(&self) -> Buffer {
         self.inner.public_key_bytes().to_vec().into()
-    }
-
-    #[napi(getter)]
-    pub fn private_key(&self) -> Option<Buffer> {
-        self.inner.private_key_bytes().map(Into::into)
     }
 
     #[napi(getter)]
