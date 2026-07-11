@@ -142,7 +142,7 @@ impl NativeCursor {
 #[napi]
 impl NativeCursor {
     #[napi(factory, js_name = "fromBytes")]
-    pub fn from_bytes(data: Buffer, strict: bool, offset: u32) -> NapiResult<Self> {
+    pub fn from_bytes(data: Buffer, strict: bool, offset: u32) -> napi::Result<Self> {
         let offset =
             usize::try_from(offset).map_err(|_| invalid_arg("cursor offset does not fit usize"))?;
         if offset > data.len() {
@@ -215,7 +215,7 @@ impl NativeCursor {
 
     #[napi]
     pub fn byte(&mut self) -> NapiResult<u8> {
-        self.consume(Cursor::byte)
+        self.consume(|cursor| cursor.byte())
     }
 
     #[napi(js_name = "decodeCompactU128")]
@@ -353,7 +353,7 @@ impl NativeRuntime {
         spec_version: u32,
         transaction_version: u32,
         ss58_format: u16,
-    ) -> NapiResult<Self> {
+    ) -> napi::Result<Self> {
         let inner = Runtime::parse(
             metadata_bytes.as_ref(),
             spec_version,

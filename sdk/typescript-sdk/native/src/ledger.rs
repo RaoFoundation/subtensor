@@ -25,7 +25,7 @@ pub struct NativeLedgerDevice {
 #[napi]
 impl NativeLedgerDevice {
     #[napi(factory)]
-    pub fn open() -> NapiResult<Self> {
+    pub fn open() -> napi::Result<Self> {
         LedgerDevice::open().napi().map(|inner| Self { inner })
     }
 
