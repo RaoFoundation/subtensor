@@ -56,6 +56,11 @@ impl NativeKeypair {
     }
 
     #[napi]
+    pub fn derive(&self, path: String) -> NapiResult<NativeKeypair> {
+        self.inner.derive(&path).napi().map(NativeKeypair::new)
+    }
+
+    #[napi]
     pub fn sign(&self, message: Buffer) -> NapiResult<Buffer> {
         self.inner.sign(message.as_ref()).napi().map(Into::into)
     }

@@ -249,7 +249,7 @@ test('raw native escape hatch includes the complete low-level bridge', () => {
   assert.equal(typeof core.native.NativeRuntime.fromMetadata, 'function')
 })
 
-test('password-protected mnemonic keypairs derive children without exposing secrets', () => {
+test('password-protected mnemonic keypairs derive entirely through the native handle', () => {
   const mnemonic =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
   const password = 'protected-derivation-password'
@@ -264,10 +264,22 @@ test('password-protected mnemonic keypairs derive children without exposing secr
     `${mnemonic}//child//grandchild///${password}`,
   )
   assert.deepEqual(grandchild.publicKey, expectedGrandchild.publicKey)
+  assert.equal(typeof core.native.NativeKeypair.prototype.derive, 'function')
 
   for (const pair of [parent, child, grandchild]) {
     assert.equal(pair.meta.suri, undefined)
     assert.equal(Object.prototype.hasOwnProperty.call(pair, 'sourceUri'), false)
     assert.equal(Object.prototype.hasOwnProperty.call(pair, 'derivationSource'), false)
   }
+})
+
+test('rustCore mirrors the Rust CoreError module and root re-export', () => {
+  assert.equal(core.rustCore.CoreError, core.CoreError)
+  assert.equal(core.rustCore.error.CoreError, core.CoreError)
+  assert.equal(core.rustCore.error.KeyfileError, core.KeyfileError)
+  assert.equal(core.rustCore.error.WrongPasswordError, core.WrongPasswordError)
+  assert.equal(core.rustCore.error.NotInRuntimeError, core.NotInRuntimeError)
+  assert.equal(core.rustCore.error.CodecError, core.CodecError)
+  assert.equal(core.rustCore.error.CryptoError, core.CryptoError)
+  assert.equal(core.rustCore.error.DeviceError, core.DeviceError)
 })

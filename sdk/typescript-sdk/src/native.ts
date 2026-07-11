@@ -7,6 +7,7 @@ export interface NativeKeypairHandle {
   readonly privateKey?: Buffer | null
   readonly ss58Address: string
   readonly ss58Format: number
+  derive(path: string): NativeKeypairHandle
   sign(message: Buffer): Buffer
   verify(message: Buffer, signature: Buffer): boolean
   encrypt(message: Buffer): Buffer
@@ -240,6 +241,7 @@ export interface NativeLedgerConstructor {
 }
 
 export interface NativeBinding {
+  NativeKeypair: { readonly prototype: NativeKeypairHandle }
   NativeRuntime: NativeRuntimeConstructor
   NativeCursor: NativeCursorConstructor
   NativeLedgerDevice: NativeLedgerConstructor

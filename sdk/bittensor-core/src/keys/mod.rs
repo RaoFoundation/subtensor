@@ -147,10 +147,67 @@ impl KeypairInner {
     }
 }
 
+struct DerivationSource {
+    base_uri: Zeroizing<String>,
+    password: Option<Zeroizing<String>>,
+}
+
+impl DerivationSource {
+    fn from_mnemonic(mnemonic: &str, password: Option<&str>) -> Self {
+        Self {
+            base_uri: Zeroizing::new(mnemonic.to_owned()),
+            password: password.map(|value| Zeroizing::new(value.to_owned())),
+        }
+    }
+
+    fn from_uri(uri: &str) -> Self {
+        let Some((base_uri, password)) = uri.split_once("///") else {
+            return Self {
+                base_uri: Zeroizing::new(uri.to_owned()),
+                password: None,
+            };
+        };
+        Self {
+            base_uri: Zeroizing::new(base_uri.to_owned()),
+            password: Some(Zeroizing::new(password.to_owned())),
+        }
+    }
+
+    fn child(&self, path: &str) -> Result<Self, CoreError> {
+        if path.is_empty() || !path.starts_with('/') || path.contains("///") {
+            return Err(crypto_err(
+                "derivation path must start with '/' and must not contain a password",
+            ));
+        }
+        let mut base_uri = String::with_capacity(self.base_uri.len() + path.len());
+        base_uri.push_str(self.base_uri.as_str());
+        base_uri.push_str(path);
+        Ok(Self {
+            base_uri: Zeroizing::new(base_uri),
+            password: self
+                .password
+                .as_ref()
+                .map(|value| Zeroizing::new(value.as_str().to_owned())),
+        })
+    }
+
+    fn secret_uri(&self) -> Zeroizing<String> {
+        let password_len = self.password.as_ref().map_or(0, |value| value.len() + 3);
+        let mut uri = String::with_capacity(self.base_uri.len() + password_len);
+        uri.push_str(self.base_uri.as_str());
+        if let Some(password) = &self.password {
+            uri.push_str("///");
+            uri.push_str(password.as_str());
+        }
+        Zeroizing::new(uri)
+    }
+}
+
 /// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
 pub struct Keypair {
     inner: KeypairInner,
     ss58_format: u16,
+    derivation_source: Option<DerivationSource>,
 }
 
 impl Keypair {
@@ -194,6 +251,7 @@ impl Keypair {
                 crypto_type,
             },
             ss58_format,
+            derivation_source: None,
         })
     }
 
@@ -219,6 +277,7 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            derivation_source: Some(DerivationSource::from_mnemonic(mnemonic, password)),
         })
     }
 
@@ -238,26 +297,52 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            derivation_source: None,
+        })
+    }
+
+    fn inner_from_uri(uri: &str, crypto_type: u8) -> Result<KeypairInner, CoreError> {
+        match crypto_type {
+            CRYPTO_SR25519 => sr25519::Pair::from_string(uri, None)
+                .map(KeypairInner::Sr25519)
+                .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}"))),
+            CRYPTO_ED25519 => ed25519::Pair::from_string(uri, None)
+                .map(KeypairInner::Ed25519)
+                .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}"))),
+            other => Err(crypto_err(format!("unknown crypto type {other}"))),
+        }
+    }
+
+    fn from_derivation_source(
+        source: DerivationSource,
+        crypto_type: u8,
+        ss58_format: u16,
+    ) -> Result<Self, CoreError> {
+        let secret_uri = source.secret_uri();
+        let inner = Self::inner_from_uri(secret_uri.as_str(), crypto_type)?;
+        Ok(Self {
+            inner,
+            ss58_format,
+            derivation_source: Some(source),
         })
     }
 
     /// Derive a keypair from a secret URI (e.g. "//Alice" or "<mnemonic>//hard/soft").
     pub fn from_uri(uri: &str, crypto_type: u8) -> Result<Self, CoreError> {
-        let inner = match crypto_type {
-            CRYPTO_SR25519 => KeypairInner::Sr25519(
-                sr25519::Pair::from_string(uri, None)
-                    .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}")))?,
-            ),
-            CRYPTO_ED25519 => KeypairInner::Ed25519(
-                ed25519::Pair::from_string(uri, None)
-                    .map_err(|e| crypto_err(format!("invalid secret uri: {e:?}")))?,
-            ),
-            other => return Err(crypto_err(format!("unknown crypto type {other}"))),
-        };
-        Ok(Self {
-            inner,
-            ss58_format: DEFAULT_SS58_FORMAT,
-        })
+        Self::from_derivation_source(
+            DerivationSource::from_uri(uri),
+            crypto_type,
+            DEFAULT_SS58_FORMAT,
+        )
+    }
+
+    /// Derive a child without exposing or reconstructing its secret URI outside Rust.
+    pub fn derive(&self, path: &str) -> Result<Self, CoreError> {
+        let source = self
+            .derivation_source
+            .as_ref()
+            .ok_or_else(|| crypto_err("derivation requires a mnemonic or secret URI keypair"))?;
+        Self::from_derivation_source(source.child(path)?, self.crypto_type(), self.ss58_format)
     }
 
     /// Derive a keypair from a hex-encoded private key or seed bytes.
@@ -344,7 +429,11 @@ impl Keypair {
 
     #[cfg(feature = "host")]
     pub(crate) fn from_inner(inner: KeypairInner, ss58_format: u16) -> Self {
-        Self { inner, ss58_format }
+        Self {
+            inner,
+            ss58_format,
+            derivation_source: None,
+        }
     }
 
     /// Sign a message; returns the raw 64-byte signature.
@@ -464,6 +553,27 @@ mod tests {
             kp.ss58_address(),
             "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
         );
+    }
+
+    #[test]
+    fn password_protected_mnemonic_derives_inside_keypair() {
+        let mnemonic =
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let password = "protected-derivation-password";
+        let parent = Keypair::from_mnemonic(mnemonic, CRYPTO_SR25519, Some(password)).unwrap();
+        let child = parent.derive("//child").unwrap();
+        let expected =
+            Keypair::from_uri(&format!("{mnemonic}//child///{password}"), CRYPTO_SR25519).unwrap();
+        assert_eq!(child.public_key_bytes(), expected.public_key_bytes());
+
+        let grandchild = child.derive("//grandchild").unwrap();
+        let expected = Keypair::from_uri(
+            &format!("{mnemonic}//child//grandchild///{password}"),
+            CRYPTO_SR25519,
+        )
+        .unwrap();
+        assert_eq!(grandchild.public_key_bytes(), expected.public_key_bytes());
+        assert!(parent.derive("///replacement-password").is_err());
     }
 
     #[test]

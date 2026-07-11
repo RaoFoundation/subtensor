@@ -93,3 +93,5 @@ export function nativeCall<T>(operation: () => T): T {
     throw mapNativeError(error)
   }
 }
+
+export { BittensorCoreError as CoreError }

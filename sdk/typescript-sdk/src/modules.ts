@@ -1,4 +1,5 @@
 import * as crypto from './crypto'
+import * as errors from './errors'
 import * as keys from './keys'
 import { LedgerDevice } from './ledger'
 import native from './native'
@@ -13,6 +14,17 @@ import type { ByteLike } from './types'
  * while retaining the idiomatic top-level TypeScript exports.
  */
 export const rustCore = Object.freeze({
+  CoreError: errors.CoreError,
+  error: Object.freeze({
+    CoreError: errors.CoreError,
+    BittensorCoreError: errors.BittensorCoreError,
+    KeyfileError: errors.KeyfileError,
+    WrongPasswordError: errors.WrongPasswordError,
+    NotInRuntimeError: errors.NotInRuntimeError,
+    CodecError: errors.CodecError,
+    CryptoError: errors.CryptoError,
+    DeviceError: errors.DeviceError,
+  }),
   keys: Object.freeze({
     Keypair: keys.Keypair,
     CRYPTO_ED25519: keys.CRYPTO_ED25519,

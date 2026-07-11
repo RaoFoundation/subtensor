@@ -33,12 +33,13 @@
   "scripts": {
     "build:native": "napi build --manifest-path native/Cargo.toml --output-dir . --platform --release --all-features --js native.cjs --dts native.generated.d.ts",
     "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
-    "build": "npm run build:native && npm run build:ts",
+    "build": "npm run build:native && npm run check:native-parity && npm run build:ts",
     "check": "npm run build && npm test",
     "test": "node --test test/*.test.cjs",
     "clean": "node scripts/clean.cjs",
     "prepack": "npm run build",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:native-parity": "node scripts/check-native-parity.cjs"
   },
   "napi": {
     "binaryName": "bittensor_sdk"

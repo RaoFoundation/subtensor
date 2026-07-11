@@ -69,3 +69,12 @@ const ciphertext = sealMevShieldTransaction(mlKemPublicKey, call)
 Large SCALE integers are returned as `bigint`; byte carriers are returned as
 `Buffer`. A decoded SCALE dictionary with non-string keys is returned as a
 `Map`, so no key information is lost.
+
+## Native parity and secret derivation
+
+Mnemonic, password, and secret-URI derivation state is retained only by the Rust
+`Keypair`; TypeScript calls the native handle's `derive(path)` method and never
+reconstructs a child secret URI. `npm run build` also compares the freshly
+generated N-API declarations with `src/native.ts`, including every native class
+method, so Rust additions cannot silently disappear from the documented
+TypeScript boundary.

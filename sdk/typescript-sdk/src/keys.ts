@@ -67,39 +67,10 @@ function unsupported(operation: string): never {
 }
 
 /**
- * Keep derivation secrets and mutable metadata outside the JavaScript object
- * shape. TypeScript's `private` keyword is compile-time only and would leave
- * class fields enumerable at runtime.
+ * Keep mutable compatibility metadata outside the JavaScript object shape.
+ * Mnemonics, passwords, and secret URIs stay exclusively in NativeKeypair.
  */
-interface DerivationSource {
-  baseUri: string
-  password?: string
-}
-
 const metadataStore = new WeakMap<object, KeypairMetadata>()
-const derivationSourceStore = new WeakMap<object, DerivationSource>()
-
-function derivationSourceFromMnemonic(
-  mnemonic: string,
-  password?: string | null,
-): DerivationSource {
-  return password == null ? { baseUri: mnemonic } : { baseUri: mnemonic, password }
-}
-
-function derivationSourceFromUri(uri: string): DerivationSource {
-  const passwordSeparator = uri.indexOf('///')
-  if (passwordSeparator === -1) return { baseUri: uri }
-  return {
-    baseUri: uri.slice(0, passwordSeparator),
-    password: uri.slice(passwordSeparator + 3),
-  }
-}
-
-function derivationUri(source: DerivationSource): string {
-  return source.password === undefined
-    ? source.baseUri
-    : `${source.baseUri}///${source.password}`
-}
 
 function sanitizeMetadata(metadata: KeypairMetadata): KeypairMetadata {
   const sanitized = { ...metadata }
@@ -140,15 +111,11 @@ export class Keypair implements PolkadotCompatibleKeypair {
 
   private static wrap(
     handle: NativeKeypairHandle,
-    derivationSource?: DerivationSource,
     metadata: KeypairMetadata = {},
   ): Keypair {
     const keypair = Object.create(Keypair.prototype) as Keypair
     keypair.handle = handle
     metadataStore.set(keypair, sanitizeMetadata(metadata))
-    if (derivationSource != null) {
-      derivationSourceStore.set(keypair, { ...derivationSource })
-    }
     return keypair
   }
 
@@ -159,7 +126,6 @@ export class Keypair implements PolkadotCompatibleKeypair {
   ): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromMnemonic(mnemonic, cryptoType, password ?? undefined)),
-      derivationSourceFromMnemonic(mnemonic, password),
       { type: keyTypeForCryptoType(cryptoType) },
     )
   }
@@ -175,7 +141,6 @@ export class Keypair implements PolkadotCompatibleKeypair {
   static fromSeed(seed: ByteLike, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromSeed(toBuffer(seed, 'seed'), cryptoType)),
-      undefined,
       { type: keyTypeForCryptoType(cryptoType) },
     )
   }
@@ -187,7 +152,6 @@ export class Keypair implements PolkadotCompatibleKeypair {
   static fromUri(uri: string, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromUri(uri, cryptoType)),
-      derivationSourceFromUri(uri),
       { type: keyTypeForCryptoType(cryptoType) },
     )
   }
@@ -199,7 +163,6 @@ export class Keypair implements PolkadotCompatibleKeypair {
   static fromPrivateKey(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromPrivateKey(privateKey, cryptoType)),
-      undefined,
       { type: keyTypeForCryptoType(cryptoType) },
     )
   }
@@ -328,25 +291,14 @@ export class Keypair implements PolkadotCompatibleKeypair {
   }
 
   derive(suri: string, meta: KeypairMetadata = {}): Keypair {
-    const source = derivationSourceStore.get(this)
-    if (source == null) {
-      throw new Error('derivation requires a keypair created from a mnemonic or secret URI')
-    }
-
-    const childSource: DerivationSource = {
-      ...source,
-      baseUri: `${source.baseUri}${suri}`,
-    }
     const derived = Keypair.wrap(
-      nativeCall(() =>
-        native.keypairFromUri(derivationUri(childSource), this.cryptoType),
-      ),
-      childSource,
+      nativeCall(() => this.handle.derive(suri)),
       { type: keyTypeForCryptoType(this.cryptoType) },
     )
     derived.setMeta(meta)
     return derived
   }
+
   setMeta(meta: KeypairMetadata): void {
     metadataStore.set(
       this,
