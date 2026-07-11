@@ -13,6 +13,9 @@ inputs:
   extra-packages:
     description: "Extra apt packages beyond the standard build set"
     default: ""
+  fast-linker:
+    description: "Install and configure mold for native x86_64 builds"
+    default: "true"
   sccache-credential-mode:
     description: "reader for CI; writer only for a protected trusted-branch cache warmer"
     default: "reader"
@@ -41,7 +44,8 @@ runs:
       with:
         components: ${{ inputs.components }}
 
-    - name: Fast linker and CI debuginfo trim
+    - name: Fast linker
+      if: inputs.fast-linker == 'true'
       shell: bash
       run: |
         # mold links in a fraction of GNU ld's time, and cargo test alone
@@ -59,6 +63,10 @@ runs:
         else
           echo "mold unavailable; keeping default linker"
         fi
+
+    - name: CI debuginfo trim
+      shell: bash
+      run: |
         # Nothing in CI consumes full debuginfo; line tables keep panic
         # backtraces readable while cutting codegen time and disk I/O.
         # (Jobs that export RUSTFLAGS, like the warnings check, override the

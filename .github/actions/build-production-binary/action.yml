@@ -18,6 +18,9 @@ runs:
     - uses: ./.github/actions/rust-setup
       with:
         cache-key: ${{ inputs.cache-key }}
+        # cross mounts Cargo configuration into its build container. Avoid
+        # selecting the host's mold binary, which is not present there.
+        fast-linker: "false"
 
     - name: Install pinned cross compiler driver
       shell: bash
