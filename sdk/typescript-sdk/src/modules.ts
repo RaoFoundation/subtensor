@@ -2,7 +2,7 @@ import * as crypto from './crypto'
 import * as errors from './errors'
 import * as keys from './keys'
 import * as client from './client'
-import { LedgerDevice } from './ledger'
+import { LedgerDevice, LedgerSigner } from './ledger'
 import native from './native'
 import * as runtime from './runtime'
 import * as timelock from './timelock'
@@ -142,6 +142,6 @@ export const rustCore = Object.freeze({
     }),
   }),
   signers: Object.freeze({
-    ledger: Object.freeze({ LedgerDevice }),
+    ledger: Object.freeze({ LedgerDevice, LedgerSigner }),
   }),
 })

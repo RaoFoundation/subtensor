@@ -8,6 +8,101 @@ const test = require('node:test')
 
 const core = require('../dist/index.js')
 
+function compactLength(buffer, offset) {
+  const first = buffer[offset]
+  const mode = first & 0b11
+  if (mode === 0) return { length: first >> 2, offset: offset + 1 }
+  if (mode === 1) return { length: buffer.readUInt16LE(offset) >> 2, offset: offset + 2 }
+  if (mode === 2) return { length: buffer.readUInt32LE(offset) >>> 2, offset: offset + 4 }
+  const bytes = (first >> 2) + 4
+  let length = 0
+  for (let i = 0; i < bytes; i += 1) length += buffer[offset + 1 + i] * (256 ** i)
+  return { length, offset: offset + 1 + bytes }
+}
+
+function goldenMetadataBytes() {
+  const golden = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, '..', '..', 'python', 'tests', 'fixtures', 'golden.json'),
+      'utf8',
+    ),
+  )
+  const raw = Buffer.from(golden.metadata.v15_hex.slice(2), 'hex')
+  assert.equal(raw[0], 1)
+  const decoded = compactLength(raw, 1)
+  return raw.subarray(decoded.offset, decoded.offset + decoded.length)
+}
+
+function ledgerProofVector() {
+  const vector = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, '..', '..', 'bittensor-core', 'fixtures', 'ledger_proof_vector.json'),
+      'utf8',
+    ),
+  )
+  return {
+    specVersion: vector.spec_version,
+    callData: Buffer.from(vector.call_data_hex, 'hex'),
+    includedInExtrinsic: Buffer.from(vector.included_in_extrinsic_hex, 'hex'),
+    includedInSignedData: Buffer.from(vector.included_in_signed_data_hex, 'hex'),
+  }
+}
+
+function fakeSigningRuntime(overrides = {}) {
+  const captures = {}
+  const runtime = {
+    specVersion: 419,
+    transactionVersion: 1,
+    ss58Format: 42,
+    metadataBytes: Buffer.alloc(0),
+    signaturePayloadParts(params) {
+      captures.partsParams = params
+      return {
+        includedInExtrinsic: Buffer.from([1]),
+        includedInSignedData: Buffer.from([2]),
+      }
+    },
+    signaturePayload(_callData, params) {
+      captures.payloadParams = params
+      return Buffer.from([9, 9, 9])
+    },
+    encodeSignedExtrinsic(callData, publicKey, signature, signatureVersion, params) {
+      captures.encoded = { callData, publicKey, signature, signatureVersion, params }
+      return {
+        bytes: Buffer.concat([Buffer.from([signatureVersion]), signature.subarray(0, 2)]),
+        hash: Buffer.alloc(32, 7),
+      }
+    },
+    ...overrides,
+  }
+  return { runtime, captures }
+}
+
+function fakeSigningClient(runtime, callData) {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  client.runtimeAt = async () => runtime
+  client.callData = async () => Buffer.from(callData)
+  client.accountNextIndex = async (address) => {
+    client.lastNonceAddress = address
+    return 12
+  }
+  client.genesisHash = async () => `0x${'41'.repeat(32)}`
+  client.rpc = async (method) => {
+    if (method === 'state_getRuntimeVersion') {
+      return {
+        specName: 'node-subtensor',
+        specVersion: runtime.specVersion,
+        transactionVersion: runtime.transactionVersion,
+      }
+    }
+    if (method === 'system_properties') {
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    throw new Error(`unexpected RPC ${method}`)
+  }
+  return client
+}
+
 test('package exposes a WASM browser subset without the Node native addon', () => {
   const root = path.join(__dirname, '..')
   const packageJson = JSON.parse(
@@ -472,6 +567,7 @@ test('module-shaped export mirrors the public Rust crate', () => {
   assert.equal(core.rustCore.codec.batch.PARALLEL_THRESHOLD, core.PARALLEL_THRESHOLD)
   assert.equal(core.rustCore.client.Client, core.Client)
   assert.equal(core.rustCore.client.storage.System.Events[0], 'System')
+  assert.equal(core.rustCore.signers.ledger.LedgerSigner, core.LedgerSigner)
   assert.equal(core.rustCore.mlkem.MLKEM_NONCE_LEN, 24)
   assert.equal(core.rustCore.timelock.constants.GENESIS_TIME, core.GENESIS_TIME)
   assert.deepEqual(core.rustCore.timelock.epoch_schedule.EpochScheduleError, [
@@ -505,6 +601,125 @@ test('chain client surface is exported without Polkadot.js glue', () => {
     'root_register',
     { hotkey: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
   ])
+})
+
+test('Client signs extrinsics with extension-style signRaw signers', async () => {
+  const callData = Buffer.from([5, 6, 7])
+  const { runtime, captures } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 6)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const typedSignature = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    Buffer.alloc(64, 9),
+  ])
+  let request
+  const signer = {
+    address,
+    publicKey,
+    signRaw(req) {
+      request = req
+      return { signature: `0x${typedSignature.toString('hex')}` }
+    },
+  }
+
+  const signed = await client.signExtrinsic(callData, signer, { period: null })
+
+  assert.equal(signed.signerAddress, address)
+  assert.equal(client.lastNonceAddress, address)
+  assert.equal(request.address, address)
+  assert.equal(request.type, 'bytes')
+  assert.equal(request.data, '0x090909')
+  assert.equal(request.metadataProof, undefined)
+  assert.deepEqual(captures.encoded.callData, callData)
+  assert.deepEqual(captures.encoded.publicKey, publicKey)
+  assert.deepEqual(captures.encoded.signature, Buffer.alloc(64, 9))
+  assert.equal(captures.encoded.signatureVersion, core.CRYPTO_SR25519)
+  assert.equal(captures.encoded.params.metadataHashEnabled, false)
+})
+
+test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', async () => {
+  const vector = ledgerProofVector()
+  const metadataBytes = goldenMetadataBytes()
+  const captures = {}
+  const { runtime } = fakeSigningRuntime({
+    specVersion: vector.specVersion,
+    metadataBytes,
+    signaturePayloadParts(params) {
+      captures.partsParams = params
+      return {
+        includedInExtrinsic: vector.includedInExtrinsic,
+        includedInSignedData: vector.includedInSignedData,
+      }
+    },
+    signaturePayload(_callData, params) {
+      captures.payloadParams = params
+      return Buffer.from([9, 9, 9])
+    },
+    encodeSignedExtrinsic(callData, publicKey, signature, signatureVersion, params) {
+      captures.encoded = { callData, publicKey, signature, signatureVersion, params }
+      return {
+        bytes: Buffer.concat([Buffer.from([signatureVersion]), signature.subarray(0, 2)]),
+        hash: Buffer.alloc(32, 7),
+      }
+    },
+  })
+  const client = fakeSigningClient(runtime, vector.callData)
+  const publicKey = Buffer.alloc(32, 5)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const ledgerCalls = {}
+  const fakeDevice = {
+    address(account, index, ss58Prefix, confirm) {
+      ledgerCalls.address = { account, index, ss58Prefix, confirm }
+      return { publicKey, ss58Address: address }
+    },
+    sign(account, index, payload, proof) {
+      ledgerCalls.sign = {
+        account,
+        index,
+        payload: Buffer.from(payload),
+        proof: Buffer.from(proof),
+      }
+      return Buffer.concat([Buffer.from([core.CRYPTO_ED25519]), Buffer.alloc(64, 7)])
+    },
+  }
+  const signer = new core.LedgerSigner(fakeDevice, {
+    account: 1,
+    index: 2,
+    confirmAddress: true,
+  })
+  const chainInfo = {
+    specVersion: vector.specVersion,
+    specName: 'node-subtensor',
+    base58Prefix: 42,
+    decimals: 9,
+    tokenSymbol: 'TAO',
+  }
+
+  const signed = await client.signExtrinsic(vector.callData, signer, { period: null })
+  const expectedMetadataHash = core.metadataDigest(metadataBytes, chainInfo)
+  const expectedProof = core.generateExtrinsicProof(
+    vector.callData,
+    vector.includedInExtrinsic,
+    vector.includedInSignedData,
+    metadataBytes,
+    chainInfo,
+  )
+
+  assert.equal(signed.signerAddress, address)
+  assert.deepEqual(ledgerCalls.address, {
+    account: 1,
+    index: 2,
+    ss58Prefix: 42,
+    confirm: true,
+  })
+  assert.deepEqual(captures.partsParams.metadataHash, expectedMetadataHash)
+  assert.deepEqual(ledgerCalls.sign.payload, Buffer.from([9, 9, 9]))
+  assert.deepEqual(ledgerCalls.sign.proof, expectedProof)
+  assert.deepEqual(captures.encoded.callData, vector.callData)
+  assert.deepEqual(captures.encoded.signature, Buffer.alloc(64, 7))
+  assert.equal(captures.encoded.signatureVersion, core.CRYPTO_ED25519)
+  assert.equal(captures.encoded.params.metadataHashEnabled, true)
 })
 
 test('hotkey helpers encrypt keyfiles when a password is provided', (t) => {

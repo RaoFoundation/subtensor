@@ -1,9 +1,10 @@
-import { blake2_256 } from './crypto'
-import { Keypair } from './keys'
+import { blake2_256, generateExtrinsicProof, metadataDigest } from './crypto'
+import { CRYPTO_SR25519, Keypair, publicKeyFromSs58 } from './keys'
+import { LedgerDevice } from './ledger'
 import { Runtime, eraBirth } from './runtime'
 import { toBuffer } from './wire'
 import { Balance, type BalanceLike, balanceRao } from './balance'
-import type { ByteLike, ScaleValue, SignedExtrinsic } from './types'
+import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, TransactionParams } from './types'
 
 export const SS58_FORMAT = 42
 export const DEFAULT_ERA_PERIOD = 128
@@ -38,6 +39,77 @@ export interface SubmitOptions {
   waitForFinalization?: boolean
 }
 
+export interface SignerAccountContext {
+  client: Client
+  runtime: Runtime
+  ss58Format: number
+}
+
+export interface SignerAccount {
+  ss58Address?: string
+  address?: string
+  publicKey?: ByteLike
+  cryptoType?: number
+  requiresMetadataProof?: boolean
+  requiresMetadataHash?: boolean
+}
+
+export interface SignerPayloadContext {
+  client: Client
+  runtime: Runtime
+  address: string
+  publicKey: Buffer
+  cryptoType: number
+  callData: Buffer
+  payload: Buffer
+  txParams: TransactionParams
+  metadataHash: Buffer | null
+  metadataProof?: Buffer
+  proof?: Buffer
+  includedInExtrinsic?: Buffer
+  includedInSignedData?: Buffer
+  chainInfo?: ChainInfo
+}
+
+export interface ExtensionSignRawRequest {
+  address: string
+  data: string
+  type: 'bytes'
+  payload: Buffer
+  metadataHash?: string
+  metadataProof?: Buffer
+  proof?: Buffer
+  chainInfo?: ChainInfo
+}
+
+export type SignerSignature =
+  | ByteLike
+  | string
+  | { signature: ByteLike | string }
+
+export interface ChainSigner {
+  readonly ss58Address?: string
+  readonly address?: string
+  readonly publicKey?: ByteLike
+  readonly cryptoType?: number
+  readonly requiresMetadataProof?: boolean
+  readonly requiresMetadataHash?: boolean
+  getAccount?(context: SignerAccountContext): SignerAccount | Promise<SignerAccount>
+  sign?(
+    payload: ByteLike,
+    context?: SignerPayloadContext,
+  ): SignerSignature | Promise<SignerSignature>
+  signPayload?(
+    payload: ByteLike,
+    context: SignerPayloadContext,
+  ): SignerSignature | Promise<SignerSignature>
+  signRaw?(
+    request: ExtensionSignRawRequest,
+  ): SignerSignature | Promise<SignerSignature>
+}
+
+export type SignerLike = Keypair | ChainSigner | LedgerDevice
+
 export interface ExtrinsicResult {
   success: boolean
   message: string
@@ -54,6 +126,7 @@ export interface ExtrinsicResult {
 
 export interface SignedExtrinsicResult extends SignedExtrinsic {
   hex: string
+  signerAddress: string
 }
 
 export interface ExtrinsicWatcher {
@@ -87,6 +160,19 @@ interface SubscriptionState {
   waiters: Array<(value: IteratorResult<unknown>) => void>
   errors: Array<(error: Error) => void>
   closed: boolean
+}
+
+interface ResolvedSigner {
+  signer: Keypair | ChainSigner
+  ss58Address: string
+  publicKey: Buffer
+  cryptoType: number
+  requiresMetadataProof: boolean
+}
+
+interface NormalizedSignature {
+  signature: Buffer
+  cryptoType: number
 }
 
 type WebSocketLike = {
@@ -385,6 +471,32 @@ export class Client {
     return runtime
   }
 
+  async chainInfo(runtime?: Runtime): Promise<ChainInfo> {
+    const resolvedRuntime = runtime ?? await this.runtimeAt()
+    const [version, properties] = await Promise.all([
+      this.rpc('state_getRuntimeVersion'),
+      this.rpc('system_properties').catch(() => ({})),
+    ])
+    const runtimeVersion = version as { specName?: unknown; specVersion?: unknown }
+    const chainProperties = properties as Record<string, unknown>
+    return {
+      specVersion: Number(runtimeVersion.specVersion ?? resolvedRuntime.specVersion),
+      specName: String(runtimeVersion.specName ?? 'node-subtensor'),
+      base58Prefix: propertyNumber(
+        chainProperties.ss58Format ?? chainProperties.ss58Prefix,
+        resolvedRuntime.ss58Format,
+      ),
+      decimals: propertyNumber(
+        chainProperties.tokenDecimals ?? chainProperties.decimals,
+        9,
+      ),
+      tokenSymbol: propertyString(
+        chainProperties.tokenSymbol ?? chainProperties.symbol,
+        'TAO',
+      ),
+    }
+  }
+
   rpc(method: string, params: unknown[] = []): Promise<unknown> {
     return this.transport.request(method, params)
   }
@@ -660,42 +772,87 @@ export class Client {
     return READS.slice()
   }
 
-  async signExtrinsic(call: CallLike, keypair: Keypair, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
-    const runtime = await this.runtimeAt()
-    const callData = await this.callData(call)
-    const nonce = options.nonce ?? (await this.accountNextIndex(keypair.ss58Address))
-    const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
-    const { era, eraBlockHash } = await this.normalizeEra(period)
-    const tip = balanceRao(options.tip ?? 0)
-    const tipAssetId = options.tipAssetId == null ? null : balanceRao(options.tipAssetId)
-    const metadataHash = options.metadataHash == null ? null : toBuffer(options.metadataHash, 'metadataHash')
-    const txParams = {
-      era,
-      nonce,
-      tip,
-      tipAssetId,
-      genesisHash: hexToBuffer(await this.genesisHash()),
-      eraBlockHash: hexToBuffer(eraBlockHash),
-      metadataHash,
+  async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
+    let resolved: ResolvedSigner | undefined
+    let shouldClearNonce = false
+    try {
+      const runtime = await this.runtimeAt()
+      const callData = await this.callData(call)
+      resolved = await this.resolveSigner(signer, runtime)
+      const nonce = options.nonce ?? (await this.accountNextIndex(resolved.ss58Address))
+      shouldClearNonce = options.nonce == null
+      const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
+      const { era, eraBlockHash } = await this.normalizeEra(period)
+      const tip = balanceRao(options.tip ?? 0)
+      const tipAssetId = options.tipAssetId == null ? null : balanceRao(options.tipAssetId)
+      const chainInfo = resolved.requiresMetadataProof ? await this.chainInfo(runtime) : undefined
+      const metadataHash =
+        options.metadataHash == null
+          ? resolved.requiresMetadataProof
+            ? metadataDigest(runtime.metadataBytes, chainInfo!)
+            : null
+          : toBuffer(options.metadataHash, 'metadataHash')
+      const txParams = {
+        era,
+        nonce,
+        tip,
+        tipAssetId,
+        genesisHash: hexToBuffer(await this.genesisHash()),
+        eraBlockHash: hexToBuffer(eraBlockHash),
+        metadataHash,
+      }
+      const proofParts = resolved.requiresMetadataProof
+        ? runtime.signaturePayloadParts(txParams)
+        : undefined
+      const metadataProof = proofParts == null
+        ? undefined
+        : generateExtrinsicProof(
+            callData,
+            proofParts.includedInExtrinsic,
+            proofParts.includedInSignedData,
+            runtime.metadataBytes,
+            chainInfo!,
+          )
+      const payload = runtime.signaturePayload(callData, txParams)
+      const context: SignerPayloadContext = {
+        client: this,
+        runtime,
+        address: resolved.ss58Address,
+        publicKey: resolved.publicKey,
+        cryptoType: resolved.cryptoType,
+        callData,
+        payload,
+        txParams,
+        metadataHash,
+        metadataProof,
+        proof: metadataProof,
+        includedInExtrinsic: proofParts?.includedInExtrinsic,
+        includedInSignedData: proofParts?.includedInSignedData,
+        chainInfo,
+      }
+      const signedBySigner = await this.signWithSigner(resolved.signer, payload, context)
+      const signed = runtime.encodeSignedExtrinsic(callData, resolved.publicKey, signedBySigner.signature, signedBySigner.cryptoType, {
+        era,
+        nonce,
+        tip,
+        tipAssetId,
+        metadataHashEnabled: metadataHash != null,
+      })
+      return { ...signed, hex: hex(signed.bytes), signerAddress: resolved.ss58Address }
+    } catch (error) {
+      if (shouldClearNonce && resolved != null) this.clearNonce(resolved.ss58Address)
+      throw error
     }
-    const payload = runtime.signaturePayload(callData, txParams)
-    const signature = keypair.sign(payload)
-    const signed = runtime.encodeSignedExtrinsic(callData, keypair.publicKey, signature, keypair.cryptoType, {
-      era,
-      nonce,
-      tip,
-      tipAssetId,
-      metadataHashEnabled: metadataHash != null,
-    })
-    return { ...signed, hex: hex(signed.bytes) }
   }
 
-  async submit(call: CallLike, keypair: Keypair, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    let signerAddress = staticSignerAddress(signer)
     try {
-      const signed = await this.signExtrinsic(call, keypair, options)
-      return await this.submitSigned(signed, keypair.ss58Address, options)
+      const signed = await this.signExtrinsic(call, signer, options)
+      signerAddress = signed.signerAddress
+      return await this.submitSigned(signed, signed.signerAddress, options)
     } catch (error) {
-      this.clearNonce(keypair.ss58Address)
+      if (signerAddress != null) this.clearNonce(signerAddress)
       throw error
     }
   }
@@ -763,12 +920,13 @@ export class Client {
     this.nonceCache.delete(address)
   }
 
-  async estimateFee(call: CallLike, keypair: Keypair): Promise<Balance> {
-    const signed = await this.signExtrinsic(call, keypair, {
-      nonce: await this.accountNextIndex(keypair.ss58Address, false),
+  async estimateFee(call: CallLike, signer: SignerLike): Promise<Balance> {
+    const runtime = await this.runtimeAt()
+    const account = await this.resolveSigner(signer, runtime)
+    const signed = await this.signExtrinsic(call, signer, {
+      nonce: await this.accountNextIndex(account.ss58Address, false),
       period: null,
     })
-    const runtime = await this.runtimeAt()
     const length = Buffer.alloc(4)
     length.writeUInt32LE(signed.bytes.length, 0)
     const raw = await this.rpc('state_call', ['TransactionPaymentApi_query_info', hex(Buffer.concat([signed.bytes, length])), null])
@@ -780,86 +938,86 @@ export class Client {
     return Balance.fromRao(String(info.partial_fee ?? info.partialFee ?? 0))
   }
 
-  submitCall(pallet: string, fn: string, params: ScaleValue, keypair: Keypair, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submit([pallet, fn, params], keypair, options)
+  submitCall(pallet: string, fn: string, params: ScaleValue, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit([pallet, fn, params], signer, options)
   }
 
-  submit_call(pallet: string, fn: string, params: ScaleValue, keypair: Keypair, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submitCall(pallet, fn, params, keypair, options)
+  submit_call(pallet: string, fn: string, params: ScaleValue, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submitCall(pallet, fn, params, signer, options)
   }
 
-  transfer(keypair: Keypair, dest: string, amount: BalanceLike, options: SubmitOptions & { keepAlive?: boolean } = {}): Promise<ExtrinsicResult> {
-    return this.submit(calls.balances[options.keepAlive === false ? 'transferAllowDeath' : 'transferKeepAlive'](dest, amount), keypair, {
+  transfer(signer: SignerLike, dest: string, amount: BalanceLike, options: SubmitOptions & { keepAlive?: boolean } = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.balances[options.keepAlive === false ? 'transferAllowDeath' : 'transferKeepAlive'](dest, amount), signer, {
       waitForInclusion: true,
       ...options,
     })
   }
 
-  transfer_keep_alive(keypair: Keypair, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.transfer(keypair, dest, amount, { keepAlive: true, ...options })
+  transfer_keep_alive(signer: SignerLike, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.transfer(signer, dest, amount, { keepAlive: true, ...options })
   }
 
-  transfer_allow_death(keypair: Keypair, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.transfer(keypair, dest, amount, { keepAlive: false, ...options })
+  transfer_allow_death(signer: SignerLike, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.transfer(signer, dest, amount, { keepAlive: false, ...options })
   }
 
-  setWeights(keypair: Keypair, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submit(calls.subtensor.setWeights(netuid, dests, weights, versionKey), keypair, { waitForInclusion: true, ...options })
+  setWeights(signer: SignerLike, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.setWeights(netuid, dests, weights, versionKey), signer, { waitForInclusion: true, ...options })
   }
 
-  set_weights(keypair: Keypair, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.setWeights(keypair, netuid, dests, weights, versionKey, options)
+  set_weights(signer: SignerLike, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.setWeights(signer, netuid, dests, weights, versionKey, options)
   }
 
-  burnedRegister(keypair: Keypair, netuid: number, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submit(calls.subtensor.burnedRegister(netuid, hotkey), keypair, { waitForInclusion: true, ...options })
+  burnedRegister(signer: SignerLike, netuid: number, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.burnedRegister(netuid, hotkey), signer, { waitForInclusion: true, ...options })
   }
 
-  burned_register(keypair: Keypair, netuid: number, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.burnedRegister(keypair, netuid, hotkey, options)
+  burned_register(signer: SignerLike, netuid: number, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.burnedRegister(signer, netuid, hotkey, options)
   }
 
-  rootRegister(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submit(calls.subtensor.rootRegister(hotkey), keypair, { waitForInclusion: true, ...options })
+  rootRegister(signer: SignerLike, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.rootRegister(hotkey), signer, { waitForInclusion: true, ...options })
   }
 
-  root_register(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.rootRegister(keypair, hotkey, options)
+  root_register(signer: SignerLike, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.rootRegister(signer, hotkey, options)
   }
 
-  registerNetwork(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submit(calls.subtensor.registerNetwork(hotkey), keypair, { waitForInclusion: true, ...options })
+  registerNetwork(signer: SignerLike, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.registerNetwork(hotkey), signer, { waitForInclusion: true, ...options })
   }
 
-  register_network(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.registerNetwork(keypair, hotkey, options)
+  register_network(signer: SignerLike, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.registerNetwork(signer, hotkey, options)
   }
 
-  registerSubnet(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.registerNetwork(keypair, hotkey, options)
+  registerSubnet(signer: SignerLike, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.registerNetwork(signer, hotkey, options)
   }
 
-  register_subnet(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.registerSubnet(keypair, hotkey, options)
+  register_subnet(signer: SignerLike, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.registerSubnet(signer, hotkey, options)
   }
 
   serveAxon(
-    keypair: Keypair,
+    signer: SignerLike,
     args: { netuid: number; ip: number; port: number; version?: number; ipType?: number; protocol?: number },
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
-    return this.submit(calls.subtensor.serveAxon(args.netuid, args.ip, args.port, args.version, args.ipType, args.protocol), keypair, {
+    return this.submit(calls.subtensor.serveAxon(args.netuid, args.ip, args.port, args.version, args.ipType, args.protocol), signer, {
       waitForInclusion: true,
       ...options,
     })
   }
 
   serve_axon(
-    keypair: Keypair,
+    signer: SignerLike,
     args: { netuid: number; ip: number; port: number; version?: number; ipType?: number; protocol?: number },
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
-    return this.serveAxon(keypair, args, options)
+    return this.serveAxon(signer, args, options)
   }
 
   getBalance(address: string | Keypair, block?: number | string | null): Promise<Balance> {
@@ -933,6 +1091,69 @@ export class Client {
     if (block == null) return null
     if (typeof block === 'string') return block
     return this.blockHash(block)
+  }
+
+  private async resolveSigner(signer: SignerLike, runtime: Runtime): Promise<ResolvedSigner> {
+    const normalizedSigner: Keypair | ChainSigner =
+      signer instanceof LedgerDevice ? signer.signer() : signer
+    const signerShape = normalizedSigner as ChainSigner
+    const account = await signerShape.getAccount?.({
+      client: this,
+      runtime,
+      ss58Format: runtime.ss58Format,
+    })
+    const ss58Address =
+      accountAddress(account) ?? staticSignerAddress(normalizedSigner)
+    if (ss58Address == null) {
+      throw new ChainError('signer must expose an address, ss58Address, or getAccount()')
+    }
+    const publicKey = signerPublicKey(account?.publicKey ?? signerShape.publicKey, ss58Address)
+    const cryptoType = account?.cryptoType ?? signerShape.cryptoType ?? CRYPTO_SR25519
+    return {
+      signer: normalizedSigner,
+      ss58Address,
+      publicKey,
+      cryptoType,
+      requiresMetadataProof: Boolean(
+        account?.requiresMetadataProof ??
+          account?.requiresMetadataHash ??
+          signerShape.requiresMetadataProof ??
+          signerShape.requiresMetadataHash,
+      ),
+    }
+  }
+
+  private async signWithSigner(
+    signer: Keypair | ChainSigner,
+    payload: Buffer,
+    context: SignerPayloadContext,
+  ): Promise<NormalizedSignature> {
+    const signerShape = signer as ChainSigner
+    if (signerShape.signPayload != null) {
+      return normalizeSignature(
+        await signerShape.signPayload(payload, context),
+        context.cryptoType,
+      )
+    }
+    if (signerShape.signRaw != null) {
+      return normalizeSignature(
+        await signerShape.signRaw({
+          address: context.address,
+          data: hex(payload),
+          type: 'bytes',
+          payload,
+          metadataHash: context.metadataHash == null ? undefined : hex(context.metadataHash),
+          metadataProof: context.metadataProof,
+          proof: context.proof,
+          chainInfo: context.chainInfo,
+        }),
+        context.cryptoType,
+      )
+    }
+    if (signerShape.sign != null) {
+      return normalizeSignature(await signerShape.sign(payload, context), context.cryptoType)
+    }
+    throw new ChainError('signer must implement sign(), signPayload(), or signRaw()')
   }
 
   private async normalizeEra(period: number | null): Promise<{ era: ScaleValue; eraBlockHash: string }> {
@@ -1223,20 +1444,20 @@ export class StakingNamespace {
     return this.positions(coldkey, block)
   }
 
-  addStake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.client.submit(calls.subtensor.addStake(hotkey, netuid, amount), keypair, { waitForInclusion: true, ...options })
+  addStake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.client.submit(calls.subtensor.addStake(hotkey, netuid, amount), signer, { waitForInclusion: true, ...options })
   }
 
-  add_stake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.addStake(keypair, hotkey, netuid, amount, options)
+  add_stake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.addStake(signer, hotkey, netuid, amount, options)
   }
 
-  removeStake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.client.submit(calls.subtensor.removeStake(hotkey, netuid, amount), keypair, { waitForInclusion: true, ...options })
+  removeStake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.client.submit(calls.subtensor.removeStake(hotkey, netuid, amount), signer, { waitForInclusion: true, ...options })
   }
 
-  remove_stake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.removeStake(keypair, hotkey, netuid, amount, options)
+  remove_stake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.removeStake(signer, hotkey, netuid, amount, options)
   }
 }
 
@@ -1543,6 +1764,60 @@ async function read(client: Client, name: string, params: Record<string, ScaleVa
     default:
       throw new ChainError(`unknown read ${name}`)
   }
+}
+
+function firstProperty(value: unknown): unknown {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function propertyNumber(value: unknown, fallback: number): number {
+  const item = firstProperty(value)
+  if (item == null) return fallback
+  const parsed = Number(item)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function propertyString(value: unknown, fallback: string): string {
+  const item = firstProperty(value)
+  return item == null ? fallback : String(item)
+}
+
+function accountAddress(account?: SignerAccount | null): string | undefined {
+  return stringValue(account?.ss58Address) ?? stringValue(account?.address)
+}
+
+function staticSignerAddress(signer: unknown): string | undefined {
+  const value = signer as { ss58Address?: unknown; address?: unknown }
+  return stringValue(value.ss58Address) ?? stringValue(value.address)
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function signerPublicKey(value: ByteLike | undefined, ss58Address: string): Buffer {
+  return value == null
+    ? publicKeyFromSs58(ss58Address)
+    : toBuffer(value, 'signer.publicKey')
+}
+
+function normalizeSignature(
+  result: SignerSignature,
+  fallbackCryptoType: number,
+): NormalizedSignature {
+  const raw = signatureBytes(result)
+  if (raw.length === 65 && raw[0] <= CRYPTO_SR25519) {
+    return { signature: Buffer.from(raw.subarray(1)), cryptoType: raw[0] }
+  }
+  return { signature: raw, cryptoType: fallbackCryptoType }
+}
+
+function signatureBytes(result: SignerSignature): Buffer {
+  if (typeof result === 'string') return hexToBuffer(result)
+  if (Buffer.isBuffer(result) || result instanceof Uint8Array) {
+    return toBuffer(result, 'signature')
+  }
+  return signatureBytes(result.signature)
 }
 
 function resolveEndpoint(network: string): [string, string] {
