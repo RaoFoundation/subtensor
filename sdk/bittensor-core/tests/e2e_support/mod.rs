@@ -219,52 +219,19 @@ pub fn register_subnet(client: &Client, wallet: &Wallet) -> u16 {
 }
 
 pub fn transfer(dest: impl Into<String>, amount_rao: u128) -> IntentCall {
-    IntentCall::new(
-        "transfer",
-        SignerRole::Coldkey,
-        "Balances",
-        "transfer_keep_alive",
-        record([("dest", s(dest.into())), ("value", u128v(amount_rao))]),
-    )
-    .spend(Spend::Bounded(amount_rao))
+    IntentCall::transfer(dest, amount_rao)
 }
 
 pub fn transfer_allow_death(dest: impl Into<String>, amount_rao: u128) -> IntentCall {
-    IntentCall::new(
-        "transfer",
-        SignerRole::Coldkey,
-        "Balances",
-        "transfer_allow_death",
-        record([("dest", s(dest.into())), ("value", u128v(amount_rao))]),
-    )
-    .spend(Spend::Bounded(amount_rao))
+    IntentCall::transfer_allow_death(dest, amount_rao)
 }
 
 pub fn add_stake(hotkey: impl Into<String>, netuid: u16, amount_rao: u128) -> IntentCall {
-    IntentCall::new(
-        "add_stake",
-        SignerRole::Coldkey,
-        "SubtensorModule",
-        "add_stake",
-        record([
-            ("hotkey", s(hotkey.into())),
-            ("netuid", u(netuid)),
-            ("amount_staked", u128v(amount_rao)),
-        ]),
-    )
-    .spend(Spend::Bounded(amount_rao))
-    .touches([netuid])
+    IntentCall::add_stake(hotkey, netuid, amount_rao)
 }
 
 pub fn root_register(hotkey: impl Into<String>) -> IntentCall {
-    IntentCall::new(
-        "root_register",
-        SignerRole::Coldkey,
-        "SubtensorModule",
-        "root_register",
-        record([("hotkey", s(hotkey.into()))]),
-    )
-    .touches([0])
+    IntentCall::root_register(hotkey)
 }
 
 pub fn wait_for_blocks(client: &Client, count: u64) {
@@ -592,7 +559,7 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
         "fund_evm_key" => {
             let mut input = b"evm:".to_vec();
             input.extend_from_slice(&[0x11; 20]);
-            transfer(
+            IntentCall::fund_evm_key(
                 ss58_from_public(blake2_256(&input), ctx.client.ss58_format()),
                 one,
             )

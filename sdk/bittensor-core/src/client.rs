@@ -15,6 +15,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use codec::Decode;
 use reqwest::blocking::Client as HttpClient;
 use serde_json::{json, Value as JsonValue};
 
@@ -244,8 +245,7 @@ impl Client {
     }
 
     fn metadata(&self) -> Result<Vec<u8>, CoreError> {
-        let value = self.rpc_value("state_getMetadata", json!([]))?;
-        decode_hex(json_string(&value, "state_getMetadata result")?)
+        fetch_metadata(|method, params| self.rpc_value(method, params))
     }
 
     pub fn block_hash(&self, block: Option<u64>) -> Result<String, CoreError> {
@@ -1100,8 +1100,7 @@ impl RpcBootstrap {
     }
 
     fn metadata(&self) -> Result<Vec<u8>, CoreError> {
-        let value = self.rpc("state_getMetadata", json!([]))?;
-        decode_hex(json_string(&value, "state_getMetadata result")?)
+        fetch_metadata(|method, params| self.rpc(method, params))
     }
 
     fn block_hash(&self, block: Option<u64>) -> Result<String, CoreError> {
@@ -1145,6 +1144,50 @@ fn parse_runtime_version(value: JsonValue) -> Result<RuntimeVersion, CoreError> 
         transaction_version: u32::try_from(json_u64(transaction)?)
             .map_err(|_| CoreError::Rpc("transactionVersion does not fit u32".into()))?,
     })
+}
+
+/// Fetch metadata V15 when the runtime exposes the metadata runtime API.
+///
+/// `state_getMetadata` returns V14 on current Substrate nodes, which omits the
+/// runtime-API descriptions required by `Client::runtime_call`. Older nodes may
+/// not expose `Metadata_metadata_at_version`, so retain V14 as a compatibility
+/// fallback for storage reads and call composition.
+fn fetch_metadata<F>(mut rpc: F) -> Result<Vec<u8>, CoreError>
+where
+    F: FnMut(&str, JsonValue) -> Result<JsonValue, CoreError>,
+{
+    let requested_version = hex_prefixed(&15u32.to_le_bytes());
+    match rpc(
+        "state_call",
+        json!(["Metadata_metadata_at_version", requested_version]),
+    ) {
+        Ok(value) => {
+            let encoded = decode_hex(json_string(
+                &value,
+                "Metadata_metadata_at_version result",
+            )?)?;
+            let mut input = encoded.as_slice();
+            let metadata = Option::<Vec<u8>>::decode(&mut input).map_err(|error| {
+                CoreError::Codec(format!(
+                    "cannot decode Metadata_metadata_at_version result: {error}"
+                ))
+            })?;
+            if !input.is_empty() {
+                return Err(CoreError::Codec(format!(
+                    "{} trailing bytes in Metadata_metadata_at_version result",
+                    input.len()
+                )));
+            }
+            if let Some(metadata) = metadata {
+                return Ok(metadata);
+            }
+        }
+        Err(CoreError::Rpc(_)) => {}
+        Err(error) => return Err(error),
+    }
+
+    let value = rpc("state_getMetadata", json!([]))?;
+    decode_hex(json_string(&value, "state_getMetadata result")?)
 }
 
 fn rpc_request(
@@ -1360,12 +1403,28 @@ pub fn as_bool(value: &Value) -> Option<bool> {
 pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Bytes(bytes) => Some(bytes.clone()),
-        Value::Str(value) if value.starts_with("0x") => decode_hex(value).ok(),
-        Value::List(items) | Value::Tuple(items) => items
-            .iter()
-            .map(as_u128)
-            .map(|value| value.and_then(|value| u8::try_from(value).ok()))
-            .collect(),
+        Value::Str(value) => {
+            if value.starts_with("0x") {
+                decode_hex(value).ok()
+            } else {
+                Some(value.as_bytes().to_vec())
+            }
+        }
+        Value::List(items) | Value::Tuple(items) => {
+            let direct = items
+                .iter()
+                .map(as_u128)
+                .map(|value| value.and_then(|value| u8::try_from(value).ok()))
+                .collect::<Option<Vec<_>>>();
+            direct.or_else(|| match items.as_slice() {
+                [inner] => value_bytes(inner),
+                _ => None,
+            })
+        }
+        Value::Dict(entries) => match entries.as_slice() {
+            [(_, inner)] => value_bytes(inner),
+            _ => None,
+        },
         _ => None,
     }
 }

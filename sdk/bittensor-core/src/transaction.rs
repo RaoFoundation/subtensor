@@ -264,6 +264,23 @@ impl IntentCall {
         )
     }
 
+    /// Fund the native mirror of an EVM address with a bounded TAO amount.
+    pub fn fund_evm_key(mirror: impl Into<String>, amount_rao: u128) -> Self {
+        Self::trusted(
+            "fund_evm_key",
+            SignerRole::Coldkey,
+            "Balances",
+            "transfer_keep_alive",
+            Value::record(vec![
+                ("dest".into(), Value::str(mirror)),
+                ("value".into(), Value::Uint(amount_rao)),
+            ]),
+            Spend::Bounded(amount_rao),
+            [],
+            false,
+        )
+    }
+
     /// A bounded TAO transfer that may reap the sender.
     pub fn transfer_allow_death(dest: impl Into<String>, amount_rao: u128) -> Self {
         Self::trusted(

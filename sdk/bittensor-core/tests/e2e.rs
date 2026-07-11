@@ -618,7 +618,7 @@ fn test_key_association() {
         .client
         .query(
             "SubtensorModule",
-            "AssociatedEvmKey",
+            "AssociatedEvmAddress",
             &[u(netuid), u16v(0)],
             None,
         )
