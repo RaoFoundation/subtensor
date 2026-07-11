@@ -500,9 +500,7 @@ def _revealed_entry(entry: Any) -> tuple[int, str]:
         mode = raw[0] & 0b11
         # Big-int compact (mode 0b11): the low byte says how many length bytes follow.
         offset = (
-            1 + (raw[0] >> 2) + 4
-            if mode == 0b11
-            else 1 if mode == 0 else 2 if mode == 1 else 4
+            1 + (raw[0] >> 2) + 4 if mode == 0b11 else 1 if mode == 0 else 2 if mode == 1 else 4
         )
         raw = raw[offset:]
     try:

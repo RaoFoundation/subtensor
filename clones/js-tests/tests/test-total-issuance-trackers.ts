@@ -100,6 +100,7 @@ function assertMetadataAvailable() {
     ["SubtensorModule.NetworkRateLimit", api.query.subtensorModule?.networkRateLimit],
     ["SubtensorModule.NetworkMinLockCost", api.query.subtensorModule?.networkMinLockCost],
     ["SubtensorModule.NetworkLastLockCost", api.query.subtensorModule?.networkLastLockCost],
+    ["SubtensorModule.NetworkRegistrationQueue", api.query.subtensorModule?.networkRegistrationQueue],
     ["SubtensorModule.NetworksAdded", api.query.subtensorModule?.networksAdded],
     ["SubtensorModule.SubnetMovingPrice", api.query.subtensorModule?.subnetMovingPrice],
     ["SubtensorModule.Keys", api.query.subtensorModule?.keys],
@@ -300,14 +301,87 @@ async function exerciseEvmContractFees() {
 
 async function registerSubnet(owner, hotkey, label) {
   const result = await submitAndWait(owner, api.tx.subtensorModule.registerNetwork(hotkey.address), label);
-  const event = result.events.find(
-    ({ event }) => event.section === "subtensorModule" && event.method === "NetworkAdded"
-  );
-  assert.ok(event, `${label} did not emit NetworkAdded`);
+  let event = findNetworkAdded(result.events);
+  if (!event) {
+    // When the subnet limit is reached, register_network prunes a subnet and
+    // queues this registration (NetworkRegistrationQueued) instead of adding
+    // the network synchronously. NetworkAdded is emitted from on_idle once the
+    // pruned subnet's multi-phase storage cleanup completes — with real
+    // mainnet-scale maps that takes minutes of chunked work across blocks.
+    const queued = result.events.find(
+      ({ event }) => event.section === "subtensorModule" && event.method === "NetworkRegistrationQueued"
+    );
+    assert.ok(queued, `${label} emitted neither NetworkAdded nor NetworkRegistrationQueued`);
+    console.log(`${label}: queued behind dissolve cleanup, waiting for on_idle NetworkAdded ...`);
+    event = await waitForQueuedNetworkAdded(owner, label);
+  }
   const netuid = event.event.data[0].toNumber();
   assert.equal((await api.query.subtensorModule.networksAdded(netuid)).isTrue, true, `${netuid} was not added`);
+  const subnetOwnerOnChain = (await api.query.subtensorModule.subnetOwner(netuid)).toString();
+  assert.equal(subnetOwnerOnChain, owner.address, `${label}: netuid ${netuid} is owned by ${subnetOwnerOnChain}`);
   console.log(`${label}:`, `netuid=${netuid}`, `owner=${owner.address}`, `hotkey=${hotkey.address}`);
   return netuid;
+}
+
+function findNetworkAdded(records) {
+  return records.find(({ event }) => event.section === "subtensorModule" && event.method === "NetworkAdded");
+}
+
+const QUEUED_NETWORK_ADDED_TIMEOUT_MS = Number(
+  process.env.TOTAL_ISSUANCE_QUEUED_NETWORK_ADDED_TIMEOUT_MS ?? 15 * 60 * 1000
+);
+
+async function waitForQueuedNetworkAdded(owner, label) {
+  return new Promise<any>((resolve, reject) => {
+    let unsubscribe;
+    let settled = false;
+    let pending = Promise.resolve();
+
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe?.();
+      fn(value);
+    };
+
+    const timer = setTimeout(async () => {
+      const queue = await api.query.subtensorModule.networkRegistrationQueue();
+      finish(
+        reject,
+        new Error(
+          `${label}: no NetworkAdded for ${owner.address} within ${QUEUED_NETWORK_ADDED_TIMEOUT_MS}ms ` +
+            `(registration queue: ${queue.toString()})`
+        )
+      );
+    }, QUEUED_NETWORK_ADDED_TIMEOUT_MS);
+
+    api.query.system
+      .events((records) => {
+        // Serialize the async owner check so event batches are inspected in order.
+        pending = pending.then(async () => {
+          if (settled) return;
+          for (const record of records) {
+            const { event } = record;
+            if (event.section !== "subtensorModule" || event.method !== "NetworkAdded") continue;
+            const netuid = event.data[0].toNumber();
+            const onChainOwner = (await api.query.subtensorModule.subnetOwner(netuid)).toString();
+            if (onChainOwner === owner.address) {
+              console.log(`${label}: queued registration completed, netuid=${netuid}`);
+              finish(resolve, record);
+              return;
+            }
+            console.log(`${label}: ignoring NetworkAdded for netuid=${netuid} owned by ${onChainOwner}`);
+          }
+        });
+        pending.catch((error) => finish(reject, error));
+      })
+      .then((unsub) => {
+        unsubscribe = unsub;
+        if (settled) unsub();
+      })
+      .catch((error) => finish(reject, error));
+  });
 }
 
 async function setBurnBounds(netuid, amount) {

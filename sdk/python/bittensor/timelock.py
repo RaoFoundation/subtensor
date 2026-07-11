@@ -41,8 +41,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
-from bittensor_core import decrypt as _drand_decrypt
-from bittensor_core import encrypt_at_round as _drand_encrypt_at_round
+# Module import + attribute access (not `from bittensor_core import ...`):
+# ty cannot see into the compiled extension, so named imports fail its check.
+import bittensor_core as _core
 
 from .result import BittensorError
 
@@ -284,7 +285,7 @@ def encrypt(
         )
 
     payload = data.encode() if isinstance(data, str) else bytes(data)
-    ciphertext, actual_round = _drand_encrypt_at_round(payload, target_round)
+    ciphertext, actual_round = _core.encrypt_at_round(payload, target_round)
     return Timelocked(ciphertext=ciphertext, reveal_round=actual_round)
 
 
@@ -327,7 +328,7 @@ def decrypt(
     last_error: Optional[Exception] = None
     while True:
         try:
-            result = _drand_decrypt(sealed.ciphertext, False)
+            result = _core.decrypt(sealed.ciphertext, False)
             if result is not None:
                 return result
         except Exception as error:  # the rust binding raises plain ValueError
