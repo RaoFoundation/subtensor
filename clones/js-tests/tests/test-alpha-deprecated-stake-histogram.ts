@@ -43,8 +43,18 @@ async function main() {
     const header = await api.rpc.chain.getHeader();
     const blockHash = await api.rpc.chain.getBlockHash(header.number.unwrap());
     const counts = Object.fromEntries(BANDS.map(({ label }) => [label, 0n]));
-    const hotkeyTotals = new Map();
     const zeroDenominators = new Set();
+
+    // Prefetch the per-hotkey totals maps in full (a few hundred pages) so the
+    // Alpha scan below needs zero per-entry RPC round-trips. Looking the
+    // totals up one (hotkey, netuid) at a time meant hundreds of thousands of
+    // sequential storage queries on mainnet state, which blew the shard's
+    // per-test time budget before the scan even finished.
+    const totalsByKey = buildHotkeyTotals(
+      await fetchFullMap(api.query.subtensorModule.totalHotkeyAlpha, "prefetch_total_hotkey_alpha"),
+      await fetchFullMap(api.query.subtensorModule.totalHotkeyShares, "prefetch_total_hotkey_shares"),
+      await fetchFullMap(api.query.subtensorModule.totalHotkeySharesV2, "prefetch_total_hotkey_shares_v2")
+    );
 
     let startKey;
     let pages = 0;
@@ -77,7 +87,7 @@ async function main() {
 
       for (const [storageKey, shareValue] of entries) {
         const [hotkey, , netuid] = storageKey.args;
-        const totals = await getHotkeyTotals(api, hotkey, netuid, hotkeyTotals);
+        const totals = getHotkeyTotals(hotkey, netuid, totalsByKey);
 
         const shareRaw = codecToBigInt(shareValue);
         const stakeRao =
@@ -105,7 +115,7 @@ async function main() {
 
     await logger.info(`pages=${pages}`);
     await logger.info(`counted_alpha_keys=${total.toString()}`);
-    await logger.info(`hotkey_total_cache_entries=${hotkeyTotals.size}`);
+    await logger.info(`hotkey_total_cache_entries=${totalsByKey.size}`);
     await logger.info(`zero_total_hotkey_shares_keys=${zeroDenominators.size}`);
     await logger.info(`min_deprecated_stake_rao=${minStakeRao?.toString() ?? "n/a"}`);
     await logger.info(`max_deprecated_stake_rao=${maxStakeRao.toString()}`);
@@ -119,36 +129,61 @@ async function main() {
   }
 }
 
-async function getHotkeyTotals(
-  api,
-  hotkey,
-  netuid,
-  cache,
-): Promise<{ key: string; totalAlphaRao: bigint; denominatorNumerator: bigint; denominatorDenominator: bigint }> {
-  const key = `${hotkey.toString()}|${netuid.toString()}`;
-  const cached = cache.get(key);
+async function fetchFullMap(query, label) {
+  const map = new Map();
+  let startKey;
+  let pages = 0;
 
-  if (cached) {
-    return cached;
+  for (;;) {
+    const entries = await query.entriesPaged({ args: [], pageSize: PAGE_SIZE, startKey });
+    if (entries.length === 0) {
+      break;
+    }
+    pages += 1;
+    for (const [storageKey, value] of entries) {
+      const [hotkey, netuid] = storageKey.args;
+      map.set(`${hotkey.toString()}|${netuid.toString()}`, value);
+    }
+    startKey = entries.at(-1)[0];
   }
 
-  const [totalAlpha, sharesV1, sharesV2] = await Promise.all([
-    api.query.subtensorModule.totalHotkeyAlpha(hotkey, netuid),
-    api.query.subtensorModule.totalHotkeyShares(hotkey, netuid),
-    api.query.subtensorModule.totalHotkeySharesV2(hotkey, netuid),
-  ]);
-  const denominatorV1 = u64f64Rational(sharesV1);
-  const denominatorV2 = safeFloatRational(sharesV2);
-  const denominator = denominatorV1.numerator === 0n ? denominatorV2 : denominatorV1;
-  const totals = {
-    key,
-    totalAlphaRao: codecToBigInt(totalAlpha),
-    denominatorNumerator: denominator.numerator,
-    denominatorDenominator: denominator.denominator,
-  };
+  await logger.info(`${label}: entries=${map.size} pages=${pages}`);
+  return map;
+}
 
-  cache.set(key, totals);
+function buildHotkeyTotals(totalAlphaMap, sharesV1Map, sharesV2Map) {
+  const totals = new Map();
+  const keys = new Set([...totalAlphaMap.keys(), ...sharesV1Map.keys(), ...sharesV2Map.keys()]);
+
+  for (const key of keys) {
+    const totalAlpha = totalAlphaMap.get(key);
+    const sharesV1 = sharesV1Map.get(key);
+    const sharesV2 = sharesV2Map.get(key);
+    // A key absent from a map has the storage default (zero), same as the
+    // previous per-entry queries returned.
+    const denominatorV1 = sharesV1 ? u64f64Rational(sharesV1) : { numerator: 0n, denominator: U64F64_SCALE };
+    const denominatorV2 = sharesV2 ? safeFloatRational(sharesV2) : { numerator: 0n, denominator: 1n };
+    const denominator = denominatorV1.numerator === 0n ? denominatorV2 : denominatorV1;
+    totals.set(key, {
+      key,
+      totalAlphaRao: totalAlpha ? codecToBigInt(totalAlpha) : 0n,
+      denominatorNumerator: denominator.numerator,
+      denominatorDenominator: denominator.denominator,
+    });
+  }
+
   return totals;
+}
+
+const ZERO_TOTALS_TEMPLATE = {
+  totalAlphaRao: 0n,
+  denominatorNumerator: 0n,
+  denominatorDenominator: 1n,
+};
+
+function getHotkeyTotals(hotkey, netuid, totalsByKey) {
+  const key = `${hotkey.toString()}|${netuid.toString()}`;
+  return totalsByKey.get(key) ?? { key, ...ZERO_TOTALS_TEMPLATE };
 }
 
 function codecToBigInt(codec): bigint {

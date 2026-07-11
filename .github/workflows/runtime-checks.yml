@@ -395,6 +395,12 @@ jobs:
         working-directory: clones/js-tests
         env:
           CLONE_REGRESSION_TESTS: ${{ matrix.shard.tests }}
+          # test-total-issuance-trackers legitimately waits minutes for the
+          # queued replacement registration: register_network at the subnet
+          # limit prunes a subnet and only emits NetworkAdded from on_idle
+          # after the pruned subnet's chunked storage cleanup finishes
+          # (~6 min on mainnet-scale state).
+          CLONE_REGRESSION_TIMEOUT_MS: ${{ matrix.shard.name == 'stake-sdk' && '1800000' || '900000' }}
         run: npm run test:clone-regressions
 
       - name: Install uv
