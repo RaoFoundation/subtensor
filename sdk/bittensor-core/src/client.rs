@@ -903,12 +903,7 @@ impl Client {
                 let block_hash = self.block_hash(Some(included_at))?;
                 if let Some(index) = self.find_extrinsic(&block_hash, &xt_hex)? {
                     if wait_for_finalization {
-                        match self.wait_until_finalized(
-                            &block_hash,
-                            included_at,
-                            deadline,
-                            poll,
-                        )? {
+                        match self.wait_until_finalized(&block_hash, included_at, deadline, poll)? {
                             InclusionFinalization::Finalized => {}
                             InclusionFinalization::Reorged => {
                                 // The old inclusion block is no longer canonical.
@@ -1221,10 +1216,7 @@ where
         json!(["Metadata_metadata_at_version", requested_version]),
     ) {
         Ok(value) => {
-            let encoded = decode_hex(json_string(
-                &value,
-                "Metadata_metadata_at_version result",
-            )?)?;
+            let encoded = decode_hex(json_string(&value, "Metadata_metadata_at_version result")?)?;
             let mut input = encoded.as_slice();
             let metadata = Option::<Vec<u8>>::decode(&mut input).map_err(|error| {
                 CoreError::Codec(format!(
@@ -1525,13 +1517,35 @@ fn value_map_u128(rows: Vec<(Value, Value)>) -> BTreeMap<u16, u128> {
 }
 
 fn json_string<'a>(value: &'a JsonValue, context: &str) -> Result<&'a str, CoreError> {
-    value
-        .as_str()
-        .ok_or_else(|| CoreError::Rpc(format!("{context} is not a string")))
+    match value {
+        JsonValue::String(text) => Ok(text),
+        _ => Err(CoreError::Rpc(format!("{context} is not a string"))),
+    }
+}
+
+fn json_number_u64(value: &JsonValue) -> Option<u64> {
+    match value {
+        JsonValue::Number(number) => number.to_string().parse().ok(),
+        _ => None,
+    }
+}
+
+fn json_number_u128(value: &JsonValue) -> Option<u128> {
+    match value {
+        JsonValue::Number(number) => number.to_string().parse().ok(),
+        _ => None,
+    }
+}
+
+fn json_number_i128(value: &JsonValue) -> Option<i128> {
+    match value {
+        JsonValue::Number(number) => number.to_string().parse().ok(),
+        _ => None,
+    }
 }
 
 fn json_u64(value: &JsonValue) -> Result<u64, CoreError> {
-    if let Some(value) = value.as_u64() {
+    if let Some(value) = json_number_u64(value) {
         return Ok(value);
     }
     let text = value
@@ -1546,8 +1560,8 @@ fn json_u64(value: &JsonValue) -> Result<u64, CoreError> {
 }
 
 fn json_u128(value: &JsonValue) -> Result<u128, CoreError> {
-    if let Some(value) = value.as_u64() {
-        return Ok(u128::from(value));
+    if let Some(value) = json_number_u128(value) {
+        return Ok(value);
     }
     let text = value
         .as_str()
@@ -1565,10 +1579,11 @@ fn json_to_value(value: &JsonValue) -> Result<Value, CoreError> {
         JsonValue::Null => Value::Null,
         JsonValue::Bool(value) => Value::Bool(*value),
         JsonValue::Number(value) => {
-            if let Some(signed) = value.as_i64() {
+            let number = JsonValue::Number(value.clone());
+            if let Some(signed) = json_number_i128(&number) {
                 Value::Int(i128::from(signed))
-            } else if let Some(unsigned) = value.as_u64() {
-                Value::Uint(u128::from(unsigned))
+            } else if let Some(unsigned) = json_number_u128(&number) {
+                Value::Uint(unsigned)
             } else {
                 return Err(CoreError::Codec(format!(
                     "non-integral JSON number cannot become SCALE Value: {value}"
@@ -1608,9 +1623,7 @@ fn hex_prefixed(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod reorg_finalization_tests {
-    use super::{
-        classify_inclusion_finalization, InclusionFinalization,
-    };
+    use super::{classify_inclusion_finalization, InclusionFinalization};
 
     #[test]
     fn canonical_inclusion_remains_pending_below_finalized_height() {
@@ -1644,4 +1657,3 @@ mod reorg_finalization_tests {
         );
     }
 }
-

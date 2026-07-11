@@ -478,10 +478,7 @@ impl IntentCall {
             "move_stake",
             Value::record(vec![
                 ("origin_hotkey".into(), Value::str(origin_hotkey)),
-                (
-                    "destination_hotkey".into(),
-                    Value::str(destination_hotkey),
-                ),
+                ("destination_hotkey".into(), Value::str(destination_hotkey)),
                 (
                     "origin_netuid".into(),
                     Value::Uint(u128::from(origin_netuid)),
@@ -1070,8 +1067,10 @@ mod tests {
         assert!(violations
             .iter()
             .any(|violation| violation == "raw calls are disabled by policy"));
-        assert!(violations.iter().any(|violation| violation
-            == "unbounded spend is not allowed while max_spend_rao is set"));
+        assert!(violations
+            .iter()
+            .any(|violation| violation
+                == "unbounded spend is not allowed while max_spend_rao is set"));
         assert!(violations.iter().any(|violation| violation
             == "intent affects every subnet but policy only allows an explicit subset"));
     }

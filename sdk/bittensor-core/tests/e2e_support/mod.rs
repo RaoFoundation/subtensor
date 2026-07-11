@@ -6,13 +6,12 @@
     clippy::unwrap_used
 )]
 
-use std::collections::BTreeMap;
 use std::env;
 use std::process::{Command, Output};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use bittensor_core::client::{as_bool, as_str, as_u128, field, value_bytes, Client, TxOutcome};
+use bittensor_core::client::{as_str, as_u128, field, Client, TxOutcome};
 use bittensor_core::codec::extrinsic::{multisig_account_id, multisig_ss58};
 use bittensor_core::codec::Value;
 use bittensor_core::keys::{public_key_from_ss58, ss58_from_public, Keypair, CRYPTO_SR25519};
@@ -237,7 +236,7 @@ pub fn root_register(hotkey: impl Into<String>) -> IntentCall {
 pub fn wait_for_blocks(client: &Client, count: u64) {
     let start = client.block_number().expect("block number");
     let deadline = Instant::now() + Duration::from_secs(60);
-    while client.block_number().expect("block number") < start.saturating_add(count) {
+    while client.block_number().expect("block number") < start + count {
         assert!(
             Instant::now() < deadline,
             "timed out waiting for {count} blocks"
@@ -462,10 +461,7 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
                 ("netuid", u(netuid)),
                 ("mecid", u16v(0)),
                 ("commit", bytes(vec![1, 2, 3, 4])),
-                (
-                    "reveal_round",
-                    u64v(ctx.client.block_number()?.saturating_add(100)),
-                ),
+                ("reveal_round", u64v(ctx.client.block_number()? + 100)),
                 ("commit_reveal_version", u64v(4)),
             ]),
         )
@@ -485,10 +481,7 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
                 ("deposit", u128v(amount_tao(100))),
                 ("min_contribution", u128v(one)),
                 ("cap", u128v(amount_tao(1_000))),
-                (
-                    "end",
-                    u64v(ctx.client.block_number()?.saturating_add(5_000)),
-                ),
+                ("end", u64v(ctx.client.block_number()? + 5_000)),
                 ("call", Value::Null),
                 ("target_address", s(bob_cold.clone())),
             ]),
