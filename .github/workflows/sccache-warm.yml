@@ -2,7 +2,10 @@ name: Warm R2 sccache
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      # Temporary benchmark writer for the active critical-path CI work in #2846.
+      - bittensor-core-exploration
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
@@ -11,30 +14,30 @@ permissions:
   contents: read
 
 concurrency:
-  group: sccache-warm-main
+  group: sccache-warm-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   warm:
     name: Populate trusted compiler cache
     if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' ||
-       github.event_name == 'schedule' ||
-       github.event_name == 'workflow_dispatch')
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+       (github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/bittensor-core-exploration'))
     environment: sccache-writer
     runs-on: [self-hosted, fireactions-turbo]
     timeout-minutes: 120
     env:
       SKIP_WASM_BUILD: 1
     steps:
-      - name: Check out main
+      - name: Check out trusted cache source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install Rust and enable trusted R2 writer
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: sccache-warm-main
+          cache-key: sccache-warm-${{ github.ref_name }}
           components: clippy
           sccache-credential-mode: writer
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
