@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 const test = require('node:test')
 
@@ -254,6 +255,28 @@ test('chain client surface is exported without Polkadot.js glue', () => {
     'root_register',
     { hotkey: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
   ])
+})
+
+test('hotkey helpers encrypt keyfiles when a password is provided', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-wallet-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const password = 'review-password'
+
+  const created = new core.Wallet({ name: 'created', hotkey: 'default', path: root })
+  created.createNewHotkey({ password })
+  assert.equal(
+    core.keyfileDataIsEncrypted(fs.readFileSync(created.hotkeyFile.path)),
+    true,
+  )
+
+  const mnemonic =
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  const regenerated = new core.Wallet({ name: 'regenerated', hotkey: 'default', path: root })
+  regenerated.regenerateHotkey(mnemonic, { password })
+  assert.equal(
+    core.keyfileDataIsEncrypted(fs.readFileSync(regenerated.hotkeyFile.path)),
+    true,
+  )
 })
 
 test('arbitrary StorageInfo helpers call Rust directly', () => {

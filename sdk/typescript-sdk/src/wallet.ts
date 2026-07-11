@@ -143,7 +143,7 @@ export class Wallet {
 
   createNewHotkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): this {
     const keypair = Keypair.generate(options.cryptoType ?? CRYPTO_SR25519, options.nWords ?? 12)
-    return this.setHotkey(keypair, options)
+    return this.setHotkey(keypair, { ...options, encrypt: options.encrypt ?? options.password != null })
   }
 
   regenerateColdkey(
@@ -160,7 +160,10 @@ export class Wallet {
     mnemonic: string,
     options: SaveKeyOptions & { cryptoType?: number; password?: string | null } = {},
   ): this {
-    return this.setHotkey(Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519), options)
+    return this.setHotkey(
+      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519),
+      { ...options, encrypt: options.encrypt ?? options.password != null },
+    )
   }
 }
 
