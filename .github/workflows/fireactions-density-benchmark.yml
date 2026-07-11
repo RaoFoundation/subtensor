@@ -1,0 +1,173 @@
+name: Fireactions runner density benchmark
+
+on:
+  push:
+    branches:
+      - codex/fireactions-runner-density-experiment
+  workflow_dispatch:
+    inputs:
+      cache_mode:
+        description: Compiler-cache mode for this benchmark round
+        required: true
+        default: warm-r2
+        type: choice
+        options:
+          - warm-r2
+          - cold-local
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fireactions-density-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: ${{ matrix.profile.name }} / ${{ matrix.workload }} / ${{ inputs.cache_mode || 'warm-r2' }}
+    runs-on: [self-hosted, "${{ matrix.profile.label }}"]
+    timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: full
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - name: 2x16-control
+            label: fireactions-density-16c
+          - name: 4x8
+            label: fireactions-density-8c
+          - name: 8x4
+            label: fireactions-density-4c
+          - name: 4x16-oversubscribed
+            label: fireactions-density-16c-over
+        workload:
+          - clippy-default
+          - clippy-all
+          - cargo-fix
+          - eco-tests
+          - node-release
+          - node-fast-runtime
+          - workspace-test-build
+          - runtime-artifacts
+
+    steps:
+      - name: Check out benchmark source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rust and benchmark dependencies
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: density-${{ matrix.workload }}
+          components: clippy
+          extra-packages: time
+
+      - name: Record guest allocation
+        shell: bash
+        run: |
+          {
+            echo "### Runner allocation"
+            echo
+            echo "- Profile: \`${{ matrix.profile.name }}\`"
+            echo "- Runner: \`${RUNNER_NAME}\`"
+            echo "- Logical CPUs visible: \`$(nproc)\`"
+            echo "- Memory visible: \`$(awk '/MemTotal/ { printf \"%.1f GiB\", $2 / 1024 / 1024 }' /proc/meminfo)\`"
+            echo "- Cache mode: \`${{ inputs.cache_mode || 'warm-r2' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add runtime build targets
+        if: matrix.workload == 'runtime-artifacts'
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Run representative workload
+        id: workload
+        shell: bash
+        env:
+          CACHE_MODE: ${{ inputs.cache_mode || 'warm-r2' }}
+          WORKLOAD: ${{ matrix.workload }}
+        run: |
+          set -euo pipefail
+
+          case "$WORKLOAD" in
+            clippy-default)
+              command='SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings'
+              ;;
+            clippy-all)
+              command='SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings'
+              ;;
+            cargo-fix)
+              command='SKIP_WASM_BUILD=1 cargo fix --workspace'
+              ;;
+            eco-tests)
+              command='SKIP_WASM_BUILD=1 cargo test --manifest-path eco-tests/Cargo.toml'
+              ;;
+            node-release)
+              command='cargo build --profile release -p node-subtensor'
+              ;;
+            node-fast-runtime)
+              command='cargo build --profile release --features fast-runtime -p node-subtensor'
+              ;;
+            workspace-test-build)
+              command='SKIP_WASM_BUILD=1 cargo test --workspace --all-features --locked --no-run'
+              ;;
+            runtime-artifacts)
+              command='cargo build --profile production -p node-subtensor-runtime --features try-runtime --locked && cargo build --release -p node-subtensor'
+              ;;
+            *)
+              echo "Unknown workload: $WORKLOAD" >&2
+              exit 2
+              ;;
+          esac
+
+          if [[ "$CACHE_MODE" == cold-local ]]; then
+            unset RUSTC_WRAPPER
+            echo "R2 sccache disabled for cold-local CPU-scaling round"
+          elif [[ "${SCCACHE_ENABLED:-}" != true || "${SCCACHE_BACKEND:-}" != r2 ]]; then
+            echo "warm-r2 was requested but the R2 compiler cache is unavailable" >&2
+            exit 1
+          fi
+
+          started_at=$(date +%s)
+          set +e
+          /usr/bin/time -v -o "$RUNNER_TEMP/workload-time.txt" bash -lc "$command"
+          status=$?
+          set -e
+          finished_at=$(date +%s)
+
+          {
+            echo
+            echo "### Workload result"
+            echo
+            echo "- Workload: \`$WORKLOAD\`"
+            echo "- Command: \`$command\`"
+            echo "- Elapsed wall time: \`$((finished_at - started_at))s\`"
+            echo "- Exit status: \`$status\`"
+            echo
+            echo '<details><summary>/usr/bin/time -v</summary>'
+            echo
+            echo '```text'
+            cat "$RUNNER_TEMP/workload-time.txt"
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
+
+      - name: Report compiler-cache statistics
+        if: always()
+        shell: bash
+        run: |
+          if command -v sccache >/dev/null 2>&1; then
+            {
+              echo
+              echo "### sccache statistics"
+              echo
+              echo '```text'
+              sccache --show-stats 2>&1 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
