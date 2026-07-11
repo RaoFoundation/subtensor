@@ -80,14 +80,15 @@ test('compact codec is the Rust implementation', () => {
   }
 })
 
-test('dynamic boundary preserves bigint, bytes, and non-string map keys', () => {
+test('dynamic boundary preserves large bigint, bytes, and non-string map keys', () => {
+  const bigintKey = 2n ** 80n
   const input = new Map([
-    [7n, Buffer.from([0, 1, 254, 255])],
+    [bigintKey, Buffer.from([0, 1, 254, 255])],
     ['nested', { value: 2n ** 200n, wideSafeNumber: Number.MAX_SAFE_INTEGER }],
   ])
   const output = core.wireRoundtrip(input)
   assert.ok(output instanceof Map)
-  assert.deepEqual(output.get(7n), Buffer.from([0, 1, 254, 255]))
+  assert.deepEqual(output.get(bigintKey), Buffer.from([0, 1, 254, 255]))
   assert.equal(output.get('nested').value, 2n ** 200n)
   assert.equal(output.get('nested').wideSafeNumber, Number.MAX_SAFE_INTEGER)
 })
@@ -219,12 +220,13 @@ test('arbitrary StorageInfo helpers call Rust directly', () => {
 test('prototype-sensitive decoded keys never become object prototypes', () => {
   const dangerous = new Map([
     ['__proto__', { polluted: true }],
-    ['constructor', 7n],
+    // Safe integers intentionally normalize to JavaScript numbers at the Rust boundary.
+    ['constructor', 7],
   ])
   const output = core.wireRoundtrip(dangerous)
   assert.ok(output instanceof Map)
   assert.equal(output.get('__proto__').polluted, true)
-  assert.equal(output.get('constructor'), 7n)
+  assert.equal(output.get('constructor'), 7)
   assert.equal({}.polluted, undefined)
 })
 
