@@ -93,7 +93,8 @@ reset_outputs
 prepare_log="$tmp/prepare.log"
 "$CONFIGURE" prepare reader "$tmp/config.json" "$tmp/output" >"$prepare_log"
 assert_contains "$tmp/output" 'available=true'
-[[ "$(stat -f '%Lp' "$tmp/config.json" 2>/dev/null || stat -c '%a' "$tmp/config.json")" == 600 ]]
+config_mode="$(python3 -c 'import os, stat, sys; print(oct(stat.S_IMODE(os.stat(sys.argv[1]).st_mode))[2:])' "$tmp/config.json")"
+[[ "$config_mode" == 600 ]]
 grep -v '^::add-mask::' "$prepare_log" > "$tmp/prepare-public.log"
 assert_not_contains "$tmp/prepare-public.log" "$ACCESS_KEY"
 assert_not_contains "$tmp/prepare-public.log" "$SECRET_KEY"
