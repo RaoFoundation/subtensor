@@ -14,8 +14,8 @@ use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sealedbox;
 #[cfg(feature = "host")]
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
-use sp_core::crypto::{AccountId32, Pair as PairT, Ss58Codec};
-use sp_core::{ed25519, sr25519, ByteArray};
+use sp_core::crypto::Pair as PairT;
+use sp_core::{ByteArray, ed25519, sr25519};
 use zeroize::Zeroizing;
 
 use crate::error::CoreError;
@@ -46,9 +46,29 @@ fn as_bytes<T: AsRef<[u8]>>(value: &T) -> Vec<u8> {
 }
 
 pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
-    let account = AccountId32::from_ss58check(ss58_address)
-        .map_err(|e| crypto_err(format!("invalid ss58 address: {e:?}")))?;
-    Ok(account.into())
+    let decoded = base58::base58_decode(ss58_address)
+        .ok_or_else(|| crypto_err("invalid ss58 address: invalid base58"))?;
+    if decoded.len() != 35 && decoded.len() != 36 {
+        return Err(crypto_err("invalid ss58 address length"));
+    }
+    let prefix_len = match decoded[0] & 0b1100_0000 {
+        0b0000_0000 => 1,
+        0b0100_0000 => 2,
+        _ => return Err(crypto_err("invalid ss58 address prefix")),
+    };
+    if decoded.len() != prefix_len + 32 + 2 {
+        return Err(crypto_err("invalid ss58 account length"));
+    }
+    let body_end = prefix_len + 32;
+    let mut checksum_input = Vec::with_capacity(7 + body_end);
+    checksum_input.extend_from_slice(b"SS58PRE");
+    checksum_input.extend_from_slice(&decoded[..body_end]);
+    let checksum = sp_core::hashing::blake2_512(&checksum_input);
+    if decoded[body_end] != checksum[0] || decoded[body_end + 1] != checksum[1] {
+        return Err(crypto_err("invalid ss58 checksum"));
+    }
+    <[u8; 32]>::try_from(&decoded[prefix_len..body_end])
+        .map_err(|_| crypto_err("invalid ss58 public key length"))
 }
 
 /// ss58 rendering, byte-identical to sp-core's `to_ss58check_with_version`
@@ -530,7 +550,7 @@ pub fn verify(
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use sp_core::crypto::Ss58AddressFormat;
+    use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
 
     use super::*;
 
@@ -566,8 +586,7 @@ mod tests {
 
     #[test]
     fn password_protected_mnemonic_derives_inside_keypair() {
-        let mnemonic =
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let password = "protected-derivation-password";
         let parent = Keypair::from_mnemonic(mnemonic, CRYPTO_SR25519, Some(password)).unwrap();
         let child = parent.derive("//child").unwrap();
