@@ -112,6 +112,28 @@ impl TxOutcome {
     }
 }
 
+// Reorg-safe receipt tracking states. An inclusion is only final when the exact
+// inclusion block is still canonical after finality reaches its height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InclusionFinalization {
+    Finalized,
+    Reorged,
+}
+
+fn classify_inclusion_finalization(
+    inclusion_hash: &str,
+    canonical_hash: Option<&str>,
+    included_at: u64,
+    finalized_at: u64,
+) -> Option<InclusionFinalization> {
+    match canonical_hash {
+        Some(canonical) if canonical.eq_ignore_ascii_case(inclusion_hash) => {
+            (finalized_at >= included_at).then_some(InclusionFinalization::Finalized)
+        }
+        _ => Some(InclusionFinalization::Reorged),
+    }
+}
+
 /// The native Bittensor chain client.
 pub struct Client {
     endpoint: String,
@@ -252,6 +274,17 @@ impl Client {
         let params = block.map_or_else(|| json!([]), |number| json!([number]));
         let value = self.rpc_value("chain_getBlockHash", params)?;
         Ok(json_string(&value, "chain_getBlockHash result")?.to_string())
+    }
+
+    fn canonical_block_hash(&self, block: u64) -> Result<Option<String>, CoreError> {
+        let value = self.rpc_value("chain_getBlockHash", json!([block]))?;
+        match value {
+            JsonValue::Null => Ok(None),
+            JsonValue::String(hash) => Ok(Some(hash)),
+            other => Err(CoreError::Rpc(format!(
+                "chain_getBlockHash returned {other}, expected a hash or null"
+            ))),
+        }
     }
 
     pub fn finalized_head(&self) -> Result<String, CoreError> {
@@ -863,15 +896,30 @@ impl Client {
             .block_time()
             .unwrap_or_else(|_| Duration::from_millis(250))
             .min(Duration::from_secs(1));
-        while Instant::now() < deadline {
+        'track_inclusion: while Instant::now() < deadline {
             let head = self.block_number()?;
             while next_block <= head {
-                let block_hash = self.block_hash(Some(next_block))?;
+                let included_at = next_block;
+                let block_hash = self.block_hash(Some(included_at))?;
                 if let Some(index) = self.find_extrinsic(&block_hash, &xt_hex)? {
                     if wait_for_finalization {
-                        self.wait_until_finalized(next_block, deadline, poll)?;
+                        match self.wait_until_finalized(
+                            &block_hash,
+                            included_at,
+                            deadline,
+                            poll,
+                        )? {
+                            InclusionFinalization::Finalized => {}
+                            InclusionFinalization::Reorged => {
+                                // The old inclusion block is no longer canonical.
+                                // Rescan from its height so a re-inclusion at the
+                                // same or a later height can still produce a receipt.
+                                next_block = included_at;
+                                continue 'track_inclusion;
+                            }
+                        }
                     }
-                    return self.decode_outcome(hash, block_hash, next_block, index);
+                    return self.decode_outcome(hash, block_hash, included_at, index);
                 }
                 next_block = next_block.saturating_add(1);
             }
@@ -907,19 +955,30 @@ impl Client {
 
     fn wait_until_finalized(
         &self,
+        inclusion_hash: &str,
         included_at: u64,
         deadline: Instant,
         poll: Duration,
-    ) -> Result<(), CoreError> {
+    ) -> Result<InclusionFinalization, CoreError> {
         while Instant::now() < deadline {
+            // Fetch finality first, then the canonical hash at the inclusion
+            // height. Once finality has reached that height, the best chain must
+            // contain the same finalized ancestor at that height.
             let finalized = self.finalized_head()?;
-            if self.header(Some(&finalized))?.number >= included_at {
-                return Ok(());
+            let finalized_at = self.header(Some(&finalized))?.number;
+            let canonical_hash = self.canonical_block_hash(included_at)?;
+            if let Some(status) = classify_inclusion_finalization(
+                inclusion_hash,
+                canonical_hash.as_deref(),
+                included_at,
+                finalized_at,
+            ) {
+                return Ok(status);
             }
             thread::sleep(poll);
         }
         Err(CoreError::Rpc(format!(
-            "block {included_at} was included but not finalized before the receipt timeout"
+            "block {included_at} ({inclusion_hash}) was included but not finalized before the receipt timeout"
         )))
     }
 
@@ -1546,3 +1605,43 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, CoreError> {
 fn hex_prefixed(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
 }
+
+#[cfg(test)]
+mod reorg_finalization_tests {
+    use super::{
+        classify_inclusion_finalization, InclusionFinalization,
+    };
+
+    #[test]
+    fn canonical_inclusion_remains_pending_below_finalized_height() {
+        assert_eq!(
+            classify_inclusion_finalization("0xabc", Some("0xABC"), 10, 9),
+            None
+        );
+    }
+
+    #[test]
+    fn canonical_inclusion_finalizes_at_or_above_its_height() {
+        assert_eq!(
+            classify_inclusion_finalization("0xabc", Some("0xABC"), 10, 10),
+            Some(InclusionFinalization::Finalized)
+        );
+        assert_eq!(
+            classify_inclusion_finalization("0xabc", Some("0xabc"), 10, 12),
+            Some(InclusionFinalization::Finalized)
+        );
+    }
+
+    #[test]
+    fn replaced_or_missing_inclusion_hash_is_a_reorg() {
+        assert_eq!(
+            classify_inclusion_finalization("0xabc", Some("0xdef"), 10, 12),
+            Some(InclusionFinalization::Reorged)
+        );
+        assert_eq!(
+            classify_inclusion_finalization("0xabc", None, 10, 9),
+            Some(InclusionFinalization::Reorged)
+        );
+    }
+}
+
