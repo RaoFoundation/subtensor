@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - main
-      # Temporary benchmark writer for the active critical-path CI work in #2846.
-      - bittensor-core-exploration
-      # Temporary writer for this cache integration PR so it can populate R2
-      # before merging into #2846.
-      - codex/subtensor-r2-sccache
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
@@ -24,11 +19,10 @@ jobs:
   warm:
     name: Populate trusted compiler cache
     if: >-
-      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
-      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-       (github.ref == 'refs/heads/main' ||
-        github.ref == 'refs/heads/bittensor-core-exploration' ||
-        github.ref == 'refs/heads/codex/subtensor-r2-sccache'))
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch')
     environment: sccache-writer
     runs-on: [self-hosted, fireactions-turbo]
     timeout-minutes: 120
