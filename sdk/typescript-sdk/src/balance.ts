@@ -1,4 +1,5 @@
 export const RAO_PER_TAO = 1_000_000_000n
+const MAX_SAFE_RAO = BigInt(Number.MAX_SAFE_INTEGER)
 
 export type BalanceLike = Balance | bigint | number | string
 
@@ -58,13 +59,27 @@ export class Balance {
     return this.amount
   }
 
+  get taoString(): string {
+    if (this.netuid !== 0) throw new UnitMismatchError(`This balance is subnet-${this.netuid} alpha, not TAO`)
+    return this.amountString
+  }
+
   get alpha(): number {
     if (this.netuid === 0) throw new UnitMismatchError('This balance is TAO, not alpha')
     return this.amount
   }
 
+  get alphaString(): string {
+    if (this.netuid === 0) throw new UnitMismatchError('This balance is TAO, not alpha')
+    return this.amountString
+  }
+
   get amount(): number {
-    return Number(this.rao) / Number(RAO_PER_TAO)
+    return this.toNumber()
+  }
+
+  get amountString(): string {
+    return formatRao(this.rao)
   }
 
   get unit(): string {
@@ -97,11 +112,14 @@ export class Balance {
   }
 
   toString(): string {
-    const sign = this.rao < 0n ? '-' : ''
-    const value = this.rao < 0n ? -this.rao : this.rao
-    const whole = value / RAO_PER_TAO
-    const fraction = (value % RAO_PER_TAO).toString().padStart(9, '0').replace(/0+$/, '')
-    return `${sign}${whole.toString()}${fraction ? `.${fraction}` : ''} ${this.unit}`
+    return `${this.amountString} ${this.unit}`
+  }
+
+  toNumber(): number {
+    if (abs(this.rao) > MAX_SAFE_RAO) {
+      throw new RangeError('balance exceeds JavaScript safe integer precision; use rao or amountString')
+    }
+    return Number(this.rao) / Number(RAO_PER_TAO)
   }
 
   private raoOf(other: BalanceLike): bigint {
@@ -113,6 +131,18 @@ export class Balance {
     }
     return balanceRao(other)
   }
+}
+
+function abs(value: bigint): bigint {
+  return value < 0n ? -value : value
+}
+
+function formatRao(rao: bigint): string {
+  const sign = rao < 0n ? '-' : ''
+  const value = rao < 0n ? -rao : rao
+  const whole = value / RAO_PER_TAO
+  const fraction = (value % RAO_PER_TAO).toString().padStart(9, '0').replace(/0+$/, '')
+  return `${sign}${whole.toString()}${fraction ? `.${fraction}` : ''}`
 }
 
 export function balanceRao(value: BalanceLike): bigint {

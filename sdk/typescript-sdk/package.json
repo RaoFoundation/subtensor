@@ -54,7 +54,7 @@
     "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
     "build": "npm run build:native && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
     "check": "npm run build && npm test",
-    "test": "node --test test/*.test.cjs",
+    "test": "node --test test/*.test.cjs && node scripts/browser-smoke.cjs",
     "clean": "node scripts/clean.cjs",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -67,6 +67,7 @@
   "devDependencies": {
     "@napi-rs/cli": "3.7.2",
     "@types/node": "22.15.0",
+    "esbuild": "0.28.1",
     "typescript": "5.8.3"
   },
   "repository": {

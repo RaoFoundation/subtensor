@@ -4,12 +4,16 @@ import { LedgerDevice } from './ledger'
 import { Runtime, eraBirth } from './runtime'
 import { toBuffer } from './wire'
 import { Balance, type BalanceLike, balanceRao } from './balance'
-import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, TransactionParams } from './types'
+import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, StorageEntry, TransactionParams } from './types'
 
 export const SS58_FORMAT = 42
 export const DEFAULT_ERA_PERIOD = 128
 export const DEFAULT_HEAD_RUNTIME_TTL_MS = 12_000
 export const DEFAULT_HISTORICAL_RUNTIME_CACHE_SIZE = 64
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+export const DEFAULT_MAX_REQUEST_RETRIES = 2
+export const DEFAULT_RETRY_BACKOFF_MS = 250
+export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
@@ -31,6 +35,25 @@ export interface ClientOptions {
   autoConnect?: boolean
   headRuntimeTtlMs?: number
   historicalRuntimeCacheSize?: number
+  requestTimeoutMs?: number
+  maxRequestRetries?: number
+  retryBackoffMs?: number
+  maxRetryBackoffMs?: number
+}
+
+export interface RpcRequestOptions {
+  signal?: AbortSignal
+  timeoutMs?: number
+  maxRetries?: number
+  retryBackoffMs?: number
+  maxRetryBackoffMs?: number
+}
+
+export interface JsonRpcTransportOptions {
+  requestTimeoutMs?: number
+  maxRequestRetries?: number
+  retryBackoffMs?: number
+  maxRetryBackoffMs?: number
 }
 
 export interface SubmitOptions {
@@ -157,13 +180,23 @@ export interface BlockInfo {
 interface RpcRequest {
   resolve(value: unknown): void
   reject(error: Error): void
+  cleanup(): void
+}
+
+interface SubscriptionWaiter {
+  resolve(value: IteratorResult<unknown>): void
+  reject(error: Error): void
 }
 
 interface SubscriptionState {
   queue: unknown[]
-  waiters: Array<(value: IteratorResult<unknown>) => void>
-  errors: Array<(error: Error) => void>
+  waiters: SubscriptionWaiter[]
   closed: boolean
+  subscribeMethod: string
+  params: unknown[]
+  unsubscribeMethod: string
+  subscription?: string
+  resubscribing?: Promise<void>
 }
 
 interface ResolvedSigner {
@@ -224,34 +257,76 @@ export class ChainError extends Error {
   }
 }
 
+export class RequestTimeoutError extends ChainError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RequestTimeoutError'
+  }
+}
+
+export class RequestAbortedError extends ChainError {
+  constructor(message = 'request aborted') {
+    super(message)
+    this.name = 'RequestAbortedError'
+  }
+}
+
 export class JsonRpcTransport {
   private readonly endpoints: string[]
   private readonly retryForever: boolean
+  private readonly requestTimeoutMs: number
+  private readonly maxRequestRetries: number
+  private readonly retryBackoffMs: number
+  private readonly maxRetryBackoffMs: number
   private endpointIndex = 0
   private id = 1
   private socket?: WebSocketLike
   private connecting?: Promise<WebSocketLike>
   private pending = new Map<number, RpcRequest>()
-  private subscriptions = new Map<string, SubscriptionState>()
+  private subscriptions = new Set<SubscriptionState>()
+  private subscriptionsById = new Map<string, SubscriptionState>()
+  private closed = false
 
-  constructor(endpoint: string, fallbackEndpoints: string[] = [], retryForever = false) {
+  constructor(
+    endpoint: string,
+    fallbackEndpoints: string[] = [],
+    retryForever = false,
+    options: JsonRpcTransportOptions = {},
+  ) {
     this.endpoints = [endpoint, ...fallbackEndpoints.filter((item) => item !== endpoint)]
     this.retryForever = retryForever
+    this.requestTimeoutMs = nonNegativeNumber(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
+    this.maxRequestRetries = nonNegativeInteger(options.maxRequestRetries, DEFAULT_MAX_REQUEST_RETRIES)
+    this.retryBackoffMs = nonNegativeNumber(options.retryBackoffMs, DEFAULT_RETRY_BACKOFF_MS)
+    this.maxRetryBackoffMs = nonNegativeNumber(options.maxRetryBackoffMs, DEFAULT_MAX_RETRY_BACKOFF_MS)
   }
 
   get endpoint(): string {
     return this.endpoints[this.endpointIndex]
   }
 
-  async request(method: string, params: unknown[] = []): Promise<unknown> {
+  async request(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
+    const requestOptions = {
+      ...options,
+      timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
+    }
+    throwIfAborted(requestOptions.signal)
+    const maxRetries = requestOptions.maxRetries ?? this.maxRequestRetries
+    const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
+    const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
+    let attempt = 0
     for (;;) {
       try {
-        return this.isHttpEndpoint() ? await this.httpRequest(method, params) : await this.wsRequest(method, params)
+        return this.isHttpEndpoint()
+          ? await this.httpRequest(method, params, requestOptions)
+          : await this.wsRequest(method, params, requestOptions)
       } catch (error) {
-        if (error instanceof JsonRpcError) throw error
+        if (error instanceof JsonRpcError || error instanceof RequestAbortedError) throw error
+        if (!this.retryForever && attempt >= maxRetries) throw error
+        attempt += 1
         this.rotateEndpoint()
-        if (!this.retryForever) throw error
-        await delay(1000)
+        const capped = Math.min(retryBackoffMs * (2 ** Math.max(0, attempt - 1)), maxRetryBackoffMs)
+        await delay(capped, requestOptions.signal)
       }
     }
   }
@@ -262,15 +337,30 @@ export class JsonRpcTransport {
     unsubscribeMethod: string,
   ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
     if (this.isHttpEndpoint()) throw new ChainError('subscriptions require a WebSocket endpoint')
-    const subscription = (await this.request(subscribeMethod, params)) as string
-    const state: SubscriptionState = { queue: [], waiters: [], errors: [], closed: false }
-    this.subscriptions.set(subscription, state)
+    const state: SubscriptionState = {
+      queue: [],
+      waiters: [],
+      closed: false,
+      subscribeMethod,
+      params,
+      unsubscribeMethod,
+    }
+    this.subscriptions.add(state)
+    try {
+      await this.activateSubscription(state)
+    } catch (error) {
+      this.subscriptions.delete(state)
+      throw error
+    }
     const unsubscribe = async () => {
       if (state.closed) return
       state.closed = true
-      this.subscriptions.delete(subscription)
-      for (const waiter of state.waiters.splice(0)) waiter({ done: true, value: undefined })
-      await this.request(unsubscribeMethod, [subscription]).catch(() => undefined)
+      this.subscriptions.delete(state)
+      if (state.subscription != null) this.subscriptionsById.delete(state.subscription)
+      for (const waiter of state.waiters.splice(0)) waiter.resolve({ done: true, value: undefined })
+      const subscription = state.subscription
+      state.subscription = undefined
+      if (subscription != null) await this.request(unsubscribeMethod, [subscription]).catch(() => undefined)
     }
     return {
       unsubscribe,
@@ -285,43 +375,75 @@ export class JsonRpcTransport {
   }
 
   close(): void {
+    this.closed = true
     this.socket?.close()
     this.socket = undefined
     this.connecting = undefined
+    this.failPending(new ChainError('transport closed'))
+    for (const state of [...this.subscriptions]) this.closeSubscription(state)
   }
 
   private isHttpEndpoint(): boolean {
     return this.endpoint.startsWith('http://') || this.endpoint.startsWith('https://')
   }
 
-  private async httpRequest(method: string, params: unknown[]): Promise<unknown> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: this.id++, method, params }),
-    })
-    if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${this.endpoint}`)
-    const payload = await response.json()
-    if (payload.error) throw new JsonRpcError(payload.error.message, payload.error.code, payload.error.data)
-    return payload.result
+  private async httpRequest(method: string, params: unknown[], options: RpcRequestOptions): Promise<unknown> {
+    const request = withRequestSignal(options)
+    try {
+      const response = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: this.id++, method, params }),
+        signal: request.signal,
+      })
+      if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${this.endpoint}`)
+      const payload = await response.json()
+      if (payload.error) throw new JsonRpcError(payload.error.message, payload.error.code, payload.error.data)
+      return payload.result
+    } catch (error) {
+      throw normalizeAbortError(error, request)
+    } finally {
+      request.cleanup()
+    }
   }
 
-  private async wsRequest(method: string, params: unknown[]): Promise<unknown> {
-    const socket = await this.connect()
+  private async wsRequest(method: string, params: unknown[], options: RpcRequestOptions): Promise<unknown> {
+    const socket = await this.connect(options)
     const id = this.id++
     const promise = new Promise<unknown>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      const request = withRequestSignal(options)
+      const cleanup = () => request.cleanup()
+      const fail = (error: Error) => {
+        if (!this.pending.delete(id)) return
+        cleanup()
+        reject(error)
+      }
+      this.pending.set(id, {
+        resolve(value) {
+          cleanup()
+          resolve(value)
+        },
+        reject(error) {
+          cleanup()
+          reject(error)
+        },
+        cleanup,
+      })
+      request.onAbort((error) => fail(error))
     })
     try {
       socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
     } catch (error) {
+      const pending = this.pending.get(id)
       this.pending.delete(id)
+      pending?.cleanup()
       throw error
     }
     return promise
   }
 
-  private async connect(): Promise<WebSocketLike> {
+  private async connect(options: RpcRequestOptions = {}): Promise<WebSocketLike> {
+    if (this.closed) throw new ChainError('transport closed')
     if (this.socket?.readyState === 1) return this.socket
     if (this.connecting != null) return this.connecting
 
@@ -331,19 +453,34 @@ export class JsonRpcTransport {
     }
 
     this.connecting = new Promise((resolve, reject) => {
+      const request = withRequestSignal(options)
       const socket = new WebSocketImpl(this.endpoint)
+      let settled = false
+      const cleanup = () => request.cleanup()
       const fail = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
         this.socket = undefined
         this.connecting = undefined
+        try {
+          socket.close()
+        } catch {
+          // Ignore close errors while unwinding a failed connection.
+        }
         reject(error)
       }
+      request.onAbort((error) => fail(error))
       socket.addEventListener('open', () => {
+        if (settled) return
+        settled = true
+        cleanup()
         this.socket = socket
         this.connecting = undefined
         resolve(socket)
       })
       socket.addEventListener('error', () => fail(new ChainError(`could not connect to ${this.endpoint}`)))
-      socket.addEventListener('close', () => this.failPending(new ChainError(`connection closed: ${this.endpoint}`)))
+      socket.addEventListener('close', () => this.handleSocketClose(new ChainError(`connection closed: ${this.endpoint}`)))
       socket.addEventListener('message', (event) => this.handleMessage(event.data))
     })
     return this.connecting
@@ -361,11 +498,11 @@ export class JsonRpcTransport {
     }
     const subscription = message.params?.subscription
     if (subscription == null) return
-    const state = this.subscriptions.get(subscription)
+    const state = this.subscriptionsById.get(subscription)
     if (state == null || state.closed) return
     const result = message.params?.result
     const waiter = state.waiters.shift()
-    if (waiter != null) waiter({ done: false, value: result })
+    if (waiter != null) waiter.resolve({ done: false, value: result })
     else state.queue.push(result)
   }
 
@@ -373,27 +510,73 @@ export class JsonRpcTransport {
     if (state.queue.length > 0) return Promise.resolve({ done: false, value: state.queue.shift() })
     if (state.closed) return Promise.resolve({ done: true, value: undefined })
     return new Promise((resolve, reject) => {
-      state.waiters.push(resolve)
-      state.errors.push(reject)
+      state.waiters.push({ resolve, reject })
     })
   }
 
   private failPending(error: Error): void {
     this.socket = undefined
     this.connecting = undefined
-    for (const pending of this.pending.values()) pending.reject(error)
-    this.pending.clear()
-    for (const state of this.subscriptions.values()) {
-      state.closed = true
-      for (const reject of state.errors.splice(0)) reject(error)
-      for (const waiter of state.waiters.splice(0)) waiter({ done: true, value: undefined })
+    for (const pending of this.pending.values()) {
+      pending.cleanup()
+      pending.reject(error)
     }
-    this.subscriptions.clear()
+    this.pending.clear()
+  }
+
+  private handleSocketClose(error: Error): void {
+    this.failPending(error)
+    this.subscriptionsById.clear()
+    if (this.closed) return
+    for (const state of this.subscriptions) {
+      state.subscription = undefined
+      void this.resubscribe(state)
+    }
+  }
+
+  private async activateSubscription(state: SubscriptionState): Promise<void> {
+    const subscription = String(await this.request(state.subscribeMethod, state.params))
+    if (state.closed) {
+      await this.request(state.unsubscribeMethod, [subscription]).catch(() => undefined)
+      return
+    }
+    state.subscription = subscription
+    this.subscriptionsById.set(subscription, state)
+  }
+
+  private resubscribe(state: SubscriptionState): Promise<void> {
+    if (state.closed) return Promise.resolve()
+    state.resubscribing ??= this.activateSubscription(state)
+      .catch((error) => {
+        this.closeSubscription(state, error instanceof Error ? error : new ChainError(String(error)))
+      })
+      .finally(() => {
+        state.resubscribing = undefined
+      })
+    return state.resubscribing
+  }
+
+  private closeSubscription(state: SubscriptionState, error?: Error): void {
+    if (state.closed) return
+    state.closed = true
+    this.subscriptions.delete(state)
+    if (state.subscription != null) this.subscriptionsById.delete(state.subscription)
+    state.subscription = undefined
+    for (const waiter of state.waiters.splice(0)) {
+      if (error == null) waiter.resolve({ done: true, value: undefined })
+      else waiter.reject(error)
+    }
   }
 
   private rotateEndpoint(): void {
+    const socket = this.socket
     this.socket = undefined
     this.connecting = undefined
+    try {
+      socket?.close()
+    } catch {
+      // Ignore close errors while rotating to another endpoint.
+    }
     if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
   }
 }
@@ -419,7 +602,12 @@ export class Client {
     const [label, endpoint] = resolveEndpoint(options.endpoint ?? network)
     this.network = label
     this.endpoint = endpoint
-    this.transport = new JsonRpcTransport(endpoint, options.fallbackEndpoints, options.retryForever)
+    this.transport = new JsonRpcTransport(endpoint, options.fallbackEndpoints, options.retryForever, {
+      requestTimeoutMs: options.requestTimeoutMs,
+      maxRequestRetries: options.maxRequestRetries,
+      retryBackoffMs: options.retryBackoffMs,
+      maxRetryBackoffMs: options.maxRetryBackoffMs,
+    })
     this.balances = new BalancesNamespace(this)
     this.subnets = new SubnetsNamespace(this)
     this.neurons = new NeuronsNamespace(this)
@@ -619,9 +807,7 @@ export class Client {
     const key = runtime.storageKey(moduleName, itemName, itemParams)
     const raw = await this.rpc('state_getStorage', [hex(key), ...(blockHash == null ? [] : [blockHash])])
     const entry = runtime.storageEntry(moduleName, itemName)
-    const bytes = raw == null ? entry.defaultBytes : hexToBuffer(String(raw))
-    if (bytes == null || bytes.length === 0) return undefined
-    return runtime.decode<T>(entry.valueType, bytes, false)
+    return decodeStorageValue<T>(runtime, entry, raw)
   }
 
   async queryBatch<T extends ScaleValue = ScaleValue>(
@@ -642,8 +828,7 @@ export class Client {
     const entry = runtime.storageEntry(moduleName, itemName)
     return keys.map((key) => {
       const value = valueByKey.get(hex(key).toLowerCase())
-      if (value == null) return undefined
-      return runtime.decode<T>(entry.valueType, hexToBuffer(value), false)
+      return decodeStorageValue<T>(runtime, entry, value)
     })
   }
 
@@ -1872,6 +2057,16 @@ async function read(client: Client, name: string, params: Record<string, ScaleVa
   }
 }
 
+function decodeStorageValue<T extends ScaleValue>(
+  runtime: Runtime,
+  entry: StorageEntry,
+  value: unknown,
+): T | undefined {
+  const bytes = value == null ? entry.defaultBytes : hexToBuffer(String(value))
+  if (bytes == null || bytes.length === 0) return undefined
+  return runtime.decode<T>(entry.valueType, bytes, false)
+}
+
 function firstProperty(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value
 }
@@ -2070,8 +2265,85 @@ function feeFromEvent(event: unknown): Balance | undefined {
   return amount == null ? undefined : Balance.fromRao(String(amount))
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+interface RequestSignal {
+  signal?: AbortSignal
+  cleanup(): void
+  onAbort(handler: (error: Error) => void): void
+  error(): Error
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal)
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const abort = () => {
+      cleanup()
+      reject(new RequestAbortedError())
+    }
+    const cleanup = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
+
+function withRequestSignal(options: RpcRequestOptions): RequestSignal {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+  const controller = new AbortController()
+  let timedOut = false
+  let abortError: Error | undefined
+  let cleaned = false
+  const listeners = new Set<(error: Error) => void>()
+  const notify = (error: Error) => {
+    abortError = error
+    for (const listener of [...listeners]) listener(error)
+  }
+  const timeout = timeoutMs === 0
+    ? undefined
+    : setTimeout(() => {
+        timedOut = true
+        controller.abort()
+        notify(new RequestTimeoutError(`request timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
+  const abort = () => {
+    controller.abort()
+    notify(new RequestAbortedError())
+  }
+  if (options.signal?.aborted) abort()
+  else options.signal?.addEventListener('abort', abort, { once: true })
+
+  return {
+    signal: controller.signal,
+    cleanup() {
+      if (cleaned) return
+      cleaned = true
+      if (timeout != null) clearTimeout(timeout)
+      options.signal?.removeEventListener('abort', abort)
+      listeners.clear()
+    },
+    onAbort(handler: (error: Error) => void) {
+      if (abortError != null) handler(abortError)
+      else listeners.add(handler)
+    },
+    error() {
+      return abortError ?? (timedOut
+        ? new RequestTimeoutError(`request timed out after ${timeoutMs}ms`)
+        : new RequestAbortedError())
+    },
+  }
+}
+
+function normalizeAbortError(error: unknown, request: RequestSignal): Error {
+  if (request.signal?.aborted) return request.error()
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RequestAbortedError()
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

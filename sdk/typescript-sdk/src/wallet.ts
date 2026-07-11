@@ -23,7 +23,14 @@ export interface WalletOptions {
 export interface SaveKeyOptions {
   encrypt?: boolean
   overwrite?: boolean
+  keyfilePassword?: string | null
+  /** @deprecated Use keyfilePassword. */
   password?: string | null
+}
+
+export interface RegenerateKeyOptions extends SaveKeyOptions {
+  cryptoType?: number
+  mnemonicPassword?: string | null
 }
 
 export class Keyfile {
@@ -48,7 +55,8 @@ export class Keyfile {
   }
 
   setKeypair(keypair: Keypair, options: SaveKeyOptions = {}): void {
-    const { encrypt = false, overwrite = false, password } = options
+    const { encrypt = false, overwrite = false } = options
+    const password = keyfilePassword(options)
     if (encrypt && password == null) {
       throw new Error(`Password is required to encrypt ${this.path}`)
     }
@@ -138,33 +146,37 @@ export class Wallet {
 
   createNewColdkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): this {
     const keypair = Keypair.generate(options.cryptoType ?? CRYPTO_SR25519, options.nWords ?? 12)
-    return this.setColdkey(keypair, { ...options, encrypt: options.encrypt ?? options.password != null })
+    return this.setColdkey(keypair, { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null })
   }
 
   createNewHotkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): this {
     const keypair = Keypair.generate(options.cryptoType ?? CRYPTO_SR25519, options.nWords ?? 12)
-    return this.setHotkey(keypair, { ...options, encrypt: options.encrypt ?? options.password != null })
+    return this.setHotkey(keypair, { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null })
   }
 
   regenerateColdkey(
     mnemonic: string,
-    options: SaveKeyOptions & { cryptoType?: number; password?: string | null } = {},
+    options: RegenerateKeyOptions = {},
   ): this {
     return this.setColdkey(
-      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519),
-      { ...options, encrypt: options.encrypt ?? options.password != null },
+      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword),
+      { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null },
     )
   }
 
   regenerateHotkey(
     mnemonic: string,
-    options: SaveKeyOptions & { cryptoType?: number; password?: string | null } = {},
+    options: RegenerateKeyOptions = {},
   ): this {
     return this.setHotkey(
-      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519),
-      { ...options, encrypt: options.encrypt ?? options.password != null },
+      Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword),
+      { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null },
     )
   }
+}
+
+function keyfilePassword(options: SaveKeyOptions): string | null | undefined {
+  return options.keyfilePassword ?? options.password
 }
 
 function publicOnly(keypair: Keypair): Keypair {

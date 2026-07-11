@@ -156,6 +156,82 @@ function fakeRuntimeCacheClient(options = {}) {
   }
 }
 
+function waitFor(predicate, label = 'condition') {
+  return new Promise((resolve, reject) => {
+    let attempts = 0
+    const tick = () => {
+      if (predicate()) {
+        resolve()
+        return
+      }
+      attempts += 1
+      if (attempts > 200) {
+        reject(new Error(`timed out waiting for ${label}`))
+        return
+      }
+      setTimeout(tick, 5)
+    }
+    tick()
+  })
+}
+
+function installFakeWebSocket() {
+  const original = globalThis.WebSocket
+  class FakeWebSocket {
+    static sockets = []
+    static onSend = () => undefined
+
+    readyState = 0
+    sent = []
+    listeners = new Map()
+
+    constructor(url) {
+      this.url = url
+      FakeWebSocket.sockets.push(this)
+      queueMicrotask(() => this.open())
+    }
+
+    addEventListener(type, listener) {
+      const listeners = this.listeners.get(type) ?? []
+      listeners.push(listener)
+      this.listeners.set(type, listeners)
+    }
+
+    send(data) {
+      const message = JSON.parse(String(data))
+      this.sent.push(message)
+      FakeWebSocket.onSend(this, message)
+    }
+
+    close() {
+      if (this.readyState === 3) return
+      this.readyState = 3
+      this.emit('close', {})
+    }
+
+    open() {
+      if (this.readyState !== 0) return
+      this.readyState = 1
+      this.emit('open', {})
+    }
+
+    serverMessage(message) {
+      this.emit('message', { data: JSON.stringify(message) })
+    }
+
+    emit(type, event) {
+      for (const listener of this.listeners.get(type) ?? []) listener(event)
+    }
+  }
+  globalThis.WebSocket = FakeWebSocket
+  return {
+    FakeWebSocket,
+    restore() {
+      globalThis.WebSocket = original
+    },
+  }
+}
+
 test('package exposes a WASM browser subset without the Node native addon', () => {
   const root = path.join(__dirname, '..')
   const packageJson = JSON.parse(
@@ -665,6 +741,104 @@ test('chain client surface is exported without Polkadot.js glue', () => {
   ])
 })
 
+test('Balance numeric getters throw before losing precision', () => {
+  const small = core.Balance.fromTao('1.25')
+  assert.equal(small.amount, 1.25)
+  assert.equal(small.tao, 1.25)
+  assert.equal(small.amountString, '1.25')
+  assert.equal(small.taoString, '1.25')
+
+  const alpha = core.Balance.fromRao('123000000000', 7, 'ALPHA')
+  assert.equal(alpha.alphaString, '123')
+  assert.equal(alpha.toString(), '123 ALPHA')
+
+  const unsafe = core.Balance.fromRao((BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString())
+  assert.equal(unsafe.amountString, '9007199.254740992')
+  assert.throws(() => unsafe.amount, /safe integer precision/)
+  assert.throws(() => unsafe.tao, /safe integer precision/)
+})
+
+test('JsonRpcTransport restores websocket subscriptions after reconnect', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  let nextSubscription = 1
+  FakeWebSocket.onSend = (socket, message) => {
+    if (message.method === 'chain_subscribeNewHeads') {
+      const subscription = `sub-${nextSubscription++}`
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: subscription }))
+      return
+    }
+    if (message.method === 'chain_unsubscribeNewHeads') {
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: true }))
+    }
+  }
+
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+  const subscription = await transport.subscribe(
+    'chain_subscribeNewHeads',
+    [],
+    'chain_unsubscribeNewHeads',
+  )
+  const iterator = subscription[Symbol.asyncIterator]()
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-1', result: { number: 1 } },
+  })
+  assert.deepEqual(await iterator.next(), { done: false, value: { number: 1 } })
+
+  FakeWebSocket.sockets[0].close()
+  await waitFor(
+    () => FakeWebSocket.sockets.length === 2 &&
+      FakeWebSocket.sockets[1].sent.some((message) => message.method === 'chain_subscribeNewHeads'),
+    'resubscribe after reconnect',
+  )
+  FakeWebSocket.sockets[1].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-2', result: { number: 2 } },
+  })
+  assert.deepEqual(await iterator.next(), { done: false, value: { number: 2 } })
+
+  await subscription.unsubscribe()
+})
+
+test('JsonRpcTransport bounds retries and supports request cancellation', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  let requests = 0
+  FakeWebSocket.onSend = () => {
+    requests += 1
+  }
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 5,
+    maxRequestRetries: 1,
+    retryBackoffMs: 1,
+    maxRetryBackoffMs: 1,
+  })
+
+  await assert.rejects(
+    () => transport.request('state_getMetadata'),
+    (error) => error.name === 'RequestTimeoutError',
+  )
+  assert.equal(requests, 2)
+
+  const controller = new AbortController()
+  const pending = transport.request('state_getMetadata', [], {
+    signal: controller.signal,
+    timeoutMs: 1_000,
+    maxRetries: 0,
+  })
+  controller.abort()
+  await assert.rejects(
+    pending,
+    (error) => error.name === 'RequestAbortedError',
+  )
+})
+
 test('Client expires head runtime metadata and invalidates it on runtime upgrade', async () => {
   const { client, calls, setHeadVersion } = fakeRuntimeCacheClient({
     headRuntimeTtlMs: 1_000,
@@ -717,6 +891,41 @@ test('Client caches historical runtimes by block hash with LRU eviction', async 
   assert.equal(await client.runtimeAt(blockA), runtimeA)
   assert.deepEqual(calls.version, [blockA, blockB, blockC, blockA])
   assert.deepEqual(calls.metadata, [blockA, blockB, blockC])
+})
+
+test('Client queryBatch decodes metadata defaults for missing storage values', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const keys = [Buffer.from([1]), Buffer.from([2])]
+  const runtime = {
+    storageKeyBatch() {
+      return keys
+    },
+    storageEntry() {
+      return {
+        pallet: 'Example',
+        name: 'Value',
+        prefix: 'Example',
+        modifier: 'Default',
+        valueType: 'u8',
+        valueTypeId: 0,
+        paramTypes: [],
+        paramTypeIds: [],
+        paramHashers: [],
+        defaultBytes: Buffer.from([9]),
+      }
+    },
+    decode(_type, bytes) {
+      return bytes[0]
+    },
+  }
+  client.runtimeAt = async () => runtime
+  client.resolveBlockHash = async () => null
+  client.rpc = async (method) => {
+    assert.equal(method, 'state_queryStorageAt')
+    return [{ changes: [['0x01', '0x05']] }]
+  }
+
+  assert.deepEqual(await client.queryBatch('Example', 'Value', [[], []]), [5, 9])
 })
 
 test('Client signs extrinsics with extension-style signRaw signers', async () => {
@@ -838,13 +1047,14 @@ test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', as
   assert.equal(captures.encoded.params.metadataHashEnabled, true)
 })
 
-test('hotkey helpers encrypt keyfiles when a password is provided', (t) => {
+test('wallet helpers keep mnemonic and keyfile passwords separate', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-wallet-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  const password = 'review-password'
+  const keyfilePassword = 'review-keyfile-password'
+  const mnemonicPassword = 'review-mnemonic-password'
 
   const created = new core.Wallet({ name: 'created', hotkey: 'default', path: root })
-  created.createNewHotkey({ password })
+  created.createNewHotkey({ keyfilePassword })
   assert.equal(
     core.keyfileDataIsEncrypted(fs.readFileSync(created.hotkeyFile.path)),
     true,
@@ -853,10 +1063,29 @@ test('hotkey helpers encrypt keyfiles when a password is provided', (t) => {
   const mnemonic =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
   const regenerated = new core.Wallet({ name: 'regenerated', hotkey: 'default', path: root })
-  regenerated.regenerateHotkey(mnemonic, { password })
+  regenerated.regenerateHotkey(mnemonic, { mnemonicPassword, keyfilePassword })
   assert.equal(
     core.keyfileDataIsEncrypted(fs.readFileSync(regenerated.hotkeyFile.path)),
     true,
+  )
+  assert.deepEqual(
+    regenerated.getHotkey(keyfilePassword).publicKey,
+    core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519, mnemonicPassword).publicKey,
+  )
+  assert.notDeepEqual(
+    regenerated.getHotkey(keyfilePassword).publicKey,
+    core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519).publicKey,
+  )
+
+  const cold = new core.Wallet({ name: 'regenerated-cold', hotkey: 'default', path: root })
+  cold.regenerateColdkey(mnemonic, { mnemonicPassword, keyfilePassword })
+  assert.equal(
+    core.keyfileDataIsEncrypted(fs.readFileSync(cold.coldkeyFile.path)),
+    true,
+  )
+  assert.deepEqual(
+    cold.getColdkey(keyfilePassword).publicKey,
+    core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519, mnemonicPassword).publicKey,
   )
 })
 
