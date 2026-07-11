@@ -1,6 +1,7 @@
 import * as crypto from './crypto'
 import * as errors from './errors'
 import * as keys from './keys'
+import * as client from './client'
 import { LedgerDevice } from './ledger'
 import native from './native'
 import * as runtime from './runtime'
@@ -98,6 +99,14 @@ export const rustCore = Object.freeze({
     Runtime: runtime.Runtime,
     TypeSpec: runtime.typeSpec,
     Primitive: runtime.primitiveFromName,
+  }),
+  client: Object.freeze({
+    Client: client.Client,
+    Subtensor: client.Subtensor,
+    storage: client.storage,
+    constants: client.constants,
+    runtimeApi: client.runtimeApi,
+    calls: client.calls,
   }),
   timelock: Object.freeze({
     encryptAndCompress: timelock.encryptAndCompress,

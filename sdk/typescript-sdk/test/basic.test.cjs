@@ -219,11 +219,40 @@ test('module-shaped export mirrors the public Rust crate', () => {
   assert.equal(core.rustCore.keys.Keypair, core.Keypair)
   assert.equal(core.rustCore.codec.decode.Cursor, core.ScaleCursor)
   assert.equal(core.rustCore.codec.batch.PARALLEL_THRESHOLD, core.PARALLEL_THRESHOLD)
+  assert.equal(core.rustCore.client.Client, core.Client)
+  assert.equal(core.rustCore.client.storage.System.Events[0], 'System')
   assert.equal(core.rustCore.mlkem.MLKEM_NONCE_LEN, 24)
   assert.equal(core.rustCore.timelock.constants.GENESIS_TIME, core.GENESIS_TIME)
   assert.deepEqual(core.rustCore.timelock.epoch_schedule.EpochScheduleError, [
     'BoundExceeded',
     'TempoIsZero',
+  ])
+})
+
+test('chain client surface is exported without Polkadot.js glue', () => {
+  assert.equal(typeof core.Client, 'function')
+  assert.equal(typeof core.Client.prototype.watchSigned, 'function')
+  assert.equal(core.Subtensor, core.SubtensorClient)
+  assert.equal(typeof core.subtensor, 'function')
+  assert.equal(typeof core.Wallet, 'function')
+  assert.equal(typeof core.Balance.fromTao, 'function')
+  assert.deepEqual(core.storage.SubtensorModule.NetworksAdded, [
+    'SubtensorModule',
+    'NetworksAdded',
+  ])
+  assert.deepEqual(core.runtimeApi.SubnetInfoRuntimeApi.get_metagraph, [
+    'SubnetInfoRuntimeApi',
+    'get_metagraph',
+  ])
+  assert.deepEqual(core.calls.subtensor.rootRegister('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'), [
+    'SubtensorModule',
+    'root_register',
+    { hotkey: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
+  ])
+  assert.deepEqual(core.calls.SubtensorModule.root_register('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'), [
+    'SubtensorModule',
+    'root_register',
+    { hotkey: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
   ])
 })
 

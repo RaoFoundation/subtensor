@@ -5,7 +5,7 @@ package. In Node.js it is a deliberately thin Node-API wrapper around the
 sibling `bittensor-core` Rust crate. Browser builds resolve to a separate
 WASM-compatible subset backed by `sdk/bittensor-core-wasm`.
 
-All chain-defined work runs in Rust:
+Chain-defined work runs in Rust:
 
 - sr25519/ed25519 keys, signatures, SS58, and wallet keyfiles;
 - SCALE encoding and decoding, runtime metadata, storage keys, calls, and
@@ -16,9 +16,15 @@ All chain-defined work runs in Rust:
 - Ledger HID signing.
 
 The Node TypeScript layer is limited to JavaScript-friendly names and defaults,
-lossless `Buffer`/`bigint`/`Map` boundary conversion, error classes, and
+lossless `Buffer`/`bigint`/`Map` boundary conversion, error classes,
 compatibility adapters for the signer objects expected by Polkadot.js,
-Polkadot API, and Moonwall.
+Polkadot API, and Moonwall, plus the client responsibilities that deliberately
+do not live in Rust: WebSocket/HTTP JSON-RPC transport, reconnect/fallback
+handling, subscriptions, storage queries, runtime API calls, nonce tracking,
+extrinsic submission and inclusion/finalization outcome handling, wallet
+filesystem management, generated-style descriptors, and high-level Bittensor
+operations for balances, subnets, metagraphs, staking, registration, serving,
+transfers, and weights.
 
 The package exposes both CommonJS and ESM entrypoints. It also exports the
 raw generated Node-API module as `@bittensor/sdk/native`, so every native
@@ -81,6 +87,25 @@ const ciphertext = sealMevShieldTransaction(mlKemPublicKey, call)
 Large SCALE integers are returned as `bigint`; byte carriers are returned as
 `Buffer`. A decoded SCALE dictionary with non-string keys is returned as a
 `Map`, so no key information is lost.
+
+## Chain client example
+
+```ts
+import { Balance, Client, Keypair, storage } from '@bittensor/sdk'
+
+const client = await new Client('finney').connect()
+const alice = Keypair.fromUri('//Alice')
+
+const balance = await client.balances.get(alice.ss58Address)
+const subnet = await client.subnets.info(1)
+const metagraph = await client.subnets.metagraph(1)
+const events = await client.query(storage.System.Events)
+
+await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
+  waitForFinalization: true,
+})
+await client.close()
+```
 
 ## Browser example
 

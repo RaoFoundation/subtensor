@@ -1,0 +1,1674 @@
+import { blake2_256 } from './crypto'
+import { Keypair } from './keys'
+import { Runtime, eraBirth } from './runtime'
+import { toBuffer } from './wire'
+import { Balance, type BalanceLike, balanceRao } from './balance'
+import type { ByteLike, ScaleValue, SignedExtrinsic } from './types'
+
+export const SS58_FORMAT = 42
+export const DEFAULT_ERA_PERIOD = 128
+export const NETWORKS = Object.freeze({
+  finney: 'wss://entrypoint-finney.opentensor.ai:443',
+  test: 'wss://test.finney.opentensor.ai:443',
+  archive: 'wss://archive.chain.opentensor.ai:443',
+  local: process.env.BT_CHAIN_ENDPOINT ?? 'ws://127.0.0.1:9944',
+})
+
+export type NetworkName = keyof typeof NETWORKS
+export type Descriptor = readonly [string, string]
+export type CallLike =
+  | readonly [string, string, ScaleValue?]
+  | { pallet?: string; module?: string; call?: string; function?: string; params?: ScaleValue }
+  | ByteLike
+
+export interface ClientOptions {
+  endpoint?: string
+  fallbackEndpoints?: string[]
+  retryForever?: boolean
+  autoConnect?: boolean
+}
+
+export interface SubmitOptions {
+  nonce?: number
+  period?: number | null
+  tip?: BalanceLike
+  tipAssetId?: BalanceLike | null
+  metadataHash?: ByteLike | null
+  waitForInclusion?: boolean
+  waitForFinalization?: boolean
+}
+
+export interface ExtrinsicResult {
+  success: boolean
+  message: string
+  extrinsicHash: string
+  blockHash?: string
+  blockNumber?: number
+  extrinsicIndex?: number
+  extrinsicId?: string
+  finalized?: boolean
+  fee?: Balance
+  events: unknown[]
+  error?: unknown
+}
+
+export interface SignedExtrinsicResult extends SignedExtrinsic {
+  hex: string
+}
+
+export interface ExtrinsicWatcher {
+  readonly extrinsicHash: string
+  readonly result: Promise<ExtrinsicResult>
+  unsubscribe(): Promise<void>
+}
+
+export interface BlockHeader {
+  number: number
+  parentHash?: string
+  hash?: string
+  raw: unknown
+}
+
+export interface BlockInfo {
+  number: number
+  hash: string
+  header: unknown
+  extrinsics: string[]
+  timestamp?: Date
+}
+
+interface RpcRequest {
+  resolve(value: unknown): void
+  reject(error: Error): void
+}
+
+interface SubscriptionState {
+  queue: unknown[]
+  waiters: Array<(value: IteratorResult<unknown>) => void>
+  errors: Array<(error: Error) => void>
+  closed: boolean
+}
+
+type WebSocketLike = {
+  readyState: number
+  send(data: string): void
+  close(): void
+  addEventListener(type: string, listener: (event: { data?: unknown }) => void): void
+}
+
+type WebSocketConstructor = new (url: string) => WebSocketLike
+
+export class JsonRpcError extends Error {
+  readonly code?: number
+  readonly data?: unknown
+
+  constructor(message: string, code?: number, data?: unknown) {
+    super(message)
+    this.name = 'JsonRpcError'
+    this.code = code
+    this.data = data
+  }
+}
+
+export class ChainError extends Error {
+  readonly details?: unknown
+
+  constructor(message: string, details?: unknown) {
+    super(message)
+    this.name = 'ChainError'
+    this.details = details
+  }
+}
+
+export class JsonRpcTransport {
+  private readonly endpoints: string[]
+  private readonly retryForever: boolean
+  private endpointIndex = 0
+  private id = 1
+  private socket?: WebSocketLike
+  private connecting?: Promise<WebSocketLike>
+  private pending = new Map<number, RpcRequest>()
+  private subscriptions = new Map<string, SubscriptionState>()
+
+  constructor(endpoint: string, fallbackEndpoints: string[] = [], retryForever = false) {
+    this.endpoints = [endpoint, ...fallbackEndpoints.filter((item) => item !== endpoint)]
+    this.retryForever = retryForever
+  }
+
+  get endpoint(): string {
+    return this.endpoints[this.endpointIndex]
+  }
+
+  async request(method: string, params: unknown[] = []): Promise<unknown> {
+    for (;;) {
+      try {
+        return this.isHttpEndpoint() ? await this.httpRequest(method, params) : await this.wsRequest(method, params)
+      } catch (error) {
+        if (error instanceof JsonRpcError) throw error
+        this.rotateEndpoint()
+        if (!this.retryForever) throw error
+        await delay(1000)
+      }
+    }
+  }
+
+  async subscribe(
+    subscribeMethod: string,
+    params: unknown[] = [],
+    unsubscribeMethod: string,
+  ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
+    if (this.isHttpEndpoint()) throw new ChainError('subscriptions require a WebSocket endpoint')
+    const subscription = (await this.request(subscribeMethod, params)) as string
+    const state: SubscriptionState = { queue: [], waiters: [], errors: [], closed: false }
+    this.subscriptions.set(subscription, state)
+    const unsubscribe = async () => {
+      if (state.closed) return
+      state.closed = true
+      this.subscriptions.delete(subscription)
+      for (const waiter of state.waiters.splice(0)) waiter({ done: true, value: undefined })
+      await this.request(unsubscribeMethod, [subscription]).catch(() => undefined)
+    }
+    return {
+      unsubscribe,
+      [Symbol.asyncIterator]: () => ({
+        next: () => this.subscriptionNext(state),
+        return: async () => {
+          await unsubscribe()
+          return { done: true, value: undefined }
+        },
+      }),
+    }
+  }
+
+  close(): void {
+    this.socket?.close()
+    this.socket = undefined
+    this.connecting = undefined
+  }
+
+  private isHttpEndpoint(): boolean {
+    return this.endpoint.startsWith('http://') || this.endpoint.startsWith('https://')
+  }
+
+  private async httpRequest(method: string, params: unknown[]): Promise<unknown> {
+    const response = await fetch(this.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: this.id++, method, params }),
+    })
+    if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${this.endpoint}`)
+    const payload = await response.json()
+    if (payload.error) throw new JsonRpcError(payload.error.message, payload.error.code, payload.error.data)
+    return payload.result
+  }
+
+  private async wsRequest(method: string, params: unknown[]): Promise<unknown> {
+    const socket = await this.connect()
+    const id = this.id++
+    const promise = new Promise<unknown>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+    })
+    try {
+      socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
+    } catch (error) {
+      this.pending.delete(id)
+      throw error
+    }
+    return promise
+  }
+
+  private async connect(): Promise<WebSocketLike> {
+    if (this.socket?.readyState === 1) return this.socket
+    if (this.connecting != null) return this.connecting
+
+    const WebSocketImpl = (globalThis as unknown as { WebSocket?: WebSocketConstructor }).WebSocket
+    if (WebSocketImpl == null) {
+      throw new ChainError('WebSocket is not available; use Node 20.17+ or pass an HTTP endpoint')
+    }
+
+    this.connecting = new Promise((resolve, reject) => {
+      const socket = new WebSocketImpl(this.endpoint)
+      const fail = (error: Error) => {
+        this.socket = undefined
+        this.connecting = undefined
+        reject(error)
+      }
+      socket.addEventListener('open', () => {
+        this.socket = socket
+        this.connecting = undefined
+        resolve(socket)
+      })
+      socket.addEventListener('error', () => fail(new ChainError(`could not connect to ${this.endpoint}`)))
+      socket.addEventListener('close', () => this.failPending(new ChainError(`connection closed: ${this.endpoint}`)))
+      socket.addEventListener('message', (event) => this.handleMessage(event.data))
+    })
+    return this.connecting
+  }
+
+  private handleMessage(data: unknown): void {
+    const message = JSON.parse(String(data))
+    if (typeof message.id === 'number') {
+      const pending = this.pending.get(message.id)
+      if (pending == null) return
+      this.pending.delete(message.id)
+      if (message.error) pending.reject(new JsonRpcError(message.error.message, message.error.code, message.error.data))
+      else pending.resolve(message.result)
+      return
+    }
+    const subscription = message.params?.subscription
+    if (subscription == null) return
+    const state = this.subscriptions.get(subscription)
+    if (state == null || state.closed) return
+    const result = message.params?.result
+    const waiter = state.waiters.shift()
+    if (waiter != null) waiter({ done: false, value: result })
+    else state.queue.push(result)
+  }
+
+  private subscriptionNext(state: SubscriptionState): Promise<IteratorResult<unknown>> {
+    if (state.queue.length > 0) return Promise.resolve({ done: false, value: state.queue.shift() })
+    if (state.closed) return Promise.resolve({ done: true, value: undefined })
+    return new Promise((resolve, reject) => {
+      state.waiters.push(resolve)
+      state.errors.push(reject)
+    })
+  }
+
+  private failPending(error: Error): void {
+    this.socket = undefined
+    this.connecting = undefined
+    for (const pending of this.pending.values()) pending.reject(error)
+    this.pending.clear()
+    for (const state of this.subscriptions.values()) {
+      state.closed = true
+      for (const reject of state.errors.splice(0)) reject(error)
+      for (const waiter of state.waiters.splice(0)) waiter({ done: true, value: undefined })
+    }
+    this.subscriptions.clear()
+  }
+
+  private rotateEndpoint(): void {
+    this.socket = undefined
+    this.connecting = undefined
+    if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
+  }
+}
+
+export class Client {
+  readonly network: string
+  readonly endpoint: string
+  readonly transport: JsonRpcTransport
+  readonly balances: BalancesNamespace
+  readonly subnets: SubnetsNamespace
+  readonly neurons: NeuronsNamespace
+  readonly staking: StakingNamespace
+
+  private runtime?: Runtime
+  private genesis?: string
+  private nonceCache = new Map<string, number>()
+
+  constructor(network: string = 'finney', options: ClientOptions = {}) {
+    const [label, endpoint] = resolveEndpoint(options.endpoint ?? network)
+    this.network = label
+    this.endpoint = endpoint
+    this.transport = new JsonRpcTransport(endpoint, options.fallbackEndpoints, options.retryForever)
+    this.balances = new BalancesNamespace(this)
+    this.subnets = new SubnetsNamespace(this)
+    this.neurons = new NeuronsNamespace(this)
+    this.staking = new StakingNamespace(this)
+    if (options.autoConnect) void this.connect()
+  }
+
+  async connect(): Promise<this> {
+    await this.runtimeAt()
+    return this
+  }
+
+  async close(): Promise<void> {
+    this.transport.close()
+  }
+
+  async block(): Promise<number> {
+    return this.blockNumber()
+  }
+
+  getCurrentBlock(): Promise<number> {
+    return this.blockNumber()
+  }
+
+  get_current_block(): Promise<number> {
+    return this.getCurrentBlock()
+  }
+
+  async blockNumber(blockHash?: string | null): Promise<number> {
+    const header = await this.rpc('chain_getHeader', blockHash == null ? [] : [blockHash])
+    return headerNumber(header)
+  }
+
+  async blockHash(block?: number | null): Promise<string> {
+    return String(await this.rpc('chain_getBlockHash', block == null ? [] : [block]))
+  }
+
+  getBlockHash(block?: number | null): Promise<string> {
+    return this.blockHash(block)
+  }
+
+  get_block_hash(block?: number | null): Promise<string> {
+    return this.blockHash(block)
+  }
+
+  async finalizedHead(): Promise<string> {
+    return String(await this.rpc('chain_getFinalizedHead'))
+  }
+
+  async genesisHash(): Promise<string> {
+    this.genesis ??= await this.blockHash(0)
+    return this.genesis
+  }
+
+  async runtimeAt(block?: number | string | null): Promise<Runtime> {
+    const blockHash = await this.resolveBlockHash(block)
+    if (this.runtime != null && blockHash == null) return this.runtime
+    const [metadataHex, version, properties] = await Promise.all([
+      this.rpc('state_getMetadata', blockHash == null ? [] : [blockHash]),
+      this.rpc('state_getRuntimeVersion', blockHash == null ? [] : [blockHash]),
+      this.rpc('system_properties').catch(() => ({})),
+    ])
+    const ss58Format = Number((properties as { ss58Format?: number }).ss58Format ?? SS58_FORMAT)
+    const runtime = new Runtime(
+      hexToBuffer(String(metadataHex)),
+      Number((version as { specVersion: number }).specVersion),
+      Number((version as { transactionVersion: number }).transactionVersion),
+      ss58Format,
+    )
+    if (blockHash == null) this.runtime = runtime
+    return runtime
+  }
+
+  rpc(method: string, params: unknown[] = []): Promise<unknown> {
+    return this.transport.request(method, params)
+  }
+
+  async query<T extends ScaleValue = ScaleValue>(
+    pallet: string | Descriptor,
+    storageFunction?: string | ScaleValue[],
+    paramsOrBlock?: ScaleValue[] | number | string | null,
+    block?: number | string | null,
+  ): Promise<T | undefined> {
+    const [moduleName, itemName, itemParams, blockRef] =
+      normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
+    const blockHash = await this.resolveBlockHash(blockRef)
+    const runtime = await this.runtimeAt(blockHash)
+    const key = runtime.storageKey(moduleName, itemName, itemParams)
+    const raw = await this.rpc('state_getStorage', [hex(key), ...(blockHash == null ? [] : [blockHash])])
+    const entry = runtime.storageEntry(moduleName, itemName)
+    const bytes = raw == null ? entry.defaultBytes : hexToBuffer(String(raw))
+    if (bytes == null || bytes.length === 0) return undefined
+    return runtime.decode<T>(entry.valueType, bytes, false)
+  }
+
+  async queryBatch<T extends ScaleValue = ScaleValue>(
+    pallet: string | Descriptor,
+    storageFunction: string | ScaleValue[][],
+    paramSetsOrBlock?: ScaleValue[][] | number | string | null,
+    block?: number | string | null,
+  ): Promise<Array<T | undefined>> {
+    const [moduleName, itemName, sets, blockRef] =
+      normalizeBatchArgs(pallet, storageFunction, paramSetsOrBlock, block)
+    if (sets.length === 0) return []
+    const blockHash = await this.resolveBlockHash(blockRef)
+    const runtime = await this.runtimeAt(blockHash)
+    const keys = runtime.storageKeyBatch(moduleName, itemName, sets)
+    const raw = await this.rpc('state_queryStorageAt', [keys.map(hex), ...(blockHash == null ? [] : [blockHash])])
+    const changes = ((raw as Array<{ changes?: Array<[string, string | null]> }>)[0]?.changes ?? [])
+    const valueByKey = new Map(changes.map(([key, value]) => [key.toLowerCase(), value]))
+    const entry = runtime.storageEntry(moduleName, itemName)
+    return keys.map((key) => {
+      const value = valueByKey.get(hex(key).toLowerCase())
+      if (value == null) return undefined
+      return runtime.decode<T>(entry.valueType, hexToBuffer(value), false)
+    })
+  }
+
+  async queryMap<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
+    pallet: string | Descriptor,
+    storageFunction?: string | ScaleValue[],
+    paramsOrBlock?: ScaleValue[] | number | string | null,
+    block?: number | string | null,
+    pageSize = 512,
+  ): Promise<Array<[K, V]>> {
+    const [moduleName, itemName, itemParams, blockRef] =
+      normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
+    const blockHash = await this.resolveBlockHash(blockRef)
+    const runtime = await this.runtimeAt(blockHash)
+    const prefix = runtime.storageKey(moduleName, itemName, itemParams)
+    const entry = runtime.storageEntry(moduleName, itemName)
+    const out: Array<[K, V]> = []
+    let startKey: string | null = null
+    for (;;) {
+      const keys = (await this.rpc('state_getKeysPaged', [
+        hex(prefix),
+        pageSize,
+        startKey,
+        ...(blockHash == null ? [] : [blockHash]),
+      ])) as string[]
+      if (keys.length === 0) break
+      const raw = await this.rpc('state_queryStorageAt', [keys, ...(blockHash == null ? [] : [blockHash])])
+      const changes = ((raw as Array<{ changes?: Array<[string, string | null]> }>)[0]?.changes ?? [])
+      const valueByKey = new Map(changes.map(([key, value]) => [key.toLowerCase(), value]))
+      for (const key of keys) {
+        const value = valueByKey.get(key.toLowerCase())
+        if (value == null) continue
+        const decodedKey = runtime.decodeStorageKeyParams<K>(moduleName, itemName, hexToBuffer(key), itemParams.length)
+        const normalizedKey = (decodedKey.length === 1 ? decodedKey[0] : decodedKey) as K
+        out.push([normalizedKey, runtime.decode<V>(entry.valueType, hexToBuffer(value), false)])
+      }
+      startKey = keys[keys.length - 1]
+    }
+    return out
+  }
+
+  queryModule<T extends ScaleValue = ScaleValue>(
+    moduleName: string,
+    name: string,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T | undefined> {
+    return this.query<T>(moduleName, name, params, block)
+  }
+
+  query_module<T extends ScaleValue = ScaleValue>(
+    moduleName: string,
+    name: string,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T | undefined> {
+    return this.queryModule<T>(moduleName, name, params, block)
+  }
+
+  querySubtensor<T extends ScaleValue = ScaleValue>(
+    name: string,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T | undefined> {
+    return this.query<T>('SubtensorModule', name, params, block)
+  }
+
+  query_subtensor<T extends ScaleValue = ScaleValue>(
+    name: string,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T | undefined> {
+    return this.querySubtensor<T>(name, params, block)
+  }
+
+  async runtimeCall<T extends ScaleValue = ScaleValue>(
+    api: string | Descriptor,
+    method?: string | ScaleValue[],
+    paramsOrBlock: ScaleValue[] | number | string | null = [],
+    block?: number | string | null,
+  ): Promise<T> {
+    const [apiName, methodName, callParams, blockRef] = normalizeRuntimeArgs(api, method, paramsOrBlock, block)
+    const blockHash = await this.resolveBlockHash(blockRef)
+    const runtime = await this.runtimeAt(blockHash)
+    const info = runtime.runtimeApis()[apiName]?.[methodName]
+    if (info == null) throw new ChainError(`runtime API ${apiName}.${methodName} not found`)
+    const inputDetails = info.inputDetails ?? []
+    if (inputDetails.length !== callParams.length) {
+      throw new ChainError(`${apiName}.${methodName} expects ${inputDetails.length} params`)
+    }
+    const encoded = Buffer.concat(callParams.map((value, index) => runtime.encodeId(inputDetails[index].typeId, value)))
+    const raw = await this.rpc('state_call', [`${apiName}_${methodName}`, hex(encoded), blockHash ?? null])
+    return runtime.decodeTypeId<T>(info.outputTypeId, hexToBuffer(String(raw)), false)
+  }
+
+  runtime<T extends ScaleValue = ScaleValue>(
+    method: Descriptor,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T> {
+    return this.runtimeCall<T>(method, params, block)
+  }
+
+  queryRuntimeApi<T extends ScaleValue = ScaleValue>(
+    api: string,
+    method: string,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T> {
+    return this.runtimeCall<T>(api, method, params, block)
+  }
+
+  query_runtime_api<T extends ScaleValue = ScaleValue>(
+    api: string,
+    method: string,
+    params: ScaleValue[] = [],
+    block?: number | string | null,
+  ): Promise<T> {
+    return this.queryRuntimeApi<T>(api, method, params, block)
+  }
+
+  async stateCall<T = string>(method: string, data: ByteLike | string, block?: number | string | null): Promise<T> {
+    const blockHash = await this.resolveBlockHash(block)
+    return (await this.rpc('state_call', [method, typeof data === 'string' ? data : hex(data), blockHash ?? null])) as T
+  }
+
+  state_call<T = string>(method: string, data: ByteLike | string, block?: number | string | null): Promise<T> {
+    return this.stateCall<T>(method, data, block)
+  }
+
+  async constant<T extends ScaleValue = ScaleValue>(
+    pallet: string | Descriptor,
+    name?: string,
+    block?: number | string | null,
+  ): Promise<T | undefined> {
+    const [moduleName, constantName] = typeof pallet === 'string' ? [pallet, name as string] : pallet
+    return (await this.runtimeAt(block)).constant<T>(moduleName, constantName)
+  }
+
+  decodeScale<T extends ScaleValue = ScaleValue>(
+    typeString: string,
+    data: ByteLike | string,
+    block?: number | string | null,
+  ): Promise<T> {
+    return this.runtimeAt(block).then((runtime) =>
+      runtime.decode<T>(typeString, typeof data === 'string' ? hexToBuffer(data) : data, false),
+    )
+  }
+
+  decode_scale<T extends ScaleValue = ScaleValue>(
+    typeString: string,
+    data: ByteLike | string,
+    block?: number | string | null,
+  ): Promise<T> {
+    return this.decodeScale<T>(typeString, data, block)
+  }
+
+  composeCall(pallet: string, fn: string, params: ScaleValue = {}, block?: number | string | null): Promise<Buffer> {
+    return this.runtimeAt(block).then((runtime) => runtime.composeCall(pallet, fn, params))
+  }
+
+  compose(call: CallLike, block?: number | string | null): Promise<Buffer> {
+    return this.callData(call, block)
+  }
+
+  async *blocks(options: { finalized?: boolean } = {}): AsyncIterable<BlockHeader> {
+    const subscription = await this.transport.subscribe(
+      options.finalized ? 'chain_subscribeFinalizedHeads' : 'chain_subscribeNewHeads',
+      [],
+      options.finalized ? 'chain_unsubscribeFinalizedHeads' : 'chain_unsubscribeNewHeads',
+    )
+    try {
+      for await (const raw of subscription) yield normalizeHeader(raw)
+    } finally {
+      await subscription.unsubscribe()
+    }
+  }
+
+  async waitForBlock(block?: number | null, options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
+    const target = block ?? (await this.blockNumber()) + 1
+    const wait = async () => {
+      for await (const header of this.blocks()) {
+        if (header.number >= target) return header
+      }
+      throw new ChainError('block subscription ended before the target block')
+    }
+    return options.timeoutMs == null ? wait() : withTimeout(wait(), options.timeoutMs)
+  }
+
+  wait_for_block(block?: number | null, options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
+    return this.waitForBlock(block, options)
+  }
+
+  async timestamp(block?: number | string | null): Promise<Date> {
+    const ms = await this.query<bigint | number>(storage.Timestamp.Now, [], block)
+    return new Date(Number(ms ?? 0))
+  }
+
+  async blockInfo(block?: number | null): Promise<BlockInfo | null> {
+    const raw = await this.rpc('chain_getBlock', block == null ? [] : [await this.blockHash(block)])
+    const value = raw as { block?: { header?: { number?: string; hash?: string }; extrinsics?: string[] } }
+    if (value.block?.header == null) return null
+    const number = headerNumber(value.block.header)
+    return {
+      number,
+      hash: await this.blockHash(number),
+      header: value.block.header,
+      extrinsics: value.block.extrinsics ?? [],
+      timestamp: await this.timestamp(number).catch(() => undefined),
+    }
+  }
+
+  block_info(block?: number | null): Promise<BlockInfo | null> {
+    return this.blockInfo(block)
+  }
+
+  async at(block?: number | null): Promise<Snapshot> {
+    const number = block ?? await this.blockNumber()
+    return new Snapshot(this, number, await this.blockHash(number))
+  }
+
+  balance(rao: BalanceLike, netuid = 0, symbol?: string | null): Balance {
+    return Balance.fromRao(rao, netuid, symbol)
+  }
+
+  read(name: string, params: Record<string, ScaleValue> = {}): Promise<unknown> {
+    return read(this, name, params)
+  }
+
+  reads(): Array<{ name: string; category: string; params: string[] }> {
+    return READS.slice()
+  }
+
+  async signExtrinsic(call: CallLike, keypair: Keypair, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
+    const runtime = await this.runtimeAt()
+    const callData = await this.callData(call)
+    const nonce = options.nonce ?? (await this.accountNextIndex(keypair.ss58Address))
+    const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
+    const { era, eraBlockHash } = await this.normalizeEra(period)
+    const tip = balanceRao(options.tip ?? 0)
+    const tipAssetId = options.tipAssetId == null ? null : balanceRao(options.tipAssetId)
+    const metadataHash = options.metadataHash == null ? null : toBuffer(options.metadataHash, 'metadataHash')
+    const txParams = {
+      era,
+      nonce,
+      tip,
+      tipAssetId,
+      genesisHash: hexToBuffer(await this.genesisHash()),
+      eraBlockHash: hexToBuffer(eraBlockHash),
+      metadataHash,
+    }
+    const payload = runtime.signaturePayload(callData, txParams)
+    const signature = keypair.sign(payload)
+    const signed = runtime.encodeSignedExtrinsic(callData, keypair.publicKey, signature, keypair.cryptoType, {
+      era,
+      nonce,
+      tip,
+      tipAssetId,
+      metadataHashEnabled: metadataHash != null,
+    })
+    return { ...signed, hex: hex(signed.bytes) }
+  }
+
+  async submit(call: CallLike, keypair: Keypair, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    try {
+      const signed = await this.signExtrinsic(call, keypair, options)
+      return await this.submitSigned(signed, keypair.ss58Address, options)
+    } catch (error) {
+      this.clearNonce(keypair.ss58Address)
+      throw error
+    }
+  }
+
+  async submitSigned(
+    extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
+    signerAddress?: string,
+    options: SubmitOptions = {},
+  ): Promise<ExtrinsicResult> {
+    const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
+      ? toBuffer(extrinsic, 'extrinsic')
+      : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
+    const extrinsicHash = hex(blake2_256(bytes))
+    try {
+      if (!options.waitForInclusion && !options.waitForFinalization) {
+        const submitted = String(await this.rpc('author_submitExtrinsic', [hex(bytes)]))
+        return { success: true, message: 'Submitted', extrinsicHash: submitted, events: [] }
+      }
+      const watcher = await this.watchSigned(bytes, {
+        waitForFinalization: options.waitForFinalization ?? false,
+      })
+      return await watcher.result
+    } catch (error) {
+      if (signerAddress != null) this.clearNonce(signerAddress)
+      throw error
+    }
+  }
+
+  async watchSigned(
+    extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
+    options: Pick<SubmitOptions, 'waitForFinalization'> = {},
+  ): Promise<ExtrinsicWatcher> {
+    const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
+      ? toBuffer(extrinsic, 'extrinsic')
+      : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
+    const extrinsicHash = hex(blake2_256(bytes))
+    const subscription = await this.transport.subscribe(
+      'author_submitAndWatchExtrinsic',
+      [hex(bytes)],
+      'author_unwatchExtrinsic',
+    )
+    return {
+      extrinsicHash,
+      result: this.resolveWatchedExtrinsic(
+        subscription,
+        extrinsicHash,
+        options.waitForFinalization ?? false,
+      ),
+      unsubscribe: () => subscription.unsubscribe(),
+    }
+  }
+
+  async accountNextIndex(address: string, useCache = true): Promise<number> {
+    if (useCache && this.nonceCache.has(address)) {
+      const nonce = this.nonceCache.get(address)!
+      this.nonceCache.set(address, nonce + 1)
+      return nonce
+    }
+    const nonce = Number(await this.rpc('system_accountNextIndex', [address]))
+    this.nonceCache.set(address, nonce + 1)
+    return nonce
+  }
+
+  clearNonce(address: string): void {
+    this.nonceCache.delete(address)
+  }
+
+  async estimateFee(call: CallLike, keypair: Keypair): Promise<Balance> {
+    const signed = await this.signExtrinsic(call, keypair, {
+      nonce: await this.accountNextIndex(keypair.ss58Address, false),
+      period: null,
+    })
+    const runtime = await this.runtimeAt()
+    const length = Buffer.alloc(4)
+    length.writeUInt32LE(signed.bytes.length, 0)
+    const raw = await this.rpc('state_call', ['TransactionPaymentApi_query_info', hex(Buffer.concat([signed.bytes, length])), null])
+    const info = runtime.decodeTypeId<Record<string, ScaleValue>>(
+      runtime.runtimeApis().TransactionPaymentApi.query_info.outputTypeId,
+      hexToBuffer(String(raw)),
+      false,
+    )
+    return Balance.fromRao(String(info.partial_fee ?? info.partialFee ?? 0))
+  }
+
+  submitCall(pallet: string, fn: string, params: ScaleValue, keypair: Keypair, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit([pallet, fn, params], keypair, options)
+  }
+
+  submit_call(pallet: string, fn: string, params: ScaleValue, keypair: Keypair, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submitCall(pallet, fn, params, keypair, options)
+  }
+
+  transfer(keypair: Keypair, dest: string, amount: BalanceLike, options: SubmitOptions & { keepAlive?: boolean } = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.balances[options.keepAlive === false ? 'transferAllowDeath' : 'transferKeepAlive'](dest, amount), keypair, {
+      waitForInclusion: true,
+      ...options,
+    })
+  }
+
+  transfer_keep_alive(keypair: Keypair, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.transfer(keypair, dest, amount, { keepAlive: true, ...options })
+  }
+
+  transfer_allow_death(keypair: Keypair, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.transfer(keypair, dest, amount, { keepAlive: false, ...options })
+  }
+
+  setWeights(keypair: Keypair, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.setWeights(netuid, dests, weights, versionKey), keypair, { waitForInclusion: true, ...options })
+  }
+
+  set_weights(keypair: Keypair, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.setWeights(keypair, netuid, dests, weights, versionKey, options)
+  }
+
+  burnedRegister(keypair: Keypair, netuid: number, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.burnedRegister(netuid, hotkey), keypair, { waitForInclusion: true, ...options })
+  }
+
+  burned_register(keypair: Keypair, netuid: number, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.burnedRegister(keypair, netuid, hotkey, options)
+  }
+
+  rootRegister(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.rootRegister(hotkey), keypair, { waitForInclusion: true, ...options })
+  }
+
+  root_register(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.rootRegister(keypair, hotkey, options)
+  }
+
+  registerNetwork(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.registerNetwork(hotkey), keypair, { waitForInclusion: true, ...options })
+  }
+
+  register_network(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.registerNetwork(keypair, hotkey, options)
+  }
+
+  registerSubnet(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.registerNetwork(keypair, hotkey, options)
+  }
+
+  register_subnet(keypair: Keypair, hotkey: string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.registerSubnet(keypair, hotkey, options)
+  }
+
+  serveAxon(
+    keypair: Keypair,
+    args: { netuid: number; ip: number; port: number; version?: number; ipType?: number; protocol?: number },
+    options: SubmitOptions = {},
+  ): Promise<ExtrinsicResult> {
+    return this.submit(calls.subtensor.serveAxon(args.netuid, args.ip, args.port, args.version, args.ipType, args.protocol), keypair, {
+      waitForInclusion: true,
+      ...options,
+    })
+  }
+
+  serve_axon(
+    keypair: Keypair,
+    args: { netuid: number; ip: number; port: number; version?: number; ipType?: number; protocol?: number },
+    options: SubmitOptions = {},
+  ): Promise<ExtrinsicResult> {
+    return this.serveAxon(keypair, args, options)
+  }
+
+  getBalance(address: string | Keypair, block?: number | string | null): Promise<Balance> {
+    return this.balances.get(typeof address === 'string' ? address : address.ss58Address, block)
+  }
+
+  get_balance(address: string | Keypair, block?: number | string | null): Promise<Balance> {
+    return this.getBalance(address, block)
+  }
+
+  getBalances(addresses: Array<string | Keypair>, block?: number | string | null): Promise<Record<string, Balance>> {
+    return this.balances.getMany(addresses.map((address) => typeof address === 'string' ? address : address.ss58Address), block)
+  }
+
+  get_balances(addresses: Array<string | Keypair>, block?: number | string | null): Promise<Record<string, Balance>> {
+    return this.getBalances(addresses, block)
+  }
+
+  getStake(coldkey: string | Keypair, hotkey: string | Keypair, netuid: number, block?: number | string | null): Promise<Balance> {
+    return this.staking.get(
+      typeof coldkey === 'string' ? coldkey : coldkey.ss58Address,
+      typeof hotkey === 'string' ? hotkey : hotkey.ss58Address,
+      netuid,
+      block,
+    )
+  }
+
+  get_stake(coldkey: string | Keypair, hotkey: string | Keypair, netuid: number, block?: number | string | null): Promise<Balance> {
+    return this.getStake(coldkey, hotkey, netuid, block)
+  }
+
+  metagraph<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.subnets.metagraph<T>(netuid, block)
+  }
+
+  subnet(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
+    return this.subnets.subnet(netuid, block)
+  }
+
+  allSubnets(block?: number | string | null): Promise<SubnetInfo[]> {
+    return this.subnets.all(block)
+  }
+
+  all_subnets(block?: number | string | null): Promise<SubnetInfo[]> {
+    return this.allSubnets(block)
+  }
+
+  subnetExists(netuid: number, block?: number | string | null): Promise<boolean> {
+    return this.subnets.exists(netuid, block)
+  }
+
+  subnet_exists(netuid: number, block?: number | string | null): Promise<boolean> {
+    return this.subnetExists(netuid, block)
+  }
+
+  getSubnetHyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.subnets.hyperparameters<T>(netuid, block)
+  }
+
+  get_subnet_hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.getSubnetHyperparameters<T>(netuid, block)
+  }
+
+  async callData(call: CallLike, block?: number | string | null): Promise<Buffer> {
+    if (Buffer.isBuffer(call) || call instanceof Uint8Array) return toBuffer(call, 'call')
+    const [pallet, fn, params] = normalizeCall(call)
+    return this.composeCall(pallet, fn, params, block)
+  }
+
+  async resolveBlockHash(block?: number | string | null): Promise<string | null> {
+    if (block == null) return null
+    if (typeof block === 'string') return block
+    return this.blockHash(block)
+  }
+
+  private async normalizeEra(period: number | null): Promise<{ era: ScaleValue; eraBlockHash: string }> {
+    if (period == null) return { era: '00', eraBlockHash: await this.genesisHash() }
+    const finalized = await this.finalizedHead()
+    const current = await this.blockNumber(finalized)
+    const birth = Number(eraBirth(period, current))
+    return { era: { period, current }, eraBlockHash: await this.blockHash(birth) }
+  }
+
+  private async resolveWatchedExtrinsic(
+    subscription: AsyncIterable<unknown> & { unsubscribe(): Promise<void> },
+    extrinsicHash: string,
+    waitForFinalization: boolean,
+  ): Promise<ExtrinsicResult> {
+    try {
+      for await (const status of subscription) {
+        const normalized = normalizeStatus(status)
+        const fatal = ['usurped', 'retracted', 'finalitytimeout', 'dropped', 'invalid'].find((name) => normalized[name] != null)
+        if (fatal != null) throw new ChainError(`Extrinsic ${fatal}`, status)
+        if (waitForFinalization && normalized.finalized != null) {
+          return this.resolveInclusion(extrinsicHash, String(normalized.finalized), true)
+        }
+        if (!waitForFinalization && normalized.inblock != null) {
+          return this.resolveInclusion(extrinsicHash, String(normalized.inblock), false)
+        }
+      }
+      throw new ChainError('extrinsic watch ended before inclusion')
+    } finally {
+      await subscription.unsubscribe()
+    }
+  }
+
+  private async resolveInclusion(extrinsicHash: string, blockHash: string, finalized: boolean): Promise<ExtrinsicResult> {
+    const block = (await this.rpc('chain_getBlock', [blockHash])) as { block: { header: unknown; extrinsics: string[] } }
+    const blockNumber = headerNumber(block.block.header)
+    const extrinsicIndex = block.block.extrinsics.findIndex((item) => hex(blake2_256(hexToBuffer(item))) === extrinsicHash)
+    if (extrinsicIndex < 0) throw new ChainError(`extrinsic ${extrinsicHash} was not found in block ${blockHash}`)
+    const events = ((await this.query<ScaleValue[]>(storage.System.Events, [], blockHash)) ?? []) as unknown[]
+    const triggered = events.filter((event) => eventExtrinsicIndex(event) === extrinsicIndex)
+    const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed')
+    const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
+    const feeEvent = triggered.find((event) => eventName(event) === 'TransactionPayment.TransactionFeePaid')
+    return {
+      success: success && failed == null,
+      message: failed == null ? 'Success' : 'Extrinsic failed',
+      extrinsicHash,
+      blockHash,
+      blockNumber,
+      extrinsicIndex,
+      extrinsicId: `${blockNumber}-${String(extrinsicIndex).padStart(4, '0')}`,
+      finalized,
+      fee: feeEvent == null ? undefined : feeFromEvent(feeEvent),
+      events: triggered,
+      error: failed,
+    }
+  }
+}
+
+export class Snapshot {
+  readonly balances: SnapshotBalancesNamespace
+  readonly subnets: SnapshotSubnetsNamespace
+  readonly staking: SnapshotStakingNamespace
+  readonly neurons: SnapshotNeuronsNamespace
+
+  constructor(readonly client: Client, readonly block: number, readonly blockHash: string) {
+    this.balances = new SnapshotBalancesNamespace(this)
+    this.subnets = new SnapshotSubnetsNamespace(this)
+    this.staking = new SnapshotStakingNamespace(this)
+    this.neurons = new SnapshotNeuronsNamespace(this)
+  }
+
+  query<T extends ScaleValue = ScaleValue>(item: string | Descriptor, nameOrParams?: string | ScaleValue[], params?: ScaleValue[]): Promise<T | undefined> {
+    return typeof item === 'string'
+      ? this.client.query<T>(item, nameOrParams as string, params ?? [], this.blockHash)
+      : this.client.query<T>(item, (nameOrParams as ScaleValue[] | undefined) ?? [], this.blockHash)
+  }
+
+  queryMap<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(item: Descriptor, params: ScaleValue[] = []): Promise<Array<[K, V]>> {
+    return this.client.queryMap<K, V>(item, params, this.blockHash)
+  }
+
+  queryBatch<T extends ScaleValue = ScaleValue>(item: Descriptor, paramSets: ScaleValue[][]): Promise<Array<T | undefined>> {
+    return this.client.queryBatch<T>(item, paramSets, this.blockHash)
+  }
+
+  runtime<T extends ScaleValue = ScaleValue>(method: Descriptor, params: ScaleValue[] = []): Promise<T> {
+    return this.client.runtime<T>(method, params, this.blockHash)
+  }
+
+  constant<T extends ScaleValue = ScaleValue>(item: Descriptor): Promise<T | undefined> {
+    return this.client.constant<T>(item, undefined, this.blockHash)
+  }
+
+  read(name: string, params: Record<string, ScaleValue> = {}): Promise<unknown> {
+    return read(this.client, name, params, this.blockHash)
+  }
+}
+
+export class BalancesNamespace {
+  constructor(private readonly client: Client) {}
+
+  async free(address: string, block?: number | string | null): Promise<Balance> {
+    const account = await this.client.query<Record<string, ScaleValue>>(storage.System.Account, [address], block)
+    const data = account?.data as Record<string, ScaleValue> | undefined
+    return Balance.fromRao(String(data?.free ?? 0))
+  }
+
+  get(address: string, block?: number | string | null): Promise<Balance> {
+    return this.free(address, block)
+  }
+
+  async getMany(addresses: string[], block?: number | string | null): Promise<Record<string, Balance>> {
+    const accounts = await this.client.queryBatch<Record<string, ScaleValue>>(storage.System.Account, addresses.map((address) => [address]), block)
+    const out: Record<string, Balance> = {}
+    addresses.forEach((address, index) => {
+      const data = accounts[index]?.data as Record<string, ScaleValue> | undefined
+      out[address] = Balance.fromRao(String(data?.free ?? 0))
+    })
+    return out
+  }
+
+  get_many(addresses: string[], block?: number | string | null): Promise<Record<string, Balance>> {
+    return this.getMany(addresses, block)
+  }
+
+  async existentialDeposit(block?: number | string | null): Promise<Balance> {
+    return Balance.fromRao(String((await this.client.constant(constants.Balances.ExistentialDeposit, undefined, block)) ?? 0))
+  }
+
+  existential_deposit(block?: number | string | null): Promise<Balance> {
+    return this.existentialDeposit(block)
+  }
+}
+
+export interface SubnetInfo {
+  netuid: number
+  tempo: number
+  burn: Balance
+  neuronCount: number
+}
+
+export class SubnetsNamespace {
+  constructor(private readonly client: Client) {}
+
+  async subnet(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
+    const [tempo, burn, count] = await Promise.all([
+      this.client.query(storage.SubtensorModule.Tempo, [netuid], block),
+      this.client.query(storage.SubtensorModule.Burn, [netuid], block),
+      this.client.query(storage.SubtensorModule.SubnetworkN, [netuid], block),
+    ])
+    return { netuid, tempo: Number(tempo ?? 0), burn: Balance.fromRao(String(burn ?? 0)), neuronCount: Number(count ?? 0) }
+  }
+
+  info(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
+    return this.subnet(netuid, block)
+  }
+
+  async all(block?: number | string | null): Promise<SubnetInfo[]> {
+    const [added, tempos, burns, counts] = await Promise.all([
+      this.client.queryMap<number, boolean>(storage.SubtensorModule.NetworksAdded, [], block),
+      this.client.queryMap<number, number>(storage.SubtensorModule.Tempo, [], block),
+      this.client.queryMap<number, bigint>(storage.SubtensorModule.Burn, [], block),
+      this.client.queryMap<number, number>(storage.SubtensorModule.SubnetworkN, [], block),
+    ])
+    const tempoByNetuid = new Map(tempos.map(([key, value]) => [Number(key), Number(value)]))
+    const burnByNetuid = new Map(burns.map(([key, value]) => [Number(key), String(value)]))
+    const countByNetuid = new Map(counts.map(([key, value]) => [Number(key), Number(value)]))
+    return added
+      .filter(([, value]) => value)
+      .map(([netuid]) => Number(netuid))
+      .sort((a, b) => a - b)
+      .map((netuid) => ({
+        netuid,
+        tempo: tempoByNetuid.get(netuid) ?? 0,
+        burn: Balance.fromRao(burnByNetuid.get(netuid) ?? 0),
+        neuronCount: countByNetuid.get(netuid) ?? 0,
+      }))
+  }
+
+  async exists(netuid: number, block?: number | string | null): Promise<boolean> {
+    return Boolean(await this.client.query(storage.SubtensorModule.NetworksAdded, [netuid], block))
+  }
+
+  subnetExists(netuid: number, block?: number | string | null): Promise<boolean> {
+    return this.exists(netuid, block)
+  }
+
+  subnet_exists(netuid: number, block?: number | string | null): Promise<boolean> {
+    return this.exists(netuid, block)
+  }
+
+  metagraph<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_metagraph, [netuid], block)
+  }
+
+  hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams, [netuid], block)
+  }
+
+  subnetHyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.hyperparameters<T>(netuid, block)
+  }
+
+  subnet_hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    return this.hyperparameters<T>(netuid, block)
+  }
+
+  async commitRevealEnabled(netuid: number, block?: number | string | null): Promise<boolean> {
+    return Boolean(await this.client.query(storage.SubtensorModule.CommitRevealWeightsEnabled, [netuid], block))
+  }
+
+  commit_reveal_enabled(netuid: number, block?: number | string | null): Promise<boolean> {
+    return this.commitRevealEnabled(netuid, block)
+  }
+
+  burn(netuid: number, block?: number | string | null): Promise<Balance> {
+    return this.subnet(netuid, block).then((info) => info.burn)
+  }
+}
+
+export class NeuronsNamespace {
+  constructor(private readonly client: Client) {}
+
+  all<T extends ScaleValue = ScaleValue>(netuid: number, lite = true, block?: number | string | null): Promise<T> {
+    return this.client.runtime<T>(
+      lite ? runtimeApi.NeuronInfoRuntimeApi.get_neurons_lite : runtimeApi.NeuronInfoRuntimeApi.get_neurons,
+      [netuid],
+      block,
+    )
+  }
+
+  get<T extends ScaleValue = ScaleValue>(netuid: number, uid: number, lite = true, block?: number | string | null): Promise<T> {
+    return this.client.runtime<T>(
+      lite ? runtimeApi.NeuronInfoRuntimeApi.get_neuron_lite : runtimeApi.NeuronInfoRuntimeApi.get_neuron,
+      [netuid, uid],
+      block,
+    )
+  }
+}
+
+export interface StakePosition {
+  hotkey: string
+  coldkey: string
+  netuid: number
+  stake: Balance
+  isRegistered: boolean
+  raw: Record<string, ScaleValue>
+}
+
+export class StakingNamespace {
+  constructor(private readonly client: Client) {}
+
+  async get(coldkey: string, hotkey: string, netuid: number, block?: number | string | null): Promise<Balance> {
+    const info = await this.client.runtime<Record<string, ScaleValue> | null>(
+      runtimeApi.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+      [hotkey, coldkey, netuid],
+      block,
+    )
+    return Balance.fromRao(String(info?.stake ?? 0), netuid)
+  }
+
+  async positions(coldkey: string, block?: number | string | null): Promise<StakePosition[]> {
+    const records = await this.client.runtime<Array<Record<string, ScaleValue>>>(
+      runtimeApi.StakeInfoRuntimeApi.get_stake_info_for_coldkey,
+      [coldkey],
+      block,
+    )
+    return (records ?? []).map((record) => ({
+      hotkey: String(record.hotkey),
+      coldkey: String(record.coldkey),
+      netuid: Number(record.netuid ?? 0),
+      stake: Balance.fromRao(String(record.stake ?? 0), Number(record.netuid ?? 0)),
+      isRegistered: Boolean(record.is_registered ?? record.isRegistered ?? false),
+      raw: record,
+    }))
+  }
+
+  stake(coldkey: string, hotkey: string, netuid: number, block?: number | string | null): Promise<Balance> {
+    return this.get(coldkey, hotkey, netuid, block)
+  }
+
+  stakeForColdkey(coldkey: string, block?: number | string | null): Promise<StakePosition[]> {
+    return this.positions(coldkey, block)
+  }
+
+  stake_for_coldkey(coldkey: string, block?: number | string | null): Promise<StakePosition[]> {
+    return this.positions(coldkey, block)
+  }
+
+  addStake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.client.submit(calls.subtensor.addStake(hotkey, netuid, amount), keypair, { waitForInclusion: true, ...options })
+  }
+
+  add_stake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.addStake(keypair, hotkey, netuid, amount, options)
+  }
+
+  removeStake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.client.submit(calls.subtensor.removeStake(hotkey, netuid, amount), keypair, { waitForInclusion: true, ...options })
+  }
+
+  remove_stake(keypair: Keypair, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+    return this.removeStake(keypair, hotkey, netuid, amount, options)
+  }
+}
+
+export class SnapshotBalancesNamespace {
+  constructor(private readonly snapshot: Snapshot) {}
+  get(address: string): Promise<Balance> { return this.snapshot.client.balances.get(address, this.snapshot.blockHash) }
+  getMany(addresses: string[]): Promise<Record<string, Balance>> { return this.snapshot.client.balances.getMany(addresses, this.snapshot.blockHash) }
+}
+
+export class SnapshotSubnetsNamespace {
+  constructor(private readonly snapshot: Snapshot) {}
+  info(netuid: number): Promise<SubnetInfo> { return this.snapshot.client.subnets.info(netuid, this.snapshot.blockHash) }
+  all(): Promise<SubnetInfo[]> { return this.snapshot.client.subnets.all(this.snapshot.blockHash) }
+  metagraph<T extends ScaleValue = ScaleValue>(netuid: number): Promise<T> { return this.snapshot.client.subnets.metagraph<T>(netuid, this.snapshot.blockHash) }
+}
+
+export class SnapshotStakingNamespace {
+  constructor(private readonly snapshot: Snapshot) {}
+  get(coldkey: string, hotkey: string, netuid: number): Promise<Balance> { return this.snapshot.client.staking.get(coldkey, hotkey, netuid, this.snapshot.blockHash) }
+  positions(coldkey: string): Promise<StakePosition[]> { return this.snapshot.client.staking.positions(coldkey, this.snapshot.blockHash) }
+}
+
+export class SnapshotNeuronsNamespace {
+  constructor(private readonly snapshot: Snapshot) {}
+  all<T extends ScaleValue = ScaleValue>(netuid: number, lite = true): Promise<T> { return this.snapshot.client.neurons.all<T>(netuid, lite, this.snapshot.blockHash) }
+}
+
+export class SubtensorClient extends Client {}
+export const Subtensor = SubtensorClient
+
+export function subtensor(network: string = 'finney', options: ClientOptions = {}): Client {
+  return new Client(network, options)
+}
+
+export function call(pallet: string, fn: string, params: ScaleValue = {}): [string, string, ScaleValue] {
+  return [pallet, fn, params]
+}
+
+export function descriptor(pallet: string, item: string): Descriptor {
+  return [pallet, item]
+}
+
+export const storage = Object.freeze({
+  Balances: Object.freeze({
+    Account: descriptor('Balances', 'Account'),
+    TotalIssuance: descriptor('Balances', 'TotalIssuance'),
+    Locks: descriptor('Balances', 'Locks'),
+    Holds: descriptor('Balances', 'Holds'),
+  }),
+  Multisig: Object.freeze({ Multisigs: descriptor('Multisig', 'Multisigs') }),
+  Proxy: Object.freeze({ Proxies: descriptor('Proxy', 'Proxies') }),
+  SubtensorModule: Object.freeze({
+    NetworksAdded: descriptor('SubtensorModule', 'NetworksAdded'),
+    Tempo: descriptor('SubtensorModule', 'Tempo'),
+    Burn: descriptor('SubtensorModule', 'Burn'),
+    SubnetworkN: descriptor('SubtensorModule', 'SubnetworkN'),
+    CommitRevealWeightsEnabled: descriptor('SubtensorModule', 'CommitRevealWeightsEnabled'),
+    TokenSymbol: descriptor('SubtensorModule', 'TokenSymbol'),
+    SubnetIdentitiesV3: descriptor('SubtensorModule', 'SubnetIdentitiesV3'),
+    StakingHotkeys: descriptor('SubtensorModule', 'StakingHotkeys'),
+    OwnedHotkeys: descriptor('SubtensorModule', 'OwnedHotkeys'),
+    AutoStakeDestination: descriptor('SubtensorModule', 'AutoStakeDestination'),
+    AutoStakeDestinationColdkeys: descriptor('SubtensorModule', 'AutoStakeDestinationColdkeys'),
+    TotalStake: descriptor('SubtensorModule', 'TotalStake'),
+    StakeThreshold: descriptor('SubtensorModule', 'StakeThreshold'),
+    LastEpochBlock: descriptor('SubtensorModule', 'LastEpochBlock'),
+  }),
+  System: Object.freeze({
+    Account: descriptor('System', 'Account'),
+    Events: descriptor('System', 'Events'),
+  }),
+  Timestamp: Object.freeze({ Now: descriptor('Timestamp', 'Now') }),
+})
+
+export const constants = Object.freeze({
+  Balances: Object.freeze({ ExistentialDeposit: descriptor('Balances', 'ExistentialDeposit') }),
+  SubtensorModule: Object.freeze({
+    InitialMinStake: descriptor('SubtensorModule', 'InitialMinStake'),
+    InitialStartCallDelay: descriptor('SubtensorModule', 'InitialStartCallDelay'),
+    InitialWeightsVersionKey: descriptor('SubtensorModule', 'InitialWeightsVersionKey'),
+  }),
+})
+
+export const runtimeApi = Object.freeze({
+  DelegateInfoRuntimeApi: Object.freeze({
+    get_delegates: descriptor('DelegateInfoRuntimeApi', 'get_delegates'),
+    get_delegate: descriptor('DelegateInfoRuntimeApi', 'get_delegate'),
+    get_delegated: descriptor('DelegateInfoRuntimeApi', 'get_delegated'),
+  }),
+  NeuronInfoRuntimeApi: Object.freeze({
+    get_neurons: descriptor('NeuronInfoRuntimeApi', 'get_neurons'),
+    get_neuron: descriptor('NeuronInfoRuntimeApi', 'get_neuron'),
+    get_neurons_lite: descriptor('NeuronInfoRuntimeApi', 'get_neurons_lite'),
+    get_neuron_lite: descriptor('NeuronInfoRuntimeApi', 'get_neuron_lite'),
+  }),
+  StakeInfoRuntimeApi: Object.freeze({
+    get_stake_info_for_coldkey: descriptor('StakeInfoRuntimeApi', 'get_stake_info_for_coldkey'),
+    get_stake_info_for_coldkeys: descriptor('StakeInfoRuntimeApi', 'get_stake_info_for_coldkeys'),
+    get_stake_info_for_hotkey_coldkey_netuid: descriptor('StakeInfoRuntimeApi', 'get_stake_info_for_hotkey_coldkey_netuid'),
+    get_stake_availability_for_coldkeys: descriptor('StakeInfoRuntimeApi', 'get_stake_availability_for_coldkeys'),
+    get_stake_fee: descriptor('StakeInfoRuntimeApi', 'get_stake_fee'),
+  }),
+  SubnetInfoRuntimeApi: Object.freeze({
+    get_subnet_info: descriptor('SubnetInfoRuntimeApi', 'get_subnet_info'),
+    get_subnets_info: descriptor('SubnetInfoRuntimeApi', 'get_subnets_info'),
+    get_subnet_hyperparams: descriptor('SubnetInfoRuntimeApi', 'get_subnet_hyperparams'),
+    get_all_dynamic_info: descriptor('SubnetInfoRuntimeApi', 'get_all_dynamic_info'),
+    get_all_metagraphs: descriptor('SubnetInfoRuntimeApi', 'get_all_metagraphs'),
+    get_metagraph: descriptor('SubnetInfoRuntimeApi', 'get_metagraph'),
+    get_dynamic_info: descriptor('SubnetInfoRuntimeApi', 'get_dynamic_info'),
+    get_subnet_state: descriptor('SubnetInfoRuntimeApi', 'get_subnet_state'),
+    get_selective_metagraph: descriptor('SubnetInfoRuntimeApi', 'get_selective_metagraph'),
+    get_next_epoch_start_block: descriptor('SubnetInfoRuntimeApi', 'get_next_epoch_start_block'),
+  }),
+  SubnetRegistrationRuntimeApi: Object.freeze({
+    get_network_registration_cost: descriptor('SubnetRegistrationRuntimeApi', 'get_network_registration_cost'),
+  }),
+  TransactionPaymentApi: Object.freeze({
+    query_info: descriptor('TransactionPaymentApi', 'query_info'),
+    query_fee_details: descriptor('TransactionPaymentApi', 'query_fee_details'),
+  }),
+})
+
+export const runtimeApis = runtimeApi
+
+export const calls = Object.freeze({
+  balances: Object.freeze({
+    transferKeepAlive(dest: string, value: BalanceLike) {
+      return call('Balances', 'transfer_keep_alive', { dest, value: balanceRao(value) })
+    },
+    transferAllowDeath(dest: string, value: BalanceLike) {
+      return call('Balances', 'transfer_allow_death', { dest, value: balanceRao(value) })
+    },
+  }),
+  subtensor: Object.freeze({
+    addStake(hotkey: string, netuid: number, amount: BalanceLike) {
+      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: balanceRao(amount) })
+    },
+    burnedRegister(netuid: number, hotkey: string) {
+      return call('SubtensorModule', 'burned_register', { netuid, hotkey })
+    },
+    commitWeights(netuid: number, commitHash: ByteLike | string) {
+      return call('SubtensorModule', 'commit_weights', { netuid, commit_hash: commitHash })
+    },
+    moveStake(originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, amount: BalanceLike) {
+      return call('SubtensorModule', 'move_stake', {
+        origin_hotkey: originHotkey,
+        destination_hotkey: destinationHotkey,
+        origin_netuid: originNetuid,
+        destination_netuid: destinationNetuid,
+        alpha_amount: balanceRao(amount),
+      })
+    },
+    register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
+      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
+    },
+    registerNetwork(hotkey: string) {
+      return call('SubtensorModule', 'register_network', { hotkey })
+    },
+    removeStake(hotkey: string, netuid: number, amount: BalanceLike) {
+      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: balanceRao(amount) })
+    },
+    revealWeights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
+      return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
+    },
+    rootRegister(hotkey: string) {
+      return call('SubtensorModule', 'root_register', { hotkey })
+    },
+    serveAxon(netuid: number, ip: number, port: number, version = 0, ipType = 4, protocol = 4) {
+      return call('SubtensorModule', 'serve_axon', { netuid, version, ip, port, ip_type: ipType, protocol, placeholder1: 0, placeholder2: 0 })
+    },
+    servePrometheus(netuid: number, ip: number, port: number, version = 0, ipType = 4) {
+      return call('SubtensorModule', 'serve_prometheus', { netuid, version, ip, port, ip_type: ipType })
+    },
+    setChildren(hotkey: string, netuid: number, children: ScaleValue) {
+      return call('SubtensorModule', 'set_children', { hotkey, netuid, children })
+    },
+    setWeights(netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string) {
+      return call('SubtensorModule', 'set_weights', { netuid, dests, weights, version_key: BigInt(versionKey) })
+    },
+    startCall(netuid: number) {
+      return call('SubtensorModule', 'start_call', { netuid })
+    },
+    transferStake(destinationColdkey: string, hotkey: string, originNetuid: number, destinationNetuid: number, amount: BalanceLike) {
+      return call('SubtensorModule', 'transfer_stake', {
+        destination_coldkey: destinationColdkey,
+        hotkey,
+        origin_netuid: originNetuid,
+        destination_netuid: destinationNetuid,
+        alpha_amount: balanceRao(amount),
+      })
+    },
+    unstakeAll(hotkey: string) {
+      return call('SubtensorModule', 'unstake_all', { hotkey })
+    },
+  }),
+  Balances: Object.freeze({
+    transfer_keep_alive(dest: string, value: BalanceLike) {
+      return call('Balances', 'transfer_keep_alive', { dest, value: balanceRao(value) })
+    },
+    transfer_allow_death(dest: string, value: BalanceLike) {
+      return call('Balances', 'transfer_allow_death', { dest, value: balanceRao(value) })
+    },
+  }),
+  SubtensorModule: Object.freeze({
+    add_stake(hotkey: string, netuid: number, amountStaked: BalanceLike) {
+      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: balanceRao(amountStaked) })
+    },
+    burned_register(netuid: number, hotkey: string) {
+      return call('SubtensorModule', 'burned_register', { netuid, hotkey })
+    },
+    commit_weights(netuid: number, commitHash: ByteLike | string) {
+      return call('SubtensorModule', 'commit_weights', { netuid, commit_hash: commitHash })
+    },
+    move_stake(originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, alphaAmount: BalanceLike) {
+      return call('SubtensorModule', 'move_stake', {
+        origin_hotkey: originHotkey,
+        destination_hotkey: destinationHotkey,
+        origin_netuid: originNetuid,
+        destination_netuid: destinationNetuid,
+        alpha_amount: balanceRao(alphaAmount),
+      })
+    },
+    register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
+      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
+    },
+    register_network(hotkey: string) {
+      return call('SubtensorModule', 'register_network', { hotkey })
+    },
+    remove_stake(hotkey: string, netuid: number, amountUnstaked: BalanceLike) {
+      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: balanceRao(amountUnstaked) })
+    },
+    reveal_weights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
+      return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
+    },
+    root_register(hotkey: string) {
+      return call('SubtensorModule', 'root_register', { hotkey })
+    },
+    serve_axon(netuid: number, ip: number, port: number, version = 0, ipType = 4, protocol = 4) {
+      return call('SubtensorModule', 'serve_axon', { netuid, version, ip, port, ip_type: ipType, protocol, placeholder1: 0, placeholder2: 0 })
+    },
+    serve_prometheus(netuid: number, ip: number, port: number, version = 0, ipType = 4) {
+      return call('SubtensorModule', 'serve_prometheus', { netuid, version, ip, port, ip_type: ipType })
+    },
+    set_children(hotkey: string, netuid: number, children: ScaleValue) {
+      return call('SubtensorModule', 'set_children', { hotkey, netuid, children })
+    },
+    set_weights(netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string) {
+      return call('SubtensorModule', 'set_weights', { netuid, dests, weights, version_key: BigInt(versionKey) })
+    },
+    start_call(netuid: number) {
+      return call('SubtensorModule', 'start_call', { netuid })
+    },
+    transfer_stake(destinationColdkey: string, hotkey: string, originNetuid: number, destinationNetuid: number, alphaAmount: BalanceLike) {
+      return call('SubtensorModule', 'transfer_stake', {
+        destination_coldkey: destinationColdkey,
+        hotkey,
+        origin_netuid: originNetuid,
+        destination_netuid: destinationNetuid,
+        alpha_amount: balanceRao(alphaAmount),
+      })
+    },
+    unstake_all(hotkey: string) {
+      return call('SubtensorModule', 'unstake_all', { hotkey })
+    },
+  }),
+})
+
+const READS = [
+  { name: 'balance', category: 'Accounts & keys', params: ['coldkey_ss58'] },
+  { name: 'balances', category: 'Accounts & keys', params: ['coldkey_ss58s'] },
+  { name: 'subnet', category: 'Subnets', params: ['netuid'] },
+  { name: 'subnets', category: 'Subnets', params: [] },
+  { name: 'burn', category: 'Subnets', params: ['netuid'] },
+  { name: 'commit_reveal_enabled', category: 'Subnets', params: ['netuid'] },
+  { name: 'subnet_hyperparameters', category: 'Subnets', params: ['netuid'] },
+  { name: 'metagraph', category: 'Subnets', params: ['netuid'] },
+  { name: 'stake', category: 'Staking', params: ['coldkey_ss58', 'hotkey_ss58', 'netuid'] },
+  { name: 'stake_for_coldkey', category: 'Staking', params: ['coldkey_ss58'] },
+]
+
+async function read(client: Client, name: string, params: Record<string, ScaleValue>, block?: number | string | null): Promise<unknown> {
+  switch (name) {
+    case 'balance':
+      return client.balances.get(String(params.coldkey_ss58), block)
+    case 'balances':
+      return client.balances.getMany(Array.isArray(params.coldkey_ss58s) ? params.coldkey_ss58s.map(String) : [], block)
+    case 'subnet':
+      return client.subnets.info(Number(params.netuid), block)
+    case 'subnets':
+      return client.subnets.all(block)
+    case 'burn':
+      return client.subnets.burn(Number(params.netuid), block)
+    case 'commit_reveal_enabled':
+      return client.subnets.commitRevealEnabled(Number(params.netuid), block)
+    case 'subnet_hyperparameters':
+      return client.subnets.hyperparameters(Number(params.netuid), block)
+    case 'metagraph':
+      return client.subnets.metagraph(Number(params.netuid), block)
+    case 'stake':
+      return client.staking.get(String(params.coldkey_ss58), String(params.hotkey_ss58), Number(params.netuid), block)
+    case 'stake_for_coldkey':
+      return client.staking.positions(String(params.coldkey_ss58), block)
+    default:
+      throw new ChainError(`unknown read ${name}`)
+  }
+}
+
+function resolveEndpoint(network: string): [string, string] {
+  if (network.startsWith('ws://') || network.startsWith('wss://') || network.startsWith('http')) return [network, network]
+  if (Object.prototype.hasOwnProperty.call(NETWORKS, network)) return [network, NETWORKS[network as NetworkName]]
+  throw new Error(`Unknown network ${network}`)
+}
+
+function normalizeStorageArgs(
+  pallet: string | Descriptor,
+  storageFunction?: string | ScaleValue[],
+  paramsOrBlock?: ScaleValue[] | number | string | null,
+  block?: number | string | null,
+): [string, string, ScaleValue[], number | string | null | undefined] {
+  if (typeof pallet !== 'string') {
+    const itemParams = Array.isArray(storageFunction) ? storageFunction : []
+    const blockRef = Array.isArray(storageFunction)
+      ? blockFrom(paramsOrBlock)
+      : blockFrom(storageFunction)
+    return [pallet[0], pallet[1], itemParams, blockRef]
+  }
+  return [pallet, storageFunction as string, Array.isArray(paramsOrBlock) ? paramsOrBlock : [], block ?? (Array.isArray(paramsOrBlock) ? undefined : paramsOrBlock)]
+}
+
+function normalizeBatchArgs(
+  pallet: string | Descriptor,
+  storageFunction: string | ScaleValue[][],
+  paramSetsOrBlock?: ScaleValue[][] | number | string | null,
+  block?: number | string | null,
+): [string, string, ScaleValue[][], number | string | null | undefined] {
+  if (typeof pallet !== 'string') {
+    return [pallet[0], pallet[1], Array.isArray(storageFunction) ? storageFunction : [], blockFrom(paramSetsOrBlock)]
+  }
+  return [pallet, storageFunction as string, Array.isArray(paramSetsOrBlock) ? paramSetsOrBlock : [], block ?? (Array.isArray(paramSetsOrBlock) ? undefined : paramSetsOrBlock)]
+}
+
+function normalizeRuntimeArgs(
+  api: string | Descriptor,
+  method?: string | ScaleValue[],
+  paramsOrBlock: ScaleValue[] | number | string | null = [],
+  block?: number | string | null,
+): [string, string, ScaleValue[], number | string | null | undefined] {
+  if (typeof api !== 'string') {
+    const callParams = Array.isArray(method) ? method : []
+    const blockRef = Array.isArray(method) ? blockFrom(paramsOrBlock) : blockFrom(method)
+    return [api[0], api[1], callParams, blockRef]
+  }
+  return [api, method as string, Array.isArray(paramsOrBlock) ? paramsOrBlock : [], block ?? (Array.isArray(paramsOrBlock) ? undefined : paramsOrBlock)]
+}
+
+function blockFrom(value: unknown): number | string | null | undefined {
+  return typeof value === 'number' || typeof value === 'string' || value == null ? value : undefined
+}
+
+function normalizeCall(callLike: Exclude<CallLike, ByteLike>): [string, string, ScaleValue] {
+  if (Array.isArray(callLike)) return [callLike[0], callLike[1], callLike[2] ?? {}]
+  return [callLike.pallet ?? callLike.module ?? '', callLike.call ?? callLike.function ?? '', callLike.params ?? {}]
+}
+
+function hex(bytes: ByteLike): string {
+  return `0x${toBuffer(bytes, 'bytes').toString('hex')}`
+}
+
+function hexToBuffer(value: string): Buffer {
+  const text = value.startsWith('0x') ? value.slice(2) : value
+  return Buffer.from(text, 'hex')
+}
+
+function hexNumber(value: string): number {
+  return Number.parseInt(value, 16)
+}
+
+function headerNumber(header: unknown): number {
+  const value = (header as { number?: string | number }).number
+  return typeof value === 'number' ? value : hexNumber(String(value ?? '0x0'))
+}
+
+function normalizeHeader(raw: unknown): BlockHeader {
+  const value = raw as { number?: string | number; parentHash?: string; hash?: string }
+  return { number: headerNumber(raw), parentHash: value.parentHash, hash: value.hash, raw }
+}
+
+function normalizeStatus(status: unknown): Record<string, unknown> {
+  if (typeof status === 'string') return { [status.toLowerCase()]: null }
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(status as Record<string, unknown>)) out[key.toLowerCase()] = value
+  return out
+}
+
+function eventName(event: unknown): string {
+  const value = event as { module_id?: string; event_id?: string; event?: { module_id?: string; event_id?: string; section?: string; method?: string } }
+  const nested = value.event
+  return `${value.module_id ?? nested?.module_id ?? nested?.section ?? ''}.${value.event_id ?? nested?.event_id ?? nested?.method ?? ''}`
+}
+
+function eventExtrinsicIndex(event: unknown): number | null {
+  const value = event as { extrinsic_idx?: unknown; phase?: unknown }
+  if (value.extrinsic_idx != null) return Number(value.extrinsic_idx)
+  const phase = value.phase as Record<string, unknown> | undefined
+  const apply = phase?.ApplyExtrinsic ?? phase?.applyExtrinsic
+  return apply == null ? null : Number(apply)
+}
+
+function feeFromEvent(event: unknown): Balance | undefined {
+  const attrs = (event as { attributes?: unknown }).attributes
+  if (attrs == null || typeof attrs !== 'object') return undefined
+  const amount = (attrs as Record<string, unknown>).actual_fee ?? (attrs as Record<string, unknown>).actualFee ?? (attrs as Record<string, unknown>).fee
+  return amount == null ? undefined : Balance.fromRao(String(amount))
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new ChainError(`timed out after ${timeoutMs}ms`)), timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}

@@ -4,6 +4,8 @@ import type { ByteLike, ScaleValue } from './types'
 
 export * from './crypto'
 export * from './errors'
+export * from './balance'
+export * from './client'
 export * from './keys'
 export * from './ledger'
 export * from './modules'
@@ -11,6 +13,7 @@ export * from './runtime'
 export * from './timelock'
 export * from './types'
 export * from './value'
+export * from './wallet'
 export { fromWire, toWire, WIRE_TAG }
 
 /**
