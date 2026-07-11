@@ -40,7 +40,7 @@ function generate(entry) {
   }
 
   const lines = [
-    `import sdk from './${entry}.js'`,
+    `import * as sdk from './${entry}.js'`,
     '',
     ...(entry === 'browser'
       ? ["sdk.setDefaultBrowserWasmLoader(() => import('./wasm/bittensor_core_wasm.js'))", '']

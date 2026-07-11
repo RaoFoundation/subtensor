@@ -2,8 +2,8 @@
 
 The monorepo's TypeScript SDK. It lives in its own `sdk/typescript-sdk`
 package. In Node.js it is a deliberately thin Node-API wrapper around the
-sibling `bittensor-core` Rust crate. Browser builds resolve to a separate
-WASM-compatible subset backed by `sdk/bittensor-core-wasm`.
+sibling `bittensor-core` Rust crate. Browser applications use the explicit
+`@bittensor/sdk/browser` entrypoint backed by `sdk/bittensor-core-wasm`.
 
 Chain-defined work runs in Rust:
 
@@ -31,14 +31,13 @@ raw generated Node-API module as `@bittensor/sdk/native`, so every native
 entry point is callable even when an ergonomic wrapper has not yet been
 added.
 
-Browser bundlers should use the package's `browser` condition automatically,
-or import the explicit `@bittensor/sdk/browser` subpath. That entrypoint does
-not load `native.cjs`, `.node` binaries, Node `Buffer`, or native HID. It
-returns `Uint8Array` values and exposes the portable subset: key generation,
-SS58, signing and verification, RFC-0078 metadata proofs, ML-KEM sealing, and
-timelock encryption/decryption when the caller fetches the drand signature.
-Host-only features such as wallet keyfiles, encrypted JSON import, native
-Ledger HID, and direct drand fetching remain Node-only.
+Browser bundlers should import the explicit `@bittensor/sdk/browser` subpath.
+That entrypoint does not load `native.cjs`, `.node` binaries, Node `Buffer`,
+or native HID. It returns `Uint8Array` values and exposes the portable subset:
+key generation, SS58, signing and verification, RFC-0078 metadata proofs,
+ML-KEM sealing, and timelock encryption/decryption when the caller fetches the
+drand signature. Host-only features such as wallet keyfiles, encrypted JSON
+import, native Ledger HID, and direct drand fetching remain Node-only.
 
 ## Build locally
 

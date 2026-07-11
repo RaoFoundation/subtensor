@@ -109,8 +109,9 @@ test('package exposes a WASM browser subset without the Node native addon', () =
     fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
   )
 
-  assert.equal(packageJson.browser, './dist/browser.mjs')
-  assert.equal(packageJson.exports['.'].browser.import, './dist/browser.mjs')
+  assert.equal(Object.prototype.hasOwnProperty.call(packageJson, 'browser'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(packageJson.exports['.'], 'browser'), false)
+  assert.equal(packageJson.exports['.'].node.import, './dist/index.mjs')
   assert.equal(packageJson.exports['./browser'].import, './dist/browser.mjs')
   assert.equal(packageJson.exports['./native'].node.import, './native.cjs')
 
@@ -498,6 +499,14 @@ test('ESM consumers receive the same named exports', async () => {
   const esm = await import('../dist/index.mjs')
   assert.equal(esm.BINDING_VERSION, core.BINDING_VERSION)
   assert.equal(esm.Keypair, core.Keypair)
+  assert.equal(esm.Client, core.Client)
+  assert.equal(esm.generateKeyringPair, core.generateKeyringPair)
+  assert.equal(esm.bytesToHex, core.bytesToHex)
+
+  const root = path.join(__dirname, '..')
+  const source = fs.readFileSync(path.join(root, 'dist', 'index.mjs'), 'utf8')
+  assert.equal(source.includes("import * as sdk from './index.js'"), true)
+  assert.equal(source.includes("import sdk from './index.js'"), false)
 })
 
 test('exact codec::Value descriptors preserve every Rust enum variant', () => {

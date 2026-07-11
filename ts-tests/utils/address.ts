@@ -18,8 +18,9 @@ export function convertH160ToSS58(ethAddress: string): string {
     return ss58FromPublic(convertH160ToPublicKey(ethAddress), SS58_PREFIX);
 }
 
-export function convertPublicKeyToSs58(publicKey: Uint8Array): string {
-    return ss58FromPublic(publicKey, SS58_PREFIX);
+export function convertPublicKeyToSs58(publicKey: Uint8Array | string): string {
+    const publicKeyBytes = typeof publicKey === "string" ? hexToBytes(publicKey, "publicKey") : publicKey;
+    return ss58FromPublic(publicKeyBytes, SS58_PREFIX);
 }
 
 export function ss58ToEthAddress(ss58Address: string): string {

@@ -66,7 +66,8 @@ export async function sendTransaction(
     timeout: number = 3 * 60 * 1000
 ): Promise<TransactionResult> {
     const callerStack = new Error().stack;
-    const polkadotSigner = getPolkadotSigner(signer.publicKey, "Sr25519", signer.sign);
+    const scheme = signer.type === "ed25519" ? "Ed25519" : "Sr25519";
+    const polkadotSigner = getPolkadotSigner(signer.publicKey, scheme, (payload) => signer.sign(payload));
 
     return new Promise((resolve) => {
         const timer = setTimeout(() => {
