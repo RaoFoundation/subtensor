@@ -3,7 +3,7 @@ description: "Enable the shared R2 compiler cache when its trusted configuration
 
 inputs:
   credential-mode:
-    description: "reader for ordinary CI; writer only for the protected main cache warmer"
+    description: "reader for ordinary CI; writer only for a protected trusted-branch cache warmer"
     default: "reader"
   writer-access-key-id:
     description: "Protected Environment writer access key; ignored in reader mode"
