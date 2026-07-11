@@ -32,7 +32,7 @@ serde = { version = "1.0.132", features = ["derive"] }
 # u128/u256 integers that must survive JSON round-trips digit-exact.
 serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
 sha2 = "0.10.8"
-sodiumoxide = { version = "0.2", default-features = false, features = ["std"] }
+sodiumoxide = { version = "0.2", default-features = false, features = ["std"], optional = true }
 sp-core = { workspace = true, features = ["std", "full_crypto"] }
 subtensor-macros.workspace = true
 zeroize = "1"

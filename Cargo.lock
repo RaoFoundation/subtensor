@@ -1677,6 +1677,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bittensor-core-wasm"
+version = "0.1.0"
+dependencies = [
+ "bittensor-core",
+ "hex",
+ "js-sys",
+ "scale-info",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "bittensor-typescript-sdk-native"
 version = "0.1.0"
 dependencies = [
