@@ -10,6 +10,13 @@ license = "Apache-2.0"
 name = "bittensor_core"
 crate-type = ["rlib"]
 
+# External localnet suite. It is selected explicitly by the dedicated E2E
+# workflow; `test = false` keeps ordinary workspace/nextest runs unit-only.
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+test = false
+
 [dependencies]
 # keys / keyfiles (absorbed from py-sp-core)
 ansible-vault = "0.2.1"
