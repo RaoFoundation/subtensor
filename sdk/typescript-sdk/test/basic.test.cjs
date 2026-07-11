@@ -155,6 +155,36 @@ test('browser Runtime exposes WASM codec, call, storage, and extrinsic helpers',
       Uint8Array.of(threshold),
       signatories.slice().reverse(),
     ],
+    getEncryptedCommitV2: (
+      uids,
+      weights,
+      versionKey,
+      lastEpochBlock,
+      pendingEpochAt,
+      subnetEpochIndex,
+      tempo,
+      blocksSinceLastStep,
+      currentBlock,
+      subnetRevealPeriodEpochs,
+      blockTime,
+      hotkey,
+    ) => [
+      Uint8Array.of(
+        uids[0],
+        weights[0],
+        Number(versionKey),
+        Number(lastEpochBlock),
+        Number(pendingEpochAt),
+        Number(subnetEpochIndex),
+        tempo,
+        Number(blocksSinceLastStep),
+        Number(currentBlock),
+        Number(subnetRevealPeriodEpochs),
+        blockTime,
+        hotkey[0],
+      ),
+      777,
+    ],
   }))
 
   const runtime = new browser.Runtime(Uint8Array.of(1), 10, 20, 42)
@@ -223,6 +253,25 @@ test('browser Runtime exposes WASM codec, call, storage, and extrinsic helpers',
   assert.deepEqual(
     browser.multisigAccountId([Uint8Array.of(1), Uint8Array.of(2)], 2),
     { accountId: Uint8Array.of(2), sortedSignatories: [Uint8Array.of(2), Uint8Array.of(1)] },
+  )
+  assert.deepEqual(
+    browser.generateCommitV2(
+      [1],
+      [2],
+      3,
+      {
+        lastEpochBlock: 4,
+        pendingEpochAt: 5,
+        subnetEpochIndex: 6,
+        tempo: 7,
+        blocksSinceLastStep: 8,
+        currentBlock: 9,
+      },
+      10,
+      11,
+      Uint8Array.of(12),
+    ),
+    [Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), 777],
   )
 })
 

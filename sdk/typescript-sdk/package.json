@@ -59,13 +59,14 @@
     "build:native": "napi build --manifest-path native/Cargo.toml --output-dir . --platform --release --all-features --js native.cjs --dts native.generated.d.ts",
     "build:wasm": "wasm-pack build ../bittensor-core-wasm --target bundler --out-dir ../typescript-sdk/dist/wasm --out-name bittensor_core_wasm",
     "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
-    "build": "npm run build:native && npm run check:native-parity && npm run build:ts && npm run build:wasm",
+    "build": "npm run build:native && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
     "check": "npm run build && npm test",
     "test": "node --test test/*.test.cjs",
     "clean": "node scripts/clean.cjs",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check:native-parity": "node scripts/check-native-parity.cjs"
+    "check:native-parity": "npm run check:binding-parity",
+    "check:binding-parity": "node scripts/check-native-parity.cjs"
   },
   "napi": {
     "binaryName": "bittensor_sdk"

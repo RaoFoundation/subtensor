@@ -79,6 +79,15 @@ export interface BrowserMultisigAccount {
   sortedSignatories: Uint8Array[]
 }
 
+export interface BrowserEpochScheduleState {
+  lastEpochBlock: BrowserIntegerLike
+  pendingEpochAt: BrowserIntegerLike
+  subnetEpochIndex: BrowserIntegerLike
+  tempo: number
+  blocksSinceLastStep: BrowserIntegerLike
+  currentBlock: BrowserIntegerLike
+}
+
 export type BrowserRuntimeApiMap = Record<
   string,
   Record<
@@ -159,6 +168,20 @@ export interface BrowserWasmModule {
     data: string,
     blocksUntilReveal: BrowserIntegerLike,
     blockTime?: number,
+  ): [Uint8Array, number]
+  getEncryptedCommitV2(
+    uids: Uint16Array,
+    weights: Uint16Array,
+    versionKey: BrowserIntegerLike,
+    lastEpochBlock: BrowserIntegerLike,
+    pendingEpochAt: BrowserIntegerLike,
+    subnetEpochIndex: BrowserIntegerLike,
+    tempo: number,
+    blocksSinceLastStep: BrowserIntegerLike,
+    currentBlock: BrowserIntegerLike,
+    subnetRevealPeriodEpochs: BrowserIntegerLike,
+    blockTime: number,
+    hotkey: Uint8Array,
   ): [Uint8Array, number]
   encrypt(data: Uint8Array, nBlocks: BrowserIntegerLike, blockTime?: number): [Uint8Array, number]
   encryptAtRound(data: Uint8Array, revealRound: BrowserIntegerLike): [Uint8Array, number]
@@ -395,6 +418,18 @@ function copyStorageEntry(entry: BrowserStorageEntry): BrowserStorageEntry {
 
 function copyByteList(values: Uint8Array[]): Uint8Array[] {
   return values.map((value) => copyBytes(value))
+}
+
+function toUint16Array(values: number[], name: string): Uint16Array {
+  const output = new Uint16Array(values.length)
+  for (let i = 0; i < values.length; i += 1) {
+    const value = values[i]
+    if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+      throw new RangeError(`${name}[${i}] must be an unsigned 16-bit integer`)
+    }
+    output[i] = value
+  }
+  return output
 }
 
 function mapPairs<K, V>(pairs: Array<[unknown, unknown]>): Array<BrowserMapPair<K, V>> {
@@ -925,6 +960,32 @@ export function getEncryptedCommitment(
     data,
     toInteger(blocksUntilReveal, 'blocksUntilReveal'),
     blockTime,
+  )
+  return [copyBytes(ciphertext), round]
+}
+
+export function generateCommitV2(
+  uids: number[],
+  values: number[],
+  versionKey: BrowserIntegerLike,
+  state: BrowserEpochScheduleState,
+  subnetRevealPeriodEpochs: BrowserIntegerLike,
+  blockTime: number,
+  hotkey: BrowserByteLike,
+): [Uint8Array, number] {
+  const [ciphertext, round] = wasmSync().getEncryptedCommitV2(
+    toUint16Array(uids, 'uids'),
+    toUint16Array(values, 'values'),
+    versionKey,
+    state.lastEpochBlock,
+    state.pendingEpochAt,
+    state.subnetEpochIndex,
+    state.tempo,
+    state.blocksSinceLastStep,
+    state.currentBlock,
+    subnetRevealPeriodEpochs,
+    blockTime,
+    toBytes(hotkey, 'hotkey'),
   )
   return [copyBytes(ciphertext), round]
 }

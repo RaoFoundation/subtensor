@@ -126,11 +126,12 @@ Extensions or strict-CSP applications can pass their own loader:
 await initBrowser(() => import('./vendor/bittensor_core_wasm.js'))
 ```
 
-## Native parity and secret derivation
+## Binding parity and secret derivation
 
 Mnemonic, password, and secret-URI derivation state is retained only by the Rust
 `Keypair`; TypeScript calls the native handle's `derive(path)` method and never
-reconstructs a child secret URI. `npm run build` also compares the freshly
-generated N-API declarations with `src/native.ts`, including every native class
-method, so Rust additions cannot silently disappear from the documented
-TypeScript boundary.
+reconstructs a child secret URI. `npm run build` also checks the Rust-side
+binding manifest against the generated N-API declarations, `src/native.ts`, the
+generated WASM declarations, `BrowserWasmModule`, and the public browser
+wrapper, so Rust additions cannot silently disappear from either TypeScript
+boundary.
