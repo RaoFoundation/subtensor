@@ -134,7 +134,9 @@ jobs:
     name: cargo test
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    # Turbo pool: longest job in this workflow (see runtime-checks.yml for
+    # the two-replica routing budget).
+    runs-on: [self-hosted, fireactions-turbo]
     env:
       SKIP_WASM_BUILD: 1
     steps:

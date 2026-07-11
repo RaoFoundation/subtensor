@@ -78,7 +78,11 @@ jobs:
     name: build runtime artifacts
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    # Turbo pool (Ryzen 9 9950X, ~2x the heavy boxes on compile) — this build
+    # gates all try-runtime checks and clone shards, so it IS the critical
+    # path. Only two turbo replicas exist; keep routing selective (this job
+    # plus cargo test) so the pool doesn't queue.
+    runs-on: [self-hosted, fireactions-turbo]
     timeout-minutes: 60
     env:
       RUST_BACKTRACE: full
