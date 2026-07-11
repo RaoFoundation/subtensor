@@ -14,7 +14,7 @@ inputs:
     description: "Extra apt packages beyond the standard build set"
     default: ""
   sccache-credential-mode:
-    description: "reader for CI; writer only for the protected main cache warmer"
+    description: "reader for CI; writer only for a protected trusted-branch cache warmer"
     default: "reader"
   sccache-writer-access-key-id:
     description: "Protected writer access key; used only when writer mode is selected"
