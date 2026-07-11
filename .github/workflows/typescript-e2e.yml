@@ -91,7 +91,8 @@ jobs:
 
   build-typescript-sdk:
     runs-on: [self-hosted, fireactions-heavy]
-    needs: [trusted-pr, typescript-formatting]
+    needs: [trusted-pr, typescript-formatting, changes]
+    if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
     steps:
       - name: Check-out repository
@@ -120,9 +121,9 @@ jobs:
 
       - name: Install wasm-pack
         run: |
-          curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
-            | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
-          wasm-pack --version
+          cargo install --locked --version 0.13.1 --root "$RUNNER_TEMP/wasm-pack" --force wasm-pack
+          echo "$RUNNER_TEMP/wasm-pack/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/wasm-pack/bin/wasm-pack" --version
 
       - name: Build and test TypeScript SDK
         run: |
