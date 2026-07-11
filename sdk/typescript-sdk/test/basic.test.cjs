@@ -103,6 +103,59 @@ function fakeSigningClient(runtime, callData) {
   return client
 }
 
+function fakeRuntimeCacheClient(options = {}) {
+  const metadataHex = `0x${goldenMetadataBytes().toString('hex')}`
+  const calls = {
+    metadata: [],
+    version: [],
+    properties: [],
+  }
+  let headVersion = {
+    specVersion: 419,
+    transactionVersion: 1,
+  }
+  const blockVersions = new Map()
+  const client = new core.Client('local', {
+    endpoint: 'http://127.0.0.1:9944',
+    headRuntimeTtlMs: options.headRuntimeTtlMs ?? 1_000,
+    historicalRuntimeCacheSize: options.historicalRuntimeCacheSize ?? 2,
+  })
+
+  client.rpc = async (method, params = []) => {
+    const blockHash = params[0] ?? null
+    if (method === 'state_getRuntimeVersion') {
+      calls.version.push(blockHash)
+      const version = blockHash == null ? headVersion : blockVersions.get(blockHash)
+      if (version == null) throw new Error(`missing version for ${blockHash}`)
+      return {
+        specName: 'node-subtensor',
+        specVersion: version.specVersion,
+        transactionVersion: version.transactionVersion,
+      }
+    }
+    if (method === 'state_getMetadata') {
+      calls.metadata.push(blockHash)
+      return metadataHex
+    }
+    if (method === 'system_properties') {
+      calls.properties.push(blockHash)
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    throw new Error(`unexpected RPC ${method}`)
+  }
+
+  return {
+    client,
+    calls,
+    setHeadVersion(specVersion, transactionVersion = 1) {
+      headVersion = { specVersion, transactionVersion }
+    },
+    setBlockVersion(blockHash, specVersion, transactionVersion = 1) {
+      blockVersions.set(blockHash, { specVersion, transactionVersion })
+    },
+  }
+}
+
 test('package exposes a WASM browser subset without the Node native addon', () => {
   const root = path.join(__dirname, '..')
   const packageJson = JSON.parse(
@@ -610,6 +663,60 @@ test('chain client surface is exported without Polkadot.js glue', () => {
     'root_register',
     { hotkey: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' },
   ])
+})
+
+test('Client expires head runtime metadata and invalidates it on runtime upgrade', async () => {
+  const { client, calls, setHeadVersion } = fakeRuntimeCacheClient({
+    headRuntimeTtlMs: 1_000,
+  })
+
+  const first = await client.runtimeAt()
+  const cached = await client.runtimeAt()
+  assert.equal(cached, first)
+  assert.equal(calls.version.length, 1)
+  assert.equal(calls.metadata.length, 1)
+
+  client.headRuntimeCache.expiresAtMs = 0
+  const sameVersion = await client.runtimeAt()
+  assert.equal(sameVersion, first)
+  assert.equal(calls.version.length, 2)
+  assert.equal(calls.metadata.length, 1)
+
+  setHeadVersion(420, 2)
+  client.headRuntimeCache.expiresAtMs = 0
+  const upgraded = await client.runtimeAt()
+  assert.notEqual(upgraded, first)
+  assert.equal(upgraded.specVersion, 420)
+  assert.equal(upgraded.transactionVersion, 2)
+  assert.equal(calls.version.length, 3)
+  assert.deepEqual(calls.metadata, [null, null])
+})
+
+test('Client caches historical runtimes by block hash with LRU eviction', async () => {
+  const { client, calls, setBlockVersion } = fakeRuntimeCacheClient({
+    historicalRuntimeCacheSize: 2,
+  })
+  const blockA = `0x${'aa'.repeat(32)}`
+  const blockB = `0x${'bb'.repeat(32)}`
+  const blockC = `0x${'cc'.repeat(32)}`
+  setBlockVersion(blockA, 419, 1)
+  setBlockVersion(blockB, 420, 1)
+  setBlockVersion(blockC, 421, 1)
+
+  const runtimeA = await client.runtimeAt(blockA)
+  assert.equal(await client.runtimeAt(blockA), runtimeA)
+  assert.deepEqual(calls.version, [blockA])
+  assert.deepEqual(calls.metadata, [blockA])
+
+  await client.runtimeAt(blockB)
+  await client.runtimeAt(blockC)
+  assert.equal(client.historicalRuntimeCache.has(blockA), false)
+  assert.equal(client.historicalRuntimeCache.has(blockB), true)
+  assert.equal(client.historicalRuntimeCache.has(blockC), true)
+
+  assert.equal(await client.runtimeAt(blockA), runtimeA)
+  assert.deepEqual(calls.version, [blockA, blockB, blockC, blockA])
+  assert.deepEqual(calls.metadata, [blockA, blockB, blockC])
 })
 
 test('Client signs extrinsics with extension-style signRaw signers', async () => {

@@ -8,6 +8,8 @@ import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, TransactionParam
 
 export const SS58_FORMAT = 42
 export const DEFAULT_ERA_PERIOD = 128
+export const DEFAULT_HEAD_RUNTIME_TTL_MS = 12_000
+export const DEFAULT_HISTORICAL_RUNTIME_CACHE_SIZE = 64
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
@@ -27,6 +29,8 @@ export interface ClientOptions {
   fallbackEndpoints?: string[]
   retryForever?: boolean
   autoConnect?: boolean
+  headRuntimeTtlMs?: number
+  historicalRuntimeCacheSize?: number
 }
 
 export interface SubmitOptions {
@@ -168,6 +172,20 @@ interface ResolvedSigner {
   publicKey: Buffer
   cryptoType: number
   requiresMetadataProof: boolean
+}
+
+interface RuntimeVersionInfo {
+  specVersion: number
+  transactionVersion: number
+}
+
+interface RuntimeCacheEntry extends RuntimeVersionInfo {
+  runtime: Runtime
+  ss58Format: number
+}
+
+interface HeadRuntimeCacheEntry extends RuntimeCacheEntry {
+  expiresAtMs: number
 }
 
 interface NormalizedSignature {
@@ -389,7 +407,11 @@ export class Client {
   readonly neurons: NeuronsNamespace
   readonly staking: StakingNamespace
 
-  private runtimeCache?: Runtime
+  private readonly headRuntimeTtlMs: number
+  private readonly historicalRuntimeCacheSize: number
+  private headRuntimeCache?: HeadRuntimeCacheEntry
+  private runtimesBySpecVersion = new Map<number, RuntimeCacheEntry>()
+  private historicalRuntimeCache = new Map<string, RuntimeCacheEntry>()
   private genesis?: string
   private nonceCache = new Map<string, number>()
 
@@ -402,6 +424,11 @@ export class Client {
     this.subnets = new SubnetsNamespace(this)
     this.neurons = new NeuronsNamespace(this)
     this.staking = new StakingNamespace(this)
+    this.headRuntimeTtlMs = nonNegativeNumber(options.headRuntimeTtlMs, DEFAULT_HEAD_RUNTIME_TTL_MS)
+    this.historicalRuntimeCacheSize = nonNegativeInteger(
+      options.historicalRuntimeCacheSize,
+      DEFAULT_HISTORICAL_RUNTIME_CACHE_SIZE,
+    )
     if (options.autoConnect) void this.connect()
   }
 
@@ -454,21 +481,99 @@ export class Client {
 
   async runtimeAt(block?: number | string | null): Promise<Runtime> {
     const blockHash = await this.resolveBlockHash(block)
-    if (this.runtimeCache != null && blockHash == null) return this.runtimeCache
-    const [metadataHex, version, properties] = await Promise.all([
-      this.rpc('state_getMetadata', blockHash == null ? [] : [blockHash]),
+    return blockHash == null ? this.headRuntime() : this.historicalRuntimeAt(blockHash)
+  }
+
+  invalidateRuntimeCache(): void {
+    this.headRuntimeCache = undefined
+  }
+
+  private async headRuntime(): Promise<Runtime> {
+    const now = Date.now()
+    if (this.headRuntimeCache != null && this.headRuntimeCache.expiresAtMs > now) {
+      return this.headRuntimeCache.runtime
+    }
+
+    const [version, ss58Format] = await this.runtimeVersionAndSs58(null)
+    if (this.headRuntimeCache != null && sameRuntimeVersion(this.headRuntimeCache, version, ss58Format)) {
+      this.headRuntimeCache.expiresAtMs = Date.now() + this.headRuntimeTtlMs
+      this.cacheRuntimeBySpecVersion(this.headRuntimeCache)
+      return this.headRuntimeCache.runtime
+    }
+
+    this.invalidateRuntimeCache()
+    const entry = await this.runtimeForVersion(version, ss58Format, null)
+    this.headRuntimeCache = { ...entry, expiresAtMs: Date.now() + this.headRuntimeTtlMs }
+    return entry.runtime
+  }
+
+  private async historicalRuntimeAt(blockHash: string): Promise<Runtime> {
+    const cached = this.historicalRuntime(blockHash)
+    if (cached != null) return cached.runtime
+
+    const [version, ss58Format] = await this.runtimeVersionAndSs58(blockHash)
+    const entry = await this.runtimeForVersion(version, ss58Format, blockHash)
+    this.cacheHistoricalRuntime(blockHash, entry)
+    return entry.runtime
+  }
+
+  private async runtimeVersionAndSs58(blockHash: string | null): Promise<[RuntimeVersionInfo, number]> {
+    const [version, properties] = await Promise.all([
       this.rpc('state_getRuntimeVersion', blockHash == null ? [] : [blockHash]),
       this.rpc('system_properties').catch(() => ({})),
     ])
-    const ss58Format = Number((properties as { ss58Format?: number }).ss58Format ?? SS58_FORMAT)
+    const chainProperties = properties as Record<string, unknown>
+    return [
+      runtimeVersionInfo(version),
+      propertyNumber(chainProperties.ss58Format ?? chainProperties.ss58Prefix, SS58_FORMAT),
+    ]
+  }
+
+  private async runtimeForVersion(
+    version: RuntimeVersionInfo,
+    ss58Format: number,
+    blockHash: string | null,
+  ): Promise<RuntimeCacheEntry> {
+    const cached = this.runtimesBySpecVersion.get(version.specVersion)
+    if (cached != null && sameRuntimeVersion(cached, version, ss58Format)) {
+      this.cacheRuntimeBySpecVersion(cached)
+      return cached
+    }
+
+    const metadataHex = await this.rpc('state_getMetadata', blockHash == null ? [] : [blockHash])
     const runtime = new Runtime(
       hexToBuffer(String(metadataHex)),
-      Number((version as { specVersion: number }).specVersion),
-      Number((version as { transactionVersion: number }).transactionVersion),
+      version.specVersion,
+      version.transactionVersion,
       ss58Format,
     )
-    if (blockHash == null) this.runtimeCache = runtime
-    return runtime
+    const entry = { runtime, ss58Format, ...version }
+    this.cacheRuntimeBySpecVersion(entry)
+    return entry
+  }
+
+  private cacheRuntimeBySpecVersion(entry: RuntimeCacheEntry): void {
+    this.runtimesBySpecVersion.delete(entry.specVersion)
+    this.runtimesBySpecVersion.set(entry.specVersion, entry)
+  }
+
+  private historicalRuntime(blockHash: string): RuntimeCacheEntry | undefined {
+    const entry = this.historicalRuntimeCache.get(blockHash)
+    if (entry == null) return undefined
+    this.historicalRuntimeCache.delete(blockHash)
+    this.historicalRuntimeCache.set(blockHash, entry)
+    return entry
+  }
+
+  private cacheHistoricalRuntime(blockHash: string, entry: RuntimeCacheEntry): void {
+    if (this.historicalRuntimeCacheSize <= 0) return
+    this.historicalRuntimeCache.delete(blockHash)
+    this.historicalRuntimeCache.set(blockHash, entry)
+    while (this.historicalRuntimeCache.size > this.historicalRuntimeCacheSize) {
+      const oldest = this.historicalRuntimeCache.keys().next().value
+      if (oldest == null) break
+      this.historicalRuntimeCache.delete(oldest)
+    }
   }
 
   async chainInfo(runtime?: Runtime): Promise<ChainInfo> {
@@ -1193,6 +1298,7 @@ export class Client {
     const extrinsicIndex = block.block.extrinsics.findIndex((item) => hex(blake2_256(hexToBuffer(item))) === extrinsicHash)
     if (extrinsicIndex < 0) throw new ChainError(`extrinsic ${extrinsicHash} was not found in block ${blockHash}`)
     const events = ((await this.query<ScaleValue[]>(storage.System.Events, [], blockHash)) ?? []) as unknown[]
+    if (events.some((event) => eventName(event) === 'System.CodeUpdated')) this.invalidateRuntimeCache()
     const triggered = events.filter((event) => eventExtrinsicIndex(event) === extrinsicIndex)
     const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed')
     const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
@@ -1780,6 +1886,38 @@ function propertyNumber(value: unknown, fallback: number): number {
 function propertyString(value: unknown, fallback: string): string {
   const item = firstProperty(value)
   return item == null ? fallback : String(item)
+}
+
+function runtimeVersionInfo(value: unknown): RuntimeVersionInfo {
+  const version = value as { specVersion?: unknown; transactionVersion?: unknown }
+  const specVersion = Number(version.specVersion)
+  const transactionVersion = Number(version.transactionVersion)
+  if (!Number.isFinite(specVersion) || !Number.isFinite(transactionVersion)) {
+    throw new ChainError('runtime version response is missing specVersion or transactionVersion', value)
+  }
+  return { specVersion, transactionVersion }
+}
+
+function sameRuntimeVersion(
+  entry: RuntimeVersionInfo & { ss58Format: number },
+  version: RuntimeVersionInfo,
+  ss58Format: number,
+): boolean {
+  return (
+    entry.specVersion === version.specVersion &&
+    entry.transactionVersion === version.transactionVersion &&
+    entry.ss58Format === ss58Format
+  )
+}
+
+function nonNegativeNumber(value: unknown, fallback: number): number {
+  if (value == null) return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+function nonNegativeInteger(value: unknown, fallback: number): number {
+  return Math.floor(nonNegativeNumber(value, fallback))
 }
 
 function accountAddress(account?: SignerAccount | null): string | undefined {
