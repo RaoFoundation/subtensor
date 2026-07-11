@@ -246,3 +246,26 @@ test('raw native escape hatch includes the complete low-level bridge', () => {
   assert.equal(typeof core.native.NativeCursor.fromBytes, 'function')
   assert.equal(typeof core.native.NativeRuntime.fromMetadata, 'function')
 })
+
+test('password-protected mnemonic keypairs derive children without exposing secrets', () => {
+  const mnemonic =
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  const password = 'protected-derivation-password'
+  const parent = core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519, password)
+
+  const child = parent.derive('//child')
+  const expectedChild = core.Keypair.fromUri(`${mnemonic}//child///${password}`)
+  assert.deepEqual(child.publicKey, expectedChild.publicKey)
+
+  const grandchild = child.derive('//grandchild')
+  const expectedGrandchild = core.Keypair.fromUri(
+    `${mnemonic}//child//grandchild///${password}`,
+  )
+  assert.deepEqual(grandchild.publicKey, expectedGrandchild.publicKey)
+
+  for (const pair of [parent, child, grandchild]) {
+    assert.equal(pair.meta.suri, undefined)
+    assert.equal(Object.prototype.hasOwnProperty.call(pair, 'sourceUri'), false)
+    assert.equal(Object.prototype.hasOwnProperty.call(pair, 'derivationSource'), false)
+  }
+})
