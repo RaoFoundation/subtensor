@@ -1,18 +1,22 @@
 name: Refresh Mainnet Snapshot
 
-# Nightly producer for the clone-upgrade suite: scrapes mainnet state once,
-# builds the patched chainspec, genesis-inits the local-chain database, and
-# publishes both as the `mainnet-snapshot` artifact. PR runs of runtime-checks
-# download the latest main-branch snapshot instead of each spending 15-20 min
-# re-scraping identical state from the finney RPC.
+# Nightly producer of the state snapshots that keep PR runs of runtime-checks
+# off the live RPC endpoints:
+#
+#   - `mainnet-snapshot`: patched chainspec + genesis-inited local database
+#     for the clone-upgrade shards, which otherwise each spend 15-20 min
+#     re-scraping identical state from the finney RPC.
+#   - `try-runtime-snap-{devnet,testnet,mainnet}`: try-runtime-cli state
+#     snapshots consumed by the try-runtime jobs via `on-runtime-upgrade
+#     snap`, replacing each job's own 30-40 min `live --uri` scrape.
 #
 # Security: PR jobs only consume snapshots produced by runs of this workflow
 # on the default branch (schedule and dispatch both execute main's code), so a
-# PR can never feed a poisoned snapshot to another PR. Day-old mainnet state
+# PR can never feed a poisoned snapshot to another PR. Day-old network state
 # is just as representative for an upgrade test as live state — and a pinned
 # snapshot is more reproducible than a fresh scrape. A PR that changes the
 # spec-patching logic itself (node/src/clone_spec.rs) can apply the
-# `fresh-mainnet-clone` label to bypass the snapshot and scrape live.
+# `fresh-mainnet-clone` label to bypass the clone snapshot and scrape live.
 
 on:
   schedule:
@@ -96,3 +100,65 @@ jobs:
           retention-days: 3
           # The tarball is already gzipped.
           compression-level: 0
+
+  # try-runtime state snapshots, one job per network so the scrapes run in
+  # parallel and one flaky endpoint doesn't sink the others. The .snap format
+  # is tied to the try-runtime-cli release, so this version must match the
+  # consumer pin in runtime-checks.yml.
+  try-runtime-snapshot:
+    name: try-runtime snapshot ${{ matrix.network.name }}
+    runs-on: [self-hosted, fireactions-tryruntime]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        network:
+          # Same endpoints and genesis-hash identity checks as the try-runtime
+          # consumer jobs (the hostnames are misleading; see runtime-checks.yml).
+          - name: devnet
+            uri: wss://dev.chain.opentensor.ai:443
+            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+          - name: testnet
+            uri: wss://archive.dev.opentensor.ai:8443
+            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+          - name: mainnet
+            uri: wss://archive.dev.opentensor.ai:443
+            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+    steps:
+      - name: Verify endpoint serves the expected network
+        run: |
+          http_uri="${{ matrix.network.uri }}"
+          http_uri="${http_uri/wss:/https:}"
+          genesis=$(curl -sS -m 30 -H 'Content-Type: application/json' \
+            -d '{"id":1,"jsonrpc":"2.0","method":"chain_getBlockHash","params":[0]}' \
+            "$http_uri" | sed -n 's/.*"result":"\(0x[0-9a-f]*\)".*/\1/p')
+          echo "endpoint genesis: $genesis"
+          if [ "$genesis" != "${{ matrix.network.genesis }}" ]; then
+            echo "::error::${{ matrix.network.name }} endpoint $http_uri serves genesis $genesis, expected ${{ matrix.network.genesis }}"
+            exit 1
+          fi
+
+      - name: Download try-runtime-cli v0.10.1
+        run: |
+          TRY_RUNTIME_BIN="$RUNNER_TEMP/try-runtime"
+          curl --fail --silent --show-error --location \
+            "https://github.com/paritytech/try-runtime-cli/releases/download/v0.10.1/try-runtime-x86_64-unknown-linux-musl" \
+            --output "$TRY_RUNTIME_BIN"
+          chmod +x "$TRY_RUNTIME_BIN"
+          echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
+
+      - name: Create state snapshot
+        run: |
+          export RUST_LOG=remote-ext=debug
+          "$TRY_RUNTIME_BIN" create-snapshot \
+            --uri "${{ matrix.network.uri }}" \
+            "${{ matrix.network.name }}.snap"
+          ls -lh "${{ matrix.network.name }}.snap"
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: try-runtime-snap-${{ matrix.network.name }}
+          path: ${{ matrix.network.name }}.snap
+          if-no-files-found: error
+          retention-days: 3
