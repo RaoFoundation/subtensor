@@ -303,7 +303,7 @@ export class Client {
   readonly neurons: NeuronsNamespace
   readonly staking: StakingNamespace
 
-  private runtime?: Runtime
+  private runtimeCache?: Runtime
   private genesis?: string
   private nonceCache = new Map<string, number>()
 
@@ -368,7 +368,7 @@ export class Client {
 
   async runtimeAt(block?: number | string | null): Promise<Runtime> {
     const blockHash = await this.resolveBlockHash(block)
-    if (this.runtime != null && blockHash == null) return this.runtime
+    if (this.runtimeCache != null && blockHash == null) return this.runtimeCache
     const [metadataHex, version, properties] = await Promise.all([
       this.rpc('state_getMetadata', blockHash == null ? [] : [blockHash]),
       this.rpc('state_getRuntimeVersion', blockHash == null ? [] : [blockHash]),
@@ -381,7 +381,7 @@ export class Client {
       Number((version as { transactionVersion: number }).transactionVersion),
       ss58Format,
     )
-    if (blockHash == null) this.runtime = runtime
+    if (blockHash == null) this.runtimeCache = runtime
     return runtime
   }
 
