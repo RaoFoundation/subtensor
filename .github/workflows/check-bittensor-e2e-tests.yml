@@ -120,8 +120,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          enable-cache: "false"
+          enable-cache: "true"
+          cache-dependency-glob: "sdk/python/uv.lock"
 
+      # One matrix entry per test FILE, not per test: every job pays ~2-3
+      # minutes of fixed cost (checkout, uv sync, downloading + loading the
+      # localnet image, booting a chain), so per-test fan-out spent ~20x more
+      # time on setup than on tests. The e2e conftest's fixtures are already
+      # session-scoped — one localnet shared by all tests in a pytest run —
+      # so a per-file job is the granularity the suite was written for.
       - name: Collect in-repo SDK e2e tests
         id: get-tests
         working-directory: sdk/python
@@ -134,10 +141,12 @@ jobs:
             | jq -R -s -c '
                 split("\n")
                 | map(select(. != ""))
+                | map(split("::")[0])
+                | unique
                 | map({nodeid: ., label: (sub("^tests/e2e/"; "") | sub("\\.py$"; ""))})
               '
           )
-          echo "Found tests: $test_matrix"
+          echo "Found test files: $test_matrix"
           if [ "$test_matrix" = "[]" ] || [ -z "$test_matrix" ]; then
             echo "No e2e tests found — failing."
             exit 1
@@ -290,7 +299,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          enable-cache: "false"
+          enable-cache: "true"
+          cache-dependency-glob: "sdk/python/uv.lock"
 
       - name: Install in-repo SDK
         working-directory: sdk/python
@@ -317,8 +327,15 @@ jobs:
           for i in 1 2; do
             echo "Attempt $i: Running tests"
             # -m e2e overrides the default addopts (-m 'not e2e') which would
-            # otherwise deselect the collected test and fail with "no tests ran".
-            uv run pytest "${{ matrix.nodeid }}" -s -m e2e
+            # otherwise deselect the collected tests and fail with "no tests
+            # ran". The retry reruns only what failed (--lf reads pytest's
+            # cache from attempt 1) against a fresh localnet — the session
+            # fixture tears the container down and boots a new one per run.
+            if [ "$i" = "1" ]; then
+              uv run pytest "${{ matrix.nodeid }}" -s -m e2e
+            else
+              uv run pytest "${{ matrix.nodeid }}" -s -m e2e --lf
+            fi
             status=$?
             if [ $status -eq 0 ]; then
               echo "Tests passed on attempt $i"
