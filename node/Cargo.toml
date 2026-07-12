@@ -138,6 +138,12 @@ subtensor-macros.workspace = true
 # polkadot binary does) is the proposed mitigation (issue #2724). Gated behind a feature so the
 # default release binary is unchanged until an operator opts in.
 tikv-jemallocator = { version = "0.5", optional = true, default-features = false }
+# Companion to `tikv-jemallocator`, used by the `jemalloc-allocator` feature's
+# activation test to read allocator stats over `mallctl`. It already resolves
+# transitively and shares the single compiled `tikv-jemalloc-sys` with
+# `tikv-jemallocator` (see Cargo.lock), so enabling it adds no second copy of
+# jemalloc - only this small ctl FFI shim.
+tikv-jemalloc-ctl = { version = "0.5", optional = true }
 
 [build-dependencies]
 substrate-build-script-utils.workspace = true
@@ -154,7 +160,7 @@ rocksdb = [
 default = ["rocksdb", "sql", "txpool"]
 # Use tikv-jemallocator as the global allocator in the release binary (off by default).
 # See the `tikv-jemallocator` dependency note and issue #2724.
-jemalloc-allocator = ["dep:tikv-jemallocator"]
+jemalloc-allocator = ["dep:tikv-jemallocator", "dep:tikv-jemalloc-ctl"]
 fast-runtime = [
 	"node-subtensor-runtime/fast-runtime",
 	"subtensor-runtime-common/fast-runtime",

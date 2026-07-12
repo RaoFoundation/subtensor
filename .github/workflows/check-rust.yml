@@ -173,6 +173,39 @@ jobs:
       - name: cargo test --doc --workspace --all-features
         run: cargo test --doc --workspace --all-features
 
+  # The `jemalloc-allocator` feature is off by default, so the default build
+  # never compiles it. Without an explicit gate it rots silently: a
+  # `tikv-jemallocator` bump, a `#[global_allocator]` typo, or a `cfg` mistake
+  # would break the opt-in allocator path with nothing failing. This job
+  # compiles+links the node with the feature (build gate) and runs the
+  # activation test proving jemalloc is the *live* global allocator, not merely
+  # linked - the failure mode a plain `cargo check` cannot see.
+  jemalloc-feature:
+    name: jemalloc-allocator feature gate
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
+    env:
+      SKIP_WASM_BUILD: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: jemalloc-feature
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+      - name: Build gate (node compiles + links the feature)
+        run: cargo check -p node-subtensor --features jemalloc-allocator --all-targets
+      # No test-name filter: a filtered `cargo test` exits 0 if the test is ever
+      # renamed (0 run), so the gate would pass silently. Running the node's
+      # full test target with the feature guarantees the activation test runs.
+      - name: Activation test (jemalloc is the live global allocator)
+        run: cargo test -p node-subtensor --features jemalloc-allocator
+
   # The browser seam: bittensor-core without its `host` feature must keep
   # compiling for wasm32 (the future wasm-bindgen/TS binding target). This
   # check is what keeps "browser-compatible" an invariant instead of an
