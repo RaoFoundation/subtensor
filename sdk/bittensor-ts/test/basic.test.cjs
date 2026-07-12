@@ -1584,7 +1584,7 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
 test('Client enables metadata hash by default for software signers when supported', async () => {
   const callData = Buffer.from([5, 6, 7])
   const { runtime, captures } = fakeSigningRuntime({
-    metadataBytes: Buffer.from([1, 2, 3, 4]),
+    metadataBytes: goldenMetadataBytes(),
     signedExtensionIdentifiers() {
       return ['CheckNonce', 'CheckMetadataHash']
     },
@@ -2355,7 +2355,11 @@ test('Client records detached watchSigned nonces before the next managed submit'
       return
     }
     if (message.method === 'author_submitExtrinsic') {
-      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: `0x${'de'.repeat(32)}` }))
+      queueMicrotask(() => socket.serverMessage({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: submittedExtrinsicHash(message.params[0]),
+      }))
     }
   }
 

@@ -3525,8 +3525,8 @@ function formatModuleDispatchError(runtime: Runtime, value: Record<string, unkno
   try {
     const resolved = runtime.moduleError(moduleIndex, errorIndex)
     const name = Array.isArray(resolved) ? resolved[0] : resolved.name
-    const rawDocs = Array.isArray(resolved) ? resolved[1] : resolved.docs
-    const docs = rawDocs.map((doc) => doc.trim()).filter(Boolean).join(' ')
+    const rawDocs: string[] = Array.isArray(resolved) ? resolved[1] : resolved.docs
+    const docs = rawDocs.map((doc: string) => doc.trim()).filter(Boolean).join(' ')
     return docs.length === 0 ? name : `${name}: ${docs}`
   } catch {
     return `Module(${moduleIndex}, ${errorIndex})`
