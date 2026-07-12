@@ -14,6 +14,9 @@ neutralized here with sudo:
 - The lock cost doubles per registration from mainnet scale, and //Alice's
   clone-spec grant is finite -> decay the lock cost back to the minimum
   after one block so reruns and multiple registrations stay affordable.
+- Mainnet's ``NetworkRegistrationStartBlock`` is far beyond the clone's
+  restarted block height, so registration reads as not yet open -> zero it
+  via a raw storage write (no AdminUtils setter exists).
 
 Usage:
     uv run python scripts/prepare_clone_for_e2e.py [ws://127.0.0.1:9944]
@@ -31,6 +34,14 @@ from bittensor.keyfiles import Keypair
 
 DEFAULT_ENDPOINT = "ws://127.0.0.1:9944"
 SUBNET_HEADROOM = 32
+
+# twox128("SubtensorModule") ++ twox128("NetworkRegistrationStartBlock").
+# Mainnet stores a mainnet-scale start block here, but the clone's chain
+# restarts from block 0, so do_register_network reads "not started yet" and
+# fails with SubNetRegistrationDisabled. No AdminUtils setter exists for it,
+# hence the raw System.set_storage write.
+REGISTRATION_START_BLOCK_KEY = "0x658faa385070e074c85bf6b568cf0555450757a33d9ee73139121004b3b10b2e"
+SCALE_U64_ZERO = "0x0000000000000000"
 
 
 def _alice() -> SimpleNamespace:
@@ -64,6 +75,11 @@ async def main(endpoint: str) -> None:
         )
         await _sudo(
             client, alice, sub.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1)
+        )
+        await _sudo(
+            client,
+            alice,
+            sub.calls.System.set_storage(items=[(REGISTRATION_START_BLOCK_KEY, SCALE_U64_ZERO)]),
         )
 
 
