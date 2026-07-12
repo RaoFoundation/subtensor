@@ -24,6 +24,10 @@ on:
         description: "Run only the try-runtime build and cached network checks"
         type: boolean
         default: false
+      skip_devnet:
+        description: "Skip devnet when measuring a partially completed producer run"
+        type: boolean
+        default: false
 
 concurrency:
   group: runtime-checks-${{ github.ref }}
@@ -221,24 +225,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        network:
+        selected: [devnet, testnet, mainnet]
+        exclude:
+          - selected: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_devnet && 'devnet' || '__none__' }}
+        include:
           # NOTE: the hostnames are misleading — archive.dev.opentensor.ai
           # serves the TESTNET archive on :8443 and the MAINNET archive on
           # :443 (verified by genesis hash; try-runtime wants archive nodes,
           # which is why we don't use the entrypoint hostnames). The
           # "Verify endpoint" step below enforces each URI's identity.
-          - name: devnet
-            uri: wss://dev.chain.opentensor.ai:443
-            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
-          - name: testnet
-            uri: wss://archive.dev.opentensor.ai:8443
-            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+          - selected: devnet
+            network:
+              name: devnet
+              uri: wss://dev.chain.opentensor.ai:443
+              genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+          - selected: testnet
+            network:
+              name: testnet
+              uri: wss://archive.dev.opentensor.ai:8443
+              genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+          - selected: mainnet
+            network:
+              name: mainnet
+              uri: wss://archive.dev.opentensor.ai:443
+              genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
           # Keep endpoint-heavy checks near the archive RPCs. Measurements
           # from BHS showed materially higher per-request latency, which
           # compounds during try-runtime's state traversal.
-          - name: mainnet
-            uri: wss://archive.dev.opentensor.ai:443
-            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
     steps:
       - uses: actions/checkout@v4
 
