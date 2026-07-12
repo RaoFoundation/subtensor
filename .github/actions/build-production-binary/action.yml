@@ -71,14 +71,21 @@ runs:
           --features metadata-hash
           --locked
         )
-        if [[ "$ARCH" == amd64 ]]; then
-          # The runner is already x86_64 Linux with all native dependencies.
-          # Staying on the host keeps this compile behind the active R2
-          # sccache wrapper; cross containers have a separate process boundary.
-          cargo build "${build_args[@]}"
-        else
-          cross build "${build_args[@]}"
-        fi
+        case "$ARCH:$TARGET" in
+          amd64:x86_64-unknown-linux-gnu)
+            # The runner is already x86_64 Linux with all native dependencies.
+            # Staying on the host keeps this compile behind the active R2
+            # sccache wrapper; cross containers have a separate process boundary.
+            cargo build "${build_args[@]}"
+            ;;
+          arm64:aarch64-unknown-linux-gnu)
+            cross build "${build_args[@]}"
+            ;;
+          *)
+            echo "Unsupported production architecture/target: $ARCH/$TARGET" >&2
+            exit 1
+            ;;
+        esac
 
     - name: Validate and stage binary
       shell: bash

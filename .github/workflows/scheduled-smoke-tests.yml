@@ -15,18 +15,12 @@ permissions:
 jobs:
   smoke:
     name: smoke-e2e-${{ matrix.test }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: [self-hosted, fireactions-tryruntime]
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - test: smoke_devnet
-            runner: [self-hosted, fireactions-tryruntime]
-          - test: smoke_testnet
-            runner: [self-hosted, fireactions-tryruntime]
-          - test: smoke_mainnet
-            runner: [self-hosted, fireactions-tryruntime]
+        test: [smoke_devnet, smoke_testnet, smoke_mainnet]
     steps:
       - uses: actions/checkout@v4
 

@@ -127,7 +127,7 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build
-    runs-on: ${{ matrix.network.runner }}
+    runs-on: [self-hosted, fireactions-tryruntime]
     permissions:
       contents: read
       # Cross-run artifact download (the nightly try-runtime state snapshot).
@@ -144,18 +144,15 @@ jobs:
           - name: devnet
             uri: wss://dev.chain.opentensor.ai:443
             genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
-            runner: [self-hosted, fireactions-tryruntime]
           - name: testnet
             uri: wss://archive.dev.opentensor.ai:8443
             genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
-            runner: [self-hosted, fireactions-tryruntime]
           # Keep endpoint-heavy checks near the archive RPCs. Measurements
           # from BHS showed materially higher per-request latency, which
           # compounds during try-runtime's state traversal.
           - name: mainnet
             uri: wss://archive.dev.opentensor.ai:443
             genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
-            runner: [self-hosted, fireactions-tryruntime]
     steps:
       - name: Verify endpoint serves the expected network
         run: |

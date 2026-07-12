@@ -48,51 +48,37 @@ jobs:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
   binary:
-    name: production binary (${{ matrix.platform.arch }})
+    name: production binary (amd64)
     needs: trusted-pr
     runs-on: [self-hosted, fireactions-turbo-16]
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - arch: amd64
-            target: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/build-production-binary
         with:
-          arch: ${{ matrix.platform.arch }}
-          target: ${{ matrix.platform.target }}
-          cache-key: docker-production-${{ matrix.platform.arch }}
+          arch: amd64
+          target: x86_64-unknown-linux-gnu
+          cache-key: docker-production-amd64
 
       - uses: actions/upload-artifact@v4
         with:
-          name: production-node-${{ matrix.platform.arch }}
-          path: build/ci_target/${{ matrix.platform.arch }}/node-subtensor
+          name: production-node-amd64
+          path: build/ci_target/amd64/node-subtensor
           if-no-files-found: error
 
   image:
-    name: docker image (${{ matrix.arch }}, no push)
+    name: docker image (amd64, no push)
     needs: [trusted-pr, binary]
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v5
         with:
-          name: production-node-${{ matrix.arch }}
-          path: build/ci_target/${{ matrix.arch }}
-
-      - name: Set up QEMU
-        if: matrix.arch == 'arm64'
-        uses: docker/setup-qemu-action@v3
+          name: production-node-amd64
+          path: build/ci_target/amd64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -102,8 +88,8 @@ jobs:
         with:
           context: .
           file: Dockerfile.prebuilt
-          platforms: linux/${{ matrix.arch }}
-          tags: subtensor-ci:${{ matrix.arch }}
+          platforms: linux/amd64
+          tags: subtensor-ci:amd64
           load: true
           push: false
 
@@ -111,7 +97,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          actual=$(docker image inspect subtensor-ci:${{ matrix.arch }} --format '{{.Architecture}}')
-          test "$actual" = "${{ matrix.arch }}"
-          docker run --rm --platform linux/${{ matrix.arch }} \
-            subtensor-ci:${{ matrix.arch }} --help > /dev/null
+          actual=$(docker image inspect subtensor-ci:amd64 --format '{{.Architecture}}')
+          test "$actual" = amd64
+          docker run --rm --platform linux/amd64 subtensor-ci:amd64 --help > /dev/null
