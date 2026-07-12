@@ -18,13 +18,16 @@ Chain-defined work runs in Rust:
 The Node TypeScript layer is limited to JavaScript-friendly names and defaults,
 lossless `Buffer`/`bigint`/`Map` boundary conversion, error classes,
 signing-compatibility adapters for the signer objects expected by Polkadot.js,
-Polkadot API, and Moonwall, plus the client responsibilities that deliberately
-do not live in Rust: WebSocket/HTTP JSON-RPC transport, reconnect/fallback
-handling, subscriptions, storage queries, runtime API calls, nonce tracking,
-extrinsic submission and inclusion/finalization outcome handling, wallet
-filesystem management, generated-style descriptors, and high-level Bittensor
-operations for balances, subnets, metagraphs, staking, registration, serving,
-transfers, and weights.
+Polkadot API, and Moonwall, wallet filesystem management, generated-style
+descriptors, and the client responsibilities that deliberately remain outside
+the current blocking Rust client: async WebSocket transport, subscriptions,
+endpoint fallback, browser support, and extension-signer interop. On Node,
+chain reads, call composition, fee estimation, Rust-keypair signing,
+inclusion/finalization receipts, dispatch-error interpretation, and high-level
+transaction semantics prefer the native Rust client and transaction executor when
+available. High-level TypeScript transaction helpers construct Rust
+`IntentCall` values, and arbitrary pallet/function calls are classified as raw
+by Rust policy before signing.
 
 The package exposes both CommonJS and ESM entrypoints. It also exports the
 raw generated Node-API module as `@bittensor/sdk/native`, so every native
@@ -141,6 +144,28 @@ TAO/alpha amounts with more than nine fractional digits are rejected.
 flows using `signExtrinsic()` followed by `submitSigned()` or `watchSigned()`
 record the signed nonce after submission, but callers producing multiple
 detached transactions concurrently should pass explicit `nonce` values.
+
+High-level transaction helpers such as `transfer()`, `staking.addStake()`,
+`setWeights()`, registration, and serving route through Rust trusted
+constructors on `IntentCall`. The same constructors are exported directly for
+advanced callers:
+
+```ts
+import { Client, IntentCall, Policy } from '@bittensor/sdk'
+
+const client = await new Client('finney').connect()
+await client.submit(
+  IntentCall.addStake(hotkey, 1, 1_000_000_000n),
+  coldkeySigner,
+  { policy: new Policy({ maxSpendRao: 1_000_000_000n, allowedNetuids: [1] }) },
+)
+```
+
+Raw pallet/function calls are an explicit escape hatch. They are treated by
+Rust as unbounded spend with unknown/all-subnet scope, so they require
+`allowRawCall: true` or a `Policy` with `allowRawCalls: true`; spend and subnet
+caps still fail closed for raw calls. Opaque pre-composed call bytes are more
+restricted because the SDK cannot prove their spend or subnet scope.
 
 `client.assertDescriptorSchema()` checks the exported storage, call, constant,
 and runtime API descriptor tables against the chain metadata loaded for a block.

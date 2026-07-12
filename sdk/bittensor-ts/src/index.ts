@@ -11,6 +11,19 @@ export * from './ledger'
 export * from './modules'
 export * from './runtime'
 export * from './timelock'
+export {
+  IntentCall,
+  Policy,
+  SignerRole,
+  isIntentCall,
+  rawCall,
+} from './transaction'
+export type {
+  PolicyOptions,
+  RawCallOptions,
+  SignerRoleLike,
+  SignerRoleName,
+} from './transaction'
 export * from './types'
 export * from './value'
 export * from './wallet'

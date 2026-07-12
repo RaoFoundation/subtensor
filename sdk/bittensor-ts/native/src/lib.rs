@@ -8,6 +8,7 @@ mod ledger;
 mod mlkem;
 mod runtime;
 mod timelock;
+mod transaction;
 mod values;
 
 use bittensor_core::codec::value::{to_corpus_json, u256_decimal};

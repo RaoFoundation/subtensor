@@ -432,6 +432,71 @@ impl IntentCall {
         )
     }
 
+    /// Publish validator weights for one subnet.
+    pub fn set_weights(netuid: u16, dests: Vec<u16>, weights: Vec<u16>, version_key: u64) -> Self {
+        Self::trusted(
+            "set_weights",
+            SignerRole::Hotkey,
+            "SubtensorModule",
+            "set_weights",
+            Value::record(vec![
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                (
+                    "dests".into(),
+                    Value::List(
+                        dests
+                            .into_iter()
+                            .map(|uid| Value::Uint(u128::from(uid)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "weights".into(),
+                    Value::List(
+                        weights
+                            .into_iter()
+                            .map(|weight| Value::Uint(u128::from(weight)))
+                            .collect(),
+                    ),
+                ),
+                ("version_key".into(), Value::Uint(u128::from(version_key))),
+            ]),
+            Spend::None,
+            [netuid],
+            false,
+        )
+    }
+
+    /// Serve an Axon endpoint for one subnet.
+    pub fn serve_axon(
+        netuid: u16,
+        version: u32,
+        ip: u128,
+        port: u16,
+        ip_type: u8,
+        protocol: u8,
+    ) -> Self {
+        Self::trusted(
+            "serve_axon",
+            SignerRole::Hotkey,
+            "SubtensorModule",
+            "serve_axon",
+            Value::record(vec![
+                ("netuid".into(), Value::Uint(u128::from(netuid))),
+                ("version".into(), Value::Uint(u128::from(version))),
+                ("ip".into(), Value::Uint(ip)),
+                ("port".into(), Value::Uint(u128::from(port))),
+                ("ip_type".into(), Value::Uint(u128::from(ip_type))),
+                ("protocol".into(), Value::Uint(u128::from(protocol))),
+                ("placeholder1".into(), Value::Uint(0)),
+                ("placeholder2".into(), Value::Uint(0)),
+            ]),
+            Spend::None,
+            [netuid],
+            false,
+        )
+    }
+
     /// Register a hotkey by burning the subnet's live registration cost.
     pub fn burned_register(netuid: u16, hotkey: impl Into<String>) -> Self {
         Self::trusted(

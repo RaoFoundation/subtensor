@@ -76,7 +76,6 @@ merkleized-metadata = "0.5.1"
 # workers (codec/batch.rs).
 rayon = { version = "1.10", optional = true }
 scale-info = { workspace = true, features = ["std", "serde"] }
-subtensor-macros = { workspace = true }
 
 # signers (feature "ledger"): APDU types for the Polkadot generic app; the
 # HID transport itself lives in signers/ledger.rs on top of hidapi (below).

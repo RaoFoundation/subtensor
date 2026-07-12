@@ -36,6 +36,33 @@ export interface NativeMapPair {
   value: unknown
 }
 
+export interface NativeBlockHeader {
+  hash: string
+  parentHash: string
+  number: bigint
+}
+
+export interface NativeSubnetInfo {
+  netuid: number
+  tempo: number
+  burnRao: string
+  neuronCount: number
+}
+
+export interface NativeSwapQuote {
+  taoAmount: string
+  alphaAmount: string
+  taoFee: string
+  alphaFee: string
+  taoSlippage: string
+  alphaSlippage: string
+}
+
+export interface NativeSignedExtrinsic {
+  bytes: Buffer
+  hash: string
+}
+
 export interface NativeTxParams {
   era: unknown
   nonce: bigint
@@ -263,11 +290,229 @@ export interface NativeLedgerConstructor {
   open(): Promise<NativeLedgerHandle>
 }
 
+export interface NativePolicyOptions {
+  maxFeeRao?: bigint | null
+  maxSpendRao?: bigint | null
+  allowedNetuids?: number[] | null
+  allowRawCalls?: boolean | null
+}
+
+export interface NativePlan {
+  op: string
+  summary: string
+  signerRole: string
+  signerAddress: string
+  feeRao?: string | null
+  warnings: string[]
+  violations: string[]
+  ok: boolean
+  callData: Buffer
+}
+
+export interface NativeDispatchError {
+  pallet?: string | null
+  name: string
+  docs: string[]
+  semanticCode: string
+}
+
+export interface NativeTxOutcome {
+  success: boolean
+  extrinsicHash: string
+  blockHash?: string | null
+  blockNumber?: bigint | null
+  extrinsicIndex?: number | null
+  feeRao?: string | null
+  events: unknown[]
+  error?: NativeDispatchError | null
+  message: string
+  data: unknown
+}
+
+export interface NativePolicyHandle {
+  readonly allowRawCalls: boolean
+  check(intent: NativeIntentCallHandle, feeRao?: bigint | null): string[]
+}
+
+export interface NativePolicyConstructor {
+  fromOptions(options?: NativePolicyOptions | null): NativePolicyHandle
+}
+
+export interface NativeIntentCallHandle {
+  readonly op: string
+  readonly summary: string
+  readonly signerRole: string
+  readonly pallet: string
+  readonly callFunction: string
+  readonly params: unknown
+  withSummary(summary: string): NativeIntentCallHandle
+  forceRaw(): NativeIntentCallHandle
+  asCallTuple(): unknown[]
+}
+
+export interface NativeIntentCallConstructor {
+  rawCall(
+    op: string,
+    signerRole: number,
+    pallet: string,
+    callFunction: string,
+    params: unknown,
+  ): NativeIntentCallHandle
+  transfer(dest: string, amountRao: bigint): NativeIntentCallHandle
+  fundEvmKey(mirror: string, amountRao: bigint): NativeIntentCallHandle
+  transferAllowDeath(dest: string, amountRao: bigint): NativeIntentCallHandle
+  transferAll(dest: string, keepAlive: boolean): NativeIntentCallHandle
+  addStake(hotkey: string, netuid: number, amountRao: bigint): NativeIntentCallHandle
+  addStakeLimit(
+    hotkey: string,
+    netuid: number,
+    amountRao: bigint,
+    limitPriceRao: bigint,
+    allowPartial: boolean,
+  ): NativeIntentCallHandle
+  removeStake(hotkey: string, netuid: number, amountAlphaRao: bigint): NativeIntentCallHandle
+  removeStakeLimit(
+    hotkey: string,
+    netuid: number,
+    amountAlphaRao: bigint,
+    limitPriceRao: bigint,
+    allowPartial: boolean,
+  ): NativeIntentCallHandle
+  registerSubnet(hotkey: string): NativeIntentCallHandle
+  startCall(netuid: number): NativeIntentCallHandle
+  setWeights(
+    netuid: number,
+    dests: number[],
+    weights: number[],
+    versionKey: bigint,
+  ): NativeIntentCallHandle
+  serveAxon(
+    netuid: number,
+    version: number,
+    ip: bigint,
+    port: number,
+    ipType: number,
+    protocol: number,
+  ): NativeIntentCallHandle
+  burnedRegister(netuid: number, hotkey: string): NativeIntentCallHandle
+  rootRegister(hotkey: string): NativeIntentCallHandle
+  moveStake(
+    originHotkey: string,
+    originNetuid: number,
+    destinationHotkey: string,
+    destinationNetuid: number,
+    amountAlphaRao: bigint,
+  ): NativeIntentCallHandle
+  swapStake(
+    hotkey: string,
+    originNetuid: number,
+    destinationNetuid: number,
+    amountAlphaRao: bigint,
+  ): NativeIntentCallHandle
+  transferStake(
+    destinationColdkey: string,
+    hotkey: string,
+    originNetuid: number,
+    destinationNetuid: number,
+    amountAlphaRao: bigint,
+  ): NativeIntentCallHandle
+  unstakeAll(hotkey: string): NativeIntentCallHandle
+  unstakeAllAlpha(hotkey: string): NativeIntentCallHandle
+  setHyperparameter(netuid: number, name: string, value: unknown): NativeIntentCallHandle
+  setRootClaimType(claimType: string, subnets?: number[] | null): NativeIntentCallHandle
+}
+
+export interface NativeClientHandle {
+  readonly endpoint: string
+  readonly ss58Format: number
+  readonly genesisHash: Buffer
+  blockHash(block?: bigint | null): string
+  finalizedHead(): string
+  blockNumber(blockHash?: string | null): bigint
+  header(blockHash?: string | null): NativeBlockHeader
+  readCatalog(): string[]
+  refreshRuntime(): boolean
+  composeCall(pallet: string, callFunction: string, params: unknown): Buffer
+  decodeScale(typeName: string, data: Buffer): unknown
+  constant(pallet: string, name: string): unknown
+  query(pallet: string, storage: string, params: unknown, blockHash?: string | null): unknown
+  queryBatch(pallet: string, storage: string, paramSets: unknown, blockHash?: string | null): unknown[]
+  queryMap(pallet: string, storage: string, fixedParams: unknown, blockHash?: string | null): NativeMapPair[]
+  runtimeCall(api: string, method: string, params: unknown, blockHash?: string | null): unknown
+  accountNextIndex(address: string): bigint
+  signExtrinsic(
+    callData: Buffer,
+    signer: NativeKeypairHandle,
+    nonce: bigint,
+    period?: bigint | null,
+  ): NativeSignedExtrinsic
+  estimateFee(callData: Buffer, signer: NativeKeypairHandle): string
+  submit(
+    callData: Buffer,
+    signer: NativeKeypairHandle,
+    nonce?: bigint | null,
+    period?: bigint | null,
+    waitForFinalization?: boolean | null,
+  ): NativeTxOutcome
+  submitEncoded(
+    extrinsic: Buffer,
+    expectedHash: string,
+    waitForFinalization?: boolean | null,
+  ): NativeTxOutcome
+  balanceRao(address: string): string
+  existentialDepositRao(): string
+  subnets(blockHash?: string | null): NativeSubnetInfo[]
+  metagraph(netuid: number, blockHash?: string | null): unknown
+  neurons(netuid: number, blockHash?: string | null): unknown[]
+  subnetHyperparameters(netuid: number, blockHash?: string | null): unknown
+  stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): string
+  quoteStake(netuid: number, amountRao: bigint, blockHash?: string | null): NativeSwapQuote
+  composeIntent(intent: NativeIntentCallHandle): Buffer
+}
+
+export interface NativeClientConstructor {
+  connect(endpoint: string): NativeClientHandle
+}
+
+export interface NativeWalletHandle {}
+
+export interface NativeWalletConstructor {
+  fromKeypairs(coldkey: NativeKeypairHandle, hotkey: NativeKeypairHandle): NativeWalletHandle
+  fromUris(coldkeyUri: string, hotkeyUri: string): NativeWalletHandle
+}
+
+export interface NativeExecutorHandle {
+  plan(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): NativePlan
+  planWithPolicy(
+    intent: NativeIntentCallHandle,
+    wallet: NativeWalletHandle,
+    policy: NativePolicyHandle,
+  ): NativePlan
+  execute(
+    intent: NativeIntentCallHandle,
+    wallet: NativeWalletHandle,
+    waitForFinalization?: boolean | null,
+  ): NativeTxOutcome
+  submitShielded(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): NativeTxOutcome
+}
+
+export interface NativeExecutorConstructor {
+  fromClient(client: NativeClientHandle): NativeExecutorHandle
+  withPolicy(client: NativeClientHandle, policy: NativePolicyHandle): NativeExecutorHandle
+}
+
 export interface NativeBinding {
   NativeKeypair: { readonly prototype: NativeKeypairHandle }
   NativeRuntime: NativeRuntimeConstructor
   NativeCursor: NativeCursorConstructor
   NativeLedgerDevice: NativeLedgerConstructor
+  NativeSignerRole: { readonly Coldkey: number; readonly Hotkey: number }
+  NativeSpendKind: { readonly None: number; readonly Bounded: number; readonly Unbounded: number }
+  NativePolicy: NativePolicyConstructor
+  NativeIntentCall: NativeIntentCallConstructor
+  NativeClient: NativeClientConstructor
+  NativeWallet: NativeWalletConstructor
+  NativeExecutor: NativeExecutorConstructor
 
   bindingVersion(): string
   ledgerEnabled(): boolean

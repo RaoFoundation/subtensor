@@ -11,6 +11,8 @@ pub fn into_napi(error: CoreError) -> Error {
         CoreError::Codec(message) => ("CODEC", Status::InvalidArg, message),
         CoreError::Crypto(message) => ("CRYPTO", Status::InvalidArg, message),
         CoreError::Device(message) => ("DEVICE", Status::GenericFailure, message),
+        CoreError::Rpc(message) => ("RPC", Status::GenericFailure, message),
+        CoreError::Policy(message) => ("POLICY", Status::InvalidArg, message),
     };
     Error::new(status, format!("[BITTENSOR_CORE:{code}] {message}"))
 }

@@ -560,6 +560,14 @@ export class Keypair implements PolkadotCompatibleKeypair {
       ),
     )
   }
+
+  nativeHandle(): NativeKeypairHandle {
+    return this.handle
+  }
+}
+
+export function nativeKeypairHandle(keypair: Keypair): NativeKeypairHandle {
+  return keypair.nativeHandle()
 }
 
 export function createKeyringPairFromUri(

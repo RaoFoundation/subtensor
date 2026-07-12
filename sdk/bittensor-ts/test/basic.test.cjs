@@ -106,6 +106,10 @@ function fakeSigningRuntime(overrides = {}) {
         hash: Buffer.alloc(32, 7),
       }
     },
+    composeCall(pallet, fn, params) {
+      captures.composeCall = { pallet, fn, params }
+      return Buffer.from([pallet.length, fn.length])
+    },
     ...overrides,
   }
   return { runtime, captures }
@@ -1003,6 +1007,9 @@ test('module-shaped export mirrors the public Rust crate', () => {
 test('chain client surface is exported without Polkadot.js glue', () => {
   assert.equal(typeof core.Client, 'function')
   assert.equal(typeof core.Client.prototype.watchSigned, 'function')
+  assert.equal(Object.prototype.hasOwnProperty.call(core, 'NativeChainClient'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(core, 'RustWallet'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(core, 'Executor'), false)
   assert.equal(core.Subtensor, core.SubtensorClient)
   assert.equal(typeof core.subtensor, 'function')
   assert.equal(typeof core.Wallet, 'function')
@@ -2081,7 +2088,7 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
     },
   }
 
-  const signed = await client.signExtrinsic(callData, signer, { period: null })
+  const signed = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
 
   assert.equal(signed.signerAddress, address)
   assert.equal(signed.nonce, 12)
@@ -2098,21 +2105,82 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.equal(await client.accountNextIndex(address), 12)
   assert.equal(await client.accountNextIndex(address), 12)
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, tip: core.Balance.fromAlpha('1', 7) }),
+    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, tip: core.Balance.fromAlpha('1', 7) }),
     /tip must be a TAO balance/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, tipAssetId: core.taoAmount('1') }),
+    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, tipAssetId: core.taoAmount('1') }),
     /tipAssetId must be a bigint/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, tipAssetId: -1 }),
+    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, tipAssetId: -1 }),
     /tipAssetId must be non-negative/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(callData, { ...signer, publicKey: Buffer.alloc(32, 7) }, { period: null }),
+    () => client.signExtrinsic(callData, { ...signer, publicKey: Buffer.alloc(32, 7) }, { period: null, allowRawCall: true }),
     /publicKey does not match/,
   )
+})
+
+test('Client rejects raw call shapes unless callers opt in', async () => {
+  const { runtime } = fakeSigningRuntime()
+  const callData = Buffer.from([5, 6, 7])
+  const client = fakeSigningClient(runtime, callData)
+  const signer = core.Keypair.fromUri('//Alice')
+
+  await assert.rejects(
+    () => client.signExtrinsic(callData, signer, { period: null }),
+    /opaque call bytes require explicit raw-call permission/,
+  )
+  await assert.rejects(
+    () => client.signExtrinsic(['System', 'remark', { remark: Buffer.from('hello') }], signer, { period: null }),
+    /raw metadata calls require explicit raw-call permission/,
+  )
+  await assert.rejects(
+    () => client.signExtrinsic(callData, signer, {
+      period: null,
+      policy: new core.Policy({ allowRawCalls: true, maxSpendRao: 1n }),
+    }),
+    /opaque call bytes cannot prove fee, spend, or subnet policy/,
+  )
+})
+
+test('Client accepts raw metadata calls only with explicit raw permission', async () => {
+  const { runtime, captures } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, Buffer.alloc(0))
+  const signer = core.Keypair.fromUri('//Alice')
+
+  const signed = await client.signExtrinsic(
+    ['System', 'remark', { remark: Buffer.from('hello') }],
+    signer,
+    { period: null, allowRawCall: true },
+  )
+
+  assert.ok(signed.bytes.length > 0)
+  assert.equal(captures.composeCall.pallet, 'System')
+  assert.equal(captures.composeCall.fn, 'remark')
+  assert.deepEqual(captures.composeCall.params.remark, Buffer.from('hello'))
+})
+
+test('Client callData composes trusted Rust intent calls', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const captures = {}
+  client.composeCall = async (pallet, fn, params, block) => {
+    captures.composeCall = { pallet, fn, params, block }
+    return Buffer.from([1, 2, 3])
+  }
+
+  const bytes = await client.callData(
+    core.IntentCall.transfer('5F3sa2TJAWMqDhXG6jhV4N8ko9SxwGy8TpaNS1repo5EYjQX', 7n),
+    99,
+  )
+
+  assert.deepEqual(bytes, Buffer.from([1, 2, 3]))
+  assert.equal(captures.composeCall.pallet, 'Balances')
+  assert.equal(captures.composeCall.fn, 'transfer_keep_alive')
+  assert.equal(captures.composeCall.params.dest, '5F3sa2TJAWMqDhXG6jhV4N8ko9SxwGy8TpaNS1repo5EYjQX')
+  assert.equal(captures.composeCall.params.value, 7)
+  assert.equal(captures.composeCall.block, 99)
 })
 
 test('Client enables metadata hash by default for software signers when supported', async () => {
@@ -2137,7 +2205,7 @@ test('Client enables metadata hash by default for software signers when supporte
     },
   }
 
-  await client.signExtrinsic(callData, signer, { period: null })
+  await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
 
   const expectedMetadataHash = core.metadataDigest(metadataBytes, {
     specVersion: runtime.specVersion,
@@ -2150,12 +2218,12 @@ test('Client enables metadata hash by default for software signers when supporte
   assert.deepEqual(captures.payloadParams.metadataHash, expectedMetadataHash)
   assert.equal(request.metadataHash, `0x${expectedMetadataHash.toString('hex')}`)
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, metadataHash: null }),
+    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, metadataHash: null }),
     /metadataHash cannot be disabled/,
   )
 
   const explicitMetadataHash = Buffer.alloc(32, 3)
-  await client.signExtrinsic(callData, signer, { period: null, metadataHash: explicitMetadataHash })
+  await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, metadataHash: explicitMetadataHash })
   assert.equal(captures.encoded.params.metadataHashEnabled, true)
   assert.deepEqual(captures.payloadParams.metadataHash, explicitMetadataHash)
   assert.equal(request.metadataHash, `0x${explicitMetadataHash.toString('hex')}`)
@@ -2208,6 +2276,7 @@ test('Client passes structured payloads to extension signPayload signers', async
   }
 
   await client.signExtrinsic(callData, signer, {
+    allowRawCall: true,
     period: 64,
     tip: core.raoAmount(1),
     tipAssetId: 0n,
@@ -2298,11 +2367,11 @@ test('Client reconciles managed nonce before rejecting mismatched submit hash', 
   }
 
   await assert.rejects(
-    () => client.submit(callData, signer, { period: null }),
+    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
     /returned hash/,
   )
   await assert.rejects(
-    () => client.submit(callData, signer, { period: null }),
+    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
     /nonce 30 .* ambiguous/,
   )
   assert.deepEqual(capturedNonces, [30])
@@ -2376,7 +2445,7 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
     },
   }
 
-  const fee = await client.estimateFee(callData, signer)
+  const fee = await client.estimateFee(callData, signer, { allowRawCall: true })
   const firstRealNonce = await client.accountNextIndex(address)
   const secondRealNonce = await client.accountNextIndex(address)
 
@@ -2444,8 +2513,8 @@ test('Client serializes concurrent initial nonce reservations during submit', as
     },
   }
 
-  const first = client.submit(callData, signer, { period: null })
-  const second = client.submit(callData, signer, { period: null })
+  const first = client.submit(callData, signer, { period: null, allowRawCall: true })
+  const second = client.submit(callData, signer, { period: null, allowRawCall: true })
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(reads, 1)
   releaseRead()
@@ -2517,13 +2586,13 @@ test('Client releases only the failed reserved nonce', async () => {
     },
   }
 
-  const signing = client.submit(callData, failingSigner, { period: null })
+  const signing = client.submit(callData, failingSigner, { period: null, allowRawCall: true })
   await started
-  const independentlySubmitted = await client.submit(callData, succeedingSigner, { period: null })
+  const independentlySubmitted = await client.submit(callData, succeedingSigner, { period: null, allowRawCall: true })
   releaseSign()
   await assert.rejects(signing, /signer declined/)
   await independentlySubmitted
-  await client.submit(callData, succeedingSigner, { period: null })
+  await client.submit(callData, succeedingSigner, { period: null, allowRawCall: true })
 
   assert.deepEqual(capturedNonces, [12, 13, 12])
 })
@@ -2586,9 +2655,9 @@ test('Client quarantines an ambiguous submit nonce even when a fallback node rep
     },
   }
 
-  await assert.rejects(() => client.submit(callData, signer, { period: null }), /lost response/)
+  await assert.rejects(() => client.submit(callData, signer, { period: null, allowRawCall: true }), /lost response/)
   await assert.rejects(
-    () => client.submit(callData, signer, { period: null }),
+    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
     /nonce 20 .* ambiguous/,
   )
   assert.deepEqual(capturedNonces, [20])
@@ -2653,9 +2722,9 @@ test('Client invalidates nonce state after unknown ambiguous submission reconcil
     },
   }
 
-  await assert.rejects(() => client.submit(callData, signer, { period: null }), /lost response/)
+  await assert.rejects(() => client.submit(callData, signer, { period: null, allowRawCall: true }), /lost response/)
   networkRestored = true
-  await client.submit(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
 
   assert.deepEqual(capturedNonces, [50, 55])
 })
@@ -2717,8 +2786,8 @@ test('Client protects an ambiguous submit nonce when the extrinsic is still pend
     },
   }
 
-  await assert.rejects(() => client.submit(callData, signer, { period: null }), /lost response/)
-  await client.submit(callData, signer, { period: null })
+  await assert.rejects(() => client.submit(callData, signer, { period: null, allowRawCall: true }), /lost response/)
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
   assert.deepEqual(capturedNonces, [40, 41])
   assert.deepEqual(nonceReads, [address, address])
 })
@@ -2756,7 +2825,7 @@ test('Client submit without inclusion reports pool submission, not execution suc
     },
   }
 
-  const result = await client.submit(callData, signer, { period: null })
+  const result = await client.submit(callData, signer, { period: null, allowRawCall: true })
 
   assert.equal(result.status, 'submitted')
   assert.equal(result.success, undefined)
@@ -2892,11 +2961,11 @@ test('Client records detached submitSigned nonces before the next managed submit
     },
   }
 
-  await client.submit(callData, signer, { period: null })
-  const detached = await client.signExtrinsic(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
+  const detached = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
   assert.equal(detached.nonce, 71)
   await client.submitSigned(detached)
-  await client.submit(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
 
   assert.deepEqual(capturedNonces, [70, 71, 72])
   assert.deepEqual(submitMaxRetries, [0, 0, 0])
@@ -2955,11 +3024,11 @@ test('Client decodes detached signed nonce instead of trusting mutable public fi
     },
   }
 
-  const detached = await client.signExtrinsic(callData, signer, { period: null })
+  const detached = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
   detached.signerAddress = core.ss58FromPublic(Buffer.alloc(32, 99), 42)
   detached.nonce = 999
   await client.submitSigned(detached)
-  await client.submit(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
 
   assert.deepEqual(capturedNonces, [70, 71])
 })
@@ -3014,9 +3083,9 @@ test('Client invalidates nonce state for opaque externally signed submissions', 
     },
   }
 
-  await client.submit(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
   await client.submitSigned(Buffer.from([9, 9, 9]), address)
-  await client.submit(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
 
   assert.deepEqual(capturedNonces, [90, 100])
   assert.equal(nonceReads, 2)
@@ -3107,7 +3176,7 @@ test('Client records detached watchSigned nonces before the next managed submit'
     },
   }
 
-  const detached = await client.signExtrinsic(callData, signer, { period: null })
+  const detached = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
   const watcher = await client.watchSigned(detached, { timeoutMs: 100 })
   await waitFor(
     () => FakeWebSocket.sockets[0].sent.some((message) => message.method === 'author_submitAndWatchExtrinsic'),
@@ -3119,7 +3188,7 @@ test('Client records detached watchSigned nonces before the next managed submit'
     params: { subscription: 'watch-detached', result: { inBlock: `0x${'44'.repeat(32)}` } },
   })
   await watcher.result
-  await client.submit(callData, signer, { period: null })
+  await client.submit(callData, signer, { period: null, allowRawCall: true })
 
   assert.deepEqual(capturedNonces, [80, 81])
   assert.equal(nonceReads, 2)
@@ -3195,11 +3264,11 @@ test('Client submission watches support timeout and reconcile managed nonces', a
   }
 
   await assert.rejects(
-    () => client.submit(callData, signer, { period: null, waitForInclusion: true, timeoutMs: 5 }),
+    () => client.submit(callData, signer, { period: null, allowRawCall: true, waitForInclusion: true, timeoutMs: 5 }),
     (error) => error.name === 'RequestTimeoutError',
   )
   await assert.rejects(
-    () => client.submit(callData, signer, { period: null }),
+    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
     /nonce 60 .* ambiguous/,
   )
   assert.deepEqual(capturedNonces, [60])
@@ -3267,7 +3336,7 @@ test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', as
     tokenSymbol: 'TAO',
   }
 
-  const signed = await client.signExtrinsic(vector.callData, signer, { period: null })
+  const signed = await client.signExtrinsic(vector.callData, signer, { period: null, allowRawCall: true })
   const expectedMetadataHash = core.metadataDigest(metadataBytes, chainInfo)
   const expectedProof = core.generateExtrinsicProof(
     vector.callData,

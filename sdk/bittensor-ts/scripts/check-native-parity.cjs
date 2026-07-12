@@ -405,6 +405,9 @@ function rustCorePublicFunctions(directory) {
 
 const coreCoveragePrivateFiles = new Set([
   // Private implementation modules; their public helpers are not crate-public API.
+  // Host-only blocking HTTP SDK; the TS package documents selective native
+  // wrappers separately while browser/async transport remains TypeScript.
+  'client.rs',
   'keys/base58.rs',
   'keys/encrypted_json.rs',
   'signers/hid.rs',
@@ -446,6 +449,9 @@ const coreCoverageAliases = new Map([
   ['runtime/mod.rs#parse', ['fromMetadata', 'Runtime']],
   ['runtime/mod.rs#resolve', ['resolveType']],
   ['runtime/type_string.rs#from_name', ['primitiveFromName']],
+  ['transaction.rs#new', ['rawCall', 'fromClient']],
+  ['transaction.rs#function', ['callFunction']],
+  ['transaction.rs#raw', ['forceRaw']],
   ['timelock/constants.rs#max_simulation_blocks', ['timelockMaxSimulationBlocks', 'maxSimulationBlocks']],
   ['timelock/epoch_schedule.rs#should_run_epoch', ['epochShouldRun', 'shouldRunEpoch']],
   ['timelock/epoch_schedule.rs#current_epoch_pre_run_coinbase', ['epochCurrentPreRunCoinbase', 'currentEpochPreRunCoinbase']],
@@ -468,6 +474,16 @@ const coreCoverageAliases = new Map([
 const coreCoverageIntentionalCoreOnly = new Map([
   ['keys/mod.rs#has_private_key', 'private-key presence is represented by Keypair.kind, not exported as a raw core method'],
   ['keys/mod.rs#private_key_bytes', 'secret key bytes must not be exportable to JavaScript'],
+  ['runtime/mod.rs#type_ident', 'internal runtime type-name helper; exposed surfaces use typeNameOf/typeSpec'],
+  ['transaction.rs#signer', 'Wallet signer selection is internal to the Rust executor wrapper'],
+  ['transaction.rs#spend', 'compatibility policy-floor mutator is intentionally not exposed to JS callers'],
+  ['transaction.rs#touches', 'compatibility subnet-scope mutator is intentionally not exposed to JS callers'],
+  ['transaction.rs#affects_all_subnets', 'scope can only broaden through trusted/raw Rust constructors exposed to JS'],
+  ['transaction.rs#set_take', 'state-dependent constructor remains Rust-native until NativeClient reads are fully lifted'],
+  ['transaction.rs#batch', 'batching requires live Rust Client encoding and will be exposed with the native-client lift'],
+  ['transaction.rs#ok', 'Plan.ok is exposed as the NativePlan.ok data field, not a callable method'],
+  ['transaction.rs#plan_with_proxy', 'proxy execution is an advanced Rust-only executor variant for now'],
+  ['transaction.rs#execute_with', 'proxy/finality executor variant is represented by execute plus policy in JS'],
 ])
 
 function compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected) {
@@ -496,6 +512,11 @@ const nativeClassInterfaces = {
   NativeRuntime: { instance: 'NativeRuntimeHandle', statics: 'NativeRuntimeConstructor' },
   NativeCursor: { instance: 'NativeCursorHandle', statics: 'NativeCursorConstructor' },
   NativeLedgerDevice: { instance: 'NativeLedgerHandle', statics: 'NativeLedgerConstructor' },
+  NativePolicy: { instance: 'NativePolicyHandle', statics: 'NativePolicyConstructor' },
+  NativeIntentCall: { instance: 'NativeIntentCallHandle', statics: 'NativeIntentCallConstructor' },
+  NativeClient: { instance: 'NativeClientHandle', statics: 'NativeClientConstructor' },
+  NativeWallet: { instance: 'NativeWalletHandle', statics: 'NativeWalletConstructor' },
+  NativeExecutor: { instance: 'NativeExecutorHandle', statics: 'NativeExecutorConstructor' },
 }
 
 const wasmClassInterfaces = {
