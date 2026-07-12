@@ -11,9 +11,11 @@ instead of raw bytes). When signing happens out-of-process (QR / air-gapped
 devices), the caller holds the ``UnsignedExtrinsic`` and runs the second step
 whenever the signature comes back.
 
-Signers that verify the runtime before signing (Ledger's generic app) expose
-``metadata_digest(SigningContext)``; the digest they return is signed into the
-payload via the ``CheckMetadataHash`` extension.
+When the runtime declares ``CheckMetadataHash``, the transport signs the
+runtime's RFC-0078 metadata digest into the payload by default. Signers that
+verify the runtime before signing (Ledger's generic app) may expose
+``metadata_digest(SigningContext)`` to compute that digest themselves and keep
+any context they need for clear-signing proofs.
 
 Outcome side: the event-walk that turns a block's ``System.Events`` entries
 into success/fee/weight/error for one extrinsic, including Bittensor's
@@ -126,7 +128,7 @@ def signer_payload_json(
     if metadata_hash is not None:
         payload["mode"] = 1
         payload["metadataHash"] = "0x" + metadata_hash.hex()
-    elif "CheckMetadataHash" in signed_extensions:
+    elif codec.supports_metadata_hash():
         payload["mode"] = 0
         payload["metadataHash"] = None
     return payload
@@ -242,27 +244,42 @@ def attach_signature(
 async def resolve_metadata_hash(
     codec: RuntimeCodec, keypair: Any, genesis_hash: str
 ) -> Optional[bytes]:
-    """The CheckMetadataHash digest this signer requires, or None.
+    """The CheckMetadataHash digest to sign, or None when unavailable.
 
-    Signers that verify the runtime before signing match
-    :class:`MetadataVerifyingSigner` (sync or async); everything they need to
-    compute the RFC-0078 digest is in the context.
+    Supporting runtimes get metadata hashing by default. Signers that verify
+    the runtime before signing match :class:`MetadataVerifyingSigner` (sync or
+    async); everything they need to compute the RFC-0078 digest is in the
+    context, and their hook still runs first so hardware signers can retain
+    context for the later proof.
     """
     if not isinstance(keypair, MetadataVerifyingSigner):
-        return None
-    digest = keypair.metadata_digest(
-        SigningContext(
-            metadata_bytes=codec.metadata_bytes,
-            spec_version=codec.spec_version,
-            spec_name=codec.spec_name,
-            transaction_version=codec.transaction_version,
-            ss58_format=codec.ss58_format,
-            genesis_hash=genesis_hash,
-        )
-    )
+        return codec.metadata_digest() if codec.supports_metadata_hash() else None
+    digest = keypair.metadata_digest(_signing_context(codec, genesis_hash))
     if inspect.isawaitable(digest):
         digest = await digest
-    return bytes(digest) if digest is not None else None
+    if digest is not None:
+        return bytes(digest)
+    return codec.metadata_digest() if codec.supports_metadata_hash() else None
+
+
+def default_metadata_hash(
+    codec: RuntimeCodec, metadata_hash: Optional[bytes] = None
+) -> Optional[bytes]:
+    """Explicit metadata hash, or the runtime digest when CheckMetadataHash exists."""
+    if metadata_hash is not None:
+        return bytes(metadata_hash)
+    return codec.metadata_digest() if codec.supports_metadata_hash() else None
+
+
+def _signing_context(codec: RuntimeCodec, genesis_hash: str) -> SigningContext:
+    return SigningContext(
+        metadata_bytes=codec.metadata_bytes,
+        spec_version=codec.spec_version,
+        spec_name=codec.spec_name,
+        transaction_version=codec.transaction_version,
+        ss58_format=codec.ss58_format,
+        genesis_hash=genesis_hash,
+    )
 
 
 async def create_signed_extrinsic(
@@ -289,6 +306,7 @@ async def create_signed_extrinsic(
     if signature is not None:
         # No signing happens, so skip building the payloads entirely — fee
         # estimation runs this path for every quote.
+        metadata_hash = default_metadata_hash(codec)
         signature, signature_version = _normalize_signature(signature, keypair.crypto_type)
         data, extrinsic_hash = codec.encode_signed_extrinsic(
             call,
@@ -299,6 +317,7 @@ async def create_signed_extrinsic(
             nonce=nonce,
             tip=tip,
             tip_asset_id=tip_asset_id,
+            metadata_hash_enabled=metadata_hash is not None,
         )
         return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
     unsigned = prepare_extrinsic(

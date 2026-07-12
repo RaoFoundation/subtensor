@@ -13,7 +13,7 @@ import {
     forceSetBalance,
     generateKeyringPair,
     getBalance,
-    getStake,
+    getStakeInfoForHotkeyColdkeyNetuid,
     IPROXY_ADDRESS,
     IProxyABI,
     PRECOMPILE_WRAPPER_ABI,
@@ -270,10 +270,11 @@ describeSuite({
             test: async () => {
                 await ensureSubnetAndWrapperReady();
 
-                const stakeAmount = tao(2);
+                const stakeAmount = tao(20);
                 const wrapperSs58 = convertH160ToSS58(wrapperAddress);
                 const hotkeySs58 = convertPublicKeyToSs58(hotkey.publicKey);
-                const stakeBefore = await getStake(api, hotkeySs58, wrapperSs58, netuid);
+                const stakeBefore =
+                    (await getStakeInfoForHotkeyColdkeyNetuid(api, hotkeySs58, wrapperSs58, netuid)) ?? 0n;
 
                 const addStakeTx = await wrapperContract.addStake(hotkey.publicKey, stakeAmount, netuid, {
                     value: raoToEth(stakeAmount),
@@ -282,7 +283,8 @@ describeSuite({
                 expect(receipt?.status).toEqual(1);
                 await waitForFinalizedBlocks(api, 2);
 
-                const stakeAfter = await getStake(api, hotkeySs58, wrapperSs58, netuid);
+                const stakeAfter =
+                    (await getStakeInfoForHotkeyColdkeyNetuid(api, hotkeySs58, wrapperSs58, netuid)) ?? 0n;
                 expect(stakeAfter).toBeGreaterThan(stakeBefore);
             },
         });
@@ -296,7 +298,8 @@ describeSuite({
                 const removeAmount = tao(1);
                 const wrapperSs58 = convertH160ToSS58(wrapperAddress);
                 const hotkeySs58 = convertPublicKeyToSs58(hotkey.publicKey);
-                const stakeBefore = await getStake(api, hotkeySs58, wrapperSs58, netuid);
+                const stakeBefore =
+                    (await getStakeInfoForHotkeyColdkeyNetuid(api, hotkeySs58, wrapperSs58, netuid)) ?? 0n;
 
                 const removeStakeTx = await wrapperContract.removeStake(
                     hotkey.publicKey,
@@ -307,7 +310,8 @@ describeSuite({
                 expect(receipt?.status).toEqual(1);
                 await waitForFinalizedBlocks(api, 2);
 
-                const stakeAfter = await getStake(api, hotkeySs58, wrapperSs58, netuid);
+                const stakeAfter =
+                    (await getStakeInfoForHotkeyColdkeyNetuid(api, hotkeySs58, wrapperSs58, netuid)) ?? 0n;
                 expect(stakeAfter).toBeLessThan(stakeBefore);
             },
         });

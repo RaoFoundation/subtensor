@@ -68,9 +68,10 @@ class MetadataVerifyingSigner(Protocol):
     app, which refuses to blind-sign).
 
     ``metadata_digest`` computes the RFC-0078 merkleized-metadata digest from
-    the raw materials in :class:`SigningContext`; the transport signs it into
-    the payload via the ``CheckMetadataHash`` extension and flips the matching
-    mode byte in the assembled extrinsic.
+    the raw materials in :class:`SigningContext`. The transport signs that
+    digest into the payload via ``CheckMetadataHash`` and flips the matching
+    mode byte in the assembled extrinsic; signers use this hook when they need
+    to keep proof context for clear-signing.
     """
 
     def metadata_digest(self, context: SigningContext) -> bytes | Awaitable[bytes]: ...

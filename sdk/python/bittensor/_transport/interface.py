@@ -31,6 +31,7 @@ from .errors import BlockNotFound, ExtrinsicNotFound, SubstrateRequestException
 from .extrinsics import IMMORTAL, NonceCache, resolve_outcome, watch_status_block
 from .extrinsics import attach_signature as _attach_signature
 from .extrinsics import create_signed_extrinsic as _sign_and_assemble
+from .extrinsics import default_metadata_hash as _default_metadata_hash
 from .extrinsics import prepare_extrinsic as _prepare_extrinsic
 from .lru import LRUCache
 from .protocols import Keypair
@@ -553,13 +554,15 @@ class SubstrateConnection:
         cache, since the signature may come back much later.
 
         ``metadata_hash`` enables the ``CheckMetadataHash`` extension with the
-        given RFC-0078 digest, for devices that verify the runtime before
-        signing.
+        given RFC-0078 digest. When omitted and the runtime declares
+        ``CheckMetadataHash``, the transport signs the runtime metadata digest
+        by default.
         """
         codec = await self._runtimes.codec_at(None)
         if nonce is None:
             nonce = await self._nonces.next_for(address, use_cache=False)
         era, era_block_hash = await self._normalize_era(era)
+        metadata_hash = _default_metadata_hash(codec, metadata_hash)
         return _prepare_extrinsic(
             codec,
             call,

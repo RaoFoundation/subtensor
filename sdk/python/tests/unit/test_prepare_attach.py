@@ -10,6 +10,7 @@ call is impossible and the raw call bytes must be embedded verbatim).
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -58,6 +59,19 @@ def _nested_calls():
     }
 
 
+class _RecordingSigner:
+    def __init__(self, keypair, signature: bytes = b"\x11" * 64):
+        self.ss58_address = keypair.ss58_address
+        self.public_key = bytes(keypair.public_key)
+        self.crypto_type = keypair.crypto_type
+        self.signature = signature
+        self.payload = None
+
+    def sign(self, payload: bytes) -> bytes:
+        self.payload = bytes(payload)
+        return self.signature
+
+
 def test_offline_roundtrip_assembles_nested_calls():
     """prepare -> JSON export -> import -> attach, without the composed call."""
     c = codec()
@@ -89,13 +103,47 @@ def test_signature_normalization_forms_are_equivalent():
 
 
 def test_payload_json_declares_signed_extensions():
-    """Extension signers get the runtime's real extension list, plus the
-    Polkadot-JS disabled-mode shape (mode 0, null metadataHash)."""
+    """With no digest supplied, payload JSON uses the Polkadot-JS disabled-mode shape."""
     kp = Keypair.create_from_uri("//Alice")
     payload = _prepare(_nested_calls()["Balances.transfer_keep_alive"], kp).payload_json
     assert "CheckMetadataHash" in payload["signedExtensions"]
     assert payload["mode"] == 0
     assert payload["metadataHash"] is None
+
+
+def test_create_signed_extrinsic_enables_metadata_hash_by_default():
+    """Runtime-supported signing commits to the metadata digest by default."""
+    g = golden()
+    c = codec()
+    signer = _RecordingSigner(Keypair.create_from_uri("//Alice"))
+    call = _nested_calls()["Balances.transfer_keep_alive"]
+    genesis = g["network"]["genesis_hash"]
+    digest = c.metadata_digest()
+
+    signed = asyncio.run(
+        ex.create_signed_extrinsic(
+            c,
+            call,
+            signer,
+            era="00",
+            nonce=7,
+            tip=3,
+            genesis_hash=genesis,
+            era_block_hash=genesis,
+        )
+    )
+
+    expected_unsigned = _prepare(call, signer, metadata_hash=digest)
+    expected = ex.attach_signature(c, expected_unsigned, signer.signature)
+    disabled_unsigned = _prepare(call, signer)
+    disabled = ex.attach_signature(c, disabled_unsigned, signer.signature)
+
+    assert ex.default_metadata_hash(c) == digest
+    assert signer.payload == expected_unsigned.payload
+    assert expected_unsigned.payload_json["mode"] == 1
+    assert expected_unsigned.payload_json["metadataHash"] == "0x" + digest.hex()
+    assert signed.data == expected.data
+    assert signed.data != disabled.data
 
 
 def test_payload_json_pins_polkadot_js_number_shape():

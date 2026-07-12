@@ -36,6 +36,8 @@ from .errors import StorageFunctionNotFound
 logger = logging.getLogger("bittensor.transport")
 
 _METADATA_MAGIC = b"meta"
+_METADATA_TOKEN_DECIMALS = 9
+_METADATA_TOKEN_SYMBOL = "TAO"
 
 
 def strip_option_opaque_metadata(data: bytes) -> Optional[bytes]:
@@ -344,6 +346,27 @@ class RuntimeCodec:
         """
         return list(self._rt.signed_extension_identifiers())
 
+    def supports_metadata_hash(self) -> bool:
+        """Whether the runtime declares the ``CheckMetadataHash`` signed extension."""
+        return "CheckMetadataHash" in self.signed_extension_identifiers()
+
+    def metadata_digest(self) -> bytes:
+        """RFC-0078 metadata digest signed by ``CheckMetadataHash``.
+
+        The token constants must match ``runtime/build.rs`` where the runtime
+        enables metadata hashing.
+        """
+        return bytes(
+            _core.metadata_digest(
+                self.metadata_bytes,
+                self.spec_version,
+                self.spec_name,
+                self.ss58_format,
+                _METADATA_TOKEN_DECIMALS,
+                _METADATA_TOKEN_SYMBOL,
+            )
+        )
+
     def encode_era(self, era: dict | str) -> bytes:
         return bytes(self._rt.encode_era(era))
 
@@ -373,9 +396,7 @@ class RuntimeCodec:
         that prove the runtime on-device (Ledger's generic app) need the parts
         separately to build the RFC-0078 extrinsic proof.
         """
-        if metadata_hash is not None and (
-            "CheckMetadataHash" not in self.signed_extension_identifiers()
-        ):
+        if metadata_hash is not None and not self.supports_metadata_hash():
             raise ValueError("this runtime does not declare CheckMetadataHash")
         extra, additional = self._rt.signature_payload_parts(
             era=era,
@@ -406,12 +427,10 @@ class RuntimeCodec:
         Substrate signing convention.
 
         ``metadata_hash`` flips ``CheckMetadataHash`` to ``Enabled`` and signs
-        the given RFC-0078 metadata digest into the payload — required by
-        signers that verify the runtime before signing (Ledger's generic app).
+        the given RFC-0078 metadata digest into the payload, binding the signed
+        call bytes to the runtime metadata used to compose them.
         """
-        if metadata_hash is not None and (
-            "CheckMetadataHash" not in self.signed_extension_identifiers()
-        ):
+        if metadata_hash is not None and not self.supports_metadata_hash():
             raise ValueError("this runtime does not declare CheckMetadataHash")
         return bytes(
             self._rt.signature_payload(
