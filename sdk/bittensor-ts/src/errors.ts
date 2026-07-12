@@ -88,7 +88,9 @@ export function mapNativeError(error: unknown): Error {
 
 export function nativeCall<T>(operation: () => T): T {
   try {
-    return operation()
+    const value = operation()
+    if (value instanceof Error) throw value
+    return value
   } catch (error) {
     throw mapNativeError(error)
   }

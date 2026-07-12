@@ -6,6 +6,11 @@
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
 use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose, Engine as _};
 use fernet::Fernet;
@@ -195,6 +200,242 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
     serde_json::to_string(&data)
         .map(|json_data| json_data.into_bytes())
         .map_err(|error| key_err(format!("serialization error: {error}")))
+}
+
+pub fn keypair_to_keyfile_data(
+    keypair: &Keypair,
+    password: Option<&str>,
+) -> Result<Vec<u8>, CoreError> {
+    let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
+    if let Some(password) = password {
+        return encrypt_keyfile_data(&plaintext, password);
+    }
+    if keypair.has_private_key() {
+        return Err(key_err(
+            "plaintext private key serialization is disabled; provide a password or write through save_keypair_to_keyfile",
+        ));
+    }
+    Ok(plaintext.to_vec())
+}
+
+pub fn deserialize_keypair_from_keyfile(
+    keyfile_data: &[u8],
+    password: Option<&str>,
+) -> Result<Keypair, CoreError> {
+    if keyfile_data_is_encrypted(keyfile_data) {
+        let plaintext = Zeroizing::new(decrypt_keyfile_data(keyfile_data, password)?);
+        return deserialize_keypair_from_keyfile_data(&plaintext);
+    }
+    deserialize_keypair_from_keyfile_data(keyfile_data)
+}
+
+pub fn save_keypair_to_keyfile(
+    keypair: &Keypair,
+    path: &Path,
+    password: Option<&str>,
+    overwrite: bool,
+) -> Result<(), CoreError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    ensure_private_directory(parent)?;
+    validate_keyfile_target(path, overwrite)?;
+
+    let plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(keypair)?);
+    let data = if let Some(password) = password {
+        encrypt_keyfile_data(&plaintext, password)?
+    } else {
+        plaintext.to_vec()
+    };
+    atomic_write_keyfile(path, &data, overwrite)
+}
+
+fn ensure_private_directory(path: &Path) -> Result<(), CoreError> {
+    fs::create_dir_all(path).map_err(|error| {
+        key_err(format!(
+            "failed to create wallet directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        key_err(format!(
+            "failed to inspect wallet directory {}: {error}",
+            path.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(key_err(format!(
+            "wallet path {} must be a real directory",
+            path.display()
+        )));
+    }
+    set_private_directory_permissions(path)
+}
+
+#[cfg(unix)]
+fn set_private_directory_permissions(path: &Path) -> Result<(), CoreError> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|error| {
+        key_err(format!(
+            "failed to set wallet directory permissions on {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+fn set_private_directory_permissions(_path: &Path) -> Result<(), CoreError> {
+    Ok(())
+}
+
+fn validate_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(key_err(format!(
+                    "refusing to write keyfile through symlink {}",
+                    path.display()
+                )));
+            }
+            if !metadata.is_file() {
+                return Err(key_err(format!(
+                    "refusing to overwrite non-file keyfile path {}",
+                    path.display()
+                )));
+            }
+            if !overwrite {
+                return Err(key_err(format!(
+                    "keyfile {} already exists",
+                    path.display()
+                )));
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(key_err(format!(
+            "failed to inspect keyfile {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(), CoreError> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| key_err("keyfile path must be valid UTF-8"))?;
+    let mut temp_path = PathBuf::new();
+    let mut temp_file = None;
+
+    for attempt in 0..128u32 {
+        let candidate = dir.join(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            attempt
+        ));
+        match private_create_new(&candidate) {
+            Ok(file) => {
+                temp_path = candidate;
+                temp_file = Some(file);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to create temporary keyfile {}: {error}",
+                    candidate.display()
+                )))
+            }
+        }
+    }
+
+    let mut file = temp_file.ok_or_else(|| {
+        key_err(format!(
+            "failed to allocate temporary keyfile for {}",
+            path.display()
+        ))
+    })?;
+    let write_result = (|| -> Result<(), CoreError> {
+        file.write_all(data).map_err(|error| {
+            key_err(format!(
+                "failed to write temporary keyfile {}: {error}",
+                temp_path.display()
+            ))
+        })?;
+        file.sync_all().map_err(|error| {
+            key_err(format!(
+                "failed to fsync temporary keyfile {}: {error}",
+                temp_path.display()
+            ))
+        })?;
+        drop(file);
+        if overwrite {
+            fs::rename(&temp_path, path).map_err(|error| {
+                key_err(format!(
+                    "failed to atomically replace keyfile {}: {error}",
+                    path.display()
+                ))
+            })?;
+        } else {
+            fs::hard_link(&temp_path, path).map_err(|error| {
+                key_err(format!(
+                    "failed to atomically create keyfile {}: {error}",
+                    path.display()
+                ))
+            })?;
+            fs::remove_file(&temp_path).map_err(|error| {
+                key_err(format!(
+                    "failed to remove temporary keyfile {}: {error}",
+                    temp_path.display()
+                ))
+            })?;
+        }
+        set_private_file_permissions(path)?;
+        fsync_directory(dir);
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
+#[cfg(unix)]
+fn private_create_new(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn private_create_new(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> Result<(), CoreError> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+        key_err(format!(
+            "failed to set keyfile permissions on {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> Result<(), CoreError> {
+    Ok(())
+}
+
+fn fsync_directory(path: &Path) {
+    if let Ok(dir) = File::open(path) {
+        let _ = dir.sync_all();
+    }
 }
 
 pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keypair, CoreError> {

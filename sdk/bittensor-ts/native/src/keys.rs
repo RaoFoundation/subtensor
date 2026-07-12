@@ -2,6 +2,7 @@ use bittensor_core::keyfiles;
 use bittensor_core::keys::{self, Keypair, CRYPTO_ED25519, CRYPTO_SR25519, DEFAULT_SS58_FORMAT};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
+use std::path::PathBuf;
 
 use crate::errors::{invalid_arg, CoreResultExt, NapiResult};
 
@@ -188,7 +189,17 @@ pub fn ss58_from_public(public_key: Buffer, ss58_format: u16) -> NapiResult<Stri
 
 #[napi(js_name = "serializeKeypair")]
 pub fn serialize_keypair(keypair: &NativeKeypair) -> NapiResult<Buffer> {
-    keyfiles::serialized_keypair_to_keyfile_data(&keypair.inner)
+    keyfiles::keypair_to_keyfile_data(&keypair.inner, None)
+        .napi()
+        .map(Into::into)
+}
+
+#[napi(js_name = "keypairToKeyfileData")]
+pub fn keypair_to_keyfile_data(
+    keypair: &NativeKeypair,
+    password: Option<String>,
+) -> NapiResult<Buffer> {
+    keyfiles::keypair_to_keyfile_data(&keypair.inner, password.as_deref())
         .napi()
         .map(Into::into)
 }
@@ -198,6 +209,32 @@ pub fn deserialize_keypair(keyfile_data: Buffer) -> NapiResult<NativeKeypair> {
     keyfiles::deserialize_keypair_from_keyfile_data(keyfile_data.as_ref())
         .napi()
         .map(NativeKeypair::new)
+}
+
+#[napi(js_name = "deserializeKeypairFromKeyfile")]
+pub fn deserialize_keypair_from_keyfile(
+    keyfile_data: Buffer,
+    password: Option<String>,
+) -> NapiResult<NativeKeypair> {
+    keyfiles::deserialize_keypair_from_keyfile(keyfile_data.as_ref(), password.as_deref())
+        .napi()
+        .map(NativeKeypair::new)
+}
+
+#[napi(js_name = "writeKeypairKeyfile")]
+pub fn write_keypair_keyfile(
+    keypair: &NativeKeypair,
+    path: String,
+    password: Option<String>,
+    overwrite: bool,
+) -> NapiResult<()> {
+    keyfiles::save_keypair_to_keyfile(
+        &keypair.inner,
+        &PathBuf::from(path),
+        password.as_deref(),
+        overwrite,
+    )
+    .napi()
 }
 
 #[napi(js_name = "encryptKeyfileData")]

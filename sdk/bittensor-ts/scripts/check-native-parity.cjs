@@ -8,6 +8,7 @@ const ts = require('typescript')
 const root = path.resolve(__dirname, '..')
 const sdkRoot = path.resolve(root, '..')
 const repoRoot = path.resolve(sdkRoot, '..')
+const coreRustRoot = path.join(sdkRoot, 'bittensor-core', 'src')
 const nativeRustRoot = path.join(root, 'native', 'src')
 const wasmRustRoot = path.join(sdkRoot, 'bittensor-core-wasm', 'src')
 const nativeGeneratedPath = path.join(root, 'native.generated.d.ts')
@@ -376,6 +377,118 @@ function allowlistedSurface(values, classes = {}) {
   }
 }
 
+function flattenSurface(surface) {
+  const out = new Set(surface.values)
+  for (const members of surface.classes.values()) {
+    for (const name of members.instance) out.add(name)
+    for (const name of members.statics) out.add(name)
+  }
+  return out
+}
+
+function rustCorePublicFunctions(directory) {
+  const items = []
+  for (const filePath of readRustFiles(directory)) {
+    const relative = path.relative(directory, filePath).replace(/\\/g, '/')
+    const source = fs.readFileSync(filePath, 'utf8')
+    for (const match of source.matchAll(/^\s*pub\s+fn\s+([A-Za-z0-9_]+)/gm)) {
+      items.push({
+        key: `${relative}#${match[1]}`,
+        file: relative,
+        rustName: match[1],
+        jsName: snakeToCamel(match[1]),
+      })
+    }
+  }
+  return items
+}
+
+const coreCoveragePrivateFiles = new Set([
+  // Private implementation modules; their public helpers are not crate-public API.
+  'keys/base58.rs',
+  'keys/encrypted_json.rs',
+  'signers/hid.rs',
+  // Fixture vectors are test support, not SDK API.
+  'timelock/epoch_schedule_vectors.rs',
+])
+
+const coreCoverageAliases = new Map([
+  ['codec/batch.rs#decode_map_page', ['decodeMapPairs']],
+  ['codec/decode.rs#new', ['fromBytes']],
+  ['codec/decode.rs#compact_u128', ['decodeCompactU128']],
+  ['codec/decode.rs#compact_len', ['decodeCompactLength']],
+  ['codec/decode.rs#decode_id', ['decodeTypeId']],
+  ['codec/encode.rs#compact', ['encodeCompact']],
+  ['codec/encode.rs#encode_era_value', ['encodeEra']],
+  ['codec/storage.rs#hash_param', ['hashStorageParam']],
+  ['codec/storage.rs#concat_hash_len', ['concatHashLength']],
+  ['codec/storage.rs#storage_prefix', ['storagePrefixFor']],
+  ['codec/value.rs#str', ['coreValueString']],
+  ['codec/value.rs#hex', ['coreValueHex']],
+  ['codec/value.rs#record', ['coreValueRecord']],
+  ['codec/value.rs#to_corpus_json', ['valueToCorpusJson', 'coreValueDescriptorToCorpusJson']],
+  ['codec/value.rs#u256_decimal', ['u256LeToDecimal']],
+  ['keyfiles/mod.rs#serialized_keypair_to_keyfile_data', ['serializeKeypair']],
+  ['keyfiles/mod.rs#deserialize_keypair_from_keyfile_data', ['deserializeKeypair']],
+  ['keyfiles/mod.rs#save_keypair_to_keyfile', ['writeKeypairKeyfile']],
+  ['keys/mod.rs#new', ['keypairNew', 'Keypair']],
+  ['keys/mod.rs#from_mnemonic', ['keypairFromMnemonic', 'fromMnemonic']],
+  ['keys/mod.rs#from_seed', ['keypairFromSeed', 'fromSeed']],
+  ['keys/mod.rs#from_uri', ['keypairFromUri', 'fromUri']],
+  ['keys/mod.rs#from_private_key', ['keypairFromPrivateKey', 'fromPrivateKey']],
+  ['keys/mod.rs#from_encrypted_json', ['keypairFromEncryptedJson', 'fromEncryptedJson']],
+  ['keys/mod.rs#public_key_bytes', ['publicKey']],
+  ['keys/mod.rs#verify', ['verifySignature', 'verify']],
+  ['mlkem/mod.rs#twox_128', ['mlkemTwox128', 'twox_128']],
+  ['mlkem/mod.rs#seal', ['mlkemSeal', 'sealMevShieldTransaction']],
+  ['runtime/mod.rs#parse', ['fromMetadata', 'Runtime']],
+  ['runtime/mod.rs#resolve', ['resolveType']],
+  ['runtime/type_string.rs#from_name', ['primitiveFromName']],
+  ['timelock/constants.rs#max_simulation_blocks', ['timelockMaxSimulationBlocks', 'maxSimulationBlocks']],
+  ['timelock/epoch_schedule.rs#should_run_epoch', ['epochShouldRun', 'shouldRunEpoch']],
+  ['timelock/epoch_schedule.rs#current_epoch_pre_run_coinbase', ['epochCurrentPreRunCoinbase', 'currentEpochPreRunCoinbase']],
+  ['timelock/epoch_schedule.rs#simulate_run_coinbase', ['epochSimulateRunCoinbase', 'simulateRunCoinbase']],
+  ['timelock/epoch_schedule.rs#advance_blocks', ['epochAdvanceBlocks', 'advanceBlocks']],
+  ['timelock/epoch_schedule.rs#predict_first_reveal_block', ['epochPredictFirstRevealBlock', 'predictFirstRevealBlock']],
+  ['timelock/mod.rs#reveal_round', ['revealRound']],
+  ['timelock/mod.rs#encrypt_and_compress', ['timelockEncryptAndCompress', 'encryptAndCompress']],
+  ['timelock/mod.rs#decrypt_and_decompress', ['timelockDecryptAndDecompress', 'decryptAndDecompress']],
+  ['timelock/mod.rs#generate_commit_v2', ['timelockGenerateCommitV2', 'generateCommitV2']],
+  ['timelock/mod.rs#encrypt_commitment', ['timelockEncryptCommitment', 'encryptCommitment']],
+  ['timelock/mod.rs#encrypt_n_blocks', ['timelockEncryptNBlocks', 'encryptNBlocks']],
+  ['timelock/mod.rs#encrypt_at_round', ['timelockEncryptAtRound', 'encryptAtRound']],
+  ['timelock/mod.rs#get_round_info', ['timelockGetRoundInfo', 'getRoundInfo']],
+  ['timelock/mod.rs#get_reveal_round_signature', ['timelockGetRevealRoundSignature', 'getRevealRoundSignature']],
+  ['timelock/mod.rs#decrypt', ['timelockDecrypt', 'decrypt']],
+  ['timelock/mod.rs#decrypt_with_signature', ['timelockDecryptWithSignature', 'decryptWithSignature']],
+])
+
+const coreCoverageIntentionalCoreOnly = new Map([
+  ['keys/mod.rs#has_private_key', 'private-key presence is represented by Keypair.kind, not exported as a raw core method'],
+  ['keys/mod.rs#private_key_bytes', 'secret key bytes must not be exportable to JavaScript'],
+])
+
+function compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected) {
+  const bindingNames = new Set([
+    ...flattenSurface(nativeExpected),
+    ...flattenSurface(wasmExpected),
+    ...flattenSurface(browserWrapperExpected),
+  ])
+  const failures = []
+  for (const item of rustCorePublicFunctions(coreRustRoot)) {
+    if (coreCoveragePrivateFiles.has(item.file)) continue
+    if (coreCoverageIntentionalCoreOnly.has(item.key)) continue
+    const candidates = coreCoverageAliases.get(item.key) ?? [item.jsName]
+    if (!candidates.some((name) => bindingNames.has(name))) {
+      failures.push(
+        `bittensor-core public function ${item.key} is not covered by N-API/WASM bindings ` +
+          `(checked names: ${candidates.join(', ')})`,
+      )
+    }
+  }
+  return failures
+}
+
 const nativeClassInterfaces = {
   NativeKeypair: { instance: 'NativeKeypairHandle' },
   NativeRuntime: { instance: 'NativeRuntimeHandle', statics: 'NativeRuntimeConstructor' },
@@ -557,6 +670,7 @@ try {
       'wrapper',
       'browser wrapper allowlist',
     ),
+    ...compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected),
   ]
 
   if (failures.length > 0) {

@@ -208,6 +208,17 @@ export class Keypair implements PolkadotCompatibleKeypair {
     )
   }
 
+  static fromKeyfileData(keyfileData: ByteLike, password?: string | null): Keypair {
+    return Keypair.wrap(
+      nativeCall(() =>
+        native.deserializeKeypairFromKeyfile(
+          toBuffer(keyfileData, 'keyfileData'),
+          password ?? undefined,
+        ),
+      ),
+    )
+  }
+
   get cryptoType(): number {
     return this.handle.cryptoType
   }
@@ -350,6 +361,18 @@ export class Keypair implements PolkadotCompatibleKeypair {
   serialize(): Buffer {
     return nativeCall(() => native.serializeKeypair(this.handle))
   }
+
+  toKeyfileData(password?: string | null): Buffer {
+    return nativeCall(() =>
+      native.keypairToKeyfileData(this.handle, password ?? undefined),
+    )
+  }
+
+  writeKeyfile(path: string, password?: string | null, overwrite = false): void {
+    nativeCall(() =>
+      native.writeKeypairKeyfile(this.handle, path, password ?? undefined, overwrite),
+    )
+  }
 }
 
 export function createKeyringPairFromUri(
@@ -441,6 +464,20 @@ export function deserializeKeypair(keyfileData: ByteLike): Keypair {
 }
 
 export const deserializeKeypairFromKeyfileData = deserializeKeypair
+
+export function keypairToKeyfileData(
+  keypair: Keypair,
+  password?: string | null,
+): Buffer {
+  return keypair.toKeyfileData(password)
+}
+
+export function deserializeKeypairFromKeyfile(
+  keyfileData: ByteLike,
+  password?: string | null,
+): Keypair {
+  return Keypair.fromKeyfileData(keyfileData, password)
+}
 
 export function encryptKeyfileData(keyfileData: ByteLike, password: string): Buffer {
   return nativeCall(() =>

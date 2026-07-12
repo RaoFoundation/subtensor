@@ -14,7 +14,7 @@ use sodiumoxide::crypto::box_;
 use sodiumoxide::crypto::sealedbox;
 #[cfg(feature = "host")]
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
-use sp_core::crypto::Pair as PairT;
+use sp_core::crypto::{Pair as PairT, Ss58AddressFormat};
 use sp_core::{ed25519, sr25519, ByteArray};
 use zeroize::Zeroizing;
 
@@ -51,11 +51,18 @@ pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
     if decoded.len() != 35 && decoded.len() != 36 {
         return Err(crypto_err("invalid ss58 address length"));
     }
-    let prefix_len = match decoded[0] & 0b1100_0000 {
-        0b0000_0000 => 1,
-        0b0100_0000 => 2,
+    let (prefix_len, ident) = match decoded[0] {
+        0..=63 => (1, decoded[0] as u16),
+        64..=127 => {
+            let lower = (decoded[0] << 2) | (decoded[1] >> 6);
+            let upper = decoded[1] & 0b0011_1111;
+            (2, (lower as u16) | ((upper as u16) << 8))
+        }
         _ => return Err(crypto_err("invalid ss58 address prefix")),
     };
+    if Ss58AddressFormat::from(ident).is_reserved() {
+        return Err(crypto_err("invalid ss58 address format"));
+    }
     if decoded.len() != prefix_len + 32 + 2 {
         return Err(crypto_err("invalid ss58 account length"));
     }
@@ -570,6 +577,32 @@ mod tests {
                     AccountId32::from(key)
                         .to_ss58check_with_version(Ss58AddressFormat::custom(format)),
                     "diverged for format {format}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ss58_decoding_matches_sp_core_allowed_and_reserved_formats() {
+        let mut key = [0u8; 32];
+        key[..4].copy_from_slice(&42u32.to_le_bytes());
+        for format in [0u16, 2, 42, 45, 46, 47, 48, 63, 64, 255, 4096, 16383] {
+            let address = ss58_from_public(key, format);
+            let ours = public_key_from_ss58(&address);
+            let sp_core = AccountId32::from_ss58check_with_version(&address).map(|(account, _)| {
+                let bytes: &[u8] = account.as_ref();
+                <[u8; 32]>::try_from(bytes).unwrap()
+            });
+            assert_eq!(
+                ours.is_ok(),
+                sp_core.is_ok(),
+                "decode acceptance diverged for format {format}",
+            );
+            if let Ok(expected) = sp_core {
+                assert_eq!(
+                    ours.unwrap(),
+                    expected,
+                    "decoded key diverged for format {format}"
                 );
             }
         }

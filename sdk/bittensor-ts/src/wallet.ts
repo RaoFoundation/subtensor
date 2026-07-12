@@ -1,30 +1,13 @@
-import { randomBytes } from 'node:crypto'
 import {
-  chmodSync,
-  closeSync,
-  constants,
   existsSync,
-  fsyncSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
   readFileSync,
-  renameSync,
-  unlinkSync,
-  writeSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import {
   CRYPTO_SR25519,
   Keypair,
-  decryptKeyfileData,
-  deserializeKeypair,
-  encryptKeyfileData,
-  keyfileDataIsEncrypted,
-  serializeKeypair,
 } from './keys'
 
 export const DEFAULT_WALLET_PATH = join(homedir(), '.bittensor', 'wallets')
@@ -63,10 +46,7 @@ export class Keyfile {
 
   getKeypair(password?: string | null): Keypair {
     const data = readFileSync(this.path)
-    const decoded = keyfileDataIsEncrypted(data)
-      ? decryptKeyfileData(data, password ?? undefined)
-      : data
-    return deserializeKeypair(decoded)
+    return Keypair.fromKeyfileData(data, password ?? undefined)
   }
 
   setKeypair(keypair: Keypair, options: SaveKeyOptions = {}): void {
@@ -75,11 +55,7 @@ export class Keyfile {
     if (encrypt && password == null) {
       throw new Error(`Password is required to encrypt ${this.path}`)
     }
-    validateKeyfileTarget(this.path, overwrite)
-    ensurePrivateDirectory(dirname(this.path))
-    const serialized = serializeKeypair(keypair)
-    const data = encrypt ? encryptKeyfileData(serialized, password as string) : serialized
-    atomicWriteKeyfile(this.path, data, overwrite)
+    keypair.writeKeyfile(this.path, encrypt ? password : undefined, overwrite)
   }
 }
 
@@ -194,74 +170,4 @@ function keyfilePassword(options: SaveKeyOptions): string | null | undefined {
 
 function publicOnly(keypair: Keypair): Keypair {
   return new Keypair(keypair.ss58Address, keypair.publicKey, keypair.cryptoType, keypair.ss58Format)
-}
-
-function ensurePrivateDirectory(path: string): void {
-  mkdirSync(path, { recursive: true, mode: 0o700 })
-  const stat = lstatSync(path)
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    throw new Error(`Wallet path ${path} must be a real directory`)
-  }
-  chmodSync(path, 0o700)
-}
-
-function validateKeyfileTarget(path: string, overwrite: boolean): void {
-  try {
-    const stat = lstatSync(path)
-    if (stat.isSymbolicLink()) throw new Error(`Refusing to write keyfile through symlink ${path}`)
-    if (!stat.isFile()) throw new Error(`Refusing to overwrite non-file keyfile path ${path}`)
-    if (!overwrite) throw new Error(`Keyfile ${path} already exists`)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
-  }
-}
-
-function atomicWriteKeyfile(path: string, data: Uint8Array, overwrite: boolean): void {
-  const dir = dirname(path)
-  const temp = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`)
-  let fd: number | undefined
-  try {
-    fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
-    let offset = 0
-    while (offset < data.length) {
-      offset += writeSync(fd, data, offset, data.length - offset)
-    }
-    fsyncSync(fd)
-    closeSync(fd)
-    fd = undefined
-    if (overwrite) renameSync(temp, path)
-    else {
-      linkSync(temp, path)
-      unlinkSync(temp)
-    }
-    chmodSync(path, 0o600)
-    fsyncDirectory(dir)
-  } catch (error) {
-    if (fd != null) {
-      try {
-        closeSync(fd)
-      } catch {
-        // Best effort cleanup.
-      }
-    }
-    try {
-      unlinkSync(temp)
-    } catch {
-      // Best effort cleanup.
-    }
-    throw error
-  }
-}
-
-function fsyncDirectory(path: string): void {
-  let fd: number | undefined
-  try {
-    fd = openSync(path, constants.O_RDONLY)
-    fsyncSync(fd)
-  } catch {
-    // Directory fsync is best-effort across platforms and filesystems.
-  } finally {
-    if (fd != null) closeSync(fd)
-  }
 }

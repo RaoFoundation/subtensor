@@ -43,14 +43,17 @@ function modulePath(filePath) {
   return relative.startsWith('.') ? relative : `./${relative}`
 }
 
-function browserEntry(metadataHex) {
+function browserEntry(metadataHex, mode) {
+  const useCustomLoader = mode === 'custom'
   return `
 import * as sdk from ${JSON.stringify(modulePath(path.join(root, 'dist', 'browser.mjs')))}
-import * as wasmBindings from ${JSON.stringify(modulePath(path.join(root, 'dist', 'wasm', 'bittensor_core_wasm_bg.js')))}
-import wasmUrl from ${JSON.stringify(modulePath(path.join(root, 'dist', 'wasm', 'bittensor_core_wasm_bg.wasm')))}
+${useCustomLoader ? `import * as wasmBindings from ${JSON.stringify(modulePath(path.join(root, 'dist', 'wasm', 'bittensor_core_wasm_bg.js')))}
+import wasmUrl from ${JSON.stringify(modulePath(path.join(root, 'dist', 'wasm', 'bittensor_core_wasm_bg.wasm')))}` : ''}
 
 const metadataHex = ${JSON.stringify(metadataHex)}
 const mnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+const mode = ${JSON.stringify(mode)}
+const useCustomLoader = ${JSON.stringify(useCustomLoader)}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -62,7 +65,7 @@ function hexToBytes(hex) {
   return out
 }
 
-async function loadWasm() {
+${useCustomLoader ? `async function loadWasm() {
   const response = await fetch(wasmUrl)
   if (!response.ok) throw new Error('failed to fetch WASM: ' + response.status)
   const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), {
@@ -73,10 +76,10 @@ async function loadWasm() {
   const module = { ...wasmBindings }
   delete module.default
   return module
-}
+}` : ''}
 
 try {
-  sdk.configureBrowserWasm(() => loadWasm())
+  if (useCustomLoader) sdk.configureBrowserWasm(() => loadWasm())
   const wasm = await sdk.initBrowser()
   assert(typeof wasm.Runtime === 'function', 'WASM Runtime constructor is available')
   assert(typeof sdk.coreVersion() === 'string' && sdk.coreVersion().length > 0, 'WASM initialized')
@@ -132,6 +135,7 @@ try {
 
   window.__SDK_BROWSER_RESULT__ = {
     ok: true,
+    mode,
     address: keypair.ss58Address,
     callLength: call.length,
     extrinsicLength: signed.bytes.length,
@@ -146,25 +150,32 @@ try {
 }
 
 async function bundleBrowserEntry() {
-  const entry = path.join(tmp, 'entry.js')
-  fs.writeFileSync(entry, browserEntry(goldenMetadataHex()))
+  const metadataHex = goldenMetadataHex()
+  const customEntry = path.join(tmp, 'custom-entry.js')
+  const defaultEntry = path.join(tmp, 'default-entry.js')
+  fs.writeFileSync(customEntry, browserEntry(metadataHex, 'custom'))
+  fs.writeFileSync(defaultEntry, browserEntry(metadataHex, 'default'))
   const outdir = path.join(tmp, 'site')
   fs.mkdirSync(outdir, { recursive: true })
   await esbuild.build({
-    entryPoints: [entry],
+    entryPoints: [customEntry, defaultEntry],
     bundle: true,
     format: 'esm',
     platform: 'browser',
     target: ['chrome110'],
     outdir,
-    entryNames: 'bundle',
+    entryNames: '[name]',
     assetNames: 'assets/[name]-[hash]',
     loader: { '.wasm': 'file' },
     logLevel: 'silent',
   })
   fs.writeFileSync(
-    path.join(outdir, 'index.html'),
-    '<!doctype html><meta charset="utf-8"><title>Bittensor SDK Browser Smoke</title><script type="module" src="/bundle.js"></script>',
+    path.join(outdir, 'custom.html'),
+    '<!doctype html><meta charset="utf-8"><title>Bittensor SDK Browser Smoke</title><script type="module" src="/custom-entry.js"></script>',
+  )
+  fs.writeFileSync(
+    path.join(outdir, 'default.html'),
+    '<!doctype html><meta charset="utf-8"><title>Bittensor SDK Browser Smoke</title><script type="module" src="/default-entry.js"></script>',
   )
   return outdir
 }
@@ -329,10 +340,30 @@ async function waitForBrowserResult(client) {
   }
 }
 
-async function main() {
-  let server
+async function runBrowserPage(chromePath, url, mode) {
   let chrome
   let client
+  try {
+    chrome = launchChrome(chromePath, url)
+    const browserWsUrl = await chrome.devtools
+    client = cdp(await pageWebSocketUrl(browserWsUrl))
+    await client.ready
+    await client.send('Runtime.enable')
+    await client.send('Page.enable')
+    const result = await waitForBrowserResult(client)
+    assert.equal(result.ok, true)
+    assert.equal(result.mode, mode)
+    assert.equal(typeof result.address, 'string')
+    assert.ok(result.callLength > 0)
+    assert.ok(result.extrinsicLength > result.callLength)
+  } finally {
+    client?.close()
+    if (chrome?.child.exitCode == null) chrome?.child.kill()
+  }
+}
+
+async function main() {
+  let server
   try {
     const site = await bundleBrowserEntry()
     const chromePath = findChrome()
@@ -342,21 +373,10 @@ async function main() {
     }
     const served = await serve(site)
     server = served.server
-    chrome = launchChrome(chromePath, served.url)
-    const browserWsUrl = await chrome.devtools
-    client = cdp(await pageWebSocketUrl(browserWsUrl))
-    await client.ready
-    await client.send('Runtime.enable')
-    await client.send('Page.enable')
-    const result = await waitForBrowserResult(client)
-    assert.equal(result.ok, true)
-    assert.equal(typeof result.address, 'string')
-    assert.ok(result.callLength > 0)
-    assert.ok(result.extrinsicLength > result.callLength)
+    await runBrowserPage(chromePath, new URL('/custom.html', served.url).href, 'custom')
+    await runBrowserPage(chromePath, new URL('/default.html', served.url).href, 'default')
   } finally {
-    client?.close()
     server?.close()
-    if (chrome?.child.exitCode == null) chrome?.child.kill()
     fs.rmSync(tmp, { recursive: true, force: true })
   }
 }

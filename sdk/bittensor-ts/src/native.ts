@@ -295,7 +295,18 @@ export interface NativeBinding {
   publicKeyFromSs58(ss58Address: string): Buffer
   ss58FromPublic(publicKey: Buffer, ss58Format: number): string
   serializeKeypair(keypair: NativeKeypairHandle): Buffer
+  keypairToKeyfileData(keypair: NativeKeypairHandle, password?: string | null): Buffer
   deserializeKeypair(keyfileData: Buffer): NativeKeypairHandle
+  deserializeKeypairFromKeyfile(
+    keyfileData: Buffer,
+    password?: string | null,
+  ): NativeKeypairHandle
+  writeKeypairKeyfile(
+    keypair: NativeKeypairHandle,
+    path: string,
+    password: string | null | undefined,
+    overwrite: boolean,
+  ): void
   encryptKeyfileData(keyfileData: Buffer, password: string): Buffer
   decryptKeyfileData(keyfileData: Buffer, password?: string | null): Buffer
   keyfileDataIsEncrypted(keyfileData: Buffer): boolean
