@@ -27,7 +27,8 @@ from ._generated.runtime_apis import SubnetInfoRuntimeApi
 from ._generated.storage import Commitments as st_commitments
 from ._generated.storage import SubtensorModule as st_subtensor
 from .balance import Balance
-from .settings import BLOCKTIME, GLOBAL_MAX_SUBNET_COUNT, U16_MAX
+from .hyperparams import ratio_fraction
+from .settings import BLOCKTIME, GLOBAL_MAX_SUBNET_COUNT
 
 # I96F32 fixed point: 32 fractional bits (moving_price encoding).
 _I96F32_ONE = 2**32
@@ -321,7 +322,9 @@ def _build(netuid: int, graph: dict, commitment_map: dict[str, NeuronCommitment]
     total_stake = column("total_stake")
 
     def score(values: list, uid: int) -> float:
-        return int(values[uid] or 0) / U16_MAX
+        # Runtime-API values, so no storage descriptor carries their identity;
+        # the runtime declares these vectors PerU16 (a u16 fraction over 65535).
+        return ratio_fraction("PerU16", int(values[uid] or 0)) or 0.0
 
     neurons = [
         MetagraphNeuron(

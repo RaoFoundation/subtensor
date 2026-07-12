@@ -289,8 +289,8 @@ def child_set(
         ...,
         "--children",
         help="JSON list of proportion/hotkey pairs: each entry is a two-element "
-        "array holding a u64 proportion (the share of u64 max delegated) and "
-        "the child hotkey's ss58 address.",
+        "array holding a proportion (0..1 fraction like 0.5, or the raw u64 "
+        "share of u64 max) and the child hotkey's ss58 address.",
     ),
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
@@ -308,7 +308,12 @@ def child_set(
     except json.JSONDecodeError as error:
         app_ctx.output.error(f"invalid --children JSON: {error}")
         raise typer.Exit(1)
-    app_ctx.submit(SetChildren(netuid=netuid, children=parsed, hotkey_ss58=hotkey_ss58))
+    try:
+        intent = SetChildren(netuid=netuid, children=parsed, hotkey_ss58=hotkey_ss58)
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(2)
+    app_ctx.submit(intent)
 
 
 @child_app.command("revoke")
@@ -334,7 +339,7 @@ def child_revoke(
 def child_take(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=SetChildkeyTake.field_help("netuid")),
-    take: int = typer.Option(..., "--take", help=SetChildkeyTake.field_help("take")),
+    take: str = typer.Option(..., "--take", help=SetChildkeyTake.field_help("take")),
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
@@ -342,11 +347,16 @@ def child_take(
     """Set childkey take for a hotkey.
 
     The take is the fraction of rewards the child hotkey keeps from stake
-    weight delegated to it by parents, expressed as a raw u16 proportion
-    (0 to 65535).
+    weight delegated to it by parents: a 0..1 fraction with a decimal point
+    (e.g. 0.09) or the raw u16 proportion (0 to 65535).
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(SetChildkeyTake(netuid=netuid, take=take, hotkey_ss58=hotkey_ss58))
+    try:
+        intent = SetChildkeyTake(netuid=netuid, take=take, hotkey_ss58=hotkey_ss58)
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(2)
+    app_ctx.submit(intent)
 
 
 @app.command("wizard", rich_help_panel=PANEL_MOVE)

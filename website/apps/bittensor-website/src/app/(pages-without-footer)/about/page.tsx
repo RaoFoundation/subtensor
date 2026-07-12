@@ -1,8 +1,18 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
 import {MenuSchema} from '@/app/components/Header/MenuSchema';
 import {Link} from '@raofoundation/ui';
+import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'The Bittensor Paradigm',
+  description:
+    'What Bittensor is and why it exists: an open network of subnets producing digital ' +
+    'commodities, priced and rewarded in TAO by decentralized consensus.',
+  alternates: {canonical: '/about'},
+  openGraph: {images: '/images/og_thumbs/about.png'},
+};
 
 const CONNECT_LINK_ORDER = ['DISCORD', 'X', 'GITHUB'] as const;
 const connectLinks = CONNECT_LINK_ORDER.map((label) =>

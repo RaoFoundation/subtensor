@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from .._generated import calls
 from .._generated import storage as st
+from ..hyperparams import U64_MAX, proportion_to_raw
 from ..result import BittensorError
 from ..settings import U16_MAX
 from .base import Intent
@@ -14,9 +15,18 @@ from .registry import register
 
 HOTKEY_HELP = "Hotkey the operation applies to."
 TAKE_HELP = (
-    "New take as a u16 proportion (fraction of 65535, e.g. 5898 is about 9 percent). "
-    "The chain enforces its configured take bounds."
+    "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 "
+    f"proportion (0..{U16_MAX}). The chain enforces its configured take bounds."
 )
+
+
+def take_to_u16(value: "int | float | str") -> int:
+    """Normalize a take (0..1 fraction or raw u16) to the raw u16.
+
+    A float (or a string with a decimal point) is the human 0..1 fraction; a
+    plain integer is the raw on-chain u16 — the hyperparameter value rules.
+    """
+    return proportion_to_raw(value, U16_MAX, "take")
 
 
 @register
@@ -27,11 +37,13 @@ class SetChildren(Intent):
     Childkeys let a parent hotkey delegate a fraction of its stake weight to
     other hotkeys on one subnet — commonly used to split validation duties or
     point stake at a separate validating key without moving the stake itself.
-    Each entry in ``children`` is a pair of proportion and hotkey ss58, where
-    proportion is a u64 share of u64::MAX; the proportions must not sum past
-    the whole. The call replaces the full child set, so pass an empty list to
-    revoke all children. Signed by the coldkey that owns the parent hotkey,
-    and subject to the chain's childkey rate limit.
+    Each entry in ``children`` is a pair of proportion and hotkey ss58. A
+    proportion with a decimal point is the human 0..1 fraction of the parent's
+    stake weight (e.g. 0.5); a plain integer is the raw u64 share of u64::MAX.
+    The proportions must not sum past the whole. The call replaces the full
+    child set, so pass an empty list to revoke all children. Signed by the
+    coldkey that owns the parent hotkey, and subject to the chain's childkey
+    rate limit.
 
     Chain guards: not allowed on the root subnet; at most 5 children per
     hotkey per subnet; duplicate children are rejected; a hotkey that is a
@@ -49,12 +61,30 @@ class SetChildren(Intent):
     netuid: int = field(metadata={"help": "Subnet on which the child relationships apply."})
     children: list = field(
         metadata={
-            "help": "JSON list of proportion-and-hotkey pairs; each proportion is a u64 "
-            "share of u64::MAX of the parent's stake weight delegated to that child. An "
-            "empty list revokes all children."
+            "help": "JSON list of proportion-and-hotkey pairs; each proportion is a 0..1 "
+            "fraction (e.g. 0.5) or a raw u64 share of u64::MAX of the parent's stake "
+            "weight delegated to that child. An empty list revokes all children."
         }
     )
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
+
+    def __post_init__(self):
+        normalized = []
+        for entry in self.children:
+            try:
+                prop, child = entry
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"each child entry must be a [proportion, hotkey_ss58] pair; got {entry!r}"
+                ) from None
+            normalized.append([proportion_to_raw(prop, U64_MAX, "child proportion"), child])
+        total = sum(prop for prop, _ in normalized)
+        if total > U64_MAX:
+            raise ValueError(
+                f"child proportions sum to {total / U64_MAX:.4g} of the parent's stake "
+                "weight; together they must not exceed 1.0"
+            )
+        self.children = normalized
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
@@ -88,8 +118,11 @@ class SetChildkeyTake(Intent):
     wraps = (("SubtensorModule", "set_childkey_take"),)
 
     netuid: int = field(metadata={"help": "Subnet the childkey take applies to."})
-    take: int = field(metadata={"help": TAKE_HELP})
+    take: int | float | str = field(metadata={"help": TAKE_HELP})
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
+
+    def __post_init__(self):
+        self.take = take_to_u16(self.take)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
@@ -121,8 +154,11 @@ class IncreaseTake(Intent):
     signer = "coldkey"
     wraps = (("SubtensorModule", "increase_take"),)
 
-    take: int = field(metadata={"help": TAKE_HELP})
+    take: int | float | str = field(metadata={"help": TAKE_HELP})
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
+
+    def __post_init__(self):
+        self.take = take_to_u16(self.take)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
@@ -151,8 +187,11 @@ class DecreaseTake(Intent):
     signer = "coldkey"
     wraps = (("SubtensorModule", "decrease_take"),)
 
-    take: int = field(metadata={"help": TAKE_HELP})
+    take: int | float | str = field(metadata={"help": TAKE_HELP})
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
+
+    def __post_init__(self):
+        self.take = take_to_u16(self.take)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
@@ -185,8 +224,11 @@ class SetTake(Intent):
         ("SubtensorModule", "decrease_take"),
     )
 
-    take: int = field(metadata={"help": TAKE_HELP})
+    take: int | float | str = field(metadata={"help": TAKE_HELP})
     hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
+
+    def __post_init__(self):
+        self.take = take_to_u16(self.take)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)

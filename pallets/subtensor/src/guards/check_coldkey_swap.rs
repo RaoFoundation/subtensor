@@ -12,8 +12,8 @@ use sp_std::marker::PhantomData;
 /// Dispatch extension that blocks most calls when a coldkey swap is active.
 ///
 /// When a coldkey swap has been announced for the signing account:
-/// - If the swap is disputed, ALL calls are blocked.
-/// - Otherwise, only swap-related calls and MEV-protected calls (`submit_encrypted`)
+/// * If the swap is disputed, ALL calls are blocked.
+/// * Otherwise, only swap-related calls and MEV-protected calls (`submit_encrypted`)
 ///   are allowed through.
 ///
 /// Root origin bypasses this extension entirely.

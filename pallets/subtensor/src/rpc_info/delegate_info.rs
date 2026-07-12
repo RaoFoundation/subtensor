@@ -6,13 +6,14 @@ use substrate_fixed::types::U64F64;
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use codec::Compact;
+use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 
-#[freeze_struct("1fafc4fcf28cba7a")]
+#[freeze_struct("bfb7d342e9ede512")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct DelegateInfo<AccountId: TypeInfo + Encode + Decode> {
     pub delegate_ss58: AccountId,
-    pub take: Compact<u16>,
+    pub take: Compact<PerU16>,
     pub nominators: Vec<(AccountId, Vec<(Compact<NetUid>, Compact<u64>)>)>, // map of nominator_ss58 to netuid and stake amount
     pub owner_ss58: AccountId,
     pub registrations: Vec<Compact<NetUid>>, // Vec of netuid this delegate is registered on
@@ -23,13 +24,14 @@ pub struct DelegateInfo<AccountId: TypeInfo + Encode + Decode> {
 
 impl<T: Config> Pallet<T> {
     fn return_per_1000_tao(
-        take: Compact<u16>,
+        take: Compact<PerU16>,
         total_stake: U64F64,
         emissions_per_day: U64F64,
     ) -> U64F64 {
         // Get the take as a percentage and subtract it from 1 for remainder.
-        let without_take: U64F64 = U64F64::saturating_from_num(1)
-            .saturating_sub(U64F64::saturating_from_num(take.0).safe_div(u16::MAX.into()));
+        let without_take: U64F64 = U64F64::saturating_from_num(1).saturating_sub(
+            U64F64::saturating_from_num(take.0.deconstruct()).safe_div(u16::MAX.into()),
+        );
 
         if total_stake > U64F64::saturating_from_num(0) {
             emissions_per_day
@@ -43,7 +45,7 @@ impl<T: Config> Pallet<T> {
 
     #[cfg(test)]
     pub fn return_per_1000_tao_test(
-        take: Compact<u16>,
+        take: Compact<PerU16>,
         total_stake: U64F64,
         emissions_per_day: U64F64,
     ) -> U64F64 {
@@ -107,7 +109,7 @@ impl<T: Config> Pallet<T> {
         }
 
         let owner = Self::get_owning_coldkey_for_hotkey(&delegate.clone());
-        let take: Compact<u16> = <Delegates<T>>::get(delegate.clone()).into();
+        let take: Compact<PerU16> = <Delegates<T>>::get(delegate.clone()).into();
 
         let total_stake: U64F64 = u64::from(Self::get_stake_for_hotkey_on_subnet(
             &delegate.clone(),
@@ -144,7 +146,7 @@ impl<T: Config> Pallet<T> {
     ///
     pub fn get_delegates() -> Vec<DelegateInfo<T::AccountId>> {
         let mut delegates = Vec::<DelegateInfo<T::AccountId>>::new();
-        for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, u16>>::iter_keys() {
+        for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, PerU16>>::iter_keys() {
             let delegate_info = Self::get_delegate_by_existing_account(delegate.clone(), false);
             delegates.push(delegate_info);
         }
@@ -164,7 +166,7 @@ impl<T: Config> Pallet<T> {
             DelegateInfo<T::AccountId>,
             (Compact<NetUid>, Compact<AlphaBalance>),
         )> = Vec::new();
-        for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, u16>>::iter_keys() {
+        for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, PerU16>>::iter_keys() {
             // Staked to this delegate, so add to list
             for (netuid, _) in Self::alpha_iter_prefix((&delegate, &delegatee)) {
                 let delegate_info = Self::get_delegate_by_existing_account(delegate.clone(), true);

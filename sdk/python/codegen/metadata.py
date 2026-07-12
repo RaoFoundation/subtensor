@@ -14,20 +14,24 @@ import asyncio
 
 from bittensor._transport import SubstrateConnection
 from bittensor._transport.contract import (
+    CallArgIR,
     CallIR,
     ErrorIR,
     MetadataIR,
     PalletIR,
     RuntimeApiIR,
+    StorageIR,
 )
 from bittensor.settings import SS58_FORMAT
 
 __all__ = [
+    "CallArgIR",
     "CallIR",
     "ErrorIR",
     "MetadataIR",
     "PalletIR",
     "RuntimeApiIR",
+    "StorageIR",
     "dump",
     "dump_from_node",
 ]

@@ -9,7 +9,7 @@ from .._generated import calls
 from .._generated.runtime_apis import StakeInfoRuntimeApi
 from ..result import BittensorError
 from ..signing import public_view
-from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount, tao_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
 from .base import Intent
 from .registry import register
 
@@ -81,7 +81,9 @@ class AddStake(Intent):
     amount_tao: Money = field(metadata={"help": "How much of the coldkey's free balance to stake."})
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = call_amount(
+            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -129,7 +131,9 @@ class RemoveStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "amount_unstaked", netuid=self.netuid, allow_all=True
+        )
 
     async def build(self, substrate, wallet: Any):
         if self.amount_alpha == ALL:
@@ -186,7 +190,9 @@ class MoveStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.origin_netuid)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -238,7 +244,9 @@ class AddStakeLimit(Intent):
     allow_partial: bool = field(default=False, metadata={"help": ALLOW_PARTIAL_HELP})
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = call_amount(
+            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -291,7 +299,9 @@ class RemoveStakeLimit(Intent):
     allow_partial: bool = field(default=False, metadata={"help": ALLOW_PARTIAL_HELP})
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "amount_unstaked", netuid=self.netuid, allow_all=True
+        )
 
     async def build(self, substrate, wallet: Any):
         if self.amount_alpha == ALL:
@@ -423,7 +433,9 @@ class SwapStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.origin_netuid)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -481,7 +493,9 @@ class TransferStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.origin_netuid)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(

@@ -112,6 +112,22 @@
   transition: opacity 0.4s ease;
 }
 
+.badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 3px 8px;
+  font-family: 'FiraCode';
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--grey-100, #f8f9fa);
+  background: var(--grey-900, #0e1013);
+  pointer-events: none;
+}
+
 .logoBar {
   position: absolute;
   left: 8px;

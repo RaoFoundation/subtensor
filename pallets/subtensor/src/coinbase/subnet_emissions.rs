@@ -7,8 +7,8 @@ use substrate_fixed::types::{I32F32, I64F64, U64F64, U96F32};
 impl<T: Config> Pallet<T> {
     /// Returns the subnets that are eligible to receive emissions.
     ///
-    /// # Parameters
-    /// - `subnets`: Candidate subnet IDs to evaluate in order.
+    /// # Arguments
+    /// * `subnets`: Candidate subnet IDs to evaluate in order.
     ///
     /// # Returns
     /// A vector containing the candidate subnet IDs that are non-root, have

@@ -28,7 +28,7 @@ use sp_arithmetic::traits::{
 #[cfg(feature = "std")]
 use sp_rpc::number::NumberOrHex;
 
-#[freeze_struct("3ad2c79c0e81406d")]
+#[freeze_struct("fe2aa2d7fcb480e8")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -46,10 +46,11 @@ use sp_rpc::number::NumberOrHex;
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 pub struct AlphaBalance(u64);
 
-#[freeze_struct("5f0d6c02f3ac2c1")]
+#[freeze_struct("a99f2483a97121fc")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -67,23 +68,19 @@ pub struct AlphaBalance(u64);
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 pub struct TaoBalance(u64);
 
-// implements traits required by the Currency trait (ToFixed + Into<u64> + From<u64>) and CompactAs,
-// TypeInfo and Display. It expects a wrapper structure for u64 (CurrencyT(u64)).
+// implements traits required by the Currency trait (ToFixed + Into<u64> + From<u64>) and CompactAs
+// and Display. It expects a wrapper structure for u64 (CurrencyT(u64)).
+// TypeInfo is derived on the structs themselves so the type identity (path) is preserved in the
+// runtime metadata, letting SDKs generate distinct TaoBalance/AlphaBalance types instead of bare u64.
 macro_rules! impl_currency_reqs {
     ($currency_type:ident) => {
         impl $currency_type {
             pub const fn new(inner: u64) -> Self {
                 Self(inner)
-            }
-        }
-
-        impl TypeInfo for $currency_type {
-            type Identity = <u64 as TypeInfo>::Identity;
-            fn type_info() -> scale_info::Type {
-                <u64 as TypeInfo>::type_info()
             }
         }
 

@@ -392,12 +392,14 @@ Three call families changed **units**, not just names:
   salt-based commits. `version_key` now defaults to 0 instead of the SDK
   version number — pass the subnet's required key explicitly if it enforces
   one.
-- **Take** was a float 0–1 (`take=0.18`); it is now a u16 proportion:
-  `take=int(0.18 * 65535)`. `set_delegate_take`'s auto-direction behavior is
-  preserved by `sub.SetTake`; `sub.IncreaseTake` / `sub.DecreaseTake` pin the
-  direction.
-- **Children proportions** were floats 0–1; they are now u64 shares:
-  `children=[[int(0.5 * (2**64 - 1)), "5F...child"]]`.
+- **Take** still accepts the float 0–1 form (`take=0.18`); a plain integer
+  is the raw u16 proportion (`take=11796`), following the hyperparameter
+  value rules (a decimal point marks the human form). `set_delegate_take`'s
+  auto-direction behavior is preserved by `sub.SetTake`; `sub.IncreaseTake` /
+  `sub.DecreaseTake` pin the direction.
+- **Children proportions** likewise accept floats 0–1
+  (`children=[[0.5, "5F...child"]]`); a plain integer is the raw u64 share
+  of `u64::MAX`.
 
 ## Money and Balance
 
@@ -578,9 +580,9 @@ explains any error code.
    `sub.Client`; move `block=`-pinned reads onto `client.at(block)`.
 3. Rewrite reads using the tables above; anything unmapped goes through
    `client.query(sub.storage...)`.
-4. Rewrite each transaction as an intent + `client.execute`; convert take
-   values to u16 and child proportions to u64 shares; replace safe-staking
-   flags with `*Limit` intents.
+4. Rewrite each transaction as an intent + `client.execute`; take values and
+   child proportions keep working as 0–1 floats (plain integers mean the raw
+   u16/u64 wire values); replace safe-staking flags with `*Limit` intents.
 5. Update result handling: `.success` still works, but branch on
    `result.error.code` instead of exception types or message strings.
 6. Fix Balance usage: no `.tao` on alpha, no cross-unit arithmetic,

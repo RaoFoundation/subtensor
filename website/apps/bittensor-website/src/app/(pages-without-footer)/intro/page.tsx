@@ -1,6 +1,15 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
+import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'Bittensor Explained',
+  description:
+    'A non-technical introduction to Bittensor: how decentralized subnets turn compute, ' +
+    'data, and models into digital commodities rewarded in TAO.',
+  alternates: {canonical: '/intro'},
+};
 
 const page = () => {
   return (

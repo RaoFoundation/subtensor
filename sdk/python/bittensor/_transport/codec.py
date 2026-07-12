@@ -23,6 +23,7 @@ import bittensor_core as _core
 
 from .const import SS58_FORMAT
 from .contract import (
+    CallArgIR,
     CallBytes,
     CallIR,
     ErrorIR,
@@ -30,6 +31,7 @@ from .contract import (
     MultisigAccount,
     PalletIR,
     RuntimeApiIR,
+    StorageIR,
 )
 from .errors import StorageFunctionNotFound
 
@@ -481,14 +483,24 @@ class RuntimeCodec:
                 name=pallet["name"],
                 index=pallet["index"],
                 calls=[
-                    CallIR(name=call["name"], args=call["args"], docs=call["docs"])
+                    CallIR(
+                        name=call["name"],
+                        args=[
+                            CallArgIR(name=arg["name"], type_ident=arg["type_ident"])
+                            for arg in call["args"]
+                        ],
+                        docs=call["docs"],
+                    )
                     for call in pallet["calls"]
                 ],
                 errors=[
                     ErrorIR(index=error["index"], name=error["name"], docs=error["docs"])
                     for error in pallet["errors"]
                 ],
-                storage=pallet["storage"],
+                storage=[
+                    StorageIR(name=item["name"], value_type_ident=item["value_type_ident"])
+                    for item in pallet["storage"]
+                ],
                 constants=pallet["constants"],
             )
             for pallet in ir["pallets"]

@@ -23,7 +23,7 @@ mod dispatches {
     impl<T: Config> Pallet<T> {
         #![deny(clippy::expect_used)]
 
-        /// --- Sets the caller weights for the incentive mechanism. The call can be
+        /// Sets the caller weights for the incentive mechanism. The call can be
         /// made from the hotkey account so is potentially insecure, however, the damage
         /// of changing weights is minimal if caught early. This function includes all the
         /// checks that the passed weights meet the requirements. Stored as u16s they represent
@@ -31,56 +31,43 @@ mod dispatches {
         /// probabilities. The specific weights determine how inflation propagates outward
         /// from this peer.
         ///
-        /// Note: The 16 bit integers weights should represent 1.0 as the max u16.
+        /// # Note
+        /// The 16 bit integers weights should represent 1.0 as the max u16.
         /// However, the function normalizes all integers to u16_max anyway. This means that if the sum of all
         /// elements is larger or smaller than the amount of elements * u16_max, all elements
         /// will be corrected for this deviation.
         ///
-        /// # Args:
-        /// * `origin`: (<T as frame_system::Config>Origin):
-        ///     - The caller, a hotkey who wishes to set their weights.
+        /// # Arguments
+        /// * `origin`: The caller, a hotkey who wishes to set their weights.
         ///
-        /// * `netuid` (u16):
-        /// 	- The network uid we are setting these weights on.
+        /// * `netuid`: The network uid we are setting these weights on.
         ///
-        /// * `dests` (Vec<u16>):
-        /// 	- The edge endpoint for the weight, i.e. j for w_ij.
+        /// * `dests`: The edge endpoint for the weight, i.e. j for w_ij.
         ///
-        /// * 'weights' (Vec<u16>):
-        /// 	- The u16 integer encoded weights. Interpreted as rational
+        /// * `weights`: The u16 integer encoded weights. Interpreted as rational
         ///     values in the range [0,1]. They must sum to in32::MAX.
         ///
-        /// * 'version_key' ( u64 ):
-        /// 	- The network version key to check if the validator is up to date.
+        /// * `version_key`: The network version key to check if the validator is up to date.
         ///
-        /// # Event:
-        /// * WeightsSet;
-        /// 	- On successfully setting the weights on chain.
+        /// # Events
+        /// * `WeightsSet`: On successfully setting the weights on chain.
         ///
-        /// # Raises:
-        /// * 'MechanismDoesNotExist':
-        /// 	- Attempting to set weights on a non-existent network.
+        /// # Errors
+        /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
         ///
-        /// * 'NotRegistered':
-        /// 	- Attempting to set weights from a non registered account.
+        /// * `NotRegistered`: Attempting to set weights from a non registered account.
         ///
-        /// * 'WeightVecNotEqualSize':
-        /// 	- Attempting to set weights with uids not of same length.
+        /// * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.
         ///
-        /// * 'DuplicateUids':
-        /// 	- Attempting to set weights with duplicate uids.
+        /// * `DuplicateUids`: Attempting to set weights with duplicate uids.
         ///
-        ///     * 'UidsLengthExceedUidsInSubNet':
-        /// 	- Attempting to set weights above the max allowed uids.
+        /// * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.
         ///
-        /// * 'UidVecContainInvalidOne':
-        /// 	- Attempting to set weights with invalid uids.
+        /// * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.
         ///
-        /// * 'WeightVecLengthIsLow':
-        /// 	- Attempting to set weights with fewer weights than min.
+        /// * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.
         ///
-        /// * 'MaxWeightExceeded':
-        /// 	- Attempting to set weights with max value exceeding limit.
+        /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(0)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
         pub fn set_weights(
@@ -97,7 +84,7 @@ mod dispatches {
             }
         }
 
-        /// --- Sets the caller weights for the incentive mechanism for mechanisms. The call
+        /// Sets the caller weights for the incentive mechanism for mechanisms. The call
         /// can be made from the hotkey account so is potentially insecure, however, the damage
         /// of changing weights is minimal if caught early. This function includes all the
         /// checks that the passed weights meet the requirements. Stored as u16s they represent
@@ -105,59 +92,45 @@ mod dispatches {
         /// probabilities. The specific weights determine how inflation propagates outward
         /// from this peer.
         ///
-        /// Note: The 16 bit integers weights should represent 1.0 as the max u16.
+        /// # Note
+        /// The 16 bit integers weights should represent 1.0 as the max u16.
         /// However, the function normalizes all integers to u16_max anyway. This means that if the sum of all
         /// elements is larger or smaller than the amount of elements * u16_max, all elements
         /// will be corrected for this deviation.
         ///
-        /// # Args:
-        /// * `origin`: (<T as frame_system::Config>Origin):
-        ///     - The caller, a hotkey who wishes to set their weights.
+        /// # Arguments
+        /// * `origin`: The caller, a hotkey who wishes to set their weights.
         ///
-        /// * `netuid` (u16):
-        /// 	- The network uid we are setting these weights on.
+        /// * `netuid`: The network uid we are setting these weights on.
         ///
-        /// * `mecid` (`u8`):
-        ///   - The u8 mechnism identifier.
+        /// * `mecid`: The u8 mechnism identifier.
         ///
-        /// * `dests` (Vec<u16>):
-        /// 	- The edge endpoint for the weight, i.e. j for w_ij.
+        /// * `dests`: The edge endpoint for the weight, i.e. j for w_ij.
         ///
-        /// * 'weights' (Vec<u16>):
-        /// 	- The u16 integer encoded weights. Interpreted as rational
+        /// * `weights`: The u16 integer encoded weights. Interpreted as rational
         ///     values in the range [0,1]. They must sum to in32::MAX.
         ///
-        /// * 'version_key' ( u64 ):
-        /// 	- The network version key to check if the validator is up to date.
+        /// * `version_key`: The network version key to check if the validator is up to date.
         ///
-        /// # Event:
-        /// * WeightsSet;
-        /// 	- On successfully setting the weights on chain.
+        /// # Events
+        /// * `WeightsSet`: On successfully setting the weights on chain.
         ///
-        /// # Raises:
-        /// * 'MechanismDoesNotExist':
-        /// 	- Attempting to set weights on a non-existent network.
+        /// # Errors
+        /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
         ///
-        /// * 'NotRegistered':
-        /// 	- Attempting to set weights from a non registered account.
+        /// * `NotRegistered`: Attempting to set weights from a non registered account.
         ///
-        /// * 'WeightVecNotEqualSize':
-        /// 	- Attempting to set weights with uids not of same length.
+        /// * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.
         ///
-        /// * 'DuplicateUids':
-        /// 	- Attempting to set weights with duplicate uids.
+        /// * `DuplicateUids`: Attempting to set weights with duplicate uids.
         ///
-        ///     * 'UidsLengthExceedUidsInSubNet':
-        /// 	- Attempting to set weights above the max allowed uids.
+        /// * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.
         ///
-        /// * 'UidVecContainInvalidOne':
-        /// 	- Attempting to set weights with invalid uids.
+        /// * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.
         ///
-        /// * 'WeightVecLengthIsLow':
-        /// 	- Attempting to set weights with fewer weights than min.
+        /// * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.
         ///
-        /// * 'MaxWeightExceeded':
-        /// 	- Attempting to set weights with max value exceeding limit.
+        /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(119)]
         #[pallet::weight((Weight::from_parts(15_540_000_000, 0)
         .saturating_add(T::DbWeight::get().reads(4111))
@@ -177,30 +150,22 @@ mod dispatches {
             }
         }
 
-        /// --- Allows a hotkey to set weights for multiple netuids as a batch.
+        /// Allows a hotkey to set weights for multiple netuids as a batch.
         ///
-        /// # Args:
-        /// * `origin`: (<T as frame_system::Config>Origin):
-        ///     - The caller, a hotkey who wishes to set their weights.
+        /// # Arguments
+        /// * `origin`: The caller, a hotkey who wishes to set their weights.
         ///
-        /// * `netuids` (Vec<Compact<u16>>):
-        /// 	- The network uids we are setting these weights on.
+        /// * `netuids`: The network uids we are setting these weights on.
         ///
-        /// * `weights` (Vec<Vec<(Compact<u16>, Compact<u16>)>):
-        /// 	- The weights to set for each network. [(uid, weight), ...]
+        /// * `weights`: The weights to set for each network. [(uid, weight), ...].
         ///
-        /// * `version_keys` (Vec<Compact<u64>>):
-        /// 	- The network version keys to check if the validator is up to date.
+        /// * `version_keys`: The network version keys to check if the validator is up to date.
         ///
-        /// # Event:
-        /// * WeightsSet;
-        /// 	- On successfully setting the weights on chain.
-        /// * BatchWeightsCompleted;
-        /// 	- On success of the batch.
-        /// * BatchCompletedWithErrors;
-        /// 	- On failure of any of the weights in the batch.
-        /// * BatchWeightItemFailed;
-        /// 	- On failure for each failed item in the batch.
+        /// # Events
+        /// * `WeightsSet`: On successfully setting the weights on chain.
+        /// * `BatchWeightsCompleted`: On success of the batch.
+        /// * `BatchCompletedWithErrors`: On failure of any of the weights in the batch.
+        /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(80)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_set_weights(), DispatchClass::Normal, Pays::No))]
@@ -213,24 +178,19 @@ mod dispatches {
             Self::do_batch_set_weights(origin, netuids, weights, version_keys)
         }
 
-        /// ---- Used to commit a hash of your weight values to later be revealed.
+        /// Used to commit a hash of your weight values to later be revealed.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The signature of the committing hotkey.
+        /// # Arguments
+        /// * `origin`: The signature of the committing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `commit_hash` (`H256`):
-        ///   - The hash representing the committed weights.
+        /// * `commit_hash`: The hash representing the committed weights.
         ///
-        /// # Raises:
-        /// * `CommitRevealDisabled`:
-        ///   - Attempting to commit when the commit-reveal mechanism is disabled.
+        /// # Errors
+        /// * `CommitRevealDisabled`: Attempting to commit when the commit-reveal mechanism is disabled.
         ///
-        /// * `TooManyUnrevealedCommits`:
-        ///   - Attempting to commit when the user has more than the allowed limit of unrevealed commits.
+        /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(96)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::commit_weights(), DispatchClass::Normal, Pays::No))]
@@ -242,27 +202,21 @@ mod dispatches {
             Self::do_commit_weights(origin, netuid, commit_hash)
         }
 
-        /// ---- Used to commit a hash of your weight values to later be revealed for mechanisms.
+        /// Used to commit a hash of your weight values to later be revealed for mechanisms.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The signature of the committing hotkey.
+        /// # Arguments
+        /// * `origin`: The signature of the committing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `mecid` (`u8`):
-        ///   - The u8 mechanism identifier.
+        /// * `mecid`: The u8 mechanism identifier.
         ///
-        /// * `commit_hash` (`H256`):
-        ///   - The hash representing the committed weights.
+        /// * `commit_hash`: The hash representing the committed weights.
         ///
-        /// # Raises:
-        /// * `CommitRevealDisabled`:
-        ///   - Attempting to commit when the commit-reveal mechanism is disabled.
+        /// # Errors
+        /// * `CommitRevealDisabled`: Attempting to commit when the commit-reveal mechanism is disabled.
         ///
-        /// * `TooManyUnrevealedCommits`:
-        ///   - Attempting to commit when the user has more than the allowed limit of unrevealed commits.
+        /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(115)]
         #[pallet::weight((Weight::from_parts(55_130_000, 0)
@@ -277,27 +231,20 @@ mod dispatches {
             Self::do_commit_mechanism_weights(origin, netuid, mecid, commit_hash)
         }
 
-        /// --- Allows a hotkey to commit weight hashes for multiple netuids as a batch.
+        /// Allows a hotkey to commit weight hashes for multiple netuids as a batch.
         ///
-        /// # Args:
-        /// * `origin`: (<T as frame_system::Config>Origin):
-        ///     - The caller, a hotkey who wishes to set their weights.
+        /// # Arguments
+        /// * `origin`: The caller, a hotkey who wishes to set their weights.
         ///
-        /// * `netuids` (Vec<Compact<u16>>):
-        /// 	- The network uids we are setting these weights on.
+        /// * `netuids`: The network uids we are setting these weights on.
         ///
-        /// * `commit_hashes` (Vec<H256>):
-        /// 	- The commit hashes to commit.
+        /// * `commit_hashes`: The commit hashes to commit.
         ///
-        /// # Event:
-        /// * WeightsSet;
-        /// 	- On successfully setting the weights on chain.
-        /// * BatchWeightsCompleted;
-        /// 	- On success of the batch.
-        /// * BatchCompletedWithErrors;
-        /// 	- On failure of any of the weights in the batch.
-        /// * BatchWeightItemFailed;
-        /// 	- On failure for each failed item in the batch.
+        /// # Events
+        /// * `WeightsSet`: On successfully setting the weights on chain.
+        /// * `BatchWeightsCompleted`: On success of the batch.
+        /// * `BatchCompletedWithErrors`: On failure of any of the weights in the batch.
+        /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(100)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_commit_weights(), DispatchClass::Normal, Pays::No))]
@@ -309,42 +256,31 @@ mod dispatches {
             Self::do_batch_commit_weights(origin, netuids, commit_hashes)
         }
 
-        /// ---- Used to reveal the weights for a previously committed hash.
+        /// Used to reveal the weights for a previously committed hash.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The signature of the revealing hotkey.
+        /// # Arguments
+        /// * `origin`: The signature of the revealing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `uids` (`Vec<u16>`):
-        ///   - The uids for the weights being revealed.
+        /// * `uids`: The uids for the weights being revealed.
         ///
-        /// * `values` (`Vec<u16>`):
-        ///   - The values of the weights being revealed.
+        /// * `values`: The values of the weights being revealed.
         ///
-        /// * `salt` (`Vec<u16>`):
-        ///   - The salt used to generate the commit hash.
+        /// * `salt`: The salt used to generate the commit hash.
         ///
-        /// * `version_key` (`u64`):
-        ///   - The network version key.
+        /// * `version_key`: The network version key.
         ///
-        /// # Raises:
-        /// * `CommitRevealDisabled`:
-        ///   - Attempting to reveal weights when the commit-reveal mechanism is disabled.
+        /// # Errors
+        /// * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.
         ///
-        /// * `NoWeightsCommitFound`:
-        ///   - Attempting to reveal weights without an existing commit.
+        /// * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.
         ///
-        /// * `ExpiredWeightCommit`:
-        ///   - Attempting to reveal a weight commit that has expired.
+        /// * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.
         ///
-        /// * `RevealTooEarly`:
-        ///   - Attempting to reveal weights outside the valid reveal period.
+        /// * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.
         ///
-        /// * `InvalidRevealCommitHashNotMatch`:
-        ///   - The revealed hash does not match any committed hash.
+        /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(97)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::reveal_weights(), DispatchClass::Normal, Pays::No))]
@@ -359,45 +295,33 @@ mod dispatches {
             Self::do_reveal_weights(origin, netuid, uids, values, salt, version_key)
         }
 
-        /// ---- Used to reveal the weights for a previously committed hash for mechanisms.
+        /// Used to reveal the weights for a previously committed hash for mechanisms.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The signature of the revealing hotkey.
+        /// # Arguments
+        /// * `origin`: The signature of the revealing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `mecid` (`u8`):
-        ///   - The u8 mechanism identifier.
+        /// * `mecid`: The u8 mechanism identifier.
         ///
-        /// * `uids` (`Vec<u16>`):
-        ///   - The uids for the weights being revealed.
+        /// * `uids`: The uids for the weights being revealed.
         ///
-        /// * `values` (`Vec<u16>`):
-        ///   - The values of the weights being revealed.
+        /// * `values`: The values of the weights being revealed.
         ///
-        /// * `salt` (`Vec<u16>`):
-        ///   - The salt used to generate the commit hash.
+        /// * `salt`: The salt used to generate the commit hash.
         ///
-        /// * `version_key` (`u64`):
-        ///   - The network version key.
+        /// * `version_key`: The network version key.
         ///
-        /// # Raises:
-        /// * `CommitRevealDisabled`:
-        ///   - Attempting to reveal weights when the commit-reveal mechanism is disabled.
+        /// # Errors
+        /// * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.
         ///
-        /// * `NoWeightsCommitFound`:
-        ///   - Attempting to reveal weights without an existing commit.
+        /// * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.
         ///
-        /// * `ExpiredWeightCommit`:
-        ///   - Attempting to reveal a weight commit that has expired.
+        /// * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.
         ///
-        /// * `RevealTooEarly`:
-        ///   - Attempting to reveal weights outside the valid reveal period.
+        /// * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.
         ///
-        /// * `InvalidRevealCommitHashNotMatch`:
-        ///   - The revealed hash does not match any committed hash.
+        /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(116)]
         #[pallet::weight((Weight::from_parts(122_000_000, 0)
@@ -423,35 +347,29 @@ mod dispatches {
             )
         }
 
-        /// ---- Used to commit encrypted commit-reveal v3 weight values to later be revealed.
-        ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The committing hotkey.
-        ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
-        ///
-        /// * `commit` (`Vec<u8>`):
-        ///   - The encrypted compressed commit.
-        ///     The steps for this are:
-        ///     1. Instantiate [`WeightsTlockPayload`]
-        ///     2. Serialize it using the `parity_scale_codec::Encode` trait
-        ///     3. Encrypt it following the steps (here)[https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336]
-        ///        to produce a [`TLECiphertext<TinyBLS381>`] type.
-        ///     4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.
-        ///
-        /// * reveal_round (`u64`):
-        ///    - The drand reveal round which will be avaliable during epoch `n+1` from the current
-        ///      epoch.
-        ///
-        /// # Raises:
-        /// * `CommitRevealV3Disabled`:
-        ///   - Attempting to commit when the commit-reveal mechanism is disabled.
-        ///
-        /// * `TooManyUnrevealedCommits`:
-        ///   - Attempting to commit when the user has more than the allowed limit of unrevealed commits.
-        ///
+        // Used to commit encrypted commit-reveal v3 weight values to later be revealed.
+        //
+        // # Arguments
+        // * `origin`: The committing hotkey.
+        //
+        // * `netuid`: The u16 network identifier.
+        //
+        // * `commit`: The encrypted compressed commit.
+        //     The steps for this are:
+        //     1. Instantiate [`WeightsTlockPayload`]
+        //     2. Serialize it using the `parity_scale_codec::Encode` trait
+        //     3. Encrypt it following the steps (here)[https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336]
+        //        to produce a [`TLECiphertext<TinyBLS381>`] type.
+        //     4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.
+        //
+        // * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current
+        //      epoch.
+        //
+        // # Errors
+        // * `CommitRevealV3Disabled`: Attempting to commit when the commit-reveal mechanism is disabled.
+        //
+        // * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
+        //
         // #[pallet::call_index(99)]
         // #[pallet::weight((Weight::from_parts(77_750_000, 0)
         // .saturating_add(T::DbWeight::get().reads(9_u64))
@@ -465,20 +383,16 @@ mod dispatches {
         //     Self::do_commit_timelocked_weights(origin, netuid, commit, reveal_round, 4)
         // }
 
-        /// ---- Used to commit encrypted commit-reveal v3 weight values to later be revealed for mechanisms.
+        /// Used to commit encrypted commit-reveal v3 weight values to later be revealed for mechanisms.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The committing hotkey.
+        /// # Arguments
+        /// * `origin`: The committing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `mecid` (`u8`):
-        ///   - The u8 mechanism identifier.
+        /// * `mecid`: The u8 mechanism identifier.
         ///
-        /// * `commit` (`Vec<u8>`):
-        ///   - The encrypted compressed commit.
+        /// * `commit`: The encrypted compressed commit.
         ///     The steps for this are:
         ///     1. Instantiate [`WeightsTlockPayload`]
         ///     2. Serialize it using the `parity_scale_codec::Encode` trait
@@ -486,16 +400,13 @@ mod dispatches {
         ///        to produce a [`TLECiphertext<TinyBLS381>`] type.
         ///     4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.
         ///
-        /// * reveal_round (`u64`):
-        ///    - The drand reveal round which will be avaliable during epoch `n+1` from the current
+        /// * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current
         ///      epoch.
         ///
-        /// # Raises:
-        /// * `CommitRevealV3Disabled`:
-        ///   - Attempting to commit when the commit-reveal mechanism is disabled.
+        /// # Errors
+        /// * `CommitRevealV3Disabled`: Attempting to commit when the commit-reveal mechanism is disabled.
         ///
-        /// * `TooManyUnrevealedCommits`:
-        ///   - Attempting to commit when the user has more than the allowed limit of unrevealed commits.
+        /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(117)]
         #[pallet::weight((Weight::from_parts(77_750_000, 0)
@@ -518,45 +429,33 @@ mod dispatches {
             )
         }
 
-        /// ---- The implementation for batch revealing committed weights.
+        /// The implementation for batch revealing committed weights.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The signature of the revealing hotkey.
+        /// # Arguments
+        /// * `origin`: The signature of the revealing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `uids_list` (`Vec<Vec<u16>>`):
-        ///   - A list of uids for each set of weights being revealed.
+        /// * `uids_list`: A list of uids for each set of weights being revealed.
         ///
-        /// * `values_list` (`Vec<Vec<u16>>`):
-        ///   - A list of values for each set of weights being revealed.
+        /// * `values_list`: A list of values for each set of weights being revealed.
         ///
-        /// * `salts_list` (`Vec<Vec<u16>>`):
-        ///   - A list of salts used to generate the commit hashes.
+        /// * `salts_list`: A list of salts used to generate the commit hashes.
         ///
-        /// * `version_keys` (`Vec<u64>`):
-        ///   - A list of network version keys.
+        /// * `version_keys`: A list of network version keys.
         ///
-        /// # Raises:
-        /// * `CommitRevealDisabled`:
-        ///   - Attempting to reveal weights when the commit-reveal mechanism is disabled.
+        /// # Errors
+        /// * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.
         ///
-        /// * `NoWeightsCommitFound`:
-        ///   - Attempting to reveal weights without an existing commit.
+        /// * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.
         ///
-        /// * `ExpiredWeightCommit`:
-        ///   - Attempting to reveal a weight commit that has expired.
+        /// * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.
         ///
-        /// * `RevealTooEarly`:
-        ///   - Attempting to reveal weights outside the valid reveal period.
+        /// * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.
         ///
-        /// * `InvalidRevealCommitHashNotMatch`:
-        ///   - The revealed hash does not match any committed hash.
+        /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
-        /// * `InvalidInputLengths`:
-        ///   - The input vectors are of mismatched lengths.
+        /// * `InvalidInputLengths`: The input vectors are of mismatched lengths.
         #[pallet::call_index(98)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_reveal_weights(), DispatchClass::Normal, Pays::No))]
         pub fn batch_reveal_weights(
@@ -577,121 +476,99 @@ mod dispatches {
             )
         }
 
-        /// --- Allows delegates to decrease its take value.
+        /// Allows delegates to decrease its take value.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>::Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * 'hotkey' (T::AccountId):
-        /// 	- The hotkey we are delegating (must be owned by the coldkey.)
+        /// * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).
         ///
-        /// * 'netuid' (u16):
-        /// 	- Subnet ID to decrease take for
+        /// * `netuid`: Subnet ID to decrease take for.
         ///
-        /// * 'take' (u16):
-        /// 	- The new stake proportion that this hotkey takes from delegations.
-        ///        The new value can be between 0 and 11_796 and should be strictly
-        ///        lower than the previous value. It T is the new value (rational number),
+        /// * `take`: The new stake proportion that this hotkey takes from delegations.
+        ///        The new value can be between 0 and 11_796 parts and should be strictly
+        ///        lower than the previous value. If T is the new value (rational number),
         ///        the the parameter is calculated as [65535 * T]. For example, 1% would be
         ///        [0.01 * 65535] = [655.35] = 655
         ///
-        /// # Event:
-        /// * TakeDecreased;
-        /// 	- On successfully setting a decreased take for this hotkey.
+        /// # Events
+        /// * `TakeDecreased`: On successfully setting a decreased take for this hotkey.
         ///
-        /// # Raises:
-        /// * 'NotRegistered':
-        /// 	- The hotkey we are delegating is not registered on the network.
+        /// # Errors
+        /// * `NotRegistered`: The hotkey we are delegating is not registered on the network.
         ///
-        /// * 'NonAssociatedColdKey':
-        /// 	- The hotkey we are delegating is not owned by the calling coldkey.
+        /// * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.
         ///
-        /// * 'DelegateTakeTooLow':
-        /// 	- The delegate is setting a take which is not lower than the previous.
+        /// * `DelegateTakeTooLow`: The delegate is setting a take which is not lower than the previous.
         ///
         #[pallet::call_index(65)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::decrease_take(), DispatchClass::Normal, Pays::Yes))]
         pub fn decrease_take(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
-            take: u16,
+            take: PerU16,
         ) -> DispatchResult {
             Self::do_decrease_take(origin, hotkey, take)
         }
 
-        /// --- Allows delegates to increase its take value. This call is rate-limited.
+        /// Allows delegates to increase its take value. This call is rate-limited.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>::Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * 'hotkey' (T::AccountId):
-        /// 	- The hotkey we are delegating (must be owned by the coldkey.)
+        /// * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).
         ///
-        /// * 'take' (u16):
-        /// 	- The new stake proportion that this hotkey takes from delegations.
-        ///        The new value can be between 0 and 11_796 and should be strictly
+        /// * `take`: The new stake proportion that this hotkey takes from delegations.
+        ///        The new value can be between 0 and 11_796 parts and should be strictly
         ///        greater than the previous value. T is the new value (rational number),
         ///        the the parameter is calculated as [65535 * T]. For example, 1% would be
         ///        [0.01 * 65535] = [655.35] = 655
         ///
-        /// # Event:
-        /// * TakeIncreased;
-        /// 	- On successfully setting a increased take for this hotkey.
+        /// # Events
+        /// * `TakeIncreased`: On successfully setting a increased take for this hotkey.
         ///
-        /// # Raises:
-        /// * 'NotRegistered':
-        /// 	- The hotkey we are delegating is not registered on the network.
+        /// # Errors
+        /// * `NotRegistered`: The hotkey we are delegating is not registered on the network.
         ///
-        /// * 'NonAssociatedColdKey':
-        /// 	- The hotkey we are delegating is not owned by the calling coldkey.
+        /// * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.
         ///
-        /// * 'DelegateTakeTooHigh':
-        /// 	- The delegate is setting a take which is not greater than the previous.
+        /// * `DelegateTakeTooHigh`: The delegate is setting a take which is not greater than the previous.
         ///
         #[pallet::call_index(66)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::increase_take(), DispatchClass::Normal, Pays::Yes))]
         pub fn increase_take(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
-            take: u16,
+            take: PerU16,
         ) -> DispatchResult {
             Self::do_increase_take(origin, hotkey, take)
         }
 
-        /// --- Adds stake to a hotkey. The call is made from a coldkey account.
+        /// Adds stake to a hotkey. The call is made from a coldkey account.
         /// This delegates stake to the hotkey.
         ///
-        /// Note: the coldkey account may own the hotkey, in which case they are
+        /// # Note
+        /// The coldkey account may own the hotkey, in which case they are
         /// delegating to themselves.
         ///
-        /// # Args:
-        ///  * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        ///  * 'hotkey' (T::AccountId):
-        /// 	- The associated hotkey account.
+        /// * `hotkey`: The associated hotkey account.
         ///
-        /// * 'netuid' (u16):
-        ///     - Subnetwork UID
+        /// * `netuid`: Subnetwork UID.
         ///
-        ///  * 'amount_staked' (u64):
-        /// 	- The amount of stake to be added to the hotkey staking account.
+        /// * `amount_staked`: The amount of stake to be added to the hotkey staking account.
         ///
-        /// # Event:
-        ///  * StakeAdded;
-        /// 	- On the successfully adding stake to a global account.
+        /// # Events
+        /// * `StakeAdded`: On the successfully adding stake to a global account.
         ///
-        /// # Raises:
-        ///  * 'NotEnoughBalanceToStake':
-        /// 	- Not enough balance on the coldkey to add onto the global account.
+        /// # Errors
+        /// * `NotEnoughBalanceToStake`: Not enough balance on the coldkey to add onto the global account.
         ///
-        ///  * 'NonAssociatedColdKey':
-        /// 	- The calling coldkey is not associated with this hotkey.
+        /// * `NonAssociatedColdKey`: The calling coldkey is not associated with this hotkey.
         ///
-        ///  * 'BalanceWithdrawalError':
-        ///  	- Errors stemming from transaction pallet.
+        /// * `BalanceWithdrawalError`: Errors stemming from transaction pallet.
         ///
         #[pallet::call_index(2)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake())]
@@ -708,32 +585,24 @@ mod dispatches {
         /// from the coldkey account attached to the neuron metadata. Only this key
         /// has permission to make staking and unstaking requests.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * 'hotkey' (T::AccountId):
-        /// 	- The associated hotkey account.
+        /// * `hotkey`: The associated hotkey account.
         ///
-        /// * 'netuid' (u16):
-        ///     - Subnetwork UID
+        /// * `netuid`: Subnetwork UID.
         ///
-        /// * 'amount_unstaked' (u64):
-        /// 	- The amount of stake to be added to the hotkey staking account.
+        /// * `amount_unstaked`: The amount of stake to be added to the hotkey staking account.
         ///
-        /// # Event:
-        /// * StakeRemoved;
-        /// 	- On the successfully removing stake from the hotkey account.
+        /// # Events
+        /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
         ///
-        /// # Raises:
-        /// * 'NotRegistered':
-        /// 	- Thrown if the account we are attempting to unstake from is non existent.
+        /// # Errors
+        /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
         ///
-        /// * 'NonAssociatedColdKey':
-        /// 	- Thrown if the coldkey does not own the hotkey we are unstaking from.
+        /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
         ///
-        /// * 'NotEnoughStakeToWithdraw':
-        /// 	- Thrown if there is not enough stake on the hotkey to withdwraw this amount.
+        /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(3)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake())]
@@ -749,53 +618,38 @@ mod dispatches {
         /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
         /// already registered the metadata is updated. If the caller is not registered this call throws NotRegistered.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller.
+        /// # Arguments
+        /// * `origin`: The signature of the caller.
         ///
-        /// * 'netuid' (u16):
-        /// 	- The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * 'version' (u64):
-        /// 	- The bittensor version identifier.
+        /// * `version`: The bittensor version identifier.
         ///
-        /// * 'ip' (u64):
-        /// 	- The endpoint ip information as a u128 encoded integer.
+        /// * `ip`: The endpoint ip information as a u128 encoded integer.
         ///
-        /// * 'port' (u16):
-        /// 	- The endpoint port information as a u16 encoded integer.
+        /// * `port`: The endpoint port information as a u16 encoded integer.
         ///
-        /// * 'ip_type' (u8):
-        /// 	- The endpoint ip version as a u8, 4 or 6.
+        /// * `ip_type`: The endpoint ip version as a u8, 4 or 6.
         ///
-        /// * 'protocol' (u8):
-        /// 	- UDP:1 or TCP:0
+        /// * `protocol`: UDP:1 or TCP:0.
         ///
-        /// * 'placeholder1' (u8):
-        /// 	- Placeholder for further extra params.
+        /// * `placeholder1`: Placeholder for further extra params.
         ///
-        /// * 'placeholder2' (u8):
-        /// 	- Placeholder for further extra params.
+        /// * `placeholder2`: Placeholder for further extra params.
         ///
-        /// # Event:
-        /// * AxonServed;
-        /// 	- On successfully serving the axon info.
+        /// # Events
+        /// * `AxonServed`: On successfully serving the axon info.
         ///
-        /// # Raises:
-        /// * 'MechanismDoesNotExist':
-        /// 	- Attempting to set weights on a non-existent network.
+        /// # Errors
+        /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
         ///
-        /// * 'NotRegistered':
-        /// 	- Attempting to set weights from a non registered account.
+        /// * `NotRegistered`: Attempting to set weights from a non registered account.
         ///
-        /// * 'InvalidIpType':
-        /// 	- The ip type is not 4 or 6.
+        /// * `InvalidIpType`: The ip type is not 4 or 6.
         ///
-        /// * 'InvalidIpAddress':
-        /// 	- The numerically encoded ip address does not resolve to a proper ip.
+        /// * `InvalidIpAddress`: The numerically encoded ip address does not resolve to a proper ip.
         ///
-        /// * 'ServingRateLimitExceeded':
-        /// 	- Attempting to set prometheus information withing the rate limit min.
+        /// * `ServingRateLimitExceeded`: Attempting to set prometheus information withing the rate limit min.
         ///
         #[pallet::call_index(4)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon(), DispatchClass::Normal, Pays::No))]
@@ -828,56 +682,40 @@ mod dispatches {
         /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
         /// already registered the metadata is updated. If the caller is not registered this call throws NotRegistered.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller.
+        /// # Arguments
+        /// * `origin`: The signature of the caller.
         ///
-        /// * 'netuid' (u16):
-        /// 	- The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * 'version' (u64):
-        /// 	- The bittensor version identifier.
+        /// * `version`: The bittensor version identifier.
         ///
-        /// * 'ip' (u64):
-        /// 	- The endpoint ip information as a u128 encoded integer.
+        /// * `ip`: The endpoint ip information as a u128 encoded integer.
         ///
-        /// * 'port' (u16):
-        /// 	- The endpoint port information as a u16 encoded integer.
+        /// * `port`: The endpoint port information as a u16 encoded integer.
         ///
-        /// * 'ip_type' (u8):
-        /// 	- The endpoint ip version as a u8, 4 or 6.
+        /// * `ip_type`: The endpoint ip version as a u8, 4 or 6.
         ///
-        /// * 'protocol' (u8):
-        /// 	- UDP:1 or TCP:0
+        /// * `protocol`: UDP:1 or TCP:0.
         ///
-        /// * 'placeholder1' (u8):
-        /// 	- Placeholder for further extra params.
+        /// * `placeholder1`: Placeholder for further extra params.
         ///
-        /// * 'placeholder2' (u8):
-        /// 	- Placeholder for further extra params.
+        /// * `placeholder2`: Placeholder for further extra params.
         ///
-        /// * 'certificate' (Vec<u8>):
-        ///     - TLS certificate for inter neuron communitation.
+        /// * `certificate`: TLS certificate for inter neuron communitation.
         ///
-        /// # Event:
-        /// * AxonServed;
-        /// 	- On successfully serving the axon info.
+        /// # Events
+        /// * `AxonServed`: On successfully serving the axon info.
         ///
-        /// # Raises:
-        /// * 'MechanismDoesNotExist':
-        /// 	- Attempting to set weights on a non-existent network.
+        /// # Errors
+        /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
         ///
-        /// * 'NotRegistered':
-        /// 	- Attempting to set weights from a non registered account.
+        /// * `NotRegistered`: Attempting to set weights from a non registered account.
         ///
-        /// * 'InvalidIpType':
-        /// 	- The ip type is not 4 or 6.
+        /// * `InvalidIpType`: The ip type is not 4 or 6.
         ///
-        /// * 'InvalidIpAddress':
-        /// 	- The numerically encoded ip address does not resolve to a proper ip.
+        /// * `InvalidIpAddress`: The numerically encoded ip address does not resolve to a proper ip.
         ///
-        /// * 'ServingRateLimitExceeded':
-        /// 	- Attempting to set prometheus information withing the rate limit min.
+        /// * `ServingRateLimitExceeded`: Attempting to set prometheus information withing the rate limit min.
         ///
         #[pallet::call_index(40)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon_tls(), DispatchClass::Normal, Pays::No))]
@@ -907,25 +745,19 @@ mod dispatches {
             )
         }
 
-        /// ---- Set prometheus information for the neuron.
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the calling hotkey.
+        /// Set prometheus information for the neuron.
+        /// # Arguments
+        /// * `origin`: The signature of the calling hotkey.
         ///
-        /// * 'netuid' (u16):
-        /// 	- The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * 'version' (u16):
-        /// 	-  The bittensor version identifier.
+        /// * `version`: The bittensor version identifier.
         ///
-        /// * 'ip' (u128):
-        /// 	- The prometheus ip information as a u128 encoded integer.
+        /// * `ip`: The prometheus ip information as a u128 encoded integer.
         ///
-        /// * 'port' (u16):
-        /// 	- The prometheus port information as a u16 encoded integer.
+        /// * `port`: The prometheus port information as a u16 encoded integer.
         ///
-        /// * 'ip_type' (u8):
-        /// 	- The ip type v4 or v6.
+        /// * `ip_type`: The ip type v4 or v6.
         ///
         #[pallet::call_index(5)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_prometheus(), DispatchClass::Normal, Pays::No))]
@@ -940,52 +772,38 @@ mod dispatches {
             Self::do_serve_prometheus(origin, netuid, version, ip, port, ip_type)
         }
 
-        /// ---- Registers a new neuron to the subnetwork.
+        /// Registers a new neuron to the subnetwork.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the calling hotkey.
+        /// # Arguments
+        /// * `origin`: The signature of the calling hotkey.
         ///
-        /// * 'netuid' (u16):
-        /// 	- The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * 'block_number' ( u64 ):
-        /// 	- Block hash used to prove work done.
+        /// * `block_number`: Block hash used to prove work done.
         ///
-        /// * 'nonce' ( u64 ):
-        /// 	- Positive integer nonce used in POW.
+        /// * `nonce`: Positive integer nonce used in POW.
         ///
-        /// * 'work' ( Vec<u8> ):
-        /// 	- Vector encoded bytes representing work done.
+        /// * `work`: Vector encoded bytes representing work done.
         ///
-        /// * 'hotkey' ( T::AccountId ):
-        /// 	- Hotkey to be registered to the network.
+        /// * `hotkey`: Hotkey to be registered to the network.
         ///
-        /// * 'coldkey' ( T::AccountId ):
-        /// 	- Associated coldkey account.
+        /// * `coldkey`: Associated coldkey account.
         ///
-        /// # Event:
-        /// * NeuronRegistered;
-        /// 	- On successfully registering a uid to a neuron slot on a subnetwork.
+        /// # Events
+        /// * `NeuronRegistered`: On successfully registering a uid to a neuron slot on a subnetwork.
         ///
-        /// # Raises:
-        /// * 'MechanismDoesNotExist':
-        /// 	- Attempting to register to a non existent network.
+        /// # Errors
+        /// * `MechanismDoesNotExist`: Attempting to register to a non existent network.
         ///
-        /// * 'TooManyRegistrationsThisBlock':
-        /// 	- This registration exceeds the total allowed on this network this block.
+        /// * `TooManyRegistrationsThisBlock`: This registration exceeds the total allowed on this network this block.
         ///
-        /// * 'HotKeyAlreadyRegisteredInSubNet':
-        /// 	- The hotkey is already registered on this network.
+        /// * `HotKeyAlreadyRegisteredInSubNet`: The hotkey is already registered on this network.
         ///
-        /// * 'InvalidWorkBlock':
-        /// 	- The work has been performed on a stale, future, or non existent block.
+        /// * `InvalidWorkBlock`: The work has been performed on a stale, future, or non existent block.
         ///
-        /// * 'InvalidDifficulty':
-        /// 	- The work does not match the difficulty.
+        /// * `InvalidDifficulty`: The work does not match the difficulty.
         ///
-        /// * 'InvalidSeal':
-        /// 	- The seal is incorrect.
+        /// * `InvalidSeal`: The seal is incorrect.
         ///
         #[pallet::call_index(6)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register())]
@@ -1019,14 +837,13 @@ mod dispatches {
             Self::do_register(origin, netuid, hotkey)
         }
 
-        /// ---- The extrinsic for user to change its hotkey in subnet or all subnets.
+        /// The extrinsic for user to change its hotkey in subnet or all subnets.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction (must be signed by the coldkey).
-        /// * `hotkey` - The old hotkey to be swapped.
-        /// * `new_hotkey` - The new hotkey to replace the old one.
-        /// * `netuid` - Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
-        ///   is transferred to the new hotkey.
+        /// * `origin`: The origin of the transaction (must be signed by the coldkey).
+        /// * `hotkey`: The old hotkey to be swapped.
+        /// * `new_hotkey`: The new hotkey to replace the old one.
+        /// * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
         #[deprecated(
             note = "Please use swap_hotkey_v2 instead. This extrinsic will be removed some time after June 2026."
         )]
@@ -1041,16 +858,16 @@ mod dispatches {
             Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, false)
         }
 
-        /// ---- The extrinsic for user to change its hotkey in subnet or all subnets. This extrinsic is
+        /// The extrinsic for user to change its hotkey in subnet or all subnets. This extrinsic is
         /// similar to swap_hotkey, but with keep_stake parameter bo be able to keep the stake when swapping
         /// a root key to a child key
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction (must be signed by the coldkey).
-        /// * `hotkey` - The old hotkey to be swapped.
-        /// * `new_hotkey` - The new hotkey to replace the old one.
-        /// * `netuid` - Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
-        /// * `keep_stake` - If `true`, stake remains on the old hotkey and the rest metadata
+        /// * `origin`: The origin of the transaction (must be signed by the coldkey).
+        /// * `hotkey`: The old hotkey to be swapped.
+        /// * `new_hotkey`: The new hotkey to replace the old one.
+        /// * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
+        /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
         ///   is transferred to the new hotkey.
         #[pallet::call_index(72)]
         #[pallet::weight((Weight::from_parts(275_300_000, 0)
@@ -1097,28 +914,21 @@ mod dispatches {
         /// The childkey take determines the proportion of stake that the hotkey keeps for itself
         /// when distributing stake to its children.
         ///
-        /// # Arguments:
-        /// * `origin` (<T as frame_system::Config>::RuntimeOrigin):
-        ///     - The signature of the calling coldkey. Setting childkey take can only be done by the coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the calling coldkey. Setting childkey take can only be done by the coldkey.
         ///
-        /// * `hotkey` (T::AccountId):
-        ///     - The hotkey for which the childkey take will be set.
+        /// * `hotkey`: The hotkey for which the childkey take will be set.
         ///
-        /// * `take` (u16):
-        ///     - The new childkey take value. This is a percentage represented as a value between 0 and 10000,
-        ///       where 10000 represents 100%.
+        /// * `take`: The new childkey take value. This is a ratio represented in parts per 65535,
+        ///       where 65535 represents 100%.
         ///
-        /// # Events:
-        /// * `ChildkeyTakeSet`:
-        ///     - On successfully setting the childkey take for a hotkey.
+        /// # Events
+        /// * `ChildkeyTakeSet`: On successfully setting the childkey take for a hotkey.
         ///
-        /// # Errors:
-        /// * `NonAssociatedColdKey`:
-        ///     - The coldkey does not own the hotkey.
-        /// * `InvalidChildkeyTake`:
-        ///     - The provided take value is invalid (greater than the maximum allowed take).
-        /// * `TxChildkeyTakeRateLimitExceeded`:
-        ///     - The rate limit for changing childkey take has been exceeded.
+        /// # Errors
+        /// * `NonAssociatedColdKey`: The coldkey does not own the hotkey.
+        /// * `InvalidChildkeyTake`: The provided take value is invalid (greater than the maximum allowed take).
+        /// * `TxChildkeyTakeRateLimitExceeded`: The rate limit for changing childkey take has been exceeded.
         ///
         #[pallet::call_index(75)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_childkey_take())]
@@ -1126,7 +936,7 @@ mod dispatches {
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
-            take: u16,
+            take: PerU16,
         ) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
 
@@ -1140,12 +950,12 @@ mod dispatches {
         ///
         /// This function can only be called by the root origin.
         ///
-        /// # Arguments:
-        /// * `origin` - The origin of the call, must be root.
-        /// * `tx_rate_limit` - The new rate limit in blocks.
+        /// # Arguments
+        /// * `origin`: The origin of the call, must be root.
+        /// * `tx_rate_limit`: The new rate limit in blocks.
         ///
-        /// # Errors:
-        /// * `BadOrigin` - If the origin is not root.
+        /// # Errors
+        /// * `BadOrigin`: If the origin is not root.
         ///
         #[pallet::call_index(69)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_tx_childkey_take_rate_limit())]
@@ -1162,18 +972,18 @@ mod dispatches {
         ///
         /// This function can only be called by the root origin.
         ///
-        /// # Arguments:
-        /// * `origin` - The origin of the call, must be root.
-        /// * `take` - The new minimum childkey take value.
+        /// # Arguments
+        /// * `origin`: The origin of the call, must be root.
+        /// * `take`: The new minimum childkey take value.
         ///
-        /// # Errors:
-        /// * `BadOrigin` - If the origin is not root.
+        /// # Errors
+        /// * `BadOrigin`: If the origin is not root.
         ///
         #[pallet::call_index(76)]
         #[pallet::weight(Weight::from_parts(6_000, 0)
         .saturating_add(T::DbWeight::get().reads(1))
         .saturating_add(T::DbWeight::get().writes(1)))]
-        pub fn sudo_set_min_childkey_take(origin: OriginFor<T>, take: u16) -> DispatchResult {
+        pub fn sudo_set_min_childkey_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             Self::set_min_childkey_take(take);
             Ok(())
@@ -1183,18 +993,18 @@ mod dispatches {
         ///
         /// This function can only be called by the root origin.
         ///
-        /// # Arguments:
-        /// * `origin` - The origin of the call, must be root.
-        /// * `take` - The new maximum childkey take value.
+        /// # Arguments
+        /// * `origin`: The origin of the call, must be root.
+        /// * `take`: The new maximum childkey take value.
         ///
-        /// # Errors:
-        /// * `BadOrigin` - If the origin is not root.
+        /// # Errors
+        /// * `BadOrigin`: If the origin is not root.
         ///
         #[pallet::call_index(77)]
         #[pallet::weight(Weight::from_parts(6_000, 0)
         .saturating_add(T::DbWeight::get().reads(1))
         .saturating_add(T::DbWeight::get().writes(1)))]
-        pub fn sudo_set_max_childkey_take(origin: OriginFor<T>, take: u16) -> DispatchResult {
+        pub fn sudo_set_max_childkey_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             Self::set_max_childkey_take(take);
             Ok(())
@@ -1246,37 +1056,27 @@ mod dispatches {
         /// This function allows a coldkey to set a single child for a given hotkey on a specified network.
         /// The proportion of the hotkey's stake to be allocated to the child is also specified.
         ///
-        /// # Arguments:
-        /// * `origin` (<T as frame_system::Config>::RuntimeOrigin):
-        ///     - The signature of the calling coldkey. Setting a hotkey child can only be done by the coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the calling coldkey. Setting a hotkey child can only be done by the coldkey.
         ///
-        /// * `hotkey` (T::AccountId):
-        ///     - The hotkey which will be assigned the child.
+        /// * `hotkey`: The hotkey which will be assigned the child.
         ///
-        /// * `child` (T::AccountId):
-        ///     - The child which will be assigned to the hotkey.
+        /// * `child`: The child which will be assigned to the hotkey.
         ///
-        /// * `netuid` (u16):
-        ///     - The u16 network identifier where the childkey will exist.
+        /// * `netuid`: The u16 network identifier where the childkey will exist.
         ///
-        /// * `proportion` (u64):
-        ///     - Proportion of the hotkey's stake to be given to the child, the value must be u64 normalized.
+        /// * `proportion`: Proportion of the hotkey's stake to be given to the child, the value must be u64 normalized.
         ///
-        /// # Events:
-        /// * `ChildAddedSingular`:
-        ///     - On successfully registering a child to a hotkey.
+        /// # Events
+        /// * `ChildAddedSingular`: On successfully registering a child to a hotkey.
         ///
-        /// # Errors:
-        /// * `MechanismDoesNotExist`:
-        ///     - Attempting to register to a non-existent network.
-        /// * `RegistrationNotPermittedOnRootSubnet`:
-        ///     - Attempting to register a child on the root network.
-        /// * `NonAssociatedColdKey`:
-        ///     - The coldkey does not own the hotkey or the child is the same as the hotkey.
-        /// * `HotKeyAccountNotExists`:
-        ///     - The hotkey account does not exist.
+        /// # Errors
+        /// * `MechanismDoesNotExist`: Attempting to register to a non-existent network.
+        /// * `RegistrationNotPermittedOnRootSubnet`: Attempting to register a child on the root network.
+        /// * `NonAssociatedColdKey`: The coldkey does not own the hotkey or the child is the same as the hotkey.
+        /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
         ///
-        /// # Detailed Explanation of Checks:
+        /// # Note
         /// 1. **Signature Verification**: Ensures that the caller has signed the transaction, verifying the coldkey.
         /// 2. **Root Network Check**: Ensures that the delegation is not on the root network, as child hotkeys are not valid on the root.
         /// 3. **Network Existence Check**: Ensures that the specified network exists.
@@ -1302,7 +1102,9 @@ mod dispatches {
 
         /// Schedules a coldkey swap operation to be executed at a future block.
         ///
-        /// WARNING: This function is deprecated, please migrate to `announce_coldkey_swap`/`coldkey_swap`
+        /// # Note
+        /// This function is deprecated; please migrate to
+        /// `announce_coldkey_swap` / `coldkey_swap`.
         #[pallet::call_index(73)]
         #[pallet::weight(T::DbWeight::get().reads(5))]
         #[deprecated(note = "Deprecated, please migrate to `announce_coldkey_swap`/`coldkey_swap`")]
@@ -1313,25 +1115,19 @@ mod dispatches {
             Err(Error::<T>::Deprecated.into())
         }
 
-        /// ---- Set prometheus information for the neuron.
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the calling hotkey.
+        /// Set prometheus information for the neuron.
+        /// # Arguments
+        /// * `origin`: The signature of the calling hotkey.
         ///
-        /// * 'netuid' (u16):
-        /// 	- The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * 'version' (u16):
-        /// 	-  The bittensor version identifier.
+        /// * `version`: The bittensor version identifier.
         ///
-        /// * 'ip' (u128):
-        /// 	- The prometheus ip information as a u128 encoded integer.
+        /// * `ip`: The prometheus ip information as a u128 encoded integer.
         ///
-        /// * 'port' (u16):
-        /// 	- The prometheus port information as a u16 encoded integer.
+        /// * `port`: The prometheus port information as a u16 encoded integer.
         ///
-        /// * 'ip_type' (u8):
-        /// 	- The ip type v4 or v6.
+        /// * `ip_type`: The ip type v4 or v6.
         ///
         #[pallet::call_index(68)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_identity())]
@@ -1357,22 +1153,17 @@ mod dispatches {
             )
         }
 
-        /// ---- Set the identity information for a subnet.
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the calling coldkey, which must be the owner of the subnet.
+        /// Set the identity information for a subnet.
+        /// # Arguments
+        /// * `origin`: The signature of the calling coldkey, which must be the owner of the subnet.
         ///
-        /// * `netuid` (u16):
-        ///     - The unique network identifier of the subnet.
+        /// * `netuid`: The unique network identifier of the subnet.
         ///
-        /// * `subnet_name` (Vec<u8>):
-        ///     - The name of the subnet.
+        /// * `subnet_name`: The name of the subnet.
         ///
-        /// * `github_repo` (Vec<u8>):
-        ///     - The GitHub repository associated with the subnet identity.
+        /// * `github_repo`: The GitHub repository associated with the subnet identity.
         ///
-        /// * `subnet_contact` (Vec<u8>):
-        ///     - The contact information for the subnet.
+        /// * `subnet_contact`: The contact information for the subnet.
         #[pallet::call_index(78)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_subnet_identity())]
         pub fn set_subnet_identity(
@@ -1412,88 +1203,68 @@ mod dispatches {
             Self::do_register_network(origin, &hotkey, 1, identity)
         }
 
-        /// ---- The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+        /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
         ///
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * `hotkey` (T::AccountId):
-        ///     - The associated hotkey account.
+        /// * `hotkey`: The associated hotkey account.
         ///
-        /// # Event:
-        /// * StakeRemoved;
-        ///     - On the successfully removing stake from the hotkey account.
+        /// # Events
+        /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
         ///
-        /// # Raises:
-        /// * `NotRegistered`:
-        ///     - Thrown if the account we are attempting to unstake from is non existent.
+        /// # Errors
+        /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
         ///
-        /// * `NonAssociatedColdKey`:
-        ///     - Thrown if the coldkey does not own the hotkey we are unstaking from.
+        /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
         ///
-        /// * `NotEnoughStakeToWithdraw`:
-        ///     - Thrown if there is not enough stake on the hotkey to withdraw this amount.
+        /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
         ///
-        /// * `TxRateLimitExceeded`:
-        ///     - Thrown if key has hit transaction rate limit
+        /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
         #[pallet::call_index(83)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
         pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_unstake_all(origin, hotkey)
         }
 
-        /// ---- The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+        /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
         ///
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * `hotkey` (T::AccountId):
-        ///     - The associated hotkey account.
+        /// * `hotkey`: The associated hotkey account.
         ///
-        /// # Event:
-        /// * StakeRemoved;
-        ///     - On the successfully removing stake from the hotkey account.
+        /// # Events
+        /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
         ///
-        /// # Raises:
-        /// * `NotRegistered`:
-        ///     - Thrown if the account we are attempting to unstake from is non existent.
+        /// # Errors
+        /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
         ///
-        /// * `NonAssociatedColdKey`:
-        ///     - Thrown if the coldkey does not own the hotkey we are unstaking from.
+        /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
         ///
-        /// * `NotEnoughStakeToWithdraw`:
-        ///     - Thrown if there is not enough stake on the hotkey to withdraw this amount.
+        /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
         ///
-        /// * `TxRateLimitExceeded`:
-        ///     - Thrown if key has hit transaction rate limit
+        /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
         #[pallet::call_index(84)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
         pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_unstake_all_alpha(origin, hotkey)
         }
 
-        /// ---- The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
+        /// The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
         ///
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * `origin_hotkey` (T::AccountId):
-        ///     - The hotkey account to move stake from.
+        /// * `origin_hotkey`: The hotkey account to move stake from.
         ///
-        /// * `destination_hotkey` (T::AccountId):
-        ///     - The hotkey account to move stake to.
+        /// * `destination_hotkey`: The hotkey account to move stake to.
         ///
-        /// * `origin_netuid` (T::AccountId):
-        ///     - The subnet ID to move stake from.
+        /// * `origin_netuid`: The subnet ID to move stake from.
         ///
-        /// * `destination_netuid` (T::AccountId):
-        ///     - The subnet ID to move stake to.
+        /// * `destination_netuid`: The subnet ID to move stake to.
         ///
-        /// * `alpha_amount` (T::AccountId):
-        ///     - The alpha stake amount to move.
+        /// * `alpha_amount`: The alpha stake amount to move.
         ///
         #[pallet::call_index(85)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
@@ -1519,20 +1290,23 @@ mod dispatches {
         /// while keeping the same hotkey.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction, which must be signed by the `origin_coldkey`.
-        /// * `destination_coldkey` - The coldkey to which the stake is transferred.
-        /// * `hotkey` - The hotkey associated with the stake.
-        /// * `origin_netuid` - The network/subnet ID to move stake from.
-        /// * `destination_netuid` - The network/subnet ID to move stake to (for cross-subnet transfer).
-        /// * `alpha_amount` - The amount of stake to transfer.
+        /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
+        /// * `destination_coldkey`: The coldkey to which the stake is transferred.
+        /// * `hotkey`: The hotkey associated with the stake.
+        /// * `origin_netuid`: The network/subnet ID to move stake from.
+        /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
+        /// * `alpha_amount`: The amount of stake to transfer.
         ///
         /// # Errors
-        /// Returns an error if:
-        /// * The origin is not signed by the correct coldkey.
-        /// * Either subnet does not exist.
-        /// * The hotkey does not exist.
-        /// * There is insufficient stake on `(origin_coldkey, hotkey, origin_netuid)`.
-        /// * The transfer amount is below the minimum stake requirement.
+        /// * `BadOrigin`: The transaction is not signed.
+        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
+        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
+        /// * `HotKeyAccountNotExists`: The `hotkey` account does not exist.
+        /// * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`.
+        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
+        /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
+        /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
+        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
         ///
         /// # Events
         /// May emit a `StakeTransferred` event on success.
@@ -1559,19 +1333,22 @@ mod dispatches {
         /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
-        /// * `hotkey` - The hotkey whose stake is being swapped.
-        /// * `origin_netuid` - The network/subnet ID from which stake is removed.
-        /// * `destination_netuid` - The network/subnet ID to which stake is added.
-        /// * `alpha_amount` - The amount of stake to swap.
+        /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
+        /// * `hotkey`: The hotkey whose stake is being swapped.
+        /// * `origin_netuid`: The network/subnet ID from which stake is removed.
+        /// * `destination_netuid`: The network/subnet ID to which stake is added.
+        /// * `alpha_amount`: The amount of stake to swap.
         ///
         /// # Errors
-        /// Returns an error if:
-        /// * The transaction is not signed by the correct coldkey (i.e., `coldkey_owns_hotkey` fails).
-        /// * Either `origin_netuid` or `destination_netuid` does not exist.
-        /// * The hotkey does not exist.
-        /// * There is insufficient stake on `(coldkey, hotkey, origin_netuid)`.
-        /// * The swap amount is below the minimum stake requirement.
+        /// * `BadOrigin`: The transaction is not signed.
+        /// * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same.
+        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
+        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
+        /// * `HotKeyAccountNotExists`: The `hotkey` account does not exist.
+        /// * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`.
+        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
+        /// * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement.
+        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
         ///
         /// # Events
         /// May emit a `StakeSwapped` event on success.
@@ -1593,7 +1370,7 @@ mod dispatches {
             )
         }
 
-        /// --- Adds stake to a hotkey on a subnet with a price limit.
+        /// Adds stake to a hotkey on a subnet with a price limit.
         /// This extrinsic allows to specify the limit price for alpha token
         /// at which or better (lower) the staking should execute.
         ///
@@ -1601,39 +1378,29 @@ mod dispatches {
         /// price, the staking order may execute only partially or not execute
         /// at all.
         ///
-        /// # Args:
-        ///  * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        ///  * 'hotkey' (T::AccountId):
-        /// 	- The associated hotkey account.
+        /// * `hotkey`: The associated hotkey account.
         ///
-        /// * 'netuid' (u16):
-        ///     - Subnetwork UID
+        /// * `netuid`: Subnetwork UID.
         ///
-        ///  * 'amount_staked' (u64):
-        /// 	- The amount of stake to be added to the hotkey staking account.
+        /// * `amount_staked`: The amount of stake to be added to the hotkey staking account.
         ///
-        ///  * 'limit_price' (u64):
-        /// 	- The limit price expressed in units of RAO per one Alpha.
+        /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
         ///
-        ///  * 'allow_partial' (bool):
-        /// 	- Allows partial execution of the amount. If set to false, this becomes
+        /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
         ///       fill or kill type or order.
         ///
-        /// # Event:
-        ///  * StakeAdded;
-        /// 	- On the successfully adding stake to a global account.
+        /// # Events
+        /// * `StakeAdded`: On the successfully adding stake to a global account.
         ///
-        /// # Raises:
-        ///  * 'NotEnoughBalanceToStake':
-        /// 	- Not enough balance on the coldkey to add onto the global account.
+        /// # Errors
+        /// * `NotEnoughBalanceToStake`: Not enough balance on the coldkey to add onto the global account.
         ///
-        ///  * 'NonAssociatedColdKey':
-        /// 	- The calling coldkey is not associated with this hotkey.
+        /// * `NonAssociatedColdKey`: The calling coldkey is not associated with this hotkey.
         ///
-        ///  * 'BalanceWithdrawalError':
-        ///  	- Errors stemming from transaction pallet.
+        /// * `BalanceWithdrawalError`: Errors stemming from transaction pallet.
         ///
         #[pallet::call_index(88)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake_limit())]
@@ -1656,7 +1423,7 @@ mod dispatches {
             .map(|_| ())
         }
 
-        /// --- Removes stake from a hotkey on a subnet with a price limit.
+        /// Removes stake from a hotkey on a subnet with a price limit.
         /// This extrinsic allows to specify the limit price for alpha token
         /// at which or better (higher) the staking should execute.
         ///
@@ -1664,39 +1431,29 @@ mod dispatches {
         /// price, the staking order may execute only partially or not execute
         /// at all.
         ///
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * 'hotkey' (T::AccountId):
-        /// 	- The associated hotkey account.
+        /// * `hotkey`: The associated hotkey account.
         ///
-        /// * 'netuid' (u16):
-        ///     - Subnetwork UID
+        /// * `netuid`: Subnetwork UID.
         ///
-        /// * 'amount_unstaked' (u64):
-        /// 	- The amount of stake to be added to the hotkey staking account.
+        /// * `amount_unstaked`: The amount of stake to be added to the hotkey staking account.
         ///
-        ///  * 'limit_price' (u64):
-        ///     - The limit price expressed in units of RAO per one Alpha.
+        /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
         ///
-        ///  * 'allow_partial' (bool):
-        ///     - Allows partial execution of the amount. If set to false, this becomes
+        /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
         ///       fill or kill type or order.
         ///
-        /// # Event:
-        /// * StakeRemoved;
-        /// 	- On the successfully removing stake from the hotkey account.
+        /// # Events
+        /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
         ///
-        /// # Raises:
-        /// * 'NotRegistered':
-        /// 	- Thrown if the account we are attempting to unstake from is non existent.
+        /// # Errors
+        /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
         ///
-        /// * 'NonAssociatedColdKey':
-        /// 	- Thrown if the coldkey does not own the hotkey we are unstaking from.
+        /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
         ///
-        /// * 'NotEnoughStakeToWithdraw':
-        /// 	- Thrown if there is not enough stake on the hotkey to withdwraw this amount.
+        /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
         ///
         #[pallet::call_index(89)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_limit())]
@@ -1721,21 +1478,25 @@ mod dispatches {
         /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
-        /// * `hotkey` - The hotkey whose stake is being swapped.
-        /// * `origin_netuid` - The network/subnet ID from which stake is removed.
-        /// * `destination_netuid` - The network/subnet ID to which stake is added.
-        /// * `alpha_amount` - The amount of stake to swap.
-        /// * `limit_price` - The limit price expressed in units of RAO per one Alpha.
-        /// * `allow_partial` - Allows partial execution of the amount. If set to false, this becomes fill or kill type or order.
+        /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
+        /// * `hotkey`: The hotkey whose stake is being swapped.
+        /// * `origin_netuid`: The network/subnet ID from which stake is removed.
+        /// * `destination_netuid`: The network/subnet ID to which stake is added.
+        /// * `alpha_amount`: The amount of stake to swap.
+        /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
+        /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type or order.
         ///
         /// # Errors
-        /// Returns an error if:
-        /// * The transaction is not signed by the correct coldkey (i.e., `coldkey_owns_hotkey` fails).
-        /// * Either `origin_netuid` or `destination_netuid` does not exist.
-        /// * The hotkey does not exist.
-        /// * There is insufficient stake on `(coldkey, hotkey, origin_netuid)`.
-        /// * The swap amount is below the minimum stake requirement.
+        /// * `BadOrigin`: The transaction is not signed.
+        /// * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same.
+        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
+        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
+        /// * `HotKeyAccountNotExists`: The `hotkey` account does not exist.
+        /// * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`.
+        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
+        /// * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement.
+        /// * `SlippageTooHigh`: `allow_partial` is false and the amount would cross the limit price.
+        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
         ///
         /// # Events
         /// May emit a `StakeSwapped` event on success.
@@ -1764,8 +1525,8 @@ mod dispatches {
         /// Attempts to associate a hotkey with a coldkey.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
-        /// * `hotkey` - The hotkey to associate with the coldkey.
+        /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
+        /// * `hotkey`: The hotkey to associate with the coldkey.
         ///
         /// # Note
         /// Will charge based on the weight even if the hotkey is already associated with a coldkey.
@@ -1782,8 +1543,8 @@ mod dispatches {
         /// Initiates a call on a subnet.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be signed by the subnet owner.
-        /// * `netuid` - The unique identifier of the subnet on which the call is being initiated.
+        /// * `origin`: The origin of the call, which must be signed by the subnet owner.
+        /// * `netuid`: The unique identifier of the subnet on which the call is being initiated.
         ///
         /// # Events
         /// Emits a `FirstEmissionBlockNumberSet` event on success.
@@ -1804,18 +1565,22 @@ mod dispatches {
         /// ```
         ///
         /// # Arguments
-        /// * `origin` - The origin of the transaction, which must be signed by the `hotkey`.
-        /// * `netuid` - The netuid that the `hotkey` belongs to.
-        /// * `evm_key` - The EVM key to associate with the `hotkey`.
-        /// * `block_number` - The block number used in the `signature`.
-        /// * `signature` - A signed message by the `evm_key` containing the `hotkey` and the hashed `block_number`.
+        /// * `origin`: The origin of the transaction, which must be signed by the `hotkey`.
+        /// * `netuid`: The netuid that the `hotkey` belongs to.
+        /// * `evm_key`: The EVM key to associate with the `hotkey`.
+        /// * `block_number`: The block number used in the `signature`.
+        /// * `signature`: A signed message by the `evm_key` containing the `hotkey` and the hashed `block_number`.
         ///
         /// # Errors
-        /// Returns an error if:
-        /// * The transaction is not signed.
-        /// * The hotkey does not belong to the subnet identified by the netuid.
-        /// * The EVM key cannot be recovered from the signature.
-        /// * The EVM key recovered from the signature does not match the given EVM key.
+        /// * `BadOrigin`: The transaction is not signed.
+        /// * `SubnetNotExists`: The subnet identified by `netuid` does not exist.
+        /// * `NonAssociatedColdKey`: The hotkey is not associated with a coldkey.
+        /// * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on the subnet identified by `netuid`.
+        /// * `EvmKeyAssociateRateLimitExceeded`: The association rate limit has not elapsed since the last association.
+        /// * `InvalidIdentity`: The public key cannot be recovered from the signature.
+        /// * `UnableToRecoverPublicKey`: The recovered public key cannot be parsed.
+        /// * `InvalidRecoveredPublicKey`: The EVM key recovered from the signature does not match the given `evm_key`.
+        /// * `EvmKeyAssociationLimitExceeded`: The EVM key is already associated with the maximum number of UIDs.
         ///
         /// # Events
         /// May emit a `EvmKeyAssociated` event on success
@@ -1838,10 +1603,10 @@ mod dispatches {
         /// Recycles alpha from a cold/hot key pair, reducing AlphaOut on a subnet
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call (must be signed by the coldkey)
-        /// * `hotkey` - The hotkey account
-        /// * `amount` - The amount of alpha to recycle
-        /// * `netuid` - The subnet ID
+        /// * `origin`: The origin of the call (must be signed by the coldkey)
+        /// * `hotkey`: The hotkey account
+        /// * `amount`: The amount of alpha to recycle
+        /// * `netuid`: The subnet ID
         ///
         /// # Events
         /// Emits a `TokensRecycled` event on success.
@@ -1859,10 +1624,10 @@ mod dispatches {
         /// Burns alpha from a cold/hot key pair without reducing `AlphaOut`
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call (must be signed by the coldkey)
-        /// * `hotkey` - The hotkey account
-        /// * `amount` - The amount of alpha to burn
-        /// * `netuid` - The subnet ID
+        /// * `origin`: The origin of the call (must be signed by the coldkey)
+        /// * `hotkey`: The hotkey account
+        /// * `amount`: The amount of alpha to burn
+        /// * `netuid`: The subnet ID
         ///
         /// # Events
         /// Emits a `TokensBurned` event on success.
@@ -1912,15 +1677,12 @@ mod dispatches {
         ///
         /// The leftover cap is refunded to the contributors and the beneficiary.
         ///
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * `emissions_share` (Percent):
-        ///     - The share of the emissions that the contributors will receive as dividends.
+        /// * `emissions_share`: The share of the emissions that the contributors will receive as dividends.
         ///
-        /// * `end_block` (Option<BlockNumberFor<T>>):
-        ///     - The block at which the lease will end. If not defined, the lease is perpetual.
+        /// * `end_block`: The block at which the lease will end. If not defined, the lease is perpetual.
         #[pallet::call_index(110)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
         pub fn register_leased_network(
@@ -1938,15 +1700,12 @@ mod dispatches {
         ///
         /// **The hotkey must be owned by the beneficiary coldkey.**
         ///
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * `lease_id` (LeaseId):
-        ///     - The ID of the lease to terminate.
+        /// * `lease_id`: The ID of the lease to terminate.
         ///
-        /// * `hotkey` (T::AccountId):
-        ///     - The hotkey of the beneficiary to mark as subnet owner hotkey.
+        /// * `hotkey`: The hotkey of the beneficiary to mark as subnet owner hotkey.
         #[pallet::call_index(111)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get()))]
         pub fn terminate_lease(
@@ -1960,15 +1719,15 @@ mod dispatches {
         /// Updates the symbol for a subnet.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner or root.
-        /// * `netuid` - The unique identifier of the subnet on which the symbol is being set.
-        /// * `symbol` - The symbol to set for the subnet.
+        /// * `origin`: The origin of the call, which must be the subnet owner or root.
+        /// * `netuid`: The unique identifier of the subnet on which the symbol is being set.
+        /// * `symbol`: The symbol to set for the subnet.
         ///
         /// # Errors
-        /// Returns an error if:
-        /// * The transaction is not signed by the subnet owner.
-        /// * The symbol does not exist.
-        /// * The symbol is already in use by another subnet.
+        /// * `BadOrigin`: The transaction is not signed by the subnet owner or root.
+        /// * `SubnetNotExists`: The subnet identified by `netuid` does not exist.
+        /// * `SymbolDoesNotExist`: The symbol is not one of the recognized symbols.
+        /// * `SymbolAlreadyInUse`: The symbol is already in use by another subnet.
         ///
         /// # Events
         /// Emits a `SymbolUpdated` event on success.
@@ -1991,17 +1750,14 @@ mod dispatches {
             Ok(())
         }
 
-        /// ---- Used to commit timelock encrypted commit-reveal weight values to later be revealed.
+        /// Used to commit timelock encrypted commit-reveal weight values to later be revealed.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The committing hotkey.
+        /// # Arguments
+        /// * `origin`: The committing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `commit` (`Vec<u8>`):
-        ///   - The encrypted compressed commit.
+        /// * `commit`: The encrypted compressed commit.
         ///     The steps for this are:
         ///     1. Instantiate [`WeightsTlockPayload`]
         ///     2. Serialize it using the `parity_scale_codec::Encode` trait
@@ -2009,12 +1765,10 @@ mod dispatches {
         ///        to produce a [`TLECiphertext<TinyBLS381>`] type.
         ///     4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.
         ///
-        /// * reveal_round (`u64`):
-        ///    - The drand reveal round which will be avaliable during epoch `n+1` from the current
+        /// * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current
         ///      epoch.
         ///
-        /// * commit_reveal_version (`u16`):
-        ///     - The client (bittensor-drand) version
+        /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(113)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_weights(
@@ -2038,12 +1792,10 @@ mod dispatches {
         /// The caller selects a hotkey where all future rewards
         /// will be automatically staked.
         ///
-        /// # Args:
-        /// * `origin` - (<T as frame_system::Config>::Origin):
-        ///     - The signature of the caller's coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// * `hotkey` (T::AccountId):
-        ///     - The hotkey account to designate as the autostake destination.
+        /// * `hotkey`: The hotkey account to designate as the autostake destination.
         #[pallet::call_index(114)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_coldkey_auto_stake_hotkey())]
         pub fn set_coldkey_auto_stake_hotkey(
@@ -2088,21 +1840,17 @@ mod dispatches {
             Ok(())
         }
 
-        /// ---- Used to commit timelock encrypted commit-reveal weight values to later be revealed for
+        /// Used to commit timelock encrypted commit-reveal weight values to later be revealed for
         /// a mechanism.
         ///
-        /// # Args:
-        /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-        ///   - The committing hotkey.
+        /// # Arguments
+        /// * `origin`: The committing hotkey.
         ///
-        /// * `netuid` (`u16`):
-        ///   - The u16 network identifier.
+        /// * `netuid`: The u16 network identifier.
         ///
-        /// * `mecid` (`u8`):
-        ///   - The u8 mechanism identifier.
+        /// * `mecid`: The u8 mechanism identifier.
         ///
-        /// * `commit` (`Vec<u8>`):
-        ///   - The encrypted compressed commit.
+        /// * `commit`: The encrypted compressed commit.
         ///     The steps for this are:
         ///     1. Instantiate [`WeightsTlockPayload`]
         ///     2. Serialize it using the `parity_scale_codec::Encode` trait
@@ -2110,12 +1858,10 @@ mod dispatches {
         ///        to produce a [`TLECiphertext<TinyBLS381>`] type.
         ///     4. Serialize and compress using the `ark-serialize` `CanonicalSerialize` trait.
         ///
-        /// * reveal_round (`u64`):
-        ///    - The drand reveal round which will be avaliable during epoch `n+1` from the current
+        /// * `reveal_round`: The drand reveal round which will be avaliable during epoch `n+1` from the current
         ///      epoch.
         ///
-        /// * commit_reveal_version (`u16`):
-        ///     - The client (bittensor-drand) version
+        /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(118)]
         #[pallet::weight((Weight::from_parts(84_020_000, 0)
 		.saturating_add(T::DbWeight::get().reads(9_u64))
@@ -2149,16 +1895,15 @@ mod dispatches {
             Self::do_dissolve_network(netuid)
         }
 
-        /// --- Claims the root emissions for a coldkey.
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// Claims the root emissions for a coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// # Event:
-        /// * RootClaimed;
-        /// 	- On the successfully claiming the root emissions for a coldkey.
+        /// # Events
+        /// * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.
         ///
-        /// # Raises:
+        /// # Errors
+        /// * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims.
         ///
         #[pallet::call_index(121)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
@@ -2180,14 +1925,12 @@ mod dispatches {
             Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// --- Sets the root claim type for the coldkey.
-        /// # Args:
-        /// * 'origin': (<T as frame_system::Config>Origin):
-        /// 	- The signature of the caller's coldkey.
+        /// Sets the root claim type for the coldkey.
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
         ///
-        /// # Event:
-        /// * RootClaimTypeSet;
-        /// 	- On the successfully setting the root claim type for the coldkey.
+        /// # Events
+        /// * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey.
         ///
         #[pallet::call_index(122)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_root_claim_type())]
@@ -2207,7 +1950,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// --- Sets root claim number (sudo extrinsic). Zero disables auto-claim.
+        /// Sets root claim number (sudo extrinsic). Zero disables auto-claim.
         #[pallet::call_index(123)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_num_root_claims())]
         pub fn sudo_set_num_root_claims(origin: OriginFor<T>, new_value: u64) -> DispatchResult {
@@ -2223,7 +1966,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// --- Sets root claim threshold for subnet (sudo or owner origin).
+        /// Sets root claim threshold for subnet (sudo or owner origin).
         #[pallet::call_index(124)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_root_claim_threshold())]
         pub fn sudo_set_root_claim_threshold(
@@ -2254,7 +1997,7 @@ mod dispatches {
         ///
         /// The dispatch origin of this call must be the original coldkey that made the announcement.
         ///
-        /// - `new_coldkey_hash`: The hash of the new coldkey using BlakeTwo256.
+        /// * `new_coldkey_hash`: The hash of the new coldkey using BlakeTwo256.
         ///
         /// The `ColdkeySwapAnnounced` event is emitted on successful announcement.
         ///
@@ -2292,7 +2035,7 @@ mod dispatches {
         ///
         /// The dispatch origin of this call must be the original coldkey that made the announcement.
         ///
-        /// - `new_coldkey`: The new coldkey to swap to. The BlakeTwo256 hash of the new coldkey must be
+        /// * `new_coldkey`: The new coldkey to swap to. The BlakeTwo256 hash of the new coldkey must be
         ///   the same as the announced coldkey hash.
         ///
         /// The `ColdkeySwapped` event is emitted on successful swap.
@@ -2325,7 +2068,7 @@ mod dispatches {
         /// This will prevent any further actions on the coldkey swap
         /// until triumvirate step in to resolve the issue.
         ///
-        /// - `coldkey`: The coldkey to dispute the swap for.
+        /// * `coldkey`: The coldkey to dispute the swap for.
         ///
         #[pallet::call_index(127)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dispute_coldkey_swap())]
@@ -2352,7 +2095,7 @@ mod dispatches {
         ///
         /// The dispatch origin of this call must be root.
         ///
-        /// - `coldkey`: The coldkey to reset the swap for.
+        /// * `coldkey`: The coldkey to reset the swap for.
         ///
         #[pallet::call_index(128)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap())]
@@ -2372,13 +2115,13 @@ mod dispatches {
         /// When enabled, voting power EMA is updated every epoch for all validators.
         /// Voting power starts at 0 and increases over epochs.
         ///
-        /// # Arguments:
-        /// * `origin` - The origin of the call, must be subnet owner or root.
-        /// * `netuid` - The subnet to enable voting power tracking for.
+        /// # Arguments
+        /// * `origin`: The origin of the call, must be subnet owner or root.
+        /// * `netuid`: The subnet to enable voting power tracking for.
         ///
-        /// # Errors:
-        /// * `SubnetNotExist` - If the subnet does not exist.
-        /// * `NotSubnetOwner` - If the caller is not the subnet owner or root.
+        /// # Errors
+        /// * `SubnetNotExist`: If the subnet does not exist.
+        /// * `NotSubnetOwner`: If the caller is not the subnet owner or root.
         #[pallet::call_index(129)]
         #[pallet::weight(Weight::from_parts(10_000, 0)
         .saturating_add(T::DbWeight::get().reads(2))
@@ -2397,14 +2140,14 @@ mod dispatches {
         /// Voting power tracking will continue for 14 days (grace period) after this call,
         /// then automatically disable and clear all VotingPower entries for the subnet.
         ///
-        /// # Arguments:
-        /// * `origin` - The origin of the call, must be subnet owner or root.
-        /// * `netuid` - The subnet to schedule disabling voting power tracking for.
+        /// # Arguments
+        /// * `origin`: The origin of the call, must be subnet owner or root.
+        /// * `netuid`: The subnet to schedule disabling voting power tracking for.
         ///
-        /// # Errors:
-        /// * `SubnetNotExist` - If the subnet does not exist.
-        /// * `NotSubnetOwner` - If the caller is not the subnet owner or root.
-        /// * `VotingPowerTrackingNotEnabled` - If voting power tracking is not enabled.
+        /// # Errors
+        /// * `SubnetNotExist`: If the subnet does not exist.
+        /// * `NotSubnetOwner`: If the caller is not the subnet owner or root.
+        /// * `VotingPowerTrackingNotEnabled`: If voting power tracking is not enabled.
         #[pallet::call_index(130)]
         #[pallet::weight(Weight::from_parts(10_000, 0)
         .saturating_add(T::DbWeight::get().reads(2))
@@ -2423,15 +2166,15 @@ mod dispatches {
         /// Higher alpha = faster response to stake changes.
         /// Alpha is stored as u64 with 18 decimal precision (1.0 = 10^18).
         ///
-        /// # Arguments:
-        /// * `origin` - The origin of the call, must be root.
-        /// * `netuid` - The subnet to set the alpha for.
-        /// * `alpha` - The new alpha value (u64 with 18 decimal precision).
+        /// # Arguments
+        /// * `origin`: The origin of the call, must be root.
+        /// * `netuid`: The subnet to set the alpha for.
+        /// * `alpha`: The new alpha value (u64 with 18 decimal precision).
         ///
-        /// # Errors:
-        /// * `BadOrigin` - If the origin is not root.
-        /// * `SubnetNotExist` - If the subnet does not exist.
-        /// * `InvalidVotingPowerEmaAlpha` - If alpha is greater than 10^18 (1.0).
+        /// # Errors
+        /// * `BadOrigin`: If the origin is not root.
+        /// * `SubnetNotExist`: If the subnet does not exist.
+        /// * `InvalidVotingPowerEmaAlpha`: If alpha is greater than 10^18 (1.0).
         #[pallet::call_index(131)]
         #[pallet::weight(Weight::from_parts(6_000, 0)
         .saturating_add(T::DbWeight::get().reads(1))
@@ -2445,7 +2188,7 @@ mod dispatches {
             Self::do_set_voting_power_ema_alpha(netuid, alpha)
         }
 
-        /// --- The extrinsic is a combination of add_stake(add_stake_limit) and burn_alpha. We buy
+        /// The extrinsic is a combination of add_stake(add_stake_limit) and burn_alpha. We buy
         /// alpha token first and immediately burn the acquired amount of alpha (aka Subnet buyback).
         #[pallet::call_index(132)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake_burn())]
@@ -2505,7 +2248,7 @@ mod dispatches {
             Self::do_register_limit(origin, netuid, hotkey, limit_price)
         }
 
-        /// --- Allows a root validator to toggle auto parent delegation
+        /// Allows a root validator to toggle auto parent delegation
         /// for new subnets owner hotkey
         #[pallet::call_index(135)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_auto_parent_delegation_enabled(), DispatchClass::Normal, Pays::Yes))]
@@ -2539,10 +2282,10 @@ mod dispatches {
         /// Top-up adds to the locked amount after rolling the lock state forward.
         ///
         /// # Arguments
-        /// * `origin` - Must be signed by the coldkey.
-        /// * `hotkey` - The hotkey to lock stake to.
-        /// * `netuid` - The subnet on which to lock.
-        /// * `amount` - The alpha amount to lock.
+        /// * `origin`: Must be signed by the coldkey.
+        /// * `hotkey`: The hotkey to lock stake to.
+        /// * `netuid`: The subnet on which to lock.
+        /// * `amount`: The alpha amount to lock.
         #[pallet::call_index(136)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::lock_stake())]
         pub fn lock_stake(
@@ -2562,11 +2305,11 @@ mod dispatches {
         /// reset to zero.
         ///
         /// # Arguments
-        /// * `origin` - Must be signed by the coldkey that owns the lock.
-        /// * `destination_hotkey` - The hotkey the lock should target after the move.
-        /// * `netuid` - The subnet on which the lock exists.
-        /// # Errors:
-        /// * `Error::<T>::NoExistingLock` - If no lock exists for the given coldkey and subnet.
+        /// * `origin`: Must be signed by the coldkey that owns the lock.
+        /// * `destination_hotkey`: The hotkey the lock should target after the move.
+        /// * `netuid`: The subnet on which the lock exists.
+        /// # Errors
+        /// * `Error::<T>::NoExistingLock`: If no lock exists for the given coldkey and subnet.
         #[pallet::call_index(137)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_lock())]
         pub fn move_lock(

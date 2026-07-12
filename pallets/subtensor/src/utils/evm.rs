@@ -37,11 +37,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `origin` - The origin of the call, which should be the hotkey.
-    /// * `netuid` - The unique identifier for the subnet that the hotkey belongs to.
-    /// * `evm_key` - The EVM address to associate with the `hotkey`.
-    /// * `block_number` - The block number used in the `signature`.
-    /// * `signature` - A signed message by the `evm_key` containing the `hotkey` and the hashed
+    /// * `origin`: The origin of the call, which should be the hotkey.
+    /// * `netuid`: The unique identifier for the subnet that the hotkey belongs to.
+    /// * `evm_key`: The EVM address to associate with the `hotkey`.
+    /// * `block_number`: The block number used in the `signature`.
+    /// * `signature`: A signed message by the `evm_key` containing the `hotkey` and the hashed
     ///   `block_number`.
     pub fn do_associate_evm_key(
         origin: OriginFor<T>,

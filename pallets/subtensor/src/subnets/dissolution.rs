@@ -88,16 +88,16 @@ impl DissolveCleanupStatus {
 impl<T: Config> Pallet<T> {
     /// Facilitates the removal of a user's subnetwork.
     ///
-    /// # Args:
-    /// * 'origin': ('T::RuntimeOrigin'): The calling origin. Must be signed.
-    /// * 'netuid': ('u16'): The unique identifier of the network to be removed.
+    /// # Arguments
+    /// * `origin`: ('T::RuntimeOrigin'): The calling origin. Must be signed.
+    /// * `netuid`: ('u16'): The unique identifier of the network to be removed.
     ///
-    /// # Event:
-    /// * 'NetworkRemoved': Emitted when a network is successfully removed.
+    /// # Events
+    /// * `NetworkRemoved`: Emitted when a network is successfully removed.
     ///
-    /// # Raises:
-    /// * 'MechanismDoesNotExist': If the specified network does not exist.
-    /// * 'NotSubnetOwner': If the caller does not own the specified subnet.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: If the specified network does not exist.
+    /// * `NotSubnetOwner`: If the caller does not own the specified subnet.
     ///
     pub fn do_dissolve_network(netuid: NetUid) -> dispatch::DispatchResult {
         // --- The network exists?

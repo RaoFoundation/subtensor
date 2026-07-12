@@ -8,14 +8,14 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `origin` - The origin of the call (must be signed by the coldkey)
-    /// * `hotkey` - The hotkey account
-    /// * `amount` - The amount of alpha to recycle
-    /// * `netuid` - The subnet ID from which to reduce AlphaOut
+    /// * `origin`: The origin of the call (must be signed by the coldkey)
+    /// * `hotkey`: The hotkey account
+    /// * `amount`: The amount of alpha to recycle
+    /// * `netuid`: The subnet ID from which to reduce AlphaOut
     ///
     /// # Returns
     ///
-    /// * `Result<AlphaBalance, DispatchError>` - The actual amount recycled, or error
+    /// * `Result<AlphaBalance, DispatchError>`: The actual amount recycled, or error
     pub fn do_recycle_alpha(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
@@ -69,14 +69,14 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `origin` - The origin of the call (must be signed by the coldkey)
-    /// * `hotkey` - The hotkey account
-    /// * `amount` - The "up to" amount of alpha to burn
-    /// * `netuid` - The subnet ID
+    /// * `origin`: The origin of the call (must be signed by the coldkey)
+    /// * `hotkey`: The hotkey account
+    /// * `amount`: The "up to" amount of alpha to burn
+    /// * `netuid`: The subnet ID
     ///
     /// # Returns
     ///
-    /// * `Result<AlphaBalance, DispatchError>` - The actual amount burned, or error
+    /// * `Result<AlphaBalance, DispatchError>`: The actual amount burned, or error
     pub fn do_burn_alpha(
         origin: OriginFor<T>,
         hotkey: T::AccountId,

@@ -4,37 +4,28 @@ use subtensor_swap_interface::{Order, SwapHandler};
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for the extrinsic add_stake: Adds stake to a hotkey account.
+    /// The implementation for the extrinsic add_stake: Adds stake to a hotkey account.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// * 'netuid' (u16):
-    ///     - Subnetwork UID
+    /// * `netuid`: Subnetwork UID.
     ///
-    /// * 'stake_to_be_added' (u64):
-    ///     -  The amount of stake to be added to the hotkey staking account.
+    /// * `stake_to_be_added`: The amount of stake to be added to the hotkey staking account.
     ///
-    /// # Event:
-    /// * StakeAdded;
-    ///     -  On the successfully adding stake to a global account.
+    /// # Events
+    /// * `StakeAdded`: On the successfully adding stake to a global account.
     ///
-    /// # Raises:
-    /// * 'NotEnoughBalanceToStake':
-    ///     -  Not enough balance on the coldkey to add onto the global account.
+    /// # Errors
+    /// * `NotEnoughBalanceToStake`: Not enough balance on the coldkey to add onto the global account.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  The calling coldkey is not associated with this hotkey.
+    /// * `NonAssociatedColdKey`: The calling coldkey is not associated with this hotkey.
     ///
-    /// * 'BalanceWithdrawalError':
-    ///     -  Errors stemming from transaction pallet.
+    /// * `BalanceWithdrawalError`: Errors stemming from transaction pallet.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_add_stake(
         origin: OriginFor<T>,
@@ -72,45 +63,34 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// ---- The implementation for the extrinsic add_stake_limit: Adds stake to a hotkey
+    /// The implementation for the extrinsic add_stake_limit: Adds stake to a hotkey
     /// account on a subnet with price limit.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// * 'netuid' (u16):
-    ///     - Subnetwork UID
+    /// * `netuid`: Subnetwork UID.
     ///
-    /// * 'stake_to_be_added' (u64):
-    ///     -  The amount of stake to be added to the hotkey staking account.
+    /// * `stake_to_be_added`: The amount of stake to be added to the hotkey staking account.
     ///
-    ///  * 'limit_price' (u64):
-    ///     - The limit price expressed in units of RAO per one Alpha.
+    /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
     ///
-    ///  * 'allow_partial' (bool):
-    ///     - Allows partial execution of the amount. If set to false, this becomes
+    /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
     ///       fill or kill type or order.
     ///
-    /// # Event:
-    /// * StakeAdded;
-    ///     -  On the successfully adding stake to a global account.
+    /// # Events
+    /// * `StakeAdded`: On the successfully adding stake to a global account.
     ///
-    /// # Raises:
-    /// * 'NotEnoughBalanceToStake':
-    ///     -  Not enough balance on the coldkey to add onto the global account.
+    /// # Errors
+    /// * `NotEnoughBalanceToStake`: Not enough balance on the coldkey to add onto the global account.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  The calling coldkey is not associated with this hotkey.
+    /// * `NonAssociatedColdKey`: The calling coldkey is not associated with this hotkey.
     ///
-    /// * 'BalanceWithdrawalError':
-    ///     -  Errors stemming from transaction pallet.
+    /// * `BalanceWithdrawalError`: Errors stemming from transaction pallet.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_add_stake_limit(
         origin: OriginFor<T>,

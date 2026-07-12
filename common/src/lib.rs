@@ -53,7 +53,7 @@ pub type Nonce = u32;
 pub const SMALL_TRANSFER_LIMIT: Balance = TaoBalance::new(500_000_000); // 0.5 TAO
 pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_000); // 0.5 Alpha
 
-#[freeze_struct("c972489bff40ae48")]
+#[freeze_struct("4184c565055c66a7")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -71,6 +71,7 @@ pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_0
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 #[serde(transparent)]
 pub struct NetUid(u16);
@@ -128,13 +129,6 @@ impl From<NetUid> for u16 {
 impl From<u16> for NetUid {
     fn from(value: u16) -> Self {
         Self(value)
-    }
-}
-
-impl TypeInfo for NetUid {
-    type Identity = <u16 as TypeInfo>::Identity;
-    fn type_info() -> scale_info::Type {
-        <u16 as TypeInfo>::type_info()
     }
 }
 
@@ -198,7 +192,7 @@ pub mod time {
     pub const DAYS: BlockNumber = HOURS * 24;
 }
 
-#[freeze_struct("7e5202d7f18b39d4")]
+#[freeze_struct("2477c9af9b0c5c26")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -216,6 +210,7 @@ pub mod time {
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 #[serde(transparent)]
 pub struct MechId(u8);
@@ -272,14 +267,7 @@ impl From<Compact<MechId>> for MechId {
     }
 }
 
-impl TypeInfo for MechId {
-    type Identity = <u8 as TypeInfo>::Identity;
-    fn type_info() -> scale_info::Type {
-        <u8 as TypeInfo>::type_info()
-    }
-}
-
-#[freeze_struct("2d995c5478e16d4d")]
+#[freeze_struct("c6bf75ee25c00b9")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -297,6 +285,7 @@ impl TypeInfo for MechId {
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 #[serde(transparent)]
 pub struct NetUidStorageIndex(u16);
@@ -344,13 +333,6 @@ impl From<NetUidStorageIndex> for u16 {
 impl From<u16> for NetUidStorageIndex {
     fn from(value: u16) -> Self {
         Self(value)
-    }
-}
-
-impl TypeInfo for NetUidStorageIndex {
-    type Identity = <u16 as TypeInfo>::Identity;
-    fn type_info() -> scale_info::Type {
-        <u16 as TypeInfo>::type_info()
     }
 }
 
@@ -403,6 +385,30 @@ mod tests {
     #[test]
     fn netuid_has_u16_bin_repr() {
         assert_eq!(NetUid(5).encode(), 5u16.encode());
+    }
+
+    // The metadata must carry the newtype identities (path segments) so SDKs can
+    // reconstruct NetUid/TaoBalance/AlphaBalance/... instead of seeing bare ints,
+    // while the SCALE encoding stays byte-identical to the inner integer.
+    #[test]
+    fn newtypes_keep_identity_in_metadata_and_bin_repr() {
+        use scale_info::TypeInfo;
+
+        fn assert_path<T: TypeInfo>(expected_ident: &str) {
+            let path = T::type_info().path;
+            assert_eq!(path.ident(), Some(expected_ident));
+        }
+
+        assert_path::<NetUid>("NetUid");
+        assert_path::<MechId>("MechId");
+        assert_path::<NetUidStorageIndex>("NetUidStorageIndex");
+        assert_path::<TaoBalance>("TaoBalance");
+        assert_path::<AlphaBalance>("AlphaBalance");
+
+        assert_eq!(MechId::from(7).encode(), 7u8.encode());
+        assert_eq!(NetUidStorageIndex::from(9).encode(), 9u16.encode());
+        assert_eq!(TaoBalance::new(11).encode(), 11u64.encode());
+        assert_eq!(AlphaBalance::new(13).encode(), 13u64.encode());
     }
 
     #[test]
