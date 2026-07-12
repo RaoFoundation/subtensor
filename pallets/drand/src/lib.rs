@@ -356,10 +356,26 @@ pub mod pallet {
                     .map_err(|_| Error::<T>::PulseVerificationError)?;
 
                 if is_verified {
-                    ensure!(
-                        pulse.round > last_stored_round,
-                        Error::<T>::InvalidRoundNumber
-                    );
+                    if is_first_storage {
+                        // No pulse has ever been stored, so this pulse anchors
+                        // LastStoredRound/OldestStoredRound. Accept any round > 0,
+                        // matching the offchain worker, which seeds LastStoredRound
+                        // to `current_round - 1` before submitting the first pulse.
+                        ensure!(
+                            pulse.round > last_stored_round,
+                            Error::<T>::InvalidRoundNumber
+                        );
+                    } else {
+                        // Once anchored, a pulse must advance by exactly one round.
+                        // A larger jump would leap `LastStoredRound` past the skipped
+                        // rounds, which could then never be stored (every later pulse
+                        // must be `last + 1`), permanently wedging the reveals and
+                        // metadata timelocks that reference them. See #2794.
+                        ensure!(
+                            pulse.round == last_stored_round.saturating_add(1),
+                            Error::<T>::InvalidRoundNumber
+                        );
+                    }
 
                     // Store the pulse
                     Pulses::<T>::insert(pulse.round, pulse.clone());
@@ -671,6 +687,15 @@ impl<T: Config> Pallet<T> {
                 // Drop stale rounds at mempool time to avoid re-including last block's rounds.
                 let last = LastStoredRound::<T>::get();
                 if r <= last {
+                    return InvalidTransaction::Stale.into();
+                }
+
+                // Reject rounds that would advance LastStoredRound too far in a single
+                // step. A leap past unfillable rounds wedges the reveals and timelocks
+                // that reference them (#2794). `MAX_PULSES_TO_FETCH` is the most rounds
+                // the offchain worker ever submits in one catch-up run, so anything
+                // further ahead is not a legitimate pulse and is dropped before dispatch.
+                if r > last.saturating_add(MAX_PULSES_TO_FETCH) {
                     return InvalidTransaction::Stale.into();
                 }
 
