@@ -350,10 +350,17 @@ jobs:
           - name: stake-sdk
             tests: >-
               test-hotkey-swap-and-proxy-stake.ts
-              test-net-tao-flow-emission-allocation.ts
-              test-total-issuance-trackers.ts
               test-alpha-deprecated-stake-histogram.ts
             sdk: true
+          # test-total-issuance-trackers legitimately waits ~6 min on chain
+          # state (see CLONE_REGRESSION_TIMEOUT_MS below), so the two
+          # emission/issuance tests get their own shard instead of
+          # serializing behind the stake-sdk pair.
+          - name: issuance
+            tests: >-
+              test-net-tao-flow-emission-allocation.ts
+              test-total-issuance-trackers.ts
+            sdk: false
     steps:
       - uses: actions/checkout@v4
 
@@ -465,7 +472,7 @@ jobs:
           # limit prunes a subnet and only emits NetworkAdded from on_idle
           # after the pruned subnet's chunked storage cleanup finishes
           # (~6 min on mainnet-scale state).
-          CLONE_REGRESSION_TIMEOUT_MS: ${{ matrix.shard.name == 'stake-sdk' && '1800000' || '900000' }}
+          CLONE_REGRESSION_TIMEOUT_MS: ${{ matrix.shard.name == 'issuance' && '1800000' || '900000' }}
         run: npm run test:clone-regressions
 
       - name: Install uv
