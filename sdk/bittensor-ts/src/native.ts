@@ -225,18 +225,18 @@ export interface NativeEpochScheduleState {
 }
 
 export interface NativeLedgerHandle {
-  appVersion(): { major: number; minor: number; patch: number }
+  appVersion(): Promise<{ major: number; minor: number; patch: number }>
   address(
     account: number,
     index: number,
     ss58Prefix: number,
     confirm: boolean,
-  ): { publicKey: Buffer; ss58Address: string }
-  sign(account: number, index: number, payload: Buffer, proof: Buffer): Buffer
+  ): Promise<{ publicKey: Buffer; ss58Address: string }>
+  sign(account: number, index: number, payload: Buffer, proof: Buffer): Promise<Buffer>
 }
 
 export interface NativeLedgerConstructor {
-  open(): NativeLedgerHandle
+  open(): Promise<NativeLedgerHandle>
 }
 
 export interface NativeBinding {
@@ -283,7 +283,7 @@ export interface NativeBinding {
   keypairFromSeed(seed: Buffer, cryptoType: number): NativeKeypairHandle
   keypairFromUri(uri: string, cryptoType: number): NativeKeypairHandle
   keypairFromPrivateKey(privateKey: string, cryptoType: number): NativeKeypairHandle
-  keypairFromEncryptedJson(jsonData: string, passphrase: string): NativeKeypairHandle
+  keypairFromEncryptedJson(jsonData: string, passphrase: string): Promise<NativeKeypairHandle>
   generateMnemonic(nWords: number): string
   encryptFor(ss58Address: string, message: Buffer, cryptoType: number): Buffer
   verifySignature(
@@ -295,21 +295,25 @@ export interface NativeBinding {
   publicKeyFromSs58(ss58Address: string): Buffer
   ss58FromPublic(publicKey: Buffer, ss58Format: number): string
   serializeKeypair(keypair: NativeKeypairHandle): Buffer
-  keypairToKeyfileData(keypair: NativeKeypairHandle, password?: string | null): Buffer
+  keypairToKeyfileData(
+    keypair: NativeKeypairHandle,
+    password?: string | null,
+  ): Promise<Buffer>
   deserializeKeypair(keyfileData: Buffer): NativeKeypairHandle
   deserializeKeypairFromKeyfile(
     keyfileData: Buffer,
     password?: string | null,
-  ): NativeKeypairHandle
-  readKeypairKeyfile(path: string, password?: string | null): NativeKeypairHandle
+  ): Promise<NativeKeypairHandle>
+  readKeypairKeyfile(path: string, password?: string | null): Promise<NativeKeypairHandle>
   writeKeypairKeyfile(
     keypair: NativeKeypairHandle,
     path: string,
     password: string | null | undefined,
     overwrite: boolean,
-  ): void
-  encryptKeyfileData(keyfileData: Buffer, password: string): Buffer
-  decryptKeyfileData(keyfileData: Buffer, password?: string | null): Buffer
+    allowPlaintext: boolean,
+  ): Promise<void>
+  encryptKeyfileData(keyfileData: Buffer, password: string): Promise<Buffer>
+  decryptKeyfileData(keyfileData: Buffer, password?: string | null): Promise<Buffer>
   keyfileDataIsEncrypted(keyfileData: Buffer): boolean
   keyfileDataIsEncryptedNacl(keyfileData: Buffer): boolean
   keyfileDataIsEncryptedAnsible(keyfileData: Buffer): boolean
@@ -358,8 +362,11 @@ export interface NativeBinding {
   mlkemNonceLength(): number
   mlkemKdfId(): Buffer
 
-  timelockEncryptAndCompress(data: Buffer, revealRound: bigint): Buffer
-  timelockDecryptAndDecompress(encryptedData: Buffer, signatureBytes: Buffer): Buffer
+  timelockEncryptAndCompress(data: Buffer, revealRound: bigint): Promise<Buffer>
+  timelockDecryptAndDecompress(
+    encryptedData: Buffer,
+    signatureBytes: Buffer,
+  ): Promise<Buffer>
   timelockGenerateCommitV2(
     uids: number[],
     values: number[],
@@ -368,31 +375,31 @@ export interface NativeBinding {
     subnetRevealPeriodEpochs: bigint,
     blockTime: number,
     hotkey: Buffer,
-  ): { ciphertext: Buffer; revealRound: bigint }
+  ): Promise<{ ciphertext: Buffer; revealRound: bigint }>
   timelockEncryptCommitment(
     data: string,
     blocksUntilReveal: bigint,
     blockTime: number,
-  ): { ciphertext: Buffer; revealRound: bigint }
+  ): Promise<{ ciphertext: Buffer; revealRound: bigint }>
   timelockEncryptNBlocks(
     data: Buffer,
     nBlocks: bigint,
     blockTime: number,
-  ): { ciphertext: Buffer; revealRound: bigint }
+  ): Promise<{ ciphertext: Buffer; revealRound: bigint }>
   timelockEncryptAtRound(
     data: Buffer,
     revealRound: bigint,
-  ): { ciphertext: Buffer; revealRound: bigint }
-  timelockGetRoundInfo(round?: bigint | null): { round: bigint; signature: string }
+  ): Promise<{ ciphertext: Buffer; revealRound: bigint }>
+  timelockGetRoundInfo(round?: bigint | null): Promise<{ round: bigint; signature: string }>
   timelockGetRevealRoundSignature(
     revealRound: bigint | null | undefined,
     noErrors: boolean,
-  ): string | null | undefined
+  ): Promise<string | null | undefined>
   timelockDecrypt(
     encryptedData: Buffer,
     noErrors: boolean,
-  ): Buffer | null | undefined
-  timelockDecryptWithSignature(encryptedData: Buffer, signatureHex: string): Buffer
+  ): Promise<Buffer | null | undefined>
+  timelockDecryptWithSignature(encryptedData: Buffer, signatureHex: string): Promise<Buffer>
   epochShouldRun(state: NativeEpochScheduleState, block: bigint): boolean
   epochCurrentPreRunCoinbase(state: NativeEpochScheduleState, block: bigint): bigint
   epochSimulateRunCoinbase(

@@ -114,16 +114,29 @@ await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
 await client.close()
 ```
 
+Transaction amount inputs are intentionally explicit. Pass `Balance.fromTao("1.25")`
+or `taoAmount("1.25")` for TAO-denominated values, and pass `123n` or
+`raoAmount("123")` for rao. Raw `number` and `string` amounts are rejected by
+transaction builders to avoid confusing `"1"` rao with `"1.0"` TAO. Decimal
+TAO/alpha amounts with more than nine fractional digits are rejected.
+
 `client.submit()` manages nonce reservation for in-process submissions. Detached
 flows using `signExtrinsic()` followed by `submitSigned()` or `watchSigned()`
 record the signed nonce after submission, but callers producing multiple
 detached transactions concurrently should pass explicit `nonce` values.
 
+`client.assertDescriptorSchema()` checks the exported storage, call, constant,
+and runtime API descriptor tables against the chain metadata loaded for a block.
+Run it in CI or application startup when relying on the convenience descriptor
+exports.
+
 Wallet private keyfiles are encrypted when `keyfilePassword` is supplied.
 Plaintext private keyfile writes require `allowPlaintext: true`; public-only
-keyfiles are still written without encryption. `createNewColdkey()` and
-`createNewHotkey()` return `{ wallet, keypair, mnemonic }` so callers can store
-the recovery phrase before relying on the persisted wallet.
+keyfiles are still written without encryption. Keyfile, wallet persistence,
+Ledger, and Drand-backed timelock operations are Promise-based so blocking I/O
+and expensive KDF work run off the JavaScript thread. `createNewColdkey()` and
+`createNewHotkey()` resolve to `{ wallet, keypair, mnemonic }` so callers can
+store the recovery phrase before relying on the persisted wallet.
 
 ## Browser example
 

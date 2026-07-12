@@ -3,7 +3,7 @@ import { CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './ke
 import { LedgerDevice } from './ledger'
 import { Runtime, eraBirth } from './runtime'
 import { toBuffer } from './wire'
-import { Balance, type BalanceLike, balanceRao } from './balance'
+import { Balance, type BalanceLike, type TransactionAmount, transactionAmountRao } from './balance'
 import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, StorageEntry, TransactionParams } from './types'
 
 export const SS58_FORMAT = 42
@@ -68,8 +68,8 @@ export interface JsonRpcTransportOptions {
 export interface SubmitOptions {
   nonce?: number
   period?: number | null
-  tip?: BalanceLike
-  tipAssetId?: BalanceLike | null
+  tip?: TransactionAmount
+  tipAssetId?: TransactionAmount | null
   metadataHash?: ByteLike | null
   waitForInclusion?: boolean
   waitForFinalization?: boolean
@@ -191,6 +191,13 @@ export interface BlockInfo {
   timestamp?: Date
 }
 
+export interface DescriptorSchemaIssue {
+  kind: 'storage' | 'constant' | 'runtimeApi' | 'call'
+  path: string
+  descriptor: Descriptor
+  message: string
+}
+
 interface RpcRequest {
   resolve(value: unknown): void
   reject(error: Error): void
@@ -235,6 +242,13 @@ interface RuntimeCacheEntry extends RuntimeVersionInfo {
 
 interface HeadRuntimeCacheEntry extends RuntimeCacheEntry {
   expiresAtMs: number
+}
+
+interface SigningSnapshot {
+  blockHash: string
+  blockNumber: number
+  runtime: Runtime
+  genesisHash: string
 }
 
 type NonceStatus = 'reserved' | 'submitted' | 'confirmed' | 'failed' | 'reusable' | 'ambiguous'
@@ -925,10 +939,10 @@ export class Client {
     }
   }
 
-  async chainInfo(runtime?: Runtime): Promise<ChainInfo> {
-    const resolvedRuntime = runtime ?? await this.runtimeAt()
+  async chainInfo(runtime?: Runtime, blockHash?: string | null): Promise<ChainInfo> {
+    const resolvedRuntime = runtime ?? await this.runtimeAt(blockHash)
     const [version, properties] = await Promise.all([
-      this.rpc('state_getRuntimeVersion'),
+      this.rpc('state_getRuntimeVersion', blockHash == null ? [] : [blockHash]),
       this.rpc('system_properties').catch(() => ({})),
     ])
     const runtimeVersion = version as { specName?: unknown; specVersion?: unknown }
@@ -1223,6 +1237,29 @@ export class Client {
     return READS.slice()
   }
 
+  async validateDescriptorSchema(block?: number | string | null): Promise<DescriptorSchemaIssue[]> {
+    const blockHash = await this.resolveBlockHash(block)
+    return validateDescriptorSchema(await this.runtimeAt(blockHash))
+  }
+
+  validate_descriptor_schema(block?: number | string | null): Promise<DescriptorSchemaIssue[]> {
+    return this.validateDescriptorSchema(block)
+  }
+
+  async assertDescriptorSchema(block?: number | string | null): Promise<void> {
+    const issues = await this.validateDescriptorSchema(block)
+    if (issues.length === 0) return
+    const sample = issues.slice(0, 8).map((issue) => `${issue.path}: ${issue.message}`)
+    throw new ChainError(
+      `descriptor schema drift detected (${issues.length} issue${issues.length === 1 ? '' : 's'}): ${sample.join('; ')}`,
+      issues,
+    )
+  }
+
+  assert_descriptor_schema(block?: number | string | null): Promise<void> {
+    return this.assertDescriptorSchema(block)
+  }
+
   async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
     return this.signExtrinsicWithNonce(call, signer, options, false)
   }
@@ -1236,18 +1273,21 @@ export class Client {
     let resolved: ResolvedSigner | undefined
     let reservation: NonceReservation | undefined
     try {
-      const runtime = await this.runtimeAt()
-      const callData = await this.callData(call)
+      const snapshot = await this.signingSnapshot()
+      const { runtime } = snapshot
+      const callData = this.callDataWithRuntime(call, runtime)
       resolved = await this.resolveSigner(signer, runtime)
       reservation = manageNonce && options.nonce == null
         ? await this.reserveNonce(resolved.ss58Address)
         : undefined
       const nonce = options.nonce ?? reservation?.nonce ?? await this.peekNextIndex(resolved.ss58Address)
       const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
-      const { era, eraBlockHash } = await this.normalizeEra(period)
-      const tip = balanceRao(options.tip ?? 0)
-      const tipAssetId = options.tipAssetId == null ? null : balanceRao(options.tipAssetId)
-      const chainInfo = resolved.requiresMetadataProof ? await this.chainInfo(runtime) : undefined
+      const { era, eraBlockHash } = await this.normalizeEra(period, snapshot)
+      const tip = transactionAmountRao(options.tip ?? 0n)
+      const tipAssetId = options.tipAssetId == null ? null : transactionAmountRao(options.tipAssetId)
+      const chainInfo = resolved.requiresMetadataProof
+        ? await this.chainInfo(runtime, snapshot.blockHash)
+        : undefined
       const metadataHash =
         options.metadataHash == null
           ? resolved.requiresMetadataProof
@@ -1259,7 +1299,7 @@ export class Client {
         nonce,
         tip,
         tipAssetId,
-        genesisHash: hexToBuffer(await this.genesisHash()),
+        genesisHash: hexToBuffer(snapshot.genesisHash),
         eraBlockHash: hexToBuffer(eraBlockHash),
         metadataHash,
       }
@@ -1660,18 +1700,18 @@ export class Client {
     return this.submitCall(pallet, fn, params, signer, options)
   }
 
-  transfer(signer: SignerLike, dest: string, amount: BalanceLike, options: SubmitOptions & { keepAlive?: boolean } = {}): Promise<ExtrinsicResult> {
+  transfer(signer: SignerLike, dest: string, amount: TransactionAmount, options: SubmitOptions & { keepAlive?: boolean } = {}): Promise<ExtrinsicResult> {
     return this.submit(calls.balances[options.keepAlive === false ? 'transferAllowDeath' : 'transferKeepAlive'](dest, amount), signer, {
       waitForInclusion: true,
       ...options,
     })
   }
 
-  transfer_keep_alive(signer: SignerLike, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  transfer_keep_alive(signer: SignerLike, dest: string, amount: TransactionAmount, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     return this.transfer(signer, dest, amount, { keepAlive: true, ...options })
   }
 
-  transfer_allow_death(signer: SignerLike, dest: string, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  transfer_allow_death(signer: SignerLike, dest: string, amount: TransactionAmount, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     return this.transfer(signer, dest, amount, { keepAlive: false, ...options })
   }
 
@@ -1801,6 +1841,27 @@ export class Client {
     return this.composeCall(pallet, fn, params, block)
   }
 
+  private callDataWithRuntime(call: CallLike, runtime: Runtime): Buffer {
+    if (Buffer.isBuffer(call) || call instanceof Uint8Array) return toBuffer(call, 'call')
+    const [pallet, fn, params] = normalizeCall(call)
+    return runtime.composeCall(pallet, fn, params)
+  }
+
+  private async signingSnapshot(): Promise<SigningSnapshot> {
+    const blockHash = await this.finalizedHead()
+    const [blockNumber, runtime, genesisHash] = await Promise.all([
+      this.blockNumber(blockHash),
+      this.runtimeAt(blockHash),
+      this.genesisHash(),
+    ])
+    return {
+      blockHash,
+      blockNumber,
+      runtime,
+      genesisHash,
+    }
+  }
+
   async resolveBlockHash(block?: number | string | null): Promise<string | null> {
     if (block == null) return null
     if (typeof block === 'string') return block
@@ -1870,12 +1931,20 @@ export class Client {
     throw new ChainError('signer must implement sign(), signPayload(), or signRaw()')
   }
 
-  private async normalizeEra(period: number | null): Promise<{ era: ScaleValue; eraBlockHash: string }> {
-    if (period == null) return { era: '00', eraBlockHash: await this.genesisHash() }
-    const finalized = await this.finalizedHead()
-    const current = await this.blockNumber(finalized)
+  private async normalizeEra(
+    period: number | null,
+    snapshot?: SigningSnapshot,
+  ): Promise<{ era: ScaleValue; eraBlockHash: string }> {
+    if (period == null) {
+      return { era: '00', eraBlockHash: snapshot?.genesisHash ?? await this.genesisHash() }
+    }
+    const finalized = snapshot?.blockHash ?? await this.finalizedHead()
+    const current = snapshot?.blockNumber ?? await this.blockNumber(finalized)
     const birth = Number(eraBirth(period, current))
-    return { era: { period, current }, eraBlockHash: await this.blockHash(birth) }
+    const eraBlockHash = birth === current && snapshot != null
+      ? snapshot.blockHash
+      : await this.blockHash(birth)
+    return { era: { period, current }, eraBlockHash }
   }
 
   private async resolveWatchedExtrinsic(
@@ -2191,19 +2260,19 @@ export class StakingNamespace {
     return this.positions(coldkey, block)
   }
 
-  addStake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  addStake(signer: SignerLike, hotkey: string, netuid: number, amount: TransactionAmount, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     return this.client.submit(calls.subtensor.addStake(hotkey, netuid, amount), signer, { waitForInclusion: true, ...options })
   }
 
-  add_stake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  add_stake(signer: SignerLike, hotkey: string, netuid: number, amount: TransactionAmount, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     return this.addStake(signer, hotkey, netuid, amount, options)
   }
 
-  removeStake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  removeStake(signer: SignerLike, hotkey: string, netuid: number, amount: TransactionAmount, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     return this.client.submit(calls.subtensor.removeStake(hotkey, netuid, amount), signer, { waitForInclusion: true, ...options })
   }
 
-  remove_stake(signer: SignerLike, hotkey: string, netuid: number, amount: BalanceLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
+  remove_stake(signer: SignerLike, hotkey: string, netuid: number, amount: TransactionAmount, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
     return this.removeStake(signer, hotkey, netuid, amount, options)
   }
 }
@@ -2332,16 +2401,16 @@ export const runtimeApis = runtimeApi
 
 export const calls = Object.freeze({
   balances: Object.freeze({
-    transferKeepAlive(dest: string, value: BalanceLike) {
-      return call('Balances', 'transfer_keep_alive', { dest, value: balanceRao(value) })
+    transferKeepAlive(dest: string, value: TransactionAmount) {
+      return call('Balances', 'transfer_keep_alive', { dest, value: transactionAmountRao(value) })
     },
-    transferAllowDeath(dest: string, value: BalanceLike) {
-      return call('Balances', 'transfer_allow_death', { dest, value: balanceRao(value) })
+    transferAllowDeath(dest: string, value: TransactionAmount) {
+      return call('Balances', 'transfer_allow_death', { dest, value: transactionAmountRao(value) })
     },
   }),
   subtensor: Object.freeze({
-    addStake(hotkey: string, netuid: number, amount: BalanceLike) {
-      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: balanceRao(amount) })
+    addStake(hotkey: string, netuid: number, amount: TransactionAmount) {
+      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: transactionAmountRao(amount) })
     },
     burnedRegister(netuid: number, hotkey: string) {
       return call('SubtensorModule', 'burned_register', { netuid, hotkey })
@@ -2349,13 +2418,13 @@ export const calls = Object.freeze({
     commitWeights(netuid: number, commitHash: ByteLike | string) {
       return call('SubtensorModule', 'commit_weights', { netuid, commit_hash: commitHash })
     },
-    moveStake(originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, amount: BalanceLike) {
+    moveStake(originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, amount: TransactionAmount) {
       return call('SubtensorModule', 'move_stake', {
         origin_hotkey: originHotkey,
         destination_hotkey: destinationHotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: balanceRao(amount),
+        alpha_amount: transactionAmountRao(amount),
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
@@ -2364,8 +2433,8 @@ export const calls = Object.freeze({
     registerNetwork(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
     },
-    removeStake(hotkey: string, netuid: number, amount: BalanceLike) {
-      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: balanceRao(amount) })
+    removeStake(hotkey: string, netuid: number, amount: TransactionAmount) {
+      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: transactionAmountRao(amount) })
     },
     revealWeights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
       return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
@@ -2388,13 +2457,13 @@ export const calls = Object.freeze({
     startCall(netuid: number) {
       return call('SubtensorModule', 'start_call', { netuid })
     },
-    transferStake(destinationColdkey: string, hotkey: string, originNetuid: number, destinationNetuid: number, amount: BalanceLike) {
+    transferStake(destinationColdkey: string, hotkey: string, originNetuid: number, destinationNetuid: number, amount: TransactionAmount) {
       return call('SubtensorModule', 'transfer_stake', {
         destination_coldkey: destinationColdkey,
         hotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: balanceRao(amount),
+        alpha_amount: transactionAmountRao(amount),
       })
     },
     unstakeAll(hotkey: string) {
@@ -2402,16 +2471,16 @@ export const calls = Object.freeze({
     },
   }),
   Balances: Object.freeze({
-    transfer_keep_alive(dest: string, value: BalanceLike) {
-      return call('Balances', 'transfer_keep_alive', { dest, value: balanceRao(value) })
+    transfer_keep_alive(dest: string, value: TransactionAmount) {
+      return call('Balances', 'transfer_keep_alive', { dest, value: transactionAmountRao(value) })
     },
-    transfer_allow_death(dest: string, value: BalanceLike) {
-      return call('Balances', 'transfer_allow_death', { dest, value: balanceRao(value) })
+    transfer_allow_death(dest: string, value: TransactionAmount) {
+      return call('Balances', 'transfer_allow_death', { dest, value: transactionAmountRao(value) })
     },
   }),
   SubtensorModule: Object.freeze({
-    add_stake(hotkey: string, netuid: number, amountStaked: BalanceLike) {
-      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: balanceRao(amountStaked) })
+    add_stake(hotkey: string, netuid: number, amountStaked: TransactionAmount) {
+      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: transactionAmountRao(amountStaked) })
     },
     burned_register(netuid: number, hotkey: string) {
       return call('SubtensorModule', 'burned_register', { netuid, hotkey })
@@ -2419,13 +2488,13 @@ export const calls = Object.freeze({
     commit_weights(netuid: number, commitHash: ByteLike | string) {
       return call('SubtensorModule', 'commit_weights', { netuid, commit_hash: commitHash })
     },
-    move_stake(originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, alphaAmount: BalanceLike) {
+    move_stake(originHotkey: string, destinationHotkey: string, originNetuid: number, destinationNetuid: number, alphaAmount: TransactionAmount) {
       return call('SubtensorModule', 'move_stake', {
         origin_hotkey: originHotkey,
         destination_hotkey: destinationHotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: balanceRao(alphaAmount),
+        alpha_amount: transactionAmountRao(alphaAmount),
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
@@ -2434,8 +2503,8 @@ export const calls = Object.freeze({
     register_network(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
     },
-    remove_stake(hotkey: string, netuid: number, amountUnstaked: BalanceLike) {
-      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: balanceRao(amountUnstaked) })
+    remove_stake(hotkey: string, netuid: number, amountUnstaked: TransactionAmount) {
+      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: transactionAmountRao(amountUnstaked) })
     },
     reveal_weights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
       return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
@@ -2458,13 +2527,13 @@ export const calls = Object.freeze({
     start_call(netuid: number) {
       return call('SubtensorModule', 'start_call', { netuid })
     },
-    transfer_stake(destinationColdkey: string, hotkey: string, originNetuid: number, destinationNetuid: number, alphaAmount: BalanceLike) {
+    transfer_stake(destinationColdkey: string, hotkey: string, originNetuid: number, destinationNetuid: number, alphaAmount: TransactionAmount) {
       return call('SubtensorModule', 'transfer_stake', {
         destination_coldkey: destinationColdkey,
         hotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: balanceRao(alphaAmount),
+        alpha_amount: transactionAmountRao(alphaAmount),
       })
     },
     unstake_all(hotkey: string) {
@@ -2472,6 +2541,86 @@ export const calls = Object.freeze({
     },
   }),
 })
+
+const CALL_DESCRIPTOR_ENTRIES: Array<{ path: string; descriptor: Descriptor }> = [
+  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive') },
+  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death') },
+  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake') },
+  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register') },
+  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights') },
+  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake') },
+  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register') },
+  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network') },
+  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake') },
+  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights') },
+  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register') },
+  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon') },
+  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus') },
+  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children') },
+  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights') },
+  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call') },
+  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake') },
+  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all') },
+]
+
+export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssue[] {
+  const issues: DescriptorSchemaIssue[] = []
+  for (const entry of descriptorEntries(storage, 'storage')) {
+    const [pallet, item] = entry.descriptor
+    const palletInfo = runtime.pallet(pallet)
+    if (palletInfo == null) {
+      issues.push({ ...entry, kind: 'storage', message: `pallet ${pallet} not found` })
+    } else if (!palletInfo.storage.some((storageItem) => storageItem.name === item)) {
+      issues.push({ ...entry, kind: 'storage', message: `storage item ${pallet}.${item} not found` })
+    }
+  }
+  for (const entry of descriptorEntries(constants, 'constants')) {
+    const [pallet, item] = entry.descriptor
+    const palletInfo = runtime.pallet(pallet)
+    if (palletInfo == null) {
+      issues.push({ ...entry, kind: 'constant', message: `pallet ${pallet} not found` })
+    } else if (runtime.constantInfo(pallet, item) == null) {
+      issues.push({ ...entry, kind: 'constant', message: `constant ${pallet}.${item} not found` })
+    }
+  }
+  const apiMap = runtime.runtimeApis()
+  for (const entry of descriptorEntries(runtimeApi, 'runtimeApi')) {
+    const [api, method] = entry.descriptor
+    if (apiMap[api] == null) {
+      issues.push({ ...entry, kind: 'runtimeApi', message: `runtime API ${api} not found` })
+    } else if (apiMap[api][method] == null) {
+      issues.push({ ...entry, kind: 'runtimeApi', message: `runtime API method ${api}.${method} not found` })
+    }
+  }
+  const metadata = runtime.metadataIr()
+  for (const entry of CALL_DESCRIPTOR_ENTRIES) {
+    const [pallet, item] = entry.descriptor
+    const palletInfo = metadata.pallets.find((candidate) => candidate.name === pallet)
+    if (palletInfo == null) {
+      issues.push({ ...entry, kind: 'call', message: `pallet ${pallet} not found` })
+    } else if (!palletInfo.calls.some((callInfo) => callInfo.name === item)) {
+      issues.push({ ...entry, kind: 'call', message: `call ${pallet}.${item} not found` })
+    }
+  }
+  return issues
+}
+
+function descriptorEntries(value: unknown, prefix: string): Array<{ path: string; descriptor: Descriptor }> {
+  if (isDescriptor(value)) return [{ path: prefix, descriptor: value }]
+  if (typeof value !== 'object' || value == null) return []
+  return Object.entries(value).flatMap(([key, child]) =>
+    descriptorEntries(child, `${prefix}.${key}`),
+  )
+}
+
+function isDescriptor(value: unknown): value is Descriptor {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === 'string' &&
+    typeof value[1] === 'string'
+  )
+}
 
 const READS = [
   { name: 'balance', category: 'Accounts & keys', params: ['coldkey_ss58'] },

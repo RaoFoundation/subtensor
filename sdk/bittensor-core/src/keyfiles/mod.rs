@@ -309,7 +309,14 @@ pub fn save_keypair_to_keyfile(
     path: &Path,
     password: Option<&str>,
     overwrite: bool,
+    allow_plaintext: bool,
 ) -> Result<(), CoreError> {
+    if keypair.has_private_key() && password.is_none() && !allow_plaintext {
+        return Err(key_err(
+            "plaintext private keyfile writes are disabled; provide a password or set allow_plaintext",
+        ));
+    }
+
     let parent = path
         .parent()
         .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;

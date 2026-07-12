@@ -8,7 +8,8 @@ use bittensor_core::timelock::constants;
 use bittensor_core::timelock::epoch_schedule::{self, EpochScheduleError, EpochScheduleState};
 use bittensor_core::timelock::{self, UserData, WeightsTlockPayload};
 use codec::{Decode, Encode};
-use napi::bindgen_prelude::{BigInt, Buffer};
+use napi::bindgen_prelude::{AsyncTask, BigInt, Buffer};
+use napi::{Env, Task};
 use napi_derive::napi;
 
 use crate::errors::{invalid_arg, CoreResultExt, NapiResult};
@@ -88,28 +89,266 @@ fn state_to_native(value: EpochScheduleState) -> NativeEpochScheduleState {
     }
 }
 
-fn ciphertext_round(value: (Vec<u8>, u64)) -> NativeCiphertextRound {
-    NativeCiphertextRound {
-        ciphertext: value.0.into(),
-        reveal_round: BigInt::from(value.1),
+pub struct CiphertextRoundOutput {
+    ciphertext: Vec<u8>,
+    reveal_round: u64,
+}
+
+impl From<(Vec<u8>, u64)> for CiphertextRoundOutput {
+    fn from(value: (Vec<u8>, u64)) -> Self {
+        Self {
+            ciphertext: value.0,
+            reveal_round: value.1,
+        }
+    }
+}
+
+pub struct TimelockEncryptAndCompressTask {
+    data: Vec<u8>,
+    reveal_round: u64,
+}
+
+impl Task for TimelockEncryptAndCompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::encrypt_and_compress(&self.data, self.reveal_round).napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+pub struct TimelockDecryptAndDecompressTask {
+    encrypted_data: Vec<u8>,
+    signature_bytes: Vec<u8>,
+}
+
+impl Task for TimelockDecryptAndDecompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::decrypt_and_decompress(&self.encrypted_data, &self.signature_bytes).napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output.into())
+    }
+}
+
+pub struct TimelockGenerateCommitV2Task {
+    uids: Vec<u16>,
+    values: Vec<u16>,
+    version_key: u64,
+    state: EpochScheduleState,
+    subnet_reveal_period_epochs: u64,
+    block_time: f64,
+    hotkey: Vec<u8>,
+}
+
+impl Task for TimelockGenerateCommitV2Task {
+    type Output = CiphertextRoundOutput;
+    type JsValue = NativeCiphertextRound;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::generate_commit_v2(
+            self.uids.clone(),
+            self.values.clone(),
+            self.version_key,
+            self.state.clone(),
+            self.subnet_reveal_period_epochs,
+            self.block_time,
+            self.hotkey.clone(),
+        )
+        .napi()
+        .map(Into::into)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(NativeCiphertextRound {
+            ciphertext: output.ciphertext.into(),
+            reveal_round: BigInt::from(output.reveal_round),
+        })
+    }
+}
+
+pub struct TimelockEncryptCommitmentTask {
+    data: String,
+    blocks_until_reveal: u64,
+    block_time: f64,
+}
+
+impl Task for TimelockEncryptCommitmentTask {
+    type Output = CiphertextRoundOutput;
+    type JsValue = NativeCiphertextRound;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::encrypt_commitment(&self.data, self.blocks_until_reveal, self.block_time)
+            .napi()
+            .map(Into::into)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(NativeCiphertextRound {
+            ciphertext: output.ciphertext.into(),
+            reveal_round: BigInt::from(output.reveal_round),
+        })
+    }
+}
+
+pub struct TimelockEncryptNBlocksTask {
+    data: Vec<u8>,
+    n_blocks: u64,
+    block_time: f64,
+}
+
+impl Task for TimelockEncryptNBlocksTask {
+    type Output = CiphertextRoundOutput;
+    type JsValue = NativeCiphertextRound;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::encrypt_n_blocks(&self.data, self.n_blocks, self.block_time)
+            .napi()
+            .map(Into::into)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(NativeCiphertextRound {
+            ciphertext: output.ciphertext.into(),
+            reveal_round: BigInt::from(output.reveal_round),
+        })
+    }
+}
+
+pub struct TimelockEncryptAtRoundTask {
+    data: Vec<u8>,
+    reveal_round: u64,
+}
+
+impl Task for TimelockEncryptAtRoundTask {
+    type Output = CiphertextRoundOutput;
+    type JsValue = NativeCiphertextRound;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::encrypt_at_round(&self.data, self.reveal_round)
+            .napi()
+            .map(Into::into)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(NativeCiphertextRound {
+            ciphertext: output.ciphertext.into(),
+            reveal_round: BigInt::from(output.reveal_round),
+        })
+    }
+}
+
+pub struct DrandResponseOutput {
+    round: u64,
+    signature: String,
+}
+
+pub struct TimelockGetRoundInfoTask {
+    round: Option<u64>,
+}
+
+impl Task for TimelockGetRoundInfoTask {
+    type Output = DrandResponseOutput;
+    type JsValue = NativeDrandResponse;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let response = timelock::get_round_info(self.round).napi()?;
+        Ok(DrandResponseOutput {
+            round: response.round,
+            signature: response.signature,
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(NativeDrandResponse {
+            round: BigInt::from(output.round),
+            signature: output.signature,
+        })
+    }
+}
+
+pub struct TimelockGetRevealRoundSignatureTask {
+    reveal_round: Option<u64>,
+    no_errors: bool,
+}
+
+impl Task for TimelockGetRevealRoundSignatureTask {
+    type Output = Option<String>;
+    type JsValue = Option<String>;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::get_reveal_round_signature(self.reveal_round, self.no_errors).napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct TimelockDecryptTask {
+    encrypted_data: Vec<u8>,
+    no_errors: bool,
+}
+
+impl Task for TimelockDecryptTask {
+    type Output = Option<Vec<u8>>;
+    type JsValue = Option<Buffer>;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::decrypt(&self.encrypted_data, self.no_errors).napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output.map(Into::into))
+    }
+}
+
+pub struct TimelockDecryptWithSignatureTask {
+    encrypted_data: Vec<u8>,
+    signature_hex: String,
+}
+
+impl Task for TimelockDecryptWithSignatureTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        timelock::decrypt_with_signature(&self.encrypted_data, &self.signature_hex).napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output.into())
     }
 }
 
 #[napi(js_name = "timelockEncryptAndCompress")]
-pub fn encrypt_and_compress(data: Buffer, reveal_round: BigInt) -> NapiResult<Buffer> {
-    timelock::encrypt_and_compress(data.as_ref(), bigint_u64("revealRound", &reveal_round)?)
-        .napi()
-        .map(Into::into)
+pub fn encrypt_and_compress(
+    data: Buffer,
+    reveal_round: BigInt,
+) -> NapiResult<AsyncTask<TimelockEncryptAndCompressTask>> {
+    Ok(AsyncTask::new(TimelockEncryptAndCompressTask {
+        data: data.to_vec(),
+        reveal_round: bigint_u64("revealRound", &reveal_round)?,
+    }))
 }
 
 #[napi(js_name = "timelockDecryptAndDecompress")]
 pub fn decrypt_and_decompress(
     encrypted_data: Buffer,
     signature_bytes: Buffer,
-) -> NapiResult<Buffer> {
-    timelock::decrypt_and_decompress(encrypted_data.as_ref(), signature_bytes.as_ref())
-        .napi()
-        .map(Into::into)
+) -> AsyncTask<TimelockDecryptAndDecompressTask> {
+    AsyncTask::new(TimelockDecryptAndDecompressTask {
+        encrypted_data: encrypted_data.to_vec(),
+        signature_bytes: signature_bytes.to_vec(),
+    })
 }
 
 #[napi(js_name = "timelockGenerateCommitV2")]
@@ -121,18 +360,19 @@ pub fn generate_commit_v2(
     subnet_reveal_period_epochs: BigInt,
     block_time: f64,
     hotkey: Buffer,
-) -> NapiResult<NativeCiphertextRound> {
-    timelock::generate_commit_v2(
+) -> NapiResult<AsyncTask<TimelockGenerateCommitV2Task>> {
+    Ok(AsyncTask::new(TimelockGenerateCommitV2Task {
         uids,
         values,
-        bigint_u64("versionKey", &version_key)?,
-        state_from_native(&state)?,
-        bigint_u64("subnetRevealPeriodEpochs", &subnet_reveal_period_epochs)?,
+        version_key: bigint_u64("versionKey", &version_key)?,
+        state: state_from_native(&state)?,
+        subnet_reveal_period_epochs: bigint_u64(
+            "subnetRevealPeriodEpochs",
+            &subnet_reveal_period_epochs,
+        )?,
         block_time,
-        hotkey.as_ref().to_vec(),
-    )
-    .napi()
-    .map(ciphertext_round)
+        hotkey: hotkey.to_vec(),
+    }))
 }
 
 #[napi(js_name = "timelockEncryptCommitment")]
@@ -140,14 +380,12 @@ pub fn encrypt_commitment(
     data: String,
     blocks_until_reveal: BigInt,
     block_time: f64,
-) -> NapiResult<NativeCiphertextRound> {
-    timelock::encrypt_commitment(
-        &data,
-        bigint_u64("blocksUntilReveal", &blocks_until_reveal)?,
+) -> NapiResult<AsyncTask<TimelockEncryptCommitmentTask>> {
+    Ok(AsyncTask::new(TimelockEncryptCommitmentTask {
+        data,
+        blocks_until_reveal: bigint_u64("blocksUntilReveal", &blocks_until_reveal)?,
         block_time,
-    )
-    .napi()
-    .map(ciphertext_round)
+    }))
 }
 
 #[napi(js_name = "timelockEncryptNBlocks")]
@@ -155,56 +393,66 @@ pub fn encrypt_n_blocks(
     data: Buffer,
     n_blocks: BigInt,
     block_time: f64,
-) -> NapiResult<NativeCiphertextRound> {
-    timelock::encrypt_n_blocks(data.as_ref(), bigint_u64("nBlocks", &n_blocks)?, block_time)
-        .napi()
-        .map(ciphertext_round)
+) -> NapiResult<AsyncTask<TimelockEncryptNBlocksTask>> {
+    Ok(AsyncTask::new(TimelockEncryptNBlocksTask {
+        data: data.to_vec(),
+        n_blocks: bigint_u64("nBlocks", &n_blocks)?,
+        block_time,
+    }))
 }
 
 #[napi(js_name = "timelockEncryptAtRound")]
-pub fn encrypt_at_round(data: Buffer, reveal_round: BigInt) -> NapiResult<NativeCiphertextRound> {
-    timelock::encrypt_at_round(data.as_ref(), bigint_u64("revealRound", &reveal_round)?)
-        .napi()
-        .map(ciphertext_round)
+pub fn encrypt_at_round(
+    data: Buffer,
+    reveal_round: BigInt,
+) -> NapiResult<AsyncTask<TimelockEncryptAtRoundTask>> {
+    Ok(AsyncTask::new(TimelockEncryptAtRoundTask {
+        data: data.to_vec(),
+        reveal_round: bigint_u64("revealRound", &reveal_round)?,
+    }))
 }
 
 #[napi(js_name = "timelockGetRoundInfo")]
-pub fn get_round_info(round: Option<BigInt>) -> NapiResult<NativeDrandResponse> {
+pub fn get_round_info(round: Option<BigInt>) -> NapiResult<AsyncTask<TimelockGetRoundInfoTask>> {
     let round = round
         .as_ref()
         .map(|value| bigint_u64("round", value))
         .transpose()?;
-    let response = timelock::get_round_info(round).napi()?;
-    Ok(NativeDrandResponse {
-        round: BigInt::from(response.round),
-        signature: response.signature,
-    })
+    Ok(AsyncTask::new(TimelockGetRoundInfoTask { round }))
 }
 
 #[napi(js_name = "timelockGetRevealRoundSignature")]
 pub fn get_reveal_round_signature(
     reveal_round: Option<BigInt>,
     no_errors: bool,
-) -> NapiResult<Option<String>> {
+) -> NapiResult<AsyncTask<TimelockGetRevealRoundSignatureTask>> {
     let reveal_round = reveal_round
         .as_ref()
         .map(|value| bigint_u64("revealRound", value))
         .transpose()?;
-    timelock::get_reveal_round_signature(reveal_round, no_errors).napi()
+    Ok(AsyncTask::new(TimelockGetRevealRoundSignatureTask {
+        reveal_round,
+        no_errors,
+    }))
 }
 
 #[napi(js_name = "timelockDecrypt")]
-pub fn decrypt(encrypted_data: Buffer, no_errors: bool) -> NapiResult<Option<Buffer>> {
-    timelock::decrypt(encrypted_data.as_ref(), no_errors)
-        .napi()
-        .map(|value| value.map(Into::into))
+pub fn decrypt(encrypted_data: Buffer, no_errors: bool) -> AsyncTask<TimelockDecryptTask> {
+    AsyncTask::new(TimelockDecryptTask {
+        encrypted_data: encrypted_data.to_vec(),
+        no_errors,
+    })
 }
 
 #[napi(js_name = "timelockDecryptWithSignature")]
-pub fn decrypt_with_signature(encrypted_data: Buffer, signature_hex: String) -> NapiResult<Buffer> {
-    timelock::decrypt_with_signature(encrypted_data.as_ref(), &signature_hex)
-        .napi()
-        .map(Into::into)
+pub fn decrypt_with_signature(
+    encrypted_data: Buffer,
+    signature_hex: String,
+) -> AsyncTask<TimelockDecryptWithSignatureTask> {
+    AsyncTask::new(TimelockDecryptWithSignatureTask {
+        encrypted_data: encrypted_data.to_vec(),
+        signature_hex,
+    })
 }
 
 #[napi(js_name = "epochShouldRun")]

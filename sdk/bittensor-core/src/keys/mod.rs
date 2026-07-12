@@ -154,6 +154,7 @@ fn ed25519_x25519_from_pair(
 
 // Each Keypair holds exactly one variant; the size skew between ed25519 and
 // public-only is irrelevant here.
+#[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum KeypairInner {
     Ed25519(ed25519::Pair),
@@ -178,6 +179,7 @@ impl KeypairInner {
     }
 }
 
+#[derive(Clone)]
 struct DerivationSource {
     base_uri: Zeroizing<String>,
     password: Option<Zeroizing<String>>,
@@ -235,6 +237,7 @@ impl DerivationSource {
 }
 
 /// An sr25519 or ed25519 keypair backed by the workspace's sp-core.
+#[derive(Clone)]
 pub struct Keypair {
     inner: KeypairInner,
     ss58_format: u16,

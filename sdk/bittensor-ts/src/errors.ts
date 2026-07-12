@@ -96,4 +96,14 @@ export function nativeCall<T>(operation: () => T): T {
   }
 }
 
+export async function nativeAsync<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    const value = await operation()
+    if (value instanceof Error) throw value
+    return value
+  } catch (error) {
+    throw mapNativeError(error)
+  }
+}
+
 export { BittensorCoreError as CoreError }

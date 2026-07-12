@@ -1,7 +1,19 @@
 export const RAO_PER_TAO = 1_000_000_000n
 const MAX_SAFE_RAO = BigInt(Number.MAX_SAFE_INTEGER)
+const AMOUNT_UNIT = '__bittensorAmountUnit'
 
 export type BalanceLike = Balance | bigint | number | string
+export type TransactionAmount = Balance | bigint | RaoAmount | TaoAmount
+
+export interface RaoAmount {
+  readonly [AMOUNT_UNIT]: 'rao'
+  readonly rao: bigint
+}
+
+export interface TaoAmount {
+  readonly [AMOUNT_UNIT]: 'tao'
+  readonly rao: bigint
+}
 
 export class UnitMismatchError extends Error {
   constructor(message: string) {
@@ -49,7 +61,10 @@ export class Balance {
     const negative = text.startsWith('-')
     const unsigned = negative ? text.slice(1) : text
     const [whole, fraction = ''] = unsigned.split('.', 2)
-    const padded = `${fraction}000000000`.slice(0, 9)
+    if (fraction.length > 9) {
+      throw new RangeError('balance amount cannot have more than 9 decimal places')
+    }
+    const padded = fraction.padEnd(9, '0')
     const rao = BigInt(whole || '0') * RAO_PER_TAO + BigInt(padded)
     return new Balance(negative ? -rao : rao, netuid, symbol)
   }
@@ -147,15 +162,56 @@ function formatRao(rao: bigint): string {
 
 export function balanceRao(value: BalanceLike): bigint {
   if (value instanceof Balance) return value.rao
+  return parseRao(value)
+}
+
+export function transactionAmountRao(value: TransactionAmount): bigint {
+  if (value instanceof Balance) return value.rao
+  if (typeof value === 'bigint') return value
+  if (isBrandedAmount(value)) return value.rao
+  throw new TypeError(
+    'transaction amount must be a Balance, bigint rao amount, raoAmount(...), or taoAmount(...)',
+  )
+}
+
+export function raoAmount(value: bigint | number | string): RaoAmount {
+  return Object.freeze({
+    [AMOUNT_UNIT]: 'rao',
+    rao: parseRao(value),
+  }) as RaoAmount
+}
+
+export function taoAmount(value: number | string): TaoAmount {
+  return Object.freeze({
+    [AMOUNT_UNIT]: 'tao',
+    rao: Balance.fromTao(value).rao,
+  }) as TaoAmount
+}
+
+function parseRao(value: bigint | number | string): bigint {
   if (typeof value === 'bigint') return value
   if (typeof value === 'number') {
     if (!Number.isSafeInteger(value)) throw new RangeError('balance rao must be a safe integer')
     return BigInt(value)
   }
-  if (/^-?\d+$/.test(value)) return BigInt(value)
-  return Balance.fromTao(value).rao
+  const text = value.trim()
+  if (/^-?\d+$/.test(text)) return BigInt(text)
+  throw new RangeError('balance rao must be an integer; use Balance.fromTao or taoAmount for decimal TAO')
+}
+
+function isBrandedAmount(value: unknown): value is RaoAmount | TaoAmount {
+  return (
+    typeof value === 'object' &&
+    value != null &&
+    ((value as Record<typeof AMOUNT_UNIT, unknown>)[AMOUNT_UNIT] === 'rao' ||
+      (value as Record<typeof AMOUNT_UNIT, unknown>)[AMOUNT_UNIT] === 'tao') &&
+    typeof (value as { rao?: unknown }).rao === 'bigint'
+  )
 }
 
 export const tao = Balance.fromTao
 export const alpha = Balance.fromAlpha
 export const rao = Balance.fromRao
+export const rao_amount = raoAmount
+export const tao_amount = taoAmount
+export const transaction_amount_rao = transactionAmountRao

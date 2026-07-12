@@ -1,5 +1,5 @@
 import native, { type NativeLedgerHandle } from './native'
-import { nativeCall } from './errors'
+import { nativeAsync } from './errors'
 import { toBuffer } from './wire'
 import type { ByteLike, LedgerAddress, LedgerVersion } from './types'
 
@@ -18,7 +18,7 @@ export class LedgerSigner {
     private readonly options: LedgerSignerOptions = {},
   ) {}
 
-  getAccount(context: { ss58Format?: number } = {}): LedgerAddress {
+  getAccount(context: { ss58Format?: number } = {}): Promise<LedgerAddress> {
     return this.device.address(
       this.options.account ?? 0,
       this.options.index ?? 0,
@@ -30,7 +30,7 @@ export class LedgerSigner {
   signPayload(
     payload: ByteLike,
     context: { proof?: ByteLike; metadataProof?: ByteLike } = {},
-  ): Buffer {
+  ): Promise<Buffer> {
     const proof = context.metadataProof ?? context.proof
     if (proof == null) {
       throw new Error('Ledger signing requires an RFC-0078 metadata proof')
@@ -47,26 +47,23 @@ export class LedgerSigner {
 export class LedgerDevice {
   private readonly handle: NativeLedgerHandle
 
-  constructor() {
-    this.handle = nativeCall(() => native.NativeLedgerDevice.open())
+  private constructor(handle: NativeLedgerHandle) {
+    if (handle == null) {
+      throw new TypeError('Use await LedgerDevice.open()')
+    }
+    this.handle = handle
   }
 
-  private static wrap(handle: NativeLedgerHandle): LedgerDevice {
-    const device = Object.create(LedgerDevice.prototype) as LedgerDevice
-    Object.defineProperty(device, 'handle', { value: handle })
-    return device
+  static async open(): Promise<LedgerDevice> {
+    return new LedgerDevice(await nativeAsync(() => native.NativeLedgerDevice.open()))
   }
 
-  static open(): LedgerDevice {
-    return LedgerDevice.wrap(nativeCall(() => native.NativeLedgerDevice.open()))
+  appVersion(): Promise<LedgerVersion> {
+    return nativeAsync(() => this.handle.appVersion())
   }
 
-  appVersion(): LedgerVersion {
-    return nativeCall(() => this.handle.appVersion())
-  }
-
-  app_version(): [number, number, number] {
-    const version = this.appVersion()
+  async app_version(): Promise<[number, number, number]> {
+    const version = await this.appVersion()
     return [version.major, version.minor, version.patch]
   }
 
@@ -75,22 +72,22 @@ export class LedgerDevice {
     index = 0,
     ss58Prefix = 42,
     confirm = false,
-  ): LedgerAddress {
-    return nativeCall(() => this.handle.address(account, index, ss58Prefix, confirm))
+  ): Promise<LedgerAddress> {
+    return nativeAsync(() => this.handle.address(account, index, ss58Prefix, confirm))
   }
 
   signer(options: LedgerSignerOptions = {}): LedgerSigner {
     return new LedgerSigner(this, options)
   }
 
-  sign(payload: ByteLike, proof: ByteLike, account?: number, index?: number): Buffer
-  sign(account: number, index: number, payload: ByteLike, proof: ByteLike): Buffer
+  sign(payload: ByteLike, proof: ByteLike, account?: number, index?: number): Promise<Buffer>
+  sign(account: number, index: number, payload: ByteLike, proof: ByteLike): Promise<Buffer>
   sign(
     first: number | ByteLike,
     second: number | ByteLike,
     third?: number | ByteLike,
     fourth?: number | ByteLike,
-  ): Buffer {
+  ): Promise<Buffer> {
     const account = typeof first === 'number' ? first : typeof third === 'number' ? third : 0
     const index = typeof first === 'number' && typeof second === 'number'
       ? second
@@ -102,7 +99,7 @@ export class LedgerDevice {
     if (payload == null || proof == null || typeof payload === 'number' || typeof proof === 'number') {
       throw new TypeError('payload and proof are required')
     }
-    return nativeCall(() =>
+    return nativeAsync(() =>
       this.handle.sign(
         account,
         index,

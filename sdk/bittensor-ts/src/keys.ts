@@ -1,5 +1,5 @@
 import native, { type NativeKeypairHandle } from './native'
-import { nativeCall } from './errors'
+import { nativeAsync, nativeCall } from './errors'
 import { coerceMessage, toBuffer } from './wire'
 import type { ByteLike } from './types'
 
@@ -25,6 +25,12 @@ export interface KeypairSignOptions {
 export interface GeneratedKeypair {
   keypair: Keypair
   mnemonic: string
+}
+
+export interface WriteKeyfileOptions {
+  password?: string | null
+  overwrite?: boolean
+  allowPlaintext?: boolean
 }
 
 /**
@@ -71,6 +77,25 @@ function unsupported(operation: string): never {
   throw new Error(
     `${operation} is not part of bittensor-core; use the native keyfile APIs instead`,
   )
+}
+
+function normalizeWriteKeyfileOptions(
+  passwordOrOptions?: string | null | WriteKeyfileOptions,
+  overwrite = false,
+  allowPlaintext = false,
+): Required<WriteKeyfileOptions> {
+  if (typeof passwordOrOptions === 'object' && passwordOrOptions != null) {
+    return {
+      password: passwordOrOptions.password ?? null,
+      overwrite: passwordOrOptions.overwrite ?? false,
+      allowPlaintext: passwordOrOptions.allowPlaintext === true,
+    }
+  }
+  return {
+    password: passwordOrOptions ?? null,
+    overwrite,
+    allowPlaintext,
+  }
 }
 
 /**
@@ -218,21 +243,21 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Keypair.fromPrivateKey(privateKey, cryptoType)
   }
 
-  static fromEncryptedJson(jsonData: string, passphrase: string): Keypair {
+  static async fromEncryptedJson(jsonData: string, passphrase: string): Promise<Keypair> {
     return Keypair.wrap(
-      nativeCall(() => native.keypairFromEncryptedJson(jsonData, passphrase)),
+      await nativeAsync(() => native.keypairFromEncryptedJson(jsonData, passphrase)),
     )
   }
 
-  static createFromEncryptedJson(jsonData: string, passphrase: string): Keypair {
+  static createFromEncryptedJson(jsonData: string, passphrase: string): Promise<Keypair> {
     return Keypair.fromEncryptedJson(jsonData, passphrase)
   }
 
-  static from_encrypted_json(jsonData: string, passphrase: string): Keypair {
+  static from_encrypted_json(jsonData: string, passphrase: string): Promise<Keypair> {
     return Keypair.fromEncryptedJson(jsonData, passphrase)
   }
 
-  static create_from_encrypted_json(jsonData: string, passphrase: string): Keypair {
+  static create_from_encrypted_json(jsonData: string, passphrase: string): Promise<Keypair> {
     return Keypair.fromEncryptedJson(jsonData, passphrase)
   }
 
@@ -286,9 +311,9 @@ export class Keypair implements PolkadotCompatibleKeypair {
     )
   }
 
-  static fromKeyfileData(keyfileData: ByteLike, password?: string | null): Keypair {
+  static async fromKeyfileData(keyfileData: ByteLike, password?: string | null): Promise<Keypair> {
     return Keypair.wrap(
-      nativeCall(() =>
+      await nativeAsync(() =>
         native.deserializeKeypairFromKeyfile(
           toBuffer(keyfileData, 'keyfileData'),
           password ?? undefined,
@@ -297,9 +322,9 @@ export class Keypair implements PolkadotCompatibleKeypair {
     )
   }
 
-  static fromKeyfile(path: string, password?: string | null): Keypair {
+  static async fromKeyfile(path: string, password?: string | null): Promise<Keypair> {
     return Keypair.wrap(
-      nativeCall(() => native.readKeypairKeyfile(path, password ?? undefined)),
+      await nativeAsync(() => native.readKeypairKeyfile(path, password ?? undefined)),
     )
   }
 
@@ -462,15 +487,34 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return nativeCall(() => native.serializeKeypair(this.handle))
   }
 
-  toKeyfileData(password?: string | null): Buffer {
-    return nativeCall(() =>
+  toKeyfileData(password?: string | null): Promise<Buffer> {
+    return nativeAsync(() =>
       native.keypairToKeyfileData(this.handle, password ?? undefined),
     )
   }
 
-  writeKeyfile(path: string, password?: string | null, overwrite = false): void {
-    nativeCall(() =>
-      native.writeKeypairKeyfile(this.handle, path, password ?? undefined, overwrite),
+  writeKeyfile(path: string, options?: WriteKeyfileOptions): Promise<void>
+  writeKeyfile(
+    path: string,
+    password?: string | null,
+    overwrite?: boolean,
+    allowPlaintext?: boolean,
+  ): Promise<void>
+  writeKeyfile(
+    path: string,
+    passwordOrOptions?: string | null | WriteKeyfileOptions,
+    overwrite = false,
+    allowPlaintext = false,
+  ): Promise<void> {
+    const options = normalizeWriteKeyfileOptions(passwordOrOptions, overwrite, allowPlaintext)
+    return nativeAsync(() =>
+      native.writeKeypairKeyfile(
+        this.handle,
+        path,
+        options.password ?? undefined,
+        options.overwrite,
+        options.allowPlaintext,
+      ),
     )
   }
 }
@@ -587,7 +631,7 @@ export const deserialize_keypair_from_keyfile_data = deserializeKeypairFromKeyfi
 export function keypairToKeyfileData(
   keypair: Keypair,
   password?: string | null,
-): Buffer {
+): Promise<Buffer> {
   return keypair.toKeyfileData(password)
 }
 
@@ -596,20 +640,20 @@ export const keypair_to_keyfile_data = keypairToKeyfileData
 export function deserializeKeypairFromKeyfile(
   keyfileData: ByteLike,
   password?: string | null,
-): Keypair {
+): Promise<Keypair> {
   return Keypair.fromKeyfileData(keyfileData, password)
 }
 
 export const deserialize_keypair_from_keyfile = deserializeKeypairFromKeyfile
 
-export function readKeypairKeyfile(path: string, password?: string | null): Keypair {
+export function readKeypairKeyfile(path: string, password?: string | null): Promise<Keypair> {
   return Keypair.fromKeyfile(path, password)
 }
 
 export const read_keypair_keyfile = readKeypairKeyfile
 
-export function encryptKeyfileData(keyfileData: ByteLike, password: string): Buffer {
-  return nativeCall(() =>
+export function encryptKeyfileData(keyfileData: ByteLike, password: string): Promise<Buffer> {
+  return nativeAsync(() =>
     native.encryptKeyfileData(toBuffer(keyfileData, 'keyfileData'), password),
   )
 }
@@ -619,8 +663,8 @@ export const encrypt_keyfile_data = encryptKeyfileData
 export function decryptKeyfileData(
   keyfileData: ByteLike,
   password?: string | null,
-): Buffer {
-  return nativeCall(() =>
+): Promise<Buffer> {
+  return nativeAsync(() =>
     native.decryptKeyfileData(toBuffer(keyfileData, 'keyfileData'), password ?? undefined),
   )
 }

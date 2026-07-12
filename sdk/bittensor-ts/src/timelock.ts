@@ -1,5 +1,5 @@
 import native, { type NativeEpochScheduleState } from './native'
-import { nativeCall } from './errors'
+import { nativeAsync, nativeCall } from './errors'
 import { toBigInt, toBuffer } from './wire'
 import type {
   ByteLike,
@@ -40,6 +40,10 @@ function roundTuple(value: CiphertextRound): CiphertextRoundTuple {
   return [Buffer.from(value.ciphertext), value.revealRound]
 }
 
+async function roundTupleAsync(value: Promise<CiphertextRound>): Promise<CiphertextRoundTuple> {
+  return roundTuple(await value)
+}
+
 export const MAX_TEMPO = native.timelockMaxTempo()
 export const MAX_TEMPO_U64 = native.timelockMaxTempoU64()
 export const DRAND_PUBLIC_KEY = native.timelockDrandPublicKey()
@@ -60,8 +64,8 @@ export function maxSimulationBlocks(revealPeriodEpochs: IntegerLike): bigint {
   )
 }
 
-export function encryptAndCompress(data: ByteLike, revealRound: IntegerLike): Buffer {
-  return nativeCall(() =>
+export function encryptAndCompress(data: ByteLike, revealRound: IntegerLike): Promise<Buffer> {
+  return nativeAsync(() =>
     native.timelockEncryptAndCompress(
       toBuffer(data, 'data'),
       toBigInt(revealRound, 'revealRound'),
@@ -72,8 +76,8 @@ export function encryptAndCompress(data: ByteLike, revealRound: IntegerLike): Bu
 export function decryptAndDecompress(
   encryptedData: ByteLike,
   signatureBytes: ByteLike,
-): Buffer {
-  return nativeCall(() =>
+): Promise<Buffer> {
+  return nativeAsync(() =>
     native.timelockDecryptAndDecompress(
       toBuffer(encryptedData, 'encryptedData'),
       toBuffer(signatureBytes, 'signatureBytes'),
@@ -89,8 +93,8 @@ export function generateCommitV2(
   subnetRevealPeriodEpochs: IntegerLike,
   blockTime: number,
   hotkey: ByteLike,
-): CiphertextRound {
-  return nativeCall(() =>
+): Promise<CiphertextRound> {
+  return nativeAsync(() =>
     native.timelockGenerateCommitV2(
       uids,
       values,
@@ -116,8 +120,8 @@ export function get_encrypted_commit_v2(
   subnetRevealPeriodEpochs: IntegerLike,
   blockTime: number,
   hotkey: ByteLike,
-): CiphertextRoundTuple {
-  return roundTuple(
+): Promise<CiphertextRoundTuple> {
+  return roundTupleAsync(
     generateCommitV2(
       uids,
       weights,
@@ -141,8 +145,8 @@ export function encryptCommitment(
   data: string,
   blocksUntilReveal: IntegerLike,
   blockTime: number,
-): CiphertextRound {
-  return nativeCall(() =>
+): Promise<CiphertextRound> {
+  return nativeAsync(() =>
     native.timelockEncryptCommitment(
       data,
       toBigInt(blocksUntilReveal, 'blocksUntilReveal'),
@@ -155,16 +159,16 @@ export function get_encrypted_commitment(
   data: string,
   blocksUntilReveal: IntegerLike,
   blockTime = 12.0,
-): CiphertextRoundTuple {
-  return roundTuple(encryptCommitment(data, blocksUntilReveal, blockTime))
+): Promise<CiphertextRoundTuple> {
+  return roundTupleAsync(encryptCommitment(data, blocksUntilReveal, blockTime))
 }
 
 export function encryptNBlocks(
   data: ByteLike,
   nBlocks: IntegerLike,
   blockTime: number,
-): CiphertextRound {
-  return nativeCall(() =>
+): Promise<CiphertextRound> {
+  return nativeAsync(() =>
     native.timelockEncryptNBlocks(
       toBuffer(data, 'data'),
       toBigInt(nBlocks, 'nBlocks'),
@@ -177,12 +181,12 @@ export function encrypt(
   data: ByteLike,
   nBlocks: IntegerLike,
   blockTime = 12.0,
-): CiphertextRoundTuple {
-  return roundTuple(encryptNBlocks(data, nBlocks, blockTime))
+): Promise<CiphertextRoundTuple> {
+  return roundTupleAsync(encryptNBlocks(data, nBlocks, blockTime))
 }
 
-export function encryptAtRound(data: ByteLike, revealRound: IntegerLike): CiphertextRound {
-  return nativeCall(() =>
+export function encryptAtRound(data: ByteLike, revealRound: IntegerLike): Promise<CiphertextRound> {
+  return nativeAsync(() =>
     native.timelockEncryptAtRound(
       toBuffer(data, 'data'),
       toBigInt(revealRound, 'revealRound'),
@@ -193,52 +197,51 @@ export function encryptAtRound(data: ByteLike, revealRound: IntegerLike): Cipher
 export function encrypt_at_round(
   data: ByteLike,
   revealRound: IntegerLike,
-): CiphertextRoundTuple {
-  return roundTuple(encryptAtRound(data, revealRound))
+): Promise<CiphertextRoundTuple> {
+  return roundTupleAsync(encryptAtRound(data, revealRound))
 }
 
-export function getRoundInfo(round?: IntegerLike | null): DrandResponse {
-  return nativeCall(() =>
+export function getRoundInfo(round?: IntegerLike | null): Promise<DrandResponse> {
+  return nativeAsync(() =>
     native.timelockGetRoundInfo(round == null ? undefined : toBigInt(round, 'round')),
   )
 }
 
-export function get_latest_round(): bigint {
-  return getRoundInfo().round
+export async function get_latest_round(): Promise<bigint> {
+  return (await getRoundInfo()).round
 }
 
 export function getRevealRoundSignature(
   revealRound?: IntegerLike | null,
   noErrors = true,
-): string | null {
-  return nativeCall(
-    () =>
-      native.timelockGetRevealRoundSignature(
-        revealRound == null ? undefined : toBigInt(revealRound, 'revealRound'),
-        noErrors,
-      ) ?? null,
+): Promise<string | null> {
+  return nativeAsync(async () =>
+    (await native.timelockGetRevealRoundSignature(
+      revealRound == null ? undefined : toBigInt(revealRound, 'revealRound'),
+      noErrors,
+    )) ?? null,
   )
 }
 
-export function get_signature_for_round(revealRound: IntegerLike): string {
-  const signature = getRevealRoundSignature(revealRound, false)
+export async function get_signature_for_round(revealRound: IntegerLike): Promise<string> {
+  const signature = await getRevealRoundSignature(revealRound, false)
   if (signature == null) {
     throw new Error('Signature not available')
   }
   return signature
 }
 
-export function decrypt(encryptedData: ByteLike, noErrors = true): Buffer | null {
-  return nativeCall(
-    () => native.timelockDecrypt(toBuffer(encryptedData, 'encryptedData'), noErrors) ?? null,
+export function decrypt(encryptedData: ByteLike, noErrors = true): Promise<Buffer | null> {
+  return nativeAsync(async () =>
+    (await native.timelockDecrypt(toBuffer(encryptedData, 'encryptedData'), noErrors)) ?? null,
   )
 }
 
 export function decryptWithSignature(
   encryptedData: ByteLike,
   signatureHex: string,
-): Buffer {
-  return nativeCall(() =>
+): Promise<Buffer> {
+  return nativeAsync(() =>
     native.timelockDecryptWithSignature(
       toBuffer(encryptedData, 'encryptedData'),
       signatureHex,

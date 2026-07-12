@@ -82,8 +82,11 @@ function fakeSigningRuntime(overrides = {}) {
 
 function fakeSigningClient(runtime, callData) {
   const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const finalizedHash = `0x${'42'.repeat(32)}`
   client.runtimeAt = async () => runtime
   client.callData = async () => Buffer.from(callData)
+  client.finalizedHead = async () => finalizedHash
+  client.blockNumber = async () => 64
   client.genesisHash = async () => `0x${'41'.repeat(32)}`
   client.rpc = async (method, params = []) => {
     if (method === 'system_accountNextIndex') {
@@ -632,7 +635,9 @@ test('mnemonics and secret URIs never appear in public keypair metadata', () => 
   assert.equal(derived.meta.suri, undefined)
 })
 
-test('private key bytes are not exported to JavaScript', () => {
+test('private key bytes are not exported to JavaScript', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-keyfile-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const alice = core.Keypair.fromUri('//Alice')
   assert.equal(Object.prototype.hasOwnProperty.call(alice, 'privateKey'), false)
   assert.equal('privateKey' in alice, false)
@@ -652,7 +657,13 @@ test('private key bytes are not exported to JavaScript', () => {
   const publicKeyfile = JSON.parse(publicOnly.serialize().toString('utf8'))
   assert.equal(publicKeyfile.privateKey, undefined)
 
-  const encrypted = alice.toKeyfileData('review-password')
+  await assert.rejects(
+    () => alice.writeKeyfile(path.join(root, 'plaintext-default')),
+    /plaintext private keyfile writes are disabled/,
+  )
+  await alice.writeKeyfile(path.join(root, 'plaintext-allowed'), { allowPlaintext: true })
+
+  const encrypted = await alice.toKeyfileData('review-password')
   assert.equal(core.keyfileDataIsEncrypted(encrypted), true)
 })
 
@@ -880,6 +891,70 @@ test('Balance numeric getters throw before losing precision', () => {
   assert.equal(unsafe.amountString, '9007199.254740992')
   assert.throws(() => unsafe.amount, /safe integer precision/)
   assert.throws(() => unsafe.tao, /safe integer precision/)
+})
+
+test('transaction amounts require explicit units', () => {
+  assert.equal(core.Balance.fromRao('1').rao, 1n)
+  assert.equal(core.Balance.fromTao('1.0').rao, 1_000_000_000n)
+  assert.throws(
+    () => core.Balance.fromTao('0.1234567891'),
+    /more than 9 decimal places/,
+  )
+  assert.throws(
+    () => core.Balance.fromRao('1.0'),
+    /rao must be an integer/,
+  )
+
+  assert.deepEqual(core.calls.balances.transferKeepAlive('5F', 1n), [
+    'Balances',
+    'transfer_keep_alive',
+    { dest: '5F', value: 1n },
+  ])
+  assert.deepEqual(core.calls.balances.transferKeepAlive('5F', core.taoAmount('1.0')), [
+    'Balances',
+    'transfer_keep_alive',
+    { dest: '5F', value: 1_000_000_000n },
+  ])
+  assert.deepEqual(core.calls.balances.transferKeepAlive('5F', core.raoAmount('2')), [
+    'Balances',
+    'transfer_keep_alive',
+    { dest: '5F', value: 2n },
+  ])
+  assert.deepEqual(core.calls.balances.transferKeepAlive('5F', core.Balance.fromTao('0.5')), [
+    'Balances',
+    'transfer_keep_alive',
+    { dest: '5F', value: 500_000_000n },
+  ])
+  assert.throws(
+    () => core.calls.balances.transferKeepAlive('5F', '1'),
+    /transaction amount must be/,
+  )
+  assert.throws(
+    () => core.calls.balances.transferKeepAlive('5F', 1),
+    /transaction amount must be/,
+  )
+})
+
+test('descriptor schema validation reports metadata drift', () => {
+  const runtime = {
+    pallet(name) {
+      if (name === 'Balances') return { storage: [{ name: 'Account' }], constants: [] }
+      return null
+    },
+    constantInfo() {
+      return null
+    },
+    runtimeApis() {
+      return {}
+    },
+    metadataIr() {
+      return { pallets: [{ name: 'Balances', calls: [{ name: 'transfer_keep_alive' }] }] }
+    },
+  }
+  const issues = core.validateDescriptorSchema(runtime)
+  assert.ok(issues.some((issue) => issue.path === 'storage.Balances.TotalIssuance'))
+  assert.ok(issues.some((issue) => issue.path === 'runtimeApi.StakeInfoRuntimeApi.get_stake_fee'))
+  assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferAllowDeath'))
 })
 
 test('JsonRpcTransport restores websocket subscriptions after reconnect', async (t) => {
@@ -2155,28 +2230,28 @@ test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', as
   assert.equal(captures.encoded.params.metadataHashEnabled, true)
 })
 
-test('wallet helpers keep mnemonic and keyfile passwords separate', (t) => {
+test('wallet helpers keep mnemonic and keyfile passwords separate', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-wallet-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const keyfilePassword = 'review-keyfile-password'
   const mnemonicPassword = 'review-mnemonic-password'
 
   const created = new core.Wallet({ name: 'created', hotkey: 'default', path: root })
-  const createdHotkey = created.createNewHotkey({ keyfilePassword })
+  const createdHotkey = await created.createNewHotkey({ keyfilePassword })
   assert.equal(createdHotkey.wallet, created)
   assert.equal(createdHotkey.mnemonic.split(/\s+/).length, 12)
-  assert.deepEqual(createdHotkey.keypair.publicKey, created.getHotkey(keyfilePassword).publicKey)
+  assert.deepEqual(createdHotkey.keypair.publicKey, (await created.getHotkey(keyfilePassword)).publicKey)
   assert.equal(
     core.keyfileDataIsEncrypted(fs.readFileSync(created.hotkeyFile.path)),
     true,
   )
   const plaintextDefault = new core.Wallet({ name: 'plaintext-default', hotkey: 'default', path: root })
-  assert.throws(
+  await assert.rejects(
     () => plaintextDefault.createNewHotkey(),
     /allowPlaintext/,
   )
   const plaintextAllowed = new core.Wallet({ name: 'plaintext-allowed', hotkey: 'default', path: root })
-  const plaintextHotkey = plaintextAllowed.createNewHotkey({ allowPlaintext: true })
+  const plaintextHotkey = await plaintextAllowed.createNewHotkey({ allowPlaintext: true })
   assert.equal(plaintextHotkey.mnemonic.split(/\s+/).length, 12)
   assert.equal(
     core.keyfileDataIsEncrypted(fs.readFileSync(plaintextAllowed.hotkeyFile.path)),
@@ -2186,44 +2261,70 @@ test('wallet helpers keep mnemonic and keyfile passwords separate', (t) => {
   const mnemonic =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
   const regenerated = new core.Wallet({ name: 'regenerated', hotkey: 'default', path: root })
-  regenerated.regenerateHotkey(mnemonic, { mnemonicPassword, keyfilePassword })
+  await regenerated.regenerateHotkey(mnemonic, { mnemonicPassword, keyfilePassword })
   assert.equal(
     core.keyfileDataIsEncrypted(fs.readFileSync(regenerated.hotkeyFile.path)),
     true,
   )
   assert.deepEqual(
-    regenerated.getHotkey(keyfilePassword).publicKey,
+    (await regenerated.getHotkey(keyfilePassword)).publicKey,
     core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519, mnemonicPassword).publicKey,
   )
   assert.notDeepEqual(
-    regenerated.getHotkey(keyfilePassword).publicKey,
+    (await regenerated.getHotkey(keyfilePassword)).publicKey,
     core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519).publicKey,
   )
 
   const cold = new core.Wallet({ name: 'regenerated-cold', hotkey: 'default', path: root })
-  cold.regenerateColdkey(mnemonic, { mnemonicPassword, keyfilePassword })
+  await cold.regenerateColdkey(mnemonic, { mnemonicPassword, keyfilePassword })
   assert.equal(
     core.keyfileDataIsEncrypted(fs.readFileSync(cold.coldkeyFile.path)),
     true,
   )
   assert.deepEqual(
-    cold.getColdkey(keyfilePassword).publicKey,
+    (await cold.getColdkey(keyfilePassword)).publicKey,
     core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519, mnemonicPassword).publicKey,
   )
 })
 
-test('wallet keyfile writes are restrictive and reject symlink targets', (t) => {
+test('wallet names and hotkeys cannot escape the wallet root', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-wallet-paths-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  for (const name of ['', '.', '..', '../escape', 'nested/name', 'nested\\name', '/absolute']) {
+    assert.throws(
+      () => new core.Wallet({ name, hotkey: 'default', path: root }),
+      /single path component/,
+    )
+  }
+  for (const hotkey of ['', '.', '..', '../escape', 'nested/hotkey', 'nested\\hotkey', '/absolute']) {
+    assert.throws(
+      () => new core.Wallet({ name: 'default', hotkey, path: root }),
+      /single path component/,
+    )
+  }
+
+  const wallet = new core.Wallet({ name: 'contained', hotkey: 'hk', path: root })
+  const resolvedRoot = path.resolve(root)
+  assert.equal(wallet.path, resolvedRoot)
+  assert.equal(
+    path.relative(resolvedRoot, wallet.hotkeyFile.path).startsWith('..'),
+    false,
+  )
+})
+
+test('wallet keyfile writes are restrictive and reject symlink targets', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-wallet-atomic-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const keypair = core.Keypair.fromUri('//Alice')
   const wallet = new core.Wallet({ name: 'atomic', hotkey: 'default', path: root })
 
-  wallet.setHotkey(keypair, { allowPlaintext: true })
+  await wallet.setHotkey(keypair, { allowPlaintext: true })
 
   const hotkeyPath = wallet.hotkeyFile.path
   const hotkeyDir = path.dirname(hotkeyPath)
-  assert.deepEqual(wallet.hotkeyFile.getKeypair().publicKey, keypair.publicKey)
-  assert.deepEqual(core.readKeypairKeyfile(hotkeyPath).publicKey, keypair.publicKey)
+  assert.deepEqual((await wallet.hotkeyFile.getKeypair()).publicKey, keypair.publicKey)
+  assert.deepEqual((await core.readKeypairKeyfile(hotkeyPath)).publicKey, keypair.publicKey)
   assert.equal(fs.lstatSync(hotkeyPath).isFile(), true)
   assert.equal(fs.statSync(hotkeyPath).mode & 0o777, 0o600)
   assert.equal(fs.statSync(hotkeyDir).mode & 0o777, 0o700)
@@ -2237,22 +2338,22 @@ test('wallet keyfile writes are restrictive and reject symlink targets', (t) => 
   const bob = core.Keypair.fromUri('//Bob')
   fs.rmSync(wallet.hotkeypubFile.path)
   fs.symlinkSync(target, wallet.hotkeypubFile.path)
-  assert.throws(
+  await assert.rejects(
     () => wallet.setHotkey(bob, { overwrite: true, allowPlaintext: true }),
     /symlink/,
   )
-  assert.deepEqual(wallet.hotkey.publicKey, keypair.publicKey)
-  assert.deepEqual(wallet.hotkeypub.publicKey, keypair.publicKey)
+  assert.deepEqual((await wallet.hotkey).publicKey, keypair.publicKey)
+  assert.deepEqual((await wallet.hotkeypub).publicKey, keypair.publicKey)
   fs.rmSync(wallet.hotkeypubFile.path)
 
   const linkedWallet = new core.Wallet({ name: 'atomic', hotkey: 'linked', path: root })
   fs.symlinkSync(target, linkedWallet.hotkeyFile.path)
 
-  assert.throws(
+  await assert.rejects(
     () => linkedWallet.setHotkey(keypair, { overwrite: true, allowPlaintext: true }),
     /symlink/,
   )
-  assert.throws(
+  await assert.rejects(
     () => core.readKeypairKeyfile(linkedWallet.hotkeyFile.path),
     /symlink/,
   )
