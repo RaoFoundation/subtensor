@@ -56,7 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones|sdk)/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/runtime-checks\.yml|actions/rust-setup/)'
+          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones|sdk)/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/runtime-checks\.yml|actions/(rust-setup|sccache-setup)/|scripts/sccache-configure\.sh$)'
           docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
           runtime=false; docs=false
           grep -qE "$runtime_pattern" <<< "$files" && runtime=true
@@ -78,11 +78,13 @@ jobs:
     name: build runtime artifacts
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
-    # Turbo pool (Ryzen 9 9950X, ~2x the heavy boxes on compile) — this build
-    # gates all try-runtime checks and clone shards, so it IS the critical
-    # path. Only two turbo replicas exist; keep routing selective (this job
-    # plus cargo test) so the pool doesn't queue.
-    runs-on: [self-hosted, fireactions-turbo]
+    # Keep this build on the reserved 16-core turbo lane: it gates every
+    # try-runtime check and clone shard. General and background work uses the
+    # 8-core pool so it cannot consume this critical-path capacity.
+    runs-on: [self-hosted, fireactions-turbo-16]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     timeout-minutes: 60
     env:
       RUST_BACKTRACE: full
@@ -92,6 +94,9 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: runtime-checks
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Add wasm target and rust-src
         run: |
@@ -128,7 +133,7 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build
-    runs-on: ${{ matrix.network.runner }}
+    runs-on: [self-hosted, fireactions-tryruntime]
     permissions:
       contents: read
       # Cross-run artifact download (the nightly try-runtime state snapshot).
@@ -145,19 +150,15 @@ jobs:
           - name: devnet
             uri: wss://dev.chain.opentensor.ai:443
             genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
-            runner: [self-hosted, fireactions-tryruntime]
           - name: testnet
             uri: wss://archive.dev.opentensor.ai:8443
             genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
-            runner: [self-hosted, fireactions-tryruntime]
-          # Mainnet used to need the dedicated fireactions-tryruntime-finney
-          # box (one machine, so runs queued behind each other for 25+ min).
-          # Now that this job downloads a wasm and scrapes state instead of
-          # compiling, the shared pool handles it.
+          # Keep endpoint-heavy checks near the archive RPCs. Measurements
+          # from BHS showed materially higher per-request latency, which
+          # compounds during try-runtime's state traversal.
           - name: mainnet
             uri: wss://archive.dev.opentensor.ai:443
             genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
-            runner: [self-hosted, fireactions-tryruntime]
     steps:
       - name: Verify endpoint serves the expected network
         run: |
@@ -276,7 +277,7 @@ jobs:
     name: SDK offline checks
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -313,7 +314,7 @@ jobs:
   clone-upgrade:
     name: clone-upgrade (${{ matrix.shard.name }})
     needs: [trusted-pr, changes, build]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
     permissions:
@@ -548,7 +549,7 @@ jobs:
     name: Docs and website build
     needs: [trusted-pr, changes]
     if: needs.changes.outputs.docs == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@v4
 

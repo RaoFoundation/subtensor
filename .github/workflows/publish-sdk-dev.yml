@@ -26,7 +26,7 @@ concurrency:
 jobs:
   publish:
     name: Publish dev build to TestPyPI
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     # TestPyPI trusted publisher: this workflow + the `devnet` environment.
     environment: devnet
     permissions:

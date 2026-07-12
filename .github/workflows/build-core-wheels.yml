@@ -32,7 +32,7 @@ on:
 jobs:
   linux:
     name: Linux ${{ matrix.target }}
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 90
     strategy:
       fail-fast: false
