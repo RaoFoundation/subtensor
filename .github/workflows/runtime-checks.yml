@@ -44,6 +44,8 @@ jobs:
     outputs:
       runtime: ${{ steps.filter.outputs.runtime }}
       docs: ${{ steps.filter.outputs.docs }}
+      python_sdk: ${{ steps.filter.outputs.python_sdk }}
+      sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
     steps:
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
@@ -56,15 +58,23 @@ jobs:
         run: |
           set -euo pipefail
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones|sdk)/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/runtime-checks\.yml|actions/rust-setup/)'
+          # SDK-only changes are covered by sdk-checks and the Rust SDK e2e
+          # workflow; they should not force clone-upgrade or SDK drift.
+          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/runtime-checks\.yml|actions/rust-setup/)'
           docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
-          runtime=false; docs=false
+          python_sdk_pattern='^sdk/(python|bittensor-core|bittensor-core-py|bittensor-core-wasm)/|^Cargo.lock$|^\.github/workflows/runtime-checks\.yml$'
+          sdk_drift_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$'
+          runtime=false; docs=false; python_sdk=false; sdk_drift=false
           grep -qE "$runtime_pattern" <<< "$files" && runtime=true
           grep -qE "$docs_pattern" <<< "$files" && docs=true
-          echo "runtime=$runtime, docs=$docs"
+          grep -qE "$python_sdk_pattern" <<< "$files" && python_sdk=true
+          grep -qE "$sdk_drift_pattern" <<< "$files" && sdk_drift=true
+          echo "runtime=$runtime, docs=$docs, python_sdk=$python_sdk, sdk_drift=$sdk_drift"
           {
             echo "runtime=$runtime"
             echo "docs=$docs"
+            echo "python_sdk=$python_sdk"
+            echo "sdk_drift=$sdk_drift"
           } >> "$GITHUB_OUTPUT"
 
   # The single compile of this workflow. Two artifacts:
@@ -275,7 +285,7 @@ jobs:
   sdk-checks:
     name: SDK offline checks
     needs: [trusted-pr, changes]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
+    if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true'
     runs-on: [self-hosted, fireactions-light]
     timeout-minutes: 30
     steps:
@@ -453,7 +463,7 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Metadata drift gate (committed _generated vs upgraded clone)
-        if: ${{ matrix.shard.sdk }}
+        if: ${{ matrix.shard.sdk && (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true') }}
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
 
