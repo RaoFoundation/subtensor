@@ -33,50 +33,56 @@ fn main() -> sc_cli::Result<()> {
 // `tikv-jemallocator` bump, a `#[global_allocator]` typo, or a `cfg` mistake can
 // leave the binary *compiling* while jemalloc is no longer the active global
 // allocator (glibc silently stays in charge). A compile check cannot catch that:
-// `stats.allocated` only counts bytes routed through jemalloc, so this test
-// drives the global allocator with a large live allocation and asserts jemalloc
-// tracked it. If the `#[global_allocator]`/`cfg` wiring is broken the Vec goes
-// to glibc and the delta is just a few bytes of `mallctl` noise - well below the
-// threshold - and the test fails.
+// only bytes routed *through* jemalloc are observable, so this test drives the
+// global allocator with a large live allocation and asserts jemalloc tracked it.
+// If the `#[global_allocator]`/`cfg` wiring is broken the Vec goes to glibc and
+// the delta stays at zero - well below the threshold - and the test fails.
+//
+// The delta is read from jemalloc's *thread-local* "bytes ever allocated by this
+// thread" counter, not the process-global `stats.allocated`. `cargo test` runs the
+// node's tests in parallel inside one process, and the global stat is perturbed by
+// every other test's allocations and frees, so a before/after delta around it is
+// racy: a concurrent free can drop it below threshold (false failure) and a
+// concurrent allocation can lift it (false pass). The thread-local counter only
+// ever counts bytes the *calling* thread routes through the global allocator, so
+// it is immune to concurrent tests; it is also monotonic (a free cannot decrease
+// it), so the only way it stays flat across a large live allocation is if that
+// allocation went to glibc because jemalloc is linked but not active.
 #[cfg(all(test, unix, feature = "jemalloc-allocator"))]
 mod jemalloc_allocator_feature {
-    use tikv_jemalloc_ctl::{epoch, stats};
+    use tikv_jemalloc_ctl::thread;
 
     // A live allocation routed through the *global* allocator. Large enough to
-    // dwarf any bookkeeping the `mallctl` calls do themselves.
+    // dwarf any bookkeeping the stat reads do themselves.
     const PAYLOAD: usize = 16 * 1024 * 1024;
 
     // The workspace denies `expect_used`/`unwrap_used`, and `tikv_jemalloc_ctl`'s
     // Error is a transparent wrapper that does not implement std::error::Error,
-    // so the Result cannot be propagated with `?` either. Unwrap the two stat
-    // helpers by hand instead.
-    fn advance_epoch() {
-        if let Err(error) = epoch::advance() {
-            panic!("advance jemalloc epoch: {error:?}");
-        }
-    }
-
-    fn allocated_bytes() -> usize {
-        match stats::allocated::read() {
-            Ok(bytes) => bytes,
-            Err(error) => panic!("read stats.allocated: {error:?}"),
+    // so the Result cannot be propagated with `?` either. Resolve the stat handle
+    // by hand instead.
+    fn allocated_pointer() -> thread::ThreadLocal<u64> {
+        match thread::allocatedp::read() {
+            Ok(pointer) => pointer,
+            Err(error) => panic!("read thread.allocatedp: {error:?}"),
         }
     }
 
     #[test]
     fn jemalloc_is_the_active_global_allocator() {
-        // jemalloc caches stats; advance the epoch to refresh them before each read.
-        advance_epoch();
-        let before = allocated_bytes();
+        // `read()` returns a thread-local pointer to the cumulative byte count
+        // for *this* thread; `get()` dereferences it (safe: the raw-pointer read
+        // is encapsulated in `tikv_jemalloc_ctl`). Thread stats are live, so -
+        // unlike `stats::allocated` - no epoch refresh is needed before a read.
+        let pointer = allocated_pointer();
+        let before = pointer.get();
 
-        // Held across the second read so jemalloc cannot reclaim it first.
+        // Held across the second read so the allocator cannot reclaim it first.
         let hold = vec![0u8; PAYLOAD];
 
-        advance_epoch();
-        let after = allocated_bytes();
+        let after = pointer.get();
 
         assert!(
-            after.saturating_sub(before) > PAYLOAD / 2,
+            after.saturating_sub(before) >= PAYLOAD as u64,
             "jemalloc did not track a {}-byte global-allocator allocation \
              (before={}, after={}): it is linked but not the active global \
              allocator, so the jemalloc-allocator feature wiring is broken",
