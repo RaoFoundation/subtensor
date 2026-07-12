@@ -11,6 +11,15 @@ inputs:
   cache-key:
     description: "Architecture-specific Rust cache key"
     required: true
+  sccache-credential-mode:
+    description: "reader for CI; writer only for the protected cache warmer"
+    default: "reader"
+  sccache-writer-access-key-id:
+    description: "Protected writer access key"
+    default: ""
+  sccache-writer-secret-access-key:
+    description: "Protected writer secret"
+    default: ""
 
 runs:
   using: "composite"
@@ -21,8 +30,23 @@ runs:
         # cross mounts Cargo configuration into its build container. Avoid
         # selecting the host's mold binary, which is not present there.
         fast-linker: "false"
+        sccache-credential-mode: ${{ inputs.sccache-credential-mode }}
+        sccache-writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
+        sccache-writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}
+
+    - name: Require protected writer activation
+      if: inputs.sccache-credential-mode == 'writer'
+      shell: bash
+      run: |
+        if [[ "${SCCACHE_ENABLED:-}" != true ||
+              "${SCCACHE_BACKEND:-}" != r2 ||
+              "${RUSTC_WRAPPER:-}" != sccache ]]; then
+          echo "::error::protected R2 writer did not activate"
+          exit 1
+        fi
 
     - name: Install pinned cross compiler driver
+      if: inputs.arch == 'arm64'
       shell: bash
       run: |
         cargo install cross \
@@ -40,12 +64,21 @@ runs:
         rust_sysroot=$(rustc --print sysroot)
         export LD_LIBRARY_PATH="${rust_sysroot}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
         export WASM_BUILD_WORKSPACE_HINT="$GITHUB_WORKSPACE"
-        cross build \
-          --target "$TARGET" \
-          --package node-subtensor \
-          --profile production \
-          --features metadata-hash \
+        build_args=(
+          --target "$TARGET"
+          --package node-subtensor
+          --profile production
+          --features metadata-hash
           --locked
+        )
+        if [[ "$ARCH" == amd64 ]]; then
+          # The runner is already x86_64 Linux with all native dependencies.
+          # Staying on the host keeps this compile behind the active R2
+          # sccache wrapper; cross containers have a separate process boundary.
+          cargo build "${build_args[@]}"
+        else
+          cross build "${build_args[@]}"
+        fi
 
     - name: Validate and stage binary
       shell: bash
