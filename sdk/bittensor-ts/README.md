@@ -17,7 +17,7 @@ Chain-defined work runs in Rust:
 
 The Node TypeScript layer is limited to JavaScript-friendly names and defaults,
 lossless `Buffer`/`bigint`/`Map` boundary conversion, error classes,
-compatibility adapters for the signer objects expected by Polkadot.js,
+signing-compatibility adapters for the signer objects expected by Polkadot.js,
 Polkadot API, and Moonwall, plus the client responsibilities that deliberately
 do not live in Rust: WebSocket/HTTP JSON-RPC transport, reconnect/fallback
 handling, subscriptions, storage queries, runtime API calls, nonce tracking,
@@ -78,7 +78,9 @@ const signature = alice.sign(Buffer.from('hello'))
 console.log(alice.verify(Buffer.from('hello'), signature))
 
 // Compatible with tx.signAsync(...) and Moonwall helpers, while the secret
-// key and signing operation remain in Rust.
+// key and signing operation remain in Rust. This is signing compatibility,
+// not full Polkadot.js KeyringPair keystore compatibility: PKCS#8/JSON export,
+// lock/unlock, and VRF methods intentionally throw.
 const signer = createKeyringPairFromUri('//Alice')
 
 const runtime = new Runtime(metadataBytes, specVersion, transactionVersion)
@@ -116,6 +118,12 @@ await client.close()
 flows using `signExtrinsic()` followed by `submitSigned()` or `watchSigned()`
 record the signed nonce after submission, but callers producing multiple
 detached transactions concurrently should pass explicit `nonce` values.
+
+Wallet private keyfiles are encrypted when `keyfilePassword` is supplied.
+Plaintext private keyfile writes require `allowPlaintext: true`; public-only
+keyfiles are still written without encryption. `createNewColdkey()` and
+`createNewHotkey()` return `{ wallet, keypair, mnemonic }` so callers can store
+the recovery phrase before relying on the persisted wallet.
 
 ## Browser example
 

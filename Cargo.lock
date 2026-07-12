@@ -1641,6 +1641,7 @@ dependencies = [
  "hex",
  "hidapi",
  "ledger-apdu",
+ "libc",
  "merkleized-metadata",
  "ml-kem",
  "openssl",

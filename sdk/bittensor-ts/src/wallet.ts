@@ -20,6 +20,7 @@ export interface WalletOptions {
 export interface SaveKeyOptions {
   encrypt?: boolean
   overwrite?: boolean
+  allowPlaintext?: boolean
   keyfilePassword?: string | null
   /** @deprecated Use keyfilePassword. */
   password?: string | null
@@ -28,6 +29,12 @@ export interface SaveKeyOptions {
 export interface RegenerateKeyOptions extends SaveKeyOptions {
   cryptoType?: number
   mnemonicPassword?: string | null
+}
+
+export interface CreatedWalletKey {
+  wallet: Wallet
+  keypair: Keypair
+  mnemonic: string
 }
 
 export class Keyfile {
@@ -52,6 +59,9 @@ export class Keyfile {
     const password = keyfilePassword(options)
     if (encrypt && password == null) {
       throw new Error(`Password is required to encrypt ${this.path}`)
+    }
+    if (!encrypt && keypair.kind !== 'PublicOnly' && options.allowPlaintext !== true) {
+      throw new Error(`Refusing to write plaintext private keyfile ${this.path}; pass allowPlaintext: true or provide keyfilePassword`)
     }
     keypair.writeKeyfile(this.path, encrypt ? password : undefined, overwrite)
   }
@@ -116,29 +126,41 @@ export class Wallet {
   }
 
   setColdkey(keypair: Keypair, options: SaveKeyOptions = {}): this {
+    const coldkeypub = publicOnly(keypair)
+    this.coldkeyFile.setKeypair(keypair, {
+      ...options,
+      encrypt: options.encrypt ?? keyfilePassword(options) != null,
+    })
+    this.coldkeypubFile.setKeypair(coldkeypub, { overwrite: options.overwrite ?? true })
     this.coldkeyCache = keypair
-    this.coldkeyFile.setKeypair(keypair, options)
-    this.coldkeypubCache = publicOnly(keypair)
-    this.coldkeypubFile.setKeypair(this.coldkeypubCache, { overwrite: options.overwrite ?? true })
+    this.coldkeypubCache = coldkeypub
     return this
   }
 
   setHotkey(keypair: Keypair, options: SaveKeyOptions = {}): this {
+    const hotkeypub = publicOnly(keypair)
+    this.hotkeyFile.setKeypair(keypair, {
+      ...options,
+      encrypt: options.encrypt ?? keyfilePassword(options) != null,
+    })
+    this.hotkeypubFile.setKeypair(hotkeypub, { overwrite: options.overwrite ?? true })
     this.hotkeyCache = keypair
-    this.hotkeyFile.setKeypair(keypair, options)
-    this.hotkeypubCache = publicOnly(keypair)
-    this.hotkeypubFile.setKeypair(this.hotkeypubCache, { overwrite: options.overwrite ?? true })
+    this.hotkeypubCache = hotkeypub
     return this
   }
 
-  createNewColdkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): this {
-    const keypair = Keypair.generate(options.cryptoType ?? CRYPTO_SR25519, options.nWords ?? 12)
-    return this.setColdkey(keypair, { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null })
+  createNewColdkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): CreatedWalletKey {
+    const mnemonic = Keypair.generateMnemonic(options.nWords ?? 12)
+    const keypair = Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519)
+    this.setColdkey(keypair, { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null })
+    return { wallet: this, keypair, mnemonic }
   }
 
-  createNewHotkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): this {
-    const keypair = Keypair.generate(options.cryptoType ?? CRYPTO_SR25519, options.nWords ?? 12)
-    return this.setHotkey(keypair, { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null })
+  createNewHotkey(options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {}): CreatedWalletKey {
+    const mnemonic = Keypair.generateMnemonic(options.nWords ?? 12)
+    const keypair = Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519)
+    this.setHotkey(keypair, { ...options, encrypt: options.encrypt ?? keyfilePassword(options) != null })
+    return { wallet: this, keypair, mnemonic }
   }
 
   regenerateColdkey(

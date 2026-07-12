@@ -1,5 +1,5 @@
 import { blake2_256, generateExtrinsicProof, metadataDigest } from './crypto'
-import { CRYPTO_SR25519, Keypair, publicKeyFromSs58 } from './keys'
+import { CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
 import { LedgerDevice } from './ledger'
 import { Runtime, eraBirth } from './runtime'
 import { toBuffer } from './wire'
@@ -58,6 +58,7 @@ export interface JsonRpcTransportOptions {
   webSocket?: WebSocketConstructor
   webSocketConstructor?: WebSocketConstructor
   webSocketFactory?: WebSocketFactory
+  validateEndpoint?: EndpointValidator
   requestTimeoutMs?: number
   maxRequestRetries?: number
   retryBackoffMs?: number
@@ -146,7 +147,7 @@ export interface ChainSigner {
 }
 
 export type SignerLike = Keypair | ChainSigner | LedgerDevice
-export type ExtrinsicStatus = 'submitted' | 'inBlock' | 'finalized' | 'failed'
+export type ExtrinsicStatus = 'submitted' | 'inBlock' | 'finalized' | 'failed' | 'unknown'
 
 export interface ExtrinsicResult {
   status: ExtrinsicStatus
@@ -236,18 +237,30 @@ interface HeadRuntimeCacheEntry extends RuntimeCacheEntry {
   expiresAtMs: number
 }
 
-type NonceStatus = 'reserved' | 'submitted' | 'confirmed' | 'failed' | 'reusable'
+type NonceStatus = 'reserved' | 'submitted' | 'confirmed' | 'failed' | 'reusable' | 'ambiguous'
+
+interface AmbiguousNonce {
+  nonce: number
+  extrinsicHash?: string
+  sinceMs: number
+}
 
 interface NonceAccountState {
   next?: number
   reusable: number[]
   statuses: Map<number, NonceStatus>
+  ambiguous?: AmbiguousNonce
   queue: Promise<void>
 }
 
 interface NonceReservation {
   address: string
   nonce: number
+}
+
+interface NonceTrackingInfo {
+  reservation?: NonceReservation
+  invalidateAddress?: string
 }
 
 type SubmittedExtrinsicLocation = 'pool' | 'block' | null
@@ -276,6 +289,8 @@ export type WebSocketLike = {
 
 export type WebSocketConstructor = new (url: string) => WebSocketLike
 export type WebSocketFactory = (url: string) => WebSocketLike
+export type EndpointRequest = (method: string, params?: unknown[]) => Promise<unknown>
+export type EndpointValidator = (endpoint: string, request: EndpointRequest) => Promise<void>
 
 export class JsonRpcError extends Error {
   readonly code?: number
@@ -313,6 +328,13 @@ export class RequestAbortedError extends ChainError {
   }
 }
 
+export class EndpointValidationError extends ChainError {
+  constructor(message: string, details?: unknown) {
+    super(message, details)
+    this.name = 'EndpointValidationError'
+  }
+}
+
 export class JsonRpcTransport {
   private readonly endpoints: string[]
   private readonly retryForever: boolean
@@ -322,6 +344,8 @@ export class JsonRpcTransport {
   private readonly maxRetryBackoffMs: number
   private readonly webSocketConstructor?: WebSocketConstructor
   private readonly webSocketFactory?: WebSocketFactory
+  private readonly validateEndpoint?: EndpointValidator
+  private readonly validatedEndpoints = new Set<string>()
   private endpointIndex = 0
   private id = 1
   private socket?: WebSocketLike
@@ -345,6 +369,7 @@ export class JsonRpcTransport {
     this.maxRetryBackoffMs = nonNegativeNumber(options.maxRetryBackoffMs, DEFAULT_MAX_RETRY_BACKOFF_MS)
     this.webSocketConstructor = options.webSocketConstructor ?? options.webSocket
     this.webSocketFactory = options.webSocketFactory
+    this.validateEndpoint = options.validateEndpoint
   }
 
   get endpoint(): string {
@@ -364,11 +389,12 @@ export class JsonRpcTransport {
     let attempt = 0
     for (;;) {
       try {
+        await this.ensureEndpointValidated(requestOptions)
         return this.isHttpEndpoint()
           ? await this.httpRequest(method, params, requestOptions)
           : await this.wsRequest(method, params, requestOptions)
       } catch (error) {
-        if (error instanceof JsonRpcError || error instanceof RequestAbortedError) throw error
+        if (error instanceof JsonRpcError || error instanceof RequestAbortedError || error instanceof EndpointValidationError) throw error
         if (!retryForever && attempt >= maxRetries) throw error
         attempt += 1
         this.rotateEndpoint()
@@ -376,6 +402,23 @@ export class JsonRpcTransport {
         await delay(capped, requestOptions.signal)
       }
     }
+  }
+
+  private async ensureEndpointValidated(options: RpcRequestOptions): Promise<void> {
+    if (this.validateEndpoint == null) return
+    const endpoint = this.endpoint
+    if (this.validatedEndpoints.has(endpoint)) return
+    try {
+      await this.validateEndpoint(endpoint, (method, params = []) =>
+        this.isHttpEndpoint()
+          ? this.httpRequest(method, params, options)
+          : this.wsRequest(method, params, options),
+      )
+    } catch (error) {
+      if (error instanceof EndpointValidationError) throw error
+      throw error
+    }
+    this.validatedEndpoints.add(endpoint)
   }
 
   async subscribe(
@@ -668,6 +711,7 @@ export class Client {
 
   private readonly headRuntimeTtlMs: number
   private readonly historicalRuntimeCacheSize: number
+  private readonly endpointValidationOptions: JsonRpcTransportOptions
   private headRuntimeCache?: HeadRuntimeCacheEntry
   private runtimesBySpecVersion = new Map<number, RuntimeCacheEntry>()
   private historicalRuntimeCache = new Map<string, RuntimeCacheEntry>()
@@ -678,10 +722,20 @@ export class Client {
     const [label, endpoint] = resolveEndpoint(options.endpoint ?? network)
     this.network = label
     this.endpoint = endpoint
+    this.endpointValidationOptions = {
+      webSocket: options.webSocket,
+      webSocketConstructor: options.webSocketConstructor,
+      webSocketFactory: options.webSocketFactory,
+      requestTimeoutMs: options.requestTimeoutMs,
+      maxRequestRetries: 0,
+      retryBackoffMs: options.retryBackoffMs,
+      maxRetryBackoffMs: options.maxRetryBackoffMs,
+    }
     this.transport = new JsonRpcTransport(endpoint, options.fallbackEndpoints, options.retryForever, {
       webSocket: options.webSocket,
       webSocketConstructor: options.webSocketConstructor,
       webSocketFactory: options.webSocketFactory,
+      validateEndpoint: (activeEndpoint, request) => this.validateEndpointGenesis(activeEndpoint, request),
       requestTimeoutMs: options.requestTimeoutMs,
       maxRequestRetries: options.maxRequestRetries,
       retryBackoffMs: options.retryBackoffMs,
@@ -744,6 +798,34 @@ export class Client {
   async genesisHash(): Promise<string> {
     this.genesis ??= await this.blockHash(0)
     return this.genesis
+  }
+
+  private async validateEndpointGenesis(endpoint: string, request: EndpointRequest): Promise<void> {
+    if (this.genesis == null && endpoint !== this.endpoint) {
+      this.genesis = await this.fetchGenesisFromEndpoint(this.endpoint)
+    }
+    const genesis = String(await request('chain_getBlockHash', [0]))
+    if (this.genesis == null) {
+      this.genesis = genesis
+      return
+    }
+    if (!sameHex(genesis, this.genesis)) {
+      throw new EndpointValidationError(
+        `endpoint ${endpoint} genesis ${genesis} does not match primary genesis ${this.genesis}`,
+      )
+    }
+  }
+
+  private async fetchGenesisFromEndpoint(endpoint: string): Promise<string> {
+    const transport = new JsonRpcTransport(endpoint, [], false, this.endpointValidationOptions)
+    try {
+      return String(await transport.request('chain_getBlockHash', [0], {
+        maxRetries: 0,
+        retryForever: false,
+      }))
+    } finally {
+      transport.close()
+    }
   }
 
   async runtimeAt(block?: number | string | null): Promise<Runtime> {
@@ -1246,10 +1328,11 @@ export class Client {
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    const reservation = managedNonceReservation(extrinsic)
-    const detachedReservation = reservation == null ? detachedNonceReservation(extrinsic) : undefined
+    const tracking = await this.signedExtrinsicNonceTracking(bytes, extrinsic, signerAddress)
+    const reservation = tracking.reservation
     if (options.waitForInclusion || options.waitForFinalization) {
       const watcher = await this.watchSigned(extrinsic, {
+        signerAddress,
         waitForFinalization: options.waitForFinalization ?? false,
         timeoutMs: options.timeoutMs,
         signal: options.signal,
@@ -1264,25 +1347,25 @@ export class Client {
         retryForever: false,
       }))
       if (reservation != null) await this.submitNonce(reservation)
-      else if (detachedReservation != null) await this.submitDetachedNonce(detachedReservation)
+      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       return { status: 'submitted', message: 'Submitted', extrinsicHash: hash, events: [] }
     } catch (error) {
       if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-      else if (detachedReservation != null) await this.quarantineNonce(detachedReservation)
+      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
   }
 
   async watchSigned(
     extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
-    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> = {},
+    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
   ): Promise<ExtrinsicWatcher> {
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    const reservation = managedNonceReservation(extrinsic)
-    const detachedReservation = reservation == null ? detachedNonceReservation(extrinsic) : undefined
+    const tracking = await this.signedExtrinsicNonceTracking(bytes, extrinsic, options.signerAddress)
+    const reservation = tracking.reservation
     let subscription: AsyncIterable<unknown> & { unsubscribe(): Promise<void> }
     try {
       subscription = await this.transport.subscribe(
@@ -1298,10 +1381,10 @@ export class Client {
         },
       )
       if (reservation != null) await this.submitNonce(reservation)
-      else if (detachedReservation != null) await this.submitDetachedNonce(detachedReservation)
+      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
     } catch (error) {
       if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-      else if (detachedReservation != null) await this.quarantineNonce(detachedReservation)
+      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
     const result = this.resolveWatchedExtrinsic(
@@ -1315,12 +1398,12 @@ export class Client {
     ).then(
       async (value) => {
         if (reservation != null) await this.confirmNonce(reservation)
-        else if (detachedReservation != null) await this.confirmDetachedNonce(detachedReservation)
+        else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
         return value
       },
       async (error) => {
         if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-        else if (detachedReservation != null) await this.reconcileDetachedNonce(detachedReservation, extrinsicHash)
+        else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
         throw error
       },
     )
@@ -1344,9 +1427,39 @@ export class Client {
     this.nonceAccounts.delete(address)
   }
 
+  private async signedExtrinsicNonceTracking(
+    bytes: Buffer,
+    extrinsic: unknown,
+    signerAddress?: string,
+  ): Promise<NonceTrackingInfo> {
+    const decoded = await this.decodeExtrinsicNonceReservation(bytes).catch(() => undefined)
+    if (decoded != null) return { reservation: decoded }
+
+    const managed = managedNonceReservation(extrinsic)
+    if (managed != null) return { reservation: managed }
+
+    const address = stringValue(signerAddress)
+    return address == null ? {} : { invalidateAddress: address }
+  }
+
+  private async decodeExtrinsicNonceReservation(bytes: Buffer): Promise<NonceReservation | undefined> {
+    const runtime = await this.runtimeAt()
+    const decoded = runtime.decodeExtrinsic(bytes, false) as unknown
+    const fields = decoded == null || typeof decoded !== 'object'
+      ? {}
+      : decoded as Record<string, unknown>
+    const address = extrinsicSignerAddress(fields.address, runtime.ss58Format)
+    const nonce = safeNonceNumber(fields.nonce)
+    return address == null || nonce == null ? undefined : { address, nonce }
+  }
+
   private async reserveNonce(address: string): Promise<NonceReservation> {
     return this.withNonceAccount(address, async (state) => {
-      if (state.next == null) state.next = await this.peekNextIndex(address)
+      if (state.next == null) {
+        const chainNext = await this.peekNextIndex(address)
+        await this.resolveAmbiguousNonce(address, state, chainNext)
+        if (state.next == null) state.next = chainNext
+      }
       state.reusable.sort((left, right) => left - right)
       let nonce = state.next
       if (state.reusable.length > 0 && state.reusable[0] <= state.next) {
@@ -1365,19 +1478,11 @@ export class Client {
     })
   }
 
-  private async submitDetachedNonce(reservation: NonceReservation): Promise<void> {
-    await this.noteExternalNonce(reservation, 'submitted')
-  }
-
   private async confirmNonce(reservation: NonceReservation): Promise<void> {
     await this.withNonceAccount(reservation.address, (state) => {
       state.statuses.set(reservation.nonce, 'confirmed')
       pruneNonceStatuses(state)
     })
-  }
-
-  private async confirmDetachedNonce(reservation: NonceReservation): Promise<void> {
-    await this.noteExternalNonce(reservation, 'confirmed')
   }
 
   private async failNonce(reservation: NonceReservation, reusable: boolean): Promise<void> {
@@ -1395,35 +1500,10 @@ export class Client {
     })
   }
 
-  private async quarantineNonce(reservation: NonceReservation): Promise<void> {
+  private async quarantineNonce(reservation: NonceReservation, extrinsicHash?: string): Promise<void> {
     await this.withNonceAccount(reservation.address, (state) => {
-      quarantineNonceState(state, reservation.nonce)
+      quarantineNonceState(state, reservation.nonce, extrinsicHash)
     })
-  }
-
-  private async noteExternalNonce(
-    reservation: NonceReservation,
-    status: Exclude<NonceStatus, 'reserved' | 'reusable' | 'failed'>,
-  ): Promise<void> {
-    await this.withNonceAccount(reservation.address, (state) => {
-      if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
-      state.reusable = state.reusable.filter((nonce) => nonce > reservation.nonce)
-      for (const [nonce, existingStatus] of state.statuses) {
-        if (existingStatus === 'reusable' || nonce <= reservation.nonce) state.statuses.delete(nonce)
-      }
-      state.statuses.set(reservation.nonce, status)
-      while (state.next != null && state.statuses.has(state.next) && state.statuses.get(state.next) !== 'reusable') {
-        state.next += 1
-      }
-      pruneNonceStatuses(state)
-    })
-  }
-
-  private async reconcileDetachedNonce(
-    reservation: NonceReservation,
-    extrinsicHash?: string,
-  ): Promise<void> {
-    await this.reconcileNonceReservation(reservation, extrinsicHash)
   }
 
   private async reconcileNonceReservation(
@@ -1450,12 +1530,15 @@ export class Client {
       const chainNext = chainNextResult.ok ? chainNextResult.nonce : undefined
       const submitted = location != null || (chainNext != null && chainNext > reservation.nonce)
       if (!submitted) {
-        quarantineNonceState(state, reservation.nonce)
+        quarantineNonceState(state, reservation.nonce, extrinsicHash)
         return
       }
 
       if (chainNext != null) state.next = chainNext
       else if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
+      if (state.ambiguous != null && reservation.nonce >= state.ambiguous.nonce) {
+        state.ambiguous = undefined
+      }
 
       const minimumReusableNonce = Math.max(state.next, reservation.nonce + 1)
       state.reusable = state.reusable.filter(
@@ -1474,6 +1557,34 @@ export class Client {
       }
       pruneNonceStatuses(state)
     })
+  }
+
+  private async resolveAmbiguousNonce(
+    address: string,
+    state: NonceAccountState,
+    chainNext: number,
+  ): Promise<void> {
+    const ambiguous = state.ambiguous
+    if (ambiguous == null) return
+
+    if (chainNext > ambiguous.nonce) {
+      clearAmbiguousNonceState(state, chainNext)
+      return
+    }
+
+    if (ambiguous.extrinsicHash != null) {
+      const location = await this.submittedExtrinsicLocation(ambiguous.extrinsicHash).catch(() => undefined)
+      if (location != null) {
+        clearAmbiguousNonceState(state, Math.max(chainNext, ambiguous.nonce + 1))
+        state.statuses.set(ambiguous.nonce, location === 'block' ? 'confirmed' : 'submitted')
+        pruneNonceStatuses(state)
+        return
+      }
+    }
+
+    throw new ChainError(
+      `nonce ${ambiguous.nonce} for ${address} is ambiguous after a failed submission; automatic submissions are paused until the chain nonce advances, the original extrinsic is located, or clearNonce(address) is called`,
+    )
   }
 
   private async submittedExtrinsicLocation(extrinsicHash: string): Promise<SubmittedExtrinsicLocation> {
@@ -1786,7 +1897,9 @@ export class Client {
       for await (const status of subscription) {
         if (abortError != null) throw abortError
         const normalized = normalizeStatus(status)
-        const fatal = ['usurped', 'retracted', 'finalitytimeout', 'dropped', 'invalid'].find((name) => normalized[name] != null)
+        const fatal = ['usurped', 'retracted', 'finalitytimeout', 'dropped', 'invalid'].find((name) =>
+          hasOwn(normalized, name),
+        )
         if (fatal != null) throw new ChainError(`Extrinsic ${fatal}`, status)
         if (waitForFinalization && normalized.finalized != null) {
           return this.resolveInclusion(extrinsicHash, String(normalized.finalized), true)
@@ -1814,6 +1927,21 @@ export class Client {
     const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed')
     const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
     const feeEvent = triggered.find((event) => eventName(event) === 'TransactionPayment.TransactionFeePaid')
+    if (!success && failed == null) {
+      return {
+        status: 'unknown',
+        success: undefined,
+        message: 'Included, but no dispatch outcome event was found',
+        extrinsicHash,
+        blockHash,
+        blockNumber,
+        extrinsicIndex,
+        extrinsicId: `${blockNumber}-${String(extrinsicIndex).padStart(4, '0')}`,
+        finalized,
+        fee: feeEvent == null ? undefined : feeFromEvent(feeEvent),
+        events: triggered,
+      }
+    }
     const dispatchSuccess = success && failed == null
     return {
       status: dispatchSuccess ? finalized ? 'finalized' : 'inBlock' : 'failed',
@@ -2458,15 +2586,22 @@ function managedNonceReservation(extrinsic: unknown): NonceReservation | undefin
   return (extrinsic as ManagedSignedExtrinsicResult)[MANAGED_NONCE]
 }
 
-function detachedNonceReservation(extrinsic: unknown): NonceReservation | undefined {
-  if (managedNonceReservation(extrinsic) != null) return undefined
-  if (extrinsic == null || typeof extrinsic !== 'object') return undefined
-  if (Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array) return undefined
-  const signed = extrinsic as Partial<SignedExtrinsicResult>
-  const address = stringValue(signed.signerAddress)
-  const nonce = Number(signed.nonce)
-  if (address == null || !Number.isSafeInteger(nonce) || nonce < 0) return undefined
-  return { address, nonce }
+function extrinsicSignerAddress(value: unknown, ss58Format: number): string | undefined {
+  if (typeof value === 'string') return value
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+    return value.length === 32 ? ss58FromPublic(value, ss58Format) : undefined
+  }
+  if (value == null || typeof value !== 'object') return undefined
+  for (const candidate of Object.values(value as Record<string, unknown>)) {
+    const address = extrinsicSignerAddress(candidate, ss58Format)
+    if (address != null) return address
+  }
+  return undefined
+}
+
+function safeNonceNumber(value: unknown): number | undefined {
+  const nonce = typeof value === 'bigint' ? Number(value) : Number(value)
+  return Number.isSafeInteger(nonce) && nonce >= 0 ? nonce : undefined
 }
 
 function hashExtrinsicHex(extrinsic: unknown): string | undefined {
@@ -2486,14 +2621,37 @@ function pruneNonceStatuses(state: NonceAccountState): void {
   }
 }
 
-function quarantineNonceState(state: NonceAccountState, nonce: number): void {
+function quarantineNonceState(state: NonceAccountState, nonce: number, extrinsicHash?: string): void {
   state.next = undefined
   state.reusable = []
   for (const [existingNonce, status] of state.statuses) {
     if (status === 'reusable') state.statuses.delete(existingNonce)
   }
-  state.statuses.set(nonce, 'failed')
+  state.statuses.set(nonce, 'ambiguous')
+  state.ambiguous = {
+    nonce,
+    extrinsicHash,
+    sinceMs: Date.now(),
+  }
   pruneNonceStatuses(state)
+}
+
+function clearAmbiguousNonceState(state: NonceAccountState, next: number): void {
+  const ambiguous = state.ambiguous
+  if (ambiguous != null && state.statuses.get(ambiguous.nonce) === 'ambiguous') {
+    state.statuses.delete(ambiguous.nonce)
+  }
+  state.ambiguous = undefined
+  state.next = next
+  state.reusable = state.reusable.filter((nonce) => nonce >= next)
+}
+
+function sameHex(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
 }
 
 function stringValue(value: unknown): string | undefined {

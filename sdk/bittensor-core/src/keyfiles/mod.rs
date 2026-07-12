@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -233,6 +233,51 @@ pub fn read_keypair_from_keyfile(
     path: &Path,
     password: Option<&str>,
 ) -> Result<Keypair, CoreError> {
+    let keyfile_data = read_keyfile_bytes(path)?;
+    deserialize_keypair_from_keyfile(&keyfile_data, password)
+}
+
+fn read_keyfile_bytes(path: &Path) -> Result<Zeroizing<Vec<u8>>, CoreError> {
+    let mut file = open_keyfile_for_read(path)?;
+    let mut keyfile_data = Zeroizing::new(Vec::new());
+    file.read_to_end(&mut keyfile_data).map_err(|error| {
+        key_err(format!(
+            "failed to read keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    Ok(keyfile_data)
+}
+
+#[cfg(unix)]
+fn open_keyfile_for_read(path: &Path) -> Result<File, CoreError> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| {
+            key_err(format!(
+                "failed to open keyfile {} without following symlinks: {error}",
+                path.display()
+            ))
+        })?;
+    let metadata = file.metadata().map_err(|error| {
+        key_err(format!(
+            "failed to inspect opened keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_file() {
+        return Err(key_err(format!(
+            "keyfile path {} is not a regular file",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+#[cfg(not(unix))]
+fn open_keyfile_for_read(path: &Path) -> Result<File, CoreError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         key_err(format!(
             "failed to inspect keyfile {}: {error}",
@@ -251,13 +296,12 @@ pub fn read_keypair_from_keyfile(
             path.display()
         )));
     }
-    let keyfile_data = Zeroizing::new(fs::read(path).map_err(|error| {
+    File::open(path).map_err(|error| {
         key_err(format!(
-            "failed to read keyfile {}: {error}",
+            "failed to open keyfile {}: {error}",
             path.display()
         ))
-    })?);
-    deserialize_keypair_from_keyfile(&keyfile_data, password)
+    })
 }
 
 pub fn save_keypair_to_keyfile(

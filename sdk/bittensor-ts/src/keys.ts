@@ -22,9 +22,16 @@ export interface KeypairSignOptions {
   withType?: boolean
 }
 
+export interface GeneratedKeypair {
+  keypair: Keypair
+  mnemonic: string
+}
+
 /**
- * Structural Polkadot.js/Moonwall keyring-pair interface. Public-key
- * derivation and signatures stay inside bittensor-core Rust.
+ * Signing-compatible subset of Polkadot.js/Moonwall keyring-pair behavior.
+ * Public-key derivation and signatures stay inside bittensor-core Rust, while
+ * full keystore lifecycle APIs such as PKCS#8, JSON export, locking, and VRF
+ * deliberately remain unsupported.
  */
 export interface PolkadotCompatibleKeypair {
   readonly address: string
@@ -190,8 +197,19 @@ export class Keypair implements PolkadotCompatibleKeypair {
     nWords = 12,
     password?: string | null,
   ): Keypair {
+    return Keypair.generateWithMnemonic(cryptoType, nWords, password).keypair
+  }
+
+  static generateWithMnemonic(
+    cryptoType = CRYPTO_SR25519,
+    nWords = 12,
+    password?: string | null,
+  ): GeneratedKeypair {
     const mnemonic = Keypair.generateMnemonic(nWords)
-    return Keypair.fromMnemonic(mnemonic, cryptoType, password)
+    return {
+      keypair: Keypair.fromMnemonic(mnemonic, cryptoType, password),
+      mnemonic,
+    }
   }
 
   static encryptFor(
@@ -410,6 +428,14 @@ export function generateKeyringPair(
   const pair = Keypair.generate(cryptoTypeForKeyType(type), nWords)
   pair.setMeta(meta)
   return pair
+}
+
+export function generateKeypairWithMnemonic(
+  cryptoType = CRYPTO_SR25519,
+  nWords = 12,
+  password?: string | null,
+): GeneratedKeypair {
+  return Keypair.generateWithMnemonic(cryptoType, nWords, password)
 }
 
 export function generateMnemonic(nWords = 12): string {
