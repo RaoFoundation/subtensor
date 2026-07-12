@@ -774,6 +774,14 @@ test('chain client surface is exported without Polkadot.js glue', () => {
     'SubnetInfoRuntimeApi',
     'get_metagraph',
   ])
+  assert.deepEqual(core.runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [
+    'SubnetInfoRuntimeApi',
+    'get_subnet_hyperparams_v3',
+  ])
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(core.runtimeApi.SubnetInfoRuntimeApi, 'get_subnet_hyperparams'),
+    false,
+  )
   assert.deepEqual(core.calls.subtensor.rootRegister('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'), [
     'SubtensorModule',
     'root_register',
@@ -788,6 +796,30 @@ test('chain client surface is exported without Polkadot.js glue', () => {
 
 test('declared Node runtime supports the default WebSocket client path', () => {
   assert.equal(typeof globalThis.WebSocket, 'function')
+})
+
+test('Client subnet hyperparameters read uses the v3 runtime API', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const calls = []
+  client.runtime = async (method, params, block) => {
+    calls.push({ method, params, block })
+    return { ok: true }
+  }
+
+  assert.deepEqual(await client.subnets.hyperparameters(7, '0xabc'), { ok: true })
+  assert.deepEqual(await client.getSubnetHyperparameters(8), { ok: true })
+  assert.deepEqual(calls, [
+    {
+      method: ['SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3'],
+      params: [7],
+      block: '0xabc',
+    },
+    {
+      method: ['SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3'],
+      params: [8],
+      block: undefined,
+    },
+  ])
 })
 
 test('Balance numeric getters throw before losing precision', () => {

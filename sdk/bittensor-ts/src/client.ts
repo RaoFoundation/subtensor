@@ -2098,7 +2098,7 @@ export class SubnetsNamespace {
   }
 
   hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
-    return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams, [netuid], block)
+    return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [netuid], block)
   }
 
   subnetHyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
@@ -2310,7 +2310,7 @@ export const runtimeApi = Object.freeze({
   SubnetInfoRuntimeApi: Object.freeze({
     get_subnet_info: descriptor('SubnetInfoRuntimeApi', 'get_subnet_info'),
     get_subnets_info: descriptor('SubnetInfoRuntimeApi', 'get_subnets_info'),
-    get_subnet_hyperparams: descriptor('SubnetInfoRuntimeApi', 'get_subnet_hyperparams'),
+    get_subnet_hyperparams_v3: descriptor('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3'),
     get_all_dynamic_info: descriptor('SubnetInfoRuntimeApi', 'get_all_dynamic_info'),
     get_all_metagraphs: descriptor('SubnetInfoRuntimeApi', 'get_all_metagraphs'),
     get_metagraph: descriptor('SubnetInfoRuntimeApi', 'get_metagraph'),
