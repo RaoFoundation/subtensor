@@ -7,6 +7,7 @@
 //!
 //! See `sdk/bittensor-core-spec.md` for the full design.
 
+#[cfg(feature = "host")]
 pub mod client;
 pub mod codec;
 pub mod digest;
@@ -18,8 +19,11 @@ pub mod mlkem;
 pub mod runtime;
 pub mod signers;
 pub mod timelock;
+#[cfg(feature = "host")]
 pub mod transaction;
 
+#[cfg(feature = "host")]
 pub use client::Client;
 pub use error::CoreError;
+#[cfg(feature = "host")]
 pub use transaction::{Executor, IntentCall, Plan, Policy, SignerRole, Spend, Wallet};

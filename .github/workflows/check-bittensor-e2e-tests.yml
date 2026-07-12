@@ -50,9 +50,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
-  # The Rust e2e harness prefers LOCALNET_IMAGE_NAME; Python fixtures still read
-  # LOCALNET_IMAGE, so keep both stable aliases pointed at the tested image.
-  LOCALNET_IMAGE_NAME: ghcr.io/raofoundation/subtensor-localnet:ci
+  # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
   # Per-commit tag on GHCR: built once, pulled by every test job. Registry
   # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
@@ -343,9 +341,7 @@ jobs:
         run: docker pull "$LOCALNET_IMAGE_CI"
 
       - name: Retag Docker Image
-        run: |
-          docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE_NAME"
-          docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"
+        run: docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"
 
       - name: Run with retry
         env:
