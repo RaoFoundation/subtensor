@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  warm:
-    name: Populate trusted compiler cache
+  native:
+    name: Populate native compiler cache
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' ||
@@ -51,11 +51,38 @@ jobs:
             exit 1
           fi
 
-      - name: Warm workspace check artifacts
+      - name: Warm default workspace check artifacts
+        run: cargo check --workspace --locked
+
+      - name: Warm all-feature workspace check artifacts
         run: cargo check --workspace --all-features --locked
+
+      - name: Warm default clippy artifacts
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Warm all-feature clippy artifacts
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Warm deny-warnings check artifacts
+        run: RUSTFLAGS="-D warnings" cargo check --locked
 
       - name: Warm workspace test artifacts
         run: cargo test --workspace --all-features --locked --no-run
 
+      - name: Warm eco-tests artifacts
+        working-directory: eco-tests
+        run: cargo test --no-run
+
+      - name: Install runtime wasm toolchain components
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Warm try-runtime wasm artifacts
+        run: cargo build --profile production -p node-subtensor-runtime --features try-runtime -q --locked
+
       - name: Warm release node artifacts
         run: cargo build --release --locked -p node-subtensor
+
+      - name: Warm fast-runtime release node artifacts
+        run: cargo build --release --locked -p node-subtensor --features fast-runtime
