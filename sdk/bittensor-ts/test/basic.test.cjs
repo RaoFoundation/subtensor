@@ -1194,6 +1194,71 @@ test('transaction amounts require explicit units', () => {
       placeholder2: 0,
     },
   ])
+  assert.deepEqual(core.calls.subtensor.serveAxon(1, 0x1_0000_0000n, 30333), [
+    'SubtensorModule',
+    'serve_axon',
+    {
+      netuid: 1,
+      version: 0,
+      ip: 0x1_0000_0000,
+      port: 30333,
+      ip_type: 6,
+      protocol: 4,
+      placeholder1: 0,
+      placeholder2: 0,
+    },
+  ])
+  assert.deepEqual(core.calls.subtensor.register(
+    1,
+    '9007199254740993',
+    '9007199254740995',
+    Buffer.from([1]),
+    '5F',
+    '5G',
+  ), [
+    'SubtensorModule',
+    'register',
+    {
+      netuid: 1,
+      block_number: 9007199254740993n,
+      nonce: 9007199254740995n,
+      work: Buffer.from([1]),
+      hotkey: '5F',
+      coldkey: '5G',
+    },
+  ])
+  assert.throws(
+    () => core.calls.subtensor.setWeights(1, [], [], Number.MAX_SAFE_INTEGER + 1),
+    /versionKey must be a safe integer/,
+  )
+  assert.throws(
+    () => core.calls.SubtensorModule.register(1, Number.MAX_SAFE_INTEGER + 1, 1, Buffer.alloc(0), '5F', '5G'),
+    /blockNumber must be a safe integer/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.register(1, 1, Number.MAX_SAFE_INTEGER + 1, Buffer.alloc(0), '5F', '5G'),
+    /nonce must be a safe integer/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.revealWeights(1, [], [], [], '0x10'),
+    /versionKey must be an integer string/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.serveAxon(1, '2001:db8::1', 30333, 0, 4),
+    /ipType does not match/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.serveAxon(1, '192.0.2.1', 30333, 0, 6),
+    /ipType does not match/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.serveAxon(1, 0x1_0000_0000n, 30333, 0, 4),
+    /IPv4 address must fit in u32/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.serveAxon(1, '1:2:3:4:5:6:7::8', 30333),
+    /invalid IPv6 address/,
+  )
 })
 
 test('descriptor schema validation reports metadata drift', () => {
@@ -1456,6 +1521,32 @@ test('JsonRpcTransport rejects pending requests on malformed websocket JSON', as
   await assert.rejects(pending, /invalid JSON-RPC message/)
 })
 
+test('JsonRpcTransport validates WebSocket JSON-RPC response envelopes', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+
+  const missingResult = transport.request('state_getMetadata')
+  await waitFor(() => FakeWebSocket.sockets[0]?.sent.length === 1, 'websocket request send')
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    id: FakeWebSocket.sockets[0].sent[0].id,
+  })
+  await assert.rejects(missingResult, /exactly one of result or error/)
+
+  const malformedError = transport.request('state_getMetadata')
+  await waitFor(() => FakeWebSocket.sockets[0]?.sent.length === 2, 'second websocket request send')
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    id: FakeWebSocket.sockets[0].sent[1].id,
+    error: { message: 'missing code' },
+  })
+  await assert.rejects(malformedError, /invalid JSON-RPC error response/)
+})
+
 test('JsonRpcTransport validates HTTP JSON-RPC envelopes and response size', async (t) => {
   const originalFetch = globalThis.fetch
   t.after(() => {
@@ -1544,6 +1635,33 @@ test('JsonRpcTransport caps subscription notification queues', async (t) => {
 
   assert.deepEqual(await iterator.next(), { done: false, value: { number: 1 } })
   await assert.rejects(() => iterator.next(), /subscription notification queue exceeded limit/)
+})
+
+test('JsonRpcTransport validates subscription notification envelopes', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  FakeWebSocket.onSend = (socket, message) => {
+    if (message.method === 'chain_subscribeNewHeads') {
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: 'sub-1' }))
+    }
+  }
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+  const subscription = await transport.subscribe(
+    'chain_subscribeNewHeads',
+    [],
+    'chain_unsubscribeNewHeads',
+  )
+  const iterator = subscription[Symbol.asyncIterator]()
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-1' },
+  })
+
+  await assert.rejects(() => iterator.next(), /missing result/)
 })
 
 test('JsonRpcTransport does not resubmit submit-and-watch subscriptions after reconnect', async (t) => {
@@ -1704,6 +1822,47 @@ test('Client accepts an injected WebSocket factory when no global WebSocket exis
 
   assert.equal(await client.rpc('state_getMetadata'), '0x1234')
   assert.deepEqual(urls, ['ws://node-a'])
+})
+
+test('Client passes maxSubscriptionQueue into its transport', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  const genesis = `0x${'12'.repeat(32)}`
+  FakeWebSocket.onSend = (socket, message) => {
+    if (message.method === 'chain_getBlockHash') {
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: genesis }))
+      return
+    }
+    if (message.method === 'chain_subscribeNewHeads') {
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: 'sub-1' }))
+    }
+  }
+  const client = new core.Client('local', {
+    endpoint: 'ws://node-a',
+    expectedGenesisHash: genesis,
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+    maxSubscriptionQueue: 1,
+  })
+  const subscription = await client.transport.subscribe(
+    'chain_subscribeNewHeads',
+    [],
+    'chain_unsubscribeNewHeads',
+  )
+  const iterator = subscription[Symbol.asyncIterator]()
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-1', result: { number: 1 } },
+  })
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-1', result: { number: 2 } },
+  })
+
+  assert.deepEqual(await iterator.next(), { done: false, value: { number: 1 } })
+  await assert.rejects(() => iterator.next(), /subscription notification queue exceeded limit/)
 })
 
 test('Client autoConnect exposes a handled readiness promise', async (t) => {

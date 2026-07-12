@@ -475,8 +475,9 @@ impl IntentCall {
         port: u16,
         ip_type: u8,
         protocol: u8,
-    ) -> Self {
-        Self::trusted(
+    ) -> Result<Self, CoreError> {
+        validate_ip_family(ip, ip_type)?;
+        Ok(Self::trusted(
             "serve_axon",
             SignerRole::Hotkey,
             "SubtensorModule",
@@ -494,7 +495,7 @@ impl IntentCall {
             Spend::None,
             [netuid],
             false,
-        )
+        ))
     }
 
     /// Register a hotkey by burning the subnet's live registration cost.
@@ -914,6 +915,16 @@ fn aggregate_spend(left: Spend, right: Spend) -> Spend {
     }
 }
 
+fn validate_ip_family(ip: u128, ip_type: u8) -> Result<(), CoreError> {
+    match ip_type {
+        4 if ip > u128::from(u32::MAX) => {
+            Err(CoreError::Codec("IPv4 address must fit in u32".into()))
+        }
+        4 | 6 => Ok(()),
+        _ => Err(CoreError::Codec("ip_type must be 4 or 6".into())),
+    }
+}
+
 /// Transaction guardrails enforced before any signature is created.
 #[derive(Debug, Clone, Default)]
 pub struct Policy {
@@ -1196,6 +1207,20 @@ mod tests {
         assert_eq!(
             policy.check(&intent, Some(0)),
             vec![String::from("netuid 2 is not allowed by policy")]
+        );
+    }
+
+    #[test]
+    fn serve_axon_rejects_contradictory_ip_family() {
+        assert!(IntentCall::serve_axon(1, 0, u128::from(u32::MAX), 30333, 4, 4).is_ok());
+        assert!(IntentCall::serve_axon(1, 0, u128::from(u32::MAX) + 1, 30333, 6, 4).is_ok());
+
+        let too_large = IntentCall::serve_axon(1, 0, u128::from(u32::MAX) + 1, 30333, 4, 4);
+        assert!(matches!(too_large, Err(CoreError::Codec(message)) if message.contains("IPv4")));
+
+        let invalid_type = IntentCall::serve_axon(1, 0, 0, 30333, 5, 4);
+        assert!(
+            matches!(invalid_type, Err(CoreError::Codec(message)) if message.contains("ip_type"))
         );
     }
 

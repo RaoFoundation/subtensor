@@ -1,5 +1,5 @@
 export type ByteLike = Buffer | Uint8Array
-export type IntegerLike = number | bigint
+export type IntegerLike = number | bigint | string
 
 export type ScaleValue =
   | null

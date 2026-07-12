@@ -34,8 +34,17 @@ export function toBuffer(value: ByteLike, name = 'value'): Buffer {
 
 export function toBigInt(value: IntegerLike, name = 'value'): bigint {
   if (typeof value === 'bigint') return value
-  if (!Number.isSafeInteger(value)) {
-    throw new RangeError(`${name} must be a safe integer or bigint`)
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) {
+      throw new RangeError(`${name} must be a safe integer, bigint, or integer string`)
+    }
+    return BigInt(value)
+  }
+  if (typeof value !== 'string') {
+    throw new TypeError(`${name} must be a safe integer, bigint, or integer string`)
+  }
+  if (!/^-?\d+$/.test(value)) {
+    throw new RangeError(`${name} must be an integer string`)
   }
   return BigInt(value)
 }

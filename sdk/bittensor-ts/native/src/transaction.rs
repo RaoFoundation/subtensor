@@ -306,16 +306,16 @@ impl NativeIntentCall {
         ip_type: u8,
         protocol: u8,
     ) -> napi::Result<Self> {
-        Ok(Self {
-            inner: IntentCall::serve_axon(
-                netuid,
-                version,
-                bigint_u128("ip", &ip)?,
-                port,
-                ip_type,
-                protocol,
-            ),
-        })
+        IntentCall::serve_axon(
+            netuid,
+            version,
+            bigint_u128("ip", &ip)?,
+            port,
+            ip_type,
+            protocol,
+        )
+        .napi()
+        .map(|inner| Self { inner })
     }
 
     #[napi(factory, js_name = "burnedRegister")]
@@ -646,7 +646,10 @@ impl NativeClient {
 
     #[napi(js_name = "accountNextIndex")]
     pub fn account_next_index(&self, address: String) -> NapiResult<BigInt> {
-        self.inner.account_next_index(&address).napi().map(BigInt::from)
+        self.inner
+            .account_next_index(&address)
+            .napi()
+            .map(BigInt::from)
     }
 
     #[napi(js_name = "signExtrinsic")]
@@ -1028,9 +1031,8 @@ fn quote_to_native(quote: SwapQuote) -> NativeSwapQuote {
 
 fn wire_value_list(name: &str, value: JsonValue) -> NapiResult<Vec<bittensor_core::codec::Value>> {
     match from_wire(value)? {
-        bittensor_core::codec::Value::List(values) | bittensor_core::codec::Value::Tuple(values) => {
-            Ok(values)
-        }
+        bittensor_core::codec::Value::List(values)
+        | bittensor_core::codec::Value::Tuple(values) => Ok(values),
         _ => Err(invalid_arg(format!("{name} must be an array"))),
     }
 }

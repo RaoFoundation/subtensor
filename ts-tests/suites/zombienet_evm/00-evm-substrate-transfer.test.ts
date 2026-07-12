@@ -5,6 +5,12 @@ import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
 import {
+    GWEI,
+    IBALANCETRANSFER_ADDRESS,
+    IBalanceTransferABI,
+    MAX_TX_FEE,
+    WITHDRAW_CONTRACT_ABI,
+    WITHDRAW_CONTRACT_BYTECODE,
     bigintToRao,
     convertH160ToSS58,
     convertPublicKeyToSs58,
@@ -15,10 +21,6 @@ import {
     generateKeyringPair,
     getBalance,
     getEthBalance,
-    GWEI,
-    IBALANCETRANSFER_ADDRESS,
-    IBalanceTransferABI,
-    MAX_TX_FEE,
     raoToEth,
     sendTransaction,
     ss58ToEthAddress,
@@ -26,8 +28,6 @@ import {
     tao,
     waitForFinalizedBlocks,
     waitForTransactionWithRetry,
-    WITHDRAW_CONTRACT_ABI,
-    WITHDRAW_CONTRACT_BYTECODE,
 } from "../../utils";
 
 async function estimateTransactionCost(provider: ethers.Provider, tx: ethers.TransactionRequest): Promise<bigint> {
@@ -113,7 +113,7 @@ describeSuite({
                 const txResponse = await ethWallet.sendTransaction(tx);
                 const receipt = await txResponse.wait();
                 expect(receipt).toBeDefined();
-                expect(receipt!.status).toEqual(1);
+                expect(receipt?.status).toEqual(1);
 
                 const senderBalanceAfter = await getEthBalance(provider, ethWallet.address);
                 const receiverBalanceAfter = await getEthBalance(provider, ethWallet2.address);
@@ -264,6 +264,7 @@ describeSuite({
                 const withdrawTx = await contractForCall.withdraw(raoToEth(tao(1)).toString());
                 const withdrawReceipt = await withdrawTx.wait();
                 expect(withdrawReceipt?.status).toEqual(1);
+                await waitForFinalizedBlocks(api, 2);
 
                 const contractBalanceAfterWithdraw = await getEthBalance(provider, contractAddress);
                 const callerBalanceAfterWithdraw = await getEthBalance(provider, ethWallet.address);

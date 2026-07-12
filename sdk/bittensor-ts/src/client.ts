@@ -3,7 +3,7 @@ import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPub
 import { LedgerDevice } from './ledger'
 import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
 import { Executor, IntentCall, NativeChainClient, Policy, RustWallet, isIntentCall, rawCall, type PolicyOptions, type SignerRoleLike } from './transaction'
-import { toBuffer } from './wire'
+import { toBigInt, toBuffer } from './wire'
 import type { NativeTxOutcome } from './native'
 import {
   Balance,
@@ -97,7 +97,9 @@ export interface ClientOptions {
   retryBackoffMs?: number
   maxRetryBackoffMs?: number
   endpointValidationTtlMs?: number
+  maxSubscriptionQueue?: number
   maxMessageBytes?: number
+  validateDescriptorSchema?: boolean
 }
 
 export interface RpcRequestOptions {
@@ -193,7 +195,7 @@ export interface ExtensionSignPayloadRequest extends RuntimeSignerPayload {}
 export type SignerSignature =
   | ByteLike
   | string
-  | { signature: ByteLike | string; signedTransaction?: unknown }
+  | { signature: ByteLike | string }
 
 export interface ChainSigner {
   readonly ss58Address?: string
@@ -849,43 +851,56 @@ export class JsonRpcTransport {
         ? Buffer.from(data).toString('utf8')
         : String(data)
     if (Buffer.byteLength(raw, 'utf8') > this.maxMessageBytes) {
-      this.handleSocketClose(connection, new ChainError('JSON-RPC message exceeded size limit'))
+      this.handleProtocolError(connection, new ChainError('JSON-RPC message exceeded size limit'))
       return
     }
     let message: unknown
     try {
       message = JSON.parse(raw)
     } catch {
-      this.handleSocketClose(connection, new ChainError('invalid JSON-RPC message'))
+      this.handleProtocolError(connection, new ChainError('invalid JSON-RPC message'))
       return
     }
-    if (typeof message !== 'object' || message == null) return
-    const rpcMessage = message as {
-      id?: unknown
-      error?: { message?: string; code?: number; data?: unknown }
-      result?: unknown
-      params?: { subscription?: unknown; result?: unknown }
+    if (typeof message !== 'object' || message == null || Array.isArray(message)) {
+      this.handleProtocolError(connection, new JsonRpcError('invalid JSON-RPC message envelope'))
+      return
     }
-    if (typeof rpcMessage.id === 'number') {
+    const rpcMessage = message as { id?: unknown }
+    if (hasOwn(rpcMessage, 'id')) {
+      if (typeof rpcMessage.id !== 'number') {
+        this.handleProtocolError(connection, new JsonRpcError('invalid JSON-RPC response id'))
+        return
+      }
       const pending = this.pending.get(rpcMessage.id)
       if (pending == null || pending.generation !== connection.generation) return
       this.pending.delete(rpcMessage.id)
-      if (rpcMessage.error) pending.reject(new JsonRpcError(String(rpcMessage.error.message ?? 'JSON-RPC error'), rpcMessage.error.code, rpcMessage.error.data))
-      else pending.resolve(rpcMessage.result)
+      try {
+        pending.resolve(jsonRpcResponseResult(message, rpcMessage.id))
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new JsonRpcError(String(error)))
+      }
       return
     }
-    const subscription = rpcMessage.params?.subscription
-    if (subscription == null) return
-    const entry = this.subscriptionsById.get(String(subscription))
+    let notification: { subscription: string; result: unknown } | undefined
+    try {
+      notification = jsonRpcSubscriptionNotification(message)
+    } catch (error) {
+      this.handleProtocolError(
+        connection,
+        error instanceof Error ? error : new JsonRpcError(String(error)),
+      )
+      return
+    }
+    if (notification == null) return
+    const entry = this.subscriptionsById.get(notification.subscription)
     if (entry == null || entry.generation !== connection.generation || entry.state.closed) return
     const state = entry.state
-    const result = rpcMessage.params?.result
     const waiter = state.waiters.shift()
-    if (waiter != null) waiter.resolve({ done: false, value: result })
+    if (waiter != null) waiter.resolve({ done: false, value: notification.result })
     else if (state.queue.length >= this.maxSubscriptionQueue) {
       this.closeSubscription(state, new ChainError('subscription notification queue exceeded limit'))
     } else {
-      state.queue.push(result)
+      state.queue.push(notification.result)
     }
   }
 
@@ -922,6 +937,23 @@ export class JsonRpcTransport {
       // Ignore close errors while tearing down a failed connection.
     }
     this.transitionDisconnectedSubscriptions(connection.generation, error)
+  }
+
+  private handleProtocolError(connection: ActiveConnection, error: Error): void {
+    if (!this.isCurrentConnection(connection)) return
+    this.validatedEndpoints.delete(connection.endpoint)
+    this.failPending(error, connection.generation)
+    try {
+      connection.socket.close()
+    } catch {
+      // Ignore close errors while rejecting malformed protocol state.
+    }
+    for (const [subscription, entry] of this.subscriptionsById) {
+      if (entry.generation === connection.generation) this.subscriptionsById.delete(subscription)
+    }
+    for (const state of [...this.subscriptions]) {
+      if (state.subscriptionGeneration === connection.generation) this.closeSubscription(state, error)
+    }
   }
 
   private transitionDisconnectedSubscriptions(generation: number, error: Error): void {
@@ -1027,6 +1059,7 @@ export class Client {
   private genesis?: string
   private nonceAccounts = new Map<string, NonceAccountState>()
   private readonly nativeEligible: boolean
+  private readonly validateDescriptorsOnLoad: boolean
   private nativeClient?: NativeChainClient
   private nativeUnavailable = false
 
@@ -1045,6 +1078,7 @@ export class Client {
     this.endpoint = endpoint
     this.expectedGenesisHash = expectedGenesisHash
     this.genesis = expectedGenesisHash
+    this.validateDescriptorsOnLoad = options.validateDescriptorSchema ?? expectedGenesisHash != null
     this.nativeEligible = fallbackEndpoints.length === 0 &&
       options.webSocket == null &&
       options.webSocketConstructor == null &&
@@ -1059,6 +1093,7 @@ export class Client {
       retryBackoffMs: options.retryBackoffMs,
       maxRetryBackoffMs: options.maxRetryBackoffMs,
       endpointValidationTtlMs: options.endpointValidationTtlMs,
+      maxSubscriptionQueue: options.maxSubscriptionQueue,
       maxMessageBytes: options.maxMessageBytes,
     })
     this.balances = new BalancesNamespace(this)
@@ -1233,6 +1268,10 @@ export class Client {
       version.transactionVersion,
       ss58Format,
     )
+    if (this.validateDescriptorsOnLoad) {
+      const descriptorIssues = validateDescriptorSchema(runtime)
+      if (descriptorIssues.length > 0) throw descriptorSchemaDriftError(descriptorIssues)
+    }
     const entry = { runtime, ss58Format, ...version }
     this.cacheRuntimeBySpecVersion(entry)
     return entry
@@ -1634,11 +1673,7 @@ export class Client {
   async assertDescriptorSchema(block?: number | string | null): Promise<void> {
     const issues = await this.validateDescriptorSchema(block)
     if (issues.length === 0) return
-    const sample = issues.slice(0, 8).map((issue) => `${issue.path}: ${issue.message}`)
-    throw new ChainError(
-      `descriptor schema drift detected (${issues.length} issue${issues.length === 1 ? '' : 's'}): ${sample.join('; ')}`,
-      issues,
-    )
+    throw descriptorSchemaDriftError(issues)
   }
 
   assert_descriptor_schema(block?: number | string | null): Promise<void> {
@@ -1673,7 +1708,12 @@ export class Client {
     const callData = this.composeNativeCallData(call, options, native)
     const nonce = options.nonce ?? native.accountNextIndex(signer.ss58Address)
     const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
-    const signed = native.signExtrinsic(callData, signer, BigInt(nonce), period == null ? null : BigInt(period))
+    const signed = native.signExtrinsic(
+      callData,
+      signer,
+      toBigInt(nonce, 'nonce'),
+      period == null ? null : toBigInt(period, 'period'),
+    )
     return {
       bytes: Buffer.from(signed.bytes),
       hash: hexToBuffer(signed.hash),
@@ -1816,8 +1856,8 @@ export class Client {
         native.submit(
           callData,
           signer,
-          options.nonce == null ? null : BigInt(options.nonce),
-          options.period === undefined || options.period == null ? null : BigInt(options.period),
+          options.nonce == null ? null : toBigInt(options.nonce, 'nonce'),
+          options.period === undefined || options.period == null ? null : toBigInt(options.period, 'period'),
           options.waitForFinalization === true,
         ),
         options.waitForFinalization === true,
@@ -2223,7 +2263,7 @@ export class Client {
   }
 
   setWeights(signer: SignerLike, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    return this.submit(IntentCall.setWeights(netuid, dests, weights, BigInt(versionKey)), signer, { waitForInclusion: true, ...options })
+    return this.submit(IntentCall.setWeights(netuid, dests, weights, toBigInt(versionKey, 'versionKey')), signer, { waitForInclusion: true, ...options })
   }
 
   set_weights(signer: SignerLike, netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
@@ -3082,7 +3122,7 @@ export const calls = Object.freeze({
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
-      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
+      return call('SubtensorModule', 'register', { netuid, block_number: toBigInt(blockNumber, 'blockNumber'), nonce: toBigInt(nonce, 'nonce'), work, hotkey, coldkey })
     },
     registerNetwork(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
@@ -3091,7 +3131,7 @@ export const calls = Object.freeze({
       return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: alphaTransactionAmountForNetuid(amount, netuid, 'unstake amount') })
     },
     revealWeights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
-      return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
+      return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: toBigInt(versionKey, 'versionKey') })
     },
     rootRegister(hotkey: string) {
       return call('SubtensorModule', 'root_register', { hotkey })
@@ -3108,7 +3148,7 @@ export const calls = Object.freeze({
       return call('SubtensorModule', 'set_children', { hotkey, netuid, children })
     },
     setWeights(netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string) {
-      return call('SubtensorModule', 'set_weights', { netuid, dests, weights, version_key: BigInt(versionKey) })
+      return call('SubtensorModule', 'set_weights', { netuid, dests, weights, version_key: toBigInt(versionKey, 'versionKey') })
     },
     startCall(netuid: number) {
       return call('SubtensorModule', 'start_call', { netuid })
@@ -3154,7 +3194,7 @@ export const calls = Object.freeze({
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
-      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
+      return call('SubtensorModule', 'register', { netuid, block_number: toBigInt(blockNumber, 'blockNumber'), nonce: toBigInt(nonce, 'nonce'), work, hotkey, coldkey })
     },
     register_network(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
@@ -3163,7 +3203,7 @@ export const calls = Object.freeze({
       return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: alphaTransactionAmountForNetuid(amountUnstaked, netuid, 'unstake amount') })
     },
     reveal_weights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
-      return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
+      return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: toBigInt(versionKey, 'versionKey') })
     },
     root_register(hotkey: string) {
       return call('SubtensorModule', 'root_register', { hotkey })
@@ -3180,7 +3220,7 @@ export const calls = Object.freeze({
       return call('SubtensorModule', 'set_children', { hotkey, netuid, children })
     },
     set_weights(netuid: number, dests: number[], weights: number[], versionKey: bigint | number | string) {
-      return call('SubtensorModule', 'set_weights', { netuid, dests, weights, version_key: BigInt(versionKey) })
+      return call('SubtensorModule', 'set_weights', { netuid, dests, weights, version_key: toBigInt(versionKey, 'versionKey') })
     },
     start_call(netuid: number) {
       return call('SubtensorModule', 'start_call', { netuid })
@@ -3337,6 +3377,14 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
     }
   }
   return issues
+}
+
+function descriptorSchemaDriftError(issues: DescriptorSchemaIssue[]): ChainError {
+  const sample = issues.slice(0, 8).map((issue) => `${issue.path}: ${issue.message}`)
+  return new ChainError(
+    `descriptor schema drift detected (${issues.length} issue${issues.length === 1 ? '' : 's'}): ${sample.join('; ')}`,
+    issues,
+  )
 }
 
 function callArgumentTypeIds(callInfo: { argTypeIds?: unknown; argTypes?: unknown }): number[] | null {
@@ -3510,9 +3558,15 @@ function alphaTransactionAmountForNetuid(value: TransactionAmount, netuid: numbe
   return transactionAmountRao(value, { name })
 }
 
+const IPV4_MAX = 0xffff_ffffn
+const IPV6_MAX_EXCLUSIVE = 1n << 128n
+
 function normalizeServeIp(value: ServeIp, ipType?: number): { value: bigint | number; type: number } {
+  if (ipType != null && ipType !== 4 && ipType !== 6) {
+    throw new RangeError('ipType must be 4 or 6')
+  }
   let parsed: bigint
-  let inferredType = ipType ?? 4
+  let syntaxType: number | undefined
   if (typeof value === 'bigint') {
     parsed = value
   } else if (typeof value === 'number') {
@@ -3524,15 +3578,22 @@ function normalizeServeIp(value: ServeIp, ipType?: number): { value: bigint | nu
     else if (/^0x[0-9a-fA-F]+$/.test(text)) parsed = BigInt(text)
     else if (text.includes(':')) {
       parsed = parseIpv6(text)
-      inferredType = ipType ?? 6
+      syntaxType = 6
     } else if (text.includes('.')) {
       parsed = parseIpv4(text)
-      inferredType = ipType ?? 4
+      syntaxType = 4
     } else {
       throw new RangeError('ip string must be decimal, hex, IPv4, or IPv6')
     }
   }
-  if (parsed < 0n || parsed >= (1n << 128n)) throw new RangeError('ip must fit in u128')
+  if (parsed < 0n || parsed >= IPV6_MAX_EXCLUSIVE) throw new RangeError('ip must fit in u128')
+  if (syntaxType != null && ipType != null && syntaxType !== ipType) {
+    throw new RangeError('ipType does not match IP address family')
+  }
+  const inferredType = syntaxType ?? ipType ?? (parsed <= IPV4_MAX ? 4 : 6)
+  if (inferredType === 4 && parsed > IPV4_MAX) {
+    throw new RangeError('IPv4 address must fit in u32')
+  }
   return {
     value: parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed,
     type: inferredType,
@@ -3569,6 +3630,7 @@ function parseIpv6(value: string): bigint {
   const left = parseSide(doubleColon >= 0 ? zoneFree.slice(0, doubleColon) : zoneFree)
   const right = doubleColon >= 0 ? parseSide(zoneFree.slice(doubleColon + 2)) : []
   const missing = doubleColon >= 0 ? 8 - left.length - right.length : 0
+  if (doubleColon >= 0 && missing <= 0) throw new RangeError('invalid IPv6 address')
   const groups = doubleColon >= 0 ? [...left, ...Array(missing).fill(0), ...right] : left
   if (missing < 0 || groups.length !== 8) throw new RangeError('invalid IPv6 address')
   return groups.reduce((out, group) => (out << 16n) + BigInt(group), 0n)
@@ -3789,13 +3851,54 @@ function jsonRpcResponseResult(payload: unknown, expectedId: number): unknown {
       throw new JsonRpcError('invalid JSON-RPC error response')
     }
     const rpcError = error as { message?: unknown; code?: unknown; data?: unknown }
+    if (typeof rpcError.message !== 'string' || typeof rpcError.code !== 'number') {
+      throw new JsonRpcError('invalid JSON-RPC error response')
+    }
     throw new JsonRpcError(
-      String(rpcError.message ?? 'JSON-RPC error'),
-      typeof rpcError.code === 'number' ? rpcError.code : undefined,
+      rpcError.message,
+      rpcError.code,
       rpcError.data,
     )
   }
   return envelope.result
+}
+
+function jsonRpcSubscriptionNotification(
+  payload: unknown,
+): { subscription: string; result: unknown } | undefined {
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new JsonRpcError('invalid JSON-RPC notification envelope')
+  }
+  const envelope = payload as {
+    jsonrpc?: unknown
+    id?: unknown
+    method?: unknown
+    result?: unknown
+    error?: unknown
+    params?: unknown
+  }
+  if (envelope.jsonrpc !== '2.0') {
+    throw new JsonRpcError('invalid JSON-RPC notification version')
+  }
+  if (hasOwn(envelope, 'id')) {
+    throw new JsonRpcError('JSON-RPC subscription notification must not contain id')
+  }
+  if (hasOwn(envelope, 'result') || hasOwn(envelope, 'error')) {
+    throw new JsonRpcError('JSON-RPC subscription notification result belongs in params.result')
+  }
+  if (typeof envelope.method !== 'string') return undefined
+  const params = envelope.params
+  if (params == null || typeof params !== 'object' || Array.isArray(params)) return undefined
+  const paramsObject = params as { subscription?: unknown; result?: unknown }
+  if (!hasOwn(paramsObject, 'subscription')) return undefined
+  const subscription = paramsObject.subscription
+  if (subscription == null || (typeof subscription !== 'string' && typeof subscription !== 'number')) {
+    throw new JsonRpcError('invalid JSON-RPC subscription id')
+  }
+  if (!hasOwn(paramsObject, 'result')) {
+    throw new JsonRpcError('JSON-RPC subscription notification is missing result')
+  }
+  return { subscription: String(subscription), result: paramsObject.result }
 }
 
 function extensionSignPayload(context: SignerPayloadContext): ExtensionSignPayloadRequest {
