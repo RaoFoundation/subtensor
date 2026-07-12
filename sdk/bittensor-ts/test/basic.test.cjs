@@ -14,23 +14,11 @@ function submittedExtrinsicHash(extrinsicHex) {
   return `0x${core.blake2_256(Buffer.from(String(extrinsicHex).slice(2), 'hex')).toString('hex')}`
 }
 
-function compactLength(buffer, offset) {
-  const first = buffer[offset]
-  const mode = first & 0b11
-  if (mode === 0) return { length: first >> 2, offset: offset + 1 }
-  if (mode === 1) return { length: buffer.readUInt16LE(offset) >> 2, offset: offset + 2 }
-  if (mode === 2) return { length: buffer.readUInt32LE(offset) >>> 2, offset: offset + 4 }
-  const bytes = (first >> 2) + 4
-  let length = 0
-  for (let i = 0; i < bytes; i += 1) length += buffer[offset + 1 + i] * (256 ** i)
-  return { length, offset: offset + 1 + bytes }
-}
-
 function goldenMetadataBytes() {
   const raw = Buffer.from(goldenMetadataResponseHex().slice(2), 'hex')
-  assert.equal(raw[0], 1)
-  const decoded = compactLength(raw, 1)
-  return raw.subarray(decoded.offset, decoded.offset + decoded.length)
+  const metadata = core.decodeOptionalOpaqueMetadata(raw)
+  assert.ok(metadata)
+  return metadata
 }
 
 function goldenMetadataResponseHex() {
@@ -1023,14 +1011,36 @@ test('descriptor schema validation reports metadata drift', () => {
       return {}
     },
     metadataIr() {
-      return { pallets: [{ name: 'Balances', calls: [{ name: 'transfer_keep_alive' }] }] }
+      return {
+        pallets: [{
+          name: 'Balances',
+          calls: [
+            { name: 'transfer_keep_alive' },
+            { name: 'transfer_allow_death', args: ['dest', 'value'], argTypeIds: [174, 999] },
+          ],
+        }],
+      }
     },
   }
   const issues = core.validateDescriptorSchema(runtime)
   assert.ok(issues.some((issue) => issue.path === 'storage.Balances.TotalIssuance'))
   assert.ok(issues.some((issue) => issue.path === 'runtimeApi.StakeInfoRuntimeApi.get_stake_fee'))
   assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferKeepAlive' && /argument count/.test(issue.message)))
-  assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferAllowDeath'))
+  assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferAllowDeath' && /type ID drifted/.test(issue.message)))
+})
+
+test('Rust decoder unwraps Metadata_metadata_at_version responses strictly', () => {
+  const response = Buffer.from(goldenMetadataResponseHex().slice(2), 'hex')
+  assert.deepEqual(core.decodeOptionalOpaqueMetadata(response), goldenMetadataBytes())
+  assert.equal(core.decodeOptionalOpaqueMetadata(Buffer.from([0])), null)
+  assert.throws(
+    () => core.decodeOptionalOpaqueMetadata(Buffer.from([2])),
+    /invalid Metadata_metadata_at_version response/,
+  )
+  assert.throws(
+    () => core.decodeOptionalOpaqueMetadata(Buffer.concat([response, Buffer.from([0])])),
+    /trailing bytes/,
+  )
 })
 
 test('JsonRpcTransport restores websocket subscriptions after reconnect', async (t) => {
@@ -1674,14 +1684,14 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
         },
       }
     },
-    encodeId(typeId, value) {
-      if (typeId === 10) return Buffer.from(value)
-      if (typeId === 11) {
-        const out = Buffer.alloc(4)
-        out.writeUInt32LE(value, 0)
-        return out
-      }
-      throw new Error(`unexpected type ${typeId}`)
+    encodeRuntimeApiInput(api, method, params) {
+      assert.equal(api, 'TransactionPaymentApi')
+      assert.equal(method, 'query_info')
+      assert.equal(params.length, 2)
+      const [uxt, len] = params
+      const encodedLen = Buffer.alloc(4)
+      encodedLen.writeUInt32LE(len, 0)
+      return Buffer.concat([Buffer.from(uxt), encodedLen])
     },
     decodeTypeId() {
       return { partial_fee: 123n }

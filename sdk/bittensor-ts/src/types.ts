@@ -222,6 +222,7 @@ export interface MetadataIrCall {
   index: number
   args: string[]
   argTypes: string[]
+  argTypeIds: number[]
   docs: string
 }
 

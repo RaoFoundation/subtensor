@@ -143,6 +143,7 @@ export interface NativeRuntimeHandle {
   pallets(): unknown[]
   extrinsicInfo(): unknown
   runtimeApis(): unknown
+  encodeRuntimeApiInput(api: string, method: string, params: unknown): Buffer
   runtimeApiInfos(): unknown
   runtimeSnapshot(): unknown
   composeCall(pallet: string, fn: string, params: unknown): Buffer
@@ -352,6 +353,7 @@ export interface NativeBinding {
     data: Buffer,
     strict: boolean,
   ): { value: bigint; offset: number; remaining: number }
+  decodeOptionalOpaqueMetadata(data: Buffer): Buffer | null | undefined
   hashStorageParam(hasher: string, data: Buffer): Buffer
   storagePrefixFor(prefix: string, name: string): Buffer
   concatHashLength(hasher: string): number

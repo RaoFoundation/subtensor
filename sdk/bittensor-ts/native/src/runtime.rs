@@ -15,6 +15,7 @@ use bittensor_core::codec::Value;
 use bittensor_core::runtime::type_string::{Primitive, TypeSpec};
 use bittensor_core::runtime::{PalletInfo, Runtime, StorageInfo};
 use bittensor_core::CoreError;
+use codec::Decode;
 use napi::bindgen_prelude::{BigInt, Buffer};
 use napi_derive::napi;
 use scale_info::TypeDef;
@@ -754,6 +755,50 @@ impl NativeRuntime {
         runtime_api_map_json(&self.inner)
     }
 
+    #[napi(js_name = "encodeRuntimeApiInput")]
+    pub fn encode_runtime_api_input(
+        &self,
+        api_name: String,
+        method_name: String,
+        params: JsonValue,
+    ) -> NapiResult<Buffer> {
+        let api = self
+            .inner
+            .apis
+            .iter()
+            .find(|api| api.name == api_name)
+            .ok_or_else(|| invalid_arg(format!("runtime API {api_name} not found")))?;
+        let method = api
+            .methods
+            .iter()
+            .find(|method| method.name == method_name)
+            .ok_or_else(|| {
+                invalid_arg(format!(
+                    "runtime API method {api_name}.{method_name} not found"
+                ))
+            })?;
+        let values = match from_wire(params)? {
+            Value::List(values) | Value::Tuple(values) => values,
+            other => {
+                return Err(invalid_arg(format!(
+                    "runtime API params must be an array, got {other}"
+                )));
+            }
+        };
+        if values.len() != method.inputs.len() {
+            return Err(invalid_arg(format!(
+                "runtime API {api_name}.{method_name} expects {} params, got {}",
+                method.inputs.len(),
+                values.len()
+            )));
+        }
+        let mut output = Vec::new();
+        for (param, value) in method.inputs.iter().zip(values.iter()) {
+            self.inner.encode_id(param.ty, value, &mut output).napi()?;
+        }
+        Ok(output.into())
+    }
+
     #[napi]
     pub fn runtime_api_infos(&self) -> JsonValue {
         runtime_api_infos_json(&self.inner)
@@ -1311,6 +1356,11 @@ fn runtime_api_map_json(runtime: &Runtime) -> JsonValue {
                         param.name,
                         format!("scale_info::{}", param.ty),
                     ])).collect::<Vec<_>>(),
+                    "inputDetails": method.inputs.iter().map(|param| json!({
+                        "name": param.name,
+                        "typeId": param.ty,
+                        "type": format!("scale_info::{}", param.ty),
+                    })).collect::<Vec<_>>(),
                     "output": format!("scale_info::{}", method.output),
                     "outputTypeId": method.output,
                     "docs": method.docs,
@@ -1373,6 +1423,7 @@ fn metadata_ir_json(runtime: &Runtime) -> NapiResult<JsonValue> {
                         "index": call.index,
                         "args": call.fields.iter().map(|field| field.name.clone().unwrap_or_default()).collect::<Vec<_>>(),
                         "argTypes": call.fields.iter().map(|field| format!("scale_info::{}", field.ty.id)).collect::<Vec<_>>(),
+                        "argTypeIds": call.fields.iter().map(|field| field.ty.id).collect::<Vec<_>>(),
                         "docs": join_docs(&call.docs),
                     }));
                 }
@@ -1505,6 +1556,22 @@ pub fn decode_compact_length(data: Buffer, strict: bool) -> NapiResult<NativeCom
         remaining: u32::try_from(cursor.remaining())
             .map_err(|_| invalid_arg("compact remaining byte count exceeds u32"))?,
     })
+}
+
+#[napi(js_name = "decodeOptionalOpaqueMetadata")]
+pub fn decode_optional_opaque_metadata(data: Buffer) -> NapiResult<Option<Buffer>> {
+    let mut input = data.as_ref();
+    let metadata = Option::<Vec<u8>>::decode(&mut input).map_err(|error| {
+        invalid_arg(format!(
+            "invalid Metadata_metadata_at_version response: {error}"
+        ))
+    })?;
+    if !input.is_empty() {
+        return Err(invalid_arg(
+            "invalid Metadata_metadata_at_version response: trailing bytes",
+        ));
+    }
+    Ok(metadata.map(Into::into))
 }
 
 #[napi(js_name = "hashStorageParam")]

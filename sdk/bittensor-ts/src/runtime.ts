@@ -561,6 +561,10 @@ export class Runtime {
     return this.handle.runtimeApis() as RuntimeApiMap
   }
 
+  encodeRuntimeApiInput(api: string, method: string, params: ScaleValue[]): Buffer {
+    return nativeCall(() => this.handle.encodeRuntimeApiInput(api, method, toWire(params)))
+  }
+
   runtimeApiInfos(): RuntimeApiInfo[] {
     return this.handle.runtimeApiInfos() as RuntimeApiInfo[]
   }
@@ -978,6 +982,10 @@ export function decodeCompactU128(data: ByteLike, strict = true): CompactDecode 
 
 export function decodeCompactLength(data: ByteLike, strict = true): CompactDecode {
   return nativeCall(() => native.decodeCompactLength(toBuffer(data, 'data'), strict))
+}
+
+export function decodeOptionalOpaqueMetadata(data: ByteLike): Buffer | null {
+  return nativeCall(() => native.decodeOptionalOpaqueMetadata(toBuffer(data, 'data')) ?? null)
 }
 
 export function hashStorageParam(hasher: string, data: ByteLike): Buffer {

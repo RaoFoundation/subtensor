@@ -1,7 +1,7 @@
 import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from './crypto'
 import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
 import { LedgerDevice } from './ledger'
-import { Runtime, decodeCompactLength as decodeCompactLengthNative, encodeCompact, eraBirth } from './runtime'
+import { Runtime, decodeOptionalOpaqueMetadata, encodeCompact, eraBirth } from './runtime'
 import { toBuffer } from './wire'
 import {
   Balance,
@@ -1121,7 +1121,7 @@ export class Client {
     }
 
     if (v15Result != null) {
-      const metadata = stripOptionOpaqueMetadata(hexToBuffer(String(v15Result)))
+      const metadata = decodeOptionalOpaqueMetadata(hexToBuffer(String(v15Result)))
       if (metadata != null) return metadata
     }
 
@@ -1321,11 +1321,7 @@ export class Client {
     const runtime = await this.runtimeAt(blockHash)
     const info = runtime.runtimeApis()[apiName]?.[methodName]
     if (info == null) throw new ChainError(`runtime API ${apiName}.${methodName} not found`)
-    const inputDetails = info.inputDetails ?? []
-    if (inputDetails.length !== callParams.length) {
-      throw new ChainError(`${apiName}.${methodName} expects ${inputDetails.length} params`)
-    }
-    const encoded = Buffer.concat(callParams.map((value, index) => runtime.encodeId(inputDetails[index].typeId, value)))
+    const encoded = runtime.encodeRuntimeApiInput(apiName, methodName, callParams)
     const raw = await this.rpc('state_call', [`${apiName}_${methodName}`, hex(encoded), blockHash ?? null])
     return runtime.decodeTypeId<T>(info.outputTypeId, hexToBuffer(String(raw)), false)
   }
@@ -1933,14 +1929,10 @@ export class Client {
       period: null,
     }, false, snapshot)
     const queryInfo = runtime.runtimeApis().TransactionPaymentApi?.query_info
-    const inputDetails = queryInfo?.inputDetails ?? []
-    if (queryInfo == null || inputDetails.length !== 2) {
+    if (queryInfo == null) {
       throw new ChainError('TransactionPaymentApi.query_info metadata is unavailable')
     }
-    const encodedInput = Buffer.concat([
-      runtime.encodeId(inputDetails[0].typeId, signed.bytes),
-      runtime.encodeId(inputDetails[1].typeId, signed.bytes.length),
-    ])
+    const encodedInput = runtime.encodeRuntimeApiInput('TransactionPaymentApi', 'query_info', [signed.bytes, signed.bytes.length])
     const raw = await this.rpc('state_call', [
       'TransactionPaymentApi_query_info',
       hex(encodedInput),
@@ -2713,7 +2705,7 @@ export const calls = Object.freeze({
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
-      return call('SubtensorModule', 'register', { netuid, _block_number: BigInt(blockNumber), _nonce: BigInt(nonce), _work: work, hotkey, _coldkey: coldkey })
+      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
     },
     registerNetwork(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
@@ -2785,7 +2777,7 @@ export const calls = Object.freeze({
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
-      return call('SubtensorModule', 'register', { netuid, _block_number: BigInt(blockNumber), _nonce: BigInt(nonce), _work: work, hotkey, _coldkey: coldkey })
+      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
     },
     register_network(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
@@ -2835,27 +2827,28 @@ interface CallDescriptorEntry {
   path: string
   descriptor: Descriptor
   args: readonly string[]
+  argTypeIds: readonly number[]
 }
 
 const CALL_DESCRIPTOR_ENTRIES: CallDescriptorEntry[] = [
-  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'] },
-  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'] },
-  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'] },
-  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'] },
-  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'] },
-  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'] },
-  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', '_block_number', '_nonce', '_work', 'hotkey', '_coldkey'] },
-  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network'), args: ['hotkey'] },
-  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'] },
-  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'] },
-  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register'), args: ['hotkey'] },
-  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'] },
-  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'] },
-  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'] },
-  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'] },
-  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'] },
-  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'] },
-  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'] },
+  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'], argTypeIds: [174, 176] },
+  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'], argTypeIds: [174, 176] },
+  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'], argTypeIds: [0, 40, 6] },
+  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'], argTypeIds: [40, 0] },
+  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'], argTypeIds: [40, 13] },
+  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
+  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypeIds: [40, 6, 6, 14, 0, 0] },
+  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network'), args: ['hotkey'], argTypeIds: [0] },
+  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'], argTypeIds: [0, 40, 6] },
+  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypeIds: [40, 206, 206, 206, 6] },
+  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register'), args: ['hotkey'], argTypeIds: [0] },
+  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypeIds: [40, 4, 8, 40, 2, 2, 2, 2] },
+  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypeIds: [40, 4, 8, 40, 2] },
+  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'], argTypeIds: [0, 40, 44] },
+  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'], argTypeIds: [40, 206, 206, 6] },
+  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'], argTypeIds: [40] },
+  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
+  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'], argTypeIds: [0] },
 ]
 
 export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssue[] {
@@ -2939,9 +2932,48 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
           })
         }
       }
+      const actualArgTypeIds = callArgumentTypeIds(callInfo)
+      if (actualArgTypeIds == null) {
+        issues.push({
+          ...entry,
+          kind: 'call',
+          message: `call ${pallet}.${item} argument type ID metadata is unavailable`,
+        })
+      } else if (actualArgTypeIds.length !== entry.argTypeIds.length) {
+        issues.push({
+          ...entry,
+          kind: 'call',
+          message: `call ${pallet}.${item} argument type ID count drifted: expected ${entry.argTypeIds.length}, got ${actualArgTypeIds.length}`,
+        })
+      } else {
+        for (let index = 0; index < entry.argTypeIds.length; index += 1) {
+          if (actualArgTypeIds[index] !== entry.argTypeIds[index]) {
+            issues.push({
+              ...entry,
+              kind: 'call',
+              message: `call ${pallet}.${item} argument ${index} type ID drifted: expected ${entry.argTypeIds[index]}, got ${actualArgTypeIds[index]}`,
+            })
+          }
+        }
+      }
     }
   }
   return issues
+}
+
+function callArgumentTypeIds(callInfo: { argTypeIds?: unknown; argTypes?: unknown }): number[] | null {
+  if (Array.isArray(callInfo.argTypeIds)) {
+    const ids = callInfo.argTypeIds.map((value) => Number(value))
+    return ids.every((value) => Number.isSafeInteger(value) && value >= 0) ? ids : null
+  }
+  if (Array.isArray(callInfo.argTypes)) {
+    const ids = callInfo.argTypes.map((value) => {
+      const match = /^scale_info::(\d+)$/.exec(String(value))
+      return match == null ? NaN : Number(match[1])
+    })
+    return ids.every((value) => Number.isSafeInteger(value) && value >= 0) ? ids : null
+  }
+  return null
 }
 
 function descriptorEntries(value: unknown, prefix: string): Array<{ path: string; descriptor: Descriptor }> {
@@ -3419,30 +3451,6 @@ function hex(bytes: ByteLike): string {
 
 function hexToBuffer(value: string): Buffer {
   return hexToBytes(value)
-}
-
-function stripOptionOpaqueMetadata(data: Buffer): Buffer | null {
-  if (data.length === 0) throw new ChainError('invalid Metadata_metadata_at_version response')
-  if (data[0] === 0) {
-    if (data.length !== 1) throw new ChainError('invalid Metadata_metadata_at_version response')
-    return null
-  }
-  if (data[0] !== 1 || data.length < 2) throw new ChainError('invalid Metadata_metadata_at_version response')
-  let decoded
-  try {
-    decoded = decodeCompactLengthNative(data.subarray(1), false)
-  } catch (error) {
-    throw new ChainError('invalid Metadata_metadata_at_version compact length', error)
-  }
-  if (decoded.value < 0n || decoded.value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ChainError('Metadata_metadata_at_version response is too large')
-  }
-  const length = Number(decoded.value)
-  const offset = 1 + decoded.offset
-  const end = offset + length
-  if (end > data.length) throw new ChainError('truncated Metadata_metadata_at_version response')
-  if (end !== data.length) throw new ChainError('invalid Metadata_metadata_at_version response')
-  return data.subarray(offset, end)
 }
 
 function hexNumber(value: string): number {
