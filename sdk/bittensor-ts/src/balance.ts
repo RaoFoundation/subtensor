@@ -4,6 +4,7 @@ const AMOUNT_UNIT = '__bittensorAmountUnit'
 
 export type BalanceLike = Balance | bigint | number | string
 export type TransactionAmount = Balance | bigint | RaoAmount | TaoAmount
+export type AssetId = bigint | number | string
 
 export interface RaoAmount {
   readonly [AMOUNT_UNIT]: 'rao'
@@ -165,13 +166,54 @@ export function balanceRao(value: BalanceLike): bigint {
   return parseRao(value)
 }
 
-export function transactionAmountRao(value: TransactionAmount): bigint {
-  if (value instanceof Balance) return value.rao
-  if (typeof value === 'bigint') return value
-  if (isBrandedAmount(value)) return value.rao
-  throw new TypeError(
-    'transaction amount must be a Balance, bigint rao amount, raoAmount(...), or taoAmount(...)',
-  )
+export function transactionAmountRao(
+  value: TransactionAmount,
+  options: { name?: string; taoOnly?: boolean } = {},
+): bigint {
+  const name = options.name ?? 'transaction amount'
+  let rao: bigint
+  if (value instanceof Balance) {
+    if (options.taoOnly && value.netuid !== 0) {
+      throw new UnitMismatchError(`${name} must be a TAO balance, not subnet-${value.netuid} alpha`)
+    }
+    rao = value.rao
+  } else if (typeof value === 'bigint') {
+    rao = value
+  } else if (isBrandedAmount(value)) {
+    rao = value.rao
+  } else {
+    throw new TypeError(
+      `${name} must be a Balance, bigint rao amount, raoAmount(...), or taoAmount(...)`,
+    )
+  }
+  if (rao < 0n) throw new RangeError(`${name} must be non-negative`)
+  return rao
+}
+
+export function assetIdValue(value: AssetId, name = 'asset ID'): bigint {
+  const parsed = parseInteger(value, name)
+  if (parsed < 0n) throw new RangeError(`${name} must be non-negative`)
+  return parsed
+}
+
+export function asset_id_value(value: AssetId, name = 'asset ID'): bigint {
+  return assetIdValue(value, name)
+}
+
+export function taoTransactionAmountRao(value: TransactionAmount, name = 'transaction amount'): bigint {
+  return transactionAmountRao(value, { name, taoOnly: true })
+}
+
+export function tao_transaction_amount_rao(value: TransactionAmount, name = 'transaction amount'): bigint {
+  return taoTransactionAmountRao(value, name)
+}
+
+export function alphaTransactionAmountRao(value: TransactionAmount, name = 'transaction amount'): bigint {
+  return transactionAmountRao(value, { name })
+}
+
+export function alpha_transaction_amount_rao(value: TransactionAmount, name = 'transaction amount'): bigint {
+  return alphaTransactionAmountRao(value, name)
 }
 
 export function raoAmount(value: bigint | number | string): RaoAmount {
@@ -189,14 +231,21 @@ export function taoAmount(value: number | string): TaoAmount {
 }
 
 function parseRao(value: bigint | number | string): bigint {
+  return parseInteger(value, 'balance rao')
+}
+
+function parseInteger(value: bigint | number | string, name: string): bigint {
   if (typeof value === 'bigint') return value
   if (typeof value === 'number') {
-    if (!Number.isSafeInteger(value)) throw new RangeError('balance rao must be a safe integer')
+    if (!Number.isSafeInteger(value)) throw new RangeError(`${name} must be a safe integer`)
     return BigInt(value)
+  }
+  if (typeof value !== 'string') {
+    throw new TypeError(`${name} must be a bigint, safe integer number, or integer string`)
   }
   const text = value.trim()
   if (/^-?\d+$/.test(text)) return BigInt(text)
-  throw new RangeError('balance rao must be an integer; use Balance.fromTao or taoAmount for decimal TAO')
+  throw new RangeError(`${name} must be an integer`)
 }
 
 function isBrandedAmount(value: unknown): value is RaoAmount | TaoAmount {

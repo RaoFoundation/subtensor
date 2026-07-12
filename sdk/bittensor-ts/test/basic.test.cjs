@@ -926,12 +926,39 @@ test('transaction amounts require explicit units', () => {
     { dest: '5F', value: 500_000_000n },
   ])
   assert.throws(
+    () => core.calls.balances.transferKeepAlive('5F', -1n),
+    /transfer amount must be non-negative/,
+  )
+  assert.throws(
+    () => core.calls.balances.transferKeepAlive('5F', core.raoAmount('-1')),
+    /transfer amount must be non-negative/,
+  )
+  assert.throws(
+    () => core.calls.balances.transferKeepAlive('5F', core.Balance.fromAlpha('1', 7)),
+    /must be a TAO balance/,
+  )
+  assert.throws(
     () => core.calls.balances.transferKeepAlive('5F', '1'),
-    /transaction amount must be/,
+    /transfer amount must be/,
   )
   assert.throws(
     () => core.calls.balances.transferKeepAlive('5F', 1),
-    /transaction amount must be/,
+    /transfer amount must be/,
+  )
+  assert.equal(core.assetIdValue('1'), 1n)
+  assert.equal(core.assetIdValue(1), 1n)
+  assert.equal(core.assetIdValue(1n), 1n)
+  assert.throws(
+    () => core.assetIdValue('-1'),
+    /must be non-negative/,
+  )
+  assert.throws(
+    () => core.assetIdValue('1.0'),
+    /must be an integer/,
+  )
+  assert.throws(
+    () => core.assetIdValue(core.taoAmount('1')),
+    /must be a bigint/,
   )
 })
 
@@ -1158,6 +1185,7 @@ test('Client validates fallback endpoint genesis before use', async (t) => {
 
   const client = new core.Client('local', {
     endpoint: 'http://primary',
+    expectedGenesisHash: primaryGenesis,
     fallbackEndpoints: ['http://fallback'],
     maxRequestRetries: 1,
     requestTimeoutMs: 100,
@@ -1168,7 +1196,52 @@ test('Client validates fallback endpoint genesis before use', async (t) => {
   await assert.rejects(
     () => client.rpc('state_getMetadata'),
     (error) => error.name === 'EndpointValidationError' &&
-      /does not match primary genesis/.test(error.message),
+      /does not match expected genesis/.test(error.message),
+  )
+})
+
+test('Client fallback can validate from expected genesis when primary is unavailable', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  const expectedGenesis = `0x${'cc'.repeat(32)}`
+  globalThis.fetch = async (url, init) => {
+    const endpoint = String(url)
+    if (endpoint.includes('primary')) throw new Error('primary unavailable')
+    const request = JSON.parse(String(init.body))
+    if (request.method === 'chain_getBlockHash') {
+      return {
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: request.id, result: expectedGenesis }),
+      }
+    }
+    return {
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: request.id, result: '0x1234' }),
+    }
+  }
+
+  const client = new core.Client('local', {
+    endpoint: 'http://primary',
+    expectedGenesisHash: expectedGenesis,
+    fallbackEndpoints: ['http://fallback'],
+    maxRequestRetries: 1,
+    requestTimeoutMs: 100,
+    retryBackoffMs: 0,
+    maxRetryBackoffMs: 0,
+  })
+
+  assert.equal(await client.rpc('state_getMetadata'), '0x1234')
+})
+
+test('Client requires expected genesis for custom fallback endpoints', () => {
+  assert.throws(
+    () => new core.Client('local', {
+      endpoint: 'http://primary',
+      fallbackEndpoints: ['http://fallback'],
+    }),
+    /expectedGenesisHash/,
   )
 })
 
@@ -1297,6 +1370,18 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.equal(captures.encoded.params.metadataHashEnabled, false)
   assert.equal(await client.accountNextIndex(address), 12)
   assert.equal(await client.accountNextIndex(address), 12)
+  await assert.rejects(
+    () => client.signExtrinsic(callData, signer, { period: null, tip: core.Balance.fromAlpha('1', 7) }),
+    /tip must be a TAO balance/,
+  )
+  await assert.rejects(
+    () => client.signExtrinsic(callData, signer, { period: null, tipAssetId: core.taoAmount('1') }),
+    /tipAssetId must be a bigint/,
+  )
+  await assert.rejects(
+    () => client.signExtrinsic(callData, signer, { period: null, tipAssetId: -1 }),
+    /tipAssetId must be non-negative/,
+  )
 })
 
 test('Client estimateFee peeks the chain nonce without reserving it', async () => {
@@ -1323,6 +1408,7 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
     Buffer.alloc(64, 4),
   ])
   const nonceReads = []
+  let stateCallParams
   client.rpc = async (method, params = []) => {
     if (method === 'system_accountNextIndex') {
       nonceReads.push(params[0])
@@ -1338,7 +1424,10 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'state_call') return '0x00'
+    if (method === 'state_call') {
+      stateCallParams = params
+      return '0x00'
+    }
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {
@@ -1358,6 +1447,8 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
   assert.equal(firstRealNonce, 7)
   assert.equal(secondRealNonce, 7)
   assert.deepEqual(nonceReads, [address, address, address])
+  assert.equal(stateCallParams[0], 'TransactionPaymentApi_query_info')
+  assert.equal(stateCallParams[2], `0x${'42'.repeat(32)}`)
 })
 
 test('Client serializes concurrent initial nonce reservations during submit', async () => {
@@ -2245,10 +2336,22 @@ test('wallet helpers keep mnemonic and keyfile passwords separate', async (t) =>
     core.keyfileDataIsEncrypted(fs.readFileSync(created.hotkeyFile.path)),
     true,
   )
+  const generated = core.Wallet.generateHotkey()
+  assert.equal(generated.mnemonic.split(/\s+/).length, 12)
+  const generatedWallet = new core.Wallet({ name: 'generated', hotkey: 'default', path: root })
+  await generatedWallet.setHotkey(generated.keypair, { keyfilePassword })
+  assert.deepEqual(
+    (await generatedWallet.getHotkey(keyfilePassword)).publicKey,
+    generated.keypair.publicKey,
+  )
+  await assert.rejects(
+    () => generatedWallet.setHotkey(core.Keypair.fromUri('//Bob')),
+    /requires keyfilePassword or allowPlaintext/,
+  )
   const plaintextDefault = new core.Wallet({ name: 'plaintext-default', hotkey: 'default', path: root })
   await assert.rejects(
     () => plaintextDefault.createNewHotkey(),
-    /allowPlaintext/,
+    /keyfilePassword or allowPlaintext/,
   )
   const plaintextAllowed = new core.Wallet({ name: 'plaintext-allowed', hotkey: 'default', path: root })
   const plaintextHotkey = await plaintextAllowed.createNewHotkey({ allowPlaintext: true })

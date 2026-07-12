@@ -312,6 +312,15 @@ export interface NativeBinding {
     overwrite: boolean,
     allowPlaintext: boolean,
   ): Promise<void>
+  writeKeypairPairKeyfile(
+    privateKeypair: NativeKeypairHandle,
+    privatePath: string,
+    privatePassword: string | null | undefined,
+    publicKeypair: NativeKeypairHandle,
+    publicPath: string,
+    overwrite: boolean,
+    allowPlaintext: boolean,
+  ): Promise<void>
   encryptKeyfileData(keyfileData: Buffer, password: string): Promise<Buffer>
   decryptKeyfileData(keyfileData: Buffer, password?: string | null): Promise<Buffer>
   keyfileDataIsEncrypted(keyfileData: Buffer): boolean

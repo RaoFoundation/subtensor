@@ -34,6 +34,7 @@ describeSuite({
                 const call = await client.composeCall("System", "remark", { remark });
 
                 try {
+                    await client.assertDescriptorSchema();
                     const signed = await client.signExtrinsic(call, alice);
                     const watcher = await client.watchSigned(signed);
 

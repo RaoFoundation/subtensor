@@ -3,7 +3,15 @@ import { CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './ke
 import { LedgerDevice } from './ledger'
 import { Runtime, eraBirth } from './runtime'
 import { toBuffer } from './wire'
-import { Balance, type BalanceLike, type TransactionAmount, transactionAmountRao } from './balance'
+import {
+  Balance,
+  type AssetId,
+  type BalanceLike,
+  type TransactionAmount,
+  assetIdValue,
+  taoTransactionAmountRao,
+  transactionAmountRao,
+} from './balance'
 import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, StorageEntry, TransactionParams } from './types'
 
 export const SS58_FORMAT = 42
@@ -15,11 +23,16 @@ export const DEFAULT_MAX_REQUEST_RETRIES = 2
 export const DEFAULT_RETRY_BACKOFF_MS = 250
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
 export const DEFAULT_NONCE_RECONCILE_BLOCKS = 8
+export const DEFAULT_ENDPOINT_VALIDATION_TTL_MS = 60_000
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
   archive: 'wss://archive.chain.opentensor.ai:443',
   local: process.env.BT_CHAIN_ENDPOINT ?? 'ws://127.0.0.1:9944',
+})
+export const NETWORK_GENESIS_HASHES = Object.freeze({
+  finney: '0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03',
+  archive: '0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03',
 })
 
 export type NetworkName = keyof typeof NETWORKS
@@ -32,6 +45,7 @@ export type CallLike =
 export interface ClientOptions {
   endpoint?: string
   fallbackEndpoints?: string[]
+  expectedGenesisHash?: string
   retryForever?: boolean
   autoConnect?: boolean
   webSocket?: WebSocketConstructor
@@ -43,6 +57,7 @@ export interface ClientOptions {
   maxRequestRetries?: number
   retryBackoffMs?: number
   maxRetryBackoffMs?: number
+  endpointValidationTtlMs?: number
 }
 
 export interface RpcRequestOptions {
@@ -63,13 +78,14 @@ export interface JsonRpcTransportOptions {
   maxRequestRetries?: number
   retryBackoffMs?: number
   maxRetryBackoffMs?: number
+  endpointValidationTtlMs?: number
 }
 
 export interface SubmitOptions {
   nonce?: number
   period?: number | null
   tip?: TransactionAmount
-  tipAssetId?: TransactionAmount | null
+  tipAssetId?: AssetId | null
   metadataHash?: ByteLike | null
   waitForInclusion?: boolean
   waitForFinalization?: boolean
@@ -356,10 +372,11 @@ export class JsonRpcTransport {
   private readonly maxRequestRetries: number
   private readonly retryBackoffMs: number
   private readonly maxRetryBackoffMs: number
+  private readonly endpointValidationTtlMs: number
   private readonly webSocketConstructor?: WebSocketConstructor
   private readonly webSocketFactory?: WebSocketFactory
   private readonly validateEndpoint?: EndpointValidator
-  private readonly validatedEndpoints = new Set<string>()
+  private readonly validatedEndpoints = new Map<string, number>()
   private endpointIndex = 0
   private id = 1
   private socket?: WebSocketLike
@@ -381,6 +398,10 @@ export class JsonRpcTransport {
     this.maxRequestRetries = nonNegativeInteger(options.maxRequestRetries, DEFAULT_MAX_REQUEST_RETRIES)
     this.retryBackoffMs = nonNegativeNumber(options.retryBackoffMs, DEFAULT_RETRY_BACKOFF_MS)
     this.maxRetryBackoffMs = nonNegativeNumber(options.maxRetryBackoffMs, DEFAULT_MAX_RETRY_BACKOFF_MS)
+    this.endpointValidationTtlMs = nonNegativeNumber(
+      options.endpointValidationTtlMs,
+      DEFAULT_ENDPOINT_VALIDATION_TTL_MS,
+    )
     this.webSocketConstructor = options.webSocketConstructor ?? options.webSocket
     this.webSocketFactory = options.webSocketFactory
     this.validateEndpoint = options.validateEndpoint
@@ -421,7 +442,9 @@ export class JsonRpcTransport {
   private async ensureEndpointValidated(options: RpcRequestOptions): Promise<void> {
     if (this.validateEndpoint == null) return
     const endpoint = this.endpoint
-    if (this.validatedEndpoints.has(endpoint)) return
+    const validUntil = this.validatedEndpoints.get(endpoint)
+    const now = Date.now()
+    if (validUntil != null && validUntil > now) return
     try {
       await this.validateEndpoint(endpoint, (method, params = []) =>
         this.isHttpEndpoint()
@@ -432,7 +455,9 @@ export class JsonRpcTransport {
       if (error instanceof EndpointValidationError) throw error
       throw error
     }
-    this.validatedEndpoints.add(endpoint)
+    if (this.endpointValidationTtlMs > 0) {
+      this.validatedEndpoints.set(endpoint, Date.now() + this.endpointValidationTtlMs)
+    }
   }
 
   async subscribe(
@@ -655,6 +680,7 @@ export class JsonRpcTransport {
   }
 
   private handleSocketClose(error: Error): void {
+    this.validatedEndpoints.delete(this.endpoint)
     this.failPending(error)
     this.subscriptionsById.clear()
     if (this.closed) return
@@ -702,6 +728,7 @@ export class JsonRpcTransport {
   }
 
   private rotateEndpoint(): void {
+    this.validatedEndpoints.delete(this.endpoint)
     const socket = this.socket
     this.socket = undefined
     this.connecting = undefined
@@ -725,7 +752,7 @@ export class Client {
 
   private readonly headRuntimeTtlMs: number
   private readonly historicalRuntimeCacheSize: number
-  private readonly endpointValidationOptions: JsonRpcTransportOptions
+  private readonly expectedGenesisHash?: string
   private headRuntimeCache?: HeadRuntimeCacheEntry
   private runtimesBySpecVersion = new Map<number, RuntimeCacheEntry>()
   private historicalRuntimeCache = new Map<string, RuntimeCacheEntry>()
@@ -734,18 +761,20 @@ export class Client {
 
   constructor(network: string = 'finney', options: ClientOptions = {}) {
     const [label, endpoint] = resolveEndpoint(options.endpoint ?? network)
+    const fallbackEndpoints = options.fallbackEndpoints ?? []
+    const expectedGenesisHash = normalizeGenesisHash(
+      options.expectedGenesisHash ?? trustedGenesisHash(label),
+    )
+    if (fallbackEndpoints.length > 0 && expectedGenesisHash == null) {
+      throw new ChainError(
+        'fallbackEndpoints require expectedGenesisHash for custom or untrusted networks',
+      )
+    }
     this.network = label
     this.endpoint = endpoint
-    this.endpointValidationOptions = {
-      webSocket: options.webSocket,
-      webSocketConstructor: options.webSocketConstructor,
-      webSocketFactory: options.webSocketFactory,
-      requestTimeoutMs: options.requestTimeoutMs,
-      maxRequestRetries: 0,
-      retryBackoffMs: options.retryBackoffMs,
-      maxRetryBackoffMs: options.maxRetryBackoffMs,
-    }
-    this.transport = new JsonRpcTransport(endpoint, options.fallbackEndpoints, options.retryForever, {
+    this.expectedGenesisHash = expectedGenesisHash
+    this.genesis = expectedGenesisHash
+    this.transport = new JsonRpcTransport(endpoint, fallbackEndpoints, options.retryForever, {
       webSocket: options.webSocket,
       webSocketConstructor: options.webSocketConstructor,
       webSocketFactory: options.webSocketFactory,
@@ -754,6 +783,7 @@ export class Client {
       maxRequestRetries: options.maxRequestRetries,
       retryBackoffMs: options.retryBackoffMs,
       maxRetryBackoffMs: options.maxRetryBackoffMs,
+      endpointValidationTtlMs: options.endpointValidationTtlMs,
     })
     this.balances = new BalancesNamespace(this)
     this.subnets = new SubnetsNamespace(this)
@@ -815,31 +845,18 @@ export class Client {
   }
 
   private async validateEndpointGenesis(endpoint: string, request: EndpointRequest): Promise<void> {
-    if (this.genesis == null && endpoint !== this.endpoint) {
-      this.genesis = await this.fetchGenesisFromEndpoint(this.endpoint)
-    }
     const genesis = String(await request('chain_getBlockHash', [0]))
-    if (this.genesis == null) {
+    const expected = this.expectedGenesisHash ?? this.genesis
+    if (expected == null) {
       this.genesis = genesis
       return
     }
-    if (!sameHex(genesis, this.genesis)) {
+    if (!sameHex(genesis, expected)) {
       throw new EndpointValidationError(
-        `endpoint ${endpoint} genesis ${genesis} does not match primary genesis ${this.genesis}`,
+        `endpoint ${endpoint} genesis ${genesis} does not match expected genesis ${expected}`,
       )
     }
-  }
-
-  private async fetchGenesisFromEndpoint(endpoint: string): Promise<string> {
-    const transport = new JsonRpcTransport(endpoint, [], false, this.endpointValidationOptions)
-    try {
-      return String(await transport.request('chain_getBlockHash', [0], {
-        maxRetries: 0,
-        retryForever: false,
-      }))
-    } finally {
-      transport.close()
-    }
+    this.genesis = expected
   }
 
   async runtimeAt(block?: number | string | null): Promise<Runtime> {
@@ -1270,10 +1287,19 @@ export class Client {
     options: SubmitOptions,
     manageNonce: boolean,
   ): Promise<ManagedSignedExtrinsicResult> {
+    return this.signExtrinsicWithSnapshot(call, signer, options, manageNonce, await this.signingSnapshot())
+  }
+
+  private async signExtrinsicWithSnapshot(
+    call: CallLike,
+    signer: SignerLike,
+    options: SubmitOptions,
+    manageNonce: boolean,
+    snapshot: SigningSnapshot,
+  ): Promise<ManagedSignedExtrinsicResult> {
     let resolved: ResolvedSigner | undefined
     let reservation: NonceReservation | undefined
     try {
-      const snapshot = await this.signingSnapshot()
       const { runtime } = snapshot
       const callData = this.callDataWithRuntime(call, runtime)
       resolved = await this.resolveSigner(signer, runtime)
@@ -1283,8 +1309,8 @@ export class Client {
       const nonce = options.nonce ?? reservation?.nonce ?? await this.peekNextIndex(resolved.ss58Address)
       const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
       const { era, eraBlockHash } = await this.normalizeEra(period, snapshot)
-      const tip = transactionAmountRao(options.tip ?? 0n)
-      const tipAssetId = options.tipAssetId == null ? null : transactionAmountRao(options.tipAssetId)
+      const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
+      const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
       const chainInfo = resolved.requiresMetadataProof
         ? await this.chainInfo(runtime, snapshot.blockHash)
         : undefined
@@ -1675,15 +1701,20 @@ export class Client {
   }
 
   async estimateFee(call: CallLike, signer: SignerLike): Promise<Balance> {
-    const runtime = await this.runtimeAt()
+    const snapshot = await this.signingSnapshot()
+    const { runtime } = snapshot
     const account = await this.resolveSigner(signer, runtime)
-    const signed = await this.signExtrinsic(call, signer, {
+    const signed = await this.signExtrinsicWithSnapshot(call, signer, {
       nonce: await this.peekNextIndex(account.ss58Address),
       period: null,
-    })
+    }, false, snapshot)
     const length = Buffer.alloc(4)
     length.writeUInt32LE(signed.bytes.length, 0)
-    const raw = await this.rpc('state_call', ['TransactionPaymentApi_query_info', hex(Buffer.concat([signed.bytes, length])), null])
+    const raw = await this.rpc('state_call', [
+      'TransactionPaymentApi_query_info',
+      hex(Buffer.concat([signed.bytes, length])),
+      snapshot.blockHash,
+    ])
     const info = runtime.decodeTypeId<Record<string, ScaleValue>>(
       runtime.runtimeApis().TransactionPaymentApi.query_info.outputTypeId,
       hexToBuffer(String(raw)),
@@ -2402,15 +2433,15 @@ export const runtimeApis = runtimeApi
 export const calls = Object.freeze({
   balances: Object.freeze({
     transferKeepAlive(dest: string, value: TransactionAmount) {
-      return call('Balances', 'transfer_keep_alive', { dest, value: transactionAmountRao(value) })
+      return call('Balances', 'transfer_keep_alive', { dest, value: taoTransactionAmountRao(value, 'transfer amount') })
     },
     transferAllowDeath(dest: string, value: TransactionAmount) {
-      return call('Balances', 'transfer_allow_death', { dest, value: transactionAmountRao(value) })
+      return call('Balances', 'transfer_allow_death', { dest, value: taoTransactionAmountRao(value, 'transfer amount') })
     },
   }),
   subtensor: Object.freeze({
     addStake(hotkey: string, netuid: number, amount: TransactionAmount) {
-      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: transactionAmountRao(amount) })
+      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: taoTransactionAmountRao(amount, 'stake amount') })
     },
     burnedRegister(netuid: number, hotkey: string) {
       return call('SubtensorModule', 'burned_register', { netuid, hotkey })
@@ -2472,15 +2503,15 @@ export const calls = Object.freeze({
   }),
   Balances: Object.freeze({
     transfer_keep_alive(dest: string, value: TransactionAmount) {
-      return call('Balances', 'transfer_keep_alive', { dest, value: transactionAmountRao(value) })
+      return call('Balances', 'transfer_keep_alive', { dest, value: taoTransactionAmountRao(value, 'transfer amount') })
     },
     transfer_allow_death(dest: string, value: TransactionAmount) {
-      return call('Balances', 'transfer_allow_death', { dest, value: transactionAmountRao(value) })
+      return call('Balances', 'transfer_allow_death', { dest, value: taoTransactionAmountRao(value, 'transfer amount') })
     },
   }),
   SubtensorModule: Object.freeze({
     add_stake(hotkey: string, netuid: number, amountStaked: TransactionAmount) {
-      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: transactionAmountRao(amountStaked) })
+      return call('SubtensorModule', 'add_stake', { hotkey, netuid, amount_staked: taoTransactionAmountRao(amountStaked, 'stake amount') })
     },
     burned_register(netuid: number, hotkey: string) {
       return call('SubtensorModule', 'burned_register', { netuid, hotkey })
@@ -2836,6 +2867,21 @@ function resolveEndpoint(network: string): [string, string] {
   if (network.startsWith('ws://') || network.startsWith('wss://') || network.startsWith('http')) return [network, network]
   if (Object.prototype.hasOwnProperty.call(NETWORKS, network)) return [network, NETWORKS[network as NetworkName]]
   throw new Error(`Unknown network ${network}`)
+}
+
+function trustedGenesisHash(network: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(NETWORK_GENESIS_HASHES, network)
+    ? NETWORK_GENESIS_HASHES[network as keyof typeof NETWORK_GENESIS_HASHES]
+    : undefined
+}
+
+function normalizeGenesisHash(value: string | null | undefined): string | undefined {
+  if (value == null) return undefined
+  const normalized = value.startsWith('0x') ? value : `0x${value}`
+  if (!/^0x[0-9a-fA-F]{64}$/.test(normalized)) {
+    throw new ChainError('expectedGenesisHash must be a 32-byte hex string')
+  }
+  return normalized.toLowerCase()
 }
 
 function normalizeStorageArgs(

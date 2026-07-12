@@ -119,6 +119,38 @@ impl Task for WriteKeypairKeyfileTask {
     }
 }
 
+pub struct WriteKeypairPairKeyfileTask {
+    private_keypair: Keypair,
+    private_path: PathBuf,
+    private_password: Option<String>,
+    public_keypair: Keypair,
+    public_path: PathBuf,
+    overwrite: bool,
+    allow_plaintext: bool,
+}
+
+impl Task for WriteKeypairPairKeyfileTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        keyfiles::save_keypair_pair_to_keyfiles(
+            &self.private_keypair,
+            &self.private_path,
+            self.private_password.as_deref(),
+            &self.public_keypair,
+            &self.public_path,
+            self.overwrite,
+            self.allow_plaintext,
+        )
+        .napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
 pub struct EncryptKeyfileDataTask {
     keyfile_data: Vec<u8>,
     password: String,
@@ -385,6 +417,27 @@ pub fn write_keypair_keyfile(
         keypair: keypair.inner.clone(),
         path: PathBuf::from(path),
         password,
+        overwrite,
+        allow_plaintext,
+    })
+}
+
+#[napi(js_name = "writeKeypairPairKeyfile")]
+pub fn write_keypair_pair_keyfile(
+    private_keypair: &NativeKeypair,
+    private_path: String,
+    private_password: Option<String>,
+    public_keypair: &NativeKeypair,
+    public_path: String,
+    overwrite: bool,
+    allow_plaintext: bool,
+) -> AsyncTask<WriteKeypairPairKeyfileTask> {
+    AsyncTask::new(WriteKeypairPairKeyfileTask {
+        private_keypair: private_keypair.inner.clone(),
+        private_path: PathBuf::from(private_path),
+        private_password,
+        public_keypair: public_keypair.inner.clone(),
+        public_path: PathBuf::from(public_path),
         overwrite,
         allow_plaintext,
     })

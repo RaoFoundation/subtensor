@@ -432,6 +432,7 @@ const coreCoverageAliases = new Map([
   ['keyfiles/mod.rs#deserialize_keypair_from_keyfile_data', ['deserializeKeypair']],
   ['keyfiles/mod.rs#read_keypair_from_keyfile', ['readKeypairKeyfile']],
   ['keyfiles/mod.rs#save_keypair_to_keyfile', ['writeKeypairKeyfile']],
+  ['keyfiles/mod.rs#save_keypair_pair_to_keyfiles', ['writeKeypairPairKeyfile']],
   ['keys/mod.rs#new', ['keypairNew', 'Keypair']],
   ['keys/mod.rs#from_mnemonic', ['keypairFromMnemonic', 'fromMnemonic']],
   ['keys/mod.rs#from_seed', ['keypairFromSeed', 'fromSeed']],

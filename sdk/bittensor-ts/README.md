@@ -114,6 +114,19 @@ await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
 await client.close()
 ```
 
+Fallback endpoints are validated against a trusted genesis hash before use.
+Known mainnet aliases (`finney`, `archive`) use the checked-in mainnet genesis
+hash. Custom endpoint sets, and named networks without a built-in trust anchor,
+must pass `expectedGenesisHash` when `fallbackEndpoints` are configured:
+
+```ts
+const client = new Client('local', {
+  endpoint: 'wss://primary.example',
+  fallbackEndpoints: ['wss://fallback.example'],
+  expectedGenesisHash: '0x...',
+})
+```
+
 Transaction amount inputs are intentionally explicit. Pass `Balance.fromTao("1.25")`
 or `taoAmount("1.25")` for TAO-denominated values, and pass `123n` or
 `raoAmount("123")` for rao. Raw `number` and `string` amounts are rejected by
@@ -131,12 +144,21 @@ Run it in CI or application startup when relying on the convenience descriptor
 exports.
 
 Wallet private keyfiles are encrypted when `keyfilePassword` is supplied.
-Plaintext private keyfile writes require `allowPlaintext: true`; public-only
+Plaintext private keyfile writes require `allowPlaintext: true`; `createNewColdkey()`,
+`createNewHotkey()`, `setColdkey()`, and `setHotkey()` require one of those
+choices instead of accepting empty options. Use `Wallet.generateColdkey()` or
+`Wallet.generateHotkey()` when you need to generate key material and decide how
+to persist it later. Private/public wallet keyfile pairs are written through one
+native pair-write operation that rolls back on commit failure. Public-only
 keyfiles are still written without encryption. Keyfile, wallet persistence,
 Ledger, and Drand-backed timelock operations are Promise-based so blocking I/O
-and expensive KDF work run off the JavaScript thread. `createNewColdkey()` and
-`createNewHotkey()` resolve to `{ wallet, keypair, mnemonic }` so callers can
-store the recovery phrase before relying on the persisted wallet.
+and expensive KDF work run off the JavaScript thread. The dangerous
+compatibility helper that returns plaintext keyfile JSON is named
+`dangerouslyDecryptKeyfileData()` and is also available from
+`dangerousKeyfiles`. The environment password helpers are legacy compatibility
+APIs (`legacyGetPasswordFromEnvironment()` and
+`legacySavePasswordToEnvironment()`); they use reversible obfuscation, not
+secure password storage.
 
 ## Browser example
 

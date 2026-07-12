@@ -332,6 +332,56 @@ pub fn save_keypair_to_keyfile(
     atomic_write_keyfile(path, &data, overwrite)
 }
 
+pub fn save_keypair_pair_to_keyfiles(
+    private_keypair: &Keypair,
+    private_path: &Path,
+    private_password: Option<&str>,
+    public_keypair: &Keypair,
+    public_path: &Path,
+    overwrite: bool,
+    allow_plaintext: bool,
+) -> Result<(), CoreError> {
+    if private_path == public_path {
+        return Err(key_err("private and public keyfile paths must be distinct"));
+    }
+    if private_keypair.has_private_key() && private_password.is_none() && !allow_plaintext {
+        return Err(key_err(
+            "plaintext private keyfile writes are disabled; provide a password or set allow_plaintext",
+        ));
+    }
+    if public_keypair.has_private_key() {
+        return Err(key_err(
+            "public keyfile pair member must not contain a private key",
+        ));
+    }
+
+    prepare_keyfile_target(private_path, overwrite)?;
+    prepare_keyfile_target(public_path, overwrite)?;
+
+    let private_plaintext = Zeroizing::new(serialized_keypair_to_keyfile_data(private_keypair)?);
+    let private_data = if let Some(password) = private_password {
+        encrypt_keyfile_data(&private_plaintext, password)?
+    } else {
+        private_plaintext.to_vec()
+    };
+    let public_data = serialized_keypair_to_keyfile_data(public_keypair)?;
+    atomic_write_keyfile_pair(
+        private_path,
+        &private_data,
+        public_path,
+        &public_data,
+        overwrite,
+    )
+}
+
+fn prepare_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    ensure_private_directory(parent)?;
+    validate_keyfile_target(path, overwrite)
+}
+
 fn ensure_private_directory(path: &Path) -> Result<(), CoreError> {
     fs::create_dir_all(path).map_err(|error| {
         key_err(format!(
@@ -401,6 +451,15 @@ fn validate_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError
 }
 
 fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(), CoreError> {
+    let temp_path = write_temp_keyfile(path, data)?;
+    let write_result = commit_one_keyfile(path, &temp_path, overwrite);
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
+fn write_temp_keyfile(path: &Path, data: &[u8]) -> Result<PathBuf, CoreError> {
     let dir = path
         .parent()
         .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
@@ -408,8 +467,8 @@ fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(),
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| key_err("keyfile path must be valid UTF-8"))?;
-    let mut temp_path = PathBuf::new();
     let mut temp_file = None;
+    let mut temp_path = None;
 
     for attempt in 0..128u32 {
         let candidate = dir.join(format!(
@@ -419,7 +478,7 @@ fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(),
         ));
         match private_create_new(&candidate) {
             Ok(file) => {
-                temp_path = candidate;
+                temp_path = Some(candidate);
                 temp_file = Some(file);
                 break;
             }
@@ -433,12 +492,19 @@ fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(),
         }
     }
 
+    let temp_path = temp_path.ok_or_else(|| {
+        key_err(format!(
+            "failed to allocate temporary keyfile for {}",
+            path.display()
+        ))
+    })?;
     let mut file = temp_file.ok_or_else(|| {
         key_err(format!(
             "failed to allocate temporary keyfile for {}",
             path.display()
         ))
     })?;
+
     let write_result = (|| -> Result<(), CoreError> {
         file.write_all(data).map_err(|error| {
             key_err(format!(
@@ -452,37 +518,276 @@ fn atomic_write_keyfile(path: &Path, data: &[u8], overwrite: bool) -> Result<(),
                 temp_path.display()
             ))
         })?;
-        drop(file);
-        if overwrite {
-            fs::rename(&temp_path, path).map_err(|error| {
-                key_err(format!(
-                    "failed to atomically replace keyfile {}: {error}",
-                    path.display()
-                ))
-            })?;
-        } else {
-            fs::hard_link(&temp_path, path).map_err(|error| {
-                key_err(format!(
-                    "failed to atomically create keyfile {}: {error}",
-                    path.display()
-                ))
-            })?;
-            fs::remove_file(&temp_path).map_err(|error| {
-                key_err(format!(
-                    "failed to remove temporary keyfile {}: {error}",
-                    temp_path.display()
-                ))
-            })?;
-        }
-        set_private_file_permissions(path)?;
-        fsync_directory(dir);
         Ok(())
     })();
-
+    drop(file);
     if write_result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
-    write_result
+    write_result.map(|()| temp_path)
+}
+
+fn commit_one_keyfile(path: &Path, temp_path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    if overwrite {
+        fs::rename(temp_path, path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically replace keyfile {}: {error}",
+                path.display()
+            ))
+        })?;
+    } else {
+        commit_new_keyfile(path, temp_path)?;
+        return Ok(());
+    }
+    set_private_file_permissions(path)?;
+    fsync_directory(dir);
+    Ok(())
+}
+
+fn commit_new_keyfile(path: &Path, temp_path: &Path) -> Result<(), CoreError> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    fs::hard_link(temp_path, path).map_err(|error| {
+        key_err(format!(
+            "failed to atomically create keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    fs::remove_file(temp_path).map_err(|error| {
+        key_err(format!(
+            "failed to remove temporary keyfile {}: {error}",
+            temp_path.display()
+        ))
+    })?;
+    set_private_file_permissions(path)?;
+    fsync_directory(dir);
+    Ok(())
+}
+
+fn atomic_write_keyfile_pair(
+    private_path: &Path,
+    private_data: &[u8],
+    public_path: &Path,
+    public_data: &[u8],
+    overwrite: bool,
+) -> Result<(), CoreError> {
+    let private_temp = write_temp_keyfile(private_path, private_data)?;
+    let public_temp = match write_temp_keyfile(public_path, public_data) {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = fs::remove_file(&private_temp);
+            return Err(error);
+        }
+    };
+
+    let result = if overwrite {
+        commit_overwrite_keyfile_pair(private_path, &private_temp, public_path, &public_temp)
+    } else {
+        commit_create_keyfile_pair(private_path, &private_temp, public_path, &public_temp)
+    };
+    if result.is_err() {
+        let _ = fs::remove_file(&private_temp);
+        let _ = fs::remove_file(&public_temp);
+    }
+    result
+}
+
+fn commit_create_keyfile_pair(
+    private_path: &Path,
+    private_temp: &Path,
+    public_path: &Path,
+    public_temp: &Path,
+) -> Result<(), CoreError> {
+    let mut private_created = false;
+    let mut public_created = false;
+    let result = (|| -> Result<(), CoreError> {
+        fs::hard_link(private_temp, private_path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically create private keyfile {}: {error}",
+                private_path.display()
+            ))
+        })?;
+        private_created = true;
+        fs::remove_file(private_temp).map_err(|error| {
+            key_err(format!(
+                "failed to remove temporary keyfile {}: {error}",
+                private_temp.display()
+            ))
+        })?;
+        set_private_file_permissions(private_path)?;
+
+        fs::hard_link(public_temp, public_path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically create public keyfile {}: {error}",
+                public_path.display()
+            ))
+        })?;
+        public_created = true;
+        fs::remove_file(public_temp).map_err(|error| {
+            key_err(format!(
+                "failed to remove temporary keyfile {}: {error}",
+                public_temp.display()
+            ))
+        })?;
+        set_private_file_permissions(public_path)?;
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        if public_created {
+            remove_file_if_exists(public_path);
+        }
+        if private_created {
+            remove_file_if_exists(private_path);
+        }
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+    }
+    result
+}
+
+fn commit_overwrite_keyfile_pair(
+    private_path: &Path,
+    private_temp: &Path,
+    public_path: &Path,
+    public_temp: &Path,
+) -> Result<(), CoreError> {
+    let mut private_backup = None;
+    let mut public_backup = None;
+    let mut private_committed = false;
+    let mut public_committed = false;
+    let result = (|| -> Result<(), CoreError> {
+        private_backup = move_existing_to_backup(private_path)?;
+        public_backup = move_existing_to_backup(public_path)?;
+
+        fs::rename(private_temp, private_path).map_err(|error| {
+            key_err(format!(
+                "failed to commit private keyfile {}: {error}",
+                private_path.display()
+            ))
+        })?;
+        private_committed = true;
+        set_private_file_permissions(private_path)?;
+
+        fs::rename(public_temp, public_path).map_err(|error| {
+            key_err(format!(
+                "failed to commit public keyfile {}: {error}",
+                public_path.display()
+            ))
+        })?;
+        public_committed = true;
+        set_private_file_permissions(public_path)?;
+
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        if public_committed {
+            remove_file_if_exists(public_path);
+        }
+        if private_committed {
+            remove_file_if_exists(private_path);
+        }
+        restore_backup(private_path, private_backup.as_deref());
+        restore_backup(public_path, public_backup.as_deref());
+        fsync_parent(private_path);
+        fsync_parent(public_path);
+    } else {
+        if let Some(path) = private_backup {
+            let _ = fs::remove_file(path);
+        }
+        if let Some(path) = public_backup {
+            let _ = fs::remove_file(path);
+        }
+    }
+    result
+}
+
+fn move_existing_to_backup(path: &Path) -> Result<Option<PathBuf>, CoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(key_err(format!(
+                    "refusing to overwrite keyfile symlink {}",
+                    path.display()
+                )));
+            }
+            if !metadata.is_file() {
+                return Err(key_err(format!(
+                    "refusing to overwrite non-file keyfile path {}",
+                    path.display()
+                )));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(key_err(format!(
+                "failed to inspect keyfile {}: {error}",
+                path.display()
+            )))
+        }
+    }
+
+    let dir = path
+        .parent()
+        .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| key_err("keyfile path must be valid UTF-8"))?;
+    for attempt in 0..128u32 {
+        let backup = dir.join(format!(
+            ".{file_name}.{}.{}.rollback",
+            std::process::id(),
+            attempt
+        ));
+        if backup.exists() {
+            continue;
+        }
+        match fs::rename(path, &backup) {
+            Ok(()) => return Ok(Some(backup)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to stage existing keyfile {} for rollback: {error}",
+                    path.display()
+                )))
+            }
+        }
+    }
+    Err(key_err(format!(
+        "failed to allocate rollback path for {}",
+        path.display()
+    )))
+}
+
+fn restore_backup(path: &Path, backup: Option<&Path>) {
+    if let Some(backup) = backup {
+        remove_file_if_exists(path);
+        let _ = fs::rename(backup, path);
+    }
+}
+
+fn remove_file_if_exists(path: &Path) {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {}
+    }
+}
+
+fn fsync_parent(path: &Path) {
+    if let Some(parent) = path.parent() {
+        fsync_directory(parent);
+    }
 }
 
 #[cfg(unix)]
@@ -594,6 +899,16 @@ mod tests {
             .to_string()
     }
 
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "bittensor-core-keyfiles-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
     #[test]
     fn nacl_roundtrip() {
         let message = br#"{"ss58Address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"}"#;
@@ -659,5 +974,42 @@ mod tests {
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.crypto_type(), CRYPTO_ED25519);
         assert_eq!(restored.ss58_address(), original.ss58_address());
+    }
+
+    #[test]
+    fn keypair_pair_keyfile_roundtrip() {
+        let dir = temp_test_dir("pair-roundtrip");
+        let private_path = dir.join("hotkey");
+        let public_path = dir.join("hotkeypub.txt");
+        let original = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let public = Keypair::new(
+            Some(&original.ss58_address()),
+            None,
+            original.crypto_type(),
+            original.ss58_format(),
+        )
+        .unwrap();
+
+        save_keypair_pair_to_keyfiles(
+            &original,
+            &private_path,
+            Some("test-password"),
+            &public,
+            &public_path,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let restored_private =
+            read_keypair_from_keyfile(&private_path, Some("test-password")).unwrap();
+        let restored_public = read_keypair_from_keyfile(&public_path, None).unwrap();
+        assert_eq!(restored_private.ss58_address(), original.ss58_address());
+        assert_eq!(restored_public.ss58_address(), original.ss58_address());
+        assert!(!restored_public.has_private_key());
+        assert!(keyfile_data_is_encrypted(&fs::read(&private_path).unwrap()));
+        assert!(!keyfile_data_is_encrypted(&fs::read(&public_path).unwrap()));
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }

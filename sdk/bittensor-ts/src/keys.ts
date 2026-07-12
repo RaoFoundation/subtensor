@@ -289,6 +289,27 @@ export class Keypair implements PolkadotCompatibleKeypair {
     }
   }
 
+  static writeKeyfilePair(
+    privateKeypair: Keypair,
+    privatePath: string,
+    publicKeypair: Keypair,
+    publicPath: string,
+    options: WriteKeyfileOptions = {},
+  ): Promise<void> {
+    const normalized = normalizeWriteKeyfileOptions(options)
+    return nativeAsync(() =>
+      native.writeKeypairPairKeyfile(
+        privateKeypair.handle,
+        privatePath,
+        normalized.password ?? undefined,
+        publicKeypair.handle,
+        publicPath,
+        normalized.overwrite,
+        normalized.allowPlaintext,
+      ),
+    )
+  }
+
   static encryptFor(
     ss58Address: string,
     message: string | ByteLike,
@@ -652,6 +673,18 @@ export function readKeypairKeyfile(path: string, password?: string | null): Prom
 
 export const read_keypair_keyfile = readKeypairKeyfile
 
+export function writeKeypairPairKeyfile(
+  privateKeypair: Keypair,
+  privatePath: string,
+  publicKeypair: Keypair,
+  publicPath: string,
+  options: WriteKeyfileOptions = {},
+): Promise<void> {
+  return Keypair.writeKeyfilePair(privateKeypair, privatePath, publicKeypair, publicPath, options)
+}
+
+export const write_keypair_pair_keyfile = writeKeypairPairKeyfile
+
 export function encryptKeyfileData(keyfileData: ByteLike, password: string): Promise<Buffer> {
   return nativeAsync(() =>
     native.encryptKeyfileData(toBuffer(keyfileData, 'keyfileData'), password),
@@ -660,7 +693,7 @@ export function encryptKeyfileData(keyfileData: ByteLike, password: string): Pro
 
 export const encrypt_keyfile_data = encryptKeyfileData
 
-export function decryptKeyfileData(
+export function dangerouslyDecryptKeyfileData(
   keyfileData: ByteLike,
   password?: string | null,
 ): Promise<Buffer> {
@@ -669,7 +702,7 @@ export function decryptKeyfileData(
   )
 }
 
-export const decrypt_keyfile_data = decryptKeyfileData
+export const dangerously_decrypt_keyfile_data = dangerouslyDecryptKeyfileData
 
 export function keyfileDataIsEncrypted(keyfileData: ByteLike): boolean {
   return native.keyfileDataIsEncrypted(toBuffer(keyfileData, 'keyfileData'))
@@ -701,14 +734,23 @@ export function keyfileDataEncryptionMethod(keyfileData: ByteLike): string {
 
 export const keyfile_data_encryption_method = keyfileDataEncryptionMethod
 
-export function getPasswordFromEnvironment(name: string): string | null {
+export function legacyGetPasswordFromEnvironment(name: string): string | null {
   return nativeCall(() => native.getPasswordFromEnvironment(name) ?? null)
 }
 
-export const get_password_from_environment = getPasswordFromEnvironment
+export const legacy_get_password_from_environment = legacyGetPasswordFromEnvironment
 
-export function savePasswordToEnvironment(name: string, password: string): string {
+export function legacySavePasswordToEnvironment(name: string, password: string): string {
   return nativeCall(() => native.savePasswordToEnvironment(name, password))
 }
 
-export const save_password_to_environment = savePasswordToEnvironment
+export const legacy_save_password_to_environment = legacySavePasswordToEnvironment
+
+export const dangerousKeyfiles = Object.freeze({
+  dangerouslyDecryptKeyfileData,
+  dangerously_decrypt_keyfile_data,
+  legacySavePasswordToEnvironment,
+  legacy_save_password_to_environment,
+  legacyGetPasswordFromEnvironment,
+  legacy_get_password_from_environment,
+})

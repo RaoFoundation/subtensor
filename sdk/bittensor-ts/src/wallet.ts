@@ -7,6 +7,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
   CRYPTO_SR25519,
   Keypair,
+  writeKeypairPairKeyfile,
 } from './keys'
 
 export const DEFAULT_WALLET_PATH = join(homedir(), '.bittensor', 'wallets')
@@ -26,9 +27,38 @@ export interface SaveKeyOptions {
   password?: string | null
 }
 
-export interface RegenerateKeyOptions extends SaveKeyOptions {
+export type PrivateKeySaveOptions =
+  | {
+      keyfilePassword: string
+      allowPlaintext?: false
+      overwrite?: boolean
+      encrypt?: true
+      password?: never
+    }
+  | {
+      allowPlaintext: true
+      keyfilePassword?: never
+      overwrite?: boolean
+      encrypt?: false
+      password?: never
+    }
+
+export interface GenerateWalletKeyOptions {
+  nWords?: number
   cryptoType?: number
   mnemonicPassword?: string | null
+}
+
+export type CreateWalletKeyOptions = GenerateWalletKeyOptions & PrivateKeySaveOptions
+
+export type RegenerateKeyOptions = PrivateKeySaveOptions & {
+  cryptoType?: number
+  mnemonicPassword?: string | null
+}
+
+export interface GeneratedWalletKey {
+  keypair: Keypair
+  mnemonic: string
 }
 
 export interface CreatedWalletKey {
@@ -60,8 +90,9 @@ export class Keyfile {
   }
 
   async setKeypair(keypair: Keypair, options: SaveKeyOptions = {}): Promise<void> {
-    const { encrypt = false, overwrite = false } = options
     const password = keyfilePassword(options)
+    const encrypt = options.encrypt ?? password != null
+    const overwrite = options.overwrite ?? false
     if (encrypt && password == null) {
       throw new Error(`Password is required to encrypt ${this.path}`)
     }
@@ -151,77 +182,77 @@ export class Wallet {
     return this.hotkeyCache
   }
 
-  async setColdkey(keypair: Keypair, options: SaveKeyOptions = {}): Promise<this> {
+  async setColdkey(keypair: Keypair, options: PrivateKeySaveOptions): Promise<this> {
+    const saveOptions = requirePrivateKeySaveOptions(options, 'setColdkey')
     const coldkeypub = publicOnly(keypair)
-    await this.coldkeyFile.setKeypair(keypair, {
-      ...options,
-      encrypt: options.encrypt ?? keyfilePassword(options) != null,
+    await writeKeypairPairKeyfile(keypair, this.coldkeyFile.path, coldkeypub, this.coldkeypubFile.path, {
+      password: keyfilePassword(saveOptions) ?? undefined,
+      overwrite: saveOptions.overwrite ?? false,
+      allowPlaintext: saveOptions.allowPlaintext === true,
     })
-    await this.coldkeypubFile.setKeypair(coldkeypub, { overwrite: options.overwrite ?? true })
     this.coldkeyCache = Promise.resolve(keypair)
     this.coldkeypubCache = Promise.resolve(coldkeypub)
     return this
   }
 
-  async setHotkey(keypair: Keypair, options: SaveKeyOptions = {}): Promise<this> {
+  async setHotkey(keypair: Keypair, options: PrivateKeySaveOptions): Promise<this> {
+    const saveOptions = requirePrivateKeySaveOptions(options, 'setHotkey')
     const hotkeypub = publicOnly(keypair)
-    await this.hotkeyFile.setKeypair(keypair, {
-      ...options,
-      encrypt: options.encrypt ?? keyfilePassword(options) != null,
+    await writeKeypairPairKeyfile(keypair, this.hotkeyFile.path, hotkeypub, this.hotkeypubFile.path, {
+      password: keyfilePassword(saveOptions) ?? undefined,
+      overwrite: saveOptions.overwrite ?? false,
+      allowPlaintext: saveOptions.allowPlaintext === true,
     })
-    await this.hotkeypubFile.setKeypair(hotkeypub, { overwrite: options.overwrite ?? true })
     this.hotkeyCache = Promise.resolve(keypair)
     this.hotkeypubCache = Promise.resolve(hotkeypub)
     return this
   }
 
-  async createNewColdkey(
-    options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {},
-  ): Promise<CreatedWalletKey> {
-    const mnemonic = Keypair.generateMnemonic(options.nWords ?? 12)
-    const keypair = Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519)
-    await this.setColdkey(keypair, {
-      ...options,
-      encrypt: options.encrypt ?? keyfilePassword(options) != null,
-    })
-    return { wallet: this, keypair, mnemonic }
+  static generateColdkey(options: GenerateWalletKeyOptions = {}): GeneratedWalletKey {
+    return generateWalletKey(options)
   }
 
-  async createNewHotkey(
-    options: SaveKeyOptions & { nWords?: number; cryptoType?: number } = {},
-  ): Promise<CreatedWalletKey> {
-    const mnemonic = Keypair.generateMnemonic(options.nWords ?? 12)
-    const keypair = Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519)
-    await this.setHotkey(keypair, {
-      ...options,
-      encrypt: options.encrypt ?? keyfilePassword(options) != null,
-    })
-    return { wallet: this, keypair, mnemonic }
+  static generateHotkey(options: GenerateWalletKeyOptions = {}): GeneratedWalletKey {
+    return generateWalletKey(options)
+  }
+
+  generateColdkey(options: GenerateWalletKeyOptions = {}): GeneratedWalletKey {
+    return Wallet.generateColdkey(options)
+  }
+
+  generateHotkey(options: GenerateWalletKeyOptions = {}): GeneratedWalletKey {
+    return Wallet.generateHotkey(options)
+  }
+
+  async createNewColdkey(options: CreateWalletKeyOptions): Promise<CreatedWalletKey> {
+    const generated = Wallet.generateColdkey(options)
+    await this.setColdkey(generated.keypair, options)
+    return { wallet: this, ...generated }
+  }
+
+  async createNewHotkey(options: CreateWalletKeyOptions): Promise<CreatedWalletKey> {
+    const generated = Wallet.generateHotkey(options)
+    await this.setHotkey(generated.keypair, options)
+    return { wallet: this, ...generated }
   }
 
   async regenerateColdkey(
     mnemonic: string,
-    options: RegenerateKeyOptions = {},
+    options: RegenerateKeyOptions,
   ): Promise<this> {
     return this.setColdkey(
       Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword),
-      {
-        ...options,
-        encrypt: options.encrypt ?? keyfilePassword(options) != null,
-      },
+      options,
     )
   }
 
   async regenerateHotkey(
     mnemonic: string,
-    options: RegenerateKeyOptions = {},
+    options: RegenerateKeyOptions,
   ): Promise<this> {
     return this.setHotkey(
       Keypair.fromMnemonic(mnemonic, options.cryptoType ?? CRYPTO_SR25519, options.mnemonicPassword),
-      {
-        ...options,
-        encrypt: options.encrypt ?? keyfilePassword(options) != null,
-      },
+      options,
     )
   }
 }
@@ -258,6 +289,36 @@ function containedPath(root: string, ...partsAndLabel: string[]): string {
 
 function keyfilePassword(options: SaveKeyOptions): string | null | undefined {
   return options.keyfilePassword ?? options.password
+}
+
+function requirePrivateKeySaveOptions(
+  options: SaveKeyOptions | undefined,
+  operation: string,
+): SaveKeyOptions {
+  if (options == null) {
+    throw new Error(`${operation} requires keyfilePassword or allowPlaintext: true`)
+  }
+  const password = keyfilePassword(options)
+  if (password === '') {
+    throw new Error(`${operation} requires a non-empty keyfilePassword`)
+  }
+  if (password != null && options.allowPlaintext === true) {
+    throw new Error(`${operation} accepts either keyfilePassword or allowPlaintext: true, not both`)
+  }
+  if (password == null && options.allowPlaintext !== true) {
+    throw new Error(`${operation} requires keyfilePassword or allowPlaintext: true`)
+  }
+  return options
+}
+
+function generateWalletKey(options: GenerateWalletKeyOptions = {}): GeneratedWalletKey {
+  const mnemonic = Keypair.generateMnemonic(options.nWords ?? 12)
+  const keypair = Keypair.fromMnemonic(
+    mnemonic,
+    options.cryptoType ?? CRYPTO_SR25519,
+    options.mnemonicPassword,
+  )
+  return { keypair, mnemonic }
 }
 
 function publicOnly(keypair: Keypair): Keypair {
