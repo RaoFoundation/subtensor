@@ -73,15 +73,15 @@ impl<T: Config> Pallet<T> {
     /// Transfer all transferable TAO from `origin_coldkey` to `destination_coldkey`,
     /// allowing the origin account to be reaped.
     ///
-    /// # Parameters
-    /// - `origin_coldkey`: Source account.
-    /// - `destination_coldkey`: Destination account.
+    /// # Arguments
+    /// * `origin_coldkey`: Source account.
+    /// * `destination_coldkey`: Destination account.
     ///
     /// # Returns
     /// DispatchResult of the operation.
     ///
     /// # Errors
-    /// - Any error returned by the underlying currency transfer.
+    /// * Any error returned by the underlying currency transfer.
     pub fn transfer_all_tao_and_kill(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
@@ -108,11 +108,11 @@ impl<T: Config> Pallet<T> {
     /// If transferring the full `amount` would reap the origin account, this
     /// function leaves the existential deposit (ED) in place and transfers less.
     ///
-    /// # Parameters
-    /// - `netuid`: Subnet identifier.
-    /// - `origin_coldkey`: Account to transfer TAO from.
-    /// - `destination_coldkey`: Account to transfer TAO to.
-    /// - `amount`: Requested amount to transfer.
+    /// # Arguments
+    /// * `netuid`: Subnet identifier.
+    /// * `origin_coldkey`: Account to transfer TAO from.
+    /// * `destination_coldkey`: Account to transfer TAO to.
+    /// * `amount`: Requested amount to transfer.
     ///
     /// # Returns
     /// Returns the actual amount transferred.

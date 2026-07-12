@@ -466,9 +466,9 @@ impl<T: Config> Pallet<T> {
     /// Updates neuron burn price.
     ///
     /// Behavior:
-    /// - Each non-genesis block: burn decays continuously by a per-block factor `f`,
+    /// * Each non-genesis block: burn decays continuously by a per-block factor `f`,
     ///   where `f ^ BurnHalfLife = 1/2`.
-    /// - Burn is clamped to the configured [`MinBurn`, `MaxBurn`] range.
+    /// * Burn is clamped to the configured [`MinBurn`, `MaxBurn`] range.
     ///
     pub fn update_registration_prices_for_networks() {
         let current_block: u64 = Self::get_current_block_as_u64();

@@ -4,6 +4,7 @@ export type ExplorerCardData = {
   href: string;
   imageSrc: string;
   logoSrc: string;
+  badge?: string;
 } & (
   | {leftIconSrc?: undefined; leftIconMaskSrc?: undefined}
   | {leftIconSrc: string; leftIconMaskSrc?: undefined}

@@ -1,15 +1,29 @@
-"""Typed read namespaces: ``client.balances`` / ``staking`` / ``subnets`` / ``neurons``.
+"""Typed read namespaces: ``client.subnets`` / ``staking`` / ``balances`` / ...
 
-Each namespace is a thin projection over the read registry (``bittensor.reads``)
-— the fetch functions are the single implementation; these classes only give
-them a discoverable, typed, dot-completed surface. Every method takes an
-optional ``block=`` that pins the read via ``view.at(block)``; a namespace
-built over a snapshot is already pinned, so ``block`` can be omitted there.
+One namespace per read category, each a projection over the read registry
+(``bittensor.reads``) with two layers:
+
+- **Curated methods** (hand-written below): the ergonomic surface — renamed
+  (``subnets.all()``), aggregated, or more richly typed (``subnets.metagraph()``
+  returns :class:`Metagraph`) than the raw registry read.
+- **Every registered read**, under its registry name, resolved dynamically by
+  :class:`_ReadNamespace.__getattr__` — so ``client.subnets.subnet_registration_cost()``
+  works the moment the read is registered, with no per-read wrapper to write.
+  Curated methods shadow same-named reads.
+
+Autocomplete and type checking come from ``namespaces.pyi``, generated from
+this module plus the registry (``python -m codegen.emit_namespaces``; CI gate:
+``python -m codegen.check --namespaces``).
+
+Every method takes an optional ``block=`` that pins the read via
+``view.at(block)``; a namespace built over a snapshot is already pinned, so
+``block`` can be omitted there.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+import inspect
+from typing import ClassVar, Optional
 
 from . import metagraph as metagraph_module
 from .balance import Balance
@@ -18,6 +32,7 @@ from .reads import accounts as _accounts
 from .reads import neurons as _neurons
 from .reads import staking as _staking
 from .reads import subnets as _subnets
+from .reads.base import REGISTRY, ReadSpec
 from .reads.neurons import Neuron
 from .reads.staking import StakePosition
 from .reads.subnets import SubnetInfo
@@ -28,9 +43,63 @@ async def _scoped(view, block: Optional[int]):
     return view if block is None else await view.at(block)
 
 
-class Balances:
+def _accepts_pin(spec: ReadSpec) -> bool:
+    """Whether the dynamic wrapper may add its own ``block=`` pin — not when the
+    read already takes a parameter of that name (e.g. ``block_info``)."""
+    return "block" not in inspect.signature(spec.fetch).parameters
+
+
+class _ReadNamespace:
+    """Dynamic projection of one read category over a view.
+
+    Attribute lookup falls back to the read registry: any read in this
+    namespace's category is callable under its registry name, with a
+    keyword-only ``block=`` pinning the read via ``view.at(block)``.
+    Hand-written methods on subclasses shadow same-named reads. The generated
+    ``namespaces.pyi`` declares both surfaces, so the stub — not this
+    ``__getattr__`` — is what type checkers see.
+    """
+
+    _category: ClassVar[str]
+
     def __init__(self, view):
         self._view = view
+
+    @classmethod
+    def _read_names(cls) -> set[str]:
+        return {name for name, spec in REGISTRY.items() if spec.category == cls._category}
+
+    def __getattr__(self, name: str):
+        spec = REGISTRY.get(name)
+        if spec is None or spec.category != self._category:
+            raise AttributeError(
+                f"{type(self).__name__} has no method or read {name!r}; "
+                f"registry reads here: {', '.join(sorted(self._read_names()))}"
+            )
+        view = self._view
+        if _accepts_pin(spec):
+
+            async def method(*args, block: Optional[int] = None, **kwargs):
+                return await spec.fetch(await _scoped(view, block), *args, **kwargs)
+
+        else:
+
+            async def method(*args, **kwargs):
+                return await spec.fetch(view, *args, **kwargs)
+
+        method.__name__ = spec.name
+        method.__qualname__ = f"{type(self).__name__}.{spec.name}"
+        method.__doc__ = spec.doc
+        return method
+
+    def __dir__(self):
+        return sorted(set(super().__dir__()) | self._read_names())
+
+
+class Balances(_ReadNamespace):
+    """Free-TAO balances, plus every "Accounts & keys" read (multisig, proxies, ...)."""
+
+    _category = "Accounts & keys"
 
     async def get(self, address: str, block: Optional[int] = None) -> Balance:
         """Free TAO balance of a coldkey address."""
@@ -47,9 +116,10 @@ class Balances:
         return await _accounts.existential_deposit(self._view)
 
 
-class Staking:
-    def __init__(self, view):
-        self._view = view
+class Staking(_ReadNamespace):
+    """Stake amounts and positions, plus every "Staking" read."""
+
+    _category = "Staking"
 
     async def get(
         self,
@@ -70,14 +140,15 @@ class Staking:
         return await _staking.stake_for_coldkey(await _scoped(self._view, block), coldkey_ss58)
 
 
-class Subnets:
-    """Aggregating/decoding subnet reads. For a single raw value (e.g. does netuid
-    N exist), use the generic ``client.query(storage.SubtensorModule.NetworksAdded,
-    [netuid])`` accessor instead of a bespoke method.
+class Subnets(_ReadNamespace):
+    """Aggregating/decoding subnet reads, plus every "Subnets" read.
+
+    For a single raw storage value (e.g. does netuid N exist), the generic
+    ``client.query(storage.SubtensorModule.NetworksAdded, [netuid])`` accessor
+    also works.
     """
 
-    def __init__(self, view):
-        self._view = view
+    _category = "Subnets"
 
     async def burn(self, netuid: int, block: Optional[int] = None) -> Balance:
         """Current burn (recycle) cost to register on a subnet."""
@@ -94,7 +165,8 @@ class Subnets:
 
         Every neuron with stakes, scores, axon endpoint, identity, and (unless
         ``commitments=False``) its on-chain commitment with timelock/decryption
-        status. See :class:`Metagraph`.
+        status. See :class:`Metagraph`. (This shadows the registry's raw
+        ``metagraph`` read, which stays reachable via ``client.read("metagraph")``.)
         """
         return await metagraph_module.fetch(
             await _scoped(self._view, block), netuid, commitments=commitments
@@ -125,9 +197,10 @@ class Subnets:
         return await _subnets.subnets(await _scoped(self._view, block))
 
 
-class Neurons:
-    def __init__(self, view):
-        self._view = view
+class Neurons(_ReadNamespace):
+    """Neuron listings and registration lookups, plus every "Neurons & registration" read."""
+
+    _category = "Neurons & registration"
 
     async def all(
         self, netuid: int, block: Optional[int] = None, *, lite: bool = True
@@ -138,3 +211,77 @@ class Neurons:
         smaller and what almost every caller wants.
         """
         return await _neurons.neurons(await _scoped(self._view, block), netuid, lite=lite)
+
+
+class Chain(_ReadNamespace):
+    """Chain-level reads: time, block metadata, global limits."""
+
+    _category = "Chain"
+
+
+class Delegation(_ReadNamespace):
+    """Delegate info, delegated stake, and child/parent hotkey relations."""
+
+    _category = "Delegation"
+
+
+class Epochs(_ReadNamespace):
+    """Epoch timing: blocks since/until steps, epoch status."""
+
+    _category = "Epochs & timing"
+
+
+class Hyperparameters(_ReadNamespace):
+    """Per-subnet hyperparameter scalars (difficulty, immunity period, ...)."""
+
+    _category = "Hyperparameters"
+
+
+class Identity(_ReadNamespace):
+    """On-chain identities and commitments."""
+
+    _category = "Identity & commitments"
+
+
+class Leasing(_ReadNamespace):
+    """Leases and crowdloans."""
+
+    _category = "Leases & crowdloans"
+
+
+class Locks(_ReadNamespace):
+    """Stake locks and conviction."""
+
+    _category = "Locks & conviction"
+
+
+class Prices(_ReadNamespace):
+    """Alpha prices and stake/unstake swap quotes."""
+
+    _category = "Prices & swaps"
+
+
+class Weights(_ReadNamespace):
+    """Weights, bonds, and timelocked weight commits."""
+
+    _category = "Weights & bonds"
+
+
+# Namespace attribute name on Client / Snapshot -> namespace class. The sync
+# facade and the namespaces.pyi emitter iterate this; client.py and snapshot.py
+# assign each attribute explicitly so type checkers see them.
+NAMESPACES: dict[str, type[_ReadNamespace]] = {
+    "balances": Balances,
+    "chain": Chain,
+    "delegation": Delegation,
+    "epochs": Epochs,
+    "hyperparameters": Hyperparameters,
+    "identity": Identity,
+    "leasing": Leasing,
+    "locks": Locks,
+    "neurons": Neurons,
+    "prices": Prices,
+    "staking": Staking,
+    "subnets": Subnets,
+    "weights": Weights,
+}

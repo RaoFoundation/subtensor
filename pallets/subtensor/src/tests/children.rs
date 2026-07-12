@@ -11,6 +11,7 @@ use subtensor_swap_interface::SwapHandler;
 
 use crate::{utils::rate_limiting::TransactionType, *};
 use sp_core::U256;
+use sp_runtime::PerU16;
 
 fn close(value: u64, target: u64, eps: u64, msg: &str) {
     assert!(
@@ -890,7 +891,7 @@ fn test_childkey_take_functionality() {
             RuntimeOrigin::signed(coldkey),
             hotkey,
             netuid,
-            new_take
+            PerU16::from_parts(new_take)
         ));
 
         // Verify childkey take was set correctly
@@ -905,7 +906,7 @@ fn test_childkey_take_functionality() {
                 RuntimeOrigin::signed(coldkey),
                 hotkey,
                 netuid,
-                invalid_take
+                PerU16::from_parts(invalid_take)
             ),
             Error::<Test>::InvalidChildkeyTake
         );
@@ -917,7 +918,7 @@ fn test_childkey_take_functionality() {
                 RuntimeOrigin::signed(non_associated_coldkey),
                 hotkey,
                 netuid,
-                new_take
+                PerU16::from_parts(new_take)
             ),
             Error::<Test>::NonAssociatedColdKey
         );
@@ -934,7 +935,7 @@ fn test_childkey_take_respects_effective_subnet_minimum() {
 
         add_network(netuid, 13, 0);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
-        SubtensorModule::set_min_childkey_take_for_subnet(netuid, subnet_min);
+        SubtensorModule::set_min_childkey_take_for_subnet(netuid, PerU16::from_parts(subnet_min));
 
         assert_eq!(
             SubtensorModule::get_effective_min_childkey_take(netuid),
@@ -950,7 +951,7 @@ fn test_childkey_take_respects_effective_subnet_minimum() {
                 RuntimeOrigin::signed(coldkey),
                 hotkey,
                 netuid,
-                subnet_min - 1
+                PerU16::from_parts(subnet_min - 1)
             ),
             Error::<Test>::InvalidChildkeyTake
         );
@@ -959,10 +960,10 @@ fn test_childkey_take_respects_effective_subnet_minimum() {
             RuntimeOrigin::signed(coldkey),
             hotkey,
             netuid,
-            subnet_min
+            PerU16::from_parts(subnet_min)
         ));
 
-        ChildkeyTake::<Test>::insert(hotkey, netuid, subnet_min - 1);
+        ChildkeyTake::<Test>::insert(hotkey, netuid, PerU16::from_parts(subnet_min - 1));
         assert_eq!(
             SubtensorModule::get_childkey_take(&hotkey, netuid),
             subnet_min
@@ -1026,14 +1027,19 @@ fn test_childkey_take_rate_limiting() {
             RuntimeOrigin::signed(coldkey),
             hotkey,
             netuid,
-            500
+            PerU16::from_parts(500)
         ));
         log_rate_limit_info();
 
         // Second transaction (should fail due to rate limit)
         log_rate_limit_info();
         assert_noop!(
-            SubtensorModule::set_childkey_take(RuntimeOrigin::signed(coldkey), hotkey, netuid, 600),
+            SubtensorModule::set_childkey_take(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                netuid,
+                PerU16::from_parts(600)
+            ),
             Error::<Test>::TxChildkeyTakeRateLimitExceeded
         );
         log_rate_limit_info();
@@ -1044,7 +1050,12 @@ fn test_childkey_take_rate_limiting() {
         // Third transaction (should still fail)
         log_rate_limit_info();
         assert_noop!(
-            SubtensorModule::set_childkey_take(RuntimeOrigin::signed(coldkey), hotkey, netuid, 650),
+            SubtensorModule::set_childkey_take(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                netuid,
+                PerU16::from_parts(650)
+            ),
             Error::<Test>::TxChildkeyTakeRateLimitExceeded
         );
         log_rate_limit_info();
@@ -1058,7 +1069,7 @@ fn test_childkey_take_rate_limiting() {
             RuntimeOrigin::signed(coldkey),
             hotkey,
             netuid,
-            700
+            PerU16::from_parts(700)
         ));
         log_rate_limit_info();
 
@@ -1098,7 +1109,7 @@ fn test_multiple_networks_childkey_take() {
                 RuntimeOrigin::signed(coldkey),
                 hotkey,
                 netuid,
-                take_value
+                PerU16::from_parts(take_value)
             ));
 
             // Verify the childkey take was set correctly
@@ -1129,7 +1140,7 @@ fn test_multiple_networks_childkey_take() {
             RuntimeOrigin::signed(coldkey),
             hotkey,
             1.into(),
-            1100,
+            PerU16::from_parts(1100),
         );
         assert_noop!(result, Error::<Test>::TxChildkeyTakeRateLimitExceeded);
 
@@ -1141,7 +1152,7 @@ fn test_multiple_networks_childkey_take() {
             RuntimeOrigin::signed(coldkey),
             hotkey,
             1.into(),
-            1100
+            PerU16::from_parts(1100)
         ));
 
         // Verify the new take value
@@ -2921,20 +2932,20 @@ fn test_childkey_take_drain() {
 
             // Set 20% childkey take
             let max_take: u16 = 0xFFFF / 5;
-            SubtensorModule::set_max_childkey_take(max_take);
+            SubtensorModule::set_max_childkey_take(PerU16::from_parts(max_take));
             assert_ok!(SubtensorModule::set_childkey_take(
                 RuntimeOrigin::signed(child_coldkey),
                 child_hotkey,
                 netuid,
-                max_take
+                PerU16::from_parts(max_take)
             ));
 
             // Set hotkey take for parent
-            SubtensorModule::set_max_delegate_take(*parent_hotkey_take);
-            Delegates::<Test>::insert(parent_hotkey, *parent_hotkey_take);
+            SubtensorModule::set_max_delegate_take(PerU16::from_parts(*parent_hotkey_take));
+            Delegates::<Test>::insert(parent_hotkey, PerU16::from_parts(*parent_hotkey_take));
 
             // Set 0% for childkey-as-a-delegate take
-            Delegates::<Test>::insert(child_hotkey, 0);
+            Delegates::<Test>::insert(child_hotkey, PerU16::zero());
 
             // Setup stakes:
             //   Stake from parent
@@ -3131,8 +3142,8 @@ fn test_parent_child_chain_emission() {
         // Set CHK take rate to 1/9
         let chk_take: I96F32 = I96F32::from_num(1_f64 / 9_f64);
         let chk_take_u16: u16 = (chk_take * I96F32::from_num(u16::MAX)).saturating_to_num::<u16>();
-        ChildkeyTake::<Test>::insert(hotkey_b, netuid, chk_take_u16);
-        ChildkeyTake::<Test>::insert(hotkey_c, netuid, chk_take_u16);
+        ChildkeyTake::<Test>::insert(hotkey_b, netuid, PerU16::from_parts(chk_take_u16));
+        ChildkeyTake::<Test>::insert(hotkey_c, netuid, PerU16::from_parts(chk_take_u16));
 
         // Set the weight of root TAO to be 0%, so only alpha is effective.
         SubtensorModule::set_tao_weight(0);
@@ -3327,8 +3338,8 @@ fn test_parent_child_chain_epoch() {
         // Set CHK take rate to 1/9
         let chk_take = I96F32::from_num(1_f64 / 9_f64);
         let chk_take_u16: u16 = (chk_take * I96F32::from_num(u16::MAX)).saturating_to_num::<u16>();
-        ChildkeyTake::<Test>::insert(hotkey_b, netuid, chk_take_u16);
-        ChildkeyTake::<Test>::insert(hotkey_c, netuid, chk_take_u16);
+        ChildkeyTake::<Test>::insert(hotkey_b, netuid, PerU16::from_parts(chk_take_u16));
+        ChildkeyTake::<Test>::insert(hotkey_c, netuid, PerU16::from_parts(chk_take_u16));
 
         // Set the weight of root TAO to be 0%, so only alpha is effective.
         SubtensorModule::set_tao_weight(0);
@@ -3469,8 +3480,8 @@ fn test_dividend_distribution_with_children() {
         // Set CHK take rate to 1/9
         let chk_take: I96F32 = I96F32::from_num(1_f64 / 9_f64);
         let chk_take_u16: u16 = (chk_take * I96F32::from_num(u16::MAX)).saturating_to_num::<u16>();
-        ChildkeyTake::<Test>::insert(hotkey_b, netuid, chk_take_u16);
-        ChildkeyTake::<Test>::insert(hotkey_c, netuid, chk_take_u16);
+        ChildkeyTake::<Test>::insert(hotkey_b, netuid, PerU16::from_parts(chk_take_u16));
+        ChildkeyTake::<Test>::insert(hotkey_c, netuid, PerU16::from_parts(chk_take_u16));
 
         // Set the weight of root TAO to be 0%, so only alpha is effective.
         SubtensorModule::set_tao_weight(0);
@@ -3985,7 +3996,7 @@ fn test_dividend_distribution_with_children_same_coldkey_owner() {
         // Set CHK take rate to 1/9
         let chk_take: I96F32 = I96F32::from_num(1_f64 / 9_f64);
         let chk_take_u16: u16 = (chk_take * I96F32::from_num(u16::MAX)).saturating_to_num::<u16>();
-        ChildkeyTake::<Test>::insert(hotkey_b, netuid, chk_take_u16);
+        ChildkeyTake::<Test>::insert(hotkey_b, netuid, PerU16::from_parts(chk_take_u16));
 
         // Set the weight of root TAO to be 0%, so only alpha is effective.
         SubtensorModule::set_tao_weight(0);
@@ -4139,7 +4150,10 @@ fn test_do_set_childkey_take_success() {
 
         // Set childkey take
         assert_ok!(SubtensorModule::do_set_childkey_take(
-            coldkey, hotkey, netuid, take
+            coldkey,
+            hotkey,
+            netuid,
+            PerU16::from_parts(take)
         ));
 
         // Verify the take was set correctly
@@ -4168,7 +4182,12 @@ fn test_do_set_childkey_take_non_associated_coldkey() {
 
         // Set childkey take
         assert_noop!(
-            SubtensorModule::do_set_childkey_take(coldkey, hotkey2, netuid, take),
+            SubtensorModule::do_set_childkey_take(
+                coldkey,
+                hotkey2,
+                netuid,
+                PerU16::from_parts(take)
+            ),
             Error::<Test>::NonAssociatedColdKey
         );
     });
@@ -4189,7 +4208,12 @@ fn test_do_set_childkey_take_invalid_take_value() {
 
         // Set childkey take
         assert_noop!(
-            SubtensorModule::do_set_childkey_take(coldkey, hotkey, netuid, take),
+            SubtensorModule::do_set_childkey_take(
+                coldkey,
+                hotkey,
+                netuid,
+                PerU16::from_parts(take)
+            ),
             Error::<Test>::InvalidChildkeyTake
         );
     });
@@ -4214,18 +4238,26 @@ fn test_do_set_childkey_take_rate_limit_exceeded() {
             coldkey,
             hotkey,
             netuid,
-            initial_take
+            PerU16::from_parts(initial_take)
         ));
 
         // Try to increase the take value, should hit rate limit
         assert_noop!(
-            SubtensorModule::do_set_childkey_take(coldkey, hotkey, netuid, higher_take),
+            SubtensorModule::do_set_childkey_take(
+                coldkey,
+                hotkey,
+                netuid,
+                PerU16::from_parts(higher_take)
+            ),
             Error::<Test>::TxChildkeyTakeRateLimitExceeded
         );
 
         // lower take value should be ok
         assert_ok!(SubtensorModule::do_set_childkey_take(
-            coldkey, hotkey, netuid, lower_take
+            coldkey,
+            hotkey,
+            netuid,
+            PerU16::from_parts(lower_take)
         ));
     });
 }

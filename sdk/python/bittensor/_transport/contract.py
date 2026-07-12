@@ -187,9 +187,18 @@ class BlockData:
 
 
 @dataclass
+class CallArgIR:
+    name: str
+    # The parameter's type identity: the last path segment of its registry
+    # type ("TaoBalance", "NetUid", "AccountId32"), or a primitive/structural
+    # name ("u64", "Vec<u16>") when the type has no path.
+    type_ident: str
+
+
+@dataclass
 class CallIR:
     name: str
-    args: list[str]  # parameter names, in call order
+    args: list[CallArgIR]  # parameters, in call order
     docs: str
 
 
@@ -207,12 +216,22 @@ class RuntimeApiIR:
 
 
 @dataclass
+class StorageIR:
+    name: str
+    # The storage VALUE's type identity (for maps: the value after all keys),
+    # same convention as CallArgIR.type_ident: last path segment of the
+    # registry type ("PerU16", "TaoBalance"), or a primitive/structural name
+    # ("u64", "Vec<u16>") when the type has no path.
+    value_type_ident: str
+
+
+@dataclass
 class PalletIR:
     name: str
     index: int
     calls: list[CallIR]
     errors: list[ErrorIR]
-    storage: list[str]  # storage item names
+    storage: list[StorageIR]  # storage entries, in metadata order
     constants: list[str]  # constant names
 
 

@@ -11,7 +11,7 @@ const nextConfig = {
       {
         source: '/documentation/:path*',
         destination: '/docs',
-        permanent: false,
+        permanent: true,
       },
       {
         source: '/scan/:path*',

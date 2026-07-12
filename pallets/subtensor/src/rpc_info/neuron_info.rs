@@ -2,9 +2,10 @@ use super::*;
 use frame_support::pallet_prelude::{Decode, Encode};
 extern crate alloc;
 use codec::Compact;
+use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex};
 
-#[freeze_struct("3879d37d31f5c442")]
+#[freeze_struct("77daa43c02912b80")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct NeuronInfo<AccountId: TypeInfo + Encode + Decode> {
     hotkey: AccountId,
@@ -17,11 +18,11 @@ pub struct NeuronInfo<AccountId: TypeInfo + Encode + Decode> {
     stake: Vec<(AccountId, Compact<AlphaBalance>)>, // map of coldkey to stake on this neuron/hotkey (includes delegations)
     rank: Compact<u16>,
     emission: Compact<AlphaBalance>,
-    incentive: Compact<u16>,
-    consensus: Compact<u16>,
-    trust: Compact<u16>,
-    validator_trust: Compact<u16>,
-    dividends: Compact<u16>,
+    incentive: Compact<PerU16>,
+    consensus: Compact<PerU16>,
+    trust: Compact<PerU16>,
+    validator_trust: Compact<PerU16>,
+    dividends: Compact<PerU16>,
     last_update: Compact<u64>,
     validator_permit: bool,
     weights: Vec<(Compact<u16>, Compact<u16>)>, // Vec of (uid, weight)
@@ -29,7 +30,7 @@ pub struct NeuronInfo<AccountId: TypeInfo + Encode + Decode> {
     pruning_score: Compact<u16>,
 }
 
-#[freeze_struct("4c03ff614b2b938f")]
+#[freeze_struct("1d61b46ca68a1e02")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct NeuronInfoLite<AccountId: TypeInfo + Encode + Decode> {
     hotkey: AccountId,
@@ -42,11 +43,11 @@ pub struct NeuronInfoLite<AccountId: TypeInfo + Encode + Decode> {
     stake: Vec<(AccountId, Compact<AlphaBalance>)>, // map of coldkey to stake on this neuron/hotkey (includes delegations)
     rank: Compact<u16>,
     emission: Compact<AlphaBalance>,
-    incentive: Compact<u16>,
-    consensus: Compact<u16>,
-    trust: Compact<u16>,
-    validator_trust: Compact<u16>,
-    dividends: Compact<u16>,
+    incentive: Compact<PerU16>,
+    consensus: Compact<PerU16>,
+    trust: Compact<PerU16>,
+    validator_trust: Compact<PerU16>,
+    dividends: Compact<PerU16>,
     last_update: Compact<u64>,
     validator_permit: bool,
     // has no weights or bonds
@@ -129,11 +130,11 @@ impl<T: Config> Pallet<T> {
             stake,
             rank: 0.into(), // Deprecated: no longer computed
             emission: emission.into(),
-            incentive: incentive.into(),
-            consensus: consensus.into(),
-            trust: 0.into(), // Deprecated: no longer computed
-            validator_trust: validator_trust.into(),
-            dividends: dividends.into(),
+            incentive: PerU16::from_parts(incentive).into(),
+            consensus: PerU16::from_parts(consensus).into(),
+            trust: PerU16::zero().into(), // Deprecated: no longer computed
+            validator_trust: PerU16::from_parts(validator_trust).into(),
+            dividends: PerU16::from_parts(dividends).into(),
             last_update: last_update.into(),
             validator_permit,
             weights,
@@ -192,11 +193,11 @@ impl<T: Config> Pallet<T> {
             stake,
             rank: 0.into(), // Deprecated: no longer computed
             emission: emission.into(),
-            incentive: incentive.into(),
-            consensus: consensus.into(),
-            trust: 0.into(), // Deprecated: no longer computed
-            validator_trust: validator_trust.into(),
-            dividends: dividends.into(),
+            incentive: PerU16::from_parts(incentive).into(),
+            consensus: PerU16::from_parts(consensus).into(),
+            trust: PerU16::zero().into(), // Deprecated: no longer computed
+            validator_trust: PerU16::from_parts(validator_trust).into(),
+            dividends: PerU16::from_parts(dividends).into(),
             last_update: last_update.into(),
             validator_permit,
             pruning_score: u16::MAX.into(), // Deprecated: no longer computed

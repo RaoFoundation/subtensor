@@ -13,13 +13,13 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `origin` - The origin of the call, which should be a signed extrinsic.
-    /// * `name` - The name to be associated with the identity.
-    /// * `url` - A URL associated with the identity.
-    /// * `image` - An image URL or identifier for the identity.
-    /// * `discord` - Discord information for the identity.
-    /// * `description` - A description of the identity.
-    /// * `additional` - Any additional information for the identity.
+    /// * `origin`: The origin of the call, which should be a signed extrinsic.
+    /// * `name`: The name to be associated with the identity.
+    /// * `url`: A URL associated with the identity.
+    /// * `image`: An image URL or identifier for the identity.
+    /// * `discord`: Discord information for the identity.
+    /// * `description`: A description of the identity.
+    /// * `additional`: Any additional information for the identity.
     ///
     /// # Returns
     ///
@@ -86,11 +86,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `origin` - The origin of the call, which should be a signed extrinsic.
-    /// * `netuid` - The unique identifier for the subnet.
-    /// * `subnet_name` - The name of the subnet to be associated with the identity.
-    /// * `github_repo` - The GitHub repository URL associated with the subnet identity.
-    /// * `subnet_contact` - Contact information for the subnet.
+    /// * `origin`: The origin of the call, which should be a signed extrinsic.
+    /// * `netuid`: The unique identifier for the subnet.
+    /// * `subnet_name`: The name of the subnet to be associated with the identity.
+    /// * `github_repo`: The GitHub repository URL associated with the subnet identity.
+    /// * `subnet_contact`: Contact information for the subnet.
     ///
     /// # Returns
     ///
@@ -156,11 +156,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `identity` - A reference to the ChainIdentityOf struct to be validated.
+    /// * `identity`: A reference to the ChainIdentityOf struct to be validated.
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns true if the Identity is valid, false otherwise.
+    /// * `bool`: Returns true if the Identity is valid, false otherwise.
     pub fn is_valid_identity(identity: &ChainIdentityOfV2) -> bool {
         let total_length = identity
             .name
@@ -197,11 +197,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `identity` - A reference to the SubnetIdentityOfV3 struct to be validated.
+    /// * `identity`: A reference to the SubnetIdentityOfV3 struct to be validated.
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns true if the SubnetIdentityV3 is valid, false otherwise.
+    /// * `bool`: Returns true if the SubnetIdentityV3 is valid, false otherwise.
     pub fn is_valid_subnet_identity(identity: &SubnetIdentityOfV3) -> bool {
         let total_length = identity
             .subnet_name

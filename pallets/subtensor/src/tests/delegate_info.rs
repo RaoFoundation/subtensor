@@ -5,13 +5,16 @@ use codec::Compact;
 use frame_support::assert_ok;
 use scale_info::prelude::collections::HashMap;
 use sp_core::U256;
+use sp_runtime::PerU16;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::NetUid;
 
 #[test]
 fn test_return_per_1000_tao() {
     let take = // 18% take to the Validator
-        Compact::<u16>::from((U64F64::from_num(0.18 * u16::MAX as f64)).to_num::<u16>());
+        Compact::<PerU16>::from(PerU16::from_parts(
+            (U64F64::from_num(0.18 * u16::MAX as f64)).to_num::<u16>(),
+        ));
 
     // 10_000 TAO total validator stake
     let total_stake = U64F64::from_num(10_000.0 * 1e9);

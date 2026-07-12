@@ -24,6 +24,32 @@ mod corpus_tests {
     use crate::runtime::type_string::TypeSpec;
     use crate::runtime::Runtime;
 
+    fn json_u64(v: &serde_json::Value) -> u64 {
+        match v {
+            serde_json::Value::Number(n) => n.to_string().parse().unwrap(),
+            _ => panic!("fixture value {v} is not an unsigned integer"),
+        }
+    }
+
+    fn json_i64(v: &serde_json::Value) -> i64 {
+        match v {
+            serde_json::Value::Number(n) => n.to_string().parse().unwrap(),
+            _ => panic!("fixture value {v} is not a signed integer"),
+        }
+    }
+
+    fn as_u32(value: u64) -> u32 {
+        u32::try_from(value).expect("fixture integer fits u32")
+    }
+
+    fn as_u16(value: u64) -> u16 {
+        u16::try_from(value).expect("fixture integer fits u16")
+    }
+
+    fn as_u8(value: u64) -> u8 {
+        u8::try_from(value).expect("fixture integer fits u8")
+    }
+
     /// JSON fixture data as codec input values (objects become string-keyed
     /// dicts, matching the Python seam's params).
     fn value_from_json(v: &serde_json::Value) -> Value {
@@ -31,10 +57,11 @@ mod corpus_tests {
             serde_json::Value::Null => Value::Null,
             serde_json::Value::Bool(b) => Value::Bool(*b),
             serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
+                let text = n.to_string();
+                if let Ok(i) = text.parse::<i128>() {
                     Value::Int(i128::from(i))
-                } else if let Some(u) = n.as_u64() {
-                    Value::Uint(u128::from(u))
+                } else if let Ok(u) = text.parse::<u128>() {
+                    Value::Uint(u)
                 } else {
                     panic!("fixture number {n} is not an integer")
                 }
@@ -75,9 +102,9 @@ mod corpus_tests {
         let g = golden();
         Runtime::parse(
             &golden_metadata_v15(),
-            g["network"]["spec_version"].as_u64().unwrap() as u32,
-            g["network"]["transaction_version"].as_u64().unwrap() as u32,
-            g["network"]["ss58_format"].as_u64().unwrap() as u16,
+            as_u32(json_u64(&g["network"]["spec_version"])),
+            as_u32(json_u64(&g["network"]["transaction_version"])),
+            as_u16(json_u64(&g["network"]["ss58_format"])),
         )
         .expect("golden metadata parses")
     }
@@ -94,7 +121,7 @@ mod corpus_tests {
         let corpus: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let rt = runtime();
         assert_eq!(
-            corpus["spec_version"].as_u64().unwrap() as u32,
+            as_u32(json_u64(&corpus["spec_version"])),
             rt.spec_version,
             "corpus and golden fixture must be recorded from the same runtime"
         );
@@ -102,7 +129,7 @@ mod corpus_tests {
         let mut failures: Vec<String> = Vec::new();
         let mut checked = 0usize;
         for ty in corpus["types"].as_array().unwrap() {
-            let id = ty["id"].as_u64().unwrap() as u32;
+            let id = as_u32(json_u64(&ty["id"]));
             let name = ty["name"].as_str().unwrap();
             for (i, sample) in ty["samples"].as_array().unwrap().iter().enumerate() {
                 let scale_hex = sample["scale_hex"].as_str().unwrap();
@@ -352,7 +379,7 @@ mod corpus_tests {
                 &call,
                 &crate::codec::extrinsic::TxParams {
                     era: Value::str("00"),
-                    nonce: immortal["nonce"].as_u64().unwrap(),
+                    nonce: json_u64(&immortal["nonce"]),
                     tip: 0,
                     tip_asset_id: None,
                     genesis_hash: genesis,
@@ -374,14 +401,14 @@ mod corpus_tests {
                     era: Value::record(vec![
                         (
                             "period".into(),
-                            Value::Int(i128::from(mortal["era"]["period"].as_i64().unwrap())),
+                            Value::Int(i128::from(json_i64(&mortal["era"]["period"]))),
                         ),
                         (
                             "current".into(),
-                            Value::Int(i128::from(mortal["era"]["current"].as_i64().unwrap())),
+                            Value::Int(i128::from(json_i64(&mortal["era"]["current"]))),
                         ),
                     ]),
-                    nonce: mortal["nonce"].as_u64().unwrap(),
+                    nonce: json_u64(&mortal["nonce"]),
                     tip: 0,
                     tip_asset_id: None,
                     genesis_hash: genesis,
@@ -421,11 +448,11 @@ mod corpus_tests {
                     &call,
                     h256(case["public_key_hex"].as_str().unwrap()),
                     &signature,
-                    case["signature_version"].as_u64().unwrap() as u8,
+                    as_u8(json_u64(&case["signature_version"])),
                     &crate::codec::extrinsic::TxParams {
                         era,
-                        nonce: case["nonce"].as_u64().unwrap(),
-                        tip: case["tip"].as_u64().unwrap().into(),
+                        nonce: json_u64(&case["nonce"]),
+                        tip: json_u64(&case["tip"]).into(),
                         tip_asset_id: None,
                         genesis_hash: [0; 32],
                         era_block_hash: [0; 32],
@@ -464,7 +491,7 @@ mod corpus_tests {
     #[test]
     fn multisig_accounts_match_the_golden_vectors() {
         let g = golden();
-        let ss58_format = g["network"]["ss58_format"].as_u64().unwrap() as u16;
+        let ss58_format = as_u16(json_u64(&g["network"]["ss58_format"]));
         for case in g["multisig"].as_array().unwrap() {
             let signatories: Vec<[u8; 32]> = case["signatories"]
                 .as_array()
@@ -472,7 +499,7 @@ mod corpus_tests {
                 .iter()
                 .map(|s| crate::keys::public_key_from_ss58(s.as_str().unwrap()).unwrap())
                 .collect();
-            let threshold = case["threshold"].as_u64().unwrap() as u16;
+            let threshold = as_u16(json_u64(&case["threshold"]));
             let (account, sorted) =
                 crate::codec::extrinsic::multisig_account_id(&signatories, threshold).unwrap();
             assert_eq!(

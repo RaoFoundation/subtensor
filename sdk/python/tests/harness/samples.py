@@ -1,10 +1,9 @@
 """Sample arguments for every registered intent and read.
 
-The single source of truth the registry table tests (offline, against
-FakeSubstrate) and the e2e intent sweep (against live metadata) iterate
-over. A meta-test asserts every entry in ``bittensor.intents.REGISTRY`` /
-``bittensor.reads.REGISTRY`` has a sample here, so adding an operation
-without wiring it into the test tables fails CI.
+The single source of truth for the offline registry table tests against
+FakeSubstrate. A meta-test asserts every entry in
+``bittensor.intents.REGISTRY`` / ``bittensor.reads.REGISTRY`` has a sample
+here, so adding an operation without wiring it into the test tables fails CI.
 
 Addresses are the standard dev keys, derived (not hardcoded) so they stay
 correct if the ss58 format ever changes.

@@ -5,12 +5,13 @@ use codec::Compact;
 use frame_support::IterableStorageDoubleMap;
 use frame_support::pallet_prelude::{Decode, Encode};
 use pallet_commitments::GetCommitments;
+use sp_runtime::PerU16;
 use substrate_fixed::types::I64F64;
 use substrate_fixed::types::I96F32;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("54520f5534d7e59e")]
+#[freeze_struct("1cf7fcca1e524974")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Subnet index
@@ -95,10 +96,10 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     pruning_score: Vec<Compact<u16>>,           // Pruning per UID
     last_update: Vec<Compact<u64>>,             // Last update per UID
     emission: Vec<Compact<AlphaBalance>>,       // Emission per UID
-    dividends: Vec<Compact<u16>>,               // Dividends per UID
-    incentives: Vec<Compact<u16>>,              // Mining incentives per UID
-    consensus: Vec<Compact<u16>>,               // Consensus per UID
-    trust: Vec<Compact<u16>>,                   // Trust per UID
+    dividends: Vec<Compact<PerU16>>,            // Dividends per UID
+    incentives: Vec<Compact<PerU16>>,           // Mining incentives per UID
+    consensus: Vec<Compact<PerU16>>,            // Consensus per UID
+    trust: Vec<Compact<PerU16>>,                // Trust per UID
     rank: Vec<Compact<u16>>,                    // Rank per UID
     block_at_registration: Vec<Compact<u64>>,   // Reg block per UID
     alpha_stake: Vec<Compact<AlphaBalance>>,    // Alpha staked per UID
@@ -110,7 +111,7 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     alpha_dividends_per_hotkey: Vec<(AccountId, Compact<AlphaBalance>)>, // List of dividend payout in alpha via subnet.
 }
 
-#[freeze_struct("5f9c8beab622882c")]
+#[freeze_struct("666efae6644473f8")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     // Subnet index
@@ -195,10 +196,10 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     pruning_score: Option<Vec<Compact<u16>>>, // Pruning per UID
     last_update: Option<Vec<Compact<u64>>>, // Last update per UID
     emission: Option<Vec<Compact<AlphaBalance>>>, // Emission per UID
-    dividends: Option<Vec<Compact<u16>>>, // Dividends per UID
-    incentives: Option<Vec<Compact<u16>>>, // Mining incentives per UID
-    consensus: Option<Vec<Compact<u16>>>, // Consensus per UID
-    trust: Option<Vec<Compact<u16>>>, // Trust per UID
+    dividends: Option<Vec<Compact<PerU16>>>, // Dividends per UID
+    incentives: Option<Vec<Compact<PerU16>>>, // Mining incentives per UID
+    consensus: Option<Vec<Compact<PerU16>>>, // Consensus per UID
+    trust: Option<Vec<Compact<PerU16>>>, // Trust per UID
     rank: Option<Vec<Compact<u16>>>,  // Rank per UID
     block_at_registration: Option<Vec<Compact<u64>>>, // Reg block per UID
     alpha_stake: Option<Vec<Compact<AlphaBalance>>>, // Alpha staked per UID

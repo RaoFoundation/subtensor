@@ -594,7 +594,8 @@ impl Runtime {
     }
 
     /// The codegen IR: `{specVersion, pallets: [...], runtimeApis: [...]}`
-    /// with call args/docs, indexed errors, storage and constant names.
+    /// with call args/docs, indexed errors, storage entries (name + value
+    /// type identity), and constant names.
     #[wasm_bindgen(js_name = metadataIr)]
     pub fn metadata_ir(&self) -> Result<JsValue, JsValue> {
         let join_docs = |docs: &[String]| -> String {
@@ -619,11 +620,21 @@ impl Runtime {
                     for call in &variant.variants {
                         let call_entry = Object::new();
                         set(&call_entry, "name", &JsValue::from_str(&call.name))?;
-                        let args = string_array(
-                            call.fields
-                                .iter()
-                                .map(|f| f.name.clone().unwrap_or_default()),
-                        );
+                        let args = Array::new();
+                        for field in &call.fields {
+                            let arg = Object::new();
+                            set(
+                                &arg,
+                                "name",
+                                &JsValue::from_str(field.name.as_deref().unwrap_or_default()),
+                            )?;
+                            set(
+                                &arg,
+                                "typeIdent",
+                                &JsValue::from_str(&self.inner.type_ident(field.ty.id)),
+                            )?;
+                            args.push(&arg.into());
+                        }
                         set(&call_entry, "args", &args.into())?;
                         set(
                             &call_entry,
@@ -654,13 +665,17 @@ impl Runtime {
             }
             set(&entry, "errors", &errors.into())?;
             // Skip pseudo-entries like `:__STORAGE_VERSION__:`.
-            let storage = string_array(
-                pallet
-                    .storage
-                    .iter()
-                    .filter(|s| !s.name.contains(':'))
-                    .map(|s| s.name.as_str()),
-            );
+            let storage = Array::new();
+            for item in pallet.storage.iter().filter(|s| !s.name.contains(':')) {
+                let storage_entry = Object::new();
+                set(&storage_entry, "name", &JsValue::from_str(&item.name))?;
+                set(
+                    &storage_entry,
+                    "valueTypeIdent",
+                    &JsValue::from_str(&self.inner.type_ident(item.value_type)),
+                )?;
+                storage.push(&storage_entry.into());
+            }
             set(&entry, "storage", &storage.into())?;
             let constants = string_array(pallet.constants.iter().map(|c| c.name.as_str()));
             set(&entry, "constants", &constants.into())?;

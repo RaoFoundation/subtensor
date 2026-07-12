@@ -10,7 +10,8 @@
       "netuid": "Subnet whose alpha price to read."
     },
     "category": "Prices & swaps",
-    "docs_url": "/docs/query/alpha-price"
+    "docs_url": "/docs/query/alpha-price",
+    "python": "client.prices.alpha_price(...)"
   },
   {
     "name": "alpha_prices",
@@ -19,7 +20,8 @@
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
-    "docs_url": "/docs/query/alpha-prices"
+    "docs_url": "/docs/query/alpha-prices",
+    "python": "client.prices.alpha_prices(...)"
   },
   {
     "name": "associated_evm_key",
@@ -34,7 +36,8 @@
       "uid": "UID of the neuron on that subnet."
     },
     "category": "Neurons & registration",
-    "docs_url": "/docs/query/associated-evm-key"
+    "docs_url": "/docs/query/associated-evm-key",
+    "python": "client.neurons.associated_evm_key(...)"
   },
   {
     "name": "auto_stake",
@@ -49,7 +52,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/auto-stake"
+    "docs_url": "/docs/query/auto-stake",
+    "python": "client.staking.auto_stake(...)"
   },
   {
     "name": "auto_stake_all",
@@ -62,7 +66,8 @@
       "coldkey_ss58": "Coldkey whose auto-stake destinations to list."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/auto-stake-all"
+    "docs_url": "/docs/query/auto-stake-all",
+    "python": "client.staking.auto_stake_all(...)"
   },
   {
     "name": "balance",
@@ -75,7 +80,8 @@
       "coldkey_ss58": "Coldkey whose free balance to read."
     },
     "category": "Accounts & keys",
-    "docs_url": "/docs/query/balance"
+    "docs_url": "/docs/query/balance",
+    "python": "client.balances.balance(...)"
   },
   {
     "name": "balances",
@@ -88,7 +94,8 @@
       "coldkey_ss58s": "Coldkeys whose free balances to read."
     },
     "category": "Accounts & keys",
-    "docs_url": "/docs/query/balances"
+    "docs_url": "/docs/query/balances",
+    "python": "client.balances.balances(...)"
   },
   {
     "name": "block_info",
@@ -101,7 +108,8 @@
       "block": "Block number to describe."
     },
     "category": "Chain",
-    "docs_url": "/docs/query/block-info"
+    "docs_url": "/docs/query/block-info",
+    "python": "client.chain.block_info(...)"
   },
   {
     "name": "block_time",
@@ -110,7 +118,8 @@
     "params": {},
     "param_docs": {},
     "category": "Chain",
-    "docs_url": "/docs/query/block-time"
+    "docs_url": "/docs/query/block-time",
+    "python": "client.chain.block_time(...)"
   },
   {
     "name": "blocks_since_last_step",
@@ -123,7 +132,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Epochs & timing",
-    "docs_url": "/docs/query/blocks-since-last-step"
+    "docs_url": "/docs/query/blocks-since-last-step",
+    "python": "client.epochs.blocks_since_last_step(...)"
   },
   {
     "name": "blocks_since_last_update",
@@ -138,7 +148,8 @@
       "uid": "UID of the neuron on that subnet."
     },
     "category": "Epochs & timing",
-    "docs_url": "/docs/query/blocks-since-last-update"
+    "docs_url": "/docs/query/blocks-since-last-update",
+    "python": "client.epochs.blocks_since_last_update(...)"
   },
   {
     "name": "blocks_until_next_epoch",
@@ -151,7 +162,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Epochs & timing",
-    "docs_url": "/docs/query/blocks-until-next-epoch"
+    "docs_url": "/docs/query/blocks-until-next-epoch",
+    "python": "client.epochs.blocks_until_next_epoch(...)"
   },
   {
     "name": "bonds",
@@ -166,7 +178,8 @@
       "mechid": "Mechanism index within the subnet; 0 (the default) on ordinary subnets."
     },
     "category": "Weights & bonds",
-    "docs_url": "/docs/query/bonds"
+    "docs_url": "/docs/query/bonds",
+    "python": "client.weights.bonds(...)"
   },
   {
     "name": "burn",
@@ -179,7 +192,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/burn"
+    "docs_url": "/docs/query/burn",
+    "python": "client.subnets.burn(...)"
   },
   {
     "name": "children",
@@ -194,7 +208,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/children"
+    "docs_url": "/docs/query/children",
+    "python": "client.delegation.children(...)"
   },
   {
     "name": "coldkey_lock",
@@ -209,7 +224,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Locks & conviction",
-    "docs_url": "/docs/query/coldkey-lock"
+    "docs_url": "/docs/query/coldkey-lock",
+    "python": "client.locks.coldkey_lock(...)"
   },
   {
     "name": "coldkey_swap_announcement",
@@ -222,7 +238,8 @@
       "coldkey_ss58": "Coldkey whose pending swap announcement to check."
     },
     "category": "Accounts & keys",
-    "docs_url": "/docs/query/coldkey-swap-announcement"
+    "docs_url": "/docs/query/coldkey-swap-announcement",
+    "python": "client.balances.coldkey_swap_announcement(...)"
   },
   {
     "name": "commit_reveal_enabled",
@@ -235,7 +252,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/commit-reveal-enabled"
+    "docs_url": "/docs/query/commit-reveal-enabled",
+    "python": "client.subnets.commit_reveal_enabled(...)"
   },
   {
     "name": "commitment",
@@ -250,7 +268,8 @@
       "hotkey_ss58": "Hotkey that published the commitment."
     },
     "category": "Identity & commitments",
-    "docs_url": "/docs/query/commitment"
+    "docs_url": "/docs/query/commitment",
+    "python": "client.identity.commitment(...)"
   },
   {
     "name": "commitments",
@@ -263,7 +282,8 @@
       "netuid": "Subnet whose commitments to list."
     },
     "category": "Identity & commitments",
-    "docs_url": "/docs/query/commitments"
+    "docs_url": "/docs/query/commitments",
+    "python": "client.identity.commitments(...)"
   },
   {
     "name": "crowdloan",
@@ -276,7 +296,8 @@
       "crowdloan_id": "Id of the crowdloan to look up."
     },
     "category": "Leases & crowdloans",
-    "docs_url": "/docs/query/crowdloan"
+    "docs_url": "/docs/query/crowdloan",
+    "python": "client.leasing.crowdloan(...)"
   },
   {
     "name": "crowdloan_contributors",
@@ -289,7 +310,8 @@
       "crowdloan_id": "Id of the crowdloan whose contributors to list."
     },
     "category": "Leases & crowdloans",
-    "docs_url": "/docs/query/crowdloan-contributors"
+    "docs_url": "/docs/query/crowdloan-contributors",
+    "python": "client.leasing.crowdloan_contributors(...)"
   },
   {
     "name": "crowdloans",
@@ -298,7 +320,8 @@
     "params": {},
     "param_docs": {},
     "category": "Leases & crowdloans",
-    "docs_url": "/docs/query/crowdloans"
+    "docs_url": "/docs/query/crowdloans",
+    "python": "client.leasing.crowdloans(...)"
   },
   {
     "name": "delegate",
@@ -311,7 +334,8 @@
       "hotkey_ss58": "Delegate hotkey to look up."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/delegate"
+    "docs_url": "/docs/query/delegate",
+    "python": "client.delegation.delegate(...)"
   },
   {
     "name": "delegate_take",
@@ -324,7 +348,8 @@
       "hotkey_ss58": "Delegate hotkey whose take to read."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/delegate-take"
+    "docs_url": "/docs/query/delegate-take",
+    "python": "client.delegation.delegate_take(...)"
   },
   {
     "name": "delegated",
@@ -337,7 +362,8 @@
       "coldkey_ss58": "Coldkey whose nominations to list."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/delegated"
+    "docs_url": "/docs/query/delegated",
+    "python": "client.delegation.delegated(...)"
   },
   {
     "name": "delegates",
@@ -346,7 +372,8 @@
     "params": {},
     "param_docs": {},
     "category": "Delegation",
-    "docs_url": "/docs/query/delegates"
+    "docs_url": "/docs/query/delegates",
+    "python": "client.delegation.delegates(...)"
   },
   {
     "name": "difficulty",
@@ -359,7 +386,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Hyperparameters",
-    "docs_url": "/docs/query/difficulty"
+    "docs_url": "/docs/query/difficulty",
+    "python": "client.hyperparameters.difficulty(...)"
   },
   {
     "name": "epoch_status",
@@ -372,7 +400,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Epochs & timing",
-    "docs_url": "/docs/query/epoch-status"
+    "docs_url": "/docs/query/epoch-status",
+    "python": "client.epochs.epoch_status(...)"
   },
   {
     "name": "existential_deposit",
@@ -381,7 +410,8 @@
     "params": {},
     "param_docs": {},
     "category": "Accounts & keys",
-    "docs_url": "/docs/query/existential-deposit"
+    "docs_url": "/docs/query/existential-deposit",
+    "python": "client.balances.existential_deposit(...)"
   },
   {
     "name": "hotkey_conviction",
@@ -396,7 +426,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Locks & conviction",
-    "docs_url": "/docs/query/hotkey-conviction"
+    "docs_url": "/docs/query/hotkey-conviction",
+    "python": "client.locks.hotkey_conviction(...)"
   },
   {
     "name": "hotkey_identities",
@@ -409,7 +440,8 @@
       "hotkey_ss58s": "Hotkeys to resolve identities for."
     },
     "category": "Identity & commitments",
-    "docs_url": "/docs/query/hotkey-identities"
+    "docs_url": "/docs/query/hotkey-identities",
+    "python": "client.identity.hotkey_identities(...)"
   },
   {
     "name": "hotkey_owner",
@@ -422,7 +454,8 @@
       "hotkey_ss58": "Hotkey whose owning coldkey to look up."
     },
     "category": "Neurons & registration",
-    "docs_url": "/docs/query/hotkey-owner"
+    "docs_url": "/docs/query/hotkey-owner",
+    "python": "client.neurons.hotkey_owner(...)"
   },
   {
     "name": "identity",
@@ -435,7 +468,8 @@
       "coldkey_ss58": "Coldkey whose identity to read."
     },
     "category": "Identity & commitments",
-    "docs_url": "/docs/query/identity"
+    "docs_url": "/docs/query/identity",
+    "python": "client.identity.identity(...)"
   },
   {
     "name": "immunity_period",
@@ -448,7 +482,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Hyperparameters",
-    "docs_url": "/docs/query/immunity-period"
+    "docs_url": "/docs/query/immunity-period",
+    "python": "client.hyperparameters.immunity_period(...)"
   },
   {
     "name": "is_delegate",
@@ -461,7 +496,8 @@
       "hotkey_ss58": "Hotkey to check for delegate status."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/is-delegate"
+    "docs_url": "/docs/query/is-delegate",
+    "python": "client.delegation.is_delegate(...)"
   },
   {
     "name": "is_fast_blocks",
@@ -470,7 +506,8 @@
     "params": {},
     "param_docs": {},
     "category": "Chain",
-    "docs_url": "/docs/query/is-fast-blocks"
+    "docs_url": "/docs/query/is-fast-blocks",
+    "python": "client.chain.is_fast_blocks(...)"
   },
   {
     "name": "lease",
@@ -483,7 +520,8 @@
       "lease_id": "Id of the subnet lease to look up."
     },
     "category": "Leases & crowdloans",
-    "docs_url": "/docs/query/lease"
+    "docs_url": "/docs/query/lease",
+    "python": "client.leasing.lease(...)"
   },
   {
     "name": "leases",
@@ -492,7 +530,8 @@
     "params": {},
     "param_docs": {},
     "category": "Leases & crowdloans",
-    "docs_url": "/docs/query/leases"
+    "docs_url": "/docs/query/leases",
+    "python": "client.leasing.leases(...)"
   },
   {
     "name": "locks_for_coldkey",
@@ -505,7 +544,8 @@
       "coldkey_ss58": "Coldkey whose locks to list."
     },
     "category": "Locks & conviction",
-    "docs_url": "/docs/query/locks-for-coldkey"
+    "docs_url": "/docs/query/locks-for-coldkey",
+    "python": "client.locks.locks_for_coldkey(...)"
   },
   {
     "name": "max_weight_limit",
@@ -518,7 +558,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Hyperparameters",
-    "docs_url": "/docs/query/max-weight-limit"
+    "docs_url": "/docs/query/max-weight-limit",
+    "python": "client.hyperparameters.max_weight_limit(...)"
   },
   {
     "name": "mechanism_count",
@@ -531,7 +572,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/mechanism-count"
+    "docs_url": "/docs/query/mechanism-count",
+    "python": "client.subnets.mechanism_count(...)"
   },
   {
     "name": "mechanism_emission_split",
@@ -544,7 +586,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/mechanism-emission-split"
+    "docs_url": "/docs/query/mechanism-emission-split",
+    "python": "client.subnets.mechanism_emission_split(...)"
   },
   {
     "name": "metagraph",
@@ -566,7 +609,8 @@
     "params": {},
     "param_docs": {},
     "category": "Chain",
-    "docs_url": "/docs/query/mev-shield-next-key"
+    "docs_url": "/docs/query/mev-shield-next-key",
+    "python": "client.chain.mev_shield_next_key(...)"
   },
   {
     "name": "min_allowed_weights",
@@ -579,7 +623,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Hyperparameters",
-    "docs_url": "/docs/query/min-allowed-weights"
+    "docs_url": "/docs/query/min-allowed-weights",
+    "python": "client.hyperparameters.min_allowed_weights(...)"
   },
   {
     "name": "most_convicted_hotkey",
@@ -592,7 +637,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Locks & conviction",
-    "docs_url": "/docs/query/most-convicted-hotkey"
+    "docs_url": "/docs/query/most-convicted-hotkey",
+    "python": "client.locks.most_convicted_hotkey(...)"
   },
   {
     "name": "multisig",
@@ -607,7 +653,8 @@
       "call_hash": "Hash of the multisig call, as 0x-prefixed or bare hex."
     },
     "category": "Accounts & keys",
-    "docs_url": "/docs/query/multisig"
+    "docs_url": "/docs/query/multisig",
+    "python": "client.balances.multisig(...)"
   },
   {
     "name": "netuids_for_hotkey",
@@ -620,7 +667,8 @@
       "hotkey_ss58": "Hotkey whose subnet registrations to list."
     },
     "category": "Neurons & registration",
-    "docs_url": "/docs/query/netuids-for-hotkey"
+    "docs_url": "/docs/query/netuids-for-hotkey",
+    "python": "client.neurons.netuids_for_hotkey(...)"
   },
   {
     "name": "neurons",
@@ -635,7 +683,8 @@
       "lite": "Omit per-neuron weights/bonds (much smaller; what most callers want)."
     },
     "category": "Neurons & registration",
-    "docs_url": "/docs/query/neurons"
+    "docs_url": "/docs/query/neurons",
+    "python": "client.neurons.neurons(...)"
   },
   {
     "name": "next_epoch_start_block",
@@ -648,7 +697,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Epochs & timing",
-    "docs_url": "/docs/query/next-epoch-start-block"
+    "docs_url": "/docs/query/next-epoch-start-block",
+    "python": "client.epochs.next_epoch_start_block(...)"
   },
   {
     "name": "owned_hotkeys",
@@ -661,7 +711,8 @@
       "coldkey_ss58": "Coldkey whose hotkeys to list."
     },
     "category": "Neurons & registration",
-    "docs_url": "/docs/query/owned-hotkeys"
+    "docs_url": "/docs/query/owned-hotkeys",
+    "python": "client.neurons.owned_hotkeys(...)"
   },
   {
     "name": "parents",
@@ -676,7 +727,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/parents"
+    "docs_url": "/docs/query/parents",
+    "python": "client.delegation.parents(...)"
   },
   {
     "name": "pending_children",
@@ -691,7 +743,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Delegation",
-    "docs_url": "/docs/query/pending-children"
+    "docs_url": "/docs/query/pending-children",
+    "python": "client.delegation.pending_children(...)"
   },
   {
     "name": "proxies",
@@ -704,7 +757,8 @@
       "coldkey_ss58": "Account whose proxy delegations to list."
     },
     "category": "Accounts & keys",
-    "docs_url": "/docs/query/proxies"
+    "docs_url": "/docs/query/proxies",
+    "python": "client.balances.proxies(...)"
   },
   {
     "name": "quote_stake",
@@ -719,7 +773,8 @@
       "amount_tao": "TAO amount to simulate staking."
     },
     "category": "Prices & swaps",
-    "docs_url": "/docs/query/quote-stake"
+    "docs_url": "/docs/query/quote-stake",
+    "python": "client.prices.quote_stake(...)"
   },
   {
     "name": "quote_unstake",
@@ -734,7 +789,8 @@
       "amount_alpha": "Alpha amount to simulate unstaking."
     },
     "category": "Prices & swaps",
-    "docs_url": "/docs/query/quote-unstake"
+    "docs_url": "/docs/query/quote-unstake",
+    "python": "client.prices.quote_unstake(...)"
   },
   {
     "name": "reveal_period",
@@ -747,7 +803,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Hyperparameters",
-    "docs_url": "/docs/query/reveal-period"
+    "docs_url": "/docs/query/reveal-period",
+    "python": "client.hyperparameters.reveal_period(...)"
   },
   {
     "name": "revealed_commitment",
@@ -762,7 +819,8 @@
       "hotkey_ss58": "Hotkey that published the commitment."
     },
     "category": "Identity & commitments",
-    "docs_url": "/docs/query/revealed-commitment"
+    "docs_url": "/docs/query/revealed-commitment",
+    "python": "client.identity.revealed_commitment(...)"
   },
   {
     "name": "root_claim_type",
@@ -775,7 +833,8 @@
       "coldkey_ss58": "Coldkey whose root-claim setting to read."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/root-claim-type"
+    "docs_url": "/docs/query/root-claim-type",
+    "python": "client.staking.root_claim_type(...)"
   },
   {
     "name": "stake",
@@ -792,7 +851,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/stake"
+    "docs_url": "/docs/query/stake",
+    "python": "client.staking.stake(...)"
   },
   {
     "name": "stake_for_coldkey",
@@ -805,7 +865,8 @@
       "coldkey_ss58": "Coldkey whose stake positions to list."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/stake-for-coldkey"
+    "docs_url": "/docs/query/stake-for-coldkey",
+    "python": "client.staking.stake_for_coldkey(...)"
   },
   {
     "name": "stake_for_coldkeys",
@@ -818,7 +879,8 @@
       "coldkey_ss58s": "Coldkeys whose stake positions to list."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/stake-for-coldkeys"
+    "docs_url": "/docs/query/stake-for-coldkeys",
+    "python": "client.staking.stake_for_coldkeys(...)"
   },
   {
     "name": "stake_value_for_coldkey",
@@ -831,7 +893,8 @@
       "coldkey_ss58": "Coldkey whose stake to value."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/stake-value-for-coldkey"
+    "docs_url": "/docs/query/stake-value-for-coldkey",
+    "python": "client.staking.stake_value_for_coldkey(...)"
   },
   {
     "name": "stake_value_for_coldkeys",
@@ -844,7 +907,8 @@
       "coldkey_ss58s": "Coldkeys whose stake to value."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/stake-value-for-coldkeys"
+    "docs_url": "/docs/query/stake-value-for-coldkeys",
+    "python": "client.staking.stake_value_for_coldkeys(...)"
   },
   {
     "name": "staking_hotkeys",
@@ -857,7 +921,8 @@
       "coldkey_ss58": "Coldkey whose staked-to hotkeys to list."
     },
     "category": "Staking",
-    "docs_url": "/docs/query/staking-hotkeys"
+    "docs_url": "/docs/query/staking-hotkeys",
+    "python": "client.staking.staking_hotkeys(...)"
   },
   {
     "name": "subnet",
@@ -870,7 +935,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/subnet"
+    "docs_url": "/docs/query/subnet",
+    "python": "client.subnets.subnet(...)"
   },
   {
     "name": "subnet_convictions",
@@ -883,7 +949,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Locks & conviction",
-    "docs_url": "/docs/query/subnet-convictions"
+    "docs_url": "/docs/query/subnet-convictions",
+    "python": "client.locks.subnet_convictions(...)"
   },
   {
     "name": "subnet_hyperparameters",
@@ -896,7 +963,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/subnet-hyperparameters"
+    "docs_url": "/docs/query/subnet-hyperparameters",
+    "python": "client.subnets.subnet_hyperparameters(...)"
   },
   {
     "name": "subnet_identity",
@@ -909,7 +977,8 @@
       "netuid": "Subnet whose identity to read."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/subnet-identity"
+    "docs_url": "/docs/query/subnet-identity",
+    "python": "client.subnets.subnet_identity(...)"
   },
   {
     "name": "subnet_names",
@@ -918,7 +987,8 @@
     "params": {},
     "param_docs": {},
     "category": "Subnets",
-    "docs_url": "/docs/query/subnet-names"
+    "docs_url": "/docs/query/subnet-names",
+    "python": "client.subnets.subnet_names(...)"
   },
   {
     "name": "subnet_registration_cost",
@@ -927,7 +997,8 @@
     "params": {},
     "param_docs": {},
     "category": "Subnets",
-    "docs_url": "/docs/query/subnet-registration-cost"
+    "docs_url": "/docs/query/subnet-registration-cost",
+    "python": "client.subnets.subnet_registration_cost(...)"
   },
   {
     "name": "subnet_start_schedule",
@@ -940,7 +1011,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Subnets",
-    "docs_url": "/docs/query/subnet-start-schedule"
+    "docs_url": "/docs/query/subnet-start-schedule",
+    "python": "client.subnets.subnet_start_schedule(...)"
   },
   {
     "name": "subnets",
@@ -949,7 +1021,8 @@
     "params": {},
     "param_docs": {},
     "category": "Subnets",
-    "docs_url": "/docs/query/subnets"
+    "docs_url": "/docs/query/subnets",
+    "python": "client.subnets.subnets(...)"
   },
   {
     "name": "timelocked_weight_commits",
@@ -964,7 +1037,8 @@
       "mechid": "Mechanism index within the subnet; 0 (the default) on ordinary subnets."
     },
     "category": "Weights & bonds",
-    "docs_url": "/docs/query/timelocked-weight-commits"
+    "docs_url": "/docs/query/timelocked-weight-commits",
+    "python": "client.weights.timelocked_weight_commits(...)"
   },
   {
     "name": "timestamp",
@@ -973,7 +1047,8 @@
     "params": {},
     "param_docs": {},
     "category": "Chain",
-    "docs_url": "/docs/query/timestamp"
+    "docs_url": "/docs/query/timestamp",
+    "python": "client.chain.timestamp(...)"
   },
   {
     "name": "token_symbols",
@@ -982,7 +1057,8 @@
     "params": {},
     "param_docs": {},
     "category": "Subnets",
-    "docs_url": "/docs/query/token-symbols"
+    "docs_url": "/docs/query/token-symbols",
+    "python": "client.subnets.token_symbols(...)"
   },
   {
     "name": "tx_rate_limit",
@@ -991,7 +1067,8 @@
     "params": {},
     "param_docs": {},
     "category": "Chain",
-    "docs_url": "/docs/query/tx-rate-limit"
+    "docs_url": "/docs/query/tx-rate-limit",
+    "python": "client.chain.tx_rate_limit(...)"
   },
   {
     "name": "uid",
@@ -1006,7 +1083,8 @@
       "netuid": "Subnet to query."
     },
     "category": "Neurons & registration",
-    "docs_url": "/docs/query/uid"
+    "docs_url": "/docs/query/uid",
+    "python": "client.neurons.uid(...)"
   },
   {
     "name": "weights",
@@ -1021,7 +1099,8 @@
       "mechid": "Mechanism index within the subnet; 0 (the default) on ordinary subnets."
     },
     "category": "Weights & bonds",
-    "docs_url": "/docs/query/weights"
+    "docs_url": "/docs/query/weights",
+    "python": "client.weights.weights(...)"
   },
   {
     "name": "weights_rate_limit",
@@ -1034,6 +1113,7 @@
       "netuid": "Subnet to query."
     },
     "category": "Hyperparameters",
-    "docs_url": "/docs/query/weights-rate-limit"
+    "docs_url": "/docs/query/weights-rate-limit",
+    "python": "client.hyperparameters.weights_rate_limit(...)"
   }
 ]

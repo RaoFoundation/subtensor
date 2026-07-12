@@ -130,7 +130,8 @@ just sync    # uv environment; builds bittensor-core from ../bittensor-core-py (
 just check   # lint, typecheck, unit tests, codegen gates (same as CI)
 ```
 
-End-to-end tests against a running localnet: `just e2e`. See
+Chain-facing SDK coverage lives in the Rust core e2e suite:
+`cargo test -p bittensor-core --test e2e -- --nocapture`. See
 [SDK tests](https://bittensor.com/docs/internals/sdk-tests).
 
 ## Chain architecture (high level)

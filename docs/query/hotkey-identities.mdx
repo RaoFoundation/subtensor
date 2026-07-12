@@ -23,9 +23,17 @@ btcli query hotkey-identities --hotkey-ss58s <array> --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("hotkey_identities", hotkey_ss58s=[...])
+    result = await client.identity.hotkey_identities(hotkey_ss58s=[...])
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("hotkey_identities", hotkey_ss58s=[...])
 ```

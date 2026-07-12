@@ -63,7 +63,7 @@ async def main():
     async with sub.Client("finney") as client:
         bal = await client.balances.get("5F...coldkey")
         subnets = await client.subnets.all()
-        mg = await client.read("metagraph", netuid=1)
+        mg = await client.subnets.metagraph(netuid=1)
 
 asyncio.run(main())
 ```

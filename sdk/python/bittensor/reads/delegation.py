@@ -9,8 +9,23 @@ from typing import Optional
 from .._generated import runtime_apis as api
 from .._generated import storage as st
 from ..balance import Balance
-from ..settings import U16_MAX
+from ..hyperparams import ratio_fraction
 from .base import read
+
+
+def _take_fraction(raw: int, item: Optional[st.Item] = None) -> float:
+    """A take value as a 0..1 fraction, keyed on type identity.
+
+    When the storage descriptor's metadata carries a ratio identity
+    (post-newtype runtimes: PerU16), that identity decides the denominator;
+    otherwise fall back to the pre-newtype reading — a bare u16 over 65535,
+    which encodes identically.
+    """
+    if item is not None:
+        fraction = ratio_fraction(getattr(item, "value_type_ident", None), raw)
+        if fraction is not None:
+            return fraction
+    return ratio_fraction("PerU16", raw) or 0.0
 
 
 @dataclass
@@ -40,7 +55,7 @@ def _delegate_info(d: dict) -> DelegateInfo:
     return DelegateInfo(
         hotkey=str(d["delegate_ss58"]),
         owner=str(d["owner_ss58"]),
-        take=int(d["take"]) / U16_MAX,
+        take=_take_fraction(int(d["take"])),
         nominators=len(d.get("nominators") or []),
         registrations=[int(n) for n in d.get("registrations") or []],
         validator_permits=[int(n) for n in d.get("validator_permits") or []],
@@ -99,10 +114,10 @@ async def delegate_take(view, hotkey_ss58: str) -> dict:
     )
     return {
         "hotkey": hotkey_ss58,
-        "take": int(raw or 0) / U16_MAX,
+        "take": _take_fraction(int(raw or 0), st.SubtensorModule.Delegates),
         "take_u16": int(raw or 0),
-        "min": int(lo or 0) / U16_MAX,
-        "max": int(hi or 0) / U16_MAX,
+        "min": _take_fraction(int(lo or 0), st.SubtensorModule.MinDelegateTake),
+        "max": _take_fraction(int(hi or 0), st.SubtensorModule.MaxDelegateTake),
     }
 
 

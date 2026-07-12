@@ -4,9 +4,9 @@ description: The SDK test layers, the fake-substrate harness, and how to regener
 ---
 
 The Python SDK lives in `sdk/python/` and is tested on every PR by the
-[Clone Upgrade Check](/docs/internals/mainnet-clone): offline gates first, then
-the e2e suite against a sudo-upgraded mainnet clone. A runtime change can fail
-your PR through these gates even if you never touched Python — this page
+[Runtime Checks](/docs/internals/testing): offline gates first, then a metadata
+drift gate against a sudo-upgraded mainnet clone. A runtime change can fail
+your PR through these gates even if you never touched Python - this page
 explains how to run them and what to regenerate when metadata changes.
 
 Everything runs through [uv](https://docs.astral.sh/uv/) against the locked
@@ -35,12 +35,9 @@ uv sync --reinstall-package bittensor-core   # or: maturin develop --release -m 
 |-------|----------------|---------|
 | Unit tests (`tests/unit/`) | No | `just test` (or `uv run pytest`) |
 | Codegen static gates | No | `just codegen-static` |
-| E2E tests (`tests/e2e/`) | Yes — localnet or clone | `just e2e [endpoint]` |
 | Codegen drift gate | Yes | `just drift [endpoint]` |
 
-Tests marked `e2e` are **deselected by default** (`addopts = "-m 'not e2e'"`
-in `pyproject.toml`), so a bare `pytest` run is always offline-safe. Run a
-single test the usual pytest way:
+The Python test tree is offline-only. Run a single test the usual pytest way:
 
 ```bash
 uv run pytest tests/unit/test_codec_golden.py -k storage_keys -x
@@ -73,19 +70,17 @@ Two mechanisms make the offline suite possible:
   Re-record with `scripts/record_shape_corpus.py` only when the contract
   itself is meant to change.
 
-## E2E tests
+## Chain-facing SDK coverage
 
-`tests/e2e/` exercises real chain behavior (staking, governance, multisig,
-proxies, subnet lifecycle). The conftest picks its chain in order:
+The old Python localnet e2e tests were migrated to Rust and live in
+`sdk/bittensor-core/tests/e2e.rs`. To run them against an existing node:
 
-1. `E2E_ENDPOINT` set → attach to that node. This is the dev inner loop: run a
-   [localnet](/docs/guides/local-development) yourself and iterate without
-   docker churn. `just e2e` defaults to `ws://127.0.0.1:9944`.
-2. Otherwise → start a disposable docker localnet (override the image with
-   `LOCALNET_IMAGE`).
+```bash
+E2E_ENDPOINT=ws://127.0.0.1:9944 cargo test -p bittensor-core --test e2e -- --nocapture
+```
 
-CI runs the same suite with `E2E_ENDPOINT` pointed at the upgraded mainnet
-clone.
+Without `E2E_ENDPOINT`, the Rust harness starts a disposable localnet Docker
+container from `LOCALNET_IMAGE`.
 
 ## After a runtime change: what to regenerate
 

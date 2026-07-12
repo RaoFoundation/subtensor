@@ -11,7 +11,7 @@ use super::mock::*;
 use crate::*;
 use share_pool::SafeFloat;
 use sp_core::{Get, H160, H256, U256};
-use sp_runtime::SaturatedConversion;
+use sp_runtime::{PerU16, SaturatedConversion};
 use std::collections::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64};
 
@@ -140,7 +140,7 @@ fn test_swap_delegates() {
         let netuid = add_dynamic_network(&old_hotkey, &coldkey);
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
-        Delegates::<Test>::insert(old_hotkey, 100);
+        Delegates::<Test>::insert(old_hotkey, PerU16::from_parts(100));
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_ok!(SubtensorModule::do_swap_hotkey(
             RuntimeOrigin::signed(coldkey),

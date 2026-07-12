@@ -7,6 +7,7 @@ use crate::*;
 use frame_support::{assert_err, assert_ok, weights::Weight};
 use frame_system::Config;
 use sp_core::U256;
+use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{MechId, NetUidStorageIndex, TaoBalance};
@@ -393,12 +394,12 @@ fn dissolve_clears_all_per_subnet_storages() {
         // Consensus vectors
         Active::<Test>::insert(net, vec![true]);
         Emission::<Test>::insert(net, vec![AlphaBalance::from(1)]);
-        Incentive::<Test>::insert(NetUidStorageIndex::from(net), vec![1u16]);
-        Consensus::<Test>::insert(net, vec![1u16]);
-        Dividends::<Test>::insert(net, vec![1u16]);
+        Incentive::<Test>::insert(NetUidStorageIndex::from(net), vec![PerU16::from_parts(1)]);
+        Consensus::<Test>::insert(net, vec![PerU16::from_parts(1)]);
+        Dividends::<Test>::insert(net, vec![PerU16::from_parts(1)]);
         LastUpdate::<Test>::insert(NetUidStorageIndex::from(net), vec![0u64]);
         ValidatorPermit::<Test>::insert(net, vec![true]);
-        ValidatorTrust::<Test>::insert(net, vec![1u16]);
+        ValidatorTrust::<Test>::insert(net, vec![PerU16::from_parts(1)]);
 
         // Per‑net params
         Tempo::<Test>::insert(net, 1u16);
@@ -506,7 +507,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         AlphaDividendsPerSubnet::<Test>::insert(net, owner_hot, AlphaBalance::from(1));
 
         // Parent/child topology + takes
-        ChildkeyTake::<Test>::insert(owner_hot, net, 1u16);
+        ChildkeyTake::<Test>::insert(owner_hot, net, PerU16::from_parts(1));
         PendingChildKeys::<Test>::insert(net, owner_cold, (vec![(1u64, owner_hot)], 1u64));
         ChildKeys::<Test>::insert(owner_cold, net, vec![(1u64, owner_hot)]);
         ParentKeys::<Test>::insert(owner_hot, net, vec![(1u64, owner_cold)]);
@@ -2600,8 +2601,8 @@ fn dissolve_clears_all_mechanism_scoped_maps_for_all_mechanisms() {
         );
 
         // --- Incentive (MAP: netuid_index -> Vec<u16>)
-        Incentive::<Test>::insert(idx0, vec![1u16, 2u16]);
-        Incentive::<Test>::insert(idx1, vec![3u16, 4u16]);
+        Incentive::<Test>::insert(idx0, vec![PerU16::from_parts(1), PerU16::from_parts(2)]);
+        Incentive::<Test>::insert(idx1, vec![PerU16::from_parts(3), PerU16::from_parts(4)]);
 
         // --- LastUpdate (MAP: netuid_index -> Vec<u64>)
         LastUpdate::<Test>::insert(idx0, vec![42u64]);

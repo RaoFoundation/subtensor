@@ -1,7 +1,17 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
+import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import {Signatures} from '../../components/Signatures/Signatures';
 import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'The Bittensor Delegates Charter',
+  description:
+    'The principles and commitments signed by the Rao Foundation and other entities that ' +
+    'believe in Bittensor’s vision of decentralized AI.',
+  alternates: {canonical: '/charter'},
+  openGraph: {images: '/images/og_thumbs/charter.png'},
+};
 
 const page = () => {
   return (

@@ -14,6 +14,7 @@ use alloc::collections::BTreeMap;
 use approx::assert_abs_diff_eq;
 use frame_support::assert_ok;
 use sp_core::U256;
+use sp_runtime::PerU16;
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
 use subtensor_swap_interface::SwapHandler;
@@ -44,7 +45,7 @@ fn set_full_injection_root_stake() {
 fn test_hotkey_take() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
-        Delegates::<Test>::insert(hotkey, u16::MAX / 2);
+        Delegates::<Test>::insert(hotkey, PerU16::from_parts(u16::MAX / 2));
         log::info!(
             "expected: {:?}",
             SubtensorModule::get_hotkey_take_float(&hotkey)
@@ -978,7 +979,7 @@ fn test_drain_base_with_subnet_with_single_staker_registered_root_weight() {
         let stake_before = AlphaBalance::from(1_000_000_000);
         // register_ok_neuron(root, hotkey, coldkey, 0);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
-        Delegates::<Test>::insert(hotkey, 0);
+        Delegates::<Test>::insert(hotkey, PerU16::zero());
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -1079,8 +1080,8 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root() {
         let stake_before = AlphaBalance::from(1_000_000_000);
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
-        Delegates::<Test>::insert(hotkey1, 0);
-        Delegates::<Test>::insert(hotkey2, 0);
+        Delegates::<Test>::insert(hotkey1, PerU16::zero());
+        Delegates::<Test>::insert(hotkey2, PerU16::zero());
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey1,
@@ -1153,8 +1154,8 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         let hotkey2 = U256::from(2);
         let coldkey = U256::from(3);
         let stake_before = AlphaBalance::from(1_000_000_000);
-        Delegates::<Test>::insert(hotkey1, 0);
-        Delegates::<Test>::insert(hotkey2, 0);
+        Delegates::<Test>::insert(hotkey1, PerU16::zero());
+        Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
@@ -1234,8 +1235,8 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         let hotkey2 = U256::from(2);
         let coldkey = U256::from(3);
         let stake_before = AlphaBalance::from(1_000_000_000);
-        Delegates::<Test>::insert(hotkey1, 0);
-        Delegates::<Test>::insert(hotkey2, 0);
+        Delegates::<Test>::insert(hotkey1, PerU16::zero());
+        Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
         SubtensorModule::set_tao_weight(u64::MAX / 2); // Set TAO weight to 0.5
@@ -1325,7 +1326,7 @@ fn test_drain_alpha_childkey_parentkey() {
         mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
 
         // Childkey take is 10%
-        ChildkeyTake::<Test>::insert(child, netuid, u16::MAX / 10);
+        ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(u16::MAX / 10));
 
         let pending_alpha = AlphaBalance::from(1_000_000_000);
         SubtensorModule::distribute_emission(
@@ -1538,9 +1539,9 @@ fn test_get_root_children_drain() {
         // Set Bob as 100% child of Alice on root.
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
         // Set Bob childkey take to zero.
-        ChildkeyTake::<Test>::insert(bob, alpha, 0);
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::zero());
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Get Alice stake amounts on subnet alpha.
         let (alice_total, alice_alpha, alice_tao): (I64F64, I64F64, I64F64) =
@@ -1597,7 +1598,7 @@ fn test_get_root_children_drain() {
         );
 
         // Lets change the take value. (Bob is greedy.)
-        ChildkeyTake::<Test>::insert(bob, alpha, u16::MAX);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX));
 
         // Lets drain
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1685,9 +1686,9 @@ fn test_get_root_children_drain_half_proportion() {
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX / 2, bob)]);
 
         // Set Bob childkey take to zero.
-        ChildkeyTake::<Test>::insert(bob, alpha, 0);
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::zero());
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1770,11 +1771,11 @@ fn test_get_root_children_drain_with_take() {
             bob_alpha_stake,
         );
         // Set Bob as 100% child of Alice on root.
-        ChildkeyTake::<Test>::insert(bob, alpha, u16::MAX);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX));
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
         // Set Bob validator take to zero.
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1858,11 +1859,11 @@ fn test_get_root_children_drain_with_half_take() {
             bob_alpha_stake,
         );
         // Set Bob as 100% child of Alice on root.
-        ChildkeyTake::<Test>::insert(bob, alpha, u16::MAX / 2);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX / 2));
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
         // Set Bob childkey take to zero.
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -2682,10 +2683,17 @@ fn test_distribute_emission_zero_emission() {
         assert!(
             Incentive::<Test>::get(NetUidStorageIndex::from(netuid))
                 .iter()
+                .map(|p| p.deconstruct())
                 .sum::<u16>()
                 > 0
         );
-        assert!(Dividends::<Test>::get(netuid).iter().sum::<u16>() > 0);
+        assert!(
+            Dividends::<Test>::get(netuid)
+                .iter()
+                .map(|p| p.deconstruct())
+                .sum::<u16>()
+                > 0
+        );
     });
 }
 
@@ -2777,10 +2785,17 @@ fn test_run_coinbase_not_started() {
         assert!(
             Incentive::<Test>::get(NetUidStorageIndex::from(netuid))
                 .iter()
+                .map(|p| p.deconstruct())
                 .sum::<u16>()
                 > 0
         );
-        assert!(Dividends::<Test>::get(netuid).iter().sum::<u16>() > 0);
+        assert!(
+            Dividends::<Test>::get(netuid)
+                .iter()
+                .map(|p| p.deconstruct())
+                .sum::<u16>()
+                > 0
+        );
     });
 }
 
@@ -2914,7 +2929,7 @@ fn test_drain_alpha_childkey_parentkey_with_burn() {
         mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
 
         // Childkey take is 10%
-        ChildkeyTake::<Test>::insert(child, netuid, u16::MAX / 10);
+        ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(u16::MAX / 10));
 
         let burn_rate = SubtensorModule::get_ck_burn();
         let parent_stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&parent, netuid);
@@ -3253,7 +3268,7 @@ fn test_mining_emission_distribution_with_no_root_sell() {
 
             assert!(miner_incentive.is_some());
 
-            (miner_incentive.unwrap_or_default() as u64).into()
+            (miner_incentive.unwrap_or_default().deconstruct() as u64).into()
         };
         log::info!("Miner incentive: {miner_incentive:?}");
 
@@ -3269,6 +3284,7 @@ fn test_mining_emission_distribution_with_no_root_sell() {
         assert_abs_diff_eq!(
             Incentive::<Test>::get(NetUidStorageIndex::from(netuid))
                 .iter()
+                .map(|p| p.deconstruct())
                 .sum::<u16>(),
             u16::MAX,
             epsilon = 10
@@ -3431,7 +3447,7 @@ fn test_mining_emission_distribution_with_root_sell() {
 
             assert!(miner_incentive.is_some());
 
-            (miner_incentive.unwrap_or_default() as u64).into()
+            (miner_incentive.unwrap_or_default().deconstruct() as u64).into()
         };
         log::info!("Miner incentive: {miner_incentive:?}");
 

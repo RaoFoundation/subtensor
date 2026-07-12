@@ -46,12 +46,13 @@ mod events {
         NeuronRegistered(NetUid, u16, T::AccountId),
         /// multiple uids have been concurrently registered.
         BulkNeuronsRegistered(u16, u16),
-        /// FIXME: Not used yet
+        // FIXME: Not used yet.
+        /// bulk balances have been set (placeholder: this event is currently unused).
         BulkBalancesSet(u16, u16),
         /// max allowed uids has been set for a subnetwork.
         MaxAllowedUidsSet(NetUid, u16),
+        /// max weight limit has been set for a subnet (deprecated: this event is unused).
         #[deprecated(note = "Max weight limit is now a constant and this event is unused")]
-        /// DEPRECATED: max weight limit updates are no longer supported.
         MaxWeightLimitSet(NetUid, u16),
         /// the difficulty has been set for a subnet.
         DifficultySet(NetUid, u64),
@@ -92,9 +93,9 @@ mod events {
         /// the prometheus server information is added to the network.
         PrometheusServed(NetUid, T::AccountId),
         /// a hotkey has become a delegate.
-        DelegateAdded(T::AccountId, T::AccountId, u16),
+        DelegateAdded(T::AccountId, T::AccountId, PerU16),
         /// the default take is set.
-        DefaultTakeSet(u16),
+        DefaultTakeSet(PerU16),
         /// weights version key is set for a network.
         WeightsVersionKeySet(NetUid, u64),
         /// setting min difficulty on a network.
@@ -122,13 +123,13 @@ mod events {
         /// setting the owner hyperparameter rate limit in epochs
         OwnerHyperparamRateLimitSet(u16),
         /// minimum childkey take set
-        MinChildKeyTakeSet(u16),
+        MinChildKeyTakeSet(PerU16),
         /// subnet-specific minimum childkey take set
-        MinChildKeyTakePerSubnetSet(NetUid, u16),
+        MinChildKeyTakePerSubnetSet(NetUid, PerU16),
         /// maximum childkey take set
-        MaxChildKeyTakeSet(u16),
+        MaxChildKeyTakeSet(PerU16),
         /// childkey take set
-        ChildKeyTakeSet(T::AccountId, u16),
+        ChildKeyTakeSet(T::AccountId, PerU16),
         /// a sudo call is done.
         Sudid(DispatchResult),
         /// registration is allowed/disallowed for a subnet.
@@ -160,9 +161,9 @@ mod events {
         /// the lock cost reduction is set
         NetworkLockCostReductionIntervalSet(u64),
         /// the take for a delegate is decreased.
-        TakeDecreased(T::AccountId, T::AccountId, u16),
+        TakeDecreased(T::AccountId, T::AccountId, PerU16),
         /// the take for a delegate is increased.
-        TakeIncreased(T::AccountId, T::AccountId, u16),
+        TakeIncreased(T::AccountId, T::AccountId, PerU16),
         /// the hotkey is swapped
         HotkeySwapped {
             /// the account ID of coldkey
@@ -173,9 +174,9 @@ mod events {
             new_hotkey: T::AccountId,
         },
         /// maximum delegate take is set by sudo/admin transaction
-        MaxDelegateTakeSet(u16),
+        MaxDelegateTakeSet(PerU16),
         /// minimum delegate take is set by sudo/admin transaction
-        MinDelegateTakeSet(u16),
+        MinDelegateTakeSet(PerU16),
         /// A coldkey swap announcement has been made.
         ColdkeySwapAnnounced {
             /// The account ID of the coldkey that made the announcement.
@@ -247,35 +248,35 @@ mod events {
         DissolveNetworkScheduleDurationSet(BlockNumberFor<T>),
         /// Commit-reveal v3 weights have been successfully committed.
         ///
-        /// - **who**: The account ID of the user committing the weights.
-        /// - **netuid**: The network identifier.
-        /// - **commit_hash**: The hash representing the committed weights.
+        /// * **who**: The account ID of the user committing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **commit_hash**: The hash representing the committed weights.
         CRV3WeightsCommitted(T::AccountId, NetUidStorageIndex, H256),
         /// Weights have been successfully committed.
         ///
-        /// - **who**: The account ID of the user committing the weights.
-        /// - **netuid**: The network identifier.
-        /// - **commit_hash**: The hash representing the committed weights.
+        /// * **who**: The account ID of the user committing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **commit_hash**: The hash representing the committed weights.
         WeightsCommitted(T::AccountId, NetUidStorageIndex, H256),
 
         /// Weights have been successfully revealed.
         ///
-        /// - **who**: The account ID of the user revealing the weights.
-        /// - **netuid**: The network identifier.
-        /// - **commit_hash**: The hash of the revealed weights.
+        /// * **who**: The account ID of the user revealing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **commit_hash**: The hash of the revealed weights.
         WeightsRevealed(T::AccountId, NetUidStorageIndex, H256),
 
         /// Weights have been successfully batch revealed.
         ///
-        /// - **who**: The account ID of the user revealing the weights.
-        /// - **netuid**: The network identifier.
-        /// - **revealed_hashes**: A vector of hashes representing each revealed weight set.
+        /// * **who**: The account ID of the user revealing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **revealed_hashes**: A vector of hashes representing each revealed weight set.
         WeightsBatchRevealed(T::AccountId, NetUid, Vec<H256>),
 
         /// A batch of weights (or commits) have been force-set.
         ///
-        /// - **netuids**: The netuids these weights were successfully set/committed for.
-        /// - **who**: The hotkey that set this batch.
+        /// * **netuids**: The netuids these weights were successfully set/committed for.
+        /// * **who**: The hotkey that set this batch.
         BatchWeightsCompleted(Vec<Compact<NetUid>>, T::AccountId),
 
         /// A batch extrinsic completed but with some errors.
@@ -283,8 +284,8 @@ mod events {
 
         /// A weight set among a batch of weights failed.
         ///
-        /// - **netuid**: The netuid of the batch item that failed.
-        /// - **error**: The dispatch error emitted by the failed item.
+        /// * **netuid**: The netuid of the batch item that failed.
+        /// * **error**: The dispatch error emitted by the failed item.
         BatchWeightItemFailed(NetUid, sp_runtime::DispatchError),
 
         /// Stake has been transferred from one coldkey to another on the same subnet.
@@ -349,20 +350,20 @@ mod events {
 
         /// CRV3 Weights have been successfully revealed.
         ///
-        /// - **netuid**: The network identifier.
-        /// - **who**: The account ID of the user revealing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **who**: The account ID of the user revealing the weights.
         CRV3WeightsRevealed(NetUid, T::AccountId),
 
         /// Commit-Reveal periods has been successfully set.
         ///
-        /// - **netuid**: The network identifier.
-        /// - **periods**: The number of epochs before the reveal.
+        /// * **netuid**: The network identifier.
+        /// * **periods**: The number of epochs before the reveal.
         CommitRevealPeriodsSet(NetUid, u64),
 
         /// Commit-Reveal has been successfully toggled.
         ///
-        /// - **netuid**: The network identifier.
-        /// - **Enabled**: Is Commit-Reveal enabled.
+        /// * **netuid**: The network identifier.
+        /// * **Enabled**: Is Commit-Reveal enabled.
         CommitRevealEnabled(NetUid, bool),
 
         /// the hotkey is swapped
@@ -406,21 +407,21 @@ mod events {
 
         /// Commit Reveal Weights version has been updated.
         ///
-        /// - **version**: The required version.
+        /// * **version**: The required version.
         CommitRevealVersionSet(u16),
 
         /// Timelocked weights have been successfully committed.
         ///
-        /// - **who**: The account ID of the user committing the weights.
-        /// - **netuid**: The network identifier.
-        /// - **commit_hash**: The hash representing the committed weights.
-        /// - **reveal_round**: The round at which weights can be revealed.
+        /// * **who**: The account ID of the user committing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **commit_hash**: The hash representing the committed weights.
+        /// * **reveal_round**: The round at which weights can be revealed.
         TimelockedWeightsCommitted(T::AccountId, NetUidStorageIndex, H256, u64),
 
         /// Timelocked Weights have been successfully revealed.
         ///
-        /// - **netuid**: The network identifier.
-        /// - **who**: The account ID of the user revealing the weights.
+        /// * **netuid**: The network identifier.
+        /// * **who**: The account ID of the user revealing the weights.
         TimelockedWeightsRevealed(NetUidStorageIndex, T::AccountId),
 
         /// Auto-staking hotkey received stake
@@ -450,9 +451,9 @@ mod events {
 
         /// The auto stake destination has been set.
         ///
-        /// - **coldkey**: The account ID of the coldkey.
-        /// - **netuid**: The network identifier.
-        /// - **hotkey**: The account ID of the hotkey.
+        /// * **coldkey**: The account ID of the coldkey.
+        /// * **netuid**: The network identifier.
+        /// * **hotkey**: The account ID of the hotkey.
         AutoStakeDestinationSet {
             /// The account ID of the coldkey.
             coldkey: T::AccountId,

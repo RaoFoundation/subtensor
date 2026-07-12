@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .._generated import calls
+from ..settings import U16_MAX
 from ._money import Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
@@ -142,18 +143,55 @@ class SetMechanismCount(Intent):
         return f"set mechanism count to {self.mechanism_count} on netuid {self.netuid}"
 
 
+def _normalize_split(split: list) -> list[int]:
+    """Normalize an emission split to raw u16 weights summing to exactly 65,535.
+
+    All-integer input is taken as the raw weights (validated to sum exactly);
+    any float in the list marks the human form: entries become relative
+    weights, scaled to the exact-sum split with largest-remainder rounding so
+    the result always lands on 65,535 on the nose.
+    """
+    if not split:
+        raise ValueError("the emission split needs at least one entry")
+    if any(isinstance(w, bool) or not isinstance(w, (int, float)) for w in split):
+        raise ValueError(f"emission split entries must be numbers; got {split!r}")
+    if any(w < 0 for w in split):
+        raise ValueError(f"emission split entries must be non-negative; got {split!r}")
+    if all(isinstance(w, int) for w in split):
+        total = sum(split)
+        if total != U16_MAX:
+            raise ValueError(
+                f"raw u16 emission weights must sum to exactly {U16_MAX}; got {total}. "
+                "Pass weights with a decimal point (e.g. [0.5, 0.5]) to have the "
+                "split normalized for you."
+            )
+        return list(split)
+    total = float(sum(split))
+    if total <= 0:
+        raise ValueError("relative emission weights must sum to more than zero")
+    scaled = [w / total * U16_MAX for w in split]
+    floors = [int(s) for s in scaled]
+    remainder = U16_MAX - sum(floors)
+    # Distribute the leftover units to the largest fractional parts.
+    by_fraction = sorted(range(len(split)), key=lambda i: scaled[i] - floors[i], reverse=True)
+    for i in by_fraction[:remainder]:
+        floors[i] += 1
+    return floors
+
+
 @register
 @dataclass
 class SetMechanismEmissionSplit(Intent):
     """Set emission split between mechanisms on a subnet.
 
-    Owner-only: divides the subnet's emission between its mechanisms. The
-    list gives one u16 weight per mechanism, in order, and the entries must
-    sum to exactly 65,535; each mechanism receives that fraction of
-    emission. The list may be at most as long as the subnet's current
-    mechanism count (see ``set_mechanism_count``) — a shorter list leaves
-    the trailing mechanisms with zero. Changing the split reallocates
-    future emission only — nothing already emitted moves.
+    Owner-only: divides the subnet's emission between its mechanisms, one
+    entry per mechanism in order. Entries with a decimal point are relative
+    weights (e.g. ``[0.5, 0.5]`` or ``[3.0, 1.0]``), normalized to the exact
+    u16 split the chain requires; plain integers are raw u16 weights and must
+    sum to exactly 65,535 themselves. The list may be at most as long as the
+    subnet's current mechanism count (see ``set_mechanism_count``) — a
+    shorter list leaves the trailing mechanisms with zero. Changing the
+    split reallocates future emission only — nothing already emitted moves.
     """
 
     op = "set_mechanism_emission_split"
@@ -161,12 +199,16 @@ class SetMechanismEmissionSplit(Intent):
     wraps = (("AdminUtils", "sudo_set_mechanism_emission_split"),)
 
     netuid: int = field(metadata={"help": "Subnet to configure; the signer must be its owner."})
-    split: list[int] = field(
+    split: list = field(
         metadata={
-            "help": "u16 emission weights in mechanism order, summing to exactly 65,535; "
-            "at most one entry per mechanism."
+            "help": "Emission weights in mechanism order, at most one entry per "
+            "mechanism: relative weights with a decimal point (normalized for you, "
+            "e.g. [0.5, 0.5]), or raw u16 integers summing to exactly 65,535."
         }
     )
+
+    def __post_init__(self):
+        self.split = _normalize_split(self.split)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(

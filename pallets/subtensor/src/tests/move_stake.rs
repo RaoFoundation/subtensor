@@ -3,6 +3,7 @@
 use approx::assert_abs_diff_eq;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{Get, U256};
+use sp_runtime::PerU16;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::TaoBalance;
 use subtensor_swap_interface::SwapHandler;
@@ -1716,7 +1717,7 @@ fn test_move_stake_specific_stake_into_subnet_fail() {
         TotalHotkeyAlpha::<Test>::insert(hotkey_account_id, netuid, existing_stake);
 
         // Make the hotkey a delegate
-        Delegates::<Test>::insert(hotkey_account_id, 0);
+        Delegates::<Test>::insert(hotkey_account_id, PerU16::zero());
 
         // Setup Subnet pool
         SubnetAlphaIn::<Test>::insert(netuid, alpha_in);

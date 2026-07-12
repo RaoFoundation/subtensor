@@ -11,8 +11,8 @@ use pallet_subtensor::*;
 use pallet_subtensor_swap_runtime_api::SwapRuntimeApi;
 use share_pool::SafeFloat;
 use sp_core::U256;
-use sp_runtime::AccountId32;
 use sp_runtime::traits::Block as BlockT;
+use sp_runtime::{AccountId32, PerU16};
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_custom_rpc_runtime_api::{DelegateInfoRuntimeApi, StakeInfoRuntimeApi};
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
@@ -27,12 +27,12 @@ fn indexer_neuron_per_subnet_vectors() {
         let netuid_idx = NetUidStorageIndex::from(netuid);
 
         let _: Vec<bool> = Active::<Test>::get(netuid);
-        let _: Vec<u16> = Consensus::<Test>::get(netuid);
-        let _: Vec<u16> = Dividends::<Test>::get(netuid);
-        let _: Vec<u16> = Incentive::<Test>::get(netuid_idx);
+        let _: Vec<PerU16> = Consensus::<Test>::get(netuid);
+        let _: Vec<PerU16> = Dividends::<Test>::get(netuid);
+        let _: Vec<PerU16> = Incentive::<Test>::get(netuid_idx);
         let _: Vec<u64> = LastUpdate::<Test>::get(netuid_idx);
         let _: Vec<bool> = ValidatorPermit::<Test>::get(netuid);
-        let _: Vec<u16> = ValidatorTrust::<Test>::get(netuid);
+        let _: Vec<PerU16> = ValidatorTrust::<Test>::get(netuid);
         let _: Vec<AlphaBalance> = Emission::<Test>::get(netuid);
     });
 }

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 428
+Spec version: 429
 """
 from dataclasses import dataclass
 
@@ -49,7 +49,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 5): ErrorInfo('SubtensorModule', 'HotKeyAccountNotExists', 'The hotkey does not exists'),
     (7, 6): ErrorInfo('SubtensorModule', 'HotKeyNotRegisteredInNetwork', 'The hotkey is not registered in any subnet.'),
     (7, 7): ErrorInfo('SubtensorModule', 'NonAssociatedColdKey', 'Request to stake, unstake or subscribe is made by a coldkey that is not associated with the hotkey account.'),
-    (7, 8): ErrorInfo('SubtensorModule', 'NotEnoughStake', 'DEPRECATED: Stake amount to withdraw is zero. The caller does not have enought stake to perform this action.'),
+    (7, 8): ErrorInfo('SubtensorModule', 'NotEnoughStake', 'The caller does not have enought stake to perform this action.'),
     (7, 9): ErrorInfo('SubtensorModule', 'NotEnoughStakeToWithdraw', 'The caller is requesting removing more stake than there exists in the staking account. See: "[remove_stake()]".'),
     (7, 10): ErrorInfo('SubtensorModule', 'NotEnoughStakeToSetWeights', 'The caller is requesting to set weights but the caller has less than minimum stake required to set weights (less than WeightsMinStake).'),
     (7, 11): ErrorInfo('SubtensorModule', 'NotEnoughStakeToSetChildkeys', "The parent hotkey doesn't have enough own stake to set childkeys."),

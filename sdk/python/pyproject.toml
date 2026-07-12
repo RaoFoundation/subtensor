@@ -62,7 +62,6 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "pytest-xdist>=3.6",
-    "pytest-rerunfailures>=14.0",
     "hypothesis>=6.100",
     "ruff>=0.14",
     "ty",
@@ -71,8 +70,9 @@ dev = [
 [tool.ruff]
 line-length = 100
 # Generated code must stay byte-identical to the codegen emitter's output
-# (codegen.check --drift compares literally), so ruff never touches it.
-extend-exclude = ["bittensor/_generated"]
+# (codegen.check --drift / --namespaces compare literally), so ruff never
+# touches it.
+extend-exclude = ["bittensor/_generated", "bittensor/namespaces.pyi"]
 
 [tool.ruff.lint]
 select = [
@@ -111,10 +111,6 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = [
-    "e2e: tests that need a running localnet chain (deselected by default)",
-]
-addopts = "-m 'not e2e'"
 
 [tool.ty.rules]
 # Ratchet plan: these categories have pre-existing findings (mostly the Money

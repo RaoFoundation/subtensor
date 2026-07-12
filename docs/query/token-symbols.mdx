@@ -23,9 +23,17 @@ btcli query token-symbols --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("token_symbols")
+    result = await client.subnets.token_symbols()
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("token_symbols")
 ```
