@@ -4,5 +4,4 @@ self-hosted-runner:
     - fireactions-turbo
     - fireactions-turbo-8
     - fireactions-tryruntime
-    - fireactions-tryruntime-finney
     - Benchmarking

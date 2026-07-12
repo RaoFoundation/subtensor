@@ -155,7 +155,7 @@ jobs:
           - name: mainnet
             uri: wss://archive.dev.opentensor.ai:443
             genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
-            runner: [self-hosted, fireactions-tryruntime-finney]
+            runner: [self-hosted, fireactions-tryruntime]
     steps:
       - name: Verify endpoint serves the expected network
         run: |

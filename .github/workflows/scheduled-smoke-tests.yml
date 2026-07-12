@@ -26,7 +26,7 @@ jobs:
           - test: smoke_testnet
             runner: [self-hosted, fireactions-tryruntime]
           - test: smoke_mainnet
-            runner: [self-hosted, fireactions-tryruntime-finney]
+            runner: [self-hosted, fireactions-tryruntime]
     steps:
       - uses: actions/checkout@v4
 
