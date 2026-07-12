@@ -1,12 +1,12 @@
 name: Scheduled Smoke Tests
 
-# Read-only smoke suites against the live networks, daily at 10:00 UTC. The same
+# Read-only smoke suites against the live networks, daily at 12:00 UTC. The same
 # suites gate promotion in release-train.yml; this catches drift between
 # trains.
 
 on:
   schedule:
-    - cron: "0 10 * * *"
+    - cron: "0 12 * * *"
   workflow_dispatch:
 
 permissions:

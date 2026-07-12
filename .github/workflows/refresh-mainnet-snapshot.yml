@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       try_runtime_only:
-        description: "Generate only try-runtime snapshots (measurement/debugging)"
+        description: "Generate only try-runtime snapshots (targeted recovery)"
         type: boolean
         default: false
 
@@ -32,10 +32,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A test-branch dispatch must not cancel the production refresh on main (or
-  # vice versa). Schedule and dispatch on the same ref still supersede safely.
-  group: refresh-mainnet-snapshot-${{ github.ref }}
-  cancel-in-progress: true
+  # Serialize every ref globally: diagnostic dispatches must not cancel a
+  # running production refresh or consume a second RPC/runner slot alongside it.
+  group: refresh-mainnet-snapshot
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
