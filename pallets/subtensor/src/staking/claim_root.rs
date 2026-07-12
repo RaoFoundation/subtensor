@@ -4,8 +4,10 @@ use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
 use sp_core::Get;
 use sp_runtime::DispatchError;
+use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
+use subtensor_runtime_common::clear_prefix_with_meter;
 use subtensor_swap_interface::SwapHandler;
 
 impl<T: Config> Pallet<T> {
@@ -134,6 +136,11 @@ impl<T: Config> Pallet<T> {
         root_claim_type: RootClaimTypeEnum,
         ignore_minimum_condition: bool,
     ) -> DispatchResult {
+        if DissolveCleanupQueue::<T>::get().contains(&netuid) {
+            log::debug!("root claim on subnet {netuid} is skipped, network is dissolved");
+            return Ok(());
+        }
+
         // Subtract the root claimed.
         let owed: I96F32 = Self::get_root_owed_for_hotkey_coldkey_float(hotkey, coldkey, netuid);
 
@@ -495,15 +502,54 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Claim all root dividends for subnet and remove all associated data.
-    pub fn finalize_all_subnet_root_dividends(netuid: NetUid) {
-        let hotkeys = RootClaimable::<T>::iter_keys().collect::<Vec<_>>();
+    pub fn clean_up_root_claimable_for_subnet(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        // let mut to_remove_map = BTreeMap::<T::AccountId, BTreeMap<NetUid, I96F32>>::new();
 
-        for hotkey in hotkeys.iter() {
-            RootClaimable::<T>::mutate(hotkey, |claimable| {
-                claimable.remove(&netuid);
-            });
+        // let mut read_all = true;
+
+        let iter = match last_key {
+            Some(raw_key) => RootClaimable::<T>::iter_from(raw_key),
+            None => RootClaimable::<T>::iter(),
+        };
+
+        fn filter_claimable(
+            claimable: &BTreeMap<NetUid, I96F32>,
+            netuid: NetUid,
+        ) -> BTreeMap<NetUid, I96F32> {
+            let mut result = claimable.clone();
+            if result.contains_key(&netuid) {
+                result.remove(&netuid);
+            }
+            result
         }
 
-        let _ = RootClaimed::<T>::clear_prefix((netuid,), u32::MAX, None);
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, _)| true,
+            |(hotkey, claimable)| (hotkey.clone(), claimable.clone()),
+            |(hotkey, claimable)| {
+                RootClaimable::<T>::insert(hotkey, filter_claimable(claimable, netuid))
+            },
+            1,
+        );
+
+        (
+            read_all,
+            last_item.map(|(hotkey, _)| RootClaimable::<T>::hashed_key_for(&hotkey)),
+        )
+    }
+
+    pub fn clean_up_root_claimed_for_subnet(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+    ) -> bool {
+        clear_prefix_with_meter(weight_meter, T::DbWeight::get().writes(1), |limit| {
+            RootClaimed::<T>::clear_prefix((netuid,), limit, None)
+        })
     }
 }

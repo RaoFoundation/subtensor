@@ -1,0 +1,57 @@
+@import '../shared.module.css';
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.paper_title {
+  font-size: 20px;
+}
+
+.title_section {
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+}
+
+.section {
+  width: 100%;
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 52px;
+  font-family: 'Haffer';
+  font-weight: 400;
+  font-size: 14px;
+  padding: 100px 32px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  box-sizing: border-box;
+}
+
+.section > p > strong {
+  font-weight: 600;
+}
+
+.section > p > i {
+  font-style: italic;
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .image_container_image {
+    max-height: 70%;
+    width: 100%;
+  }
+}

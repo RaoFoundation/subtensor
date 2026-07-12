@@ -381,7 +381,12 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 
 pub struct CommitmentsI;
 impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
-    fn purge_netuid(_netuid: NetUid) {}
+    fn purge_netuid(
+        _netuid: NetUid,
+        _weight_meter: &mut frame_support::weights::WeightMeter,
+    ) -> bool {
+        true
+    }
 }
 
 pub struct GrandpaInterfaceImpl;

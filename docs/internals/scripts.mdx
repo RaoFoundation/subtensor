@@ -1,0 +1,119 @@
+---
+title: Repository scripts
+description: What each script in scripts/ does, what depends on it, and when to run the manual tools.
+---
+
+Every script in `scripts/` is either wired into CI/Docker or kept as a manual
+developer tool. Unreferenced scripts were removed in the July 2026 cleanup
+(`raonet.sh`, `run/subtensor.sh`, `install_rust.sh`, `build.sh`, `publish.sh`,
+`release_notes.rs`, `specs/raonet.json`, `try-runtime-upgrade.sh`,
+`update-deps-to-path.sh` — the latter two are replaced by the inline
+instructions below).
+
+## Used by CI / Docker
+
+Do not remove or rename these without updating their consumers.
+
+| Script | Used by |
+|--------|---------|
+| `benchmark_action.sh` | `run-benchmarks.yml` — validates benchmark weights on PRs |
+| `benchmark_all.sh` | Manual companion to the above; regenerates `weights.rs` for all pallets using `.maintain/frame-weight-template.hbs` (see [Benchmarks and weights](/docs/internals/benchmarks-and-weights)) |
+| `discover_pallets.sh` | Helper sourced by both benchmark scripts |
+| `build_all_chainspecs.sh` | `update-chainspec.yml` — rebuilds `chainspecs/*.json` while preserving each file's genesis. The genesis wasm is not reproducible across build architectures, so the committed chainspec files are the canonical genesis source. Never delete them. |
+| `docker_entrypoint.sh` | `Dockerfile` entrypoint for both image targets |
+| `fix_rust.sh` | PR template, AI-review tooling, and agent skills; runs fmt + clippy fix + zepter |
+| `install_build_env.sh` | `check-bittensor-e2e-tests.yml`, `docker-localnet.yml`, `Dockerfile-localnet` |
+| `install_prebuilt_binaries.sh` | `Dockerfile-localnet` |
+| `localnet.sh` | E2E CI, `Dockerfile-localnet`, SDK EVM setup, and the [local development guide](/docs/guides/local-development) — spins up a local dev chain (writes `specs/local.json`, gitignored) |
+| `localnet_patch.sh` | E2E CI and `docker-localnet.yml` |
+| `srtool/build-srtool-image.sh` | `release-train.yml` — builds the local srtool Docker image |
+
+## Chainspec files
+
+The six JSON files in `chainspecs/` look like build artifacts but are all
+load-bearing. The genesis wasm is **not reproducible across build
+architectures**, so the committed files are the canonical genesis source:
+`build_all_chainspecs.sh` reads the genesis out of each existing file and
+splices it into the freshly built spec. Deleting any of them breaks the ability
+to regenerate specs with a matching genesis. Never delete them.
+
+| File | Role |
+|------|------|
+| `raw_spec_finney.json` | Loaded at runtime by `docker-compose.yml` (mainnet nodes), `clones/scripts/clone-mainnet.sh`, and bundled into Docker images; also the finney genesis anchor |
+| `raw_spec_testfinney.json` | Loaded by `docker-compose.yml` (testnet nodes) and bundled into Docker images; testfinney genesis anchor |
+| `raw_spec_devnet.json` | Not loaded directly (the node embeds its devnet config in `node/src/chain_spec/devnet.rs`), but is the devnet genesis anchor for `build_all_chainspecs.sh` |
+| `plain_spec_finney.json` | Human-readable counterpart maintained by `build_all_chainspecs.sh`; genesis anchor for the plain finney spec |
+| `plain_spec_testfinney.json` | Same, for testfinney |
+| `plain_spec_devnet.json` | Same, for devnet |
+
+`update-chainspec.yml` (manual dispatch) runs `build_all_chainspecs.sh` and
+commits the result. The localnet spec is different: `localnet.sh` generates
+`scripts/specs/local.json` on the fly and it is gitignored.
+
+## Doc-referenced
+
+| Script | Purpose |
+|--------|---------|
+| `code-coverage.sh` | Manual `cargo tarpaulin` coverage run over the workspace (requires `cargo-tarpaulin`) |
+| `init.sh` | Rust toolchain init referenced by the [local development guide](/docs/guides/local-development) |
+| `map_consensus.py` | Generates the consensus plots referenced in [Yuma Consensus](/docs/internals/consensus) |
+
+## Manual developer tools
+
+These have no CI consumers but are kept for occasional use.
+
+### `srtool/run-srtool.sh`
+
+Reproduces the deterministic srtool runtime build locally so you can verify that
+the wasm hash CI proposed on-chain (via `release-train.yml`, which
+inlines the same `docker run`) matches an independent build. Run
+`srtool/build-srtool-image.sh` first to create the local `srtool` image.
+Requires `CARGO_HOME` to be set. Output lands in
+`runtime/node-subtensor/subtensor-digest.json`.
+
+### Running try-runtime locally
+
+CI tests runtime migrations on every PR via `.github/actions/try-runtime`. For
+an ad-hoc local run against an arbitrary endpoint or snapshot (requires
+`try-runtime-cli`):
+
+```bash
+cargo build -p node-subtensor-runtime --release --features "metadata-hash,try-runtime"
+
+# Against a live chain
+try-runtime \
+  --runtime ./target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.wasm \
+  on-runtime-upgrade \
+  --no-weight-warnings --disable-spec-version-check --disable-idempotency-checks \
+  --checks=all --blocktime 12000 \
+  live --uri wss://your-node:443
+
+# Against a previously captured snapshot: replace the last line with
+#   snap --path ./snapshot.bin
+```
+
+### `test_specific.sh`
+
+Runs a single pallet test file or case quickly, skipping the wasm build:
+
+```bash
+./scripts/test_specific.sh <test-file> <test-name> [pallet] [features]
+# defaults: pallet-subtensor, pow-faucet
+```
+
+Enables `--nocapture --exact` and `RUST_LOG=DEBUG`.
+
+### Working against local `polkadot-sdk` / `frontier` checkouts
+
+When hacking on the forked `polkadot-sdk` or `frontier` alongside this repo,
+point the git dependencies at your local checkout with a `[patch]` section at
+the bottom of the root `Cargo.toml` instead of rewriting each dependency:
+
+```toml
+[patch."https://github.com/RaoFoundation/polkadot-sdk.git"]
+sp-core = { path = "../polkadot-sdk/substrate/primitives/core" }
+# ...one entry per crate you are modifying
+```
+
+Cargo resolves everything else from the git dependency as usual. Don't commit
+the patch section.

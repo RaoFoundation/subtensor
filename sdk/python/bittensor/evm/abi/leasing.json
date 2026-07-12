@@ -1,0 +1,172 @@
+[
+    {
+        "inputs": [
+            {
+                "internalType": "uint64",
+                "name": "crowdloanDeposit",
+                "type": "uint64"
+            },
+            {
+                "internalType": "uint64",
+                "name": "crowdloanMinContribution",
+                "type": "uint64"
+            },
+            {
+                "internalType": "uint64",
+                "name": "crowdloanCap",
+                "type": "uint64"
+            },
+            {
+                "internalType": "uint32",
+                "name": "crowdloanEnd",
+                "type": "uint32"
+            },
+            {
+                "internalType": "uint8",
+                "name": "leasingEmissionsShare",
+                "type": "uint8"
+            },
+            {
+                "internalType": "bool",
+                "name": "hasLeasingEndBlock",
+                "type": "bool"
+            },
+            {
+                "internalType": "uint32",
+                "name": "leasingEndBlock",
+                "type": "uint32"
+            }
+        ],
+        "name": "createLeaseCrowdloan",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint32",
+                "name": "leaseId",
+                "type": "uint32"
+            },
+            {
+                "internalType": "bytes32",
+                "name": "contributor",
+                "type": "bytes32"
+            }
+        ],
+        "name": "getContributorShare",
+        "outputs": [
+            {
+                "internalType": "uint128",
+                "name": "",
+                "type": "uint128"
+            },
+            {
+                "internalType": "uint128",
+                "name": "",
+                "type": "uint128"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint32",
+                "name": "leaseId",
+                "type": "uint32"
+            }
+        ],
+        "name": "getLease",
+        "outputs": [
+            {
+                "components": [
+                    {
+                        "internalType": "bytes32",
+                        "name": "beneficiary",
+                        "type": "bytes32"
+                    },
+                    {
+                        "internalType": "bytes32",
+                        "name": "coldkey",
+                        "type": "bytes32"
+                    },
+                    {
+                        "internalType": "bytes32",
+                        "name": "hotkey",
+                        "type": "bytes32"
+                    },
+                    {
+                        "internalType": "uint8",
+                        "name": "emissions_share",
+                        "type": "uint8"
+                    },
+                    {
+                        "internalType": "bool",
+                        "name": "has_end_block",
+                        "type": "bool"
+                    },
+                    {
+                        "internalType": "uint32",
+                        "name": "end_block",
+                        "type": "uint32"
+                    },
+                    {
+                        "internalType": "uint16",
+                        "name": "netuid",
+                        "type": "uint16"
+                    },
+                    {
+                        "internalType": "uint64",
+                        "name": "cost",
+                        "type": "uint64"
+                    }
+                ],
+                "internalType": "struct LeaseInfo",
+                "name": "",
+                "type": "tuple"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint16",
+                "name": "netuid",
+                "type": "uint16"
+            }
+        ],
+        "name": "getLeaseIdForSubnet",
+        "outputs": [
+            {
+                "internalType": "uint32",
+                "name": "",
+                "type": "uint32"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint32",
+                "name": "leaseId",
+                "type": "uint32"
+            },
+            {
+                "internalType": "bytes32",
+                "name": "hotkey",
+                "type": "bytes32"
+            }
+        ],
+        "name": "terminateLease",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    }
+]

@@ -1,0 +1,103 @@
+---
+title: Mainnet clone testing
+description: How CI sudo-upgrades a clone of live mainnet with your runtime, and how to reproduce it locally when it fails.
+---
+
+Every PR runs the **Clone Upgrade Check** (`check-clone-upgrade.yml`): it
+builds your proposed runtime, applies it to a local copy of *real mainnet
+state* via a sudo upgrade, then runs regression tests and the Python SDK e2e
+suite against the upgraded chain. This catches problems unit tests can't —
+migrations that break on real storage, changed RPC shapes, SDK
+incompatibilities — before anything ships.
+
+This page explains what the check does and how to reproduce each step locally.
+
+## How it works
+
+1. **`node-subtensor build-patched-spec`** (invoked by
+   `clones/scripts/clone-mainnet.sh`) spins up a temporary node, syncs current
+   mainnet state from a bootnode, exports it as a raw chainspec, and patches
+   it for local use: block authorship (Aura/Grandpa authorities) and the sudo
+   key are handed to the well-known dev account **Alice**. The result is
+   written to `clones/mainnet-clone-chainspec.json` (gitignored).
+2. **`clones/scripts/start-local-clone.sh`** starts a single local validator
+   from that chainspec on `ws://127.0.0.1:9944`, authoring blocks as Alice.
+3. **`npm run runtime:update:alice`** (in `clones/js-tests/`) reads your built
+   runtime wasm from
+   `target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm`
+   and submits `sudo(system.setCode(...))` from Alice. The clone is now
+   running mainnet state under **your** runtime, including any migrations it
+   triggered.
+4. **`npm test`** runs the smoke test; CI then runs the SDK's offline checks
+   and its e2e suite (`pytest -m e2e`) against the upgraded chain.
+
+## Reproducing locally
+
+```bash
+# 1. Build the node and your runtime
+cargo build --release -p node-subtensor
+
+# 2. Create (or reuse) the patched mainnet clone chainspec.
+#    First run syncs mainnet state — this takes a while and needs disk space.
+#    Later runs reuse the existing chainspec file.
+./clones/scripts/clone-mainnet.sh
+
+# 3. Start the clone node (leave this running; use a second terminal for the rest)
+./clones/scripts/start-local-clone.sh
+
+# 4. Sudo-upgrade the clone to your runtime
+cd clones/js-tests
+npm ci
+npm run runtime:update:alice
+
+# 5. Run the smoke test (what `npm test` runs in CI)
+npm test
+
+# 6. When you're done
+cd ../..
+./clones/scripts/stop-local-clone.sh
+```
+
+To re-sync fresh mainnet state instead of reusing the cached spec, delete
+`clones/mainnet-clone-chainspec.json` and rerun `clone-mainnet.sh`.
+`start-local-clone.sh` wipes the chain database (`clones/mainnet-clone/`) on
+every start, so each run replays your upgrade from the cached state — restart
+the node to retry a failed upgrade from scratch.
+
+### Running the SDK suites against the clone
+
+```bash
+cd sdk/python
+uv sync --locked --all-extras --dev
+uv run pytest                              # offline unit tests
+E2E_ENDPOINT=ws://127.0.0.1:9944 uv run pytest -m e2e
+```
+
+### Targeted regression tests
+
+`clones/js-tests/package.json` has one npm script per regression test, e.g.:
+
+```bash
+npm run test:balancer-operation
+npm run test:locks-conviction
+npm run test:proxy-filter-security-regressions
+```
+
+Point a test at a different endpoint with `WS_ENDPOINT=ws://...`, and at a
+different runtime wasm with `RUNTIME_WASM_PATH=/path/to/runtime.wasm`.
+
+## When it fails on your PR
+
+- **Upgrade step fails** — your runtime doesn't apply cleanly to mainnet
+  state. Usually a migration panicking on real storage; reproduce with steps
+  1–4 above and watch the node log. Complement with
+  [try-runtime](/docs/internals/testing#migration-tests-try-runtime).
+- **Smoke or regression tests fail** — your change altered on-chain behavior
+  or storage shapes that existing features depend on. Run the specific failing
+  script locally (see targeted tests above).
+- **SDK checks fail** — you changed calls, events, errors, or queries the SDK
+  has codegen'd bindings for. Regenerate `bittensor/_generated/` against your
+  upgraded clone (`python -m codegen ws://127.0.0.1:9944`) and commit the
+  result; see [Testing](/docs/internals/testing#other-suites).
+- **Skipping**: adding the `skip-clone-upgrade` label to a PR skips the check;
+  reserve that for changes that can't affect the runtime, SDK, or docs.

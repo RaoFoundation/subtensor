@@ -1,0 +1,37 @@
+.grid {
+  --grid-gap: 16px;
+  --grid-base: 700px;
+  --card-size-base: calc((var(--grid-base) - 2 * var(--grid-gap)) / 3);
+  --card-size-max: calc(var(--card-size-base) * 1.2);
+  --grid-max: calc(3 * var(--card-size-max) + 2 * var(--grid-gap));
+  --card-size: clamp(
+    var(--card-size-base),
+    calc((100vw - 64px - 2 * var(--grid-gap)) / 3),
+    var(--card-size-max)
+  );
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--grid-gap);
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--grid-max);
+}
+
+.grid > * {
+  width: var(--card-size);
+  max-width: var(--card-size);
+  flex-shrink: 0;
+}
+
+@media (max-width: 700px) {
+  .grid {
+    --grid-gap: 8px;
+    max-width: none;
+  }
+
+  .grid > * {
+    width: min(var(--card-size), calc((100% - var(--grid-gap)) / 2));
+    max-width: min(var(--card-size), calc((100% - var(--grid-gap)) / 2));
+  }
+}

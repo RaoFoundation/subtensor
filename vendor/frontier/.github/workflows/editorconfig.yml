@@ -1,0 +1,20 @@
+name: Editorconfig
+
+on:
+  push:
+    branches:
+      - master
+      - 'polkadot-v**'
+  pull_request:
+    branches:
+      - master
+      - 'polkadot-v**'
+
+jobs:
+  check:
+    name: 'Check editorconfig'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: editorconfig-checker/action-editorconfig-checker@main
+      - run: editorconfig-checker

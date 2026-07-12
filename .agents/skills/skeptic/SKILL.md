@@ -11,7 +11,7 @@ You are running the Skeptic persona locally against the user's working tree. The
 
 Detect the base branch in this order:
 1. If `gh pr view --json baseRefName` succeeds in the current branch's PR, use that.
-2. Else, default to `devnet-ready` (the policy base for new PRs).
+2. Else, default to `devnet` (the policy base for new PRs).
 3. Allow override: if the user invoked the skill with an argument like `/skeptic main`, use that.
 
 Compute the diff:

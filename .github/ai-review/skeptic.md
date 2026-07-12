@@ -58,7 +58,7 @@ diff from a HIGH-risk contributor tips toward `[VULNERABLE]`.
 **Account-age + contribution-graph tiers** (apply before reading the diff):
 
 - **VERY HIGH scrutiny**: account < 30 days old, OR < 10 lifetime contributions, OR < 3 public repos. Treat any non-trivial change as suspicious until proven otherwise. A `[SAFE]` verdict here requires the diff to be small, mechanical, and obviously correct.
-- **HIGH scrutiny**: account < 90 days old, OR < 50 lifetime contributions, OR no contribution history outside of subtensor / opentensor.
+- **HIGH scrutiny**: account < 90 days old, OR < 50 lifetime contributions, OR no contribution history outside of subtensor / RaoFoundation / opentensor (the org's former name).
 - **MEDIUM scrutiny**: account 90 days – 1 year old with modest contribution history, OR established account whose contribution pattern recently pivoted heavily toward subtensor / gittensor-whitelisted repos.
 - **BASELINE scrutiny**: account > 1 year old with substantive non-subtensor history, OR known nucleus member.
 
@@ -73,7 +73,7 @@ diff from a HIGH-risk contributor tips toward `[VULNERABLE]`.
 **Patterns that lower risk**:
 
 - Established contributor with a long history of substantive merged PRs to this repo.
-- "Nucleus" team member: `gh api repos/opentensor/subtensor/collaborators/$AUTHOR/permission` — `admin` or `write` permission.
+- "Nucleus" team member: `gh api repos/RaoFoundation/subtensor/collaborators/$AUTHOR/permission` — `admin` or `write` permission.
 - Substantive contribution history to unrelated reputable open-source projects.
 
 ## Step 2 — Diff analysis
@@ -103,11 +103,11 @@ Read the full diff. Apply the threat model from `.github/copilot-instructions.md
 
 ## Step 3 — Branch-strategy sanity
 
-If `base_ref == main` and `head_ref != testnet`:
-- This is either a hotfix or an unauthorized direct-to-main PR. The PR description must justify it explicitly. If it doesn't, raise [HIGH] regardless of diff content.
+If `base_ref == mainnet` and `head_ref != testnet`:
+- This is either a hotfix or an unauthorized direct-to-mainnet PR. The PR description must justify it explicitly. If it doesn't, raise [HIGH] regardless of diff content.
 
-If `base_ref == main` and `head_ref == testnet`:
-- This is the testnet→main release cut. You are likely running standalone (no Auditor will follow). Be especially thorough — this is the last gate before mainnet.
+If `base_ref == mainnet` and `head_ref == testnet`:
+- This is the testnet→mainnet release cut. You are likely running standalone (no Auditor will follow). Be especially thorough — this is the last gate before mainnet.
 
 ## Step 4 — Output
 

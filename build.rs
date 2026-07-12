@@ -14,7 +14,6 @@ fn main() {
     println!("cargo:rerun-if-changed=pallets");
     println!("cargo:rerun-if-changed=node");
     println!("cargo:rerun-if-changed=runtime");
-    println!("cargo:rerun-if-changed=lints");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=support");
@@ -95,10 +94,10 @@ fn collect_rust_files(dir: &Path) -> Vec<PathBuf> {
         };
         let path = entry.path();
 
-        // Skip any path that contains "target" directory
+        // Skip build artifacts and vendored third-party code
         if path
             .components()
-            .any(|component| component.as_os_str() == "target")
+            .any(|component| component.as_os_str() == "target" || component.as_os_str() == "vendor")
             || path.ends_with("build.rs")
         {
             continue;

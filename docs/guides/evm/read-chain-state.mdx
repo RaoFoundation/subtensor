@@ -1,0 +1,160 @@
+---
+title: Read chain state
+description: The metagraph, alpha, and uid-lookup precompiles — free view calls from the CLI, Python, and Solidity.
+---
+
+Everything a subnet dashboard needs — stake, incentive, axon endpoints, pool
+prices — is exposed to the EVM through read-only precompiles. View calls go
+through `eth_call`: no key, no gas, no setup. This walkthrough queries subnet
+1 on mainnet three ways: `btcli evm call`, the Python SDK, and from a
+contract.
+
+If you just want the data (not the EVM), the native reads are richer and one
+call: [`metagraph`](/docs/query/metagraph), [`alpha-price`](/docs/query/alpha-price).
+The precompiles matter when the consumer *is* EVM code — a contract, an
+ethers app, an indexer speaking JSON-RPC.
+
+## Discover what's callable
+
+The catalog and per-precompile function listings come from the CLI:
+
+```bash
+btcli evm precompiles                 # every precompile: name, address, description
+btcli evm call metagraph              # its functions, inputs, outputs, mutability
+btcli evm abi metagraph               # address + ABI JSON for ethers/viem/Hardhat
+```
+
+## The metagraph precompile
+
+`metagraph` (address `0x…0802`) answers per-neuron questions keyed by
+`(netuid, uid)`:
+
+```bash
+btcli evm call metagraph getUidCount 1            # neurons on subnet 1
+btcli evm call metagraph getHotkey 1 0            # uid 0's hotkey (bytes32 pubkey)
+btcli evm call metagraph getStake 1 0             # uid 0's stake, in rao
+btcli evm call metagraph getIncentive 1 0         # u16-normalized (0–65535)
+btcli evm call metagraph getAxon 1 0              # (block, version, ip, port, ip_type, protocol)
+btcli evm call metagraph getValidatorStatus 1 0   # holds a validator permit?
+```
+
+Three data-shape rules cover every surprise:
+
+- **Keys are `bytes32` public keys**, not ss58 strings. Convert with
+  `btcli evm pubkey SS58` one way and
+  `python -c "from bittensor.evm import pubkey_to_ss58; print(pubkey_to_ss58('0x…'))"`
+  the other.
+- **Amounts are rao** (1 TAO = 1e9 rao) — not the EVM's 18-decimal wei.
+- **Scores are u16-normalized**: incentive, consensus, dividends, and vtrust
+  come back as 0–65535, meaning 0.0–1.0. Divide by 65535. (`getRank` and
+  `getTrust` are deprecated and always return 0 — compute standing from
+  incentive instead.)
+
+## Prices and pools: the alpha precompile
+
+`alpha` (address `0x…0808`) exposes the subnet pool:
+
+```bash
+btcli evm call alpha getAlphaPrice 1        # TAO per alpha, 18-decimal fixed point
+btcli evm call alpha getTaoInPool 1         # pool TAO reserve, in rao
+btcli evm call alpha getAlphaInPool 1       # pool alpha reserve, in rao-scale alpha
+btcli evm call alpha simSwapTaoForAlpha 1 1000000000   # what 1 TAO buys right now
+```
+
+`getAlphaPrice` returns the price scaled to 1e18 (EVM balance scale), so
+`2.5e17` means 0.25 TAO per alpha. The `simSwap*` functions quote a swap
+including slippage — the EVM equivalent of [`quote-stake`](/docs/query/quote-stake).
+
+## From an EVM address to its UIDs
+
+`uid-lookup` (address `0x…0806`) answers "which neurons belong to this EVM
+key?" — it only returns results for hotkeys that have
+[associated an EVM key](/docs/guides/evm#hotkey-association):
+
+```bash
+btcli evm call uid-lookup uidLookup 1 0x1074Ad… 16    # up to 16 (uid, block_associated) pairs
+```
+
+## From Python
+
+The SDK's EVM layer encodes and decodes for you — this is exactly what
+`btcli evm call` does internally, usable from any script without web3:
+
+```python
+from bittensor.evm import EvmRpc, encode_call, decode_result, get_precompile, evm_network
+
+rpc = EvmRpc(evm_network("finney").rpc_url)
+metagraph = get_precompile("metagraph")
+
+fn = metagraph.function("getUidCount")
+raw = rpc.eth_call({"to": metagraph.address, "data": encode_call(fn, [1])})
+(count,) = decode_result(fn, raw)
+
+fn = metagraph.function("getStake")
+stakes = []
+for uid in range(count):
+    raw = rpc.eth_call({"to": metagraph.address, "data": encode_call(fn, [1, uid])})
+    (rao,) = decode_result(fn, raw)
+    stakes.append(rao / 1e9)
+
+print(f"subnet 1: {count} neurons, top stake {max(stakes):,.0f} TAO")
+```
+
+`encode_call` accepts ss58 addresses wherever the ABI wants a `bytes32` key,
+so you never hand-convert.
+
+## From Solidity
+
+Contracts call precompiles like any other contract — copy the interface from
+[`precompiles/src/solidity/`](https://github.com/RaoFoundation/subtensor/tree/main/precompiles/src/solidity)
+(or extract it from `btcli evm abi metagraph`). A contract that pays out only
+to registered validators:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface IMetagraph {
+    function getUidCount(uint16 netuid) external view returns (uint16);
+    function getValidatorStatus(uint16 netuid, uint16 uid) external view returns (bool);
+    function getHotkey(uint16 netuid, uint16 uid) external view returns (bytes32);
+}
+
+contract ValidatorGate {
+    IMetagraph constant METAGRAPH = IMetagraph(0x0000000000000000000000000000000000000802);
+    uint16 public immutable netuid;
+
+    constructor(uint16 _netuid) {
+        netuid = _netuid;
+    }
+
+    function isValidatorHotkey(bytes32 hotkey) public view returns (bool) {
+        uint16 count = METAGRAPH.getUidCount(netuid);
+        for (uint16 uid = 0; uid < count; uid++) {
+            if (METAGRAPH.getHotkey(netuid, uid) == hotkey) {
+                return METAGRAPH.getValidatorStatus(netuid, uid);
+            }
+        }
+        return false;
+    }
+}
+```
+
+(A per-call loop over 256 UIDs is fine for view calls, which are free; inside
+a paid transaction you'd pass the `uid` in and verify it instead.)
+
+Deploy it exactly like [any other contract](/docs/guides/evm/deploy-a-contract),
+and from ethers the reads are ordinary:
+
+```javascript
+const abi = /* output of: btcli evm abi metagraph */;
+const metagraph = new ethers.Contract("0x0000000000000000000000000000000000000802", abi.abi, provider);
+console.log(await metagraph.getUidCount(1));
+```
+
+## See also
+
+- [Stake from the EVM](/docs/guides/evm/stake-from-evm) — the write-side
+  counterpart.
+- [Metagraph query](/docs/query/metagraph) — the native read with everything
+  in one call.

@@ -3976,6 +3976,7 @@ fn test_subnet_dissolution_orphans_locks() {
 
         // Dissolve the subnet
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
 
         // All Alpha entries are gone
         assert_eq!(
@@ -4010,6 +4011,7 @@ fn test_subnet_dissolution_and_netuid_reuse() {
 
         // Dissolve old subnet
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
 
         // No stale lock from old subnet remains
         let stale_lock = Lock::<Test>::get((coldkey, netuid, hotkey_old));

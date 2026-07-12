@@ -1,0 +1,54 @@
+:root {
+  --toastify-color-info: #3498db;
+  --toastify-color-success: #5ba87e;
+  --toastify-color-warning: #f1c40f;
+  --toastify-color-error: #d15168;
+
+  --white: #fff;
+  --grey-200: #f1f3f4;
+  --grey-400: #bdc1c6;
+  --grey-600: #2e3134;
+  --grey-800: #17181b;
+  --black: #000;
+  --grey-100: #f8f9fa;
+  --grey-300: #dbdde1;
+  --grey-500: #5f6368;
+  --grey-700: #282a2d;
+  --grey-900: #0e1013;
+  --semantic-green-secondary: #d1efd1;
+  --semantic-red-secondary: #ffdbdd;
+}
+
+html {
+  --background-default: #111111;
+  --background-paper: #050404;
+  --text-primary: #e0e0e0;
+  --text-secondary: #767676;
+  --primary-main: #f2f2f2;
+  --primary-contrastText: #000000;
+  --primary-light: #ffffff;
+  --secondary-main: #1c1c1c;
+  --secondary-light: #222;
+  --secondary-contrastText: #ffffff;
+  --info-main: #a77dff;
+  --success-main: #8ae06c;
+  --error-main: #f56868;
+  --warning-main: #f1df38;
+  --border-primary: #292929;
+  --border-secondary: #3a3a3a;
+  --border-color: #262626;
+  --hover-primary: #ffffff;
+  --wallet-bg-overlay: rgba(256, 256, 256, 0.7);
+  /* kurpa hosk  color theming*/
+  --text-primary-kh: var(--grey-100);
+  --text-secondary-kh: var(--grey-500);
+  --bg-primary-kh: var(--black);
+  --border-dashed-primary-kh: var(--grey-500);
+  --border-solid-kh: var(--grey-700);
+  --contrast-50-kh: var(--grey-900);
+  --contrast-100-kh: var(--grey-800);
+  --contrast-200-kh: var(--grey-700);
+  --contrast-400-kh: var(--grey-600);
+  --contrast-600-kh: var(--grey-400);
+  --highlight-color-kh: #e9f4a4;
+}

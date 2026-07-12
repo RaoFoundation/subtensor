@@ -12,7 +12,7 @@ interface ILeasing {
 
     /**
      * @dev Retrieves the contributor share for a given lease id and contributor.
-     * The share is returned as a tuple of two uint128 values, where the first value 
+     * The share is returned as a tuple of two uint128 values, where the first value
      * is the integer part and the second value is the fractional part.
      * @param leaseId The id of the lease to get contributor share for.
      * @param contributor The contributor to get share for.

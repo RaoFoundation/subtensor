@@ -183,6 +183,20 @@
                 }
             ]
         }, {
+            "name": "smoke_devnet",
+            "testFileDir": ["suites/smoke"],
+            "foundation": {
+                "type": "read_only"
+            },
+            "reporters": ["basic","html"],
+            "connections": [
+                {
+                    "name": "node",
+                    "type": "polkadotJs",
+                    "endpoints": ["wss://dev.chain.opentensor.ai:443"]
+                }
+            ]
+        }, {
             "name": "smoke_mainnet",
             "testFileDir": ["suites/smoke"],
             "foundation": {

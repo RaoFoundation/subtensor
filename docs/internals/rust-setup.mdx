@@ -1,0 +1,142 @@
+---
+title: Rust setup
+description: Prepare a computer for Substrate development.
+---
+
+This guide is for reference only, please check the latest information on getting starting with Substrate
+[here](https://docs.polkadot.com/develop/parachains/install-polkadot-sdk/).
+
+This page will guide you through the **2 steps** needed to prepare a computer for **Substrate** development.
+Since Substrate is built with [the Rust programming language](https://www.rust-lang.org/), the first
+thing you will need to do is prepare the computer for Rust development - these steps will vary based
+on the computer's operating system. Once Rust is configured, you will use its toolchains to interact
+with Rust projects; the commands for Rust's toolchains will be the same for all supported,
+Unix-based operating systems.
+
+## Build dependencies
+
+Substrate development is easiest on Unix-based operating systems like macOS or Linux. The examples
+in the [Substrate Docs](https://docs.polkadot.com) use Unix-style terminals to demonstrate how to
+interact with Substrate from the command line.
+
+### Ubuntu/Debian
+
+Use a terminal shell to execute the following commands:
+
+```bash
+sudo apt update
+# May prompt for location information
+sudo apt install -y git clang curl libssl-dev llvm libudev-dev make pkg-config protobuf-compiler
+```
+
+### Arch Linux
+
+Run these commands from a terminal:
+
+```bash
+pacman -Syu --needed --noconfirm curl git clang
+```
+
+### Fedora
+
+Run these commands from a terminal:
+
+```bash
+sudo dnf update
+sudo dnf install clang curl git openssl-devel
+```
+
+### OpenSUSE
+
+Run these commands from a terminal:
+
+```bash
+sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel
+```
+
+### macOS
+
+> **Apple M1 ARM**
+> If you have an Apple M1 ARM system on a chip, make sure that you have Apple Rosetta 2
+> installed through `softwareupdate --install-rosetta`. This is only needed to run the
+> `protoc` tool during the build. The build itself and the target binaries would remain native.
+
+Open the Terminal application and execute the following commands:
+
+```bash
+# Install Homebrew if necessary https://brew.sh/
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
+
+# Make sure Homebrew is up-to-date, install protobuf and openssl
+brew update
+brew install protobuf openssl llvm@16
+```
+
+Also, add the following lines at the end of your ~/.zshrc:
+
+```
+# LLVM 16 from Homebrew
+export PATH="/opt/homebrew/opt/llvm@16/bin:$PATH"
+
+export CC="/opt/homebrew/opt/llvm@16/bin/clang"
+export CXX="/opt/homebrew/opt/llvm@16/bin/clang++"
+export LIBCLANG_PATH="/opt/homebrew/opt/llvm@16/lib/libclang.dylib"
+
+export LDFLAGS="-L/opt/homebrew/opt/llvm@16/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/llvm@16/include"
+```
+
+### Windows
+
+**_PLEASE NOTE:_** Native Windows development of Substrate is _not_ very well supported! It is _highly_
+recommend to use [Windows Subsystem Linux](https://docs.microsoft.com/en-us/windows/wsl/install-win10) (WSL) and follow the following [instructions](https://docs.polkadot.com/develop/parachains/install-polkadot-sdk/#windows-wsl).
+
+## Rust developer environment
+
+This guide uses the [rustup.rs](https://rustup.rs) installer and the `rustup` tool to manage the Rust toolchain.
+First install and configure `rustup`:
+
+```bash
+# Install
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Configure
+source ~/.cargo/env
+```
+
+This repository pins its Rust version and the `wasm32v1-none` target in
+`rust-toolchain.toml`, so `rustup` installs the correct toolchain automatically
+the first time you run `cargo` inside the repo. Alternatively, run the setup
+script:
+
+```bash
+./scripts/init.sh
+```
+
+## Test your set-up
+
+Now the best way to ensure that you have successfully prepared a computer for Substrate
+development is to follow the steps in [our first Substrate tutorial](https://docs.polkadot.com/tutorials/v3/create-your-first-substrate-chain/).
+
+## Troubleshooting builds
+
+To see what Rust toolchain you are presently using, run:
+
+```bash
+rustup show
+```
+
+Inside the repository the active toolchain should be the version pinned in
+`rust-toolchain.toml` (with the `wasm32v1-none` target installed), regardless
+of your global default — `rustup` reads the pin automatically. If the pinned
+toolchain or its target is missing, install it explicitly:
+
+```bash
+rustup toolchain install $(grep -oE '[0-9]+\.[0-9]+' rust-toolchain.toml | head -1)
+rustup target add wasm32v1-none
+```
+
+Substrate uses [WebAssembly](https://webassembly.org) (Wasm) to produce
+portable blockchain runtimes, which is why the `wasm32v1-none` target is
+required. Unlike upstream Substrate development, this repository does not use
+nightly Rust for the runtime build — the pinned toolchain builds everything.
+

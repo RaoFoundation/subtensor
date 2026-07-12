@@ -18,7 +18,7 @@
 use super::*;
 use frame_support::{
     dispatch::RawOrigin,
-    traits::{Defensive, fungible::*, tokens::Preservation},
+    traits::{Defensive, fungible::*},
 };
 use frame_system::pallet_prelude::OriginFor;
 use frame_system::pallet_prelude::*;
@@ -92,12 +92,7 @@ impl<T: Config> Pallet<T> {
         frame_system::Pallet::<T>::inc_providers(&lease_coldkey);
         frame_system::Pallet::<T>::inc_providers(&lease_hotkey);
 
-        <T as Config>::Currency::transfer(
-            &crowdloan.funds_account,
-            &lease_coldkey,
-            crowdloan.raised,
-            Preservation::Expendable,
-        )?;
+        Self::transfer_tao(&crowdloan.funds_account, &lease_coldkey, crowdloan.raised)?;
 
         Self::do_register_network(
             RawOrigin::Signed(lease_coldkey.clone()).into(),
@@ -151,23 +146,13 @@ impl<T: Config> Pallet<T> {
                 .saturating_mul(U64F64::from(u64::from(leftover_cap)))
                 .floor()
                 .saturating_to_num::<u64>();
-            <T as Config>::Currency::transfer(
-                &lease_coldkey,
-                &contributor,
-                contributor_refund.into(),
-                Preservation::Expendable,
-            )?;
+            Self::transfer_tao(&lease_coldkey, &contributor, contributor_refund.into())?;
             refunded_cap = refunded_cap.saturating_add(contributor_refund);
         }
 
         // Refund what's left after refunding the contributors to the beneficiary
         let beneficiary_refund = leftover_cap.saturating_sub(refunded_cap.into());
-        <T as Config>::Currency::transfer(
-            &lease_coldkey,
-            &who,
-            beneficiary_refund,
-            Preservation::Expendable,
-        )?;
+        Self::transfer_tao(&lease_coldkey, &who, beneficiary_refund)?;
 
         Self::deposit_event(Event::SubnetLeaseCreated {
             beneficiary: who,

@@ -1,0 +1,97 @@
+---
+title: Contributing
+description: PR lifecycle, review requirements, labels, and how a merge rides the release train to devnet, testnet, and mainnet.
+---
+
+## Lifecycle of a pull request
+
+1. Develop your change on a branch and open a
+   [pull request](https://github.com/RaoFoundation/subtensor/compare) targeting
+   `main`. Start it as a draft until it's ready for other developers to look
+   at. Any change to pallet or runtime code must be accompanied by unit and/or
+   integration tests covering its edge cases — see
+   [Testing](/docs/internals/testing) for how to run every suite.
+2. CI validates the PR from several angles:
+   - `check-rust.yml` — fmt, clippy, custom lints, zepter, `cargo test`
+   - [Clone Upgrade Check](/docs/internals/mainnet-clone) — sudo-upgrades a
+     clone of live mainnet with your runtime, then runs the clone regression
+     tests, the [Python SDK suites](/docs/internals/sdk-tests), and the
+     docs/website build. A runtime change that breaks the SDK or docs fails
+     the PR.
+   - `try-runtime.yml` — replays your migrations against live network state.
+   - Spec Version Check — runtime-affecting PRs must bump `spec_version`
+     above what mainnet is running, or carry the `no-spec-version-bump` label
+     (see below).
+3. Mark the PR "Ready for Review" once the Rust CI is green and request review
+   from the core (Nucleus) team. Reviews may request changes; three positive
+   reviews are required.
+4. After approvals, you or an administrator merge to `main` — which starts the
+   release train.
+
+New to the codebase? Start with the
+[repository layout](/docs/internals/repo-layout).
+
+## The release train
+
+Merging to `main` triggers `release-train.yml`, a build-once promotion
+pipeline (full detail: [Release process](/docs/internals/release-process)):
+
+```
+push to main
+  └─ build wasm once (deterministic srtool build)
+       └─ deploy devnet ── smoke-check devnet
+            └─ deploy testnet ── smoke-check testnet ── publish SDK rc
+                 └─ propose mainnet upgrade (environment gate + triumvirate multisig)
+```
+
+Key properties:
+
+- **The runtime is built exactly once per train.** Promotion between networks
+  is a `setCode` extrinsic plus a smoke suite, never a rebuild — every network
+  runs the identical wasm.
+- **The ship lever is the `spec_version` bump.** A merge without a bump builds
+  and then no-ops at every deploy guard. This is why the Spec Version Check
+  exists: without a bump (or the explicit opt-out label) your change would
+  silently never ship.
+- **Human gates live in GitHub environment settings**, not in the workflow:
+  devnet deploys automatically; testnet and mainnet promotion wait for
+  whatever reviewers are configured on those environments.
+- **Mainnet is never upgraded directly by CI.** The train submits a multisig
+  proposal (CI holds one key of a 2-of-2 deployment multisig with a
+  `SudoUncheckedSetCode` proxy); the triumvirate approves 2-of-3 out-of-band.
+  Once the upgrade executes on chain, `watch-mainnet-release.yml` cuts the
+  GitHub release and publishes Docker images, the Python SDK, Rust crates,
+  and the production website/docs.
+
+After your change deploys to testnet, it is your responsibility to verify it
+works there. If it doesn't, coordinate with a core team administrator and open
+a follow-up PR promptly.
+
+## PR labels
+
+| Label | Effect |
+|-------|--------|
+| `red-team` | Marks feature additions/changes (informational) |
+| `blue-team` | Marks safety measures / dev-UX improvements (informational) |
+| `runtime` | Marks substantive runtime or pallet changes (informational) |
+| `breaking-change` | Notifies the relevant teams automatically — use for anything requiring synchronized changes elsewhere |
+| `no-spec-version-bump` | Skips the spec-version gate for changes that deliberately ship without a runtime release |
+| `skip-clone-upgrade` | Skips the mainnet-clone upgrade check — reserve for changes that cannot affect the runtime, SDK, or docs |
+| `mainnet-clone` | Spins up a live, publicly tunneled mainnet clone running your PR's runtime and posts the `wss://` endpoint as a PR comment for interactive testing |
+| `apply-benchmark-patch` | Applies the benchmark bot's proposed `weights.rs` patch to the PR |
+| `skip-cargo-audit` | Skips the dependency audit |
+
+## Documentation
+
+All documentation lives in the repo-root `docs/` folder — the single source of
+truth rendered to [bittensor.com/docs](https://bittensor.com/docs) by the
+website app (`website/apps/bittensor-website`).
+
+- User-facing concepts and guides: `docs/concepts/`, `docs/guides/`
+- Generated SDK reference (`docs/tx/`, `docs/query/`, `docs/errors.mdx`):
+  never hand-edit; regenerate with
+  `website/apps/bittensor-website/scripts/generate.py`
+- Runtime internals and contributor docs: `docs/internals/`
+
+The docs/website build runs as part of the Clone Upgrade Check, so a PR that
+breaks the docs build fails CI.

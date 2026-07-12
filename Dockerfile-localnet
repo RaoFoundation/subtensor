@@ -7,11 +7,11 @@ SHELL ["/bin/bash", "-c"]
 # Set noninteractive mode for apt-get
 ARG DEBIAN_FRONTEND=noninteractive
 
-LABEL ai.opentensor.image.authors="operations@opentensor.ai" \
-  ai.opentensor.image.vendor="Opentensor Foundation" \
-  ai.opentensor.image.title="opentensor/subtensor-localnet" \
-  ai.opentensor.image.description="Opentensor Subtensor Blockchain" \
-  ai.opentensor.image.documentation="https://docs.bittensor.com"
+LABEL com.bittensor.image.authors="operations@bittensor.com" \
+  com.bittensor.image.vendor="Rao Foundation" \
+  com.bittensor.image.title="raofoundation/subtensor-localnet" \
+  com.bittensor.image.description="Bittensor Subtensor Blockchain" \
+  com.bittensor.image.documentation="https://bittensor.com/docs"
 
 # Copy repo first (you want this *before* RUN to enable layer cache reuse)
 COPY . /build
@@ -75,5 +75,5 @@ EXPOSE 30334 30335 9944 9945
 
 ENTRYPOINT ["/scripts/localnet.sh"]
 # Fast blocks defaults to True, you can disable it by passing False to the docker command, e.g.:
-# docker run ghcr.io/opentensor/subtensor-localnet False
+# docker run ghcr.io/raofoundation/subtensor-localnet False
 CMD ["True"]

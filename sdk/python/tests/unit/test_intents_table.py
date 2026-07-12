@@ -1,0 +1,254 @@
+"""Registry-driven tests over every intent.
+
+Iterates ``bittensor.intents.REGISTRY`` so a new intent is automatically
+tested (and fails loudly if it lacks a sample in ``tests/harness/samples.py``).
+Each intent must: have a valid JSON schema, build from its sample args,
+serialize round-trip exactly, and compose+plan against the in-memory
+``FakeSubstrate`` with no chain.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from bittensor import Policy, PolicyError
+from bittensor.balance import Balance
+from bittensor.client import Client
+from bittensor.intents import REGISTRY, build
+from bittensor.intents._money import UNBOUNDED, _Unbounded
+from bittensor.intents.base import BuiltCall
+from tests.harness.fake_substrate import FakeSubstrate
+from tests.harness.samples import BOB, INTENT_SAMPLES, dev_wallet
+
+
+@pytest.fixture()
+def substrate() -> FakeSubstrate:
+    return FakeSubstrate()
+
+
+@pytest.fixture()
+def client(substrate: FakeSubstrate) -> Client:
+    return Client("local", substrate=substrate)
+
+
+@pytest.fixture(scope="module")
+def wallet():
+    return dev_wallet()
+
+
+def test_every_intent_has_a_sample():
+    missing = sorted(set(REGISTRY) - set(INTENT_SAMPLES))
+    stale = sorted(set(INTENT_SAMPLES) - set(REGISTRY))
+    assert not missing, f"intents without sample args: {missing}"
+    assert not stale, f"samples for unregistered intents: {stale}"
+
+
+@pytest.mark.parametrize("op", sorted(REGISTRY))
+def test_json_schema_is_wellformed(op: str):
+    schema = REGISTRY[op].json_schema()
+    assert schema["type"] == "object"
+    assert set(schema["required"]) <= set(schema["properties"])
+    assert schema["additionalProperties"] is False
+    # The sample satisfies the schema's required set.
+    assert set(schema["required"]) <= set(INTENT_SAMPLES[op])
+
+
+@pytest.mark.parametrize("op", sorted(REGISTRY))
+def test_serialization_roundtrip(op: str):
+    intent = build(op, INTENT_SAMPLES[op])
+    encoded = intent.to_dict()
+    assert encoded["op"] == op
+    rebuilt = build(op, {k: v for k, v in encoded.items() if k != "op"})
+    assert rebuilt.to_dict() == encoded
+
+
+@pytest.mark.parametrize("op", sorted(REGISTRY))
+def test_rejects_unknown_argument(op: str):
+    with pytest.raises(ValueError, match="Unknown arguments"):
+        build(op, {**INTENT_SAMPLES[op], "definitely_not_a_field": 1})
+
+
+@pytest.mark.parametrize("op", sorted(REGISTRY))
+@pytest.mark.asyncio
+async def test_composes_and_plans_offline(op: str, client: Client, wallet):
+    plan = await client.plan(build(op, INTENT_SAMPLES[op]), wallet)
+    assert plan.op == op
+    assert plan.summary
+    assert plan.signer in ("coldkey", "hotkey")
+    assert plan.fee == Balance.from_rao(124_414)
+    assert plan.ok, plan.violations
+
+
+@pytest.mark.parametrize("op", sorted(REGISTRY))
+@pytest.mark.asyncio
+async def test_build_returns_composed_call(op: str, substrate: FakeSubstrate, wallet):
+    built = await build(op, INTENT_SAMPLES[op]).build(substrate, wallet)
+    call = built.call if isinstance(built, BuiltCall) else built
+    module, function, params = call
+    assert isinstance(module, str) and isinstance(function, str)
+    assert isinstance(params, dict)
+    # The composed target is one of the calls the intent declares it wraps
+    # (module-level; some intents pick between calls at build time).
+    wraps = REGISTRY[op].wraps
+    if wraps:
+        assert (module, function) in wraps or module in {m for m, _ in wraps}
+
+
+@pytest.mark.parametrize("op", sorted(REGISTRY))
+def test_spend_shape(op: str):
+    spend = build(op, INTENT_SAMPLES[op]).spend()
+    assert spend is None or spend is UNBOUNDED or isinstance(spend, Balance)
+    if isinstance(spend, Balance):
+        assert spend.netuid == 0, f"{op}.spend() must be TAO-denominated"
+    assert isinstance(spend, (Balance, _Unbounded)) or spend is None
+
+
+class TestPolicyEnforcement:
+    """Policy is the one enforcement point; prove it holds for every intent
+    that declares a spend, not just hand-picked ones."""
+
+    @pytest.mark.asyncio
+    async def test_spend_cap_blocks_every_spending_intent(self, client: Client, wallet):
+        cap = Policy(max_spend_tao=0.000000001)  # 1 rao
+        blocked, leaked = [], []
+        for op in sorted(REGISTRY):
+            intent = build(op, INTENT_SAMPLES[op])
+            spend = intent.spend()
+            if spend is None:
+                continue
+            plan = await client.plan(intent, wallet, policy=cap)
+            (blocked if not plan.ok else leaked).append(op)
+        assert not leaked, f"spend cap did not block: {leaked}"
+        assert blocked, "no spending intents found — spend() wiring broken?"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_on_violation(self, client: Client, wallet):
+        from bittensor.intents.transfer import Transfer
+
+        with pytest.raises(PolicyError):
+            await client.execute(
+                Transfer(dest_ss58=BOB, amount_tao=5.0),
+                wallet,
+                policy=Policy(max_spend_tao=1.0),
+            )
+
+    @pytest.mark.asyncio
+    async def test_netuid_allowlist(self, client: Client, wallet):
+        allow = Policy(allowed_netuids=[1])
+        blocked_ops = []
+        for op in sorted(REGISTRY):
+            intent = build(op, INTENT_SAMPLES[op])
+            if not (set(intent.touches_netuids()) - {0, 1}) and not intent.affects_all_subnets():
+                continue
+            plan = await client.plan(intent, wallet, policy=allow)
+            if not plan.ok:
+                blocked_ops.append(op)
+        # Every intent touching a netuid outside the allowlist must be blocked.
+        for op in sorted(REGISTRY):
+            intent = build(op, INTENT_SAMPLES[op])
+            outside = set(intent.touches_netuids()) - {0, 1}
+            if outside or intent.affects_all_subnets():
+                assert op in blocked_ops, f"allowlist did not block {op}"
+
+    @pytest.mark.asyncio
+    async def test_raw_calls_refused_unless_allowed(self, client: Client, wallet):
+        from bittensor._generated import calls
+
+        call = calls.System.remark(remark="0x00")
+        with pytest.raises(PolicyError):
+            await client.submit_call(call, wallet, policy=Policy(max_spend_tao=100.0))
+        result = await client.submit_call(
+            call, wallet, policy=Policy(max_spend_tao=100.0, allow_raw_calls=True)
+        )
+        assert result.success
+
+
+class TestExecuteFlow:
+    @pytest.mark.asyncio
+    async def test_execute_records_submission(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        from bittensor.intents.transfer import Transfer
+
+        result = await client.execute(Transfer(dest_ss58=BOB, amount_tao=1.0), wallet)
+        assert result.success
+        call, signer, _ = substrate.submissions[-1]
+        assert signer == wallet.coldkey.ss58_address
+        assert call.module == "Balances"
+        assert call.function == "transfer_keep_alive"
+
+    @pytest.mark.asyncio
+    async def test_hotkey_intents_sign_with_hotkey(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        from bittensor.intents.weights import SetWeights
+
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+        assert result.success
+        _, signer, _ = substrate.submissions[-1]
+        assert signer == wallet.hotkey.ss58_address
+
+    @pytest.mark.asyncio
+    async def test_proxy_wraps_call_and_detects_inner_failure(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        from dataclasses import replace
+
+        from bittensor.intents.transfer import Transfer
+        from tests.harness.fake_substrate import success_result
+
+        intent = Transfer(dest_ss58=BOB, amount_tao=1.0)
+        result = await client.execute(intent, wallet, proxy_for=BOB)
+        assert result.success
+        call, _, _ = substrate.submissions[-1]
+        assert (call.module, call.function) == ("Proxy", "proxy")
+        assert call.params["real"] == BOB
+
+        # A proxied extrinsic succeeds even when the wrapped call fails; the
+        # executor must surface the inner ProxyExecuted error.
+        inner_err = {
+            "event": {
+                "module_id": "Proxy",
+                "event_id": "ProxyExecuted",
+                "attributes": {"result": {"Err": {"Module": {"index": 1, "error": "0x00"}}}},
+            }
+        }
+        substrate.queue_result(replace(success_result(), events=[inner_err]))
+        result = await client.execute(intent, wallet, proxy_for=BOB)
+        assert not result.success
+        assert "proxied call failed" in result.message
+
+    @pytest.mark.asyncio
+    async def test_transient_pool_rejection_is_retried(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        from bittensor.intents.transfer import Transfer
+        from bittensor.result import ExtrinsicResult
+
+        substrate.seed_constant("Aura", "SlotDuration", 1)  # negligible retry sleep
+        substrate.queue_result(
+            ExtrinsicResult(success=False, message="Priority is too low: (1 vs 2)")
+        )
+        result = await client.execute(Transfer(dest_ss58=BOB, amount_tao=1.0), wallet, retries=1)
+        assert result.success
+        assert len(substrate.submissions) == 2
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_builds_by_name(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        result = await client.execute_tool(
+            "transfer", {"dest_ss58": BOB, "amount_tao": 1.0}, wallet
+        )
+        assert result.success
+        assert substrate.last_call.module == "Balances"
+
+
+def test_tools_catalog_matches_registry():
+    client = Client("local", substrate=FakeSubstrate())
+    tools = client.tools()
+    assert {t["name"] for t in tools} == set(REGISTRY)
+    for tool in tools:
+        assert tool["summary"]
+        assert tool["input_schema"]["type"] == "object"
+        assert tool["signer"] in ("coldkey", "hotkey")

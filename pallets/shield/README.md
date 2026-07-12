@@ -54,5 +54,5 @@ This gives users a full 12-24s submission window (two block periods) instead of 
 
 ## Dependencies
 
-- [`stp-shield`](https://github.com/opentensor/polkadot-sdk) — shared types (`ShieldedTransaction`, `ShieldEncKey`, `InherentType`)
+- [`stp-shield`](https://github.com/RaoFoundation/polkadot-sdk) — shared types (`ShieldedTransaction`, `ShieldEncKey`, `InherentType`)
 - `ml-kem` / `chacha20poly1305` — cryptographic primitives for in-WASM decryption

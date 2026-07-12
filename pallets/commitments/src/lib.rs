@@ -13,6 +13,7 @@ pub mod weights;
 use ark_serialize::CanonicalDeserialize;
 use codec::Encode;
 use frame_support::IterableStorageDoubleMap;
+use frame_support::weights::WeightMeter;
 use frame_support::{
     BoundedVec,
     traits::{Currency, Get},
@@ -23,7 +24,7 @@ use scale_info::prelude::collections::BTreeSet;
 use sp_runtime::SaturatedConversion;
 use sp_runtime::{Saturating, Weight, traits::Zero};
 use sp_std::{boxed::Box, vec::Vec};
-use subtensor_runtime_common::NetUid;
+use subtensor_runtime_common::{NetUid, clear_prefix_with_meter};
 use tle::{
     curves::drand::TinyBLS381,
     stream_ciphers::AESGCMStreamCipherProvider,
@@ -584,16 +585,34 @@ impl<T: Config> Pallet<T> {
         commitments
     }
 
-    pub fn purge_netuid(netuid: NetUid) {
-        let _ = CommitmentOf::<T>::clear_prefix(netuid, u32::MAX, None);
-        let _ = LastCommitment::<T>::clear_prefix(netuid, u32::MAX, None);
-        let _ = LastBondsReset::<T>::clear_prefix(netuid, u32::MAX, None);
-        let _ = RevealedCommitments::<T>::clear_prefix(netuid, u32::MAX, None);
-        let _ = UsedSpaceOf::<T>::clear_prefix(netuid, u32::MAX, None);
+    pub fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        let write_weight = T::DbWeight::get().writes(1);
 
-        TimelockedIndex::<T>::mutate(|index| {
-            index.retain(|(n, _)| *n != netuid);
+        let result = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            CommitmentOf::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            LastCommitment::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            LastBondsReset::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            RevealedCommitments::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            UsedSpaceOf::<T>::clear_prefix(netuid, limit, None)
         });
+
+        if !result {
+            return false;
+        }
+
+        if weight_meter.can_consume(write_weight) {
+            TimelockedIndex::<T>::mutate(|index| {
+                index.retain(|(n, _)| *n != netuid);
+            });
+            weight_meter.consume(write_weight);
+            true
+        } else {
+            false
+        }
     }
 }
 

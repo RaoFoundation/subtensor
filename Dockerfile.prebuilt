@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+
+# Production image assembled from a CI-built, architecture-specific binary.
+# TARGETARCH is supplied automatically by BuildKit for --platform builds.
+ARG BASE_IMAGE=debian:trixie-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883f5f46362d24c5c2
+FROM ${BASE_IMAGE} AS subtensor
+
+ARG TARGETARCH
+
+LABEL com.bittensor.image.authors="operations@bittensor.com" \
+  com.bittensor.image.vendor="Rao Foundation" \
+  com.bittensor.image.title="raofoundation/subtensor" \
+  com.bittensor.image.description="Bittensor Subtensor Blockchain" \
+  com.bittensor.image.documentation="https://bittensor.com/docs"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  adduser ca-certificates gosu libssl3 libstdc++6 libudev1 && \
+  rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system --gid 10001 subtensor && \
+  adduser --system --uid 10001 --gid 10001 --home /home/subtensor --disabled-password subtensor
+
+RUN mkdir -p /data && chown -R subtensor:subtensor /data
+WORKDIR /home/subtensor
+
+COPY --chown=subtensor:subtensor ./*.json ./
+COPY --chown=subtensor:subtensor ./chainspecs/*.json ./chainspecs/
+COPY --chmod=0755 build/ci_target/${TARGETARCH}/node-subtensor /usr/local/bin/node-subtensor
+COPY --chmod=0755 ./scripts/docker_entrypoint.sh /entrypoint.sh
+
+EXPOSE 30333 9933 9944
+
+USER root
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["--base-path", "/data"]

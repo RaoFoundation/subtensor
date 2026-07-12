@@ -1,20 +1,20 @@
 name: Publish Docker Image
 
+# Node images publish on runtime releases and on demand. Releases cut by
+# watch-mainnet-release.yml use the default GITHUB_TOKEN, which never emits
+# `release: published`; the watcher therefore dispatches this workflow
+# directly with the release tag. Release-version tags (vN) move :latest.
+
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
-      branch-or-tag:
-        description: "Branch or tag to use for the Docker image tag and ref to checkout (optional)"
+      tag:
+        description: "Ref to build and Docker tag to publish (defaults to the dispatching ref)"
         required: false
         default: ""
-  push:
-    branches:
-      - devnet-ready
-      - devnet
-      - testnet
-      
+
 concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: true
@@ -22,33 +22,138 @@ concurrency:
 permissions:
   contents: read
   packages: write
-  actions: read
-  security-events: write
 
 jobs:
-  publish:
-    runs-on: [self-hosted, fireactions-heavy]
-
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.ref.outputs.sha }}
     steps:
-      - name: Determine Docker tag and ref
-        id: tag
-        run: |
-          branch_or_tag="${{ github.event.inputs.branch-or-tag || github.ref_name }}"
-          echo "Determined branch or tag: $branch_or_tag"
-          echo "tag=$branch_or_tag" >> $GITHUB_ENV
-          echo "ref=$branch_or_tag" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
-          # Check if this is a tagged release (not devnet-ready/devnet/testnet)
-          if [[ "${{ github.event_name }}" == "release" && "$branch_or_tag" != "devnet-ready" && "$branch_or_tag" != "devnet" && "$branch_or_tag" != "testnet" ]]; then
+      - name: Resolve immutable source revision
+        id: ref
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  binary:
+    name: production binary (${{ matrix.platform.arch }})
+    needs: setup
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - uses: ./.github/actions/build-production-binary
+        with:
+          arch: ${{ matrix.platform.arch }}
+          target: ${{ matrix.platform.target }}
+          cache-key: docker-production-${{ matrix.platform.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-node-${{ matrix.platform.arch }}
+          path: build/ci_target/${{ matrix.platform.arch }}/node-subtensor
+          if-no-files-found: error
+
+  image:
+    name: validate image (${{ matrix.arch }}, no push)
+    needs: [setup, binary]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: production-node-${{ matrix.arch }}
+          path: build/ci_target/${{ matrix.arch }}
+
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          platforms: linux/${{ matrix.arch }}
+          tags: subtensor-release-check:${{ matrix.arch }}
+          load: true
+          push: false
+
+      - name: Verify image architecture and executable
+        run: |
+          set -euo pipefail
+          actual=$(docker image inspect subtensor-release-check:${{ matrix.arch }} --format '{{.Architecture}}')
+          test "$actual" = "${{ matrix.arch }}"
+          docker run --rm --platform linux/${{ matrix.arch }} \
+            subtensor-release-check:${{ matrix.arch }} --help > /dev/null
+
+  publish:
+    needs: [setup, binary, image]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    steps:
+      - name: Determine tag, ref, and image name
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          ref="$INPUT_TAG"
+          # `ref` is what we check out (a real branch/tag, may contain '/').
+          # Docker tags cannot contain '/', so derive the tag by replacing any
+          # disallowed characters — otherwise a ref like `feat/x` fails tag
+          # validation at push time.
+          tag="${ref//[^a-zA-Z0-9._-]/-}"
+          echo "tag=$tag" >> $GITHUB_ENV
+          echo "ref=$ref" >> $GITHUB_ENV
+          # Move :latest for release events and for dispatched release-version
+          # tags (the watcher dispatches with tag=vN because its GITHUB_TOKEN
+          # release cannot fire the `release` trigger).
+          if [[ "${{ github.event_name }}" == "release" || "$tag" =~ ^v[0-9]+$ ]]; then
             echo "latest_tag=true" >> $GITHUB_ENV
           else
             echo "latest_tag=false" >> $GITHUB_ENV
           fi
+          # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ env.ref }}
+          ref: ${{ needs.setup.outputs.sha }}
+
+      - name: Download AMD64 production binary
+        uses: actions/download-artifact@v5
+        with:
+          name: production-node-amd64
+          path: build/ci_target/amd64
+
+      - name: Download ARM64 production binary
+        uses: actions/download-artifact@v5
+        with:
+          name: production-node-arm64
+          path: build/ci_target/arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -63,12 +168,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.prebuilt
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}:${{ env.tag }}
-            ${{ env.latest_tag == 'true' && format('ghcr.io/{0}:latest', github.repository) || '' }}
+            ${{ env.image }}:${{ env.tag }}
+            ${{ env.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}

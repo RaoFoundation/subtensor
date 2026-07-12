@@ -1,0 +1,139 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bittensor"
+version = "11.0.0.dev0"
+description = "A lean Python SDK (import bittensor) and CLI (btcli) for the Bittensor chain."
+requires-python = ">=3.10,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "RaoFoundation" }]
+dependencies = [
+    # Upper cap: tests/harness/fake_node.py mimics websockets internals
+    # (exceptions/frames), so a new major needs a deliberate bump.
+    "websockets>=14.1,<17",
+    "typing_extensions>=4.0.0; python_version<'3.11'",
+    # Keys, keyfiles, timelock, ML-KEM crypto, and the SCALE codec/runtime
+    # engine: the in-repo Rust core, built against the same crate revisions
+    # as the runtime.
+    "bittensor-core>=0.1.0,<0.2.0",
+    # `btcli` terminal UI. The CLI is a first-class part of the package, so
+    # its dependencies are unconditional.
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    # EVM key storage, signing, and precompile call encoding
+    # (`bittensor.evm`, `btcli evm`).
+    "eth-account>=0.13,<0.14",
+]
+
+# Former extras, kept as no-ops so `pip install 'bittensor[cli]'` (the old
+# documented install command) keeps working.
+[project.optional-dependencies]
+evm = []
+cli = []
+
+[project.scripts]
+btcli = "bittensor.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bittensor"]
+
+# Ship shell-completion scripts to the standard system locations so shells pick
+# them up automatically (no `btcli --install-completion` step needed).
+[tool.hatch.build.targets.wheel.shared-data]
+"completions/btcli.bash" = "share/bash-completion/completions/btcli"
+"completions/_btcli" = "share/zsh/site-functions/_btcli"
+"completions/btcli.fish" = "share/fish/vendor_completions.d/btcli.fish"
+
+# In the monorepo, bittensor-core resolves to the workspace crate; published
+# wheels fall back to the PyPI release of the same package.
+[tool.uv.sources]
+bittensor-core = { path = "../bittensor-core-py" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "pytest-xdist>=3.6",
+    "pytest-rerunfailures>=14.0",
+    "hypothesis>=6.100",
+    "ruff>=0.14",
+    "ty",
+]
+
+[tool.ruff]
+line-length = 100
+# Generated code must stay byte-identical to the codegen emitter's output
+# (codegen.check --drift compares literally), so ruff never touches it.
+extend-exclude = ["bittensor/_generated"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    # The CLI generators (cli/tx.py, cli/query.py) parse annotation *strings*
+    # at runtime (e.g. startswith("Optional[")), so annotations must keep the
+    # typing.Optional/quoted spelling — no PEP 604/585 rewrites.
+    "UP006",
+    "UP007",
+    "UP035",
+    "UP037",
+    "UP045",
+    # Prose and tables legitimately use α/τ/— (subnet token symbols, dashes).
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # zip(strict=) and exception chaining: meaningful, deferred to a dedicated
+    # pass — flipping them mechanically risks behavior changes.
+    "B905",
+    "B904",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# typer's idiom is function calls (typer.Option/Argument) in defaults.
+"bittensor/cli/**" = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "e2e: tests that need a running localnet chain (deselected by default)",
+]
+addopts = "-m 'not e2e'"
+
+[tool.ty.rules]
+# Ratchet plan: these categories have pre-existing findings (mostly the Money
+# fields' __post_init__ narrowing and typer/click internals). They surface as
+# warnings in CI output but don't fail the gate; flip each to "error" as its
+# findings are burned down. Everything not listed here is already clean and
+# enforced at error level.
+invalid-argument-type = "warn"
+unresolved-attribute = "warn"
+invalid-assignment = "warn"
+invalid-return-type = "warn"
+unsupported-operator = "warn"
+not-iterable = "warn"
+unknown-argument = "warn"
+invalid-type-form = "warn"
+invalid-attribute-access = "warn"
+
+[tool.coverage.run]
+source = ["bittensor"]
+branch = true
+omit = ["bittensor/_generated/*"]
+
+[tool.coverage.report]
+show_missing = true
+# Baseline after the Tier-1 buildout is 44%; ratchet this up as the
+# remaining layers (CLI command bodies, sync facade, wallets) get covered.
+fail_under = 42

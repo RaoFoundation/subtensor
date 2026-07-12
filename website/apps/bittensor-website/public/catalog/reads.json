@@ -1,0 +1,1039 @@
+[
+  {
+    "name": "alpha_price",
+    "summary": "Current spot alpha price for a subnet, as TAO per alpha.",
+    "description": "Current spot alpha price for a subnet, as TAO per alpha.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose alpha price to read."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/alpha-price"
+  },
+  {
+    "name": "alpha_prices",
+    "summary": "Spot alpha price for every subnet, as TAO per alpha keyed by netuid.",
+    "description": "Spot alpha price for every subnet, as TAO per alpha keyed by netuid.",
+    "params": {},
+    "param_docs": {},
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/alpha-prices"
+  },
+  {
+    "name": "associated_evm_key",
+    "summary": "The EVM address associated with a neuron (by netuid + uid) and the block it was set.",
+    "description": "The EVM address associated with a neuron (by netuid + uid) and the block it was set.",
+    "params": {
+      "netuid": "integer",
+      "uid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet the neuron is registered on.",
+      "uid": "UID of the neuron on that subnet."
+    },
+    "category": "Neurons & registration",
+    "docs_url": "/docs/query/associated-evm-key"
+  },
+  {
+    "name": "auto_stake",
+    "summary": "The hotkey a coldkey auto-stakes its rewards to on a subnet, or None if unset.",
+    "description": "The hotkey a coldkey auto-stakes its rewards to on a subnet, or None if unset.",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose auto-stake destination to read.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/auto-stake"
+  },
+  {
+    "name": "auto_stake_all",
+    "summary": "Every auto-stake destination configured for a coldkey.",
+    "description": "Every auto-stake destination configured for a coldkey.\n\nOne entry per subnet where a destination hotkey is set; subnets with no\nentry have auto-stake unset.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose auto-stake destinations to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/auto-stake-all"
+  },
+  {
+    "name": "balance",
+    "summary": "Free TAO balance of a coldkey address.",
+    "description": "Free TAO balance of a coldkey address.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose free balance to read."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/balance"
+  },
+  {
+    "name": "balances",
+    "summary": "Free TAO balance for several coldkey addresses in one batched request.",
+    "description": "Free TAO balance for several coldkey addresses in one batched request.",
+    "params": {
+      "coldkey_ss58s": "array"
+    },
+    "param_docs": {
+      "coldkey_ss58s": "Coldkeys whose free balances to read."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/balances"
+  },
+  {
+    "name": "block_info",
+    "summary": "A block's hash, timestamp, and extrinsics (as module.function summaries).",
+    "description": "A block's hash, timestamp, and extrinsics (as module.function summaries).\n\nProgrammatic callers wanting the fully decoded extrinsics and raw header\nshould use `client.block_info()` instead.",
+    "params": {
+      "block": "integer"
+    },
+    "param_docs": {
+      "block": "Block number to describe."
+    },
+    "category": "Chain",
+    "docs_url": "/docs/query/block-info"
+  },
+  {
+    "name": "block_time",
+    "summary": "Seconds per block, detected from the chain (12.0 mainnet, 0.25 fast-blocks).",
+    "description": "Seconds per block, detected from the chain (12.0 mainnet, 0.25 fast-blocks).",
+    "params": {},
+    "param_docs": {},
+    "category": "Chain",
+    "docs_url": "/docs/query/block-time"
+  },
+  {
+    "name": "blocks_since_last_step",
+    "summary": "Blocks since the subnet's last epoch step ran.",
+    "description": "Blocks since the subnet's last epoch step ran.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Epochs & timing",
+    "docs_url": "/docs/query/blocks-since-last-step"
+  },
+  {
+    "name": "blocks_since_last_update",
+    "summary": "Blocks since a neuron last set or committed weights on a subnet",
+    "description": "Blocks since a neuron last set or committed weights on a subnet\n(mechanism 0), or None.\n\nOn commit-reveal subnets LastUpdate is bumped at commit time, not when\nthe weights are revealed and applied. None means the subnet has no\nLastUpdate vector or the uid does not exist. The standard \"is this\nvalidator still setting weights\" health check.",
+    "params": {
+      "netuid": "integer",
+      "uid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query.",
+      "uid": "UID of the neuron on that subnet."
+    },
+    "category": "Epochs & timing",
+    "docs_url": "/docs/query/blocks-since-last-update"
+  },
+  {
+    "name": "blocks_until_next_epoch",
+    "summary": "Blocks until the subnet's next epoch fires, or None if tempo is 0.",
+    "description": "Blocks until the subnet's next epoch fires, or None if tempo is 0.\n\nDerived from the chain's own `next_epoch_start_block` at one pinned block.\nThe actual fire can shift by a few blocks (per-block epoch cap defers,\nowner triggers pull earlier) \u2014 to act on the epoch itself, use\n`client.wait_for_epoch()`.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Epochs & timing",
+    "docs_url": "/docs/query/blocks-until-next-epoch"
+  },
+  {
+    "name": "bonds",
+    "summary": "Validator bond rows as `{validator_uid: {miner_uid: bond}}`, scaled to 0..1.",
+    "description": "Validator bond rows as `{validator_uid: {miner_uid: bond}}`, scaled to 0..1.\n\nBonds are the slow EMA of a validator's stake-weighted weights that pays\nits dividends; unlike weights their magnitude is meaningful, so values are\nscaled by the u16 maximum (1.0 = the largest bond the chain can store)\nrather than row-normalized.",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose bond matrix to fetch.",
+      "mechid": "Mechanism index within the subnet; 0 (the default) on ordinary subnets."
+    },
+    "category": "Weights & bonds",
+    "docs_url": "/docs/query/bonds"
+  },
+  {
+    "name": "burn",
+    "summary": "Current burn (recycle) cost to register on a subnet.",
+    "description": "Current burn (recycle) cost to register on a subnet.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/burn"
+  },
+  {
+    "name": "children",
+    "summary": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.",
+    "description": "Child hotkeys of a parent on a subnet, as (proportion, child_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Parent hotkey whose children to list.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/children"
+  },
+  {
+    "name": "coldkey_lock",
+    "summary": "Lock state for a coldkey on a subnet, or None if no lock exists.",
+    "description": "Lock state for a coldkey on a subnet, or None if no lock exists.\n\n`locked_alpha` is denominated in the subnet's alpha and rolled forward\n(decayed) to the current block; `is_perpetual` locks do not decay.",
+    "params": {
+      "coldkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose lock to read.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/coldkey-lock"
+  },
+  {
+    "name": "coldkey_swap_announcement",
+    "summary": "A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.",
+    "description": "A coldkey's pending swap announcement (execute block, new-key hash, disputed), or None.\n\nThis is the `swap-check` status: `ColdkeySwapAnnouncements` stores the block\nat which the swap becomes executable and the BlakeTwo256 hash committed to.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose pending swap announcement to check."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/coldkey-swap-announcement"
+  },
+  {
+    "name": "commit_reveal_enabled",
+    "summary": "Whether commit-reveal weights are enabled on a subnet.",
+    "description": "Whether commit-reveal weights are enabled on a subnet.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/commit-reveal-enabled"
+  },
+  {
+    "name": "commitment",
+    "summary": "The commitment a hotkey has published on a subnet, or None.",
+    "description": "The commitment a hotkey has published on a subnet, or None.",
+    "params": {
+      "netuid": "integer",
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet the commitment was published on.",
+      "hotkey_ss58": "Hotkey that published the commitment."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/commitment"
+  },
+  {
+    "name": "commitments",
+    "summary": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.",
+    "description": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.\n\nOne row per hotkey that has (or had) a commitment \u2014 including sealed\ntimelocked payloads waiting on drand (`is_revealed` false, `reveals_at`\nset) and fully-revealed ones whose live storage entry the chain already\ndropped. `commitment` is the currently visible content: the plaintext, or\nthe latest chain-decrypted payload; null while still sealed.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose commitments to list."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/commitments"
+  },
+  {
+    "name": "crowdloan",
+    "summary": "A crowdloan's state (creator, deposit, raised, cap, end, target/call), or None.",
+    "description": "A crowdloan's state (creator, deposit, raised, cap, end, target/call), or None.\n\nAmounts are TAO; `end` is the block number at which contributions close.",
+    "params": {
+      "crowdloan_id": "integer"
+    },
+    "param_docs": {
+      "crowdloan_id": "Id of the crowdloan to look up."
+    },
+    "category": "Leases & crowdloans",
+    "docs_url": "/docs/query/crowdloan"
+  },
+  {
+    "name": "crowdloan_contributors",
+    "summary": "Contributors and amounts for a crowdloan, with amounts in TAO.",
+    "description": "Contributors and amounts for a crowdloan, with amounts in TAO.",
+    "params": {
+      "crowdloan_id": "integer"
+    },
+    "param_docs": {
+      "crowdloan_id": "Id of the crowdloan whose contributors to list."
+    },
+    "category": "Leases & crowdloans",
+    "docs_url": "/docs/query/crowdloan-contributors"
+  },
+  {
+    "name": "crowdloans",
+    "summary": "All crowdloans on chain (id and summary fields).",
+    "description": "All crowdloans on chain (id and summary fields).",
+    "params": {},
+    "param_docs": {},
+    "category": "Leases & crowdloans",
+    "docs_url": "/docs/query/crowdloans"
+  },
+  {
+    "name": "delegate",
+    "summary": "Delegate info for one hotkey, or None if it is not a delegate.",
+    "description": "Delegate info for one hotkey, or None if it is not a delegate.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Delegate hotkey to look up."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/delegate"
+  },
+  {
+    "name": "delegate_take",
+    "summary": "A hotkey's delegate take (emission fraction it keeps) with the allowed min/max.",
+    "description": "A hotkey's delegate take (emission fraction it keeps) with the allowed min/max.\n\n`take`, `min`, and `max` are fractions in 0..1; `take_u16` is the raw\non-chain u16 value.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Delegate hotkey whose take to read."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/delegate-take"
+  },
+  {
+    "name": "delegated",
+    "summary": "Every nomination a coldkey holds: (delegate, netuid, stake) per position.",
+    "description": "Every nomination a coldkey holds: (delegate, netuid, stake) per position.\n\nEach `stake` is denominated in the subnet's own currency: subnet alpha, or\nTAO when netuid is 0.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose nominations to list."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/delegated"
+  },
+  {
+    "name": "delegates",
+    "summary": "Every delegate hotkey on the network, with take and registrations.",
+    "description": "Every delegate hotkey on the network, with take and registrations.",
+    "params": {},
+    "param_docs": {},
+    "category": "Delegation",
+    "docs_url": "/docs/query/delegates"
+  },
+  {
+    "name": "difficulty",
+    "summary": "Current PoW registration difficulty for a subnet.",
+    "description": "Current PoW registration difficulty for a subnet.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/difficulty"
+  },
+  {
+    "name": "epoch_status",
+    "summary": "Where a subnet is in its epoch cycle, in one block-pinned read.",
+    "description": "Where a subnet is in its epoch cycle, in one block-pinned read.\n\nBundles tempo, the last epoch run, the chain-computed next start block, and\nthe remaining blocks/seconds (seconds use the chain's detected block time,\nso they are correct on fast-blocks chains too). `pending_epoch_at` is the\nblock of an owner-triggered epoch, or None when none is pending.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Epochs & timing",
+    "docs_url": "/docs/query/epoch-status"
+  },
+  {
+    "name": "existential_deposit",
+    "summary": "Minimum balance an account must keep to stay alive.",
+    "description": "Minimum balance an account must keep to stay alive.",
+    "params": {},
+    "param_docs": {},
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/existential-deposit"
+  },
+  {
+    "name": "hotkey_conviction",
+    "summary": "Conviction metrics for a hotkey on a subnet.",
+    "description": "Conviction metrics for a hotkey on a subnet.\n\nReturns `conviction_alpha` denominated in the subnet's alpha, rolled\nforward to the current block.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey whose conviction to read.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/hotkey-conviction"
+  },
+  {
+    "name": "hotkey_identities",
+    "summary": "On-chain identities for hotkeys (via each hotkey's owner coldkey), keyed by hotkey.",
+    "description": "On-chain identities for hotkeys (via each hotkey's owner coldkey), keyed by hotkey.",
+    "params": {
+      "hotkey_ss58s": "array"
+    },
+    "param_docs": {
+      "hotkey_ss58s": "Hotkeys to resolve identities for."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/hotkey-identities"
+  },
+  {
+    "name": "hotkey_owner",
+    "summary": "The coldkey that owns a hotkey, or None if unowned.",
+    "description": "The coldkey that owns a hotkey, or None if unowned.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey whose owning coldkey to look up."
+    },
+    "category": "Neurons & registration",
+    "docs_url": "/docs/query/hotkey-owner"
+  },
+  {
+    "name": "identity",
+    "summary": "The on-chain identity of a coldkey (name, links, description), or None.",
+    "description": "The on-chain identity of a coldkey (name, links, description), or None.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose identity to read."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/identity"
+  },
+  {
+    "name": "immunity_period",
+    "summary": "Blocks a newly registered neuron is immune from deregistration.",
+    "description": "Blocks a newly registered neuron is immune from deregistration.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/immunity-period"
+  },
+  {
+    "name": "is_delegate",
+    "summary": "Whether a hotkey is a delegate.",
+    "description": "Whether a hotkey is a delegate.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey to check for delegate status."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/is-delegate"
+  },
+  {
+    "name": "is_fast_blocks",
+    "summary": "Whether the chain runs fast blocks (0.25s slots, local/e2e testing mode).",
+    "description": "Whether the chain runs fast blocks (0.25s slots, local/e2e testing mode).",
+    "params": {},
+    "param_docs": {},
+    "category": "Chain",
+    "docs_url": "/docs/query/is-fast-blocks"
+  },
+  {
+    "name": "lease",
+    "summary": "A subnet lease by id (beneficiary, emissions share, end block, netuid, cost), or None.",
+    "description": "A subnet lease by id (beneficiary, emissions share, end block, netuid, cost), or None.\n\n`emissions_share` is a percentage from 0 to 100; `end_block` is None for a\nperpetual lease.",
+    "params": {
+      "lease_id": "integer"
+    },
+    "param_docs": {
+      "lease_id": "Id of the subnet lease to look up."
+    },
+    "category": "Leases & crowdloans",
+    "docs_url": "/docs/query/lease"
+  },
+  {
+    "name": "leases",
+    "summary": "Every subnet lease on the network.",
+    "description": "Every subnet lease on the network.",
+    "params": {},
+    "param_docs": {},
+    "category": "Leases & crowdloans",
+    "docs_url": "/docs/query/leases"
+  },
+  {
+    "name": "locks_for_coldkey",
+    "summary": "Every lock a coldkey holds (one per subnet), rolled forward to now.",
+    "description": "Every lock a coldkey holds (one per subnet), rolled forward to now.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose locks to list."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/locks-for-coldkey"
+  },
+  {
+    "name": "max_weight_limit",
+    "summary": "Normalized-fraction cap on any single weight: after the chain normalizes the submitted vector, no weight may exceed max_weight_limit/65535 of the total. Not a raw u16 ceiling per weight.",
+    "description": "Normalized-fraction cap on any single weight: after the chain normalizes the submitted vector, no weight may exceed max_weight_limit/65535 of the total. Not a raw u16 ceiling per weight.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/max-weight-limit"
+  },
+  {
+    "name": "mechanism_count",
+    "summary": "Current mechanism count configured for a subnet.",
+    "description": "Current mechanism count configured for a subnet.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/mechanism-count"
+  },
+  {
+    "name": "mechanism_emission_split",
+    "summary": "Emission split between mechanisms on a subnet.",
+    "description": "Emission split between mechanisms on a subnet.\n\nReturns the raw on-chain per-mechanism share values, in mechanism order; an\nempty list means no explicit split is set.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/mechanism-emission-split"
+  },
+  {
+    "name": "metagraph",
+    "summary": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).",
+    "description": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose metagraph to fetch."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/metagraph"
+  },
+  {
+    "name": "mev_shield_next_key",
+    "summary": "The MEV Shield ML-KEM-768 public key (0x-hex) used to encrypt shielded txs, or None.",
+    "description": "The MEV Shield ML-KEM-768 public key (0x-hex) used to encrypt shielded txs, or None.",
+    "params": {},
+    "param_docs": {},
+    "category": "Chain",
+    "docs_url": "/docs/query/mev-shield-next-key"
+  },
+  {
+    "name": "min_allowed_weights",
+    "summary": "Minimum number of weights a validator must set on a subnet. A pure self-weight (a single entry pointing at the caller's own uid) bypasses the minimum, and the subnet owner bypasses validator-permit rules.",
+    "description": "Minimum number of weights a validator must set on a subnet. A pure self-weight (a single entry pointing at the caller's own uid) bypasses the minimum, and the subnet owner bypasses validator-permit rules.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/min-allowed-weights"
+  },
+  {
+    "name": "most_convicted_hotkey",
+    "summary": "Hotkey with the highest conviction on a subnet, if any.",
+    "description": "Hotkey with the highest conviction on a subnet, if any.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/most-convicted-hotkey"
+  },
+  {
+    "name": "multisig",
+    "summary": "A pending multisig operation (opening timepoint, approvals, depositor), or None.",
+    "description": "A pending multisig operation (opening timepoint, approvals, depositor), or None.",
+    "params": {
+      "account_ss58": "string",
+      "call_hash": "string"
+    },
+    "param_docs": {
+      "account_ss58": "Multisig account the pending operation belongs to.",
+      "call_hash": "Hash of the multisig call, as 0x-prefixed or bare hex."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/multisig"
+  },
+  {
+    "name": "netuids_for_hotkey",
+    "summary": "Every subnet a hotkey is registered on, as a sorted list of netuids.",
+    "description": "Every subnet a hotkey is registered on, as a sorted list of netuids.",
+    "params": {
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey whose subnet registrations to list."
+    },
+    "category": "Neurons & registration",
+    "docs_url": "/docs/query/netuids-for-hotkey"
+  },
+  {
+    "name": "neurons",
+    "summary": "Every neuron on a subnet in ONE runtime-API call (the metagraph fast path).",
+    "description": "Every neuron on a subnet in ONE runtime-API call (the metagraph fast path).\n\n`lite=true` (the default) omits per-neuron weights/bonds, which is far\nsmaller and what almost every caller wants.",
+    "params": {
+      "netuid": "integer",
+      "lite": "boolean"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose neurons to list.",
+      "lite": "Omit per-neuron weights/bonds (much smaller; what most callers want)."
+    },
+    "category": "Neurons & registration",
+    "docs_url": "/docs/query/neurons"
+  },
+  {
+    "name": "next_epoch_start_block",
+    "summary": "Block at which the subnet's next epoch is expected to fire, or None if tempo is 0.",
+    "description": "Block at which the subnet's next epoch is expected to fire, or None if tempo is 0.\n\nChain-computed: `LastEpochBlock + tempo`, pulled earlier by any pending\nowner-triggered epoch. This is the source of truth \u2014 the epoch schedule is\nstateful, so the legacy client-side modular formula is wrong on subnets\nwhose tempo changed or whose owner triggered an epoch.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Epochs & timing",
+    "docs_url": "/docs/query/next-epoch-start-block"
+  },
+  {
+    "name": "owned_hotkeys",
+    "summary": "Every hotkey owned by a coldkey (the reverse of `hotkey_owner`).",
+    "description": "Every hotkey owned by a coldkey (the reverse of `hotkey_owner`).",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose hotkeys to list."
+    },
+    "category": "Neurons & registration",
+    "docs_url": "/docs/query/owned-hotkeys"
+  },
+  {
+    "name": "parents",
+    "summary": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.",
+    "description": "Parent hotkeys of a child on a subnet, as (proportion, parent_ss58) pairs.\n\nProportions are u64-normalized fractions of the parent's stake, where\nu64::MAX means 100%.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Child hotkey whose parents to list.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/parents"
+  },
+  {
+    "name": "pending_children",
+    "summary": "Proposed child hotkeys of a parent still in cooldown, and when they apply.",
+    "description": "Proposed child hotkeys of a parent still in cooldown, and when they apply.\n\n`set_children` normally does not take effect immediately: the proposal is\nparked here until `cooldown_block`, then promoted to the finalized set\nthat the `children` read returns. On subnets whose subtoken is not yet\nenabled the cooldown is skipped and children apply immediately, so\nnothing lingers here. `children` is (proportion, child_ss58) pairs with\nu64-normalized proportions, matching the `children` read.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Parent hotkey whose pending children to list.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Delegation",
+    "docs_url": "/docs/query/pending-children"
+  },
+  {
+    "name": "proxies",
+    "summary": "Proxy delegations of an account: who may sign on its behalf, and the reserved deposit.",
+    "description": "Proxy delegations of an account: who may sign on its behalf, and the reserved deposit.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Account whose proxy delegations to list."
+    },
+    "category": "Accounts & keys",
+    "docs_url": "/docs/query/proxies"
+  },
+  {
+    "name": "quote_stake",
+    "summary": "Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.",
+    "description": "Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.\n\nUse this to compute a safe `limit_price_rao` for the `add_stake_limit` intent.",
+    "params": {
+      "netuid": "integer",
+      "amount_tao": "number"
+    },
+    "param_docs": {
+      "netuid": "Subnet to simulate staking into.",
+      "amount_tao": "TAO amount to simulate staking."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/quote-stake"
+  },
+  {
+    "name": "quote_unstake",
+    "summary": "Simulate unstaking `amount_alpha` alpha from a subnet: TAO out, fee, and slippage.",
+    "description": "Simulate unstaking `amount_alpha` alpha from a subnet: TAO out, fee, and slippage.",
+    "params": {
+      "netuid": "integer",
+      "amount_alpha": "number"
+    },
+    "param_docs": {
+      "netuid": "Subnet to simulate unstaking from.",
+      "amount_alpha": "Alpha amount to simulate unstaking."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/quote-unstake"
+  },
+  {
+    "name": "reveal_period",
+    "summary": "Commit-reveal reveal window, in epochs, for a subnet.",
+    "description": "Commit-reveal reveal window, in epochs, for a subnet.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/reveal-period"
+  },
+  {
+    "name": "revealed_commitment",
+    "summary": "The revealed (timelock-decrypted) commitment for a hotkey on a subnet, or None.",
+    "description": "The revealed (timelock-decrypted) commitment for a hotkey on a subnet, or None.",
+    "params": {
+      "netuid": "integer",
+      "hotkey_ss58": "string"
+    },
+    "param_docs": {
+      "netuid": "Subnet the commitment was published on.",
+      "hotkey_ss58": "Hotkey that published the commitment."
+    },
+    "category": "Identity & commitments",
+    "docs_url": "/docs/query/revealed-commitment"
+  },
+  {
+    "name": "root_claim_type",
+    "summary": "How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets).",
+    "description": "How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets).",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose root-claim setting to read."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/root-claim-type"
+  },
+  {
+    "name": "stake",
+    "summary": "Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0).",
+    "description": "Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0).",
+    "params": {
+      "coldkey_ss58": "string",
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey that owns the stake.",
+      "hotkey_ss58": "Hotkey the stake is held on.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake"
+  },
+  {
+    "name": "stake_for_coldkey",
+    "summary": "Every stake position held by a coldkey, across all hotkeys and subnets.",
+    "description": "Every stake position held by a coldkey, across all hotkeys and subnets.\n\nEach position's `stake` is denominated in the subnet's own currency: subnet\nalpha, or TAO when netuid is 0. Use `stake_value_for_coldkey` to mark alpha\npositions to TAO.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose stake positions to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake-for-coldkey"
+  },
+  {
+    "name": "stake_for_coldkeys",
+    "summary": "Every stake position for several coldkeys at once, in one runtime call.",
+    "description": "Every stake position for several coldkeys at once, in one runtime call.\n\nEach position's `stake` is denominated in the subnet's own currency: subnet\nalpha, or TAO when netuid is 0.",
+    "params": {
+      "coldkey_ss58s": "array"
+    },
+    "param_docs": {
+      "coldkey_ss58s": "Coldkeys whose stake positions to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake-for-coldkeys"
+  },
+  {
+    "name": "stake_value_for_coldkey",
+    "summary": "A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned.",
+    "description": "A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose stake to value."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake-value-for-coldkey"
+  },
+  {
+    "name": "stake_value_for_coldkeys",
+    "summary": "Spot-price stake valuation for several coldkeys at once, at one block.",
+    "description": "Spot-price stake valuation for several coldkeys at once, at one block.",
+    "params": {
+      "coldkey_ss58s": "array"
+    },
+    "param_docs": {
+      "coldkey_ss58s": "Coldkeys whose stake to value."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/stake-value-for-coldkeys"
+  },
+  {
+    "name": "staking_hotkeys",
+    "summary": "Every hotkey a coldkey has stake with, owned or nominated.",
+    "description": "Every hotkey a coldkey has stake with, owned or nominated.\n\nUnlike `owned_hotkeys` this includes delegates the coldkey has nominated.\nUse `stake_for_coldkey` for the per-subnet amounts behind each entry.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose staked-to hotkeys to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/staking-hotkeys"
+  },
+  {
+    "name": "subnet",
+    "summary": "Tempo, burn, and neuron count for one subnet (the three reads run concurrently).",
+    "description": "Tempo, burn, and neuron count for one subnet (the three reads run concurrently).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet"
+  },
+  {
+    "name": "subnet_convictions",
+    "summary": "Every hotkey with locked stake on a subnet, rolled forward to now.",
+    "description": "Every hotkey with locked stake on a subnet, rolled forward to now.\n\nPer hotkey: locked mass, conviction, and the estimated blocks until its\nconviction reaches 10% of the subnet's outstanding alpha. That per-hotkey\nfigure is a projection heuristic, not a takeover trigger: the ownership\ntakeover in `change_subnet_owner_if_needed` requires the subnet to be\nat least ~1 year old (2,629,800 blocks) and the total aggregate\nconviction across all lockers to reach 10% of `SubnetAlphaOut`, at\nwhich point the highest-conviction hotkey's coldkey becomes the subnet\nowner. Projections assume the lock rates and alpha out stay constant.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/subnet-convictions"
+  },
+  {
+    "name": "subnet_hyperparameters",
+    "summary": "All hyperparameters for a subnet (named fields; version-dependent set).",
+    "description": "All hyperparameters for a subnet (named fields; version-dependent set).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-hyperparameters"
+  },
+  {
+    "name": "subnet_identity",
+    "summary": "The identity metadata of a subnet, or None.",
+    "description": "The identity metadata of a subnet, or None.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose identity to read."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-identity"
+  },
+  {
+    "name": "subnet_names",
+    "summary": "Registered name of every subnet that published an identity, keyed by netuid.",
+    "description": "Registered name of every subnet that published an identity, keyed by netuid.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-names"
+  },
+  {
+    "name": "subnet_registration_cost",
+    "summary": "Current cost to register a new subnet.",
+    "description": "Current cost to register a new subnet.\n\nDenominated in TAO. The cost is dynamic: it rises when subnets register\nand decays back down over time.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-registration-cost"
+  },
+  {
+    "name": "subnet_start_schedule",
+    "summary": "When a registered subnet can call `start_call`.",
+    "description": "When a registered subnet can call `start_call`.\n\nAll values are block numbers: the subnet can start once the current block\nreaches `earliest_start_block` (registration block plus the chain's delay).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-start-schedule"
+  },
+  {
+    "name": "subnets",
+    "summary": "Info for every subnet, fetched in four batched map queries rather than",
+    "description": "Info for every subnet, fetched in four batched map queries rather than\none-query-per-subnet. This is what listing should use.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnets"
+  },
+  {
+    "name": "timelocked_weight_commits",
+    "summary": "Pending (still-encrypted) commit-reveal weight commits, grouped by epoch.",
+    "description": "Pending (still-encrypted) commit-reveal weight commits, grouped by epoch.\n\nEach entry carries the committing `hotkey`, the `commit_block`, the drand\n`reveal_round` at which the chain auto-decrypts and applies it, `reveals_at`\n(that round's UTC time, computed locally), and the `ciphertext`. Entries\ndisappear from this map once revealed \u2014 revealed weights show up in the\n`weights` read.",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose pending weight commits to list.",
+      "mechid": "Mechanism index within the subnet; 0 (the default) on ordinary subnets."
+    },
+    "category": "Weights & bonds",
+    "docs_url": "/docs/query/timelocked-weight-commits"
+  },
+  {
+    "name": "timestamp",
+    "summary": "Current chain time (from the Timestamp pallet) and the block it was read at.",
+    "description": "Current chain time (from the Timestamp pallet) and the block it was read at.",
+    "params": {},
+    "param_docs": {},
+    "category": "Chain",
+    "docs_url": "/docs/query/timestamp"
+  },
+  {
+    "name": "token_symbols",
+    "summary": "Chain-registered token symbol of every subnet, keyed by netuid.",
+    "description": "Chain-registered token symbol of every subnet, keyed by netuid.\n\n`Client.connect` runs this automatically (through a disk cache) and\ninstalls the result as the connection's display symbols, so balances\ndecoded by that client render with each subnet's real symbol.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/token-symbols"
+  },
+  {
+    "name": "tx_rate_limit",
+    "summary": "Global transaction rate limit in blocks.",
+    "description": "Global transaction rate limit in blocks.",
+    "params": {},
+    "param_docs": {},
+    "category": "Chain",
+    "docs_url": "/docs/query/tx-rate-limit"
+  },
+  {
+    "name": "uid",
+    "summary": "UID of a hotkey on a subnet, or None if not registered there.",
+    "description": "UID of a hotkey on a subnet, or None if not registered there.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey whose UID to look up.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Neurons & registration",
+    "docs_url": "/docs/query/uid"
+  },
+  {
+    "name": "weights",
+    "summary": "Validator weight rows as `{validator_uid: {miner_uid: fraction}}`, each row summing to 1.",
+    "description": "Validator weight rows as `{validator_uid: {miner_uid: fraction}}`, each row summing to 1.\n\nThe chain stores max-upscaled u16 values whose absolute scale carries no\nmeaning \u2014 consensus only uses within-row proportions \u2014 so rows are\nnormalized to fractions here. On commit-reveal subnets a validator's row\nupdates only when its timelocked commit reveals (see\n`timelocked_weight_commits` for what is pending).",
+    "params": {
+      "netuid": "integer",
+      "mechid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose weight matrix to fetch.",
+      "mechid": "Mechanism index within the subnet; 0 (the default) on ordinary subnets."
+    },
+    "category": "Weights & bonds",
+    "docs_url": "/docs/query/weights"
+  },
+  {
+    "name": "weights_rate_limit",
+    "summary": "Blocks a hotkey must wait between weight sets on a subnet.",
+    "description": "Blocks a hotkey must wait between weight sets on a subnet.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/weights-rate-limit"
+  }
+]

@@ -13,14 +13,14 @@ interface IProxy {
     function proxyCall(
         bytes32 real,
         uint8[] memory force_proxy_type,
-        bytes memory call
+        uint8[] memory call
     ) external;
 
     function killPureProxy(
         bytes32 spawner,
         uint8 proxy_type,
         uint16 index,
-        uint16 height,
+        uint32 height,
         uint32 ext_index
     ) external;
 

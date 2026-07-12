@@ -1,0 +1,131 @@
+@import '../shared.module.css';
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.abstract_text {
+  text-align: center;
+  font-size: 14px;
+}
+
+.paper_title {
+  font-size: 20px;
+}
+
+.subtitle {
+  font-family: 'FiraCode';
+  font-size: 14px;
+  font-weight: 200;
+  padding-bottom: 33px;
+  text-transform: uppercase;
+  &_sec5 {
+    text-align: center;
+    font-family: 'FiraCode';
+    font-size: 14px;
+    font-weight: 200;
+    padding-bottom: 33px;
+    text-transform: uppercase;
+    align-self: center;
+  }
+}
+
+.image_container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  color: #000;
+  text-align: center;
+  font-size: 14px;
+
+  &_caption_no {
+    font-family: 'FiraCode';
+    font-size: 14px;
+    font-weight: 200;
+    text-transform: uppercase;
+  }
+
+  &_image {
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.paper_link {
+  font-family: 'FiraCode';
+  font-size: 14px;
+  font-weight: 200;
+  text-transform: uppercase;
+  color: #d15168;
+}
+
+.list {
+  list-style-type: decimal;
+  margin: 10px 10px;
+  padding: inherit 10px;
+  display: flex;
+  gap: 10px;
+  flex-direction: column;
+}
+.unorder_list {
+  width: 100%;
+  list-style-type: disc;
+  & > li {
+    margin-left: 36px;
+  }
+  & > div {
+    margin-left: 36px;
+    & > li::before {
+      content: '-  ';
+      margin-left: calc(12px * 2);
+    }
+  }
+}
+.unorder_list_unique {
+  width: 100%;
+  & > div {
+    margin-left: 36px;
+    & > li::before {
+      content: '-  ';
+      margin-left: calc(12px * 2);
+    }
+  }
+  & > div p::before {
+    content: '\2022    ';
+  }
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .image_container_image {
+    max-height: 70%;
+    width: 100%;
+  }
+  .unorder_list {
+    width: 100%;
+    list-style-type: disc;
+    & > li {
+      margin-left: 24px;
+    }
+  }
+  .unorder_list_unique {
+    width: 100%;
+    & > div {
+      margin-left: 36px;
+      & > li::before {
+        content: '-  ';
+        margin-left: calc(12px * 2);
+      }
+    }
+    & > div p::before {
+      content: '\2022    ';
+    }
+  }
+}

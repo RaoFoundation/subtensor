@@ -1,0 +1,28 @@
+.section_container {
+  display: inline-flex;
+  flex-direction: column;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'FiraCode';
+  text-transform: uppercase;
+  padding-top: calc(32px / 2);
+  gap: 32px;
+  text-align: right;
+  overflow-x: hidden;
+  align-items: flex-end;
+  overflow-y: hidden;
+  padding-bottom: 10px;
+
+  .link {
+    font-size: 12px;
+    text-overflow: ellipsis;
+    width: fit-content;
+    white-space: pre-wrap;
+    max-width: 150px;
+    text-align: right;
+    overflow-x: hidden;
+    letter-spacing: 3%;
+    line-height: 150%;
+  }
+}

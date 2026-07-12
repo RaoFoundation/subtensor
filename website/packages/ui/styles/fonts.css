@@ -1,0 +1,79 @@
+@font-face {
+  font-family: 'Haffer';
+  src: url(../fonts/Haffer-Light.ttf);
+  font-weight: 200;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Haffer';
+  src: url(../fonts/Haffer-Medium.ttf);
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Haffer';
+  src: url(../fonts/Haffer-Regular.ttf);
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Haffer';
+  src: url(../fonts/Haffer-SemiBold.ttf);
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'HafferSQ';
+  src: url(../fonts/HafferSQ-Light.ttf);
+  font-weight: 200;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'HafferSQ';
+  src: url(../fonts/HafferSQ-Medium.ttf);
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'HafferSQ';
+  src: url(../fonts/HafferSQ-Regular.ttf);
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'HafferSQ';
+  src: url(../fonts/HafferSQ-SemiBold.ttf);
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'TTCommonsPro';
+  src: url(../fonts/TTCommonsProMonoMedium.ttf);
+  font-weight: 200;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'TTCommonsPro';
+  src: url(../fonts/TTCommonsProMonoRegular.ttf);
+  font-weight: 100;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'FiraCode';
+  src: url(../fonts/FiraCode_VariableFont_wght.ttf);
+}
+
+@font-face {
+  font-family: 'DM Mono';
+  src: url(../fonts/DMMono-Regular.ttf);
+}

@@ -6,7 +6,7 @@ address constant IED25519VERIFY_ADDRESS = 0x000000000000000000000000000000000000
 interface IEd25519Verify {
     /**
      * @dev Verifies Ed25519 signature using provided message and public key.
-     * 
+     *
      * @param message The 32-byte signature payload message.
      * @param publicKey 32-byte public key matching to private key used to sign the message.
      * @param r The Ed25519 signature commitment (first 32 bytes).

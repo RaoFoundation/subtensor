@@ -1,0 +1,28 @@
+.tao_credit_val {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  cursor: pointer;
+  margin-top: -2px;
+
+  > a {
+    display: flex;
+    align-items: center;
+  }
+
+  > a > span:nth-child(1) {
+    font-size: 16px;
+    font-family: 'FiraCode';
+    font-weight: 300;
+    padding-right: 8px;
+    color: var(--text-secondary-kh);
+    text-transform: lowercase;
+  }
+
+  > a > span:last-child {
+    font-size: 20px;
+    line-height: 120%;
+    font-family: 'Haffer';
+    color: var(--text-primary-kh);
+  }
+}

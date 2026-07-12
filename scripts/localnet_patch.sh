@@ -20,22 +20,32 @@ patch_file() {
     exit 1
   fi
 
+  local before_hash after_hash
+  before_hash=$(cksum "$file_path")
+
   # Apply the replacement
   if ! perl -0777 -i -pe "$replacement_pattern" "$file_path"; then
     echo "Error: Failed to apply replacement in $file_path"
     echo "Description: $description"
     exit 1
   fi
+
+  # The search pattern existing is not enough: the replacement regex must
+  # actually match, otherwise the patch silently no-ops when the code drifts.
+  after_hash=$(cksum "$file_path")
+  if [ "$before_hash" = "$after_hash" ]; then
+    echo "Error: Replacement pattern did not change $file_path"
+    echo "Description: $description"
+    echo "The replacement regex no longer matches the code. Update or remove this patch."
+    exit 1
+  fi
 }
 
 echo "Applying patches..."
 
-# Patch 1: InitialStartCallDelay
-patch_file \
-  "runtime/src/lib.rs" \
-  "pub const InitialStartCallDelay: u64" \
-  's|pub const InitialStartCallDelay: u64 = prod_or_fast!\(7 \* 24 \* 60 \* 60 / 12, 10\);|pub const InitialStartCallDelay: u64 = prod_or_fast!(5, 10);|' \
-  "Reduce InitialStartCallDelay for local testing"
+# NOTE: the former Patch 1 (InitialStartCallDelay) was removed: mainline now
+# hardcodes `pub const InitialStartCallDelay: u64 = 0;` which already gives
+# local testing an immediate start_call.
 
 # Patch 2: DefaultPendingCooldown
 patch_file \

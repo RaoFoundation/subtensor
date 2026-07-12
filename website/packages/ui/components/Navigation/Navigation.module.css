@@ -1,0 +1,53 @@
+/* Todos */
+/* convert tailwind styles to css */
+
+.navbar_container {
+  width: stretch;
+  height: 22px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.navbar_container a {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.navbar_container a:visited {
+  color: var(--text-primary);
+}
+
+.links_container {
+  display: flex;
+  flex-direction: row;
+  gap: 2rem;
+  color: var(--text-primary);
+  font-family: 'FiraCode';
+  font-weight: 400;
+  font-size: 12px;
+  align-items: center;
+}
+
+.links {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.links:hover {
+  text-decoration: solid;
+}
+
+.hamburger_container {
+  display: none;
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .hamburger_container {
+    display: flex;
+  }
+  .links_container {
+    display: none;
+  }
+}

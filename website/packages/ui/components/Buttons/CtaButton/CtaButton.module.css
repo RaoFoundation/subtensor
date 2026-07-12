@@ -1,0 +1,140 @@
+/* Button.tsx style */
+.container {
+  display: flex;
+  justify-content: center;
+  width: stretch;
+  font-size: 12px;
+  font-family: 'FiraCode';
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.button {
+  border-width: 0.25px;
+  cursor: pointer;
+  border: none;
+  border-color: var(--text-primary);
+  background-color: var(--background-paper);
+  color: var(--text-primary);
+  max-height: 50px;
+  max-width: 300px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-radius: 5px;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  transition: all 0.5s ease;
+  font-family: 'FiraCode';
+  font-weight: 400;
+}
+
+.button:hover {
+  border-color: var(--primary-light);
+  background-color: var(--primary-light);
+  color: var(--background-default);
+}
+
+.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.busy {
+  pointer-events: none;
+  background-image: linear-gradient(var(--text-primary), var(--text-primary)),
+    linear-gradient(var(--text-primary), var(--text-primary)),
+    linear-gradient(var(--text-primary), var(--text-primary)),
+    linear-gradient(var(--text-primary), var(--text-primary));
+
+  background-position:
+    0 0,
+    0 0,
+    0 100%,
+    0 100%;
+  background-size:
+    1px 0%,
+    0% 1px,
+    0% 1px,
+    1px 0%;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  transition: 0.2s linear;
+  animation: animate 1.4s linear infinite 0.2s;
+  opacity: 0.5;
+}
+
+@keyframes animate {
+  0% {
+    background-position:
+      0 100%,
+      0 0,
+      0 100%,
+      100% 0;
+    background-size:
+      1px 0%,
+      100% 1px,
+      0% 1px,
+      1px 0%;
+  }
+  40% {
+    background-position:
+      0 100%,
+      100% 0,
+      100% 100%,
+      100% 0;
+    background-size:
+      1px 0%,
+      100% 1px,
+      0% 1px,
+      1px 100%;
+  }
+  60% {
+    background-position:
+      0 100%,
+      100% 0,
+      100% 100%,
+      100% 100%;
+    background-size:
+      1px 0%,
+      0% 1px,
+      100% 1px,
+      1px 100%;
+  }
+  70% {
+    background-position:
+      0 100%,
+      100% 0,
+      0% 100%,
+      100% 100%;
+    background-size:
+      1px 100%,
+      0% 1px,
+      100% 1px,
+      1px 0%;
+  }
+  80% {
+    background-position:
+      0% 0%,
+      0% 0,
+      0% 100%,
+      100% 100%;
+    background-size:
+      1px 100%,
+      0% 1px,
+      0% 1px,
+      1px 0%;
+  }
+  100% {
+    background-position:
+      0% 0%,
+      0 0,
+      0 100%,
+      100% 100%;
+    background-size:
+      1px 0%,
+      100% 1px,
+      0% 1px,
+      1px 0%;
+  }
+}

@@ -1,0 +1,56 @@
+---
+title: Repository layout
+description: What lives where — a map of the subtensor monorepo for new contributors.
+---
+
+The repo is a monorepo: the Substrate chain, the Python SDK, the docs, and the
+websites all live together so a single PR (and a single CI run) can validate a
+runtime change against everything it might break.
+
+## The chain (Rust, cargo workspace)
+
+| Directory | What it is |
+|-----------|------------|
+| `pallets/` | The FRAME pallets — the chain's business logic. `pallets/subtensor/` is the core (staking, subnets, emissions, consensus); others include `swap` (liquidity), `admin-utils`, `commitments`, `crowdloan`, `drand`, `limit-orders`, `proxy`, `shield`, `transaction-fee`, `utility` |
+| `runtime/` | Composes the pallets into the actual runtime (`construct_runtime!`), plus migrations, runtime APIs, and the `spec_version` (`runtime/src/lib.rs`) — bump it to ship a release |
+| `node/` | The node binary: networking, RPC, chain specs for each network (`node/src/chain_spec/`), and the `build-patched-spec` subcommand used by [mainnet clone testing](/docs/internals/mainnet-clone) |
+| `precompiles/` | EVM precompiles exposing substrate functionality (staking, balance transfers, …) to EVM contracts |
+| `chain-extensions/` | ink!/wasm contract chain extensions — the substrate-side counterpart of `ink-contract/` (see [Wasm contracts](/docs/internals/wasm-contracts)) |
+| `primitives/` | Small shared crates: `safe-math`, `share-pool`, `swap-interface` |
+| `common/` | `subtensor-runtime-common` — types shared between runtime, node, and pallets (`NetUid`, balances, …) |
+| `support/` | Tooling crates: custom lints (`linting/`), proc macros (`macros/`), `procedural-fork`, `weight-tools` (the `weight-compare` CI gate), `tools` |
+| `src/` + `build.rs` (root) | A stub crate whose build script runs the custom lints in CI — not application code |
+| `vendor/` | Vendored third-party crates: `w3f-bls` (upstream 0.1.3 plus a no-std fix, formerly the RaoFoundation/bls fork) — consumed by `pallets/drand`, the runtime, and `sdk/bittensor-core`, and patched over the crates.io version so `tle` uses the same copy |
+
+## Tests and test harnesses
+
+| Directory | What it is |
+|-----------|------------|
+| `ts-tests/` | Moonwall/zombienet TypeScript integration tests ([Testing](/docs/internals/testing)) |
+| `clones/` | Mainnet-clone harness: scripts + JS regression tests ([Mainnet clone testing](/docs/internals/mainnet-clone)) |
+| `eco-tests/` | Indexer contract tests, excluded from the workspace ([Eco-tests](/docs/internals/eco-tests)) |
+
+## SDK, docs, web
+
+The `sdk/` tree holds everything client-side: one shared Rust core, one thin
+binding crate per language, and one product directory per language surface.
+
+| Directory | What it is |
+|-----------|------------|
+| `sdk/bittensor-core/` | The chain-defined compute core for clients: sp-core key primitives, keyfiles, SCALE codec + runtime metadata engine, extrinsic assembly, RFC-0078 metadata digests, drand timelock, ML-KEM, Ledger transport — a cargo workspace member built against the same crate revisions as the runtime so client crypto and codec can never drift from the chain's |
+| `sdk/bittensor-core-py/` | PyO3 bindings for the core (bindings only, no logic) — published to PyPI as `bittensor-core` wheels ([Rust setup](/docs/internals/rust-setup)). Future surfaces add sibling binding crates (napi, uniffi) next to the core they mirror |
+| `sdk/python/` | The `bittensor` Python SDK and `btcli` — bindings generated from chain metadata ([SDK tests](/docs/internals/sdk-tests)) |
+| `docs/` | This documentation — the single source of truth, rendered to bittensor.com/docs by the website app. `docs/tx/`, `docs/query/`, and `docs/errors.mdx` are generated; never hand-edit them |
+| `website/` | Yarn 4 + Turbo monorepo. `apps/bittensor-website` is the production site (marketing + these docs); `packages/` holds shared UI/API libraries |
+| `ink-contract/` | Standalone ink! contract source used by the wasm-contract tests |
+
+## Chain data and operations
+
+| Directory / file | What it is |
+|------------------|------------|
+| `chainspecs/` | Committed chain specs. The raw finney/testfinney specs are loaded by docker-compose and the clone scripts; **all six files are genesis anchors** for `scripts/build_all_chainspecs.sh` — the genesis wasm is not reproducible, so never delete them |
+| `snapshot.json` | Genesis state loaded by the embedded finney/test_finney chain specs and bundled into Docker images |
+| `scripts/` | CI and developer scripts — each one documented in [Repository scripts](/docs/internals/scripts) |
+| `.github/workflows/` | CI: PR checks, the [release train](/docs/internals/release-process), Docker publishing |
+| `Dockerfile` / `docker-compose.yml` | Production node image and compose services for running mainnet/testnet nodes |
+| `Dockerfile-localnet` / `docker-compose.localnet.yml` | The localnet image used for [local development](/docs/guides/local-development) and SDK e2e tests |

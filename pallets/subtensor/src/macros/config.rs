@@ -8,6 +8,7 @@ mod config {
 
     use crate::{CommitmentsInterface, GetAlphaForTao, GetTaoForAlpha};
     use frame_support::PalletId;
+    use frame_support::traits::LockableCurrency;
     use pallet_alpha_assets::AlphaAssetsInterface;
     use pallet_commitments::GetCommitments;
     use subtensor_runtime_common::AuthorshipInfo;
@@ -35,7 +36,8 @@ mod config {
 
         ///  Currency type that will be used to place deposits on neurons
         type Currency: fungible::Balanced<Self::AccountId, Balance = TaoBalance>
-            + fungible::Mutate<Self::AccountId>;
+            + fungible::Mutate<Self::AccountId>
+            + LockableCurrency<Self::AccountId, Balance = TaoBalance>;
 
         /// The scheduler type used for scheduling delayed calls.
         type Scheduler: ScheduleAnon<

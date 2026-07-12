@@ -1,0 +1,227 @@
+---
+title: Emissions
+description: TAO and alpha issuance, halvings, subnet emission shares, the per-tempo split, and Yuma Consensus.
+---
+
+Emissions run in two stages. Every block, the chain mints TAO, splits it
+across subnets, and injects liquidity into their pools (the **coinbase**).
+Every tempo, each subnet distributes its accumulated alpha to owner, miners,
+validators, and stakers via **Yuma Consensus** (the **epoch**). This page
+covers the numbers; [The network](/docs/concepts/network) covers the roles.
+
+<EmissionNetworkSnapshot />
+
+## TAO emission and halvings
+
+The base emission is **1 TAO per block** (one block every 12 seconds),
+decaying toward a hard cap of 21 million TAO. Halvings are triggered by
+**total-issuance thresholds**, not block counts: emission halves each time
+issuance crosses the midpoint of the remaining supply (10.5M, 15.75M, ...).
+Because recycled TAO (registration burns) is subtracted from total issuance
+and can be re-emitted, recycling pushes halvings out. Transaction fees are
+not recycled — they are paid to the block author (see
+[fees](/docs/concepts/transactions#fees)).
+
+The first halving occurred in December 2025: current emission is 0.5 TAO per
+block, roughly 3,600 TAO per day.
+
+A TAO halving also halves every pool's injection: each subnet's `tao_in` is
+a share of the halved block emission, and `alpha_in` tracks it
+(`tao_in / price`), so alpha injection halves too — slowing every subnet's
+alpha issuance and stretching alpha-halving timelines.
+
+Supply accounting in brief: max supply is 21M for TAO and for each subnet's
+alpha; **total issuance** counts what has been emitted and not recycled (the
+halving yardstick), while circulating supply is smaller — issuance includes
+pool reserves and staked positions. Burned tokens stay counted in issuance
+forever; recycled amounts are re-emittable
+([recycled vs burned](/docs/concepts/money#recycled-vs-burned)).
+
+<TaoHalvingChart />
+
+## Alpha emission
+
+Subnet tokens date from the **dTAO** upgrade (February 2025, first dTAO
+block 4,920,351), which converted all existing stake to root TAO stake at
+the switch. Each subnet's alpha token has its own 21M cap and follows the
+same halving curve, applied to that subnet's alpha issuance and starting
+from the subnet's launch. Per block, a subnet mints alpha in two places:
+
+- **`alpha_out`** — up to 1 alpha (at the subnet's current halving rate)
+  destined for participants, accumulated for distribution at the next epoch.
+- **`alpha_in`** — alpha injected into the pool alongside the subnet's TAO
+  emission, normally `tao_in / price` so the injection is price-neutral.
+
+So a young subnet mints up to 2 alpha per block in total. The injection is
+capped at `root_proportion × alpha_emission`, where
+`root_proportion = (root_tao × tao_weight) / (root_tao × tao_weight + alpha_issuance)`.
+As a subnet ages its alpha issuance grows, the cap falls, and the TAO that
+can no longer be injected as liquidity is instead swapped for alpha on the
+subnet's own pool — buying pressure that transitions mature subnets from
+liquidity injection to chain buybacks. Alpha bought this way accumulates as
+protocol-owned alpha.
+
+<RootProportionExplainer />
+
+## Subnet emission shares
+
+Each block's TAO emission is divided across subnets in proportion to their
+**EMA price**, weighted by a miner-burn penalty (this price-based formula
+shipped in June 2026):
+
+```
+share_i = p_i × (1 − b_i) / Σ_j p_j × (1 − b_j)
+```
+
+where `p_i` is the subnet's moving price (`SubnetMovingPrice`) and `b_i` is
+the proportion of the last tempo's miner incentive that was withheld because
+it was directed to subnet-owner hotkeys (counted whether the withheld alpha
+was recycled or burned). If the combined weight is zero across all subnets,
+the chain falls back to unweighted price shares so emission is never
+stranded. Emission-disabled subnets get zero share, redistributed
+proportionally to enabled ones — and with `tao_in` zeroed, `alpha_in`
+(`tao_in / price`) is zero too, so pool injection stops entirely while
+`alpha_out` keeps accruing for participants.
+
+The EMA uses an age-dependent smoothing factor:
+
+```
+ema_alpha = base_alpha × blocks_since_start / (blocks_since_start + halving_blocks)
+```
+
+with `halving_blocks` defaulting to 201,600 (~4 weeks). New subnets start
+near zero — their moving price adapts extremely slowly, which blunts launch
+pumps, coordinated buys, and flash attacks on emission shares. The spot
+price feeding the EMA is capped at 1.0. There is no zero-emission floor: a
+subnet with a low EMA price still receives a small non-zero share.
+
+<SubnetEmissionShareChart />
+
+## Pools and price
+
+Pools are Balancer-style weighted pools, and the spot alpha price is
+`(w_alpha / w_tao) × (TAO reserve / alpha reserve)` (read it with
+[`alpha-price`](/docs/query/alpha-price)). The two weights start at 0.5/0.5
+— where the price reduces to the plain reserve ratio and the math to
+constant-product — and are bounded to \[0.01, 0.99\]. Per-block liquidity
+injections shift the weights instead of the price, so emission does not move
+the market, but it does nudge the weights slightly off 0.5/0.5 — so the
+price is the weighted ratio, not exactly `TAO / alpha`. Pool liquidity is
+protocol-owned by default: the chain has a user-liquidity feature (per-subnet
+`user_liquidity_enabled` toggle, off by default) but with it off there are no
+user LP positions or LP tokens.
+
+## The per-tempo split
+
+Per-block `alpha_out` is divided as it accrues:
+
+- **18%** to the subnet owner (`SubnetOwnerCut`, 11796/65535).
+- **41%** to miners — 50% of the remainder.
+- **41%** to validators and their stakers — the other 50%.
+
+A `root_proportion` share of the validator half (same formula as the
+injection cap) is reserved for **root TAO stakers** and accumulated as
+claimable root dividends — but only in blocks where the sum of all subnets'
+EMA prices exceeds 1.0; otherwise that alpha is recycled.
+
+If an epoch ends with zero total miner incentive, the miner half of that
+tempo's pending alpha is paid to validators instead of being withheld.
+
+Within a validator's dividends, each staker is paid according to the
+validator's stake mix: the TAO-staker portion is `τ × w / (α + τ × w)` and
+the alpha-staker portion is `α / (α + τ × w)`, where `w` is the global TAO
+weight (currently 0.18 on mainnet, governance-set). The validator's
+[take](/docs/tx/set-take) is
+deducted before delegators are paid.
+
+<EmissionFlowDiagram />
+
+## Epochs
+
+Distribution happens at epoch boundaries. Each subnet's epoch fires once
+`tempo` blocks have passed since its last epoch; the default tempo is 360
+blocks (~72 minutes), owner-settable between 360 and 50,400 (~7 days), and
+some older subnets carry smaller legacy values. At most 2 subnet epochs run
+per block — extras are deferred one block — and a subnet owner can trigger
+an early epoch manually. An epoch that hits inconsistent chain state is
+skipped (the schedule still advances); its pending emission keeps accruing
+and is drained by the next successful epoch. Emission is settled per epoch,
+at epoch end: the accumulated alpha is paid to the hotkeys holding each UID
+when the epoch fires, not continuously per block. Deregistration follows the
+same rule — a neuron pruned mid-tempo gets nothing for the partial tempo,
+since the payout lands on whoever holds the UID at the epoch (its last
+payout was the last epoch that fired while it was registered). The
+[`metagraph`](/docs/query/metagraph)'s per-neuron emission field reflects
+this settlement: it is denominated in rao (of the subnet's alpha) and holds
+each UID's combined payout from the subnet's most recent epoch — a per-tempo
+amount, not a per-block rate. [`epoch-status`](/docs/query/epoch-status) and
+[`blocks-until-next-epoch`](/docs/query/blocks-until-next-epoch) expose the
+timing per subnet.
+
+## Yuma Consensus
+
+At each epoch the chain resolves the validator-weight matrix (set via
+[`set-weights`](/docs/tx/set-weights)) into per-neuron emission shares.
+
+**Stake weight.** Each neuron's stake weight is
+`alpha_stake + tao_stake × tao_weight` — alpha staked on the subnet plus
+root-subnet TAO stake scaled by the global TAO weight (currently 0.18 on
+mainnet, governance-set). Validators
+below the chain's stake threshold (currently 1,000 tokens' worth) are
+zeroed, and neurons whose last weight update is older than the activity
+cutoff (default 5,000 blocks) are inactive and excluded from consensus.
+
+**Permits.** Validator permits are recalculated every epoch as the top-K
+neurons by stake weight, with K = `MaxAllowedValidators` (default 128). Only
+permitted neurons can set weights over others; bonds are kept while a permit
+is held and cleared when it is lost.
+
+**Weight filtering.** Self-weights are removed (except the subnet owner's),
+as are weights from non-permitted validators and weights set before the
+target neuron's latest registration. Each validator's surviving weights are
+row-normalized, so influence is independent of absolute weight values.
+
+**Consensus and clipping.** For each miner, consensus is the stake-weighted
+median: the highest weight level supported by at least `kappa` of active
+stake, with kappa defaulting to 32767/65535 ≈ 0.5. Weights above consensus
+are clipped down to it.
+
+**Rank and incentive.** A miner's rank is the stake-weighted sum of
+clipped weights, `r_j = Σ_i s_i × w̄_ij`; normalized ranks become
+**incentive**, each miner's share of the miner emission. **Validator trust**
+is the sum of a validator's clipped weights. The per-miner **trust** metric
+(the ratio of clipped to unclipped rank) is deprecated — the chain no longer
+computes it, and the metagraph returns empty trust and rank vectors.
+
+**Bonds and dividends.** Bond weights interpolate between raw and clipped
+weights by the bonds-penalty hyperparameter (default: fully clipped).
+Instant bonds `ΔB = W ∘ S` (weights times stake, column-normalized) are
+smoothed by an EMA:
+
+```
+B(t) = alpha × ΔB + (1 − alpha) × B(t−1)
+```
+
+where `alpha = 1 − bonds_moving_average / 1,000,000` (default 900,000, so
+alpha = 0.1). Validator dividends are bonds times miner incentive,
+`d_i = Σ_j B_ij × I_j` — validators who recognize good miners early build
+bonds and earn more when consensus catches up.
+
+**Yuma3** (a per-subnet toggle) switches to fixed-point bond computation
+with per-pair scaling, and computes dividends differently: the row-sum of
+bonds × incentive, scaled by each validator's active stake, then
+renormalized. With **liquid alpha** enabled, the EMA rate becomes dynamic
+per validator–miner pair, moving between `alpha_low` (default 0.7) and
+`alpha_high` (default 0.9) via a sigmoid on the distance from consensus
+(steepness default 1000). Liquid alpha only takes effect when `yuma3_enabled`
+is also on — the classic bond path ignores the toggle entirely. Both toggles
+and their parameters are owner-set
+[hyperparameters](/docs/query/subnet-hyperparameters).
+
+If no valid weights exist, emission falls back to stake proportions, so a
+subnet without consensus still pays its stakers. The epoch writes consensus,
+incentive, dividends, validator trust, bonds, and permits back to chain
+state — [`metagraph`](/docs/query/metagraph) returns all of it in one read,
+and combined emission drives pruning (deregistration) order.
+
+<YumaConsensusDemo />

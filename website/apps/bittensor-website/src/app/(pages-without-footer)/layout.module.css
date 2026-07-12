@@ -1,0 +1,11 @@
+/*
+ * min-height (not height) so tall pages (e.g. /wallet) grow past the viewport.
+ * height: 100dvh trapped children in a fixed box; padding-bottom on the page could
+ * sit in overflow that didn’t reliably extend document scroll on mobile.
+ */
+.container {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}

@@ -5,7 +5,7 @@
 ///   - Access to subnet TAO reserves
 ///
 use frame_support::traits::{
-    Imbalance,
+    Imbalance, LockableCurrency, WithdrawReasons,
     fungible::Mutate,
     tokens::{
         Fortitude, Precision, Preservation,
@@ -25,6 +25,9 @@ pub type CreditOf<T> = Credit<<T as frame_system::Config>::AccountId, <T as Conf
 
 pub const MAX_TAO_ISSUANCE: u64 = 21_000_000_000_000_000_u64;
 
+/// Balances lock id for TAO locked during network registration.
+const TAO_REGISTRATION_LOCK_PREFIX: [u8; 4] = *b"rglk";
+
 impl<T: Config> Pallet<T> {
     /// Returns Subnet TAO reserve using SubnetTAO map.
     /// Do not use subnet account balance because it may also contain
@@ -33,32 +36,20 @@ impl<T: Config> Pallet<T> {
         SubnetTAO::<T>::get(netuid)
     }
 
-    /// Internal function that transfers and updates subtensor pallet total issuance
-    /// in case of dust collection.
+    /// Internal function that transfers TAO and allows the origin account to be reaped.
+    ///
+    /// Dust collection is handled by the runtime's Balances `DustRemoval` implementation.
     fn transfer_allow_death_update_ti(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
         amount: BalanceOf<T>,
     ) -> DispatchResult {
-        // If account balance remainder drops below ED, then account is killed, balance
-        // is lost, and we need to reduce total issuance in subtensor pallet. Measure
-        // balance TI before and after to detect the dust.
-        let balances_ti_before = <T as pallet::Config>::Currency::total_issuance();
-
         <T as pallet::Config>::Currency::transfer(
             origin_coldkey,
             destination_coldkey,
             amount,
             Preservation::Expendable,
         )?;
-
-        let balances_ti_after = <T as pallet::Config>::Currency::total_issuance();
-        if balances_ti_after < balances_ti_before {
-            let burned = balances_ti_before.saturating_sub(balances_ti_after);
-            TotalIssuance::<T>::mutate(|total| {
-                *total = total.saturating_sub(burned);
-            });
-        }
 
         Ok(())
     }
@@ -286,6 +277,25 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Withdraw TAO from an account into a fresh credit.
+    ///
+    /// This is useful when a previous `spend_tao` resolve must be undone without
+    /// changing total issuance.
+    pub fn withdraw_tao_as_credit(
+        coldkey: &T::AccountId,
+        amount: BalanceOf<T>,
+    ) -> Result<CreditOf<T>, DispatchError> {
+        let credit = <T as Config>::Currency::withdraw(
+            coldkey,
+            amount,
+            Precision::Exact,
+            Preservation::Expendable,
+            Fortitude::Polite,
+        )?;
+
+        Ok(credit)
+    }
+
     /// Finalizes the unused part of the minted TAO.
     pub fn recycle_credit(credit: CreditOf<T>) {
         let amount = credit.peek();
@@ -304,5 +314,47 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_total_issuance() -> TaoBalance {
         TotalIssuance::<T>::get()
+    }
+
+    fn get_network_registration_lock_identifier(lock_id: u32) -> [u8; 8] {
+        let mut id: frame_support::traits::LockIdentifier = [0; 8];
+        id[..4].copy_from_slice(&TAO_REGISTRATION_LOCK_PREFIX);
+        id[4..8].copy_from_slice(&lock_id.to_le_bytes());
+        id
+    }
+
+    pub fn lock_network_registration_cost(
+        coldkey: &T::AccountId,
+        amount: BalanceOf<T>,
+        lock_id: u32,
+    ) -> DispatchResult {
+        ensure!(
+            Self::can_remove_balance_from_coldkey_account(coldkey, amount),
+            Error::<T>::InsufficientBalance
+        );
+
+        let identifier = Self::get_network_registration_lock_identifier(lock_id);
+
+        <<T as Config>::Currency as LockableCurrency<<T as frame_system::Config>::AccountId>>::set_lock(
+            identifier,
+            coldkey,
+            amount,
+            WithdrawReasons::all(),
+        );
+
+        Ok(())
+    }
+
+    pub fn unlock_network_registration_cost(
+        coldkey: &T::AccountId,
+        lock_id: u32,
+    ) -> DispatchResult {
+        let identifier = Self::get_network_registration_lock_identifier(lock_id);
+        <<T as Config>::Currency as LockableCurrency<<T as frame_system::Config>::AccountId>>::remove_lock(
+            identifier,
+            coldkey,
+        );
+
+        Ok(())
     }
 }

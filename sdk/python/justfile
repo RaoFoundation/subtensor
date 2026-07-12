@@ -1,0 +1,64 @@
+# Development commands. Everything runs through uv against the locked env.
+
+# Fast feedback: lint, typecheck, unit tests.
+default: check
+
+# Install/refresh the dev environment from the lockfile.
+sync:
+    uv sync --locked --all-extras --dev
+
+# All offline gates, same as CI.
+check: lint typecheck test codegen-static
+
+lint:
+    uv run ruff check .
+    uv run ruff format --check .
+
+fmt:
+    uv run ruff check . --fix
+    uv run ruff format .
+
+# Error-level diagnostics fail; pre-existing warnings are the ratchet
+# (see [tool.ty.rules] in pyproject.toml).
+typecheck:
+    uv run ty check --exit-zero-on-warning bittensor
+
+# Offline unit tests (tests marked e2e are deselected by default).
+test *ARGS:
+    uv run pytest {{ARGS}}
+
+cov:
+    uv run pytest --cov --cov-report=term
+
+# Registry gates that need no chain: every call wrapped-or-raw-only, every
+# classified error name still exists.
+codegen-static:
+    uv run python -m codegen.check --coverage
+    uv run python -m codegen.check --names
+
+# --- targets that need a running localnet node (default ws://127.0.0.1:9944) ---
+
+# Chain-facing e2e tests against an already-running node (the dev inner
+# loop). Without `endpoint` docker is used: unset E2E_ENDPOINT and pytest
+# starts a LOCALNET_IMAGE container itself.
+e2e endpoint="ws://127.0.0.1:9944" *ARGS:
+    E2E_ENDPOINT={{endpoint}} uv run pytest -m e2e {{ARGS}}
+
+# Regenerate bittensor/_generated from a node's metadata and re-record the
+# golden fixture. Run after a runtime upgrade, then commit both.
+regen endpoint="ws://127.0.0.1:9944":
+    uv run python -m codegen {{endpoint}}
+    uv run python scripts/record_golden.py {{endpoint}}
+
+# Regenerate docs reference pages from SDK registries (requires uv sync first).
+regen-docs:
+    uv run python ../../website/apps/bittensor-website/scripts/generate.py
+
+# Fail if committed docs pages are stale vs SDK registries.
+check-docs:
+    uv run python ../../website/apps/bittensor-website/scripts/generate.py --check
+
+# Committed _generated/ must match the node's metadata.
+drift endpoint="ws://127.0.0.1:9944":
+    uv run python -m codegen.check --drift {{endpoint}}
+

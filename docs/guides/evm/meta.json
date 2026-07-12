@@ -1,0 +1,11 @@
+{
+  "title": "EVM",
+  "pages": [
+    "index",
+    "deploy-a-contract",
+    "read-chain-state",
+    "stake-from-evm",
+    "subnet-and-neuron",
+    "verify-keys"
+  ]
+}

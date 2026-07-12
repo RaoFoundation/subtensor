@@ -11,6 +11,7 @@ import {
     PRECOMPILE_GAS_CONTRACT_ABI,
     PRECOMPILE_GAS_CONTRACT_BYTECODE,
     waitForFinalizedBlocks,
+    waitUntilBlockFinalized,
 } from "../../utils";
 
 const MIN_PRECOMPILE_GAS = BigInt(6000);
@@ -28,7 +29,11 @@ async function assertPrecompileGasScaling(
         const balanceBefore = await getBalance(api, convertH160ToSS58(wallet.address));
         const tx = await call(iterations);
         const receipt = await tx.wait();
-        await waitForFinalizedBlocks(api, 2);
+        // Wait for the receipt's own block to finalize rather than a fixed
+        // block count: when GRANDPA lags best by more than 2 blocks, a fixed
+        // wait ends before the fee deduction is in finalized state and the
+        // balanceAfter < balanceBefore assertion sees identical balances.
+        await waitUntilBlockFinalized(api, receipt!.blockNumber);
 
         const balanceAfter = await getBalance(api, convertH160ToSS58(wallet.address));
         expect(balanceAfter).toBeLessThan(balanceBefore);

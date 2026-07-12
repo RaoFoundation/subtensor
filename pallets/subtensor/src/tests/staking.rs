@@ -23,6 +23,26 @@ use crate::*;
 ************************************************************/
 
 #[test]
+fn test_delegate_take_dispatch_info_pays_fee() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1);
+        let take = SubtensorModule::get_min_delegate_take();
+
+        let decrease_take_call =
+            RuntimeCall::SubtensorModule(SubtensorCall::decrease_take { hotkey, take });
+        let decrease_take_dispatch_info = decrease_take_call.get_dispatch_info();
+        assert_eq!(decrease_take_dispatch_info.class, DispatchClass::Normal);
+        assert_eq!(decrease_take_dispatch_info.pays_fee, Pays::Yes);
+
+        let increase_take_call =
+            RuntimeCall::SubtensorModule(SubtensorCall::increase_take { hotkey, take });
+        let increase_take_dispatch_info = increase_take_call.get_dispatch_info();
+        assert_eq!(increase_take_dispatch_info.class, DispatchClass::Normal);
+        assert_eq!(increase_take_dispatch_info.pays_fee, Pays::Yes);
+    });
+}
+
+#[test]
 fn test_add_stake_dispatch_info_ok() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(0);
@@ -4313,11 +4333,21 @@ fn test_move_stake_limit_partial() {
 
         // Registration now goes through the burn/swap path, which initializes swap V3 state.
         // Clear that state first so the manual reserve fixture below actually controls price.
-        assert_ok!(
-            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(origin_netuid)
+        let mut origin_weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(
+                origin_netuid,
+                &mut origin_weight_meter
+            )
         );
-        assert_ok!(
-            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(destination_netuid)
+        let mut destination_weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(
+                destination_netuid,
+                &mut destination_weight_meter
+            )
         );
 
         // Force-set alpha in and tao reserve to make price equal 1.5 on both origin and destination,

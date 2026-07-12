@@ -1,0 +1,170 @@
+name: Refresh Mainnet Snapshot
+
+# Nightly producer of the state snapshots that keep PR runs of runtime-checks
+# off the live RPC endpoints:
+#
+#   - `mainnet-snapshot`: patched chainspec + genesis-inited local database
+#     for the clone-upgrade shards, which otherwise each spend 15-20 min
+#     re-scraping identical state from the finney RPC.
+#   - `try-runtime-snap-{devnet,testnet,mainnet}`: try-runtime-cli state
+#     snapshots consumed by the try-runtime jobs via `on-runtime-upgrade
+#     snap`, replacing each job's own 30-40 min `live --uri` scrape.
+#
+# Security: PR jobs only consume snapshots produced by runs of this workflow
+# on the default branch (schedule and dispatch both execute main's code), so a
+# PR can never feed a poisoned snapshot to another PR. Day-old network state
+# is just as representative for an upgrade test as live state — and a pinned
+# snapshot is more reproducible than a fresh scrape. A PR that changes the
+# spec-patching logic itself (node/src/clone_spec.rs) can apply the
+# `fresh-mainnet-clone` label to bypass the clone snapshot and scrape live.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-mainnet-snapshot
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  snapshot:
+    name: scrape mainnet and publish snapshot
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: runtime-checks
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Add wasm target and rust-src
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Build node-subtensor (release)
+        run: cargo build --release -p node-subtensor
+
+      - name: Scrape mainnet and build patched chainspec
+        run: ./clones/scripts/clone-mainnet.sh
+
+      - name: Genesis-init the local clone database
+        run: |
+          nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
+          # Genesis init from the ~2 GB chainspec takes several minutes before
+          # the RPC server comes up.
+          up=false
+          for _ in $(seq 1 450); do
+            if curl -sf -H "Content-Type: application/json" \
+              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
+              http://127.0.0.1:9944 > /dev/null; then
+              up=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$up" != true ]; then
+            echo "Clone node failed to start:"
+            cat clone-node.log
+            exit 1
+          fi
+          ./clones/scripts/stop-local-clone.sh
+          # pkill returns before the node finishes flushing the db; wait for
+          # the process to actually exit before packaging.
+          for _ in $(seq 1 60); do
+            pgrep -f "node-subtensor.*--base-path clones/mainnet-clone" > /dev/null || break
+            sleep 2
+          done
+
+      - name: Package snapshot
+        run: |
+          tar -czf mainnet-snapshot.tar.gz \
+            clones/mainnet-clone-chainspec.json \
+            clones/mainnet-clone
+          ls -lh mainnet-snapshot.tar.gz
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-snapshot
+          path: mainnet-snapshot.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          # The tarball is already gzipped.
+          compression-level: 0
+
+  # try-runtime state snapshots, one job per network so the scrapes run in
+  # parallel and one flaky endpoint doesn't sink the others. The .snap format
+  # is tied to the try-runtime-cli release, so this version must match the
+  # consumer pin in runtime-checks.yml.
+  try-runtime-snapshot:
+    name: try-runtime snapshot ${{ matrix.network.name }}
+    runs-on: [self-hosted, fireactions-tryruntime]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        network:
+          # Same endpoints and genesis-hash identity checks as the try-runtime
+          # consumer jobs (the hostnames are misleading; see runtime-checks.yml).
+          - name: devnet
+            uri: wss://dev.chain.opentensor.ai:443
+            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+          - name: testnet
+            uri: wss://archive.dev.opentensor.ai:8443
+            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+          - name: mainnet
+            uri: wss://archive.dev.opentensor.ai:443
+            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+    steps:
+      - name: Verify endpoint serves the expected network
+        run: |
+          http_uri="${{ matrix.network.uri }}"
+          http_uri="${http_uri/wss:/https:}"
+          genesis=$(curl -sS -m 30 -H 'Content-Type: application/json' \
+            -d '{"id":1,"jsonrpc":"2.0","method":"chain_getBlockHash","params":[0]}' \
+            "$http_uri" | sed -n 's/.*"result":"\(0x[0-9a-f]*\)".*/\1/p')
+          echo "endpoint genesis: $genesis"
+          if [ "$genesis" != "${{ matrix.network.genesis }}" ]; then
+            echo "::error::${{ matrix.network.name }} endpoint $http_uri serves genesis $genesis, expected ${{ matrix.network.genesis }}"
+            exit 1
+          fi
+
+      - name: Download try-runtime-cli v0.10.1
+        run: |
+          TRY_RUNTIME_BIN="$RUNNER_TEMP/try-runtime"
+          curl --fail --silent --show-error --location \
+            "https://github.com/paritytech/try-runtime-cli/releases/download/v0.10.1/try-runtime-x86_64-unknown-linux-musl" \
+            --output "$TRY_RUNTIME_BIN"
+          chmod +x "$TRY_RUNTIME_BIN"
+          echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
+
+      - name: Create state snapshot
+        run: |
+          export RUST_LOG=remote-ext=debug
+          "$TRY_RUNTIME_BIN" create-snapshot \
+            --uri "${{ matrix.network.uri }}" \
+            "${{ matrix.network.name }}.snap"
+          ls -lh "${{ matrix.network.name }}.snap"
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: try-runtime-snap-${{ matrix.network.name }}
+          path: ${{ matrix.network.name }}.snap
+          if-no-files-found: error
+          retention-days: 3

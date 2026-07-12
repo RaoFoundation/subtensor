@@ -1,0 +1,142 @@
+---
+title: Signing with a browser extension
+description: Sign any transaction with Talisman, Polkadot.js, or another wallet extension — the private key never touches the machine running the CLI.
+---
+
+Every transaction command can hand signing off to a wallet browser extension
+instead of a local keyfile. Pass `--signer extension` and the CLI asks the
+extension to sign; the private key never leaves the browser, so nothing on the
+machine running `btcli` — no keyfile, no password, no mnemonic — can move your
+funds.
+
+Any extension that speaks the standard Polkadot dapp interface works:
+[Talisman](https://talisman.xyz),
+[Polkadot.js extension](https://polkadot.js.org/extension/), SubWallet, and
+friends. The account must be **sr25519** or **ed25519** — Ethereum-style
+(ecdsa) accounts are refused, since the chain can't verify their signatures on
+Substrate extrinsics.
+
+## Setup
+
+1. Install Talisman or the Polkadot.js extension in your browser.
+2. Create or import an account in the extension (any Substrate account works;
+   Bittensor uses SS58 prefix 42, so addresses render starting with "5").
+3. There is no step 3 — the first `--signer extension` command walks you
+   through authorization.
+
+## Sign a transaction
+
+Add `--signer extension` to any [transaction](/docs/tx):
+
+```bash
+btcli tx transfer --dest 5F... --amount-tao 1 --signer extension
+```
+
+What happens:
+
+1. The CLI starts a local **bridge** (a small daemon on `127.0.0.1:39295`)
+   and opens its page in your browser.
+2. The extension pops up asking to let "Bittensor SDK" access your accounts —
+   approve it. This authorization is remembered by the extension, but the
+   popup appears on the first run.
+3. Back in the terminal, pick the signing account from the list of accounts
+   the extension exposes.
+4. The plan is shown and you confirm, exactly as with a local wallet
+   (`--dry-run` previews without signing anything).
+5. The extension pops up once more with the transaction to review and sign.
+   Approve it there, and the CLI submits the signed extrinsic and reports the
+   result.
+
+Keep the bridge tab open while the command runs. Each command starts a fresh
+bridge session, so a stale tab from an earlier run cannot sign anything.
+
+## Choosing the account
+
+With several accounts authorized, the CLI prompts with a numbered picker and
+remembers your choice (as `signer_address` in the config), preselecting it
+next time. To skip the prompt:
+
+```bash
+btcli tx transfer ... --signer extension --signer-address 5F...   # pin one account
+btcli tx transfer ... --signer extension --extension-source talisman  # filter by extension
+```
+
+Non-interactive sessions (scripts, `--json`) must pin the account with
+`--signer-address` (or `BT_SIGNER_ADDRESS`) — with several accounts and no
+terminal to ask on, the command fails rather than guessing.
+
+The picked account is the signing key for whatever role the intent declares:
+for coldkey-signed intents (staking, transfers) pick the account holding your
+coldkey; for hotkey-signed intents (weights, serving) pick the account holding
+the hotkey.
+
+## Options
+
+| Option | Env | Config key | Meaning |
+| --- | --- | --- | --- |
+| `--signer` | | | `wallet` (default) or `extension` |
+| `--signer-address` | `BT_SIGNER_ADDRESS` | `signer_address` | ss58 of the extension account to sign with |
+| `--extension-source` | | | only offer accounts from one extension (`talisman`, `polkadot-js`, ...) |
+| `--extension-browser` | `BT_EXTENSION_BROWSER` | `extension_browser` | browser for the bridge page (`firefox`, `chrome`, or an app name) |
+| `--extension-bridge` | `BT_EXTENSION_BRIDGE` | | bridge URL, if not the default local one |
+
+Persist the browser choice with `btcli config set extension_browser firefox`
+if your default browser isn't the one holding the extension.
+
+## The bridge
+
+The bridge is what connects two worlds that can't talk directly: a wallet
+extension only exposes itself to web pages, and the CLI is not a web page. So
+the CLI serves one — a local page that connects to the extensions in your
+browser — and talks to it over a WebSocket. Signing requests flow CLI → bridge
+→ extension, and only signatures flow back; key material never crosses.
+
+It is safe by construction: the bridge binds to localhost only, Python clients
+must present a token written to `~/.bittensor/extension_bridge.token`
+(readable only by your user), and the page URL is scoped to one session so a
+leftover tab from an earlier run cannot reconnect.
+
+The bridge starts automatically with `--signer extension`; the `btcli
+extension` group manages it when needed:
+
+```bash
+btcli extension accounts   # list accounts the extensions expose (starts the bridge)
+btcli extension stop       # stop the background bridge daemon
+btcli extension bridge     # run the bridge in the foreground (rarely needed)
+```
+
+## Limitations
+
+- **No MEV shielding.** Shielding wraps the signed call in a second encrypted
+  extrinsic, which this flow can't produce. Stake-trading commands (which
+  shield by default) print a notice and submit unshielded; an explicitly
+  requested `--mev-shield` fails instead.
+- **Substrate accounts only** — sr25519 or ed25519, not ecdsa/Ethereum.
+- `btcli wallet sign` (raw message signing) still uses local keys.
+
+## Python
+
+The same signer is available to the SDK. An `ExtensionSigner` stands in for
+the wallet in `plan` and `execute`:
+
+```python
+import bittensor as sub
+from bittensor.extension import connect_extension_signer, ensure_bridge
+
+url = await ensure_bridge()                    # starts the bridge, opens the browser flow
+signer = await connect_extension_signer(url)   # prompts for the account on the terminal
+
+async with sub.Client("finney") as client:
+    intent = sub.Transfer(dest_ss58="5F...", amount_tao=1.0)
+    result = await client.execute(intent, signer)   # extension popup asks to sign
+
+await signer.close()
+```
+
+`connect_extension_signer` takes `address=`, `source=`, and `name=` filters to
+select the account programmatically instead of prompting.
+
+For signers this bridge doesn't cover (air-gapped devices, custom HSMs),
+`client.prepare_call` returns the exact payload bytes to sign plus the
+Polkadot-JS `SignerPayloadJSON`, and `client.submit_signature` submits the
+externally produced signature.

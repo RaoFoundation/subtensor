@@ -1,0 +1,110 @@
+name: "Build production node binary"
+description: "Build and validate a production node binary for one Linux architecture"
+
+inputs:
+  arch:
+    description: "OCI architecture name (amd64 or arm64)"
+    required: true
+  target:
+    description: "Rust target triple"
+    required: true
+  cache-key:
+    description: "Architecture-specific Rust cache key"
+    required: true
+  sccache-credential-mode:
+    description: "reader, auto for trusted write-through CI, or writer for mandatory maintenance"
+    default: "reader"
+  sccache-writer-access-key-id:
+    description: "Protected writer access key"
+    default: ""
+  sccache-writer-secret-access-key:
+    description: "Protected writer secret"
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - uses: ./.github/actions/rust-setup
+      with:
+        cache-key: ${{ inputs.cache-key }}
+        # cross mounts Cargo configuration into its build container. Avoid
+        # selecting the host's mold binary, which is not present there.
+        fast-linker: "false"
+        sccache-credential-mode: ${{ inputs.sccache-credential-mode }}
+        sccache-writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
+        sccache-writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}
+
+    - name: Require protected writer activation
+      if: inputs.sccache-credential-mode == 'writer'
+      shell: bash
+      run: |
+        if [[ "${SCCACHE_ENABLED:-}" != true ||
+              "${SCCACHE_BACKEND:-}" != r2 ||
+              "${RUSTC_WRAPPER:-}" != sccache ]]; then
+          echo "::error::protected R2 writer did not activate"
+          exit 1
+        fi
+
+    - name: Install pinned cross compiler driver
+      if: inputs.arch == 'arm64'
+      shell: bash
+      run: |
+        cargo install cross \
+          --git https://github.com/cross-rs/cross \
+          --rev 64b5bb4d3d34de062552b9a2093affe77b4ad16a \
+          --locked
+
+    - name: Build production binary
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        rust_sysroot=$(rustc --print sysroot)
+        export LD_LIBRARY_PATH="${rust_sysroot}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        export WASM_BUILD_WORKSPACE_HINT="$GITHUB_WORKSPACE"
+        build_args=(
+          --target "$TARGET"
+          --package node-subtensor
+          --profile production
+          --features metadata-hash
+          --locked
+        )
+        case "$ARCH:$TARGET" in
+          amd64:x86_64-unknown-linux-gnu)
+            # The runner is already x86_64 Linux with all native dependencies.
+            # Staying on the host keeps this compile behind the active R2
+            # sccache wrapper; cross containers have a separate process boundary.
+            cargo build "${build_args[@]}"
+            ;;
+          arm64:aarch64-unknown-linux-gnu)
+            cross build "${build_args[@]}"
+            ;;
+          *)
+            echo "Unsupported production architecture/target: $ARCH/$TARGET" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Validate and stage binary
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        binary="target/${TARGET}/production/node-subtensor"
+        test -x "$binary"
+
+        machine=$(readelf -h "$binary" | awk -F: '/Machine:/ {gsub(/^[[:space:]]+/, "", $2); print $2}')
+        case "$ARCH:$machine" in
+          amd64:*X86-64*|arm64:AArch64) ;;
+          *)
+            echo "Unexpected ELF architecture for $ARCH: $machine" >&2
+            exit 1
+            ;;
+        esac
+
+        install -Dm0755 "$binary" "build/ci_target/${ARCH}/node-subtensor"
+        echo "Staged $ARCH binary: $(du -h "build/ci_target/${ARCH}/node-subtensor" | cut -f1)"

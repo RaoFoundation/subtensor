@@ -1,0 +1,116 @@
+---
+title: For agents
+description: How an agent discovers, previews, and safely executes any Bittensor operation.
+---
+
+The SDK and CLI are built to be driven by agents. Every operation is
+discoverable at runtime with a JSON schema, every mutation can be previewed
+before it spends anything, every failure returns a machine-readable code with a
+remediation hint, and a `Policy` can hard-bound what a session is allowed to
+do. Nothing here requires parsing human prose.
+
+## Discover the operations
+
+```bash
+btcli tools        # JSON: every transaction op + summary, description, signer, input schema
+```
+
+```python
+import bittensor as sub
+sub.intents.list_tools()   # same catalog, as Python dicts
+sub.reads.list_reads()     # every read: name, params, docs, category
+```
+
+The same catalogs are published statically by these docs:
+[`/catalog/intents.json`](/catalog/intents.json),
+[`/catalog/reads.json`](/catalog/reads.json),
+[`/catalog/errors.json`](/catalog/errors.json). Each entry includes a
+`docs_url` pointing at its reference page, and every docs page is fetchable as
+raw markdown (see the copy-markdown link on any page, or
+[`/llms-full.txt`](/llms-full.txt) for everything at once).
+
+## Execute by name
+
+An agent never needs to import intent classes — build and execute by op name
+with a plain dict, validated against the schema:
+
+```python
+async with sub.Client("finney") as client:
+    result = await client.execute_tool(
+        "transfer", {"dest_ss58": "5F...", "amount_tao": 1.0}, wallet
+    )
+```
+
+On the CLI, every op in the catalog is `btcli tx <op-name>` (underscores
+become dashes) and every read is `btcli query <name>`.
+
+## Preview before you spend
+
+`plan` (SDK) and `--dry-run` (CLI) run the full pipeline — fee estimation,
+predicted effects, warnings, policy check — without submitting:
+
+```python
+plan = await client.plan(intent, wallet)
+plan.fee        # estimated fee
+plan.effects    # list[str]: what this will do
+plan.warnings   # non-fatal cautions (e.g. dust amounts)
+plan.ok         # would policy allow it?
+```
+
+## Bound the blast radius with Policy
+
+Attach a `Policy` to the client and every execution — by class, by name, or
+raw — passes through one choke point:
+
+```python
+policy = sub.Policy(max_spend_tao=5.0, allowed_netuids=[1, 2])
+async with sub.Client("finney", policy=policy) as client:
+    ...  # anything exceeding the caps raises PolicyError at execute time
+```
+
+Operations whose cost cannot be bounded ahead of time (e.g. subnet
+registration, whose price floats) are blocked by a spend cap until it is
+raised — the safe default. Raw calls are refused unless the policy sets
+`allow_raw_calls=True`.
+
+## Branch on failures, don't parse them
+
+Every write returns an `ExtrinsicResult`; failures carry a semantic
+[`ErrorCode`](/docs/errors) and a remediation hint:
+
+```python
+result = await client.execute(intent, wallet)
+if not result.success:
+    match result.error.code:
+        case sub.ErrorCode.RATE_LIMITED:   ...  # wait and retry
+        case sub.ErrorCode.INSUFFICIENT_BALANCE: ...  # reduce amount
+        case _:
+            log(result.error.remediation)   # actionable next step, always present
+```
+
+## CLI rules for non-interactive use
+
+- `--json` on any command produces machine-readable output.
+- `--yes` skips confirmation prompts. Without it, a non-interactive session is
+  **declined, not blocked** — the CLI never hangs waiting for input it can't get.
+- `--dry-run` previews any `tx` command.
+- Configuration comes from flags, `BT_*` environment variables, or
+  `btcli config` — highest to lowest precedence.
+
+## The escape hatch
+
+Anything on chain that no intent wraps (deprecated, root/admin-only, or
+off-chain-signed calls) is still reachable:
+
+```python
+call = sub.calls.Commitments.set_commitment(netuid=1, info={...})
+await client.submit_call(call, wallet, signer="hotkey")
+```
+
+And generic accessors cover any storage item, constant, or runtime API in the
+chain metadata:
+
+```python
+tempo = await client.query(sub.storage.SubtensorModule.Tempo, [1])
+ed = await client.constant(sub.constants.Balances.ExistentialDeposit)
+```

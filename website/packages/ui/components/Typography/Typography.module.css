@@ -1,0 +1,56 @@
+.text {
+  font-family: 'Haffer';
+  font-size: 14px;
+  font-weight: normal;
+  color: inherit;
+  line-height: 24px;
+}
+
+.h1 {
+  font-family: 'Haffer';
+  font-size: 36px;
+  font-weight: normal;
+  color: inherit;
+  display: block;
+}
+
+.h2 {
+  font-family: 'Haffer';
+  font-size: 24px;
+  font-weight: normal;
+  color: inherit;
+  display: block;
+}
+
+.h3 {
+  font-family: 'Haffer';
+  font-size: 24px;
+  font-weight: bold;
+  color: inherit;
+  display: block;
+}
+
+.cta1 {
+  font-family: 'FiraCode';
+  font-size: 14px;
+  font-weight: 400;
+  color: inherit;
+  text-transform: uppercase;
+}
+
+.cta2 {
+  font-family: 'FiraCode';
+  font-size: 14px;
+  font-weight: 400;
+  color: inherit;
+  text-transform: uppercase;
+}
+
+.cta3 {
+  font-family: 'FiraCode';
+  font-size: 14px;
+  font-weight: 400;
+  color: inherit;
+  text-decoration: underline;
+  text-transform: uppercase;
+}

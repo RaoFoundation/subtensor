@@ -1532,28 +1532,17 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Change the SubnetOwnerHotkey for a given subnet.
-        ///
-        /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner.
-        /// * `netuid` - The unique identifier for the subnet.
-        /// * `hotkey` - The new hotkey for the subnet owner.
-        ///
-        /// # Errors
-        /// * `BadOrigin` - If the caller is not the subnet owner or root account.
-        ///
-        /// # Weight
-        /// Weight is handled by the `#[pallet::weight]` attribute.
-        #[pallet::call_index(64)]
-        #[pallet::weight(Weight::from_parts(3_918_000, 0) // TODO: add benchmarks
-        .saturating_add(T::DbWeight::get().writes(1_u64)))]
-        pub fn sudo_set_subnet_owner_hotkey(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            hotkey: <T as frame_system::Config>::AccountId,
-        ) -> DispatchResult {
-            pallet_subtensor::Pallet::<T>::do_set_sn_owner_hotkey(origin, netuid, &hotkey)
-        }
+        // Deprecated for sudo_set_sn_owner_hotkey
+        // #[pallet::call_index(64)]
+        // #[pallet::weight(Weight::from_parts(3_918_000, 0) // TODO: add benchmarks
+        // .saturating_add(T::DbWeight::get().writes(1_u64)))]
+        // pub fn sudo_set_subnet_owner_hotkey(
+        //     origin: OriginFor<T>,
+        //     netuid: NetUid,
+        //     hotkey: <T as frame_system::Config>::AccountId,
+        // ) -> DispatchResult {
+        //     pallet_subtensor::Pallet::<T>::do_set_sn_owner_hotkey(origin, netuid, &hotkey)
+        // }
 
         ///
         ///

@@ -1,0 +1,48 @@
+/* Footer.tsx style */
+.footer {
+  display: flex;
+  flex-direction: row;
+  width: stretch;
+  height: 30px;
+  align-self: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-left: 2rem;
+  padding-right: 2rem;
+  background-color: var(--background-default);
+  overflow: hidden;
+}
+
+.menu_container {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  transition: all 0.3s;
+  opacity: 0.6;
+}
+
+.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.menu_container:hover {
+  opacity: 1;
+}
+
+.icon {
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 5px;
+  transition: all 0.3s;
+}
+
+.reversed {
+  transform: scaleY(-1);
+}
+
+@media (max-width: 700px) {
+  .footer {
+    display: none;
+  }
+}

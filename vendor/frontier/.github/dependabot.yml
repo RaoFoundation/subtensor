@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "03:00"
+      timezone: Europe/Berlin
+  - package-ecosystem: cargo
+    directory: "/"
+    # Handle updates for crates from https://github.com/paritytech/polkadot-sdk manually.
+    ignore:
+      - dependency-name: "sc-*"
+      - dependency-name: "sp-*"
+      - dependency-name: "frame-*"
+      - dependency-name: "pallet-*"
+      - dependency-name: "substrate-*"
+      - dependency-name: "beefy-*"
+      - dependency-name: "fork-tree"
+    schedule:
+      interval: "daily"

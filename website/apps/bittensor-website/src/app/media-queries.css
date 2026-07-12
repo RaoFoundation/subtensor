@@ -1,0 +1,14 @@
+$desktop-screen-size: 1440px;
+$tablet-screen-size: 700px;
+
+@define-mixin tablet {
+  @media (min-width: $tablet-screen-size) {
+    @mixin-content;
+  }
+}
+
+@define-mixin desktop {
+  @media (min-width: $desktop-screen-size) {
+    @mixin-content;
+  }
+}

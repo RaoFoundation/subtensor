@@ -1,0 +1,165 @@
+---
+title: Mining
+description: Register a hotkey on a subnet, publish your axon, and keep your UID.
+---
+
+A miner is a hotkey registered on a subnet, doing whatever work that subnet's
+incentive mechanism rewards. The chain side of mining is small: register, tell
+validators where to reach you, and don't get evicted. The work itself — the
+model, the service, the actual commodity — is defined by each subnet's own
+codebase, not by the chain.
+
+Mining (and validating) is not supported on Windows. Wallet operations work
+under WSL 2, but run miners on Linux or macOS.
+
+## 1. Scope the subnet
+
+```bash
+btcli subnets list
+btcli subnets show 1
+btcli query burn --netuid 1 --json                     # current registration price
+btcli query subnet-hyperparameters --netuid 1 --json   # immunity period, limits
+btcli query metagraph --netuid 1 --json                # who you're competing with
+```
+
+Choosing where to start matters more than the registration price. Eviction
+only happens when a subnet is at capacity, so an under-capacity or new subnet
+lets you learn without deregistration risk; a mature high-emission subnet
+means competing against miners tuned over months. Each subnet's repo
+conventionally documents hardware needs (`min_compute.yml` or the README),
+and most subnets run on a testnet netuid — test there or on a local chain
+before paying the registration burn.
+
+Note also whose hotkey you register: mining on the subnet owner's hotkey (or
+its associated hotkeys) is pointless — miner emission directed at
+owner-associated hotkeys is never paid out, it is burned or recycled (burned
+by default, per the subnet's `RecycleOrBurn` setting).
+
+## 2. Register
+
+[`burned-register`](/docs/tx/burned-register) burns the subnet's current
+registration cost from your coldkey and assigns your hotkey a **UID**:
+
+```bash
+btcli tx burned-register --netuid 1 --dry-run -w my_coldkey
+btcli tx burned-register --netuid 1 -w my_coldkey
+```
+
+```python
+price = await client.read("burn", netuid=1)   # current registration cost
+await client.execute(sub.BurnedRegister(netuid=1), wallet)
+```
+
+The UID goes to the wallet's hotkey by default; pass `hotkey_ss58` to register
+a different one.
+
+Registration is continuous — there are no registration windows. Admission is
+governed entirely by a dynamic burn price:
+
+- The price **decays over time**, halving every `BurnHalfLife` blocks
+  (default 360, about one tempo; owner-settable).
+- Each successful registration **multiplies the price** by `BurnIncreaseMult`
+  (default 1.26), so a registration rush gets expensive fast.
+- The price is clamped between `MinBurn` (default 500,000 rao = 0.0005 TAO)
+  and `MaxBurn` (default 100 TAO). All three are per-subnet hyperparameters.
+
+<RegistrationBurnTimeline />
+
+Read the live price with [`burn`](/docs/query/burn). Know before you send:
+
+- The burned TAO is **recycled, not staked** — deregistering does not refund
+  it. Under the hood the TAO is swapped into the subnet's pool and the
+  resulting alpha is removed from the subnet's outstanding supply.
+- The cost floats and is only known at execution time, so a configured
+  `Policy` spend cap blocks this call until raised.
+
+Confirm with [`uid`](/docs/query/uid) or
+[`netuids-for-hotkey`](/docs/query/netuids-for-hotkey). One hotkey can hold
+UIDs on multiple subnets simultaneously, but only one UID per subnet.
+
+## 3. UID capacity and eviction
+
+A subnet has a fixed number of UID slots: default 256, owner-trimmable down to
+a floor of 64. When the subnet is full, each new registration **evicts one
+existing neuron** — the one with the lowest pruning score that is not immune.
+The rules, as implemented in the chain's pruning logic:
+
+- The pruning score is **emission-based**. The chain does not distinguish
+  miners from validators when pruning; whoever earns least is first out.
+- Immunity is `(current_block - registered_at) < immunity_period`. The chain
+  default is 4096 blocks (about 13.7 hours at 12-second blocks), but real
+  subnets often set it much higher — read the actual value with
+  [`immunity-period`](/docs/query/immunity-period) before you plan around it.
+- If every neuron is still immune, the lowest-scoring immune neuron is pruned
+  anyway; immunity is a preference, not a guarantee.
+- Ties on pruning score evict the **older** registration first.
+- The subnet owner's hotkey is permanently immune (bounded by an
+  owner-immune limit, default 1 hotkey).
+
+Practical consequence: your immunity period is your runway. If the subnet's
+`immunity_period` is 4096 blocks, you have about half a day to start earning
+emissions before you're evictable.
+
+## 4. Publish your endpoint
+
+Validators find you through the axon info stored on chain.
+[`serve-axon`](/docs/tx/serve-axon) writes your `ip:port`; it does **not**
+start a server — running the actual service is your job:
+
+```bash
+btcli tx serve-axon --netuid 1 --ip 203.0.113.7 --port 8091 -w my_coldkey -H my_hotkey
+```
+
+Use [`serve-axon-tls`](/docs/tx/serve-axon-tls) if peers should verify a TLS
+certificate, and [`reset-axon`](/docs/tx/reset-axon) to stop advertising.
+Re-publishing is rate-limited by the chain.
+
+**Moving to another machine:** start the miner on the new machine and publish
+the new axon first, wait until the old machine stops receiving validator
+requests, then stop it. Validators take time to pick up an updated IP.
+
+All miner traffic comes through validators — only they can score you, so
+there is no reason to serve anyone else. Requests transit validators and
+miners with no confidentiality guarantee in either direction; subnets are not
+a channel for private data.
+
+## 5. Watch your standing
+
+```bash
+btcli query metagraph --netuid 1 --json     # your rank, incentive, emission
+btcli query blocks-since-last-update --netuid 1 --json
+btcli query immunity-period --netuid 1
+```
+
+Expect discovery lag. Emissions are credited at **tempo boundaries** (default
+tempo 360 blocks, about 72 minutes), and validators typically refresh their
+metagraph periodically rather than every block — a freshly registered miner
+can sit at zero for a while before validators start querying it. That lag is
+exactly what the immunity period is for.
+
+When the subnet runs commit-reveal, add the reveal period to every number you
+watch: validator scores on chain are stale by that window, so do **not** use
+your on-chain score as a liveness signal — by the time it drops, the failure
+is old and deregistration is likely already unavoidable. Monitor your own
+service directly.
+
+Longevity compounds. Validators' bonds toward a miner build up as an
+exponential moving average, so an established miner out-earns an identical
+newcomer until the newcomer's bonds mature — see
+[emissions](/docs/concepts/emissions) for the bond math.
+
+Rewards accrue to the hotkey as stake. Have them auto-staked to a hotkey of
+your choice with [`set-auto-stake`](/docs/tx/set-auto-stake).
+
+## Key hygiene
+
+- Sign operational calls with the hotkey; keep the coldkey off the mining box
+  entirely. Mining stacks pull in large untrusted dependency trees (ML
+  frameworks, model code), and any of it could exfiltrate a key file — see
+  [wallets](/docs/concepts/wallets) for the coldkey/hotkey split. Use a
+  [proxy](/docs/concepts/advanced) if the box must submit coldkey-signed
+  calls.
+- Create hotkeys on a trusted machine and transfer only the hotkey file (or
+  mnemonic) to the miner.
+- If the hotkey is compromised, [`swap-hotkey`](/docs/tx/swap-hotkey) replaces
+  it while keeping its registrations.
