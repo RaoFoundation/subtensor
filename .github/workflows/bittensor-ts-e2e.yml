@@ -1,10 +1,10 @@
-name: Bittensor TS E2E Tests
+name: Bittensor TS Checks
 
 on:
   pull_request:
 
 concurrency:
-  group: bittensor-ts-e2e-${{ github.ref }}
+  group: bittensor-ts-checks-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,10 +27,10 @@ jobs:
 
   # typescript-formatting is a required merge check, so the workflow must
   # always trigger and that job always runs (it is cheap). The expensive node
-  # builds and zombienet suites skip themselves when the PR touches nothing
+  # builds and Moonwall suites skip themselves when the PR touches nothing
   # they exercise; `skipped` satisfies branch protection.
   changes:
-    name: detect e2e-relevant changes
+    name: Detect Bittensor TS check changes
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -51,11 +51,12 @@ jobs:
           if grep -qE "$pattern" <<< "$files"; then
             echo "e2e=true" >> "$GITHUB_OUTPUT"
           else
-            echo "no e2e-relevant paths changed"
+            echo "no Bittensor TS check-relevant paths changed"
             echo "e2e=false" >> "$GITHUB_OUTPUT"
           fi
 
   typescript-formatting:
+    name: TypeScript formatting and static checks
     runs-on: ubuntu-latest
     steps:
       - name: Check-out repository
@@ -94,6 +95,7 @@ jobs:
           pnpm run fmt
 
   build-bittensor-ts:
+    name: Build and test bittensor-ts package
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: sccache-writer
@@ -243,8 +245,9 @@ jobs:
           node -e "if (typeof globalThis.WebSocket !== 'function') throw new Error('globalThis.WebSocket is required by the default WSS client path')"
           node --test sdk/bittensor-ts/test/*.test.cjs
 
-  # Build the node binary in both variants and share as artifacts.
+  # Build the node binary in both variants and share as artifacts for Moonwall.
   build:
+    name: Build node-subtensor (${{ matrix.variant }})
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: sccache-writer
