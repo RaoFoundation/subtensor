@@ -692,10 +692,8 @@ fn commit_overwrite_keyfile(path: &Path, temp_path: &Path) -> Result<(), CoreErr
         }
         restore_backup(path, backup.as_deref());
         fsync_directory(dir);
-    } else {
-        if let Some(path) = backup {
-            let _ = fs::remove_file(path);
-        }
+    } else if let Some(path) = backup {
+        let _ = fs::remove_file(path);
     }
     result
 }
