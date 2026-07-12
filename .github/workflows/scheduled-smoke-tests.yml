@@ -1,12 +1,12 @@
 name: Scheduled Smoke Tests
 
-# Read-only smoke suites against the live networks, every 6 hours. The same
+# Read-only smoke suites against the live networks, daily at 10:00 UTC. The same
 # suites gate promotion in release-train.yml; this catches drift between
 # trains.
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 10 * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,10 @@ permissions:
 jobs:
   smoke:
     name: smoke-e2e-${{ matrix.test }}
-    runs-on: [self-hosted, fireactions-tryruntime]
+    # Periodic monitoring must not compete with state-heavy PR checks for the
+    # small try-runtime runner pool. This public repository can use standard
+    # GitHub-hosted Linux runners for these read-only public-RPC suites.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
