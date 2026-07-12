@@ -71,6 +71,11 @@ jobs:
       # that the CentOS-based manylinux images strip from their minimal perl;
       # the Ubuntu-based rust-cross images used for cross targets have a full
       # perl and take the no-op branch.
+      #
+      # manylinux 2_28 for the aarch64 cross build: the manylinux2014-cross
+      # image's gcc is too old for ring's ARMv8 assembly (#error "ARM
+      # assembler must define __ARM_ARCH"); the 2_28 image carries a modern
+      # gcc. x86_64 stays on auto (manylinux2014) for the wider glibc floor.
       - name: Build wheel (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -78,21 +83,31 @@ jobs:
           command: build
           args: --release --out ../../dist
           target: ${{ matrix.target }}
-          manylinux: auto
+          manylinux: ${{ matrix.target == 'aarch64' && '2_28' || 'auto' }}
           before-script-linux: |
             if command -v yum >/dev/null && ! perl -MIPC::Cmd -e 1 2>/dev/null; then
               yum install -y perl-core
             fi
 
       # The sdist is the fallback for platforms without a wheel; build it
-      # once, alongside the x86_64 wheel.
+      # once, alongside the x86_64 wheel. Not via maturin-action: its native
+      # (non-docker) path pip-installs helpers into the system Python, which
+      # the runner's PEP 668 (externally-managed) Python refuses. uv runs
+      # maturin's PEP 517 sdist hook in an isolated env instead. maturin's
+      # sdist hook still shells out to `cargo metadata` (no compilation), so
+      # the pinned toolchain from rust-toolchain.toml is installed first.
       - name: Build sdist
         if: matrix.target == 'x86_64'
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
-        with:
-          working-directory: sdk/bittensor-core-py
-          command: sdist
-          args: --out ../../dist
+        working-directory: sdk/bittensor-core-py
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            export PATH="$HOME/.cargo/bin:$PATH"
+            rustup toolchain install
+          fi
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv build --sdist --out-dir ../../dist
 
       - uses: actions/upload-artifact@v4
         with:

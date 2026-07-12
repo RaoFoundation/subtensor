@@ -10,6 +10,13 @@ license = "Apache-2.0"
 name = "bittensor_core"
 crate-type = ["rlib"]
 
+# External localnet suite. It is selected explicitly by the dedicated E2E
+# workflow; `test = false` keeps ordinary workspace/nextest runs unit-only.
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+test = false
+
 [dependencies]
 # keys / keyfiles (absorbed from py-sp-core). The optional crates below are
 # host-only (see the `host` feature): they either do I/O or compile C, both
@@ -69,6 +76,7 @@ merkleized-metadata = "0.5.1"
 # workers (codec/batch.rs).
 rayon = { version = "1.10", optional = true }
 scale-info = { workspace = true, features = ["std", "serde"] }
+subtensor-macros = { workspace = true }
 
 # signers (feature "ledger"): APDU types for the Polkadot generic app; the
 # HID transport itself lives in signers/ledger.rs on top of hidapi (below).

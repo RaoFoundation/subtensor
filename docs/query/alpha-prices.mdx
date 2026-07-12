@@ -21,9 +21,17 @@ btcli query alpha-prices --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("alpha_prices")
+    result = await client.prices.alpha_prices()
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("alpha_prices")
 ```

@@ -3,6 +3,7 @@ use crate::epoch::math::*;
 use alloc::collections::{BTreeMap, BTreeSet};
 use frame_support::IterableStorageDoubleMap;
 use safe_math::*;
+use sp_runtime::PerU16;
 use sp_std::collections::btree_map::IntoIter;
 use sp_std::vec;
 use substrate_fixed::types::{I32F32, I64F64, I96F32};
@@ -102,6 +103,8 @@ impl<T: Config> Pallet<T> {
             .map(|t| t.bond.clone())
             .collect::<sp_std::vec::Vec<_>>();
 
+        // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
+        let incentive: Vec<PerU16> = incentive.into_iter().map(PerU16::from_parts).collect();
         Incentive::<T>::insert(netuid_index, incentive);
 
         let server_emission = extract_from_sorted_terms!(terms_sorted, server_emission);
@@ -131,6 +134,14 @@ impl<T: Config> Pallet<T> {
         let validator_trust = extract_from_sorted_terms!(terms_sorted, validator_trust);
         let new_validator_permit = extract_from_sorted_terms!(terms_sorted, new_validator_permit);
         let stake_weight = extract_from_sorted_terms!(terms_sorted, stake_weight);
+
+        // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
+        let consensus: Vec<PerU16> = consensus.into_iter().map(PerU16::from_parts).collect();
+        let dividend: Vec<PerU16> = dividend.into_iter().map(PerU16::from_parts).collect();
+        let validator_trust: Vec<PerU16> = validator_trust
+            .into_iter()
+            .map(PerU16::from_parts)
+            .collect();
 
         Active::<T>::insert(netuid, active.clone());
         Emission::<T>::insert(netuid, emission);
@@ -513,10 +524,35 @@ impl<T: Config> Pallet<T> {
         StakeWeight::<T>::insert(netuid, cloned_stake_weight.clone());
         Active::<T>::insert(netuid, active.clone());
         Emission::<T>::insert(netuid, cloned_emission);
-        Consensus::<T>::insert(netuid, cloned_consensus);
-        Incentive::<T>::insert(NetUidStorageIndex::from(netuid), cloned_incentive);
-        Dividends::<T>::insert(netuid, cloned_dividends);
-        ValidatorTrust::<T>::insert(netuid, cloned_validator_trust);
+        // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
+        Consensus::<T>::insert(
+            netuid,
+            cloned_consensus
+                .into_iter()
+                .map(PerU16::from_parts)
+                .collect::<Vec<PerU16>>(),
+        );
+        Incentive::<T>::insert(
+            NetUidStorageIndex::from(netuid),
+            cloned_incentive
+                .into_iter()
+                .map(PerU16::from_parts)
+                .collect::<Vec<PerU16>>(),
+        );
+        Dividends::<T>::insert(
+            netuid,
+            cloned_dividends
+                .into_iter()
+                .map(PerU16::from_parts)
+                .collect::<Vec<PerU16>>(),
+        );
+        ValidatorTrust::<T>::insert(
+            netuid,
+            cloned_validator_trust
+                .into_iter()
+                .map(PerU16::from_parts)
+                .collect::<Vec<PerU16>>(),
+        );
         ValidatorPermit::<T>::insert(netuid, new_validator_permits.clone());
 
         new_validator_permits
@@ -553,15 +589,12 @@ impl<T: Config> Pallet<T> {
     /// Calculates reward consensus values, then updates rank, trust, consensus, incentive, dividend, pruning_score, emission and bonds, and
     /// returns the emissions for uids/hotkeys in a given `netuid`.
     ///
-    /// # Args:
-    ///  * 'netuid': ( u16 ):
-    ///     - The network to distribute the emission onto.
+    /// # Arguments
+    /// * `netuid`: The network to distribute the emission onto.
     ///
-    ///  * 'rao_emission': ( u64 ):
-    ///     - The total emission for the epoch.
+    /// * `rao_emission`: The total emission for the epoch.
     ///
-    ///  * 'debug' ( bool ):
-    ///     - Print debugging outputs.
+    /// * `debug`: Print debugging outputs.
     ///
     pub fn epoch_mechanism(
         netuid: NetUid,
@@ -1218,12 +1251,12 @@ impl<T: Config> Pallet<T> {
 
     /// Compute the Exponential Moving Average (EMA) of bonds using a normal alpha value for a sparse matrix.
     ///
-    /// # Args:
-    /// * `bonds_delta` - A vector of bond deltas.
-    /// * `bonds` - A vector of bonds.
-    /// * `netuid` - The network ID.
+    /// # Arguments
+    /// * `bonds_delta`: A vector of bond deltas.
+    /// * `bonds`: A vector of bonds.
+    /// * `netuid`: The network ID.
     ///
-    /// # Returns:
+    /// # Returns
     /// A vector of EMA bonds.
     pub fn compute_ema_bonds_normal_sparse(
         bonds_delta: &[Vec<(u16, I32F32)>],
@@ -1254,12 +1287,12 @@ impl<T: Config> Pallet<T> {
 
     /// Compute the Exponential Moving Average (EMA) of bonds using a normal alpha value.
     ///
-    /// # Args:
-    /// * `bonds_delta` - A vector of bond deltas.
-    /// * `bonds` - A vector of bonds.
-    /// * `netuid` - The network ID.
+    /// # Arguments
+    /// * `bonds_delta`: A vector of bond deltas.
+    /// * `bonds`: A vector of bonds.
+    /// * `netuid`: The network ID.
     ///
-    /// # Returns:
+    /// # Returns
     /// A vector of EMA bonds.
     pub fn compute_ema_bonds_normal(
         bonds_delta: &[Vec<I32F32>],
@@ -1288,14 +1321,14 @@ impl<T: Config> Pallet<T> {
 
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting
     ///
-    /// # Args:
-    /// * `netuid` - The network ID.
-    /// * `weights` - A vector of weights.
-    /// * `bonds` - A vector of bonds.
-    /// * `consensus` - A vector of consensus values.
-    /// * `active_stake` - A vector of active stake values.
+    /// # Arguments
+    /// * `netuid`: The network ID.
+    /// * `weights`: A vector of weights.
+    /// * `bonds`: A vector of bonds.
+    /// * `consensus`: A vector of consensus values.
+    /// * `active_stake`: A vector of active stake values.
     ///
-    /// # Returns:
+    /// # Returns
     /// A vector of EMA bonds.
     pub fn compute_bonds(
         netuid: NetUid,
@@ -1328,14 +1361,14 @@ impl<T: Config> Pallet<T> {
 
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting for a sparse matrix.
     ///
-    /// # Args:
-    /// * `netuid` - The network ID.
-    /// * `weights` - A vector of weights.
-    /// * `bonds` - A vector of bonds.
-    /// * `consensus` - A vector of consensus values.
-    /// * `active_stake` - A vector of active stake values.
+    /// # Arguments
+    /// * `netuid`: The network ID.
+    /// * `weights`: A vector of weights.
+    /// * `bonds`: A vector of bonds.
+    /// * `consensus`: A vector of consensus values.
+    /// * `active_stake`: A vector of active stake values.
     ///
-    /// # Returns:
+    /// # Returns
     /// A vector of EMA bonds.
     pub fn compute_bonds_sparse(
         netuid_index: NetUidStorageIndex,
@@ -1371,13 +1404,13 @@ impl<T: Config> Pallet<T> {
     /// Compute liquid alphas matrix
     /// There is a separate alpha param for each validator-miner binding
     ///
-    /// # Args:
-    /// * `netuid` - The network ID.
-    /// * `weights` - A vector of weights.
-    /// * `bonds` - A vector of bonds.
-    /// * `consensus` - A vector of consensus values.
+    /// # Arguments
+    /// * `netuid`: The network ID.
+    /// * `weights`: A vector of weights.
+    /// * `bonds`: A vector of bonds.
+    /// * `consensus`: A vector of consensus values.
     ///
-    /// # Returns:
+    /// # Returns
     /// A matrix of alphas
     pub fn compute_liquid_alpha_values(
         netuid: NetUid,
@@ -1424,13 +1457,13 @@ impl<T: Config> Pallet<T> {
     /// Compute liquid alphas sparse matrix
     /// There is a separate alpha param for each validator-miner binding
     ///
-    /// # Args:
-    /// * `netuid` - The network ID.
-    /// * `weights` - A vector of weights.
-    /// * `bonds` - A vector of bonds.
-    /// * `consensus` - A vector of consensus values.
+    /// # Arguments
+    /// * `netuid`: The network ID.
+    /// * `weights`: A vector of weights.
+    /// * `bonds`: A vector of bonds.
+    /// * `consensus`: A vector of consensus values.
     ///
-    /// # Returns:
+    /// # Returns
     /// A dense matrix of alphas
     pub fn compute_liquid_alpha_values_sparse(
         netuid: NetUid,

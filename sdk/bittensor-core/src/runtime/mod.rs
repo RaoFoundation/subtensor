@@ -260,6 +260,73 @@ impl Runtime {
             .ok_or_else(|| CoreError::Codec(format!("unknown type id {id}")))
     }
 
+    /// A short, human-facing identity for a registry type: the last segment
+    /// of its path (e.g. "TaoBalance", "NetUid", "AccountId32"), with
+    /// `Option`'s payload kept (`Option<Timepoint>`). Path-less types render
+    /// structurally: "u64", "Vec<u16>", "[u8; 32]", "(u16, u16)",
+    /// "Compact<u64>".
+    ///
+    /// This is what the codegen IR carries per call parameter, so generated
+    /// builders can surface newtype identity (a TaoBalance argument vs a
+    /// bare u64) even though the wire encoding is the inner value.
+    pub fn type_ident(&self, id: u32) -> String {
+        self.type_ident_bounded(id, 0)
+    }
+
+    fn type_ident_bounded(&self, id: u32, depth: usize) -> String {
+        // The registry comes from the connected node and is untrusted; bound
+        // recursion like the decoders do.
+        if depth > 8 {
+            return format!("scale_info::{id}");
+        }
+        let Ok(ty) = self.resolve(id) else {
+            return format!("scale_info::{id}");
+        };
+        if let Some(last) = ty.path.segments.last() {
+            if last == "Option" && ty.path.segments.len() == 1 {
+                if let TypeDef::Variant(variant) = &ty.type_def {
+                    if let Some(field) = variant
+                        .variants
+                        .iter()
+                        .find(|v| v.name == "Some")
+                        .and_then(|v| v.fields.first())
+                    {
+                        return format!(
+                            "Option<{}>",
+                            self.type_ident_bounded(field.ty.id, depth + 1)
+                        );
+                    }
+                }
+            }
+            return last.clone();
+        }
+        match &ty.type_def {
+            TypeDef::Primitive(p) => primitive_name(p).to_string(),
+            TypeDef::Compact(c) => format!(
+                "Compact<{}>",
+                self.type_ident_bounded(c.type_param.id, depth + 1)
+            ),
+            TypeDef::Sequence(s) => format!(
+                "Vec<{}>",
+                self.type_ident_bounded(s.type_param.id, depth + 1)
+            ),
+            TypeDef::Array(a) => format!(
+                "[{}; {}]",
+                self.type_ident_bounded(a.type_param.id, depth + 1),
+                a.len
+            ),
+            TypeDef::Tuple(t) => {
+                let parts: Vec<String> = t
+                    .fields
+                    .iter()
+                    .map(|f| self.type_ident_bounded(f.id, depth + 1))
+                    .collect();
+                format!("({})", parts.join(", "))
+            }
+            _ => format!("scale_info::{id}"),
+        }
+    }
+
     /// The portable registry as JSON (`{"types": [{"id", "type": {...}}]}`).
     ///
     /// For registry-walking tooling (the shape-corpus recorder); not a hot

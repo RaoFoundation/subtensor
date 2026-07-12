@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import inspect
 import json
 import shutil
 import sys
@@ -26,8 +27,12 @@ from pathlib import Path
 from bittensor import error_map, result
 from bittensor.intents import REGISTRY as INTENTS
 from bittensor.intents.registry import list_tools
+from bittensor.namespaces import NAMESPACES
 from bittensor.reads import REGISTRY as READS
 from bittensor.reads import list_reads
+
+# Read category -> `client.<attr>` namespace carrying that category's reads.
+NAMESPACE_ATTR = {cls._category: attr for attr, cls in NAMESPACES.items()}
 
 APP_DIR = Path(__file__).resolve().parent.parent
 # Docs content lives at the repository root (subtensor/docs), shared with the
@@ -284,6 +289,29 @@ _JSON_PY_PLACEHOLDER = {
 }
 
 
+def namespace_attr(spec) -> str:
+    return NAMESPACE_ATTR[spec.category]
+
+
+def namespace_shadowed(spec) -> bool:
+    """Whether a curated method with *different semantics* hides this read on
+    its namespace (e.g. ``subnets.metagraph`` returns the typed Metagraph, not
+    this read's raw record) — such reads stay name-dispatch only in the docs.
+    Detected by a differing return annotation; a curated method that merely
+    wraps the read (same name, same return type) documents fine either way."""
+    cls = NAMESPACES[namespace_attr(spec)]
+    curated = vars(cls).get(spec.name)
+    if curated is None:
+        return False
+    curated_returns = inspect.signature(curated).return_annotation
+    read_returns = inspect.signature(spec.fetch).return_annotation
+    return curated_returns != read_returns
+
+
+def namespace_call(spec, py_kwargs: list[str]) -> str:
+    return f"client.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
+
+
 def read_page(spec) -> str:
     body = mdx_escape(body_after_summary(spec.doc))
     if spec.params:
@@ -300,7 +328,7 @@ def read_page(spec) -> str:
         table = "This read takes no parameters.\n"
 
     cli_parts = [f"btcli query {kebab(spec.name)}"]
-    py_args = [f'"{spec.name}"']
+    py_kwargs = []
     for name, jtype in spec.params.items():
         if name.endswith("_ss58"):
             cli_parts.append(f"{cli_flag(name)} <ss58|name>")
@@ -308,7 +336,33 @@ def read_page(spec) -> str:
         else:
             cli_parts.append(f"--{kebab(name)} <{jtype}>")
             py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
-        py_args.append(f"{name}={py_value}")
+        py_kwargs.append(f"{name}={py_value}")
+
+    read_call = f"client.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
+    if namespace_shadowed(spec):
+        # A curated method with different semantics owns this name on the
+        # namespace, so the page documents the name-dispatch form only.
+        python_section = f"""```python
+import bittensor as sub
+
+async with sub.Client("finney") as client:
+    result = await {read_call}
+```"""
+    else:
+        python_section = f"""Typed namespace method (autocomplete, signature help):
+
+```python
+import bittensor as sub
+
+async with sub.Client("finney") as client:
+    result = await {namespace_call(spec, py_kwargs)}
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await {read_call}
+```"""
 
     return f"""{frontmatter(kebab(spec.name), spec.summary)}
 {body}
@@ -326,12 +380,7 @@ def read_page(spec) -> str:
 
 ## Python
 
-```python
-import bittensor as sub
-
-async with sub.Client("finney") as client:
-    result = await client.read({", ".join(py_args)})
-```
+{python_section}
 """
 
 
@@ -347,9 +396,13 @@ def read_index() -> str:
     parts = [
         header,
         "Reads are free, unsigned, and safe to call at any time. Each CLI command "
-        "is `btcli query <name>` (add `--json` for machine-readable output); in "
-        "Python use `await client.read(\"<name>\", ...)`. The machine-readable "
-        "catalog is at [`/catalog/reads.json`](/catalog/reads.json) or via "
+        "is `btcli query <name>` (add `--json` for machine-readable output). In "
+        "Python every read is a typed method on its category's namespace — "
+        "`await client.subnets.subnet_registration_cost()`, "
+        "`await client.delegation.delegates()` — with autocomplete and signature "
+        "help; `await client.read(\"<name>\", ...)` dispatches the same read by "
+        "name. The machine-readable catalog is at "
+        "[`/catalog/reads.json`](/catalog/reads.json) or via "
         "`sub.reads.list_reads()`.\n",
     ]
     for category in sorted(groups):
@@ -446,6 +499,9 @@ def write_catalogs(catalog_root: Path) -> None:
     reads = list_reads()
     for r in reads:
         r["docs_url"] = f"/docs/query/{kebab(r['name'])}"
+        spec = READS[r["name"]]
+        if not namespace_shadowed(spec):
+            r["python"] = f"client.{namespace_attr(spec)}.{spec.name}(...)"
     errors = {
         "codes": {code.value: result.REMEDIATION[code] for code in error_map.ErrorCode},
         "chain_errors": {n: c.value for n, c in sorted(error_map.NAME_TO_CODE.items())},

@@ -239,11 +239,12 @@ mod tests {
         let field =
             |name: &str| -> Vec<u8> { hex::decode(vector[name].as_str().unwrap()).unwrap() };
         let metadata = golden_metadata_v15();
-        let spec_version = {
-            let serde_json::Value::Number(number) = &vector["spec_version"] else {
-                panic!("ledger proof vector spec_version is not a number")
-            };
-            number.to_string().parse::<u32>().unwrap()
+        let spec_version = match &vector["spec_version"] {
+            serde_json::Value::Number(number) => number
+                .to_string()
+                .parse()
+                .expect("fixture spec_version fits u32"),
+            value => panic!("fixture spec_version {value} is not an integer"),
         };
         let proof = generate_extrinsic_proof(
             &field("call_data_hex"),

@@ -21,9 +21,17 @@ btcli query block-time --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("block_time")
+    result = await client.chain.block_time()
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("block_time")
 ```

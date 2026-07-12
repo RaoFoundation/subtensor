@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from .. import timelock
 from .._generated import storage as st
-from ..settings import GLOBAL_MAX_SUBNET_COUNT, U16_MAX
+from ..hyperparams import ratio_fraction
+from ..settings import GLOBAL_MAX_SUBNET_COUNT
 from .base import read
 
 
@@ -62,8 +63,13 @@ async def bonds(view, netuid: int, mechid: int = 0) -> dict[int, dict[int, float
     rather than row-normalized.
     """
     rows = await view.query_map(st.SubtensorModule.Bonds, [_mechanism_index(netuid, mechid)])
+    # Matrix elements, so the storage descriptor's value identity is the row
+    # type, not the element's; each element is a u16 fraction over 65535
+    # (PerU16 semantics).
     return {
-        int(uid): {int(target): int(value) / U16_MAX for target, value in row or []}
+        int(uid): {
+            int(target): ratio_fraction("PerU16", int(value)) or 0.0 for target, value in row or []
+        }
         for uid, row in sorted(rows, key=lambda kv: int(kv[0]))
     }
 

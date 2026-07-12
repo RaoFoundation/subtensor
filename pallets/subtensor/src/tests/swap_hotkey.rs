@@ -7,7 +7,7 @@ use frame_support::{assert_err, assert_noop, assert_ok};
 use frame_system::{Config, RawOrigin};
 use share_pool::SafeFloat;
 use sp_core::{Get, H160, H256, U256};
-use sp_runtime::SaturatedConversion;
+use sp_runtime::{PerU16, SaturatedConversion};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{SwapEngine, SwapHandler};
@@ -135,7 +135,7 @@ fn test_swap_delegates() {
         let coldkey = U256::from(3);
         let mut weight = Weight::zero();
 
-        Delegates::<Test>::insert(old_hotkey, 100);
+        Delegates::<Test>::insert(old_hotkey, PerU16::from_parts(100));
         assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
             &old_hotkey,
             &new_hotkey,
@@ -145,7 +145,7 @@ fn test_swap_delegates() {
         ));
 
         assert!(!Delegates::<Test>::contains_key(old_hotkey));
-        assert_eq!(Delegates::<Test>::get(new_hotkey), 100);
+        assert_eq!(Delegates::<Test>::get(new_hotkey), PerU16::from_parts(100));
     });
 }
 
@@ -1909,23 +1909,30 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
         // 5000 is well above the floor (0) and below the max (11_796).
         let configured_childkey_take: u16 = 5000;
         assert!(configured_childkey_take > floor_take);
-        ChildkeyTake::<Test>::insert(old_hotkey, netuid, configured_childkey_take);
+        ChildkeyTake::<Test>::insert(
+            old_hotkey,
+            netuid,
+            PerU16::from_parts(configured_childkey_take),
+        );
 
         // Configure a NON-default delegate take on the old hotkey for contrast.
         // (Default delegate take in this mock is 11_796.)
         let configured_delegate_take: u16 = 100;
-        Delegates::<Test>::insert(old_hotkey, configured_delegate_take);
+        Delegates::<Test>::insert(old_hotkey, PerU16::from_parts(configured_delegate_take));
 
         // Sanity: pre-swap the old hotkey carries the configured values.
         assert_eq!(
-            ChildkeyTake::<Test>::get(old_hotkey, netuid),
+            ChildkeyTake::<Test>::get(old_hotkey, netuid).deconstruct(),
             configured_childkey_take
         );
         assert_eq!(
             SubtensorModule::get_childkey_take(&old_hotkey, netuid),
             configured_childkey_take
         );
-        assert_eq!(Delegates::<Test>::get(old_hotkey), configured_delegate_take);
+        assert_eq!(
+            Delegates::<Test>::get(old_hotkey).deconstruct(),
+            configured_delegate_take
+        );
 
         // Perform the real hotkey swap on all subnets.
         assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
@@ -1938,13 +1945,16 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
 
         // CONTRAST (safe behavior): Delegates take IS migrated to the new hotkey.
         assert!(!Delegates::<Test>::contains_key(old_hotkey));
-        assert_eq!(Delegates::<Test>::get(new_hotkey), configured_delegate_take);
+        assert_eq!(
+            Delegates::<Test>::get(new_hotkey).deconstruct(),
+            configured_delegate_take
+        );
 
         // FIXED (GHSA-2026-014): ChildkeyTake IS now migrated to the new hotkey.
         // The new hotkey carries over the configured take (5000) instead of
         // silently dropping to the storage default (0) / floor take.
         assert_eq!(
-            ChildkeyTake::<Test>::get(new_hotkey, netuid),
+            ChildkeyTake::<Test>::get(new_hotkey, netuid).deconstruct(),
             configured_childkey_take,
             "ChildkeyTake(new_hotkey) should inherit the configured take after swap"
         );
@@ -1956,6 +1966,9 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
 
         // FIXED: the old hotkey's ChildkeyTake row is removed (no orphan left behind).
         assert!(!ChildkeyTake::<Test>::contains_key(old_hotkey, netuid));
-        assert_eq!(ChildkeyTake::<Test>::get(old_hotkey, netuid), 0);
+        assert_eq!(
+            ChildkeyTake::<Test>::get(old_hotkey, netuid),
+            PerU16::zero()
+        );
     });
 }

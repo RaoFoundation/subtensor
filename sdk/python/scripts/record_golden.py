@@ -33,7 +33,6 @@ from urllib.parse import urlparse
 from bittensor._transport.codec import strip_option_opaque_metadata
 from bittensor._transport.interface import SubstrateConnection
 from bittensor._transport.runtime_api import encode_runtime_api_params
-from bittensor._transport.storage import storage_key
 from bittensor.keyfiles import Keypair
 
 ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "ws://127.0.0.1:9944"
@@ -171,7 +170,7 @@ async def record(sub: SubstrateConnection) -> dict[str, Any]:
     keys = []
     for pallet, fn, params in STORAGE_KEY_CASES:
         entry = codec.storage_entry(pallet, fn)
-        key = storage_key(codec, entry, list(params))
+        key = codec.storage_key(entry, list(params))
         keys.append(
             {
                 "pallet": pallet,
@@ -362,7 +361,7 @@ async def record(sub: SubstrateConnection) -> dict[str, Any]:
     values = []
     for pallet, fn, params in STORAGE_VALUE_CASES:
         entry = codec.storage_entry(pallet, fn)
-        key_hex = "0x" + storage_key(codec, entry, list(params)).hex()
+        key_hex = "0x" + codec.storage_key(entry, list(params)).hex()
         raw = await rpc("state_getStorage", [key_hex, pin])
         decoded = await sub.query(pallet, fn, list(params), block_hash=pin)
         values.append(
@@ -380,7 +379,7 @@ async def record(sub: SubstrateConnection) -> dict[str, Any]:
 
     # -- raw events at the inclusion block ----------------------------------------
     events_entry = codec.storage_entry("System", "Events")
-    events_key = "0x" + storage_key(codec, events_entry, []).hex()
+    events_key = "0x" + codec.storage_key(events_entry, []).hex()
     golden["events"] = {
         "block_hash": pin,
         "raw_hex": await rpc("state_getStorage", [events_key, pin]),
@@ -397,7 +396,7 @@ async def record(sub: SubstrateConnection) -> dict[str, Any]:
             if len(pairs) >= 25:
                 break
         entry = codec.storage_entry(pallet, fn)
-        prefix_hex = "0x" + storage_key(codec, entry, list(params)).hex()
+        prefix_hex = "0x" + codec.storage_key(entry, list(params)).hex()
         raw_keys = await rpc("state_getKeysPaged", [prefix_hex, 25, None, pin])
         raw_changes: list = []
         if raw_keys:

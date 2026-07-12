@@ -22,19 +22,27 @@ directly.
 
 ## Three levels of reading
 
-**Typed conveniences** — curated helpers with rich return types:
+**Typed namespaces** — one per read category (`balances`, `subnets`,
+`neurons`, `staking`, `delegation`, `prices`, `epochs`, `weights`, `locks`,
+`identity`, `leasing`, `hyperparameters`, `chain`). Every read in the catalog
+is a method on its namespace, with autocomplete, signature help, and typed
+returns; a few curated helpers (`subnets.all()`, `balances.get()`) add
+renamed or richer variants on top:
 
 ```python
-await client.balances.get("5F...")        # Balance
-await client.subnets.all()                # list[SubnetInfo]
-await client.neurons.all(netuid=1)        # list[Neuron]
+await client.balances.get("5F...")                  # Balance
+await client.subnets.all()                          # list[SubnetInfo]
+await client.subnets.subnet_registration_cost()     # Balance
+await client.delegation.delegate_take(hotkey_ss58="5F...")
+await client.neurons.all(netuid=1)                  # list[Neuron]
 ```
 
-**Named reads** — the full catalog of semantic reads, the same set the CLI's
-`query` group exposes. One page each under [Queries](/docs/query):
+Every method takes an optional `block=` to pin the read to one block.
+
+**Named reads** — the same catalog dispatched by name, the form agents and
+the CLI's `query` group use. One page each under [Queries](/docs/query):
 
 ```python
-mg = await client.read("metagraph", netuid=1)
 take = await client.read("delegate_take", hotkey_ss58="5F...")
 client.reads()                            # the machine-readable catalog
 ```
@@ -111,8 +119,8 @@ await client.wait_for_epoch(netuid=1)      # next epoch boundary on a subnet
 
 ## Pinned snapshots
 
-`client.at(block)` returns a `Snapshot`: the domain namespaces (`balances`,
-`subnets`, `neurons`, `staking`) pinned to one block, so a multi-read
+`client.at(block)` returns a `Snapshot`: the same read surface — all the
+typed namespaces and named reads — pinned to one block, so a multi-read
 computation sees one consistent state instead of racing the chain. Writes
 through a snapshot are rejected — it is a view, not a signer.
 

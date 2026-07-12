@@ -21,9 +21,17 @@ btcli query crowdloans --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("crowdloans")
+    result = await client.leasing.crowdloans()
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("crowdloans")
 ```

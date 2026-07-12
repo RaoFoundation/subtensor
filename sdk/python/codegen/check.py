@@ -7,6 +7,13 @@
   rename is caught rather than silently degrading to UNKNOWN), and every name
   on chain classifies to a semantic code (a new runtime error must be
   deliberately mapped before it can ship).
+- ``--units``: assert the hyperparameter hand table agrees with the unit each
+  parameter's storage value type identity dictates. Pre-newtype metadata
+  carries no unit-bearing identities, so the gate passes trivially there; it
+  bites after a regen against a runtime with PerU16/TaoBalance newtypes.
+- ``--namespaces``: assert the committed ``bittensor/namespaces.pyi`` stub
+  matches what the read registry generates — a read added without regenerating
+  the stub (or a category with no namespace class) fails here.
 
 Exit code 0 = ok, 1 = mismatch.
 """
@@ -345,15 +352,66 @@ def check_names() -> int:
     return 0
 
 
+def check_namespaces() -> int:
+    from .emit_namespaces import OUT_PATH, generate
+
+    expected = generate()
+    if not OUT_PATH.exists() or OUT_PATH.read_text() != expected:
+        print("DRIFT: bittensor/namespaces.pyi is stale vs the read registry")
+        print("Run: uv run python -m codegen.emit_namespaces")
+        return 1
+    from bittensor.reads import REGISTRY
+
+    print(f"namespaces ok: namespaces.pyi covers all {len(REGISTRY)} registered reads")
+    return 0
+
+
+def check_units() -> int:
+    from bittensor import hyperparams
+
+    problems: list[str] = []
+    derived = 0
+    for name, meta in hyperparams.HYPERPARAMS.items():
+        metadata_kind = hyperparams.metadata_kind(name)
+        if metadata_kind is None:
+            # No dedicated storage value, or the (pre-newtype) metadata
+            # carries no unit-bearing identity — the hand table stands alone.
+            continue
+        derived += 1
+        if metadata_kind != meta.kind:
+            item = hyperparams.STORAGE_ITEMS[name]
+            ident = getattr(item, "value_type_ident", "")
+            problems.append(
+                f"{name}: hand table says {meta.kind!r} but storage "
+                f"{item.container}.{item.name} is {ident!r} (kind {metadata_kind!r})"
+            )
+    if problems:
+        for p in problems:
+            print(f"UNITS: {p}")
+        return 1
+    print(
+        f"units ok: {derived} metadata-derived hyperparameter kinds agree with the hand "
+        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity)"
+    )
+    return 0
+
+
 def main() -> None:
     args = sys.argv[1:]
     if not args:
-        print("usage: python -m codegen.check --names | --coverage | --drift <endpoint>")
+        print(
+            "usage: python -m codegen.check "
+            "--names | --coverage | --units | --namespaces | --drift <endpoint>"
+        )
         raise SystemExit(2)
     if args[0] == "--names":
         raise SystemExit(check_names())
     if args[0] == "--coverage":
         raise SystemExit(check_coverage())
+    if args[0] == "--units":
+        raise SystemExit(check_units())
+    if args[0] == "--namespaces":
+        raise SystemExit(check_namespaces())
     if args[0] == "--drift":
         endpoint = args[1] if len(args) > 1 else "ws://127.0.0.1:9944"
         raise SystemExit(check_drift(endpoint))

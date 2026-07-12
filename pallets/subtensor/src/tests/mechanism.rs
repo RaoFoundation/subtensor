@@ -50,6 +50,7 @@ use pallet_drand::types::Pulse;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 use sha2::Digest;
 use sp_core::{H256, U256};
+use sp_runtime::PerU16;
 use sp_runtime::traits::{BlakeTwo256, Hash};
 use sp_std::collections::vec_deque::VecDeque;
 use substrate_fixed::types::{I32F32, U64F64};
@@ -302,7 +303,7 @@ fn update_mechanism_counts_decreases_and_cleans() {
         let idx_rm3 = SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(2u8));
 
         Weights::<Test>::insert(idx_keep, 0u16, vec![(1u16, 1u16)]);
-        Incentive::<Test>::insert(idx_keep, vec![1u16]);
+        Incentive::<Test>::insert(idx_keep, vec![PerU16::from_parts(1)]);
         LastUpdate::<Test>::insert(idx_keep, vec![123u64]);
         Bonds::<Test>::insert(idx_keep, 0u16, vec![(1u16, 2u16)]);
         WeightCommits::<Test>::insert(
@@ -317,7 +318,7 @@ fn update_mechanism_counts_decreases_and_cleans() {
         );
 
         Weights::<Test>::insert(idx_rm3, 0u16, vec![(9u16, 9u16)]);
-        Incentive::<Test>::insert(idx_rm3, vec![9u16]);
+        Incentive::<Test>::insert(idx_rm3, vec![PerU16::from_parts(9)]);
         LastUpdate::<Test>::insert(idx_rm3, vec![999u64]);
         Bonds::<Test>::insert(idx_rm3, 0u16, vec![(9u16, 9u16)]);
         WeightCommits::<Test>::insert(
@@ -338,7 +339,10 @@ fn update_mechanism_counts_decreases_and_cleans() {
         assert_eq!(MechanismCountCurrent::<Test>::get(netuid), desired);
 
         // Kept prefix intact
-        assert_eq!(Incentive::<Test>::get(idx_keep), vec![1u16]);
+        assert_eq!(
+            Incentive::<Test>::get(idx_keep),
+            vec![PerU16::from_parts(1)]
+        );
         assert!(Weights::<Test>::iter_prefix(idx_keep).next().is_some());
         assert!(LastUpdate::<Test>::contains_key(idx_keep));
         assert!(Bonds::<Test>::iter_prefix(idx_keep).next().is_some());
@@ -349,7 +353,7 @@ fn update_mechanism_counts_decreases_and_cleans() {
 
         // Removed prefix (mecid 3) cleared
         assert!(Weights::<Test>::iter_prefix(idx_rm3).next().is_none());
-        assert_eq!(Incentive::<Test>::get(idx_rm3), Vec::<u16>::new());
+        assert_eq!(Incentive::<Test>::get(idx_rm3), Vec::<PerU16>::new());
         assert!(!LastUpdate::<Test>::contains_key(idx_rm3));
         assert!(Bonds::<Test>::iter_prefix(idx_rm3).next().is_none());
         assert!(!WeightCommits::<Test>::contains_key(idx_rm3, hotkey));
@@ -518,7 +522,7 @@ fn epoch_with_mechanisms_produces_per_mechanism_incentive() {
 
         let actual_incentive_sub0 = Incentive::<Test>::get(idx0);
         let actual_incentive_sub1 = Incentive::<Test>::get(idx1);
-        let expected_incentive = 0xFFFF / 2;
+        let expected_incentive = PerU16::from_parts(0xFFFF / 2);
         assert_eq!(actual_incentive_sub0[0], expected_incentive);
         assert_eq!(actual_incentive_sub0[1], expected_incentive);
         assert_eq!(actual_incentive_sub1[0], expected_incentive);
@@ -592,22 +596,22 @@ fn epoch_with_mechanisms_incentives_proportional_to_weights() {
         let expected_incentive_high = 0xFFFF / 5 * 4;
         let expected_incentive_low = 0xFFFF / 5;
         assert_abs_diff_eq!(
-            actual_incentive_sub0[1],
+            actual_incentive_sub0[1].deconstruct(),
             expected_incentive_high,
             epsilon = 1
         );
         assert_abs_diff_eq!(
-            actual_incentive_sub0[2],
+            actual_incentive_sub0[2].deconstruct(),
             expected_incentive_low,
             epsilon = 1
         );
         assert_abs_diff_eq!(
-            actual_incentive_sub1[1],
+            actual_incentive_sub1[1].deconstruct(),
             expected_incentive_low,
             epsilon = 1
         );
         assert_abs_diff_eq!(
-            actual_incentive_sub1[2],
+            actual_incentive_sub1[2].deconstruct(),
             expected_incentive_high,
             epsilon = 1
         );
@@ -714,10 +718,10 @@ fn epoch_with_mechanisms_persists_and_aggregates_all_terms() {
             v
         };
         for (a, e) in inc0.iter().zip(exp_inc0.iter()) {
-            assert_abs_diff_eq!(*a, *e, epsilon = 1);
+            assert_abs_diff_eq!(a.deconstruct(), *e, epsilon = 1);
         }
         for (a, e) in inc1.iter().zip(exp_inc1.iter()) {
-            assert_abs_diff_eq!(*a, *e, epsilon = 1);
+            assert_abs_diff_eq!(a.deconstruct(), *e, epsilon = 1);
         }
 
         // Persisted Bonds for validator (uid0) exist and mirror per-sub terms
@@ -775,10 +779,18 @@ fn epoch_with_mechanisms_persists_and_aggregates_all_terms() {
             assert_abs_diff_eq!(u64::from(emission_v[uid]), exp_em, epsilon = 1);
 
             // u16 terms
-            assert_abs_diff_eq!(cons_v[uid], wu16(t0.consensus, t1.consensus), epsilon = 1);
-            assert_abs_diff_eq!(div_v[uid], wu16(t0.dividend, t1.dividend), epsilon = 1);
             assert_abs_diff_eq!(
-                vtrust_v[uid],
+                cons_v[uid].deconstruct(),
+                wu16(t0.consensus, t1.consensus),
+                epsilon = 1
+            );
+            assert_abs_diff_eq!(
+                div_v[uid].deconstruct(),
+                wu16(t0.dividend, t1.dividend),
+                epsilon = 1
+            );
+            assert_abs_diff_eq!(
+                vtrust_v[uid].deconstruct(),
                 wu16(t0.validator_trust, t1.validator_trust),
                 epsilon = 1
             );
@@ -817,13 +829,13 @@ fn epoch_with_mechanisms_no_weight_no_incentive() {
 
         let actual_incentive_sub0 = Incentive::<Test>::get(idx0);
         let actual_incentive_sub1 = Incentive::<Test>::get(idx1);
-        let expected_incentive = 0xFFFF;
-        assert_eq!(actual_incentive_sub0[0], 0);
+        let expected_incentive = PerU16::from_parts(0xFFFF);
+        assert_eq!(actual_incentive_sub0[0], PerU16::zero());
         assert_eq!(actual_incentive_sub0[1], expected_incentive);
-        assert_eq!(actual_incentive_sub0[2], 0);
-        assert_eq!(actual_incentive_sub1[0], 0);
+        assert_eq!(actual_incentive_sub0[2], PerU16::zero());
+        assert_eq!(actual_incentive_sub1[0], PerU16::zero());
         assert_eq!(actual_incentive_sub1[1], expected_incentive);
-        assert_eq!(actual_incentive_sub1[2], 0);
+        assert_eq!(actual_incentive_sub1[2], PerU16::zero());
         assert_eq!(actual_incentive_sub0.len(), 3);
         assert_eq!(actual_incentive_sub1.len(), 3);
     });
@@ -846,15 +858,36 @@ fn neuron_dereg_cleans_weights_across_subids() {
                 AlphaBalance::from(3u64),
             ],
         );
-        Consensus::<Test>::insert(netuid, vec![21u16, 88u16, 44u16]);
-        Dividends::<Test>::insert(netuid, vec![7u16, 77u16, 17u16]);
+        Consensus::<Test>::insert(
+            netuid,
+            vec![
+                PerU16::from_parts(21),
+                PerU16::from_parts(88),
+                PerU16::from_parts(44),
+            ],
+        );
+        Dividends::<Test>::insert(
+            netuid,
+            vec![
+                PerU16::from_parts(7),
+                PerU16::from_parts(77),
+                PerU16::from_parts(17),
+            ],
+        );
 
         // Clearing per-mecid maps
         for sub in [0u8, 1u8] {
             let idx = SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(sub));
 
             // Incentive vector: position 1 should become 0
-            Incentive::<Test>::insert(idx, vec![10u16, 20u16, 30u16]);
+            Incentive::<Test>::insert(
+                idx,
+                vec![
+                    PerU16::from_parts(10),
+                    PerU16::from_parts(20),
+                    PerU16::from_parts(30),
+                ],
+            );
 
             // Row set BY neuron_uid (to be removed)
             Weights::<Test>::insert(idx, neuron_uid, vec![(0u16, 5u16)]);
@@ -875,10 +908,24 @@ fn neuron_dereg_cleans_weights_across_subids() {
         assert_eq!(e[2], 3u64.into());
 
         let c = Consensus::<Test>::get(netuid);
-        assert_eq!(c, vec![21, 0, 44]);
+        assert_eq!(
+            c,
+            vec![
+                PerU16::from_parts(21),
+                PerU16::zero(),
+                PerU16::from_parts(44)
+            ]
+        );
 
         let d = Dividends::<Test>::get(netuid);
-        assert_eq!(d, vec![7, 0, 17]);
+        assert_eq!(
+            d,
+            vec![
+                PerU16::from_parts(7),
+                PerU16::zero(),
+                PerU16::from_parts(17)
+            ]
+        );
 
         // Per-mecid cleanup
         for sub in [0u8, 1u8] {
@@ -886,7 +933,14 @@ fn neuron_dereg_cleans_weights_across_subids() {
 
             // Incentive element at index 1 set to 0
             let inc = Incentive::<Test>::get(idx);
-            assert_eq!(inc, vec![10, 0, 30]);
+            assert_eq!(
+                inc,
+                vec![
+                    PerU16::from_parts(10),
+                    PerU16::zero(),
+                    PerU16::from_parts(30)
+                ]
+            );
 
             // Rows BY neuron_uid removed
             assert!(!Weights::<Test>::contains_key(idx, neuron_uid));
@@ -908,8 +962,8 @@ fn clear_neuron_handles_absent_rows_gracefully() {
 
         // Minimal vectors with non-zero at index 0 (we will clear UID=0)
         Emission::<Test>::insert(netuid, vec![AlphaBalance::from(5u64)]);
-        Consensus::<Test>::insert(netuid, vec![6u16]);
-        Dividends::<Test>::insert(netuid, vec![7u16]);
+        Consensus::<Test>::insert(netuid, vec![PerU16::from_parts(6)]);
+        Dividends::<Test>::insert(netuid, vec![PerU16::from_parts(7)]);
 
         // No Weights/Bonds rows at all → function should not panic
         let neuron_uid: u16 = 0;
@@ -921,8 +975,8 @@ fn clear_neuron_handles_absent_rows_gracefully() {
             vec![AlphaBalance::from(0u64)]
         );
 
-        assert_eq!(Consensus::<Test>::get(netuid), vec![0u16]);
-        assert_eq!(Dividends::<Test>::get(netuid), vec![0u16]);
+        assert_eq!(Consensus::<Test>::get(netuid), vec![PerU16::zero()]);
+        assert_eq!(Dividends::<Test>::get(netuid), vec![PerU16::zero()]);
     });
 }
 

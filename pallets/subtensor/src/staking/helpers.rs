@@ -1,6 +1,7 @@
 use alloc::collections::BTreeMap;
 use safe_math::*;
 use share_pool::SafeFloat;
+use sp_runtime::PerU16;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
@@ -17,7 +18,7 @@ impl<T: Config> Pallet<T> {
     // Sets the hotkey as a delegate with take.
     //
     pub fn delegate_hotkey(hotkey: &T::AccountId, take: u16) {
-        Delegates::<T>::insert(hotkey, take);
+        Delegates::<T>::insert(hotkey, PerU16::from_parts(take));
     }
 
     // Returns the total amount of stake in the staking table.
@@ -173,7 +174,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the coldkey owning this hotkey. This function should only be called for active accounts.
     ///
     /// # Arguments
-    /// * `hotkey` - The hotkey account ID.
+    /// * `hotkey`: The hotkey account ID.
     ///
     /// # Returns
     /// The coldkey account ID that owns the hotkey.
@@ -184,12 +185,12 @@ impl<T: Config> Pallet<T> {
     /// Returns the hotkey take.
     ///
     /// # Arguments
-    /// * `hotkey` - The hotkey account ID.
+    /// * `hotkey`: The hotkey account ID.
     ///
     /// # Returns
     /// The take value of the hotkey.
     pub fn get_hotkey_take(hotkey: &T::AccountId) -> u16 {
-        Delegates::<T>::get(hotkey)
+        Delegates::<T>::get(hotkey).deconstruct()
     }
     pub fn get_hotkey_take_float(hotkey: &T::AccountId) -> U96F32 {
         U96F32::saturating_from_num(Self::get_hotkey_take(hotkey))
@@ -199,7 +200,7 @@ impl<T: Config> Pallet<T> {
     /// Returns true if the hotkey account has been created.
     ///
     /// # Arguments
-    /// * `hotkey` - The hotkey account ID.
+    /// * `hotkey`: The hotkey account ID.
     ///
     /// # Returns
     /// True if the hotkey account exists, false otherwise.
@@ -210,8 +211,8 @@ impl<T: Config> Pallet<T> {
     /// Returns true if the passed coldkey owns the hotkey.
     ///
     /// # Arguments
-    /// * `coldkey` - The coldkey account ID.
-    /// * `hotkey` - The hotkey account ID.
+    /// * `coldkey`: The coldkey account ID.
+    /// * `hotkey`: The hotkey account ID.
     ///
     /// # Returns
     /// True if the coldkey owns the hotkey, false otherwise.

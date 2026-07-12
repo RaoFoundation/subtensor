@@ -21,9 +21,17 @@ btcli query timestamp --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("timestamp")
+    result = await client.chain.timestamp()
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("timestamp")
 ```

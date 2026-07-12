@@ -574,7 +574,8 @@ impl PyRuntime {
     }
 
     /// The codegen IR: ``{spec_version, pallets: [...], runtime_apis: [...]}``
-    /// with call args/docs, indexed errors, storage and constant names.
+    /// with call args/docs, indexed errors, storage entries (name + value
+    /// type identity), and constant names.
     fn metadata_ir(&self, py: Python<'_>) -> PyResult<PyObject> {
         let join_docs = |docs: &[String]| -> String {
             docs.iter()
@@ -598,11 +599,13 @@ impl PyRuntime {
                     for call in &variant.variants {
                         let call_entry = PyDict::new(py);
                         call_entry.set_item("name", &call.name)?;
-                        let args: Vec<String> = call
-                            .fields
-                            .iter()
-                            .map(|f| f.name.clone().unwrap_or_default())
-                            .collect();
+                        let args = PyList::empty(py);
+                        for field in &call.fields {
+                            let arg = PyDict::new(py);
+                            arg.set_item("name", field.name.clone().unwrap_or_default())?;
+                            arg.set_item("type_ident", self.inner.type_ident(field.ty.id))?;
+                            args.append(arg)?;
+                        }
                         call_entry.set_item("args", args)?;
                         call_entry.set_item("docs", join_docs(&call.docs))?;
                         calls.append(call_entry)?;
@@ -625,12 +628,14 @@ impl PyRuntime {
             }
             entry.set_item("errors", errors)?;
             // Skip pseudo-entries like `:__STORAGE_VERSION__:`.
-            let storage: Vec<&str> = pallet
-                .storage
-                .iter()
-                .filter(|s| !s.name.contains(':'))
-                .map(|s| s.name.as_str())
-                .collect();
+            let storage = PyList::empty(py);
+            for item in pallet.storage.iter().filter(|s| !s.name.contains(':')) {
+                let storage_entry = PyDict::new(py);
+                storage_entry.set_item("name", &item.name)?;
+                storage_entry
+                    .set_item("value_type_ident", self.inner.type_ident(item.value_type))?;
+                storage.append(storage_entry)?;
+            }
             entry.set_item("storage", storage)?;
             let constants: Vec<&str> = pallet.constants.iter().map(|c| c.name.as_str()).collect();
             entry.set_item("constants", constants)?;

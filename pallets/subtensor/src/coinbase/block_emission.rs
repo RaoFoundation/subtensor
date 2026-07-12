@@ -16,7 +16,7 @@ impl<T: Config> Pallet<T> {
     /// following a logarithmic decay.
     ///
     /// # Returns
-    /// * 'Result<u64, &'static str>': The calculated block emission rate or error.
+    /// * `Result<u64, &'static str>`: The calculated block emission rate or error.
     ///
     pub fn get_block_emission() -> CreditOf<T> {
         let maybe_tao_to_mint = Self::calculate_block_emission();

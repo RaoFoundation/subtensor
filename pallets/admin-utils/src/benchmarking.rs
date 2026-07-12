@@ -21,6 +21,7 @@ mod benchmarks {
     use super::*;
     #[cfg(test)]
     use crate::tests::mock;
+    use sp_runtime::PerU16;
     use subtensor_runtime_common::NetUid;
 
     #[benchmark]
@@ -63,7 +64,7 @@ mod benchmarks {
         // disable admin freeze window
         pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
         #[extrinsic_call]
-		_(RawOrigin::Root, 100u16/*default_take*/)/*sudo_set_default_take*/;
+        _(RawOrigin::Root, PerU16::from_parts(100)/*default_take*/)/*sudo_set_default_take*/;
     }
 
     #[benchmark]
@@ -463,7 +464,7 @@ mod benchmarks {
     #[benchmark]
     fn sudo_set_min_delegate_take() {
         #[extrinsic_call]
-        _(RawOrigin::Root, 100u16);
+        _(RawOrigin::Root, PerU16::from_parts(100));
     }
 
     #[benchmark]
@@ -473,7 +474,7 @@ mod benchmarks {
         pallet_subtensor::Pallet::<T>::init_new_network(
             netuid, 1u16, // tempo
         );
-        let take = pallet_subtensor::Pallet::<T>::get_max_childkey_take() / 2;
+        let take = PerU16::from_parts(pallet_subtensor::Pallet::<T>::get_max_childkey_take() / 2);
 
         #[extrinsic_call]
         _(RawOrigin::Root, netuid, take);

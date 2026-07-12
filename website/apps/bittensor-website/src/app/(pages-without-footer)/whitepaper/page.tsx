@@ -10,7 +10,17 @@ import 'katex/dist/katex.min.css';
 
 // @ts-ignore
 import FadeInWrapper from '@/app/components/FadeInWrapper';
+import type {Metadata} from 'next';
 import {InlineMath} from 'react-katex';
+
+export const metadata: Metadata = {
+  title: 'Whitepaper — A Peer-to-Peer Intelligence Market',
+  description:
+    'The Bittensor whitepaper by Yuma Rao: a market system where machine intelligence is ' +
+    'valued peer-to-peer and high-ranking participants are rewarded in TAO.',
+  alternates: {canonical: '/whitepaper'},
+  openGraph: {images: '/images/og_thumbs/whitepaper.png'},
+};
 
 const page = () => {
   return (

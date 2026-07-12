@@ -126,11 +126,12 @@ asyncio.run(main())
 The three structural changes:
 
 1. **One client, no method zoo.** `Subtensor` / `AsyncSubtensor` become
-   `sub.Client` (async) or `sub.SyncClient` (blocking, same surface). Reads
-   live on typed namespaces (`client.balances`, `client.subnets`,
-   `client.neurons`, `client.staking`), on the named-read catalog
-   (`client.read("uid", hotkey_ss58=..., netuid=...)`), or on generic
-   accessors (`client.query(sub.storage...)`). See
+   `sub.Client` (async) or `sub.SyncClient` (blocking, same surface). Every
+   read is a typed method on a category namespace (`client.subnets`,
+   `client.staking`, `client.delegation`, `client.prices`, ... — with
+   autocomplete and signature help), is also dispatchable by name
+   (`client.read("uid", hotkey_ss58=..., netuid=...)`), and anything else is
+   reachable through generic accessors (`client.query(sub.storage...)`). See
    [The client](/docs/concepts/client).
 2. **Transactions are intents.** Every mutation is a small dataclass
    (`sub.Transfer`, `sub.AddStake`, `sub.SetWeights`, ...) executed through
@@ -193,9 +194,12 @@ logging.getLogger("bittensor").setLevel(logging.DEBUG)
 
 ## Reading chain state
 
-General rules: `client.read(name, ...)` takes the same `..._ss58` parameter
-names the old methods used; results that used to be raw u16/u64 integers come
-back normalized (weights and bonds as 0..1 floats, balances as `Balance`).
+General rules: every named read below is a typed method on its namespace
+(`client.staking.stake_for_coldkey(...)`) and equally dispatchable by name
+(`client.read("stake_for_coldkey", ...)`); both take the same `..._ss58`
+parameter names the old methods used. Results that used to be raw u16/u64
+integers come back normalized (weights and bonds as 0..1 floats, balances as
+`Balance`).
 Anything without a named read is reachable through the generic accessors —
 `client.query(sub.storage.Pallet.Item, [params])`,
 `client.query_map(...)`, `client.constant(sub.constants...)`,
@@ -212,19 +216,19 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | `get_balances(*addresses)` | `await client.balances.get_many([...])` |
 | `get_existential_deposit()` | `await client.balances.existential_deposit()` |
 | `get_stake(coldkey_ss58, hotkey_ss58, netuid)` | `await client.staking.get(coldkey_ss58, hotkey_ss58, netuid)` |
-| `get_stake_info_for_coldkey(coldkey_ss58)` | `await client.read("stake_for_coldkey", coldkey_ss58=...)` → `list[StakePosition]` |
-| `get_stake_info_for_coldkeys([...])` | `client.read("stake_for_coldkeys", coldkey_ss58s=[...])` |
-| `get_stake_for_coldkey_and_hotkey(...)` | `client.read("stake", ...)` per netuid, or filter `stake_for_coldkey` |
-| `get_staking_hotkeys(coldkey_ss58)` | `client.read("staking_hotkeys", coldkey_ss58=...)` |
-| `get_auto_stakes(coldkey_ss58)` | `client.read("auto_stake_all", coldkey_ss58=...)` |
-| valuing stake in TAO (manual sum) | `client.read("stake_value_for_coldkey", coldkey_ss58=...)` — never sum alpha yourself ([Money](/docs/concepts/money)) |
-| `sim_swap(...)`, `get_stake_add_fee(...)` | `client.read("quote_stake", netuid=..., amount_tao=...)` |
-| `get_unstake_fee(...)`, `get_stake_movement_fee(...)` | `client.read("quote_unstake", netuid=..., amount_alpha=...)` |
+| `get_stake_info_for_coldkey(coldkey_ss58)` | `await client.staking.stake_for_coldkey(coldkey_ss58=...)` → `list[StakePosition]` |
+| `get_stake_info_for_coldkeys([...])` | `client.staking.stake_for_coldkeys(coldkey_ss58s=[...])` |
+| `get_stake_for_coldkey_and_hotkey(...)` | `client.staking.stake(...)` per netuid, or filter `stake_for_coldkey` |
+| `get_staking_hotkeys(coldkey_ss58)` | `client.staking.staking_hotkeys(coldkey_ss58=...)` |
+| `get_auto_stakes(coldkey_ss58)` | `client.staking.auto_stake_all(coldkey_ss58=...)` |
+| valuing stake in TAO (manual sum) | `client.staking.stake_value_for_coldkey(coldkey_ss58=...)` — never sum alpha yourself ([Money](/docs/concepts/money)) |
+| `sim_swap(...)`, `get_stake_add_fee(...)` | `client.prices.quote_stake(netuid=..., amount_tao=...)` |
+| `get_unstake_fee(...)`, `get_stake_movement_fee(...)` | `client.prices.quote_unstake(netuid=..., amount_alpha=...)` |
 | `get_transfer_fee(...)`, `get_extrinsic_fee(...)` | `(await client.plan(intent, wallet)).fee` |
-| `get_stake_lock` / `get_coldkey_lock` | `client.read("coldkey_lock", coldkey_ss58=..., netuid=...)` |
-| `get_stake_locks(...)` | `client.read("locks_for_coldkey", coldkey_ss58=...)` |
-| `get_hotkey_conviction(hotkey_ss58, netuid)` | `client.read("hotkey_conviction", ...)` |
-| `get_most_convicted_hotkey_on_subnet(netuid)` | `client.read("most_convicted_hotkey", netuid=...)` |
+| `get_stake_lock` / `get_coldkey_lock` | `client.locks.coldkey_lock(coldkey_ss58=..., netuid=...)` |
+| `get_stake_locks(...)` | `client.locks.locks_for_coldkey(coldkey_ss58=...)` |
+| `get_hotkey_conviction(hotkey_ss58, netuid)` | `client.locks.hotkey_conviction(...)` |
+| `get_most_convicted_hotkey_on_subnet(netuid)` | `client.locks.most_convicted_hotkey(netuid=...)` |
 
 ### Subnets and hyperparameters
 
@@ -233,22 +237,22 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | `all_subnets()` / `get_all_subnets_info()` | `await client.subnets.all()` → `list[SubnetInfo]` |
 | `subnet(netuid)` / `get_subnet_info(netuid)` | `await client.subnets.info(netuid)` |
 | `get_all_subnets_netuid()` / `get_total_subnets()` | derive from `client.subnets.all()` |
-| `subnet_exists(netuid)` | `client.read("subnet", netuid=...)` and check |
-| `get_subnet_burn_cost()` | `client.read("subnet_registration_cost")` |
-| `recycle(netuid)` (registration price) | `await client.subnets.burn(netuid)` / `client.read("burn", ...)` |
-| `get_subnet_price(netuid)` / `get_subnet_prices()` | `client.read("alpha_price", netuid=...)` / `client.read("alpha_prices")` |
-| `get_subnet_hyperparameters(netuid)` | `client.read("subnet_hyperparameters", netuid=...)` |
-| `difficulty` / `immunity_period` / `min_allowed_weights` / `max_weight_limit` / `weights_rate_limit` | same names as reads: `client.read("immunity_period", netuid=...)` etc. |
+| `subnet_exists(netuid)` | `client.subnets.subnet(netuid=...)` and check |
+| `get_subnet_burn_cost()` | `client.subnets.subnet_registration_cost()` |
+| `recycle(netuid)` (registration price) | `await client.subnets.burn(netuid)` |
+| `get_subnet_price(netuid)` / `get_subnet_prices()` | `client.prices.alpha_price(netuid=...)` / `client.prices.alpha_prices()` |
+| `get_subnet_hyperparameters(netuid)` | `client.subnets.subnet_hyperparameters(netuid=...)` |
+| `difficulty` / `immunity_period` / `min_allowed_weights` / `max_weight_limit` / `weights_rate_limit` | same names on `client.hyperparameters`: `client.hyperparameters.immunity_period(netuid=...)` etc. |
 | `commit_reveal_enabled(netuid)` | `client.subnets.commit_reveal_enabled(netuid)` |
-| `get_subnet_reveal_period_epochs(netuid)` | `client.read("reveal_period", netuid=...)` |
+| `get_subnet_reveal_period_epochs(netuid)` | `client.hyperparameters.reveal_period(netuid=...)` |
 | `tempo(netuid)` / `subnetwork_n(netuid)` | fields on `client.subnets.info(netuid)` / the metagraph |
-| `blocks_since_last_step` / `blocks_until_next_epoch` / `get_next_epoch_start_block` | same names as reads (`client.read("blocks_until_next_epoch", netuid=...)`) |
-| `blocks_since_last_update(netuid, uid)` | `client.read("blocks_since_last_update", netuid=..., uid=...)` |
-| `is_subnet_active(netuid)` | `client.read("epoch_status", netuid=...)` / `client.read("subnet_start_schedule", netuid=...)` |
-| `get_mechanism_count` / `get_mechanism_emission_split` | `client.read("mechanism_count", ...)` / `client.read("mechanism_emission_split", ...)` |
-| `weights(netuid, mechid)` | `client.read("weights", netuid=..., mechid=0)` — now `dict[uid, dict[uid, float]]` normalized 0..1, **not** u16 tuples |
-| `bonds(netuid, mechid)` | `client.read("bonds", netuid=..., mechid=0)` — same shape change |
-| `get_timelocked_weight_commits(...)` | `client.read("timelocked_weight_commits", netuid=..., mechid=0)` |
+| `blocks_since_last_step` / `blocks_until_next_epoch` / `get_next_epoch_start_block` | same names on `client.epochs` (`client.epochs.blocks_until_next_epoch(netuid=...)`) |
+| `blocks_since_last_update(netuid, uid)` | `client.epochs.blocks_since_last_update(netuid=..., uid=...)` |
+| `is_subnet_active(netuid)` | `client.epochs.epoch_status(netuid=...)` / `client.subnets.subnet_start_schedule(netuid=...)` |
+| `get_mechanism_count` / `get_mechanism_emission_split` | `client.subnets.mechanism_count(...)` / `client.subnets.mechanism_emission_split(...)` |
+| `weights(netuid, mechid)` | `client.weights.weights(netuid=..., mechid=0)` — now `dict[uid, dict[uid, float]]` normalized 0..1, **not** u16 tuples |
+| `bonds(netuid, mechid)` | `client.weights.bonds(netuid=..., mechid=0)` — same shape change |
+| `get_timelocked_weight_commits(...)` | `client.weights.timelocked_weight_commits(netuid=..., mechid=0)` |
 
 ### Neurons, registration, delegates
 
@@ -256,18 +260,18 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | --- | --- |
 | `neurons(netuid)` / `neurons_lite(netuid)` | `await client.neurons.all(netuid, lite=...)` |
 | `neuron_for_uid(uid, netuid)` | `(await client.subnets.metagraph(netuid)).neuron(uid)` |
-| `get_uid_for_hotkey_on_subnet(hotkey_ss58, netuid)` | `client.read("uid", hotkey_ss58=..., netuid=...)` |
-| `is_hotkey_registered` / `..._on_subnet` / `..._any` | `client.read("uid", ...)` / `client.read("netuids_for_hotkey", ...)` |
-| `get_netuids_for_hotkey(hotkey_ss58)` | `client.read("netuids_for_hotkey", hotkey_ss58=...)` |
-| `get_hotkey_owner(hotkey_ss58)` / `does_hotkey_exist` | `client.read("hotkey_owner", hotkey_ss58=...)` |
-| `get_owned_hotkeys(coldkey_ss58)` | `client.read("owned_hotkeys", coldkey_ss58=...)` |
-| `get_delegates()` / `get_delegate_by_hotkey` / `is_hotkey_delegate` / `get_delegate_take` / `get_delegated` | reads `delegates`, `delegate`, `is_delegate`, `delegate_take`, `delegated` |
-| `get_delegate_identities()` | `client.read("hotkey_identities", hotkey_ss58s=[...])` |
-| `get_children` / `get_children_pending` / `get_parents` | reads `children`, `pending_children`, `parents` |
-| `query_identity(coldkey_ss58)` | `client.read("identity", coldkey_ss58=...)` |
-| `get_commitment` / `get_commitment_metadata` | `client.read("commitment", netuid=..., hotkey_ss58=...)` |
+| `get_uid_for_hotkey_on_subnet(hotkey_ss58, netuid)` | `client.neurons.uid(hotkey_ss58=..., netuid=...)` |
+| `is_hotkey_registered` / `..._on_subnet` / `..._any` | `client.neurons.uid(...)` / `client.neurons.netuids_for_hotkey(...)` |
+| `get_netuids_for_hotkey(hotkey_ss58)` | `client.neurons.netuids_for_hotkey(hotkey_ss58=...)` |
+| `get_hotkey_owner(hotkey_ss58)` / `does_hotkey_exist` | `client.neurons.hotkey_owner(hotkey_ss58=...)` |
+| `get_owned_hotkeys(coldkey_ss58)` | `client.neurons.owned_hotkeys(coldkey_ss58=...)` |
+| `get_delegates()` / `get_delegate_by_hotkey` / `is_hotkey_delegate` / `get_delegate_take` / `get_delegated` | same names on `client.delegation`: `delegates`, `delegate`, `is_delegate`, `delegate_take`, `delegated` |
+| `get_delegate_identities()` | `client.identity.hotkey_identities(hotkey_ss58s=[...])` |
+| `get_children` / `get_children_pending` / `get_parents` | `client.delegation.children` / `pending_children` / `parents` |
+| `query_identity(coldkey_ss58)` | `client.identity.identity(coldkey_ss58=...)` |
+| `get_commitment` / `get_commitment_metadata` | `client.identity.commitment(netuid=..., hotkey_ss58=...)` |
 | `get_all_commitments(netuid)` | `await client.subnets.commitments(netuid)` |
-| `get_revealed_commitment*` | `client.read("revealed_commitment", netuid=..., hotkey_ss58=...)` |
+| `get_revealed_commitment*` | `client.identity.revealed_commitment(netuid=..., hotkey_ss58=...)` |
 | `get_neuron_certificate(...)` | no named read — generic storage query |
 
 ### Chain, blocks, and the rest
@@ -278,13 +282,13 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | `get_block_info(block)` / `get_block_hash` | `await client.block_info(block)` |
 | `get_timestamp(block)` | `await client.timestamp(block)` |
 | `wait_for_block(block)` | `await client.wait_for_block(block)` (plus `wait_for_timestamp`, `wait_for_epoch`) |
-| `tx_rate_limit()` / `is_fast_blocks()` | reads `tx_rate_limit`, `is_fast_blocks` |
+| `tx_rate_limit()` / `is_fast_blocks()` | `client.chain.tx_rate_limit()` / `client.is_fast_blocks()` |
 | `last_drand_round()` | `sub.timelock.current_round()` |
-| `get_proxies_for_real_account(ss58)` | `client.read("proxies", coldkey_ss58=...)` |
-| `get_coldkey_swap_announcement(ss58)` | `client.read("coldkey_swap_announcement", coldkey_ss58=...)` |
-| `get_crowdloans()` / `get_crowdloan_by_id` / `get_crowdloan_contributions` | reads `crowdloans`, `crowdloan`, `crowdloan_contributors` |
-| `get_mev_shield_next_key()` | `client.read("mev_shield_next_key")` |
-| `get_root_claim_type(ss58)` | `client.read("root_claim_type", coldkey_ss58=...)` |
+| `get_proxies_for_real_account(ss58)` | `client.balances.proxies(coldkey_ss58=...)` |
+| `get_coldkey_swap_announcement(ss58)` | `client.balances.coldkey_swap_announcement(coldkey_ss58=...)` |
+| `get_crowdloans()` / `get_crowdloan_by_id` / `get_crowdloan_contributions` | `client.leasing.crowdloans()` / `crowdloan(...)` / `crowdloan_contributors(...)` |
+| `get_mev_shield_next_key()` | `client.chain.mev_shield_next_key()` |
+| `get_root_claim_type(ss58)` | `client.staking.root_claim_type(coldkey_ss58=...)` |
 | other `get_root_claim*` reads | no named read — generic storage query |
 | `get_liquidity_list(...)` | removed (feature retired on chain) |
 
@@ -310,8 +314,8 @@ mg.neuron(5), mg.by_hotkey("5F...")
 | --- | --- |
 | `mg.S` (stake array) | `[n.total_stake for n in mg]` |
 | `mg.I`, `mg.D`, `mg.C`, ... arrays | per-neuron fields (`n.incentive`, `n.dividends`, ...) |
-| `mg.W` (weight matrix) | `await client.read("weights", netuid=...)` |
-| `mg.B` (bond matrix) | `await client.read("bonds", netuid=...)` |
+| `mg.W` (weight matrix) | `await client.weights.weights(netuid=...)` |
+| `mg.B` (bond matrix) | `await client.weights.bonds(netuid=...)` |
 | `mg.axons` (`AxonInfo` list) | `n.axon` (`"ip:port"` string or `None`) |
 | `mg.sync(block=...)` | refetch: `client.subnets.metagraph(netuid, block=...)` |
 | `mg.save()` / `mg.load()` | gone — persist `mg.raw` yourself if needed |
@@ -392,12 +396,14 @@ Three call families changed **units**, not just names:
   salt-based commits. `version_key` now defaults to 0 instead of the SDK
   version number — pass the subnet's required key explicitly if it enforces
   one.
-- **Take** was a float 0–1 (`take=0.18`); it is now a u16 proportion:
-  `take=int(0.18 * 65535)`. `set_delegate_take`'s auto-direction behavior is
-  preserved by `sub.SetTake`; `sub.IncreaseTake` / `sub.DecreaseTake` pin the
-  direction.
-- **Children proportions** were floats 0–1; they are now u64 shares:
-  `children=[[int(0.5 * (2**64 - 1)), "5F...child"]]`.
+- **Take** still accepts the float 0–1 form (`take=0.18`); a plain integer
+  is the raw u16 proportion (`take=11796`), following the hyperparameter
+  value rules (a decimal point marks the human form). `set_delegate_take`'s
+  auto-direction behavior is preserved by `sub.SetTake`; `sub.IncreaseTake` /
+  `sub.DecreaseTake` pin the direction.
+- **Children proportions** likewise accept floats 0–1
+  (`children=[[0.5, "5F...child"]]`); a plain integer is the raw u64 share
+  of `u64::MAX`.
 
 ## Money and Balance
 
@@ -578,9 +584,9 @@ explains any error code.
    `sub.Client`; move `block=`-pinned reads onto `client.at(block)`.
 3. Rewrite reads using the tables above; anything unmapped goes through
    `client.query(sub.storage...)`.
-4. Rewrite each transaction as an intent + `client.execute`; convert take
-   values to u16 and child proportions to u64 shares; replace safe-staking
-   flags with `*Limit` intents.
+4. Rewrite each transaction as an intent + `client.execute`; take values and
+   child proportions keep working as 0–1 floats (plain integers mean the raw
+   u16/u64 wire values); replace safe-staking flags with `*Limit` intents.
 5. Update result handling: `.success` still works, but branch on
    `result.error.code` instead of exception types or message strings.
 6. Fix Balance usage: no `.tao` on alpha, no cross-unit arithmetic,

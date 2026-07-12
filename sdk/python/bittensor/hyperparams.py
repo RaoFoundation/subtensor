@@ -17,10 +17,40 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Union
 
+from ._generated import storage as st
 from .settings import BLOCKTIME, RAO_PER_TAO, TAO_SYMBOL, U16_MAX
 
 U64_MAX = 2**64 - 1
 PER_MILLION = 1_000_000
+
+# Denominator per sp_arithmetic ratio type identity (a raw value equal to the
+# denominator encodes exactly 1.0). ``PerU16`` is what post-newtype runtimes
+# use for take/consensus-style ratios; it encodes identically to a bare u16
+# over 65535. This dict is the one place in the SDK that knows these
+# denominators — pre-newtype call sites pass "PerU16" explicitly instead of
+# dividing by 65535 themselves.
+RATIO_TYPE_DENOMINATORS: dict[str, int] = {
+    "PerU16": U16_MAX,
+    "Percent": 100,
+    "Permill": 1_000_000,
+    "Perbill": 1_000_000_000,
+}
+
+
+def ratio_fraction(type_ident: Optional[str], raw: int) -> Optional[float]:
+    """The 0..1 fraction a ratio-typed raw int encodes, or None for non-ratio idents.
+
+    ``type_ident`` is a type identity from the metadata IR / generated storage
+    descriptors: "PerU16" -> raw/65535, "Percent" -> raw/100, "Permill" ->
+    raw/1e6, "Perbill" -> raw/1e9. Anything else (bare primitives, balances,
+    structural names, None) returns None so callers can fall back to their
+    pre-newtype convention.
+    """
+    denominator = RATIO_TYPE_DENOMINATORS.get(type_ident or "")
+    if denominator is None:
+        return None
+    return raw / denominator
+
 
 # Unit kinds:
 #   u16          fraction stored as 0..65535 (65535 = 1.0)
@@ -208,8 +238,83 @@ HYPERPARAMS: dict[str, Hyperparam] = {
 }
 
 
+# Hyperparameter name -> the storage value that holds it. The generated
+# descriptors carry each value's type identity (value_type_ident), so a
+# post-newtype runtime's metadata can dictate the unit kind directly.
+# Parameters without one dedicated storage value (alpha_high/alpha_low share
+# the AlphaValues tuple) stay hand-tabled only.
+STORAGE_ITEMS: dict[str, st.Item] = {
+    "rho": st.SubtensorModule.Rho,
+    "kappa": st.SubtensorModule.Kappa,
+    "immunity_period": st.SubtensorModule.ImmunityPeriod,
+    "min_allowed_weights": st.SubtensorModule.MinAllowedWeights,
+    "max_weights_limit": st.SubtensorModule.MaxWeightsLimit,
+    "tempo": st.SubtensorModule.Tempo,
+    "min_difficulty": st.SubtensorModule.MinDifficulty,
+    "max_difficulty": st.SubtensorModule.MaxDifficulty,
+    "difficulty": st.SubtensorModule.Difficulty,
+    "weights_version": st.SubtensorModule.WeightsVersionKey,
+    "weights_rate_limit": st.SubtensorModule.WeightsSetRateLimit,
+    "adjustment_interval": st.SubtensorModule.AdjustmentInterval,
+    "activity_cutoff": st.SubtensorModule.ActivityCutoff,
+    "registration_allowed": st.SubtensorModule.NetworkRegistrationAllowed,
+    "network_pow_registration_allowed": st.SubtensorModule.NetworkPowRegistrationAllowed,
+    "target_regs_per_interval": st.SubtensorModule.TargetRegistrationsPerInterval,
+    "min_burn": st.SubtensorModule.MinBurn,
+    "max_burn": st.SubtensorModule.MaxBurn,
+    "bonds_moving_avg": st.SubtensorModule.BondsMovingAverage,
+    "max_regs_per_block": st.SubtensorModule.MaxRegistrationsPerBlock,
+    "serving_rate_limit": st.SubtensorModule.ServingRateLimit,
+    "max_validators": st.SubtensorModule.MaxAllowedValidators,
+    "adjustment_alpha": st.SubtensorModule.AdjustmentAlpha,
+    "commit_reveal_period": st.SubtensorModule.RevealPeriodEpochs,
+    "commit_reveal_weights_enabled": st.SubtensorModule.CommitRevealWeightsEnabled,
+    "liquid_alpha_enabled": st.SubtensorModule.LiquidAlphaOn,
+    "max_allowed_uids": st.SubtensorModule.MaxAllowedUids,
+    "burn_increase_mult": st.SubtensorModule.BurnIncreaseMult,
+    "burn_half_life": st.SubtensorModule.BurnHalfLife,
+    "yuma3_enabled": st.SubtensorModule.Yuma3On,
+    "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,
+    "transfers_enabled": st.SubtensorModule.TransferToggle,
+    "owner_cut_enabled": st.SubtensorModule.OwnerCutEnabled,
+    "owner_cut_auto_lock_enabled": st.SubtensorModule.OwnerCutAutoLockEnabled,
+}
+
+# Unit-bearing type identities -> the unit kind they dictate. Ratio types are
+# fractions over their denominator; TaoBalance is a rao amount. Everything the
+# metadata cannot express (blocks, epochs, per_million-by-convention, bool,
+# int) stays with the hand table.
+_IDENT_KINDS: dict[str, str] = {
+    "PerU16": "u16",
+    "Permill": "per_million",
+    "TaoBalance": "rao",
+}
+
+
+def metadata_kind(name: str) -> Optional[str]:
+    """The unit kind a hyperparameter's storage value type identity dictates.
+
+    None when the parameter has no dedicated storage value, or when the
+    (possibly pre-newtype) metadata carries no unit-bearing identity for it —
+    the hand table then decides.
+    """
+    item = STORAGE_ITEMS.get(name)
+    if item is None:
+        return None
+    ident = getattr(item, "value_type_ident", "")
+    return _IDENT_KINDS.get(ident) if ident else None
+
+
 def kind_of(name: str) -> str:
-    """The unit kind for a hyperparameter ('int' when unknown)."""
+    """The unit kind for a hyperparameter ('int' when unknown).
+
+    Metadata-primary: when the parameter's storage descriptor carries a
+    unit-bearing type identity ("PerU16", "TaoBalance"), that identity
+    decides; the hand table covers everything else and pre-newtype metadata.
+    """
+    kind = metadata_kind(name)
+    if kind is not None:
+        return kind
     meta = HYPERPARAMS.get(name)
     return meta.kind if meta else "int"
 
@@ -278,6 +383,44 @@ def value_forms(name: str) -> str:
     return "an integer"
 
 
+def proportion_to_raw(
+    value: Union[int, float, str],
+    denominator: int,
+    label: str = "proportion",
+) -> int:
+    """Convert a normalized-proportion input to its raw fixed-point integer.
+
+    The same convention as :func:`to_raw`'s fraction kinds, reusable for values
+    that aren't hyperparameters (takes, child proportions, emission splits):
+    an integer is the raw on-chain value (bounded by ``denominator``); a float
+    or a string with a decimal point is the human 0..1 fraction.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{label} takes a 0..1 fraction or a raw integer, not a boolean")
+    if isinstance(value, str):
+        text = value.strip().lower().removeprefix("+")
+        try:
+            value = float(text) if ("." in text or "e" in text) else int(text)
+        except ValueError:
+            raise ValueError(
+                f"{label} takes a 0..1 fraction (e.g. 0.18) or the raw integer "
+                f"(0..{denominator}); got {value!r}"
+            ) from None
+    if isinstance(value, int):
+        if not 0 <= value <= denominator:
+            raise ValueError(
+                f"a raw {label} must be within 0..{denominator} (= 1.0); got {value}. "
+                "Pass a value with a decimal point for the 0..1 human form."
+            )
+        return value
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(
+            f"a fractional {label} must be within 0..1 (e.g. 0.18); got {value}. "
+            f"Pass a plain integer for the raw 0..{denominator} form."
+        )
+    return round(value * denominator)
+
+
 _TRUE = {"true", "yes", "y", "on", "1"}
 _FALSE = {"false", "no", "n", "off", "0"}
 
@@ -300,12 +443,19 @@ def to_raw(name: str, value: Union[int, float, str, bool]) -> int:
             value = float(text) if ("." in text or "e" in text) else int(text)
         except ValueError:
             raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
+    denominator = _FRACTION_DENOMINATOR.get(kind)
     if isinstance(value, int):
         if value < 0:
             raise ValueError(f"{name} cannot be negative")
+        # A raw fixed-point fraction can never exceed its denominator (= 1.0);
+        # a larger integer is almost certainly a unit mistake.
+        if denominator is not None and value > denominator:
+            raise ValueError(
+                f"{name} takes {value_forms(name)}; {value} exceeds the raw maximum "
+                f"{denominator} (= 1.0)"
+            )
         return value
     # A float is the human form.
-    denominator = _FRACTION_DENOMINATOR.get(kind)
     if denominator is not None:
         if not 0.0 <= value <= 1.0:
             raise ValueError(

@@ -12,10 +12,9 @@ You are reviewing a pull request to **RaoFoundation/subtensor**, the Substrate-b
 
 ## Branch strategy
 
-- All non-deployment PRs must target `devnet`.
-- Deployment-only flow: `devnet` → `testnet` → `mainnet`.
-- A PR targeting `mainnet` directly is only legitimate if it is a hotfix or a deployment PR.
-- `testnet` and `mainnet` may only receive promotion merges from the branch directly upstream of them.
+- `main` is the trunk. PRs target `main`, or a feature integration branch (e.g. a consolidation branch) that itself has an open PR into `main`.
+- Deployment is automated, not PR-driven: merges to `main` ride the release train, which deploys devnet → testnet → mainnet via on-chain `setCode` (see `docs/internals/release-process.mdx`).
+- `devnet`, `testnet`, and `mainnet` are CI-managed mirror branches recording what each network currently runs. They are ruleset-locked; only the release train updates them. A PR targeting any of them is illegitimate.
 
 ## Severity tags
 

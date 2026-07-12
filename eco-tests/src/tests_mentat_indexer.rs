@@ -2,7 +2,6 @@
 //! Any modification in these tests will notify the member responsible
 //! for the communication between protocol and the Mentat team.
 
-
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::arithmetic_side_effects)]
 
@@ -12,6 +11,7 @@ use pallet_subtensor_proxy::{Proxies, RealPaysFee};
 use pallet_subtensor_swap::FeeRate;
 use pallet_subtensor_swap_runtime_api::SwapRuntimeApi;
 use sp_core::U256;
+use sp_runtime::PerU16;
 use sp_runtime::traits::Block as BlockT;
 use substrate_fixed::types::I96F32;
 use subtensor_custom_rpc_runtime_api::{StakeInfoRuntimeApi, SubnetInfoRuntimeApi};
@@ -83,10 +83,10 @@ fn indexer_neuron_per_subnet_vectors() {
         let netuid = NetUid::from(1u16);
 
         let _: Vec<bool> = Active::<Test>::get(netuid);
-        let _: Vec<u16> = Dividends::<Test>::get(netuid);
+        let _: Vec<PerU16> = Dividends::<Test>::get(netuid);
         let _: Vec<AlphaBalance> = Emission::<Test>::get(netuid);
-        let _: Vec<u16> = Incentive::<Test>::get(NetUidStorageIndex::from(netuid));
-        let _: Vec<u16> = ValidatorTrust::<Test>::get(netuid);
+        let _: Vec<PerU16> = Incentive::<Test>::get(NetUidStorageIndex::from(netuid));
+        let _: Vec<PerU16> = ValidatorTrust::<Test>::get(netuid);
     });
 }
 
@@ -109,7 +109,7 @@ fn indexer_childkey_and_parentkey_graph() {
 
         let _: Vec<(u64, U256)> = ChildKeys::<Test>::get(hotkey, netuid);
         let _: Vec<(u64, U256)> = ParentKeys::<Test>::get(hotkey, netuid);
-        let _: u16 = ChildkeyTake::<Test>::get(hotkey, netuid);
+        let _: PerU16 = ChildkeyTake::<Test>::get(hotkey, netuid);
     });
 }
 
@@ -224,12 +224,7 @@ fn indexer_extrinsic_add_stake() {
         let netuid = NetUid::from(1u16);
         let amount = TaoBalance::from(1_000_000_000u64);
 
-        let _ = SubtensorModule::add_stake(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            netuid,
-            amount,
-        );
+        let _ = SubtensorModule::add_stake(RuntimeOrigin::signed(coldkey), hotkey, netuid, amount);
     });
 }
 
@@ -241,12 +236,8 @@ fn indexer_extrinsic_remove_stake() {
         let netuid = NetUid::from(1u16);
         let amount = AlphaBalance::from(1_000_000_000u64);
 
-        let _ = SubtensorModule::remove_stake(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            netuid,
-            amount,
-        );
+        let _ =
+            SubtensorModule::remove_stake(RuntimeOrigin::signed(coldkey), hotkey, netuid, amount);
     });
 }
 
@@ -357,12 +348,8 @@ fn indexer_extrinsic_set_children() {
         let netuid = NetUid::from(1u16);
         let children: Vec<(u64, U256)> = vec![(u64::MAX, child)];
 
-        let _ = SubtensorModule::set_children(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            netuid,
-            children,
-        );
+        let _ =
+            SubtensorModule::set_children(RuntimeOrigin::signed(coldkey), hotkey, netuid, children);
     });
 }
 
@@ -371,13 +358,9 @@ fn indexer_extrinsic_decrease_take() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let hotkey = U256::from(2);
-        let take_u16: u16 = 1000;
+        let take = PerU16::from_parts(1000);
 
-        let _ = SubtensorModule::decrease_take(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            take_u16,
-        );
+        let _ = SubtensorModule::decrease_take(RuntimeOrigin::signed(coldkey), hotkey, take);
     });
 }
 
@@ -468,11 +451,7 @@ fn indexer_extrinsic_balances_transfer_keep_alive() {
         let dest = U256::from(2);
         let value = TaoBalance::from(1_000_000_000u64);
 
-        let _ = Balances::transfer_keep_alive(
-            RuntimeOrigin::signed(from),
-            dest,
-            value,
-        );
+        let _ = Balances::transfer_keep_alive(RuntimeOrigin::signed(from), dest, value);
     });
 }
 
@@ -486,10 +465,7 @@ fn indexer_extrinsic_system_remark() {
         let who = U256::from(1);
         let remark = vec![0u8; 32];
 
-        let _ = system::Pallet::<Test>::remark(
-            RuntimeOrigin::signed(who),
-            remark,
-        );
+        let _ = system::Pallet::<Test>::remark(RuntimeOrigin::signed(who), remark);
     });
 }
 
@@ -501,14 +477,10 @@ fn indexer_extrinsic_system_remark() {
 fn indexer_extrinsic_utility_batch() {
     new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
-        let calls: Vec<RuntimeCall> = vec![
-            RuntimeCall::System(system::Call::remark { remark: vec![] }),
-        ];
+        let calls: Vec<RuntimeCall> =
+            vec![RuntimeCall::System(system::Call::remark { remark: vec![] })];
 
-        let _ = pallet_subtensor_utility::Pallet::<Test>::batch(
-            RuntimeOrigin::signed(who),
-            calls,
-        );
+        let _ = pallet_subtensor_utility::Pallet::<Test>::batch(RuntimeOrigin::signed(who), calls);
     });
 }
 
@@ -516,14 +488,11 @@ fn indexer_extrinsic_utility_batch() {
 fn indexer_extrinsic_utility_batch_all() {
     new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
-        let calls: Vec<RuntimeCall> = vec![
-            RuntimeCall::System(system::Call::remark { remark: vec![] }),
-        ];
+        let calls: Vec<RuntimeCall> =
+            vec![RuntimeCall::System(system::Call::remark { remark: vec![] })];
 
-        let _ = pallet_subtensor_utility::Pallet::<Test>::batch_all(
-            RuntimeOrigin::signed(who),
-            calls,
-        );
+        let _ =
+            pallet_subtensor_utility::Pallet::<Test>::batch_all(RuntimeOrigin::signed(who), calls);
     });
 }
 
@@ -531,9 +500,8 @@ fn indexer_extrinsic_utility_batch_all() {
 fn indexer_extrinsic_utility_force_batch() {
     new_test_ext(1).execute_with(|| {
         let who = U256::from(1);
-        let calls: Vec<RuntimeCall> = vec![
-            RuntimeCall::System(system::Call::remark { remark: vec![] }),
-        ];
+        let calls: Vec<RuntimeCall> =
+            vec![RuntimeCall::System(system::Call::remark { remark: vec![] })];
 
         let _ = pallet_subtensor_utility::Pallet::<Test>::force_batch(
             RuntimeOrigin::signed(who),

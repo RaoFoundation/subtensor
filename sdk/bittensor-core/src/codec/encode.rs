@@ -550,21 +550,39 @@ impl Runtime {
             .find(|v| v.name == function)
             .ok_or_else(|| CoreError::Codec(format!("call {pallet}.{function} not found")))?;
         let mut out = vec![pallet_info.index, chosen.index];
-        let Value::Dict(entries) = params else {
-            return Err(CoreError::Codec("call params must be a dict".into()));
-        };
-        for field in &chosen.fields {
-            let name = field.name.as_deref().unwrap_or_default();
-            let item = entries
-                .iter()
-                .find(|(k, _)| matches!(k, Value::Str(s) if s == name))
-                .map(|(_, v)| v)
-                .ok_or_else(|| {
-                    CoreError::Codec(format!(
-                        "missing call param {name:?} for {pallet}.{function}"
-                    ))
-                })?;
-            self.encode_id(field.ty.id, item, &mut out)?;
+        match params {
+            Value::Dict(entries) => {
+                for field in &chosen.fields {
+                    let name = field.name.as_deref().unwrap_or_default();
+                    let item = entries
+                        .iter()
+                        .find(|(k, _)| matches!(k, Value::Str(s) if s == name))
+                        .map(|(_, v)| v)
+                        .ok_or_else(|| {
+                            CoreError::Codec(format!(
+                                "missing call param {name:?} for {pallet}.{function}"
+                            ))
+                        })?;
+                    self.encode_id(field.ty.id, item, &mut out)?;
+                }
+            }
+            Value::List(items) | Value::Tuple(items) => {
+                if items.len() != chosen.fields.len() {
+                    return Err(CoreError::Codec(format!(
+                        "call {pallet}.{function} expects {} positional params, got {}",
+                        chosen.fields.len(),
+                        items.len()
+                    )));
+                }
+                for (field, item) in chosen.fields.iter().zip(items.iter()) {
+                    self.encode_id(field.ty.id, item, &mut out)?;
+                }
+            }
+            other => {
+                return Err(CoreError::Codec(format!(
+                    "call params must be a dict or positional list, got {other}"
+                )));
+            }
         }
         Ok(out)
     }

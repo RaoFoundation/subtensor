@@ -221,6 +221,7 @@ mod tests {
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
     use sp_core::H256;
+    use sp_runtime::PerU16;
     use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex};
 
     const TEST_NETUID_U16: u16 = 1;
@@ -261,7 +262,10 @@ mod tests {
         pallet_subtensor::Uids::<Runtime>::insert(netuid, &hotkey, UID);
         pallet_subtensor::Owner::<Runtime>::insert(&hotkey, coldkey.clone());
         pallet_subtensor::Emission::<Runtime>::insert(netuid, vec![AlphaBalance::from(EMISSION)]);
-        pallet_subtensor::ValidatorTrust::<Runtime>::insert(netuid, vec![VTRUST]);
+        pallet_subtensor::ValidatorTrust::<Runtime>::insert(
+            netuid,
+            vec![PerU16::from_parts(VTRUST)],
+        );
         pallet_subtensor::ValidatorPermit::<Runtime>::insert(netuid, vec![true]);
         pallet_subtensor::LastUpdate::<Runtime>::insert(
             NetUidStorageIndex::from(netuid),

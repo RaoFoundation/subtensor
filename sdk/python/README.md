@@ -3,6 +3,13 @@
 A lean Python SDK and CLI for the Bittensor chain. One install gives you both a
 library (`import bittensor`) and a command line (`btcli`).
 
+**Documentation: [bittensor.com/docs](https://bittensor.com/docs)**
+
+This package supersedes the separate
+[`bittensor-cli`](https://pypi.org/project/bittensor-cli/) and
+[`bittensor-wallet`](https://pypi.org/project/bittensor-wallet/) packages:
+`btcli` and the wallet ship here.
+
 The design goal is a thin, unopinionated wrapper: easy, safe, and fast to do the
 core chain operations, with nothing hidden. It does **not** implement the neuron
 networking layer (axon/dendrite/synapse) — it is the layer that talks to the
@@ -153,13 +160,15 @@ import bittensor as sub
 
 async def main():
     async with sub.Client("finney") as client:
-        # Typed conveniences
+        # Typed namespaces — every read in the catalog, one namespace per
+        # category, with autocomplete and typed returns
         bal = await client.balances.get("5F...coldkey")
         subnets = await client.subnets.all()
         neurons = await client.neurons.all(netuid=1)
+        cost = await client.subnets.subnet_registration_cost()
+        take = await client.delegation.delegate_take(hotkey_ss58="5F...")
 
-        # Named reads (same set the CLI `query` group exposes)
-        mg = await client.read("metagraph", netuid=1)
+        # The same reads dispatched by name (the form agents and `btcli query` use)
         take = await client.read("delegate_take", hotkey_ss58="5F...")
 
         # Generic accessors over the generated descriptors — anything on chain
@@ -376,12 +385,8 @@ python -m codegen.check --coverage       # every chain call has a deliberate sta
 python -m codegen.check --names          # every classified error name still exists
 ```
 
-End-to-end tests prove real on-chain state changes against a writable
-localnet. With a node already running (`just e2e` attaches to it), or with
-no arguments pytest starts a `LOCALNET_IMAGE` docker container itself:
+The migrated chain-facing SDK coverage lives in the Rust core e2e suite:
 
 ```bash
-just e2e                                  # attach to ws://127.0.0.1:9944
-just e2e ws://other-host:9944             # attach elsewhere
-uv run pytest -m e2e                      # docker-managed localnet
+E2E_ENDPOINT=ws://127.0.0.1:9944 cargo test -p bittensor-core --test e2e -- --nocapture
 ```

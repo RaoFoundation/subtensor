@@ -3,10 +3,11 @@ extern crate alloc;
 use crate::epoch::math::*;
 use codec::Compact;
 use frame_support::pallet_prelude::{Decode, Encode};
+use sp_runtime::PerU16;
 use substrate_fixed::types::I64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("5214275026dc3f36")]
+#[freeze_struct("b48b8accfd0ac902")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetState<AccountId: TypeInfo + Encode + Decode> {
     netuid: Compact<NetUid>,
@@ -17,10 +18,10 @@ pub struct SubnetState<AccountId: TypeInfo + Encode + Decode> {
     pruning_score: Vec<Compact<u16>>,
     last_update: Vec<Compact<u64>>,
     emission: Vec<Compact<AlphaBalance>>,
-    dividends: Vec<Compact<u16>>,
-    incentives: Vec<Compact<u16>>,
-    consensus: Vec<Compact<u16>>,
-    trust: Vec<Compact<u16>>,
+    dividends: Vec<Compact<PerU16>>,
+    incentives: Vec<Compact<PerU16>>,
+    consensus: Vec<Compact<PerU16>>,
+    trust: Vec<Compact<PerU16>>,
     rank: Vec<Compact<u16>>,
     block_at_registration: Vec<Compact<u64>>,
     alpha_stake: Vec<Compact<AlphaBalance>>,
@@ -46,11 +47,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `hotkeys` - A vector of hotkeys (account IDs) for which the emission history is to be retrieved.
+    /// * `hotkeys`: A vector of hotkeys (account IDs) for which the emission history is to be retrieved.
     ///
     /// # Returns
     ///
-    /// * `Vec<Vec<Compact<u64>>>` - A vector of vectors containing the emission history for each hotkey across all subnets.
+    /// * `Vec<Vec<Compact<u64>>>`: A vector of vectors containing the emission history for each hotkey across all subnets.
     pub fn get_emissions_history(hotkeys: Vec<T::AccountId>) -> Vec<Vec<Compact<AlphaBalance>>> {
         let mut result: Vec<Vec<Compact<AlphaBalance>>> = vec![];
         for netuid in Self::get_all_subnet_netuids() {
@@ -74,11 +75,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `netuid` - The unique identifier of the subnet for which the state is to be retrieved.
+    /// * `netuid`: The unique identifier of the subnet for which the state is to be retrieved.
     ///
     /// # Returns
     ///
-    /// * `Option<SubnetState<T::AccountId>>` - An optional `SubnetState` struct containing the collected data for the subnet.
+    /// * `Option<SubnetState<T::AccountId>>`: An optional `SubnetState` struct containing the collected data for the subnet.
     ///   Returns `None` if the subnet does not exist.
     pub fn get_subnet_state(netuid: NetUid) -> Option<SubnetState<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
@@ -108,19 +109,20 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .map(Compact::from)
             .collect();
-        let dividends: Vec<Compact<u16>> = Dividends::<T>::get(netuid)
+        let dividends: Vec<Compact<PerU16>> = Dividends::<T>::get(netuid)
             .into_iter()
             .map(Compact::from)
             .collect();
-        let incentives: Vec<Compact<u16>> = Incentive::<T>::get(NetUidStorageIndex::from(netuid))
+        let incentives: Vec<Compact<PerU16>> =
+            Incentive::<T>::get(NetUidStorageIndex::from(netuid))
+                .into_iter()
+                .map(Compact::from)
+                .collect();
+        let consensus: Vec<Compact<PerU16>> = Consensus::<T>::get(netuid)
             .into_iter()
             .map(Compact::from)
             .collect();
-        let consensus: Vec<Compact<u16>> = Consensus::<T>::get(netuid)
-            .into_iter()
-            .map(Compact::from)
-            .collect();
-        let trust: Vec<Compact<u16>> = Vec::new(); // Deprecated: no longer computed
+        let trust: Vec<Compact<PerU16>> = Vec::new(); // Deprecated: no longer computed
         let rank: Vec<Compact<u16>> = Vec::new(); // Deprecated: no longer computed
         let (total_stake_fl, alpha_stake_fl, tao_stake_fl): (
             Vec<I64F64>,

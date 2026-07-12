@@ -1,45 +1,62 @@
-'use client';
-
 import React from 'react';
-import {usePathname} from 'next/navigation';
+import type {Metadata, Viewport} from 'next';
 import {Analytics} from '@vercel/analytics/react';
 import clsx from 'clsx';
-import {useHamburgerMenuStore} from './stores/useHamburgerMenuStore';
+import {siteUrl} from '@/lib/shared';
+import {BodyScrollLock} from './components/BodyScrollLock';
 import '@raofoundation/ui/styles/globals.css';
+import 'katex/dist/katex.min.css';
 import styles from './layout.module.css';
 import './global.css';
 
-const PAGES_WITH_CUSTOM_OG_IMAGES = ['about', 'academia', 'charter', 'whitepaper'];
+const siteDescription =
+  'Bittensor is an open, decentralized network where independent subnets produce ' +
+  'digital commodities — compute, inference, storage, prediction — and the chain ' +
+  'pays contributors in TAO.';
+
+export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: 'Bittensor',
+    template: '%s — Bittensor',
+  },
+  description: siteDescription,
+  openGraph: {
+    siteName: 'Bittensor',
+    type: 'website',
+    title: 'Bittensor',
+    description: siteDescription,
+    images: '/images/og_thumbs/default.png',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    site: '@bittensor',
+    creator: '@bittensor',
+  },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
+const organizationJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'Bittensor',
+  url: siteUrl,
+  sameAs: ['https://x.com/bittensor', 'https://github.com/RaoFoundation'],
+};
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
-  const isHamburgerMenuVisible = useHamburgerMenuStore((state) => state.isVisible);
-  const pathname = usePathname();
-  const pageName = pathname.split('/')[1];
-  const ogImageFilename = PAGES_WITH_CUSTOM_OG_IMAGES.includes(pageName) ? pageName : 'default';
-
   return (
     <html lang='en' className={clsx('light', styles.html_container)}>
-      <head>
-        <title>Bittensor</title>
-        <meta name='description' content='Internet-scale machine learning' />
-        <meta name='twitter:card' content='summary_large_image' />
-        <meta name='twitter:site' content='@bittensor' />
-        <meta name='twitter:creator' content='@bittensor' />
-        <meta property='og:title' content='Bittensor' />
-        <meta property='og:description' content='Internet-scale machine learning' />
-        <meta property='og:image' content={'/images/og_thumbs/' + ogImageFilename + '.png'} />
-        <link
-          rel='stylesheet'
-          href='https://cdn.jsdelivr.net/npm/katex@0.16.0/dist/katex.min.css'
+      <body className={styles.body_container}>
+        <script
+          type='application/ld+json'
+          dangerouslySetInnerHTML={{__html: JSON.stringify(organizationJsonLd)}}
         />
-      </head>
-      <body
-        className={clsx(
-          {[styles.no_scroll]: isHamburgerMenuVisible},
-          styles.body_container,
-          styles.body_container,
-        )}
-      >
+        <BodyScrollLock />
         <main className={styles.main_container}>{children}</main>
         <Analytics />
       </body>

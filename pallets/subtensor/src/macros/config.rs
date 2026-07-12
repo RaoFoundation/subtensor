@@ -76,9 +76,7 @@ mod config {
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: crate::weights::WeightInfo;
 
-        /// =================================
-        /// ==== Initial Value Constants ====
-        /// =================================
+        // Initial Value Constants
 
         /// Initial currency issuance.
         #[pallet::constant]

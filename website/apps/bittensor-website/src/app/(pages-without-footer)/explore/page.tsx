@@ -1,7 +1,16 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
 import {ExplorerGrid} from '@/app/components/ExplorerGrid/ExplorerGrid';
 import {learnResources} from '@/data/learn';
+import type {Metadata} from 'next';
 import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'Explore — block explorers and learning resources',
+  description:
+    'Commonly used Bittensor block explorers, subnet explorers, and educational resources ' +
+    'for the TAO ecosystem.',
+  alternates: {canonical: '/explore'},
+};
 
 export default function ExplorePage() {
   return (
@@ -26,9 +35,10 @@ export default function ExplorePage() {
               Learn
             </p>
             <p className={styles.subtitle}>
-              THESE ARE COMMONLY USED EDUCATIONAL AND DOCUMENTATION RESOURCES FOR THE BITTENSOR
-              ECOSYSTEM. WE DO NOT CONTROL, AUDIT, OR GUARANTEE THEIR ACCURACY, COMPLETENESS, OR
-              SUITABILITY FOR YOUR USE CASE.
+              BITTENSOR DOCS IS THE OFFICIAL DOCUMENTATION FOR THE BITTENSOR ECOSYSTEM. THE OTHER
+              RESOURCES LISTED ARE COMMONLY USED THIRD-PARTY EDUCATIONAL MATERIALS. WE DO NOT
+              CONTROL, AUDIT, OR GUARANTEE THEIR ACCURACY, COMPLETENESS, OR SUITABILITY FOR YOUR
+              USE CASE.
             </p>
           </div>
           <ExplorerGrid cards={learnResources} />

@@ -24,8 +24,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// This function retrieves the total number of root network validators.
     ///
-    /// # Returns:
-    /// * 'u16': The total number of root network validators
+    /// # Returns
+    /// * `u16`: The total number of root network validators
     ///
     pub fn get_num_root_validators() -> u16 {
         Self::get_subnetwork_n(NetUid::ROOT)
@@ -35,8 +35,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// This function retrieves the max validators count of root network.
     ///
-    /// # Returns:
-    /// * 'u16': The max validators count of root network.
+    /// # Returns
+    /// * `u16`: The max validators count of root network.
     ///
     pub fn get_max_root_validators() -> u16 {
         Self::get_max_allowed_uids(NetUid::ROOT)
@@ -46,11 +46,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// It's important to check for invalid UIDs to ensure data integrity and avoid referencing nonexistent subnets.
     ///
-    /// # Arguments:
-    /// * 'uids': A reference to a vector of UIDs to check.
+    /// # Arguments
+    /// * `uids`: A reference to a vector of UIDs to check.
     ///
-    /// # Returns:
-    /// * 'bool': 'true' if any of the UIDs are invalid, 'false' otherwise.
+    /// # Returns
+    /// * `bool`: 'true' if any of the UIDs are invalid, 'false' otherwise.
     ///
     pub fn contains_invalid_root_uids(netuids: &[NetUid]) -> bool {
         for netuid in netuids {
@@ -67,12 +67,12 @@ impl<T: Config> Pallet<T> {
     /// This function is responsible for registering the hotkey of a user.
     /// The root key with the least stake if pruned in the event of a filled network.
     ///
-    /// # Arguments:
-    /// * 'origin': Represents the origin of the call.
-    /// * 'hotkey': The hotkey that the user wants to register to the root network.
+    /// # Arguments
+    /// * `origin`: Represents the origin of the call.
+    /// * `hotkey`: The hotkey that the user wants to register to the root network.
     ///
-    /// # Returns:
-    /// * 'DispatchResult': A result type indicating success or failure of the registration.
+    /// # Returns
+    /// * `DispatchResult`: A result type indicating success or failure of the registration.
     ///
     pub fn do_root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
         // --- 0. Get the unique identifier (UID) for the root network.
@@ -192,19 +192,18 @@ impl<T: Config> Pallet<T> {
     /// The lock cost is calculated using the formula:
     /// lock_cost = (last_lock * mult) - (last_lock / lock_reduction_interval) * (current_block - last_lock_block)
     /// where:
-    /// - last_lock is the last lock amount for the network
-    /// - mult is the multiplier which increases lock cost each time a registration occurs
-    /// - last_lock_block is the block number at which the last lock occurred
-    /// - lock_reduction_interval the number of blocks before the lock returns to previous value.
-    /// - current_block is the current block number
-    /// - DAYS is the number of blocks in a day
-    /// - min_lock is the minimum lock cost for the network
+    /// * last_lock is the last lock amount for the network
+    /// * mult is the multiplier which increases lock cost each time a registration occurs
+    /// * last_lock_block is the block number at which the last lock occurred
+    /// * lock_reduction_interval the number of blocks before the lock returns to previous value.
+    /// * current_block is the current block number
+    /// * DAYS is the number of blocks in a day
+    /// * min_lock is the minimum lock cost for the network
     ///
     /// If the calculated lock cost is less than the minimum lock cost, the minimum lock cost is returned.
     ///
-    /// # Returns:
-    ///  * 'u64':
-    ///     - The lock cost for the network.
+    /// # Returns
+    /// * `u64`: The lock cost for the network.
     ///
     pub fn get_network_lock_cost() -> TaoBalance {
         let last_lock = Self::get_network_last_lock();

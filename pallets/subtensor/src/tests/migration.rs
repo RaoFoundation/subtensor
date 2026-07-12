@@ -31,7 +31,7 @@ use scale_info::prelude::collections::VecDeque;
 use sp_core::{H160, H256, U256, crypto::Ss58Codec};
 use sp_io::hashing::twox_128;
 use sp_runtime::{
-    AccountId32,
+    AccountId32, PerU16,
     traits::{Hash, Zero},
 };
 use sp_std::marker::PhantomData;
@@ -1244,6 +1244,15 @@ fn test_migrate_last_tx_block_childkey_take() {
 }
 
 #[allow(deprecated)]
+// PerU16 must SCALE-encode byte-identically to u16, so the take/epoch storages
+// retyped from u16 to PerU16 require no storage migration.
+#[test]
+fn test_per_u16_encodes_identically_to_u16() {
+    assert_eq!(PerU16::from_parts(5).encode(), 5u16.encode());
+    assert_eq!(PerU16::from_parts(u16::MAX).encode(), u16::MAX.encode());
+    assert_eq!(PerU16::zero().encode(), 0u16.encode());
+}
+
 #[test]
 fn test_migrate_last_tx_block_delegate_take() {
     new_test_ext(1).execute_with(|| {
@@ -1333,7 +1342,7 @@ fn test_migrate_rate_limit_keys() {
 
         // Legacy LastTxBlockDelegateTake entry (index 4)
         let legacy_delegate_account = U256::from(4);
-        Delegates::<Test>::insert(legacy_delegate_account, 500u16);
+        Delegates::<Test>::insert(legacy_delegate_account, PerU16::from_parts(500));
         let mut legacy_delegate_key = prefix.clone();
         legacy_delegate_key.push(4u8);
         legacy_delegate_key.extend_from_slice(&legacy_delegate_account.encode());
