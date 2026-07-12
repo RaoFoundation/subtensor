@@ -65,6 +65,11 @@ export class LedgerDevice {
     return nativeCall(() => this.handle.appVersion())
   }
 
+  app_version(): [number, number, number] {
+    const version = this.appVersion()
+    return [version.major, version.minor, version.patch]
+  }
+
   address(
     account = 0,
     index = 0,
@@ -78,12 +83,25 @@ export class LedgerDevice {
     return new LedgerSigner(this, options)
   }
 
+  sign(payload: ByteLike, proof: ByteLike, account?: number, index?: number): Buffer
+  sign(account: number, index: number, payload: ByteLike, proof: ByteLike): Buffer
   sign(
-    account: number,
-    index: number,
-    payload: ByteLike,
-    proof: ByteLike,
+    first: number | ByteLike,
+    second: number | ByteLike,
+    third?: number | ByteLike,
+    fourth?: number | ByteLike,
   ): Buffer {
+    const account = typeof first === 'number' ? first : typeof third === 'number' ? third : 0
+    const index = typeof first === 'number' && typeof second === 'number'
+      ? second
+      : typeof fourth === 'number'
+        ? fourth
+        : 0
+    const payload = typeof first === 'number' ? third : first
+    const proof = typeof first === 'number' ? fourth : second
+    if (payload == null || proof == null || typeof payload === 'number' || typeof proof === 'number') {
+      throw new TypeError('payload and proof are required')
+    }
     return nativeCall(() =>
       this.handle.sign(
         account,

@@ -3,6 +3,10 @@ import { nativeCall } from './errors'
 import { toBuffer } from './wire'
 import type { ByteLike, ChainInfo } from './types'
 
+export const DEFAULT_BASE58_PREFIX = 42
+export const DEFAULT_DECIMALS = 9
+export const DEFAULT_TOKEN_SYMBOL = 'TAO'
+
 function nativeChainInfo(info: ChainInfo): Record<string, unknown> {
   return {
     specVersion: info.specVersion,
@@ -17,6 +21,23 @@ export function metadataDigest(metadataBytes: ByteLike, info: ChainInfo): Buffer
   return nativeCall(() =>
     native.metadataDigest(toBuffer(metadataBytes, 'metadataBytes'), nativeChainInfo(info)),
   )
+}
+
+export function metadata_digest(
+  metadataBytes: ByteLike,
+  specVersion: number,
+  specName: string,
+  base58Prefix = DEFAULT_BASE58_PREFIX,
+  decimals = DEFAULT_DECIMALS,
+  tokenSymbol = DEFAULT_TOKEN_SYMBOL,
+): Buffer {
+  return metadataDigest(metadataBytes, {
+    specVersion,
+    specName,
+    base58Prefix,
+    decimals,
+    tokenSymbol,
+  })
 }
 
 export function generateExtrinsicProof(
@@ -34,6 +55,32 @@ export function generateExtrinsicProof(
       toBuffer(metadataBytes, 'metadataBytes'),
       nativeChainInfo(info),
     ),
+  )
+}
+
+export function generate_extrinsic_proof(
+  callData: ByteLike,
+  includedInExtrinsic: ByteLike,
+  includedInSignedData: ByteLike,
+  metadataBytes: ByteLike,
+  specVersion: number,
+  specName: string,
+  base58Prefix = DEFAULT_BASE58_PREFIX,
+  decimals = DEFAULT_DECIMALS,
+  tokenSymbol = DEFAULT_TOKEN_SYMBOL,
+): Buffer {
+  return generateExtrinsicProof(
+    callData,
+    includedInExtrinsic,
+    includedInSignedData,
+    metadataBytes,
+    {
+      specVersion,
+      specName,
+      base58Prefix,
+      decimals,
+      tokenSymbol,
+    },
   )
 }
 
@@ -57,10 +104,18 @@ export function mlkemSeal(
   )
 }
 
+export const encryptMlkem768 = mlkemSeal
+export const encrypt_mlkem768 = mlkemSeal
+
 export function mlkemTwox128(data: ByteLike): Buffer {
   return nativeCall(() => native.mlkemTwox128(toBuffer(data, 'data')))
 }
 
+export function mlkemKdfId(): Buffer {
+  return Buffer.from(MLKEM_KDF_ID)
+}
+
+export const mlkem_kdf_id = mlkemKdfId
 
 /** Substrate-compatible twox_128, implemented by bittensor-core Rust. */
 export function twox_128(data: ByteLike): Buffer {

@@ -35,6 +35,9 @@ import type {
   TypeSpec,
 } from './types'
 
+export type PayloadPartsTuple = [Buffer, Buffer]
+export type SignedExtrinsicTuple = [Buffer, Buffer]
+
 function nativeTxParams(params: TransactionParams): NativeTxParams {
   return {
     era: toWire(params.era),
@@ -61,9 +64,16 @@ function nativeExtrinsicParams(params: SignedExtrinsicParams): NativeExtrinsicPa
 }
 
 function storageEntry(value: import('./native').NativeStorageEntry): StorageEntry {
+  const defaultBytes = Buffer.from(value.defaultBytes)
   return {
     ...value,
-    defaultBytes: Buffer.from(value.defaultBytes),
+    value_type: value.valueType,
+    value_type_id: value.valueTypeId,
+    param_types: value.paramTypes,
+    param_type_ids: value.paramTypeIds,
+    param_hashers: value.paramHashers,
+    defaultBytes,
+    default_bytes: defaultBytes,
   }
 }
 
@@ -203,20 +213,40 @@ export class Runtime {
     return this.handle.specVersion
   }
 
+  get spec_version(): number {
+    return this.specVersion
+  }
+
   get transactionVersion(): number {
     return this.handle.transactionVersion
+  }
+
+  get transaction_version(): number {
+    return this.transactionVersion
   }
 
   get ss58Format(): number {
     return this.handle.ss58Format
   }
 
+  get ss58_format(): number {
+    return this.ss58Format
+  }
+
   get isV15(): boolean {
     return this.handle.isV15
   }
 
+  get is_v15(): boolean {
+    return this.isV15
+  }
+
   get extrinsicVersion(): number {
     return this.handle.extrinsicVersion
+  }
+
+  get extrinsic_version(): number {
+    return this.extrinsicVersion
   }
 
   get outerEventType(): number | null {
@@ -292,6 +322,13 @@ export class Runtime {
     )
   }
 
+  batch_decode<T extends ScaleValue = ScaleValue>(
+    typeStrings: string[],
+    data: ByteLike[],
+  ): T[] {
+    return this.decodeBatch(typeStrings, data)
+  }
+
   encode(typeString: string, value: ScaleValue): Buffer {
     return nativeCall(() => this.handle.encode(typeString, toWire(value)))
   }
@@ -304,8 +341,16 @@ export class Runtime {
     return this.handle.typeIdOf(name) ?? null
   }
 
+  type_id_of(name: string): number | null {
+    return this.typeIdOf(name)
+  }
+
   typeNameOf(id: number): string | null {
     return this.handle.typeNameOf(id) ?? null
+  }
+
+  type_name_of(id: number): string | null {
+    return this.typeNameOf(id)
   }
 
   typeSpec(typeString: string): TypeSpec {
@@ -488,6 +533,10 @@ export class Runtime {
     return nativeCall(() => this.handle.registryJson())
   }
 
+  registry_json(): string {
+    return this.registryJson()
+  }
+
   registry(): unknown {
     return nativeCall(() => this.handle.registry())
   }
@@ -524,10 +573,18 @@ export class Runtime {
     return nativeCall(() => this.handle.composeCall(pallet, fn, toWire(params)))
   }
 
+  compose_call(pallet: string, fn: string, params: ScaleValue): Buffer {
+    return this.composeCall(pallet, fn, params)
+  }
+
   decodeCall<T extends ScaleValue = ScaleValue>(data: ByteLike): T {
     return nativeCall(
       () => fromWire(this.handle.decodeCall(toBuffer(data, 'data'))) as T,
     )
+  }
+
+  decode_call<T extends ScaleValue = ScaleValue>(data: ByteLike): T {
+    return this.decodeCall(data)
   }
 
   decodeCallValue<T extends ScaleValue = ScaleValue>(
@@ -564,8 +621,16 @@ export class Runtime {
     return nativeCall(() => storageEntry(this.handle.storageEntry(pallet, storageFunction)))
   }
 
+  storage_entry(pallet: string, storageFunction: string): StorageEntry {
+    return this.storageEntry(pallet, storageFunction)
+  }
+
   storagePrefix(pallet: string, storageFunction: string): Buffer {
     return nativeCall(() => this.handle.storagePrefix(pallet, storageFunction))
+  }
+
+  storage_prefix(pallet: string, storageFunction: string): Buffer {
+    return this.storagePrefix(pallet, storageFunction)
   }
 
   storageKey(
@@ -578,6 +643,14 @@ export class Runtime {
     )
   }
 
+  storage_key(
+    pallet: string,
+    storageFunction: string,
+    params: ScaleValue[] = [],
+  ): Buffer {
+    return this.storageKey(pallet, storageFunction, params)
+  }
+
   storageKeyBatch(
     pallet: string,
     storageFunction: string,
@@ -586,6 +659,14 @@ export class Runtime {
     return nativeCall(() =>
       this.handle.storageKeyBatch(pallet, storageFunction, toWire(paramsList)),
     )
+  }
+
+  storage_key_batch(
+    pallet: string,
+    storageFunction: string,
+    paramsList: ScaleValue[][],
+  ): Buffer[] {
+    return this.storageKeyBatch(pallet, storageFunction, paramsList)
   }
 
   decodeStorageKeyParams<T extends ScaleValue = ScaleValue>(
@@ -605,6 +686,15 @@ export class Runtime {
           ),
         ) as T[],
     )
+  }
+
+  decode_storage_key_params<T extends ScaleValue = ScaleValue>(
+    pallet: string,
+    storageFunction: string,
+    key: ByteLike,
+    fixed = 0,
+  ): T[] {
+    return this.decodeStorageKeyParams(pallet, storageFunction, key, fixed)
   }
 
   decodeMapPairs<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
@@ -627,6 +717,22 @@ export class Runtime {
     )
   }
 
+  decode_map_pairs<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
+    pallet: string,
+    storageFunction: string,
+    rawKeys: ByteLike[],
+    rawValues: ByteLike[],
+    fixed = 0,
+  ): Array<[K, V]> {
+    return this.decodeMapPairs<K, V>(
+      pallet,
+      storageFunction,
+      rawKeys,
+      rawValues,
+      fixed,
+    ).map((pair) => [pair.key, pair.value])
+  }
+
   decodeMapChanges<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
     pallet: string,
     storageFunction: string,
@@ -642,6 +748,20 @@ export class Runtime {
         .decodeMapChanges(pallet, storageFunction, nativeChanges, fixed)
         .map((pair) => ({ key: fromWire(pair.key) as K, value: fromWire(pair.value) as V })),
     )
+  }
+
+  decode_map_changes<K extends ScaleValue = ScaleValue, V extends ScaleValue = ScaleValue>(
+    pallet: string,
+    storageFunction: string,
+    changes: StorageChange[],
+    fixed = 0,
+  ): Array<[K, V]> {
+    return this.decodeMapChanges<K, V>(
+      pallet,
+      storageFunction,
+      changes,
+      fixed,
+    ).map((pair) => [pair.key, pair.value])
   }
 
   constant<T extends ScaleValue = ScaleValue>(pallet: string, name: string): T | undefined {
@@ -664,22 +784,77 @@ export class Runtime {
     return nativeCall(() => this.handle.moduleError(moduleIndex, errorIndex))
   }
 
+  module_error(moduleIndex: number, errorIndex: number): [string, string[]] {
+    const error = this.moduleError(moduleIndex, errorIndex)
+    return [error.name, error.docs]
+  }
+
   signedExtensionIdentifiers(): string[] {
     return this.handle.signedExtensionIdentifiers()
+  }
+
+  signed_extension_identifiers(): string[] {
+    return this.signedExtensionIdentifiers()
   }
 
   encodeEra(era: ScaleValue): Buffer {
     return nativeCall(() => this.handle.encodeEra(toWire(era)))
   }
 
+  encode_era(era: ScaleValue): Buffer {
+    return this.encodeEra(era)
+  }
+
   signaturePayloadParts(params: TransactionParams): PayloadParts {
     return nativeCall(() => this.handle.signaturePayloadParts(nativeTxParams(params)))
+  }
+
+  signature_payload_parts(
+    era: ScaleValue,
+    nonce: IntegerLike,
+    tip: IntegerLike,
+    tip_asset_id: IntegerLike | null,
+    genesis_hash: ByteLike,
+    era_block_hash: ByteLike,
+    metadata_hash?: ByteLike | null,
+  ): PayloadPartsTuple {
+    const parts = this.signaturePayloadParts({
+      era,
+      nonce,
+      tip,
+      tipAssetId: tip_asset_id,
+      genesisHash: genesis_hash,
+      eraBlockHash: era_block_hash,
+      metadataHash: metadata_hash,
+    })
+    return [parts.includedInExtrinsic, parts.includedInSignedData]
   }
 
   signaturePayload(callData: ByteLike, params: TransactionParams): Buffer {
     return nativeCall(() =>
       this.handle.signaturePayload(toBuffer(callData, 'callData'), nativeTxParams(params)),
     )
+  }
+
+  signature_payload(
+    call_data: ByteLike,
+    era: ScaleValue,
+    nonce: IntegerLike,
+    tip: IntegerLike,
+    tip_asset_id: IntegerLike | null,
+    genesis_hash: ByteLike,
+    era_block_hash: ByteLike,
+    metadata_hash?: ByteLike | null,
+  ): Buffer {
+    return this.signaturePayload(call_data, {
+      era,
+      nonce,
+      tip,
+      tipAssetId: tip_asset_id,
+      genesisHash: genesis_hash,
+      eraBlockHash: era_block_hash,
+      metadataHash: metadata_hash,
+    })
   }
 
   encodeSignedExtrinsic(
@@ -700,6 +875,33 @@ export class Runtime {
     )
   }
 
+  encode_signed_extrinsic(
+    call_data: ByteLike,
+    public_key: ByteLike,
+    signature: ByteLike,
+    signature_version: number,
+    era: ScaleValue,
+    nonce: IntegerLike,
+    tip: IntegerLike,
+    tip_asset_id: IntegerLike | null,
+    metadata_hash_enabled = false,
+  ): SignedExtrinsicTuple {
+    const extrinsic = this.encodeSignedExtrinsic(
+      call_data,
+      public_key,
+      signature,
+      signature_version,
+      {
+        era,
+        nonce,
+        tip,
+        tipAssetId: tip_asset_id,
+        metadataHashEnabled: metadata_hash_enabled,
+      },
+    )
+    return [extrinsic.bytes, extrinsic.hash]
+  }
+
   decodeExtrinsic<T extends ScaleValue = ScaleValue>(
     data: ByteLike,
     strict = true,
@@ -709,18 +911,35 @@ export class Runtime {
     )
   }
 
+  decode_extrinsic<T extends ScaleValue = ScaleValue>(
+    data: ByteLike,
+    strict = true,
+  ): T {
+    return this.decodeExtrinsic(data, strict)
+  }
+
   runtimeApiMap(): RuntimeApiMap {
     return this.handle.runtimeApiMap() as RuntimeApiMap
   }
 
+  runtime_api_map(): RuntimeApiMap {
+    return this.runtimeApiMap()
+  }
+
   metadataIr(): MetadataIr {
     return nativeCall(() => this.handle.metadataIr() as MetadataIr)
+  }
+
+  metadata_ir(): MetadataIr {
+    return this.metadataIr()
   }
 }
 
 export function eraBirth(period: IntegerLike, current: IntegerLike): bigint {
   return nativeCall(() => native.eraBirth(toBigInt(period, 'period'), toBigInt(current, 'current')))
 }
+
+export const era_birth = eraBirth
 
 export function multisigAccountId(
   signatories: ByteLike[],
@@ -732,6 +951,14 @@ export function multisigAccountId(
       threshold,
     ),
   )
+}
+
+export function multisig_account_id(
+  signatories: ByteLike[],
+  threshold: number,
+): [Buffer, Buffer[]] {
+  const account = multisigAccountId(signatories, threshold)
+  return [account.accountId, account.sortedSignatories]
 }
 
 export function multisigSs58(

@@ -12,6 +12,8 @@ import type {
   WeightsTlockPayload,
 } from './types'
 
+export type CiphertextRoundTuple = [Buffer, bigint]
+
 function nativeState(state: EpochScheduleState): NativeEpochScheduleState {
   return {
     lastEpochBlock: toBigInt(state.lastEpochBlock, 'lastEpochBlock'),
@@ -32,6 +34,10 @@ function publicState(state: NativeEpochScheduleState): EpochScheduleState {
     blocksSinceLastStep: state.blocksSinceLastStep,
     currentBlock: state.currentBlock,
   }
+}
+
+function roundTuple(value: CiphertextRound): CiphertextRoundTuple {
+  return [Buffer.from(value.ciphertext), value.revealRound]
 }
 
 export const MAX_TEMPO = native.timelockMaxTempo()
@@ -97,6 +103,40 @@ export function generateCommitV2(
   )
 }
 
+export function get_encrypted_commit_v2(
+  uids: number[],
+  weights: number[],
+  versionKey: IntegerLike,
+  lastEpochBlock: IntegerLike,
+  pendingEpochAt: IntegerLike,
+  subnetEpochIndex: IntegerLike,
+  tempo: number,
+  blocksSinceLastStep: IntegerLike,
+  currentBlock: IntegerLike,
+  subnetRevealPeriodEpochs: IntegerLike,
+  blockTime: number,
+  hotkey: ByteLike,
+): CiphertextRoundTuple {
+  return roundTuple(
+    generateCommitV2(
+      uids,
+      weights,
+      versionKey,
+      {
+        lastEpochBlock,
+        pendingEpochAt,
+        subnetEpochIndex,
+        tempo,
+        blocksSinceLastStep,
+        currentBlock,
+      },
+      subnetRevealPeriodEpochs,
+      blockTime,
+      hotkey,
+    ),
+  )
+}
+
 export function encryptCommitment(
   data: string,
   blocksUntilReveal: IntegerLike,
@@ -109,6 +149,14 @@ export function encryptCommitment(
       blockTime,
     ),
   )
+}
+
+export function get_encrypted_commitment(
+  data: string,
+  blocksUntilReveal: IntegerLike,
+  blockTime = 12.0,
+): CiphertextRoundTuple {
+  return roundTuple(encryptCommitment(data, blocksUntilReveal, blockTime))
 }
 
 export function encryptNBlocks(
@@ -125,6 +173,14 @@ export function encryptNBlocks(
   )
 }
 
+export function encrypt(
+  data: ByteLike,
+  nBlocks: IntegerLike,
+  blockTime = 12.0,
+): CiphertextRoundTuple {
+  return roundTuple(encryptNBlocks(data, nBlocks, blockTime))
+}
+
 export function encryptAtRound(data: ByteLike, revealRound: IntegerLike): CiphertextRound {
   return nativeCall(() =>
     native.timelockEncryptAtRound(
@@ -134,10 +190,21 @@ export function encryptAtRound(data: ByteLike, revealRound: IntegerLike): Cipher
   )
 }
 
+export function encrypt_at_round(
+  data: ByteLike,
+  revealRound: IntegerLike,
+): CiphertextRoundTuple {
+  return roundTuple(encryptAtRound(data, revealRound))
+}
+
 export function getRoundInfo(round?: IntegerLike | null): DrandResponse {
   return nativeCall(() =>
     native.timelockGetRoundInfo(round == null ? undefined : toBigInt(round, 'round')),
   )
+}
+
+export function get_latest_round(): bigint {
+  return getRoundInfo().round
 }
 
 export function getRevealRoundSignature(
@@ -151,6 +218,14 @@ export function getRevealRoundSignature(
         noErrors,
       ) ?? null,
   )
+}
+
+export function get_signature_for_round(revealRound: IntegerLike): string {
+  const signature = getRevealRoundSignature(revealRound, false)
+  if (signature == null) {
+    throw new Error('Signature not available')
+  }
+  return signature
 }
 
 export function decrypt(encryptedData: ByteLike, noErrors = true): Buffer | null {
@@ -170,6 +245,8 @@ export function decryptWithSignature(
     ),
   )
 }
+
+export const decrypt_with_signature = decryptWithSignature
 
 export function shouldRunEpoch(state: EpochScheduleState, block: IntegerLike): boolean {
   return native.epochShouldRun(nativeState(state), toBigInt(block, 'block'))
@@ -271,13 +348,20 @@ export const timelock = Object.freeze({
   encryptAndCompress,
   decryptAndDecompress,
   generateCommitV2,
+  get_encrypted_commit_v2,
   encryptCommitment,
+  get_encrypted_commitment,
   encryptNBlocks,
+  encrypt,
   encryptAtRound,
+  encrypt_at_round,
   getRoundInfo,
+  get_latest_round,
   getRevealRoundSignature,
+  get_signature_for_round,
   decrypt,
   decryptWithSignature,
+  decrypt_with_signature,
   shouldRunEpoch,
   currentEpochPreRunCoinbase,
   simulateRunCoinbase,

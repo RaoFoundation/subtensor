@@ -80,22 +80,34 @@ export interface StorageEntryLike {
   prefix: string
   modifier?: string
   valueType?: string
+  value_type?: string
   valueTypeId?: number
+  value_type_id?: number
   paramTypes?: string[]
+  param_types?: string[]
   paramTypeIds?: number[]
+  param_type_ids?: number[]
   paramHashers?: string[]
+  param_hashers?: string[]
   defaultBytes?: ByteLike
+  default_bytes?: ByteLike
 }
 
 export interface StorageEntry extends StorageEntryLike {
   pallet: string
   modifier: string
   valueType: string
+  value_type: string
   valueTypeId: number
+  value_type_id: number
   paramTypes: string[]
+  param_types: string[]
   paramTypeIds: number[]
+  param_type_ids: number[]
   paramHashers: string[]
+  param_hashers: string[]
   defaultBytes: Buffer
+  default_bytes: Buffer
 }
 
 export interface StorageChange {

@@ -145,6 +145,22 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Keypair.fromMnemonic(mnemonic, cryptoType, password)
   }
 
+  static from_mnemonic(
+    mnemonic: string,
+    cryptoType = CRYPTO_SR25519,
+    password?: string | null,
+  ): Keypair {
+    return Keypair.fromMnemonic(mnemonic, cryptoType, password)
+  }
+
+  static create_from_mnemonic(
+    mnemonic: string,
+    cryptoType = CRYPTO_SR25519,
+    password?: string | null,
+  ): Keypair {
+    return Keypair.fromMnemonic(mnemonic, cryptoType, password)
+  }
+
   static fromSeed(seed: ByteLike, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromSeed(toBuffer(seed, 'seed'), cryptoType)),
@@ -153,6 +169,14 @@ export class Keypair implements PolkadotCompatibleKeypair {
   }
 
   static createFromSeed(seed: ByteLike, cryptoType = CRYPTO_SR25519): Keypair {
+    return Keypair.fromSeed(seed, cryptoType)
+  }
+
+  static from_seed(seed: ByteLike, cryptoType = CRYPTO_SR25519): Keypair {
+    return Keypair.fromSeed(seed, cryptoType)
+  }
+
+  static create_from_seed(seed: ByteLike, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.fromSeed(seed, cryptoType)
   }
 
@@ -167,6 +191,14 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Keypair.fromUri(uri, cryptoType)
   }
 
+  static from_uri(uri: string, cryptoType = CRYPTO_SR25519): Keypair {
+    return Keypair.fromUri(uri, cryptoType)
+  }
+
+  static create_from_uri(uri: string, cryptoType = CRYPTO_SR25519): Keypair {
+    return Keypair.fromUri(uri, cryptoType)
+  }
+
   static fromPrivateKey(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.keypairFromPrivateKey(privateKey, cryptoType)),
@@ -175,6 +207,14 @@ export class Keypair implements PolkadotCompatibleKeypair {
   }
 
   static createFromPrivateKey(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
+    return Keypair.fromPrivateKey(privateKey, cryptoType)
+  }
+
+  static from_private_key(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
+    return Keypair.fromPrivateKey(privateKey, cryptoType)
+  }
+
+  static create_from_private_key(privateKey: string, cryptoType = CRYPTO_SR25519): Keypair {
     return Keypair.fromPrivateKey(privateKey, cryptoType)
   }
 
@@ -188,8 +228,20 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Keypair.fromEncryptedJson(jsonData, passphrase)
   }
 
+  static from_encrypted_json(jsonData: string, passphrase: string): Keypair {
+    return Keypair.fromEncryptedJson(jsonData, passphrase)
+  }
+
+  static create_from_encrypted_json(jsonData: string, passphrase: string): Keypair {
+    return Keypair.fromEncryptedJson(jsonData, passphrase)
+  }
+
   static generateMnemonic(nWords = 12): string {
     return nativeCall(() => native.generateMnemonic(nWords))
+  }
+
+  static generate_mnemonic(nWords = 12): string {
+    return Keypair.generateMnemonic(nWords)
   }
 
   static generate(
@@ -220,6 +272,14 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return nativeCall(() => native.encryptFor(ss58Address, coerceMessage(message), cryptoType))
   }
 
+  static encrypt_for(
+    ss58Address: string,
+    message: string | ByteLike,
+    cryptoType = CRYPTO_ED25519,
+  ): Buffer {
+    return Keypair.encryptFor(ss58Address, message, cryptoType)
+  }
+
   static deserialize(keyfileData: ByteLike): Keypair {
     return Keypair.wrap(
       nativeCall(() => native.deserializeKeypair(toBuffer(keyfileData, 'keyfileData'))),
@@ -247,6 +307,10 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return this.handle.cryptoType
   }
 
+  get crypto_type(): number {
+    return this.cryptoType
+  }
+
   get kind(): KeypairKind {
     return this.handle.kind
   }
@@ -255,12 +319,20 @@ export class Keypair implements PolkadotCompatibleKeypair {
     return Buffer.from(this.handle.publicKey)
   }
 
+  get public_key(): Buffer {
+    return this.publicKey
+  }
+
   get addressRaw(): Buffer {
     return this.publicKey
   }
 
   get ss58Address(): string {
     return this.handle.ss58Address
+  }
+
+  get ss58_address(): string {
+    return this.ss58Address
   }
 
   /** Polkadot.js-compatible alias used by Moonwall and PAPI signer helpers. */
@@ -278,6 +350,10 @@ export class Keypair implements PolkadotCompatibleKeypair {
 
   get ss58Format(): number {
     return this.handle.ss58Format
+  }
+
+  get ss58_format(): number {
+    return this.ss58Format
   }
 
   get meta(): KeypairMetadata {
@@ -442,6 +518,8 @@ export function generateMnemonic(nWords = 12): string {
   return Keypair.generateMnemonic(nWords)
 }
 
+export const generate_mnemonic = generateMnemonic
+
 export function verifySignature(
   message: string | ByteLike,
   signature: ByteLike,
@@ -459,6 +537,7 @@ export function verifySignature(
 }
 
 export const verify = verifySignature
+export const verify_signature = verifySignature
 
 export function publicKeyFromSs58(ss58Address: string): Buffer {
   return nativeCall(() => native.publicKeyFromSs58(ss58Address))
@@ -466,6 +545,8 @@ export function publicKeyFromSs58(ss58Address: string): Buffer {
 
 export const ss58Decode = publicKeyFromSs58
 export const decodeSs58 = publicKeyFromSs58
+export const ss58_decode = publicKeyFromSs58
+export const decode_ss58 = publicKeyFromSs58
 
 export function ss58FromPublic(
   publicKey: ByteLike,
@@ -476,6 +557,8 @@ export function ss58FromPublic(
 
 export const ss58Encode = ss58FromPublic
 export const encodeSs58 = ss58FromPublic
+export const ss58_encode = ss58FromPublic
+export const encode_ss58 = ss58FromPublic
 
 export function encryptFor(
   ss58Address: string,
@@ -485,17 +568,21 @@ export function encryptFor(
   return Keypair.encryptFor(ss58Address, message, cryptoType)
 }
 
+export const encrypt_for = encryptFor
+
 export function serializeKeypair(keypair: Keypair): Buffer {
   return keypair.serialize()
 }
 
 export const serializedKeypairToKeyfileData = serializeKeypair
+export const serialized_keypair_to_keyfile_data = serializedKeypairToKeyfileData
 
 export function deserializeKeypair(keyfileData: ByteLike): Keypair {
   return Keypair.deserialize(keyfileData)
 }
 
 export const deserializeKeypairFromKeyfileData = deserializeKeypair
+export const deserialize_keypair_from_keyfile_data = deserializeKeypairFromKeyfileData
 
 export function keypairToKeyfileData(
   keypair: Keypair,
@@ -504,6 +591,8 @@ export function keypairToKeyfileData(
   return keypair.toKeyfileData(password)
 }
 
+export const keypair_to_keyfile_data = keypairToKeyfileData
+
 export function deserializeKeypairFromKeyfile(
   keyfileData: ByteLike,
   password?: string | null,
@@ -511,15 +600,21 @@ export function deserializeKeypairFromKeyfile(
   return Keypair.fromKeyfileData(keyfileData, password)
 }
 
+export const deserialize_keypair_from_keyfile = deserializeKeypairFromKeyfile
+
 export function readKeypairKeyfile(path: string, password?: string | null): Keypair {
   return Keypair.fromKeyfile(path, password)
 }
+
+export const read_keypair_keyfile = readKeypairKeyfile
 
 export function encryptKeyfileData(keyfileData: ByteLike, password: string): Buffer {
   return nativeCall(() =>
     native.encryptKeyfileData(toBuffer(keyfileData, 'keyfileData'), password),
   )
 }
+
+export const encrypt_keyfile_data = encryptKeyfileData
 
 export function decryptKeyfileData(
   keyfileData: ByteLike,
@@ -530,30 +625,46 @@ export function decryptKeyfileData(
   )
 }
 
+export const decrypt_keyfile_data = decryptKeyfileData
+
 export function keyfileDataIsEncrypted(keyfileData: ByteLike): boolean {
   return native.keyfileDataIsEncrypted(toBuffer(keyfileData, 'keyfileData'))
 }
+
+export const keyfile_data_is_encrypted = keyfileDataIsEncrypted
 
 export function keyfileDataIsEncryptedNacl(keyfileData: ByteLike): boolean {
   return native.keyfileDataIsEncryptedNacl(toBuffer(keyfileData, 'keyfileData'))
 }
 
+export const keyfile_data_is_encrypted_nacl = keyfileDataIsEncryptedNacl
+
 export function keyfileDataIsEncryptedAnsible(keyfileData: ByteLike): boolean {
   return native.keyfileDataIsEncryptedAnsible(toBuffer(keyfileData, 'keyfileData'))
 }
+
+export const keyfile_data_is_encrypted_ansible = keyfileDataIsEncryptedAnsible
 
 export function keyfileDataIsEncryptedLegacy(keyfileData: ByteLike): boolean {
   return native.keyfileDataIsEncryptedLegacy(toBuffer(keyfileData, 'keyfileData'))
 }
 
+export const keyfile_data_is_encrypted_legacy = keyfileDataIsEncryptedLegacy
+
 export function keyfileDataEncryptionMethod(keyfileData: ByteLike): string {
   return native.keyfileDataEncryptionMethod(toBuffer(keyfileData, 'keyfileData'))
 }
+
+export const keyfile_data_encryption_method = keyfileDataEncryptionMethod
 
 export function getPasswordFromEnvironment(name: string): string | null {
   return nativeCall(() => native.getPasswordFromEnvironment(name) ?? null)
 }
 
+export const get_password_from_environment = getPasswordFromEnvironment
+
 export function savePasswordToEnvironment(name: string, password: string): string {
   return nativeCall(() => native.savePasswordToEnvironment(name, password))
 }
+
+export const save_password_to_environment = savePasswordToEnvironment

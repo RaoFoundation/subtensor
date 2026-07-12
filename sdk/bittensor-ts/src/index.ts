@@ -24,6 +24,7 @@ export { fromWire, toWire, WIRE_TAG }
 export const native = Object.freeze(nativeBinding)
 
 export const BINDING_VERSION = nativeBinding.bindingVersion()
+export const __core_version__ = BINDING_VERSION
 export const LEDGER_ENABLED = nativeBinding.ledgerEnabled()
 
 export function wireRoundtrip(value: ScaleValue): ScaleValue {

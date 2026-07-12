@@ -544,6 +544,49 @@ test('sr25519 keypair forwards signing and SS58 work to Rust', () => {
   assert.deepEqual(core.publicKeyFromSs58(alice.ss58Address), alice.publicKey)
 })
 
+test('Python-compatible bittensor_core names are exported', () => {
+  const alice = core.Keypair.create_from_uri('//Alice')
+  const bob = core.Keypair.from_uri('//Bob')
+  const message = Buffer.from('python parity')
+  const signature = alice.sign(message)
+
+  assert.equal(core.__core_version__, core.BINDING_VERSION)
+  assert.equal(alice.crypto_type, alice.cryptoType)
+  assert.deepEqual(alice.public_key, alice.publicKey)
+  assert.equal(alice.ss58_address, alice.ss58Address)
+  assert.equal(alice.ss58_format, alice.ss58Format)
+  assert.deepEqual(core.ss58_decode(alice.ss58_address), alice.publicKey)
+  assert.equal(core.decode_ss58, core.ss58_decode)
+  assert.equal(core.ss58_encode(alice.public_key, 42), alice.ss58_address)
+  assert.equal(core.encode_ss58, core.ss58_encode)
+  assert.equal(
+    core.verify_signature(message, signature, alice.ss58_address, core.CRYPTO_SR25519),
+    true,
+  )
+
+  const publicOnly = new core.Keypair(alice.ss58_address)
+  const publicKeyfile = JSON.parse(
+    core.serialized_keypair_to_keyfile_data(publicOnly).toString('utf8'),
+  )
+  assert.equal(publicKeyfile.ss58Address, alice.ss58_address)
+  assert.equal(core.keyfile_data_is_encrypted(Buffer.from('plain')), false)
+  assert.deepEqual(core.mlkem_kdf_id(), core.MLKEM_KDF_ID)
+  assert.equal(typeof core.metadata_digest, 'function')
+  assert.equal(typeof core.generate_extrinsic_proof, 'function')
+  assert.equal(typeof core.get_encrypted_commitment, 'function')
+  assert.equal(typeof core.get_signature_for_round, 'function')
+  assert.equal(core.era_birth(64n, 70n), core.eraBirth(64n, 70n))
+
+  const camelMultisig = core.multisigAccountId([alice.public_key, bob.public_key], 2)
+  const [snakeAccountId, snakeSorted] = core.multisig_account_id(
+    [alice.public_key, bob.public_key],
+    2,
+  )
+  assert.deepEqual(snakeAccountId, camelMultisig.accountId)
+  assert.deepEqual(snakeSorted, camelMultisig.sortedSignatories)
+  assert.equal(core.rustCore.keys.ss58_decode, core.ss58_decode)
+})
+
 test('Rust keypair is compatible with Polkadot.js and Moonwall signer expectations', () => {
   const alice = core.createKeyringPairFromUri('//Alice')
   assert.equal(alice.address, alice.ss58Address)
