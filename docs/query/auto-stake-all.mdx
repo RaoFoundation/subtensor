@@ -24,9 +24,17 @@ btcli query auto-stake-all --coldkey <ss58|name> --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("auto_stake_all", coldkey_ss58="5F...")
+    result = await client.staking.auto_stake_all(coldkey_ss58="5F...")
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("auto_stake_all", coldkey_ss58="5F...")
 ```

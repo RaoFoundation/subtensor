@@ -24,9 +24,17 @@ btcli query block-info --block <integer> --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("block_info", block=1)
+    result = await client.chain.block_info(block=1)
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("block_info", block=1)
 ```

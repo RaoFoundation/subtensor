@@ -24,9 +24,17 @@ btcli query associated-evm-key --netuid <integer> --uid <integer> --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("associated_evm_key", netuid=1, uid=1)
+    result = await client.neurons.associated_evm_key(netuid=1, uid=1)
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("associated_evm_key", netuid=1, uid=1)
 ```

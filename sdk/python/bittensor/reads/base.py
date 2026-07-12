@@ -13,10 +13,10 @@ A read that needs several queries to land on the *same* block pins itself with
 snapshot it is a no-op. The pinned view carries its block as ``view.block``.
 
 Reads register under a stable machine name via the :func:`read` decorator and
-inherit dispatch (``client.read``), the agent catalog (``client.reads``), and
-the generated CLI ``query`` command. The typed namespaces
-(``client.balances`` / ``staking`` / ``subnets`` / ``neurons``) are thin
-projections over the same fetch functions — one implementation, two surfaces.
+inherit dispatch (``client.read``), the agent catalog (``client.reads``), the
+generated CLI ``query`` command, and a typed namespace method
+(``client.subnets.subnet_registration_cost()`` — see ``bittensor.namespaces``)
+— one implementation, several surfaces.
 """
 
 from __future__ import annotations

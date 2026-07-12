@@ -26,9 +26,17 @@ btcli query epoch-status --netuid <integer> --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("epoch_status", netuid=1)
+    result = await client.epochs.epoch_status(netuid=1)
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("epoch_status", netuid=1)
 ```

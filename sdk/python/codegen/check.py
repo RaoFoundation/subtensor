@@ -11,6 +11,9 @@
   parameter's storage value type identity dictates. Pre-newtype metadata
   carries no unit-bearing identities, so the gate passes trivially there; it
   bites after a regen against a runtime with PerU16/TaoBalance newtypes.
+- ``--namespaces``: assert the committed ``bittensor/namespaces.pyi`` stub
+  matches what the read registry generates — a read added without regenerating
+  the stub (or a category with no namespace class) fails here.
 
 Exit code 0 = ok, 1 = mismatch.
 """
@@ -349,6 +352,20 @@ def check_names() -> int:
     return 0
 
 
+def check_namespaces() -> int:
+    from .emit_namespaces import OUT_PATH, generate
+
+    expected = generate()
+    if not OUT_PATH.exists() or OUT_PATH.read_text() != expected:
+        print("DRIFT: bittensor/namespaces.pyi is stale vs the read registry")
+        print("Run: uv run python -m codegen.emit_namespaces")
+        return 1
+    from bittensor.reads import REGISTRY
+
+    print(f"namespaces ok: namespaces.pyi covers all {len(REGISTRY)} registered reads")
+    return 0
+
+
 def check_units() -> int:
     from bittensor import hyperparams
 
@@ -382,7 +399,10 @@ def check_units() -> int:
 def main() -> None:
     args = sys.argv[1:]
     if not args:
-        print("usage: python -m codegen.check --names | --coverage | --units | --drift <endpoint>")
+        print(
+            "usage: python -m codegen.check "
+            "--names | --coverage | --units | --namespaces | --drift <endpoint>"
+        )
         raise SystemExit(2)
     if args[0] == "--names":
         raise SystemExit(check_names())
@@ -390,6 +410,8 @@ def main() -> None:
         raise SystemExit(check_coverage())
     if args[0] == "--units":
         raise SystemExit(check_units())
+    if args[0] == "--namespaces":
+        raise SystemExit(check_namespaces())
     if args[0] == "--drift":
         endpoint = args[1] if len(args) > 1 else "ws://127.0.0.1:9944"
         raise SystemExit(check_drift(endpoint))

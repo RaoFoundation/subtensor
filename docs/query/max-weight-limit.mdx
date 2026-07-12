@@ -23,9 +23,17 @@ btcli query max-weight-limit --netuid <integer> --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("max_weight_limit", netuid=1)
+    result = await client.hyperparameters.max_weight_limit(netuid=1)
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("max_weight_limit", netuid=1)
 ```

@@ -19,15 +19,11 @@ from typing import Any, Callable, Iterator, Optional
 from ._substrate import Substrate
 from .client import BlockHeader, Client
 from .intents import Policy
+from .namespaces import NAMESPACES
 from .settings import DEFAULT_NETWORK
 from .snapshot import Snapshot
 
-_NAMESPACES = (
-    "balances",
-    "staking",
-    "subnets",
-    "neurons",
-)
+_NAMESPACES = tuple(NAMESPACES)
 
 
 class _Loop:

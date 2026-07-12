@@ -16,16 +16,11 @@ import inspect
 import pytest
 
 from bittensor.client import Client
-from bittensor.namespaces import Balances, Neurons, Staking, Subnets
+from bittensor.namespaces import NAMESPACES
 from bittensor.snapshot import Snapshot
 from bittensor.sync import _NAMESPACES, SyncClient, SyncSnapshot, _SyncNamespace
 
-NAMESPACE_CLASSES = {
-    "balances": Balances,
-    "staking": Staking,
-    "subnets": Subnets,
-    "neurons": Neurons,
-}
+NAMESPACE_CLASSES = NAMESPACES
 
 
 def _public_functions(cls) -> dict[str, object]:
@@ -51,9 +46,12 @@ def _param_names(fn) -> list[str]:
 
 @pytest.mark.parametrize("cls", NAMESPACE_CLASSES.values(), ids=NAMESPACE_CLASSES.keys())
 def test_namespace_reads_are_coroutines(cls):
-    """Every public namespace method must be async — the sync facade blocks on them."""
+    """Every public namespace method must be async — the sync facade blocks on them.
+
+    Some namespaces have no curated methods (their whole surface is dynamic
+    registry dispatch, which always yields coroutines), so empty is fine.
+    """
     methods = _public_functions(cls)
-    assert methods, f"{cls.__name__} exposes no public methods"
     not_async = [name for name, fn in methods.items() if not asyncio.iscoroutinefunction(fn)]
     assert not not_async, (
         f"{cls.__name__} has non-async public methods {not_async}; the sync "

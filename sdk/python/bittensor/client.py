@@ -5,8 +5,8 @@ the chain's own metadata:
 
 - **Read state.** Generic ``query`` / ``query_map`` / ``runtime`` / ``constant``
   over the generated descriptors (``bittensor.storage`` / ``runtime_api`` /
-  ``constants``), plus a few typed conveniences (``balances``, ``subnets``,
-  ``neurons``, ``staking``) that decode or aggregate.
+  ``constants``), plus typed namespaces (``subnets``, ``staking``, ``balances``,
+  ``delegation``, ... — one per read category) that decode or aggregate.
 - **Submit an intent.** ``plan`` / ``execute`` / ``execute_tool`` — mutations as
   serializable data, previewed with fee + effects, gated by an optional
   :class:`Policy`.
@@ -31,7 +31,21 @@ from .balance import Balance
 from .executor import Executor
 from .intents import Intent, Plan, Policy
 from .multisig import Multisig
-from .namespaces import Balances, Neurons, Staking, Subnets
+from .namespaces import (
+    Balances,
+    Chain,
+    Delegation,
+    Epochs,
+    Hyperparameters,
+    Identity,
+    Leasing,
+    Locks,
+    Neurons,
+    Prices,
+    Staking,
+    Subnets,
+    Weights,
+)
 from .result import BittensorError, ChainError, ExtrinsicResult
 from .settings import (
     DEFAULT_NETWORK,
@@ -150,13 +164,24 @@ class Client:
             )
         self._executor = Executor(self._substrate, policy=policy)
 
-        # Typed read namespaces: thin projections over the read registry
-        # (bittensor.reads). Anything else is reachable via the generic
-        # query/runtime accessors below.
+        # Typed read namespaces: projections over the read registry
+        # (bittensor.reads), one per category — curated methods plus every
+        # registered read. Anything else is reachable via the generic
+        # query/runtime accessors below. (Keep in sync with namespaces.NAMESPACES
+        # and Snapshot; assigned explicitly so type checkers see each attribute.)
         self.balances = Balances(self)
-        self.subnets = Subnets(self)
+        self.chain = Chain(self)
+        self.delegation = Delegation(self)
+        self.epochs = Epochs(self)
+        self.hyperparameters = Hyperparameters(self)
+        self.identity = Identity(self)
+        self.leasing = Leasing(self)
+        self.locks = Locks(self)
         self.neurons = Neurons(self)
+        self.prices = Prices(self)
         self.staking = Staking(self)
+        self.subnets = Subnets(self)
+        self.weights = Weights(self)
 
     # Reads: generic accessors over generated descriptors ---------------------
 

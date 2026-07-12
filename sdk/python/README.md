@@ -153,13 +153,15 @@ import bittensor as sub
 
 async def main():
     async with sub.Client("finney") as client:
-        # Typed conveniences
+        # Typed namespaces — every read in the catalog, one namespace per
+        # category, with autocomplete and typed returns
         bal = await client.balances.get("5F...coldkey")
         subnets = await client.subnets.all()
         neurons = await client.neurons.all(netuid=1)
+        cost = await client.subnets.subnet_registration_cost()
+        take = await client.delegation.delegate_take(hotkey_ss58="5F...")
 
-        # Named reads (same set the CLI `query` group exposes)
-        mg = await client.read("metagraph", netuid=1)
+        # The same reads dispatched by name (the form agents and `btcli query` use)
         take = await client.read("delegate_take", hotkey_ss58="5F...")
 
         # Generic accessors over the generated descriptors — anything on chain

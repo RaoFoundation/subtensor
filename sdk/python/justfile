@@ -32,11 +32,17 @@ cov:
 
 # Registry gates that need no chain: every call wrapped-or-raw-only, every
 # classified error name still exists, hyperparameter units agree with the
-# storage value type identities the metadata carries.
+# storage value type identities the metadata carries, and the namespaces.pyi
+# stub matches the read registry.
 codegen-static:
     uv run python -m codegen.check --coverage
     uv run python -m codegen.check --names
     uv run python -m codegen.check --units
+    uv run python -m codegen.check --namespaces
+
+# Regenerate bittensor/namespaces.pyi from the read registry (no node needed).
+regen-namespaces:
+    uv run python -m codegen.emit_namespaces
 
 # --- targets that need a running node (default ws://127.0.0.1:9944) ---
 

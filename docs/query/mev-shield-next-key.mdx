@@ -21,9 +21,17 @@ btcli query mev-shield-next-key --json
 
 ## Python
 
+Typed namespace method (autocomplete, signature help):
+
 ```python
 import bittensor as sub
 
 async with sub.Client("finney") as client:
-    result = await client.read("mev_shield_next_key")
+    result = await client.chain.mev_shield_next_key()
+```
+
+Or dispatch by name, as an agent would:
+
+```python
+result = await client.read("mev_shield_next_key")
 ```

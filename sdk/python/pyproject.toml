@@ -65,8 +65,9 @@ dev = [
 [tool.ruff]
 line-length = 100
 # Generated code must stay byte-identical to the codegen emitter's output
-# (codegen.check --drift compares literally), so ruff never touches it.
-extend-exclude = ["bittensor/_generated"]
+# (codegen.check --drift / --namespaces compare literally), so ruff never
+# touches it.
+extend-exclude = ["bittensor/_generated", "bittensor/namespaces.pyi"]
 
 [tool.ruff.lint]
 select = [
