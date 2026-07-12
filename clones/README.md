@@ -2,7 +2,7 @@
 
 TypeScript regression tests (run via `tsx`) against a **local clone of mainnet state**, sudo-upgraded
 to the runtime built from this monorepo. CI runs the smoke test plus
-`test:clone-regressions` in `check-clone-upgrade.yml` after every PR runtime
+`test:clone-regressions` in `runtime-checks.yml` after every PR runtime
 upgrade.
 
 ## What happens

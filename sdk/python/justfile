@@ -23,7 +23,7 @@ fmt:
 typecheck:
     uv run ty check --exit-zero-on-warning bittensor
 
-# Offline unit tests (tests marked e2e are deselected by default).
+# Offline unit tests.
 test *ARGS:
     uv run pytest {{ARGS}}
 
@@ -38,13 +38,7 @@ codegen-static:
     uv run python -m codegen.check --names
     uv run python -m codegen.check --units
 
-# --- targets that need a running localnet node (default ws://127.0.0.1:9944) ---
-
-# Chain-facing e2e tests against an already-running node (the dev inner
-# loop). Without `endpoint` docker is used: unset E2E_ENDPOINT and pytest
-# starts a LOCALNET_IMAGE container itself.
-e2e endpoint="ws://127.0.0.1:9944" *ARGS:
-    E2E_ENDPOINT={{endpoint}} uv run pytest -m e2e {{ARGS}}
+# --- targets that need a running node (default ws://127.0.0.1:9944) ---
 
 # Regenerate bittensor/_generated from a node's metadata and re-record the
 # golden fixture. Run after a runtime upgrade, then commit both.
@@ -63,4 +57,3 @@ check-docs:
 # Committed _generated/ must match the node's metadata.
 drift endpoint="ws://127.0.0.1:9944":
     uv run python -m codegen.check --drift {{endpoint}}
-

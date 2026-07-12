@@ -16,6 +16,8 @@ pub fn to_js_err(err: CoreError) -> JsValue {
         // (no `ledger` feature here) but kept aligned for when a WebHID
         // signer backend lands.
         CoreError::Device(_) => "LedgerError",
+        CoreError::Rpc(_) => "RpcError",
+        CoreError::Policy(_) => "PolicyError",
     };
     let error = js_sys::Error::new(&err.to_string());
     error.set_name(name);

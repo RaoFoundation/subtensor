@@ -23,6 +23,10 @@ pub enum CoreError {
     /// A hardware signing device could not be reached, rejected the request,
     /// or the user declined on-device.
     Device(String),
+    /// JSON-RPC transport, protocol, or receipt processing failed.
+    Rpc(String),
+    /// A semantic transaction was rejected before signing by local policy.
+    Policy(String),
 }
 
 impl fmt::Display for CoreError {
@@ -34,6 +38,8 @@ impl fmt::Display for CoreError {
             CoreError::Codec(msg) => write!(f, "codec error: {msg}"),
             CoreError::Crypto(msg) => write!(f, "crypto error: {msg}"),
             CoreError::Device(msg) => write!(f, "device error: {msg}"),
+            CoreError::Rpc(msg) => write!(f, "rpc error: {msg}"),
+            CoreError::Policy(msg) => write!(f, "policy error: {msg}"),
         }
     }
 }
