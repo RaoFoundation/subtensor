@@ -81,7 +81,7 @@ jobs:
     # Keep this build on the reserved 16-core turbo lane: it gates every
     # try-runtime check and clone shard. General and background work uses the
     # 8-core pool so it cannot consume this critical-path capacity.
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-16]
     timeout-minutes: 60
     env:
       RUST_BACKTRACE: full

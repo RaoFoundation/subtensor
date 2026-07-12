@@ -135,7 +135,7 @@ jobs:
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     # Longest job in this workflow; retain the reserved 16-core turbo lane.
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-16]
     env:
       SKIP_WASM_BUILD: 1
     steps:

@@ -50,7 +50,7 @@ jobs:
   binary:
     name: production binary (${{ matrix.platform.arch }})
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-16]
     timeout-minutes: 90
     strategy:
       fail-fast: false
