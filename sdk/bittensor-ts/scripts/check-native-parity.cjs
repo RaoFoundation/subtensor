@@ -515,6 +515,8 @@ const browserWrapperExpected = allowlistedSurface(
     'decryptWithSignature',
     'encrypt',
     'encryptAtRound',
+    'encryptMlkem768',
+    'encrypt_mlkem768',
     'eraBirth',
     'generateCommitV2',
     'generateExtrinsicProof',
