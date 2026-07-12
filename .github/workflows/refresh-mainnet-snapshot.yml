@@ -156,9 +156,12 @@ jobs:
       - name: Create state snapshot
         run: |
           export RUST_LOG=remote-ext=debug
+          # The snapshot path must precede --uri: --uri is variadic in
+          # try-runtime-cli, so a trailing positional gets consumed as a
+          # second URI value and fails validation.
           "$TRY_RUNTIME_BIN" create-snapshot \
-            --uri "${{ matrix.network.uri }}" \
-            "${{ matrix.network.name }}.snap"
+            "${{ matrix.network.name }}.snap" \
+            --uri "${{ matrix.network.uri }}"
           ls -lh "${{ matrix.network.name }}.snap"
 
       - name: Upload snapshot artifact
