@@ -44,7 +44,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20.17"
+    "node": ">=22"
   },
   "scripts": {
     "build:native": "napi build --manifest-path native/Cargo.toml --output-dir . --platform --release --all-features --js native.cjs --dts native.generated.d.ts",

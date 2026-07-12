@@ -8,7 +8,8 @@ const ts = require('typescript')
 const root = path.resolve(__dirname, '..')
 const sdkRoot = path.resolve(root, '..')
 const repoRoot = path.resolve(sdkRoot, '..')
-const manifestPath = path.join(sdkRoot, 'bittensor-core', 'binding-manifest.json')
+const nativeRustRoot = path.join(root, 'native', 'src')
+const wasmRustRoot = path.join(sdkRoot, 'bittensor-core-wasm', 'src')
 const nativeGeneratedPath = path.join(root, 'native.generated.d.ts')
 const nativeDocumentedPath = path.join(root, 'src', 'native.ts')
 const browserPath = path.join(root, 'src', 'browser.ts')
@@ -105,57 +106,148 @@ function exportedSurface(source, options = {}) {
   return { values, classes }
 }
 
+function readRustFiles(directory) {
+  if (!fs.existsSync(directory)) throw new Error(`missing ${repoRelative(directory)}`)
+  const out = []
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const item = path.join(directory, entry.name)
+    if (entry.isDirectory()) out.push(...readRustFiles(item))
+    else if (entry.isFile() && entry.name.endsWith('.rs')) out.push(item)
+  }
+  return out.sort()
+}
+
+function snakeToCamel(name) {
+  return name.replace(/_([a-zA-Z0-9])/g, (_, value) => value.toUpperCase())
+}
+
+function jsNameFrom(attrs, rustName, mode) {
+  for (const attr of attrs) {
+    const match = attr.match(/\bjs_name\s*=\s*(?:"([^"]+)"|([A-Za-z0-9_]+))/)
+    if (match != null) return match[1] ?? match[2]
+  }
+  return mode === 'napi' ? snakeToCamel(rustName) : rustName
+}
+
+function hasAttrFlag(attrs, flag) {
+  return attrs.some((attr) => new RegExp(`\\b${flag}\\b`).test(attr))
+}
+
+function hasBindingAttr(attrs, mode) {
+  return attrs.some((attr) => attr.startsWith(mode))
+}
+
+function ensureClass(surface, className) {
+  surface.values.add(className)
+  let members = surface.classes.get(className)
+  if (members == null) {
+    members = { instance: new Set(), statics: new Set() }
+    surface.classes.set(className, members)
+  }
+  return members
+}
+
+function rustBindingSurface(directory, mode) {
+  const surface = { values: new Set(), classes: new Map() }
+  for (const filePath of readRustFiles(directory)) {
+    const source = fs.readFileSync(filePath, 'utf8')
+    parseRustBindingSource(source, mode, surface)
+  }
+  return surface
+}
+
+function parseRustBindingSource(source, mode, surface) {
+  const lines = source.split(/\r?\n/)
+  const stack = []
+  let pendingAttrs = []
+  let pendingImpl = null
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex]
+    const line = rawLine.trim()
+    if (line.startsWith('#[')) {
+      const attr = line.replace(/^#\[/, '').replace(/\]\s*$/, '')
+      if (attr.startsWith(mode)) pendingAttrs.push(attr)
+      updateRustStack(rawLine, stack)
+      continue
+    }
+
+    const implStart = line.match(/^impl\s+([A-Za-z0-9_]+)/)
+    if (implStart != null && line.includes('{')) {
+      pendingImpl = {
+        name: implStart[1],
+        binding: hasBindingAttr(pendingAttrs, mode),
+      }
+    }
+
+    const classMatch = line.match(/^pub\s+(?:struct|enum)\s+([A-Za-z0-9_]+)/)
+    if (classMatch != null && hasBindingAttr(pendingAttrs, mode) && !hasAttrFlag(pendingAttrs, 'object')) {
+      if (line.startsWith('pub enum ')) surface.values.add(classMatch[1])
+      else ensureClass(surface, classMatch[1])
+      pendingAttrs = []
+    }
+
+    const functionMatch = line.match(/^pub\s+fn\s+([A-Za-z0-9_]+)/)
+    const implInfo = currentRustImpl(stack)
+    const hasFunctionBinding =
+      hasBindingAttr(pendingAttrs, mode) || (mode === 'wasm_bindgen' && implInfo?.binding)
+    if (functionMatch != null && hasFunctionBinding) {
+      const rustName = functionMatch[1]
+      if (!hasAttrFlag(pendingAttrs, 'constructor')) {
+        const name = jsNameFrom(pendingAttrs, rustName, mode)
+        if (implInfo == null) {
+          surface.values.add(name)
+        } else {
+          const classMembers = ensureClass(surface, implInfo.name)
+          const signature = rustFunctionSignature(lines, lineIndex)
+          const isStatic = hasAttrFlag(pendingAttrs, 'factory') || !/\bself\b/.test(signature)
+          ;(isStatic ? classMembers.statics : classMembers.instance).add(name)
+        }
+      }
+      pendingAttrs = []
+    } else if (line.length > 0 && !line.startsWith('#') && !line.startsWith('//')) {
+      pendingAttrs = []
+    }
+
+    updateRustStack(rawLine, stack, pendingImpl)
+    pendingImpl = null
+  }
+}
+
+function currentRustImpl(stack) {
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    if (stack[index].kind === 'impl') return stack[index]
+  }
+  return null
+}
+
+function updateRustStack(rawLine, stack, pendingImpl = null) {
+  for (const char of rawLine) {
+    if (char === '{') {
+      if (pendingImpl != null) stack.push({ kind: 'impl', ...pendingImpl })
+      else stack.push({ kind: 'block' })
+      pendingImpl = null
+    } else if (char === '}') {
+      stack.pop()
+    }
+  }
+}
+
+function rustFunctionSignature(lines, startIndex) {
+  const parts = []
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index]
+    parts.push(line)
+    if (line.includes(')')) break
+  }
+  const text = parts.join('\n')
+  const start = text.indexOf('(')
+  const end = text.indexOf(')', Math.max(0, start))
+  return start >= 0 && end >= 0 ? text.slice(start + 1, end) : ''
+}
+
 function sorted(values) {
   return [...values].sort()
-}
-
-function uniqueSet(values, label) {
-  if (!Array.isArray(values)) throw new Error(`${label} must be an array`)
-  const out = new Set()
-  for (const value of values) {
-    if (typeof value !== 'string') throw new Error(`${label} entries must be strings`)
-    if (out.has(value)) throw new Error(`${label} contains duplicate entry ${value}`)
-    out.add(value)
-  }
-  return out
-}
-
-function manifestSurface(manifest, sectionName) {
-  const section = manifest[sectionName]
-  if (section == null || typeof section !== 'object') {
-    throw new Error(`binding manifest is missing ${sectionName}`)
-  }
-
-  const values = uniqueSet(section.values ?? [], `${sectionName}.values`)
-  const classes = new Map()
-  const manifestClasses = section.classes ?? {}
-  if (manifestClasses == null || typeof manifestClasses !== 'object' || Array.isArray(manifestClasses)) {
-    throw new Error(`${sectionName}.classes must be an object`)
-  }
-
-  for (const [className, members] of Object.entries(manifestClasses)) {
-    if (members == null || typeof members !== 'object' || Array.isArray(members)) {
-      throw new Error(`${sectionName}.classes.${className} must be an object`)
-    }
-    const instance = uniqueSet(members.instance ?? [], `${sectionName}.classes.${className}.instance`)
-    const statics = uniqueSet(members.statics ?? [], `${sectionName}.classes.${className}.statics`)
-    values.add(className)
-    classes.set(className, { instance, statics })
-  }
-
-  return { values, classes }
-}
-
-function readManifest() {
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error(`missing ${repoRelative(manifestPath)}`)
-  }
-  const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  return {
-    native: manifestSurface(raw, 'native'),
-    wasm: manifestSurface(raw, 'wasm'),
-    browser: manifestSurface(raw, 'browser'),
-  }
 }
 
 function compareSet(label, actual, expected, actualLabel, expectedLabel) {
@@ -168,7 +260,7 @@ function compareSet(label, actual, expected, actualLabel, expectedLabel) {
   return lines
 }
 
-function compareSurface(label, actual, expected, actualLabel = 'binding', expectedLabel = 'manifest') {
+function compareSurface(label, actual, expected, actualLabel = 'binding', expectedLabel = 'expected surface') {
   const failures = compareSet(
     `${label} top-level exports`,
     actual.values,
@@ -204,7 +296,13 @@ function compareSurface(label, actual, expected, actualLabel = 'binding', expect
   return failures
 }
 
-function compareClassInterfaces(label, interfaces, expected, mapping) {
+function compareClassInterfaces(
+  label,
+  interfaces,
+  expected,
+  mapping,
+  expectedLabel = 'Rust annotations',
+) {
   const failures = []
   for (const [className, expectedMembers] of expected.classes) {
     const interfaceNames = mapping[className]
@@ -223,7 +321,7 @@ function compareClassInterfaces(label, interfaces, expected, mapping) {
           instance,
           expectedMembers.instance,
           'interface',
-          'manifest',
+          expectedLabel,
         ),
       )
     }
@@ -242,7 +340,7 @@ function compareClassInterfaces(label, interfaces, expected, mapping) {
           statics,
           expectedMembers.statics,
           'interface',
-          'manifest',
+          expectedLabel,
         ),
       )
     }
@@ -278,7 +376,8 @@ const wasmClassInterfaces = {
 }
 
 try {
-  const manifest = readManifest()
+  const nativeExpected = rustBindingSurface(nativeRustRoot, 'napi')
+  const wasmExpected = rustBindingSurface(wasmRustRoot, 'wasm_bindgen')
   const nativeGenerated = exportedSurface(
     parse(nativeGeneratedPath, 'run npm run build:native first'),
   )
@@ -296,34 +395,49 @@ try {
   const browserPublic = exportedSurface(browserSource, { publicOnly: true })
   const browserModule = browserInterfaces.get('BrowserWasmModule')
   if (browserModule == null) throw new Error('src/browser.ts does not declare BrowserWasmModule')
-  const expectedBrowserModule = cloneSurface(manifest.wasm)
+  const expectedBrowserModule = cloneSurface(wasmExpected)
   expectedBrowserModule.values.add('default')
 
   const failures = [
-    ...compareSurface('native N-API generated declarations', nativeGenerated, manifest.native),
+    ...compareSurface(
+      'native N-API generated declarations',
+      nativeGenerated,
+      nativeExpected,
+      'generated declarations',
+      'Rust #[napi] annotations',
+    ),
     ...compareSet(
       'src/native.ts NativeBinding',
       nativeBinding,
-      manifest.native.values,
+      nativeExpected.values,
       'interface',
-      'manifest',
+      'Rust #[napi] annotations',
     ),
-    ...compareClassInterfaces('src/native.ts class handles', nativeDocumented, manifest.native, nativeClassInterfaces),
-    ...compareSurface('browser WASM generated declarations', wasmGenerated, manifest.wasm),
+    ...compareClassInterfaces(
+      'src/native.ts class handles',
+      nativeDocumented,
+      nativeExpected,
+      nativeClassInterfaces,
+    ),
+    ...compareSurface(
+      'browser WASM generated declarations',
+      wasmGenerated,
+      wasmExpected,
+      'generated declarations',
+      'Rust #[wasm_bindgen] annotations',
+    ),
     ...compareSet(
       'src/browser.ts BrowserWasmModule',
       browserModule,
       expectedBrowserModule.values,
       'interface',
-      'manifest',
+      'Rust #[wasm_bindgen] annotations',
     ),
-    ...compareClassInterfaces('src/browser.ts WASM class handles', browserInterfaces, manifest.wasm, wasmClassInterfaces),
-    ...compareSurface(
-      'src/browser.ts public browser wrapper',
-      browserPublic,
-      manifest.browser,
-      'wrapper',
-      'manifest',
+    ...compareClassInterfaces(
+      'src/browser.ts WASM class handles',
+      browserInterfaces,
+      wasmExpected,
+      wasmClassInterfaces,
     ),
   ]
 
@@ -333,8 +447,8 @@ try {
     process.exit(1)
   }
   console.log(
-    `Binding parity OK: native ${manifest.native.values.size} exports, ` +
-      `WASM ${manifest.wasm.values.size} exports, browser ${manifest.browser.values.size} exports`,
+    `Binding parity OK: native ${nativeExpected.values.size} Rust exports, ` +
+      `WASM ${wasmExpected.values.size} Rust exports, browser portable wrapper ${browserPublic.values.size} exports`,
   )
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))

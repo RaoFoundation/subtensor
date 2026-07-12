@@ -771,6 +771,10 @@ test('chain client surface is exported without Polkadot.js glue', () => {
   ])
 })
 
+test('declared Node runtime supports the default WebSocket client path', () => {
+  assert.equal(typeof globalThis.WebSocket, 'function')
+})
+
 test('Balance numeric getters throw before losing precision', () => {
   const small = core.Balance.fromTao('1.25')
   assert.equal(small.amount, 1.25)

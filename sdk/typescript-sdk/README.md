@@ -32,12 +32,16 @@ entry point is callable even when an ergonomic wrapper has not yet been
 added.
 
 Browser bundlers should import the explicit `@bittensor/sdk/browser` subpath.
-That entrypoint does not load `native.cjs`, `.node` binaries, Node `Buffer`,
-or native HID. It returns `Uint8Array` values and exposes the portable subset:
-key generation, SS58, signing and verification, RFC-0078 metadata proofs,
-ML-KEM sealing, and timelock encryption/decryption when the caller fetches the
-drand signature. Host-only features such as wallet keyfiles, encrypted JSON
-import, native Ledger HID, and direct drand fetching remain Node-only.
+That entrypoint is a portable browser subset, not a method-for-method mirror of
+the Node API. It does not load `native.cjs`, `.node` binaries, Node `Buffer`,
+or native HID. It returns `Uint8Array` values and exposes browser-safe Rust
+WASM operations: key generation, SS58, signing and verification, SCALE
+encoding and decoding, runtime metadata parsing, storage keys, call and
+extrinsic composition, RFC-0078 metadata proofs, ML-KEM sealing, and timelock
+encryption/decryption when the caller fetches the drand signature. Host-only
+features such as wallet keyfiles, encrypted JSON import, native Ledger HID,
+direct drand fetching, and lower-level Node-native runtime introspection
+helpers remain Node-only.
 
 ## Build locally
 
@@ -53,7 +57,9 @@ The native crate is isolated under `sdk/typescript-sdk/native`; it links
 `sdk/bittensor-core` directly and contains binding glue only. No chain
 algorithm is reimplemented in TypeScript.
 
-Node.js 20.17 or newer is required.
+Node.js 22 or newer is required for the default WSS client path because the
+SDK uses the unflagged global `WebSocket`. Older Node runtimes can still use
+HTTP endpoints or pass `webSocketFactory`/`webSocketConstructor` explicitly.
 Browser builds also require `wasm-pack` so `npm run build` can emit the
 `dist/wasm/bittensor_core_wasm.js` bundle used by `@bittensor/sdk/browser`.
 
@@ -129,8 +135,8 @@ await initBrowser(() => import('./vendor/bittensor_core_wasm.js'))
 
 Mnemonic, password, and secret-URI derivation state is retained only by the Rust
 `Keypair`; TypeScript calls the native handle's `derive(path)` method and never
-reconstructs a child secret URI. `npm run build` also checks the Rust-side
-binding manifest against the generated N-API declarations, `src/native.ts`, the
-generated WASM declarations, `BrowserWasmModule`, and the public browser
-wrapper, so Rust additions cannot silently disappear from either TypeScript
-boundary.
+reconstructs a child secret URI. `npm run build` also generates binding
+coverage from the Rust-side `#[napi]` and `#[wasm_bindgen]` annotations, then
+checks that surface against the generated N-API declarations, `src/native.ts`,
+the generated WASM declarations, and `BrowserWasmModule`, so binding additions
+cannot silently disappear from either TypeScript boundary.

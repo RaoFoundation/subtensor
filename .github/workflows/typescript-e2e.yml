@@ -198,6 +198,36 @@ jobs:
             sdk/typescript-sdk/*.node
           if-no-files-found: error
 
+  test-typescript-sdk-node-min:
+    name: TypeScript SDK package test (Node 22)
+    runs-on: ubuntu-latest
+    needs: [trusted-pr, typescript-formatting, changes, build-typescript-sdk]
+    if: needs.changes.outputs.e2e == 'true'
+    timeout-minutes: 15
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install TypeScript SDK dependencies
+        run: npm --prefix sdk/typescript-sdk ci
+
+      - name: Download TypeScript SDK build
+        uses: actions/download-artifact@v4
+        with:
+          name: bittensor-typescript-sdk
+          path: sdk/typescript-sdk
+
+      - name: Test package on minimum supported Node
+        run: |
+          node --version
+          node -e "if (typeof globalThis.WebSocket !== 'function') throw new Error('globalThis.WebSocket is required by the default WSS client path')"
+          node --test sdk/typescript-sdk/test/*.test.cjs
+
   # Build the node binary in both variants and share as artifacts.
   build:
     runs-on: [self-hosted, fireactions-heavy]
