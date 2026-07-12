@@ -20,6 +20,14 @@ on:
         description: "Run only the try-runtime build and cached network checks"
         type: boolean
         default: false
+      benchmark_runner_pool:
+        description: "Temporary cached try-runtime runner comparison"
+        type: choice
+        default: current
+        options:
+          - current
+          - bhs
+          - hosted
 
 concurrency:
   group: runtime-checks-${{ github.ref }}
@@ -209,7 +217,8 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build-try-runtime
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: ${{ fromJSON(inputs.benchmark_runner_pool == 'bhs' && '["self-hosted","fireactions-turbo-8"]' || inputs.benchmark_runner_pool == 'hosted' && '"ubuntu-latest"' || '["self-hosted","fireactions-tryruntime"]') }}
+    timeout-minutes: 90
     permissions:
       contents: read
       # Cross-run artifact download (the nightly try-runtime state snapshot).
@@ -304,6 +313,7 @@ jobs:
         if: steps.state-mode.outputs.fresh-state != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACT_DOWNLOAD_CONCURRENCY: 16
         run: |
           .github/scripts/snapshot-artifact.sh download \
             "${{ steps.snapshot.outputs.artifact-id }}" \

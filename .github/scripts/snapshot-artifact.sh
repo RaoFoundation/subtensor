@@ -140,20 +140,118 @@ download_artifact() {
   local artifact_id="$1"
   local digest="$2"
   local destination="$3"
-  local archive actual_digest
+  local archive actual_digest size_bytes concurrency parts_dir api_url download_url retry_delay
+  local chunk_size download_started download_seconds assembly_started assembly_seconds
 
   [[ "$artifact_id" =~ ^[0-9]+$ ]] || { echo "invalid artifact id: $artifact_id" >&2; exit 2; }
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "invalid artifact digest: $digest" >&2; exit 2; }
 
   archive=$(mktemp)
-  trap 'rm -f "$archive"' RETURN
+  parts_dir=$(mktemp -d)
+  trap 'rm -f "$archive"; rm -rf "$parts_dir"' EXIT
   if [[ -n "${ARTIFACT_ZIP_FILE:-}" ]]; then
     cp "$ARTIFACT_ZIP_FILE" "$archive"
   else
     : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
-    gh api \
+    : "${GH_TOKEN:?GH_TOKEN must be set}"
+    concurrency="${ARTIFACT_DOWNLOAD_CONCURRENCY:-1}"
+    [[ "$concurrency" =~ ^[1-9][0-9]*$ ]] && ((concurrency <= 64)) || {
+      echo "invalid ARTIFACT_DOWNLOAD_CONCURRENCY: $concurrency" >&2
+      exit 2
+    }
+    retry_delay="${ARTIFACT_RETRY_DELAY_SECONDS:-1}"
+    [[ "$retry_delay" =~ ^[0-9]+$ ]] && ((retry_delay <= 60)) || {
+      echo "invalid ARTIFACT_RETRY_DELAY_SECONDS: $retry_delay" >&2
+      exit 2
+    }
+    size_bytes=$(gh api \
       -H 'Accept: application/vnd.github+json' \
-      "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+      "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id" \
+      --jq '.size_in_bytes')
+    [[ "$size_bytes" =~ ^[1-9][0-9]*$ ]] || { echo "invalid artifact size: $size_bytes" >&2; exit 1; }
+    api_url="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip"
+
+    get_download_url() {
+      local headers status url
+      headers=$(mktemp)
+      status=$(curl --disable --silent --show-error \
+        --connect-timeout 15 \
+        --max-time 30 \
+        --dump-header "$headers" \
+        --output /dev/null \
+        --max-redirs 0 \
+        --header 'Accept: application/vnd.github+json' \
+        --header "Authorization: Bearer $GH_TOKEN" \
+        --header 'X-GitHub-Api-Version: 2022-11-28' \
+        --write-out '%{http_code}' \
+        "$api_url")
+      if [[ "$status" != 302 ]]; then
+        echo "artifact redirect returned HTTP $status" >&2
+        rm -f "$headers"
+        return 1
+      fi
+      url=$(awk 'tolower($0) ~ /^location:/ { sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' "$headers")
+      rm -f "$headers"
+      [[ "$url" == https://* ]] || {
+        echo "artifact redirect did not contain an HTTPS URL" >&2
+        return 1
+      }
+      printf '%s' "$url"
+    }
+
+    download_range() {
+      local start="$1" end="$2" part="$3" expected_size attempt url actual_size
+      expected_size=$((end - start + 1))
+      url="$download_url"
+      for attempt in 1 2 3; do
+        if ((attempt > 1)); then
+          url=$(get_download_url) || continue
+        fi
+        if curl --disable --fail --silent --show-error \
+          --connect-timeout 30 \
+          --max-time 900 \
+          --range "$start-$end" \
+          --output "$part" \
+          "$url"; then
+          actual_size=$(file_size "$part")
+          if [[ "$actual_size" == "$expected_size" ]]; then
+            return 0
+          fi
+          echo "range $start-$end size mismatch: expected $expected_size, got $actual_size" >&2
+        fi
+        rm -f "$part"
+        sleep "$((attempt * retry_delay))"
+      done
+      return 1
+    }
+
+    download_url=$(get_download_url)
+    chunk_size=$(((size_bytes + concurrency - 1) / concurrency))
+    download_started=$(date +%s)
+    local pids=() parts=() failed=0 worker start end part pid index
+    for ((worker = 0; worker < concurrency; worker++)); do
+      start=$((worker * chunk_size))
+      ((start < size_bytes)) || break
+      end=$((start + chunk_size - 1))
+      ((end < size_bytes)) || end=$((size_bytes - 1))
+      printf -v part '%s/part-%03d' "$parts_dir" "$worker"
+      parts+=("$part")
+      download_range "$start" "$end" "$part" &
+      pids+=("$!")
+    done
+    for pid in "${pids[@]}"; do
+      wait "$pid" || failed=1
+    done
+    ((failed == 0)) || { echo "one or more artifact ranges failed" >&2; exit 1; }
+    download_seconds=$(($(date +%s) - download_started))
+
+    assembly_started=$(date +%s)
+    for index in "${!parts[@]}"; do
+      command cat "${parts[$index]}" >> "$archive"
+    done
+    assembly_seconds=$(($(date +%s) - assembly_started))
+    [[ "$(file_size "$archive")" == "$size_bytes" ]] || { echo "artifact size mismatch" >&2; exit 1; }
+    echo "Downloaded artifact $artifact_id in ${download_seconds}s with $concurrency ranges; assembled in ${assembly_seconds}s."
   fi
 
   actual_digest="sha256:$(sha256sum "$archive" | awk '{print $1}')"
@@ -164,7 +262,8 @@ download_artifact() {
   mkdir -p "$destination"
   unzip -q "$archive" -d "$destination"
   rm -f "$archive"
-  trap - RETURN
+  rm -rf "$parts_dir"
+  trap - EXIT
   echo "Downloaded and verified artifact $artifact_id."
 }
 
