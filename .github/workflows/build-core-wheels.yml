@@ -71,8 +71,11 @@ jobs:
       # that the CentOS-based manylinux images strip from their minimal perl;
       # the Ubuntu-based rust-cross images used for cross targets have a full
       # perl and take the no-op branch.
-      # manylinux 2_28 for aarch64: the 2014-cross image's GCC predates
-      # __ARM_ARCH, and ring's pregenerated ARM assembly #errors without it.
+      #
+      # manylinux 2_28 for the aarch64 cross build: the manylinux2014-cross
+      # image's gcc is too old for ring's ARMv8 assembly (#error "ARM
+      # assembler must define __ARM_ARCH"); the 2_28 image carries a modern
+      # gcc. x86_64 stays on auto (manylinux2014) for the wider glibc floor.
       - name: Build wheel (manylinux)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
@@ -87,16 +90,16 @@ jobs:
             fi
 
       # The sdist is the fallback for platforms without a wheel; build it
-      # once, alongside the x86_64 wheel. Unlike the wheel build it runs on
-      # the host (no manylinux container), and maturin-action drives the
-      # toolchain through rustup, which the fireactions image doesn't ship.
-      - name: Install rustup (host, for the sdist build)
+      # once, alongside the x86_64 wheel. Unlike the wheel build (which runs
+      # inside the manylinux docker image), the sdist step runs on the bare
+      # runner, and the ephemeral fireactions VMs ship without rustup.
+      - name: Install rustup (host, sdist step only)
         if: matrix.target == 'x86_64'
         run: |
           if ! command -v rustup >/dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Build sdist
         if: matrix.target == 'x86_64'

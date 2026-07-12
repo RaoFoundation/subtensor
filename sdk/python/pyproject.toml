@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "bittensor"
 version = "11.0.0.dev0"
 description = "A lean Python SDK (import bittensor) and CLI (btcli) for the Bittensor chain."
+readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = { text = "Apache-2.0" }
 authors = [{ name = "RaoFoundation" }]
@@ -32,6 +33,10 @@ dependencies = [
 [project.optional-dependencies]
 evm = []
 cli = []
+
+[project.urls]
+Documentation = "https://bittensor.com/docs"
+Repository = "https://github.com/RaoFoundation/subtensor"
 
 [project.scripts]
 btcli = "bittensor.cli.main:main"
