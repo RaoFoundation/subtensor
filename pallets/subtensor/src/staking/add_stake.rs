@@ -78,7 +78,7 @@ impl<T: Config> Pallet<T> {
     /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
     ///
     /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
-    ///       fill or kill type or order.
+    ///   fill or kill type or order.
     ///
     /// # Events
     /// * `StakeAdded`: On the successfully adding stake to a global account.

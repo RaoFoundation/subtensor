@@ -343,11 +343,8 @@ impl Client {
     /// about one cheap RPC call every 3 seconds, while fast-blocks local
     /// chains are still polled every ~62ms.
     pub fn blocks(&self, finalized: bool) -> BlockStream<'_> {
-        let poll_interval = (self
-            .block_time()
-            .unwrap_or_else(|_| Duration::from_secs(1))
-            / 4)
-        .clamp(Duration::from_millis(50), Duration::from_secs(3));
+        let poll_interval = (self.block_time().unwrap_or_else(|_| Duration::from_secs(1)) / 4)
+            .clamp(Duration::from_millis(50), Duration::from_secs(3));
         BlockStream {
             client: self,
             finalized,

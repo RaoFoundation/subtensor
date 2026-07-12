@@ -695,7 +695,7 @@ impl<T: Config> Pallet<T> {
     /// * `hotkey`: The hotkey for which the childkey take will be set.
     ///
     /// * `take`: The new childkey take value. This is a ratio represented in parts per 65535,
-    ///       where 65535 represents 100%.
+    ///   where 65535 represents 100%.
     ///
     /// # Returns
     /// * `DispatchResult`: The result of the operation.
@@ -772,7 +772,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Returns
     /// * `u16`: The childkey take value. This is a percentage represented as a value between 0
-    ///       and 10000, where 10000 represents 100%.
+    ///   and 10000, where 10000 represents 100%.
     pub fn get_childkey_take(hotkey: &T::AccountId, netuid: NetUid) -> u16 {
         ChildkeyTake::<T>::get(hotkey, netuid)
             .deconstruct()
