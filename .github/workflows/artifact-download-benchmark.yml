@@ -38,7 +38,7 @@ jobs:
       - name: Resolve network identity
         id: identity
         env:
-          NETWORK: ${{ inputs.network || 'testnet' }}
+          NETWORK: ${{ inputs.network || 'mainnet' }}
         run: |
           case "$NETWORK" in
             mainnet) genesis=0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 ;;
@@ -54,7 +54,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           .github/scripts/snapshot-artifact.sh select \
-            "try-runtime-snap-v0.10.1-${{ inputs.network || 'testnet' }}" \
+            "try-runtime-snap-v0.10.1-${{ inputs.network || 'mainnet' }}" \
             "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
             72 "$GITHUB_OUTPUT" required
@@ -73,7 +73,7 @@ jobs:
           echo '| Trial | Ranges | Bytes | Download | Assembly | Archive SHA | Extract | Snapshot SHA | Total | Throughput |' >> "$GITHUB_STEP_SUMMARY"
           echo '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|' >> "$GITHUB_STEP_SUMMARY"
           trial=0
-          for concurrency in 1 4 8 16 16 8 4 1; do
+          for concurrency in 8 16 16 8; do
             trial=$((trial + 1))
             destination="$RUNNER_TEMP/snapshot-$trial-$concurrency"
             BENCHMARK_TRIAL="$trial" .github/scripts/benchmark-artifact-download.sh \
@@ -101,7 +101,35 @@ jobs:
           echo '| Trial | Ranges | Bytes | Download | Assembly | Archive SHA | Extract | Snapshot SHA | Total | Throughput |' >> "$GITHUB_STEP_SUMMARY"
           echo '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|' >> "$GITHUB_STEP_SUMMARY"
           trial=0
-          for concurrency in 1 4 8 16 16 8 4 1; do
+          for concurrency in 8 16 16 8; do
+            trial=$((trial + 1))
+            destination="$RUNNER_TEMP/snapshot-$trial-$concurrency"
+            BENCHMARK_TRIAL="$trial" .github/scripts/benchmark-artifact-download.sh \
+              "${{ needs.resolve.outputs.artifact-id }}" \
+              "${{ needs.resolve.outputs.digest }}" \
+              "${{ needs.resolve.outputs.size-bytes }}" \
+              "$concurrency" "$destination" \
+              "${{ needs.resolve.outputs.network }}" \
+              "${{ needs.resolve.outputs.genesis }}" \
+              "0.10.1"
+            rm -rf "$destination"
+          done
+
+  turbo-bhs:
+    name: BHS turbo sequential range sweep
+    needs: resolve
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmark download, verification, and extraction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo '| Trial | Ranges | Bytes | Download | Assembly | Archive SHA | Extract | Snapshot SHA | Total | Throughput |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|' >> "$GITHUB_STEP_SUMMARY"
+          trial=0
+          for concurrency in 8 16 16 8; do
             trial=$((trial + 1))
             destination="$RUNNER_TEMP/snapshot-$trial-$concurrency"
             BENCHMARK_TRIAL="$trial" .github/scripts/benchmark-artifact-download.sh \
