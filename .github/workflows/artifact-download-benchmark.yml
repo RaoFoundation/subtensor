@@ -1,0 +1,116 @@
+name: Artifact Download Benchmark
+
+on:
+  push:
+    branches:
+      - codex/try-runtime-snapshot-cache-test
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Snapshot size to benchmark"
+        type: choice
+        default: testnet
+        options:
+          - testnet
+          - devnet
+          - mainnet
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: artifact-download-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve:
+    name: Resolve immutable artifact
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.snapshot.outputs.artifact-id }}
+      digest: ${{ steps.snapshot.outputs.digest }}
+      size-bytes: ${{ steps.snapshot.outputs.size-bytes }}
+      network: ${{ steps.identity.outputs.network }}
+      genesis: ${{ steps.identity.outputs.genesis }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve network identity
+        id: identity
+        env:
+          NETWORK: ${{ inputs.network || 'testnet' }}
+        run: |
+          case "$NETWORK" in
+            mainnet) genesis=0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 ;;
+            testnet) genesis=0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105 ;;
+            devnet) genesis=0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5 ;;
+            *) echo "invalid network: $NETWORK" >&2; exit 2 ;;
+          esac
+          echo "network=$NETWORK" >> "$GITHUB_OUTPUT"
+          echo "genesis=$genesis" >> "$GITHUB_OUTPUT"
+      - name: Select trusted snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh select \
+            "try-runtime-snap-v0.10.1-${{ inputs.network || 'testnet' }}" \
+            "${{ github.event.repository.default_branch }}" \
+            "${{ github.repository_id }}" \
+            72 "$GITHUB_OUTPUT" required
+
+  hosted:
+    name: hosted sequential range sweep
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmark download, verification, and extraction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo '| Trial | Ranges | Bytes | Download | Assembly | Archive SHA | Extract | Snapshot SHA | Total | Throughput |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|' >> "$GITHUB_STEP_SUMMARY"
+          trial=0
+          for concurrency in 1 4 8 16 16 8 4 1; do
+            trial=$((trial + 1))
+            destination="$RUNNER_TEMP/snapshot-$trial-$concurrency"
+            BENCHMARK_TRIAL="$trial" .github/scripts/benchmark-artifact-download.sh \
+              "${{ needs.resolve.outputs.artifact-id }}" \
+              "${{ needs.resolve.outputs.digest }}" \
+              "${{ needs.resolve.outputs.size-bytes }}" \
+              "$concurrency" "$destination" \
+              "${{ needs.resolve.outputs.network }}" \
+              "${{ needs.resolve.outputs.genesis }}" \
+              "0.10.1"
+            rm -rf "$destination"
+          done
+
+  self-hosted:
+    name: self-hosted sequential range sweep
+    needs: resolve
+    runs-on: [self-hosted, fireactions-tryruntime]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmark download, verification, and extraction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo '| Trial | Ranges | Bytes | Download | Assembly | Archive SHA | Extract | Snapshot SHA | Total | Throughput |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|' >> "$GITHUB_STEP_SUMMARY"
+          trial=0
+          for concurrency in 1 4 8 16 16 8 4 1; do
+            trial=$((trial + 1))
+            destination="$RUNNER_TEMP/snapshot-$trial-$concurrency"
+            BENCHMARK_TRIAL="$trial" .github/scripts/benchmark-artifact-download.sh \
+              "${{ needs.resolve.outputs.artifact-id }}" \
+              "${{ needs.resolve.outputs.digest }}" \
+              "${{ needs.resolve.outputs.size-bytes }}" \
+              "$concurrency" "$destination" \
+              "${{ needs.resolve.outputs.network }}" \
+              "${{ needs.resolve.outputs.genesis }}" \
+              "0.10.1"
+            rm -rf "$destination"
+          done
