@@ -282,7 +282,8 @@ jobs:
         run: corepack enable
 
       - name: Deploy to Vercel (production)
-        working-directory: website
+        # Repo root, not website/: the Vercel root directory is resolved
+        # against the cwd (see deploy-docs.yml).
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
