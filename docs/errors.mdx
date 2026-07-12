@@ -100,6 +100,7 @@ The exact chain error name (from the extrinsic receipt) maps to a code:
 | `AlreadyApproved` | `already_exists` |
 | `AlreadyDeposited` | `already_exists` |
 | `AlreadyFinalized` | `already_exists` |
+| `AlreadyFinalizing` | `already_exists` |
 | `AlreadyNoted` | `already_exists` |
 | `AlreadyStored` | `already_exists` |
 | `AmountTooLow` | `invalid_argument` |
@@ -177,6 +178,7 @@ The exact chain error name (from the extrinsic receipt) maps to a code:
 | `Entered` | `already_exists` |
 | `EpochTriggerAlreadyPending` | `already_exists` |
 | `EvmKeyAssociateRateLimitExceeded` | `rate_limited` |
+| `EvmKeyAssociationLimitExceeded` | `limit_exceeded` |
 | `ExistentialDeposit` | `insufficient_balance` |
 | `ExistingVestingSchedule` | `already_exists` |
 | `Exited` | `already_exists` |
@@ -253,6 +255,7 @@ The exact chain error name (from the extrinsic receipt) maps to a code:
 | `LiquidAlphaDisabled` | `disabled` |
 | `LiquidityRestrictions` | `insufficient_balance` |
 | `LockHotkeyMismatch` | `invalid_argument` |
+| `LockIdOverFlow` | `limit_exceeded` |
 | `MaxAllowedUIdsLessThanCurrentUIds` | `invalid_argument` |
 | `MaxAllowedUidsGreaterThanDefaultMaxAllowedUids` | `invalid_argument` |
 | `MaxAllowedUidsLessThanMinAllowedUids` | `invalid_argument` |
@@ -275,6 +278,7 @@ The exact chain error name (from the extrinsic receipt) maps to a code:
 | `Named` | `invalid_argument` |
 | `NeedWaitingMoreBlocksToStarCall` | `too_early` |
 | `NegativeSigmoidSteepness` | `invalid_argument` |
+| `NetworkDissolveAlreadyQueued` | `already_exists` |
 | `NetworkTxRateLimitExceeded` | `rate_limited` |
 | `NeuronNoValidatorPermit` | `not_authorized` |
 | `NewColdKeyIsHotkey` | `invalid_argument` |
@@ -365,11 +369,13 @@ The exact chain error name (from the extrinsic receipt) maps to a code:
 | `StakeTooLowForRoot` | `insufficient_balance` |
 | `StakeUnavailable` | `insufficient_balance` |
 | `StakingRateLimitExceeded` | `rate_limited` |
+| `StartCallNotReady` | `too_early` |
 | `StateChangeDenied` | `not_authorized` |
 | `StorageDepositLimitExhausted` | `limit_exceeded` |
 | `StorageDepositNotEnoughFunds` | `insufficient_balance` |
 | `StorageOverflow` | `internal` |
 | `SubNetRegistrationDisabled` | `disabled` |
+| `SubnetBuybackRateLimitExceeded` | `rate_limited` |
 | `SubnetDoesNotExist` | `subnet_not_exists` |
 | `SubnetLimitReached` | `limit_exceeded` |
 | `SubnetNotExists` | `subnet_not_exists` |
@@ -425,6 +431,7 @@ The exact chain error name (from the extrinsic receipt) maps to a code:
 | `ValueTooLarge` | `limit_exceeded` |
 | `VestingBalance` | `insufficient_balance` |
 | `VotingPowerTrackingNotEnabled` | `disabled` |
+| `WaitingForDissolvedSubnetCleanup` | `too_early` |
 | `WeightExceedsAbsoluteMax` | `limit_exceeded` |
 | `WeightVecLengthIsLow` | `invalid_argument` |
 | `WeightVecNotEqualSize` | `invalid_argument` |

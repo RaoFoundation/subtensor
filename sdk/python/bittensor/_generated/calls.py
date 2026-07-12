@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 424
+Spec version: 428
 """
 from typing import Any, NamedTuple
 
@@ -1137,11 +1137,6 @@ class AdminUtils:
     def sudo_set_subnet_owner_cut(subnet_owner_cut) -> Call:
         'The extrinsic sets the subnet owner cut for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the subnet owner cut.'
         return Call('AdminUtils', 'sudo_set_subnet_owner_cut', {'subnet_owner_cut': subnet_owner_cut})
-
-    @staticmethod
-    def sudo_set_subnet_owner_hotkey(netuid, hotkey) -> Call:
-        'Change the SubnetOwnerHotkey for a given subnet.  # Arguments * `origin` - The origin of the call, which must be the subnet owner. * `netuid` - The unique identifier for the subnet. * `hotkey` - The new hotkey for the subnet owner.  # Errors * `BadOrigin` - If the caller is not the subnet owner or root account.  # Weight Weight is handled by the `#[pallet::weight]` attribute.'
-        return Call('AdminUtils', 'sudo_set_subnet_owner_hotkey', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
     def sudo_set_subtoken_enabled(netuid, subtoken_enabled) -> Call:
