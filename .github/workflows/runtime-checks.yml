@@ -298,8 +298,8 @@ jobs:
           uv run python -m codegen.check --names
 
   # For every PR: sudo-upgrade a local clone of mainnet with the proposed
-  # runtime, then run the clone regression suite, the SDK metadata drift gate,
-  # and the SDK e2e suite against the upgraded chain. Consumes the
+  # runtime, then run the clone regression suite and the SDK metadata drift
+  # gate against the upgraded chain. Consumes the
   # node-release artifact instead of building, and restores the nightly
   # mainnet-snapshot artifact instead of re-scraping mainnet state (falls back
   # to a live scrape when no snapshot exists or the `fresh-mainnet-clone`
@@ -456,13 +456,6 @@ jobs:
         if: ${{ matrix.shard.sdk }}
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
-
-      - name: SDK e2e tests against upgraded clone
-        if: ${{ matrix.shard.sdk }}
-        working-directory: sdk/python
-        env:
-          E2E_ENDPOINT: ws://127.0.0.1:9944
-        run: uv run pytest -m e2e
 
       - name: Dump clone node and harness logs
         if: failure()

@@ -50,7 +50,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
-  # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
+  # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
   # Per-commit tag on GHCR: built once, pulled by every test job. Registry
   # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
@@ -126,9 +126,8 @@ jobs:
           set -euo pipefail
           manifest=sdk/bittensor-core/tests/e2e-manifest.json
           jq -e 'length == 113' "$manifest" >/dev/null
-          jq -e 'map(.label) | length == (unique | length)' "$manifest" >/dev/null
           jq -e 'map(.test) | length == (unique | length)' "$manifest" >/dev/null
-          jq -e 'all(.[]; (.label | startswith("test_")) and ((.test | startswith("intent_")) or (.test | startswith("test_"))))' "$manifest" >/dev/null
+          jq -e 'all(.[]; (.test | startswith("intent_")) or (.test | startswith("test_")))' "$manifest" >/dev/null
           test_matrix=$(jq -c . "$manifest")
           echo "Found $(jq length "$manifest") migrated Rust e2e tests"
           echo "test-files=$test_matrix" >> "$GITHUB_OUTPUT"
@@ -229,8 +228,8 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_BUILD_TARGET="${{ matrix.platform.triple }}"
 
-          # Historical Python E2Es used Docker's default `True`, so this
-          # migration intentionally validates the same fast-runtime localnet.
+          # The SDK e2e suite validates the fast-runtime localnet image used
+          # by developer and CI localnet runs.
           ./scripts/localnet.sh --build-only
 
       - name: Prepare artifacts for upload
@@ -307,7 +306,7 @@ jobs:
       - name: Push Docker Image to GHCR
         run: docker push "$LOCALNET_IMAGE_CI"
 
-  run-sdk-e2e-tests:
+  run-rust-e2e-tests:
     needs:
       - check-label
       - find-e2e-tests
@@ -322,7 +321,7 @@ jobs:
         include: ${{ fromJson(needs.find-e2e-tests.outputs.test-files) }}
 
     timeout-minutes: 60
-    name: "sdk-rust: ${{ matrix.label }}"
+    name: "rust-e2e: ${{ matrix.test }}"
     steps:
       - name: Download compiled Rust e2e binary
         uses: actions/download-artifact@v4

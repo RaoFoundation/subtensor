@@ -376,12 +376,8 @@ python -m codegen.check --coverage       # every chain call has a deliberate sta
 python -m codegen.check --names          # every classified error name still exists
 ```
 
-End-to-end tests prove real on-chain state changes against a writable
-localnet. With a node already running (`just e2e` attaches to it), or with
-no arguments pytest starts a `LOCALNET_IMAGE` docker container itself:
+The migrated chain-facing SDK coverage lives in the Rust core e2e suite:
 
 ```bash
-just e2e                                  # attach to ws://127.0.0.1:9944
-just e2e ws://other-host:9944             # attach elsewhere
-uv run pytest -m e2e                      # docker-managed localnet
+E2E_ENDPOINT=ws://127.0.0.1:9944 cargo test -p bittensor-core --test e2e -- --nocapture
 ```
