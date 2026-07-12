@@ -12,7 +12,7 @@ inputs:
     description: "Architecture-specific Rust cache key"
     required: true
   sccache-credential-mode:
-    description: "reader for CI; writer only for the protected cache warmer"
+    description: "reader, auto for trusted write-through CI, or writer for mandatory maintenance"
     default: "reader"
   sccache-writer-access-key-id:
     description: "Protected writer access key"

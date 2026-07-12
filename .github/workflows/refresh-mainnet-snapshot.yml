@@ -37,6 +37,9 @@ jobs:
   snapshot:
     name: scrape mainnet and publish snapshot
     runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +47,9 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: runtime-checks
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Add wasm target and rust-src
         run: |

@@ -17,13 +17,13 @@ inputs:
     description: "Install and configure mold for native x86_64 builds"
     default: "true"
   sccache-credential-mode:
-    description: "reader for CI; writer only for a protected trusted-branch cache warmer"
+    description: "reader, auto for trusted write-through CI, or writer for mandatory maintenance"
     default: "reader"
   sccache-writer-access-key-id:
-    description: "Protected writer access key; used only when writer mode is selected"
+    description: "Protected writer access key; used only for an authorized source"
     default: ""
   sccache-writer-secret-access-key:
-    description: "Protected writer secret; used only when writer mode is selected"
+    description: "Protected writer secret; used only for an authorized source"
     default: ""
 
 runs:

@@ -8,6 +8,10 @@
 #
 # activate CONFIG_FILE ENV_FILE OUTPUT_FILE
 #   Starts sccache against R2 and exports the wrapper only after startup works.
+#
+# Writer mode is write-through and content-addressed. Each successful rustc
+# invocation is independently reusable even if a later compile or test fails;
+# changed inputs produce a different key instead of replacing older artifacts.
 
 set -u
 
@@ -155,13 +159,9 @@ prepare_writer() {
   local config_file="$1"
   local output_file="$2"
 
-  case "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}" in
-    push:refs/heads/main|schedule:refs/heads/main|workflow_dispatch:refs/heads/main)
-      ;;
-    *)
-      disable_prepare "$config_file" "$output_file" "writer mode is restricted to trusted cache-source branches"
-      ;;
-  esac
+  if ! writer_source_is_trusted; then
+    disable_prepare "$config_file" "$output_file" "writer mode is restricted to trusted cache sources"
+  fi
 
   if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
     disable_prepare "$config_file" "$output_file" "protected writer credentials are unavailable"
@@ -192,6 +192,65 @@ os.chmod(path, 0o600)
   fi
 }
 
+writer_source_is_trusted() {
+  case "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}" in
+    push:refs/heads/main|push:refs/heads/devnet|push:refs/heads/testnet|schedule:refs/heads/main)
+      return 0
+      ;;
+    workflow_dispatch:refs/heads/main)
+      [[ -f "${GITHUB_EVENT_PATH:-}" ]] || return 1
+      GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}" python3 -c '
+import json, os, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    event = json.load(handle)
+source_ref = event.get("inputs", {}).get("source_ref")
+if source_ref not in {"main", "devnet", "testnet"}:
+    raise SystemExit(1)
+' "$GITHUB_EVENT_PATH" >/dev/null 2>&1
+      return
+      ;;
+    pull_request:refs/pull/*/merge)
+      [[ -f "${GITHUB_EVENT_PATH:-}" && -n "${GITHUB_REPOSITORY:-}" ]] || return 1
+      GITHUB_REPOSITORY="$GITHUB_REPOSITORY" python3 -c '
+import json, os, re, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    event = json.load(handle)
+pull = event.get("pull_request")
+if not isinstance(pull, dict):
+    raise SystemExit(1)
+head_repo = pull.get("head", {}).get("repo")
+if not isinstance(head_repo, dict):
+    raise SystemExit(1)
+trusted = (
+    re.fullmatch(r"refs/pull/[0-9]+/merge", os.environ.get("GITHUB_REF", ""))
+    and head_repo.get("full_name") == os.environ["GITHUB_REPOSITORY"]
+    and head_repo.get("fork") is False
+    and pull.get("user", {}).get("login") != "dependabot[bot]"
+)
+raise SystemExit(0 if trusted else 1)
+' "$GITHUB_EVENT_PATH" >/dev/null 2>&1
+      return
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+prepare_auto() {
+  local config_file="$1"
+  local output_file="$2"
+
+  if writer_source_is_trusted &&
+      [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]] &&
+      [[ "$AWS_ACCESS_KEY_ID" != *$'\n'* && "$AWS_SECRET_ACCESS_KEY" != *$'\n'* ]]; then
+    prepare_writer "$config_file" "$output_file"
+    return
+  fi
+
+  prepare_reader "$config_file" "$output_file"
+}
+
 prepare() {
   local mode="$1"
   local config_file="$2"
@@ -204,6 +263,7 @@ prepare() {
   case "$mode" in
     reader) prepare_reader "$config_file" "$output_file" ;;
     writer) prepare_writer "$config_file" "$output_file" ;;
+    auto) prepare_auto "$config_file" "$output_file" ;;
     *) disable_prepare "$config_file" "$output_file" "unknown credential mode" ;;
   esac
 

@@ -45,6 +45,9 @@ jobs:
   clone-preview:
     name: Sudo-upgrade mainnet clone, expose endpoint
     runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
     if: >-
       contains(github.event.pull_request.labels.*.name, 'mainnet-clone') &&
       github.event.pull_request.head.repo.fork == false
@@ -63,6 +66,10 @@ jobs:
 
       - name: Shared R2 compiler cache
         uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Cache Cargo registry and git data
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2

@@ -54,6 +54,7 @@ export PATH="$tmp/bin:$PATH"
 export RUNNER_TEMP="$tmp/runner"
 export GITHUB_RUN_ID=1
 export GITHUB_JOB=test
+export GITHUB_REPOSITORY=RaoFoundation/subtensor
 export MMDS_TOKEN_URL=http://mmds/token
 export MMDS_METADATA_URL=http://mmds/sccache
 export SCCACHE_PATH="$tmp/bin/sccache"
@@ -73,8 +74,24 @@ reset_outputs() {
   unset MOCK_MMDS_FAIL MOCK_START_FAIL SCCACHE_GHA_FALLBACK AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
   export GITHUB_OUTPUT="$tmp/output"
   export GITHUB_ENV="$tmp/env"
+  export GITHUB_EVENT_PATH="$tmp/event.json"
+  printf '{}\n' > "$GITHUB_EVENT_PATH"
   export GITHUB_EVENT_NAME=pull_request
   export GITHUB_REF=refs/pull/1/merge
+}
+
+write_pr_event() {
+  local repository="$1"
+  local fork="$2"
+  local login="${3:-trusted-contributor}"
+  cat > "$GITHUB_EVENT_PATH" <<EOF
+{"pull_request":{"head":{"repo":{"full_name":"$repository","fork":$fork}},"user":{"login":"$login"}}}
+EOF
+}
+
+write_dispatch_event() {
+  local source_ref="$1"
+  printf '{"inputs":{"source_ref":"%s"}}\n' "$source_ref" > "$GITHUB_EVENT_PATH"
 }
 
 assert_contains() {
@@ -149,6 +166,45 @@ export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 assert_contains "$tmp/output" 'available=false'
 
 reset_outputs
+write_pr_event RaoFoundation/subtensor false
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+"$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr.log"
+assert_contains "$tmp/output" 'available=true'
+assert_contains "$tmp/config.json" '"mode":"writer"'
+
+for reader_case in fork dependabot malformed target missing-credentials partial-credentials malformed-credentials; do
+  reset_outputs
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  case "$reader_case" in
+    fork) write_pr_event external/fork true ;;
+    dependabot) write_pr_event RaoFoundation/subtensor false 'dependabot[bot]' ;;
+    malformed) printf '{not-json\n' > "$GITHUB_EVENT_PATH" ;;
+    target)
+      write_pr_event RaoFoundation/subtensor false
+      export GITHUB_EVENT_NAME=pull_request_target
+      export GITHUB_REF=refs/heads/main
+      ;;
+    missing-credentials)
+      write_pr_event RaoFoundation/subtensor false
+      unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+      ;;
+    partial-credentials)
+      write_pr_event RaoFoundation/subtensor false
+      unset AWS_SECRET_ACCESS_KEY
+      ;;
+    malformed-credentials)
+      write_pr_event RaoFoundation/subtensor false
+      export AWS_SECRET_ACCESS_KEY=$'writer-secret-key-test\ninvalid'
+      ;;
+  esac
+  "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-$reader_case.log"
+  assert_contains "$tmp/output" 'available=true'
+  assert_contains "$tmp/config.json" '"mode":"reader"'
+done
+
+reset_outputs
 export GITHUB_EVENT_NAME=push
 export GITHUB_REF=refs/heads/mono-bittensor
 export AWS_ACCESS_KEY_ID=writer-access-key-test
@@ -189,8 +245,81 @@ for trusted_event in schedule workflow_dispatch; do
   export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
   export GITHUB_EVENT_NAME="$trusted_event"
   export GITHUB_REF=refs/heads/main
+  if [[ "$trusted_event" == workflow_dispatch ]]; then
+    write_dispatch_event main
+  fi
   "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-$trusted_event.log"
   assert_contains "$tmp/output" 'available=true'
+done
+
+for trusted_branch in main devnet testnet; do
+  reset_outputs
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  export GITHUB_EVENT_NAME=push
+  export GITHUB_REF="refs/heads/$trusted_branch"
+  "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-$trusted_branch.log"
+  assert_contains "$tmp/output" 'available=true'
+  assert_contains "$tmp/config.json" '"mode":"writer"'
+done
+
+for manual_source in main devnet testnet; do
+  reset_outputs
+  write_dispatch_event "$manual_source"
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  export GITHUB_EVENT_NAME=workflow_dispatch
+  export GITHUB_REF=refs/heads/main
+  "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-dispatch-$manual_source.log"
+  assert_contains "$tmp/output" 'available=true'
+done
+
+reset_outputs
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+export GITHUB_EVENT_NAME=schedule
+export GITHUB_REF=refs/heads/main
+"$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-schedule.log"
+assert_contains "$tmp/output" 'available=true'
+assert_contains "$tmp/config.json" '"mode":"writer"'
+
+for manual_source in main devnet testnet; do
+  reset_outputs
+  write_dispatch_event "$manual_source"
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  export GITHUB_EVENT_NAME=workflow_dispatch
+  export GITHUB_REF=refs/heads/main
+  "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-dispatch-$manual_source.log"
+  assert_contains "$tmp/output" 'available=true'
+  assert_contains "$tmp/config.json" '"mode":"writer"'
+done
+
+for dispatch_payload in rejected malformed; do
+  reset_outputs
+  if [[ "$dispatch_payload" == malformed ]]; then
+    printf '{not-json\n' > "$GITHUB_EVENT_PATH"
+  else
+    write_dispatch_event feature/foo
+  fi
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  export GITHUB_EVENT_NAME=workflow_dispatch
+  export GITHUB_REF=refs/heads/main
+  "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-dispatch-$dispatch_payload.log"
+  assert_contains "$tmp/output" 'available=true'
+  assert_contains "$tmp/config.json" '"mode":"reader"'
+done
+
+for rejected_source in feature/foo mainnet ''; do
+  reset_outputs
+  write_dispatch_event "$rejected_source"
+  export AWS_ACCESS_KEY_ID=writer-access-key-test
+  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+  export GITHUB_EVENT_NAME=workflow_dispatch
+  export GITHUB_REF=refs/heads/main
+  "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-dispatch-rejected.log"
+  assert_contains "$tmp/output" 'available=false'
 done
 
 reset_outputs

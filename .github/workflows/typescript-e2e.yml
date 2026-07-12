@@ -86,6 +86,9 @@ jobs:
   # Build the node binary in both variants and share as artifacts.
   build:
     runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
     needs: [trusted-pr, typescript-formatting, changes]
     if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
@@ -114,6 +117,10 @@ jobs:
 
       - name: Shared R2 compiler cache
         uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Cache Cargo registry and git data
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
