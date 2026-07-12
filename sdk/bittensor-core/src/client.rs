@@ -295,28 +295,32 @@ impl Client {
     pub fn header(&self, block_hash: Option<&str>) -> Result<BlockHeader, CoreError> {
         let params = block_hash.map_or_else(|| json!([]), |hash| json!([hash]));
         let value = self.rpc_value("chain_getHeader", params)?;
-        let object = value
-            .as_object()
-            .ok_or_else(|| CoreError::Rpc("chain_getHeader returned a non-object".into()))?;
-        let number = json_u64(
-            object
-                .get("number")
-                .ok_or_else(|| CoreError::Rpc("header has no number".into()))?,
-        )?;
+        let (number, parent_hash) = parse_header_fields(&value)?;
         let hash = match block_hash {
             Some(hash) => hash.to_string(),
             None => self.block_hash(Some(number))?,
         };
-        let parent_hash = object
-            .get("parentHash")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_string();
         Ok(BlockHeader {
             hash,
             parent_hash,
             number,
         })
+    }
+
+    /// Best-head poll for [`BlockStream`]: fetch the canonical hash (a second
+    /// RPC call) only when the head has advanced past `last`.
+    fn best_header_past(&self, last: Option<u64>) -> Result<Option<BlockHeader>, CoreError> {
+        let value = self.rpc_value("chain_getHeader", json!([]))?;
+        let (number, parent_hash) = parse_header_fields(&value)?;
+        if last.is_some_and(|last| number <= last) {
+            return Ok(None);
+        }
+        let hash = self.block_hash(Some(number))?;
+        Ok(Some(BlockHeader {
+            hash,
+            parent_hash,
+            number,
+        }))
     }
 
     pub fn block_number(&self) -> Result<u64, CoreError> {
@@ -333,12 +337,23 @@ impl Client {
 
     /// Polling block stream. HTTP and websocket endpoints therefore expose the
     /// same API; callers do not need an async runtime merely to follow heads.
+    ///
+    /// The poll interval adapts to the chain's slot duration (a quarter of a
+    /// slot, clamped to 50ms..3s): an idle mainnet follower costs the node
+    /// about one cheap RPC call every 3 seconds, while fast-blocks local
+    /// chains are still polled every ~62ms.
     pub fn blocks(&self, finalized: bool) -> BlockStream<'_> {
+        let poll_interval = (self
+            .block_time()
+            .unwrap_or_else(|_| Duration::from_secs(1))
+            / 4)
+        .clamp(Duration::from_millis(50), Duration::from_secs(3));
         BlockStream {
             client: self,
             finalized,
             last_number: None,
-            poll_interval: Duration::from_millis(50),
+            last_finalized_hash: None,
+            poll_interval,
         }
     }
 
@@ -1103,7 +1118,31 @@ pub struct BlockStream<'a> {
     client: &'a Client,
     finalized: bool,
     last_number: Option<u64>,
+    last_finalized_hash: Option<String>,
     poll_interval: Duration,
+}
+
+impl BlockStream<'_> {
+    /// One poll cycle. Idle polls cost a single RPC call: the best-head path
+    /// skips the hash lookup until the number advances, and the finalized path
+    /// skips the header fetch while `chain_getFinalizedHead` is unchanged.
+    fn poll(&mut self) -> Result<Option<BlockHeader>, CoreError> {
+        let header = if self.finalized {
+            let hash = self.client.finalized_head()?;
+            if self.last_finalized_hash.as_deref() == Some(hash.as_str()) {
+                return Ok(None);
+            }
+            self.last_finalized_hash = Some(hash.clone());
+            let header = self.client.header(Some(&hash))?;
+            (self.last_number.is_none_or(|last| header.number > last)).then_some(header)
+        } else {
+            self.client.best_header_past(self.last_number)?
+        };
+        if let Some(header) = &header {
+            self.last_number = Some(header.number);
+        }
+        Ok(header)
+    }
 }
 
 impl Iterator for BlockStream<'_> {
@@ -1111,23 +1150,11 @@ impl Iterator for BlockStream<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let head = if self.finalized {
-                self.client
-                    .finalized_head()
-                    .and_then(|hash| self.client.header(Some(&hash)))
-            } else {
-                self.client.header(None)
-            };
-            match head {
-                Ok(header) => {
-                    if self.last_number.is_none_or(|last| header.number > last) {
-                        self.last_number = Some(header.number);
-                        return Some(Ok(header));
-                    }
-                }
+            match self.poll() {
+                Ok(Some(header)) => return Some(Ok(header)),
+                Ok(None) => thread::sleep(self.poll_interval),
                 Err(error) => return Some(Err(error)),
             }
-            thread::sleep(self.poll_interval);
         }
     }
 }
@@ -1280,6 +1307,23 @@ fn http_endpoint(endpoint: &str) -> String {
         return format!("https://{rest}");
     }
     endpoint.to_string()
+}
+
+fn parse_header_fields(value: &JsonValue) -> Result<(u64, String), CoreError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| CoreError::Rpc("chain_getHeader returned a non-object".into()))?;
+    let number = json_u64(
+        object
+            .get("number")
+            .ok_or_else(|| CoreError::Rpc("header has no number".into()))?,
+    )?;
+    let parent_hash = object
+        .get("parentHash")
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok((number, parent_hash))
 }
 
 fn storage_info(runtime: &Runtime, pallet: &str, storage: &str) -> Result<StorageInfo, CoreError> {
