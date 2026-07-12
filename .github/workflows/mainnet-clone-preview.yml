@@ -44,7 +44,7 @@ env:
 jobs:
   clone-preview:
     name: Sudo-upgrade mainnet clone, expose endpoint
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     if: >-
       contains(github.event.pull_request.labels.*.name, 'mainnet-clone') &&
       github.event.pull_request.head.repo.fork == false

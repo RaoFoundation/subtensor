@@ -18,7 +18,7 @@ env:
 
 jobs:
   build:
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +43,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     permissions:
       pages: write
       id-token: write

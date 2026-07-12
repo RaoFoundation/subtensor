@@ -26,7 +26,7 @@ jobs:
   build:
     name: build ${{ matrix.version.name }}
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     if: contains(github.event.pull_request.labels.*.name, 'check-node-compat')
     env:
       RUST_BACKTRACE: full
@@ -82,7 +82,7 @@ jobs:
   test:
     name: run compat harness
     needs: [trusted-pr, build]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

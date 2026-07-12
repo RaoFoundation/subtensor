@@ -168,7 +168,7 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: [self-hosted, fireactions-heavy]
+          - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
         runtime: ["fast-runtime", "non-fast-runtime"]

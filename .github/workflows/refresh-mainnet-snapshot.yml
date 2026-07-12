@@ -36,7 +36,7 @@ env:
 jobs:
   snapshot:
     name: scrape mainnet and publish snapshot
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -107,7 +107,7 @@ jobs:
   # consumer pin in runtime-checks.yml.
   try-runtime-snapshot:
     name: try-runtime snapshot ${{ matrix.network.name }}
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 90
     strategy:
       fail-fast: false

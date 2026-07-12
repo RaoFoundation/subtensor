@@ -85,7 +85,7 @@ jobs:
 
   # Build the node binary in both variants and share as artifacts.
   build:
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     needs: [trusted-pr, typescript-formatting, changes]
     if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
@@ -134,7 +134,7 @@ jobs:
 
   run-e2e-tests:
     needs: [trusted-pr, build]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
 
     strategy:

@@ -58,7 +58,7 @@ jobs:
     name: cargo test (eco-tests)
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     env:
       RUST_BACKTRACE: full
       SKIP_WASM_BUILD: 1

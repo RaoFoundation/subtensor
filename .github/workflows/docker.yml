@@ -40,7 +40,7 @@ jobs:
   binary:
     name: production binary (${{ matrix.platform.arch }})
     needs: setup
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -70,7 +70,7 @@ jobs:
   image:
     name: validate image (${{ matrix.arch }}, no push)
     needs: [setup, binary]
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -113,7 +113,7 @@ jobs:
 
   publish:
     needs: [setup, binary, image]
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
       - name: Determine tag, ref, and image name

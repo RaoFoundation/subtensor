@@ -61,7 +61,7 @@ jobs:
   # ------------------------------------------------------------------
   build:
     name: Srtool build (once per train)
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 120
     outputs:
       spec_version: ${{ steps.spec.outputs.spec_version }}
@@ -113,7 +113,7 @@ jobs:
   deploy-devnet:
     name: Deploy devnet
     needs: build
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     environment: devnet # no required reviewers → automatic
     timeout-minutes: 30
     steps:
@@ -190,7 +190,7 @@ jobs:
   check-devnet:
     name: Smoke-check devnet
     needs: deploy-devnet
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -212,7 +212,7 @@ jobs:
   deploy-testnet:
     name: Deploy testnet
     needs: [build, check-devnet]
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     # Gate is configured on the environment: required reviewers = one-click
     # promotion; no reviewers = automatic after devnet checks.
     environment: testnet
@@ -278,7 +278,7 @@ jobs:
   check-testnet:
     name: Smoke-check testnet
     needs: deploy-testnet
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -305,7 +305,7 @@ jobs:
   rc-versions:
     name: Compute rc versions
     needs: check-testnet
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     outputs:
       sdk: ${{ steps.versions.outputs.sdk }}
       core: ${{ steps.versions.outputs.core }}
@@ -331,7 +331,7 @@ jobs:
   publish-sdk-rc:
     name: Publish SDK rc to PyPI
     needs: [rc-versions, build-core-rc]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     environment: testnet
     permissions:
       id-token: write
@@ -375,7 +375,7 @@ jobs:
   propose-mainnet:
     name: Propose mainnet upgrade (multisig)
     needs: [build, check-testnet]
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     timeout-minutes: 30
     steps:

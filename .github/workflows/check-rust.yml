@@ -67,7 +67,7 @@ jobs:
     name: cargo fmt
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rust-setup
@@ -88,9 +88,9 @@ jobs:
     name: cargo clippy (${{ matrix.features.name }})
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    # Compile-bound (~20 min on the light boxes with a cold cache); the heavy
-    # pool's extra cores cut the wall time roughly in half.
-    runs-on: [self-hosted, fireactions-heavy]
+    # Compile-bound; the shared 8-core pool avoids the legacy 2-core cold-cache
+    # path without consuming the 16-core critical-path lane.
+    runs-on: [self-hosted, fireactions-turbo-8]
     env:
       SKIP_WASM_BUILD: 1
     strategy:
@@ -114,7 +114,7 @@ jobs:
     name: no cargo check warnings
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     env:
       RUSTFLAGS: -D warnings
       SKIP_WASM_BUILD: 1
@@ -134,8 +134,7 @@ jobs:
     name: cargo test
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    # Turbo pool: longest job in this workflow (see runtime-checks.yml for
-    # the two-replica routing budget).
+    # Longest job in this workflow; retain the reserved 16-core turbo lane.
     runs-on: [self-hosted, fireactions-turbo]
     env:
       SKIP_WASM_BUILD: 1
@@ -166,7 +165,7 @@ jobs:
     name: bittensor-core wasm32 seam
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     # No RUSTFLAGS deny here: it would apply to dependencies too, and the
     # vendored w3f-bls fork carries warnings in this feature combination.
     # This job asserts the seam compiles; warning hygiene stays with the
@@ -211,7 +210,7 @@ jobs:
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     # Compile-bound, same reasoning as clippy.
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -228,7 +227,7 @@ jobs:
     name: zepter feature propagation
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rust-setup

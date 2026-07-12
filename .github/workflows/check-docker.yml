@@ -78,7 +78,7 @@ jobs:
   image:
     name: docker image (${{ matrix.arch }}, no push)
     needs: [trusted-pr, binary]
-    runs-on: [self-hosted, fireactions-turbo]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 20
     strategy:
       fail-fast: false
