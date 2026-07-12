@@ -32,7 +32,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: refresh-mainnet-snapshot
+  # A test-branch dispatch must not cancel the production refresh on main (or
+  # vice versa). Schedule and dispatch on the same ref still supersede safely.
+  group: refresh-mainnet-snapshot-${{ github.ref }}
   cancel-in-progress: true
 
 env:
