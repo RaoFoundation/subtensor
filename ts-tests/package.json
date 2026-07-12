@@ -37,7 +37,7 @@
     },
     "dependencies": {
         "@inquirer/prompts": "7.3.1",
-        "@bittensor/sdk": "link:../sdk/typescript-sdk",
+        "@bittensor/sdk": "link:../sdk/bittensor-ts",
         "@polkadot-api/ink-contracts": "^0.4.1",
         "@polkadot-api/merkleize-metadata": "^1.1.15",
         "@polkadot-api/sdk-ink": "^0.5.1",

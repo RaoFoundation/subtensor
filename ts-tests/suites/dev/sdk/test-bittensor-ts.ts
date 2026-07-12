@@ -15,7 +15,7 @@ function getSdkEndpoint(): string | undefined {
 
 describeSuite({
     id: "DEV_TYPESCRIPT_SDK_01",
-    title: "Rust-backed TypeScript SDK integration",
+    title: "Rust-backed bittensor-ts integration",
     foundationMethods: "dev",
     testCases: ({ it, context }) => {
         it({
@@ -30,7 +30,7 @@ describeSuite({
 
                 const client = await new Client(endpoint).connect();
                 const alice = Keypair.fromUri("//Alice");
-                const remark = blake2_256(Buffer.from(`typescript-sdk:${BINDING_VERSION}`));
+                const remark = blake2_256(Buffer.from(`bittensor-ts:${BINDING_VERSION}`));
                 const call = await client.composeCall("System", "remark", { remark });
 
                 try {

@@ -2,7 +2,7 @@
   "name": "@bittensor/sdk",
   "version": "0.1.0",
   "private": true,
-  "description": "Thin TypeScript SDK backed by the monorepo's bittensor-core Rust SDK",
+  "description": "bittensor-ts: the TypeScript SDK backed by the monorepo's bittensor-core Rust SDK",
   "license": "Apache-2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -48,7 +48,7 @@
   },
   "scripts": {
     "build:native": "napi build --manifest-path native/Cargo.toml --output-dir . --platform --release --all-features --js native.cjs --dts native.generated.d.ts",
-    "build:wasm": "wasm-pack build ../bittensor-core-wasm --target bundler --out-dir ../typescript-sdk/dist/wasm --out-name bittensor_core_wasm",
+    "build:wasm": "wasm-pack build ../bittensor-core-wasm --target bundler --out-dir ../bittensor-ts/dist/wasm --out-name bittensor_core_wasm",
     "build:ts": "tsc -p tsconfig.json && node scripts/generate-esm.cjs",
     "build": "npm run build:native && npm run build:ts && npm run build:wasm && npm run check:binding-parity",
     "check": "npm run build && npm test",
@@ -71,7 +71,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/RaoFoundation/subtensor.git",
-    "directory": "sdk/typescript-sdk"
+    "directory": "sdk/bittensor-ts"
   },
   "type": "commonjs",
   "module": "dist/index.mjs"

@@ -32,7 +32,7 @@ members = [
 	"primitives/*",
 	"runtime",
 	"sdk/bittensor-core",
-	"sdk/typescript-sdk/native",
+	"sdk/bittensor-ts/native",
 	"sdk/bittensor-core-py",
 	"sdk/bittensor-core-wasm",
 	"support/*",

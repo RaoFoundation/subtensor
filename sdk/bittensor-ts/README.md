@@ -1,7 +1,7 @@
 # `@bittensor/sdk`
 
-The monorepo's TypeScript SDK. It lives in its own `sdk/typescript-sdk`
-package. In Node.js it is a deliberately thin Node-API wrapper around the
+`bittensor-ts` is the monorepo's TypeScript SDK. It lives in its own
+`sdk/bittensor-ts` package. In Node.js it is a deliberately thin Node-API wrapper around the
 sibling `bittensor-core` Rust crate. Browser applications use the explicit
 `@bittensor/sdk/browser` entrypoint backed by `sdk/bittensor-core-wasm`.
 
@@ -48,12 +48,12 @@ helpers remain Node-only.
 From the repository root:
 
 ```sh
-cargo test -p bittensor-typescript-sdk-native --all-features
-npm --prefix sdk/typescript-sdk ci
-npm --prefix sdk/typescript-sdk run check
+cargo test -p bittensor-ts-native --all-features
+npm --prefix sdk/bittensor-ts ci
+npm --prefix sdk/bittensor-ts run check
 ```
 
-The native crate is isolated under `sdk/typescript-sdk/native`; it links
+The native crate is isolated under `sdk/bittensor-ts/native`; it links
 `sdk/bittensor-core` directly and contains binding glue only. No chain
 algorithm is reimplemented in TypeScript.
 

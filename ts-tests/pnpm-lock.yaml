@@ -24,8 +24,8 @@ importers:
         specifier: 7.3.1
         version: 7.3.1(@types/node@25.9.2)
       '@bittensor/sdk':
-        specifier: link:../sdk/typescript-sdk
-        version: link:../sdk/typescript-sdk
+        specifier: link:../sdk/bittensor-ts
+        version: link:../sdk/bittensor-ts
       '@polkadot-api/ink-contracts':
         specifier: ^0.4.1
         version: 0.4.6

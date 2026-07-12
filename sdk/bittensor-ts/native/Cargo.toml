@@ -1,9 +1,9 @@
 [package]
-name = "bittensor-typescript-sdk-native"
+name = "bittensor-ts-native"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Native Node-API bridge used by the Bittensor TypeScript SDK"
+description = "Native Node-API bridge used by bittensor-ts"
 license = "Apache-2.0"
 
 [lib]

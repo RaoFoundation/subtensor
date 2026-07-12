@@ -1688,7 +1688,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bittensor-typescript-sdk-native"
+name = "bittensor-ts-native"
 version = "0.1.0"
 dependencies = [
  "bittensor-core",

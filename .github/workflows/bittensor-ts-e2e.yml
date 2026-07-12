@@ -1,10 +1,10 @@
-name: Typescript E2E Tests
+name: Bittensor TS E2E Tests
 
 on:
   pull_request:
 
 concurrency:
-  group: typescript-e2e-${{ github.ref }}
+  group: bittensor-ts-e2e-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          pattern='^sdk/(typescript-sdk|bittensor-core|bittensor-core-wasm)/|^(ts-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^\.github/workflows/typescript-e2e\.yml$'
+          pattern='^sdk/(bittensor-ts|bittensor-core|bittensor-core-wasm)/|^(ts-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^\.github/workflows/bittensor-ts-e2e\.yml$'
           if grep -qE "$pattern" <<< "$files"; then
             echo "e2e=true" >> "$GITHUB_OUTPUT"
           else
@@ -74,11 +74,11 @@ jobs:
             -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
             build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
 
-      - name: Install TypeScript SDK dependencies
-        run: npm --prefix sdk/typescript-sdk ci
+      - name: Install bittensor-ts dependencies
+        run: npm --prefix sdk/bittensor-ts ci
 
-      - name: Type-check TypeScript SDK
-        run: npm --prefix sdk/typescript-sdk run typecheck
+      - name: Type-check bittensor-ts
+        run: npm --prefix sdk/bittensor-ts run typecheck
 
       - name: Install e2e dependencies
         working-directory: ts-tests
@@ -89,7 +89,7 @@ jobs:
           cd ts-tests
           pnpm run fmt
 
-  build-typescript-sdk:
+  build-bittensor-ts:
     runs-on: [self-hosted, fireactions-heavy]
     needs: [trusted-pr, typescript-formatting, changes]
     if: needs.changes.outputs.e2e == 'true'
@@ -111,7 +111,7 @@ jobs:
       - name: Utilize Shared Rust Cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          key: typescript-sdk
+          key: bittensor-ts
           cache-on-failure: true
 
       - name: Setup Node.js
@@ -119,7 +119,7 @@ jobs:
         with:
           node-version-file: ts-tests/.nvmrc
 
-      - name: Install browser for TypeScript SDK browser tests
+      - name: Install browser for bittensor-ts browser tests
         run: |
           set -euo pipefail
 
@@ -164,7 +164,7 @@ jobs:
 
           if ! chrome_bin="$(resolve_chrome)"; then
             if ! install_google_chrome; then
-              echo "::error::Unable to install a runnable browser for TypeScript SDK browser tests"
+              echo "::error::Unable to install a runnable browser for bittensor-ts browser tests"
               exit 1
             fi
             if ! chrome_bin="$(resolve_chrome)"; then
@@ -182,26 +182,26 @@ jobs:
           echo "$RUNNER_TEMP/wasm-pack/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/wasm-pack/bin/wasm-pack" --version
 
-      - name: Build and test TypeScript SDK
+      - name: Build and test bittensor-ts
         run: |
-          npm --prefix sdk/typescript-sdk ci
-          npm --prefix sdk/typescript-sdk run check
+          npm --prefix sdk/bittensor-ts ci
+          npm --prefix sdk/bittensor-ts run check
 
-      - name: Upload TypeScript SDK build
+      - name: Upload bittensor-ts build
         uses: actions/upload-artifact@v4
         with:
-          name: bittensor-typescript-sdk
+          name: bittensor-ts
           path: |
-            sdk/typescript-sdk/dist
-            sdk/typescript-sdk/native.cjs
-            sdk/typescript-sdk/native.generated.d.ts
-            sdk/typescript-sdk/*.node
+            sdk/bittensor-ts/dist
+            sdk/bittensor-ts/native.cjs
+            sdk/bittensor-ts/native.generated.d.ts
+            sdk/bittensor-ts/*.node
           if-no-files-found: error
 
-  test-typescript-sdk-node-min:
-    name: TypeScript SDK package test (Node 22)
+  test-bittensor-ts-node-min:
+    name: bittensor-ts package test (Node 22)
     runs-on: ubuntu-latest
-    needs: [trusted-pr, typescript-formatting, changes, build-typescript-sdk]
+    needs: [trusted-pr, typescript-formatting, changes, build-bittensor-ts]
     if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 15
     steps:
@@ -213,20 +213,20 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install TypeScript SDK dependencies
-        run: npm --prefix sdk/typescript-sdk ci
+      - name: Install bittensor-ts dependencies
+        run: npm --prefix sdk/bittensor-ts ci
 
-      - name: Download TypeScript SDK build
+      - name: Download bittensor-ts build
         uses: actions/download-artifact@v4
         with:
-          name: bittensor-typescript-sdk
-          path: sdk/typescript-sdk
+          name: bittensor-ts
+          path: sdk/bittensor-ts
 
       - name: Test package on minimum supported Node
         run: |
           node --version
           node -e "if (typeof globalThis.WebSocket !== 'function') throw new Error('globalThis.WebSocket is required by the default WSS client path')"
-          node --test sdk/typescript-sdk/test/*.test.cjs
+          node --test sdk/bittensor-ts/test/*.test.cjs
 
   # Build the node binary in both variants and share as artifacts.
   build:
@@ -274,7 +274,7 @@ jobs:
           if-no-files-found: error
 
   run-e2e-tests:
-    needs: [trusted-pr, build, build-typescript-sdk]
+    needs: [trusted-pr, build, build-bittensor-ts]
     runs-on: [self-hosted, fireactions-heavy]
     timeout-minutes: 30
 
@@ -295,7 +295,7 @@ jobs:
           - test: zombienet_evm
             binary: fast
 
-    name: "typescript-e2e-${{ matrix.test }}"
+    name: "bittensor-ts-e2e-${{ matrix.test }}"
 
     steps:
       - name: Check-out repository
@@ -310,11 +310,11 @@ jobs:
       - name: Make binary executable
         run: chmod +x target/release/node-subtensor
 
-      - name: Download TypeScript SDK build
+      - name: Download bittensor-ts build
         uses: actions/download-artifact@v4
         with:
-          name: bittensor-typescript-sdk
-          path: sdk/typescript-sdk
+          name: bittensor-ts
+          path: sdk/bittensor-ts
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
