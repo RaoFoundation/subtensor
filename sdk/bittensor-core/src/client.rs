@@ -21,6 +21,7 @@ use serde_json::{json, Value as JsonValue};
 
 use crate::codec::extrinsic::{era_birth, TxParams};
 use crate::codec::value::Value;
+use crate::digest::{self, ChainInfo};
 use crate::error::CoreError;
 use crate::keys::Keypair;
 use crate::mlkem;
@@ -32,6 +33,8 @@ const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_ERA_PERIOD: u64 = 64;
 const STORAGE_PAGE_SIZE: u64 = 1_000;
 const RAO_PER_TAO: u128 = 1_000_000_000;
+const METADATA_HASH_TOKEN_DECIMALS: u8 = 9;
+const METADATA_HASH_TOKEN_SYMBOL: &str = "TAO";
 
 /// A decoded block header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -500,6 +503,8 @@ impl Client {
         period: Option<u64>,
     ) -> Result<(Vec<u8>, String), CoreError> {
         let runtime = self.runtime()?;
+        let version = self.runtime_version()?;
+        let metadata_hash = signing_metadata_hash(&runtime, &version.spec_name)?;
         let current = self.block_number()?;
         let (era, era_block_hash) = match period {
             Some(period) if period > 0 => {
@@ -522,7 +527,7 @@ impl Client {
             tip_asset_id: None,
             genesis_hash: self.genesis_hash,
             era_block_hash,
-            metadata_hash: None,
+            metadata_hash: Some(metadata_hash),
         };
         let payload = runtime.signature_payload(call_data, &params)?;
         let signature = signer.sign(&payload)?;
@@ -1176,8 +1181,9 @@ impl RpcBootstrap {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct RuntimeVersion {
+    spec_name: String,
     spec_version: u32,
     transaction_version: u32,
 }
@@ -1189,15 +1195,43 @@ fn parse_runtime_version(value: JsonValue) -> Result<RuntimeVersion, CoreError> 
     let spec = object
         .get("specVersion")
         .ok_or_else(|| CoreError::Rpc("runtime version has no specVersion".into()))?;
+    let spec_name = object
+        .get("specName")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| CoreError::Rpc("runtime version has no specName".into()))?;
     let transaction = object
         .get("transactionVersion")
         .ok_or_else(|| CoreError::Rpc("runtime version has no transactionVersion".into()))?;
     Ok(RuntimeVersion {
+        spec_name: spec_name.to_string(),
         spec_version: u32::try_from(json_u64(spec)?)
             .map_err(|_| CoreError::Rpc("specVersion does not fit u32".into()))?,
         transaction_version: u32::try_from(json_u64(transaction)?)
             .map_err(|_| CoreError::Rpc("transactionVersion does not fit u32".into()))?,
     })
+}
+
+fn signing_metadata_hash(runtime: &Runtime, spec_name: &str) -> Result<[u8; 32], CoreError> {
+    if !runtime
+        .extrinsic
+        .signed_extensions
+        .iter()
+        .any(|extension| extension.identifier == "CheckMetadataHash")
+    {
+        return Err(CoreError::Codec(
+            "runtime does not declare CheckMetadataHash; refusing to sign".into(),
+        ));
+    }
+    digest::metadata_digest(
+        &runtime.metadata_bytes,
+        &ChainInfo {
+            spec_version: runtime.spec_version,
+            spec_name: spec_name.to_string(),
+            base58_prefix: runtime.ss58_format,
+            decimals: METADATA_HASH_TOKEN_DECIMALS,
+            token_symbol: METADATA_HASH_TOKEN_SYMBOL.to_string(),
+        },
+    )
 }
 
 /// Fetch metadata V15 when the runtime exposes the metadata runtime API.
@@ -1654,6 +1688,91 @@ mod reorg_finalization_tests {
         assert_eq!(
             classify_inclusion_finalization("0xabc", None, 10, 9),
             Some(InclusionFinalization::Reorged)
+        );
+    }
+}
+
+#[cfg(test)]
+mod metadata_hash_signing_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
+    use codec::Decode;
+    use serde_json::json;
+
+    use super::{parse_runtime_version, signing_metadata_hash};
+    use crate::error::CoreError;
+    use crate::runtime::Runtime;
+
+    fn golden() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../python/tests/fixtures/golden.json"
+        );
+        let raw = std::fs::read_to_string(path).expect("golden.json fixture exists");
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    fn golden_metadata_v15() -> Vec<u8> {
+        let golden = golden();
+        let raw = hex::decode(
+            golden["metadata"]["v15_hex"]
+                .as_str()
+                .unwrap()
+                .trim_start_matches("0x"),
+        )
+        .unwrap();
+        Option::<Vec<u8>>::decode(&mut &raw[..])
+            .unwrap()
+            .expect("fixture metadata is Some")
+    }
+
+    fn golden_runtime() -> Runtime {
+        let golden = golden();
+        Runtime::parse(
+            &golden_metadata_v15(),
+            golden["network"]["spec_version"].as_u64().unwrap() as u32,
+            golden["network"]["transaction_version"].as_u64().unwrap() as u32,
+            golden["network"]["ss58_format"].as_u64().unwrap() as u16,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn parse_runtime_version_captures_spec_name() {
+        let version = parse_runtime_version(json!({
+            "specName": "node-subtensor",
+            "specVersion": 419,
+            "transactionVersion": 1,
+        }))
+        .unwrap();
+
+        assert_eq!(version.spec_name, "node-subtensor");
+        assert_eq!(version.spec_version, 419);
+        assert_eq!(version.transaction_version, 1);
+    }
+
+    #[test]
+    fn signing_metadata_hash_matches_cached_metadata_digest() {
+        let runtime = golden_runtime();
+        let digest = signing_metadata_hash(&runtime, "node-subtensor").unwrap();
+
+        assert_eq!(
+            hex::encode(digest),
+            "a78a71553275dbde7fdbf35da05ea6703d775fda4e49993b89e9bdb6c1323c97"
+        );
+    }
+
+    #[test]
+    fn signing_metadata_hash_refuses_unverifiable_runtime() {
+        let mut runtime = golden_runtime();
+        runtime
+            .extrinsic
+            .signed_extensions
+            .retain(|extension| extension.identifier != "CheckMetadataHash");
+
+        let error = signing_metadata_hash(&runtime, "node-subtensor").unwrap_err();
+        assert!(
+            matches!(error, CoreError::Codec(message) if message.contains("CheckMetadataHash"))
         );
     }
 }

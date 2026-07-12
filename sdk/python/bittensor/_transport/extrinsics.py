@@ -315,8 +315,9 @@ async def create_signed_extrinsic(
     assert public_key is not None
     if signature is not None:
         # No signing happens, so skip building the payloads entirely — fee
-        # estimation runs this path for every quote.
-        metadata_hash = default_metadata_hash(codec)
+        # estimation runs this path for every quote. Still fail closed if the
+        # runtime cannot verify CheckMetadataHash.
+        default_metadata_hash(codec)
         signature, signature_version = _normalize_signature(signature, keypair.crypto_type)
         data, extrinsic_hash = codec.encode_signed_extrinsic(
             call,
