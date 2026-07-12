@@ -9,6 +9,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Self-hosted runners may have RUSTC_WRAPPER=sccache available for Rust
+  # builds. If the GitHub Actions cache backend has a transient DNS/storage
+  # failure, compile locally instead of failing before rustc starts.
+  SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
 
 permissions:
   contents: read
