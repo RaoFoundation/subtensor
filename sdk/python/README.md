@@ -3,6 +3,13 @@
 A lean Python SDK and CLI for the Bittensor chain. One install gives you both a
 library (`import bittensor`) and a command line (`btcli`).
 
+**Documentation: [bittensor.com/docs](https://bittensor.com/docs)**
+
+This package supersedes the separate
+[`bittensor-cli`](https://pypi.org/project/bittensor-cli/) and
+[`bittensor-wallet`](https://pypi.org/project/bittensor-wallet/) packages:
+`btcli` and the wallet ship here.
+
 The design goal is a thin, unopinionated wrapper: easy, safe, and fast to do the
 core chain operations, with nothing hidden. It does **not** implement the neuron
 networking layer (axon/dendrite/synapse) — it is the layer that talks to the
