@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 424
+Spec version: 428
 
 Storage item descriptors: unpack into substrate.query/query_map.
 """
@@ -230,6 +230,10 @@ class SubtensorModule:
     Yuma3On = Item('SubtensorModule', 'Yuma3On')
     AlphaValues = Item('SubtensorModule', 'AlphaValues')
     SubtokenEnabled = Item('SubtensorModule', 'SubtokenEnabled')
+    DissolveCleanupQueue = Item('SubtensorModule', 'DissolveCleanupQueue')
+    CurrentDissolveCleanupStatus = Item('SubtensorModule', 'CurrentDissolveCleanupStatus')
+    NetworkRegistrationQueue = Item('SubtensorModule', 'NetworkRegistrationQueue')
+    NetworkRegistrationLockId = Item('SubtensorModule', 'NetworkRegistrationLockId')
     VotingPower = Item('SubtensorModule', 'VotingPower')
     VotingPowerTrackingEnabled = Item('SubtensorModule', 'VotingPowerTrackingEnabled')
     VotingPowerDisableAtBlock = Item('SubtensorModule', 'VotingPowerDisableAtBlock')
@@ -275,6 +279,7 @@ class SubtensorModule:
     NumStakingColdkeys = Item('SubtensorModule', 'NumStakingColdkeys')
     NumRootClaim = Item('SubtensorModule', 'NumRootClaim')
     AssociatedEvmAddress = Item('SubtensorModule', 'AssociatedEvmAddress')
+    AssociatedUidsByEvmAddress = Item('SubtensorModule', 'AssociatedUidsByEvmAddress')
     SubnetLeases = Item('SubtensorModule', 'SubnetLeases')
     SubnetLeaseShares = Item('SubtensorModule', 'SubnetLeaseShares')
     SubnetUidToLeaseId = Item('SubtensorModule', 'SubnetUidToLeaseId')
@@ -374,6 +379,8 @@ class Swap:
     FeeRate = Item('Swap', 'FeeRate')
     SwapBalancer = Item('Swap', 'SwapBalancer')
     PalSwapInitialized = Item('Swap', 'PalSwapInitialized')
+    BalancerTaoReservoir = Item('Swap', 'BalancerTaoReservoir')
+    BalancerAlphaReservoir = Item('Swap', 'BalancerAlphaReservoir')
     HasMigrationRun = Item('Swap', 'HasMigrationRun')
     ScrapReservoirAlpha = Item('Swap', 'ScrapReservoirAlpha')
 

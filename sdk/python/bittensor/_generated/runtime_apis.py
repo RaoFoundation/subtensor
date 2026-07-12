@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 424
+Spec version: 428
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -101,7 +101,7 @@ class OffchainWorkerApi:
 
 class ProxyFilterRuntimeApi:
     get_proxy_types = Method('ProxyFilterRuntimeApi', 'get_proxy_types')
-    get_proxy_filter = Method('ProxyFilterRuntimeApi', 'get_proxy_filter')
+    get_proxy_filters = Method('ProxyFilterRuntimeApi', 'get_proxy_filters')
 
 class SessionKeys:
     generate_session_keys = Method('SessionKeys', 'generate_session_keys')
@@ -142,6 +142,7 @@ class SubnetInfoRuntimeApi:
     get_subnet_to_prune = Method('SubnetInfoRuntimeApi', 'get_subnet_to_prune')
     get_subnet_account_id = Method('SubnetInfoRuntimeApi', 'get_subnet_account_id')
     get_next_epoch_start_block = Method('SubnetInfoRuntimeApi', 'get_next_epoch_start_block')
+    get_block_emission = Method('SubnetInfoRuntimeApi', 'get_block_emission')
     get_subnet_hyperparams_v3 = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3')
 
 class SubnetRegistrationRuntimeApi:
