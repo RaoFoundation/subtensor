@@ -1,0 +1,93 @@
+name: "Rust setup"
+description: >-
+  Common prologue for Rust jobs: system dependencies, stable toolchain,
+  shared R2 sccache, and Cargo registry/git caching.
+
+inputs:
+  cache-key:
+    description: "Swatinem/rust-cache key for this job"
+    required: true
+  components:
+    description: "Comma-separated toolchain components (e.g. clippy,rustfmt)"
+    default: ""
+  extra-packages:
+    description: "Extra apt packages beyond the standard build set"
+    default: ""
+  fast-linker:
+    description: "Install and configure mold for native x86_64 builds"
+    default: "true"
+  sccache-credential-mode:
+    description: "reader, auto for trusted write-through CI, or writer for mandatory maintenance"
+    default: "reader"
+  sccache-writer-access-key-id:
+    description: "Protected writer access key; used only for an authorized source"
+    default: ""
+  sccache-writer-secret-access-key:
+    description: "Protected writer secret; used only for an authorized source"
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+          -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+          build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config \
+          python3 python3-dev \
+          ${{ inputs.extra-packages }}
+
+    - name: Install Rust (stable)
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      with:
+        components: ${{ inputs.components }}
+
+    - name: Fast linker
+      if: inputs.fast-linker == 'true'
+      shell: bash
+      run: |
+        # mold links in a fraction of GNU ld's time, and cargo test alone
+        # links dozens of test binaries. Guarded so a runner image without
+        # the mold package falls back to the default linker instead of
+        # failing every Rust job at setup.
+        if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mold; then
+          mkdir -p "$HOME/.cargo"
+          cat >> "$HOME/.cargo/config.toml" <<'EOF'
+        [target.x86_64-unknown-linux-gnu]
+        linker = "clang"
+        rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+        EOF
+          echo "mold enabled as linker"
+        else
+          echo "mold unavailable; keeping default linker"
+        fi
+
+    - name: CI debuginfo trim
+      shell: bash
+      run: |
+        # Nothing in CI consumes full debuginfo; line tables keep panic
+        # backtraces readable while cutting codegen time and disk I/O.
+        # (Jobs that export RUSTFLAGS, like the warnings check, override the
+        # config rustflags above — harmless, since cargo check never links.)
+        {
+          echo "CARGO_PROFILE_DEV_DEBUG=line-tables-only"
+          echo "CARGO_PROFILE_TEST_DEBUG=line-tables-only"
+        } >> "$GITHUB_ENV"
+
+    # Registry/git-dependency cache only. Target-dir caching is deliberately
+    # off: compiled objects are shared per-crate through R2 sccache below.
+    - name: Cargo registry cache
+      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      with:
+        key: ${{ inputs.cache-key }}
+        cache-targets: false
+        cache-on-failure: true
+
+    - name: Shared R2 compiler cache
+      uses: ./.github/actions/sccache-setup
+      with:
+        credential-mode: ${{ inputs.sccache-credential-mode }}
+        writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
+        writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}

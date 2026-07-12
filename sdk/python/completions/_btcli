@@ -1,0 +1,7 @@
+#compdef btcli
+
+_btcli_completion() {
+  eval $(env _TYPER_COMPLETE_ARGS="${words[1,$CURRENT]}" _BTCLI_COMPLETE=complete_zsh btcli)
+}
+
+compdef _btcli_completion btcli

@@ -113,6 +113,15 @@ mod pallet {
     #[pallet::storage]
     pub type PalSwapInitialized<T> = StorageMap<_, Twox64Concat, NetUid, bool, ValueQuery>;
 
+    /// TAO protocol liquidity that could not be injected without exceeding balancer weight bounds.
+    #[pallet::storage]
+    pub type BalancerTaoReservoir<T> = StorageMap<_, Twox64Concat, NetUid, TaoBalance, ValueQuery>;
+
+    /// Alpha protocol liquidity that could not be injected without exceeding balancer weight bounds.
+    #[pallet::storage]
+    pub type BalancerAlphaReservoir<T> =
+        StorageMap<_, Twox64Concat, NetUid, AlphaBalance, ValueQuery>;
+
     /// --- Storage for migration run status
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <!--
+    CSP: only esm.sh (the @polkadot/extension-dapp import below) and this page's
+    own inline script may run; network access is limited to the local bridge
+    websocket. 'unsafe-inline' is required because the bridge script is inline.
+    TODO: vendor @polkadot/extension-dapp locally (SRI cannot cover a bare ESM
+    import) so the esm.sh origin can be dropped entirely.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'unsafe-inline' https://esm.sh; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://esm.sh; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bittensor Extension Bridge</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 2rem auto;
+      max-width: 42rem;
+      line-height: 1.5;
+      color: #111;
+    }
+    code { background: #f4f4f5; padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
+    .ok { color: #166534; }
+    .warn { color: #92400e; }
+    .err { color: #991b1b; }
+  </style>
+</head>
+<body>
+  <h1>Bittensor Extension Bridge</h1>
+  <p id="status" class="warn">Starting…</p>
+  <p>
+    Keep this tab open while using <code>btcli --signer extension</code>.
+    Authorize Talisman, Polkadot.js, or another compatible wallet when prompted.
+  </p>
+  <ul id="accounts"></ul>
+  <script type="module">
+    import { web3Accounts, web3Enable, web3FromAddress } from "https://esm.sh/@polkadot/extension-dapp@0.46.9";
+
+    const APP_NAME = "Bittensor SDK";
+    const statusEl = document.getElementById("status");
+    const accountsEl = document.getElementById("accounts");
+    const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    const bridgeSession = new URLSearchParams(location.search).get("session") || "";
+    let ws;
+    let extensionsEnabled = false;
+
+    function setStatus(text, cls = "warn") {
+      statusEl.textContent = text;
+      statusEl.className = cls;
+    }
+
+    function renderAccounts(accounts) {
+      accountsEl.replaceChildren();
+      for (const account of accounts) {
+        const item = document.createElement("li");
+        item.textContent = `${account.meta?.name || account.address} (${account.meta?.source || "unknown"}) — ${account.address}`;
+        accountsEl.appendChild(item);
+      }
+    }
+
+    async function ensureExtensions() {
+      if (extensionsEnabled) {
+        return;
+      }
+      setStatus("Approve “Bittensor SDK” in your extension popup…", "warn");
+      const extensions = await web3Enable(APP_NAME);
+      if (!extensions.length) {
+        throw new Error("No compatible wallet extension found. Install Talisman or Polkadot.js in this browser.");
+      }
+      extensionsEnabled = true;
+      setStatus(`Connected to ${extensions.map((ext) => ext.name).join(", ")}`, "ok");
+    }
+
+    async function listAccounts() {
+      await ensureExtensions();
+      const accounts = await web3Accounts();
+      renderAccounts(accounts);
+      return accounts.map((account) => ({
+        address: account.address,
+        name: account.meta?.name || account.address,
+        meta: {
+          name: account.meta?.name || account.address,
+          source: account.meta?.source || "unknown",
+        },
+        source: account.meta?.source || "unknown",
+        type: account.type || "sr25519",
+      }));
+    }
+
+    async function signExtrinsic(params) {
+      const payload = params?.payload;
+      if (!payload?.address) {
+        throw new Error("missing payload.address");
+      }
+      await ensureExtensions();
+      const injector = await web3FromAddress(payload.address);
+      return injector.signer.signPayload(payload);
+    }
+
+    async function signBytes(params) {
+      const address = params?.address;
+      const data = params?.data;
+      if (!address || !data) {
+        throw new Error("missing address or data");
+      }
+      await ensureExtensions();
+      const injector = await web3FromAddress(address);
+      return injector.signer.signRaw({
+        address,
+        data,
+        type: params?.type || "bytes",
+      });
+    }
+
+    async function handleRequest(request) {
+      switch (request.method) {
+        case "accounts.list":
+          return { accounts: await listAccounts() };
+        case "extrinsic.sign":
+          return await signExtrinsic(request.params || {});
+        case "bytes.sign":
+          return await signBytes(request.params || {});
+        default:
+          throw new Error(`unsupported method ${request.method}`);
+      }
+    }
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ role: "bridge", session: bridgeSession }));
+        setStatus("Bridge connected. Waiting for extension authorization…", "warn");
+        listAccounts().catch((error) => {
+          setStatus(error.message, "err");
+        });
+      };
+      ws.onclose = (event) => {
+        if (event.code === 1008) {
+          setStatus(
+            "This bridge tab is stale — close it and run btcli again so a fresh tab opens.",
+            "err"
+          );
+          return;
+        }
+        setStatus("Bridge disconnected. Reconnecting…", "warn");
+        setTimeout(connect, 1500);
+      };
+      ws.onerror = () => {
+        setStatus("WebSocket error", "err");
+      };
+      ws.onmessage = async (event) => {
+        let request;
+        try {
+          request = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!request?.id || !request?.method) {
+          return;
+        }
+        try {
+          const result = await handleRequest(request);
+          ws.send(JSON.stringify({ id: request.id, result }));
+        } catch (error) {
+          ws.send(JSON.stringify({ id: request.id, error: { message: error.message || String(error) } }));
+        }
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>

@@ -1,0 +1,203 @@
+---
+title: Running a node
+description: Operate a mainnet or testnet subtensor node — lite or archive, with Docker or from source.
+---
+
+Public endpoints are rate-limited (roughly 1 request per second per IP) and
+shared with everyone else. For serious validator, miner, or indexer workloads
+you want your own node: a private, low-latency endpoint whose limits you
+control. This guide covers running one against **mainnet (finney)** or
+**testnet** — for a private development chain, see
+[Local development](/docs/guides/local-development).
+
+## Lite or archive
+
+Decide this first; it determines disk and sync time.
+
+- **Lite node** — warp-syncs to the head of the chain in minutes and keeps
+  only recent state (roughly the last 300 blocks). ~128 GB of disk. This is
+  what validators, miners, and most applications need.
+- **Archive node** — full-syncs every block from genesis and prunes nothing.
+  At least ~3.5 TB of disk and growing; the initial sync takes days. You need
+  one only to query state older than the recent window — block-pinned reads,
+  historical snapshots, indexers.
+
+If you only occasionally need history, the public archive endpoint
+(`wss://archive.chain.opentensor.ai:443`) may be enough — see
+[The network](/docs/concepts/network) for all public endpoints.
+
+## Requirements
+
+- x86_64 Linux or arm64 (both are published Docker platforms; the binary also
+  builds on Apple Silicon macOS).
+- 4+ CPU cores and 16 GB RAM as a floor; the repo's compose file allocates
+  4 CPUs and a 40 GB memory limit per node. Fast NVMe storage matters more
+  than CPU.
+- Disk as above: ~128 GB lite, ~3.5 TB+ archive.
+
+Three ports are involved:
+
+| Port | What | Exposure |
+| --- | --- | --- |
+| 30333 | p2p socket | Must accept inbound connections from the internet. |
+| 9944 | RPC (WebSocket + HTTP) | Keep firewalled to localhost unless you are deliberately serving others. |
+| 9933 | legacy RPC | Unused; modern nodes serve everything on 9944. |
+
+## Run with Docker
+
+Release images are published to `ghcr.io/raofoundation/subtensor` for
+linux/amd64 and linux/arm64 on every runtime release; `:latest` tracks the
+newest release. The repo's [`docker-compose.yml`](https://github.com/RaoFoundation/subtensor/blob/main/docker-compose.yml)
+defines one service per node flavor — `mainnet-lite`, `mainnet-archive`,
+`testnet-lite`, `testnet-archive` — each with a named volume for chain state:
+
+```bash
+git clone https://github.com/RaoFoundation/subtensor.git
+cd subtensor
+docker compose up -d mainnet-lite
+```
+
+Follow the sync:
+
+```bash
+docker compose logs -f mainnet-lite
+```
+
+A lite node warp-syncs in minutes; you will see `Warp sync is complete`
+followed by imported blocks at the chain head. Chain state lives in the
+service's named volume (`mainnet-lite-volume`), so `docker compose down` and
+`up` resume where they left off; add `--volumes` to `down` only if you want to
+resync from scratch.
+
+Swap the service name for `mainnet-archive`, `testnet-lite`, or
+`testnet-archive` for the other flavors. To build the image yourself instead
+of pulling, uncomment the `build:` block in the compose file — it builds the
+`subtensor` target of the repo [`Dockerfile`](https://github.com/RaoFoundation/subtensor/blob/main/Dockerfile).
+
+The container starts as root only to fix ownership of the data directory,
+then drops to the unprivileged `subtensor` user (UID 10001) via `gosu` — see
+`scripts/docker_entrypoint.sh`.
+
+## Run from source
+
+Build the production binary — the same profile and features the release
+images ship:
+
+```bash
+git clone https://github.com/RaoFoundation/subtensor.git
+cd subtensor
+./scripts/init.sh   # rust toolchain + wasm target
+cargo build -p node-subtensor --profile production --features metadata-hash
+```
+
+(Build prerequisites per OS are in [Rust setup](/docs/internals/rust-setup).)
+
+Then run it with the same flags the compose services use. Mainnet lite:
+
+```bash
+./target/production/node-subtensor \
+  --base-path /var/lib/subtensor \
+  --chain ./chainspecs/raw_spec_finney.json \
+  --sync warp \
+  --database paritydb \
+  --db-cache 4096 \
+  --trie-cache-size 2048 \
+  --rpc-cors all \
+  --no-mdns \
+  --bootnodes /dns/bootnode.finney.chain.opentensor.ai/tcp/30333/ws/p2p/12D3KooWRwbMb85RWnT8DSXSYMWQtuDwh4LJzndoRrTDotTR5gDC
+```
+
+For an **archive node**, replace `--sync warp --database paritydb --db-cache 4096 --trie-cache-size 2048`
+with `--pruning archive`. For **testnet**, use
+`--chain ./chainspecs/raw_spec_testfinney.json` and the testnet bootnode
+`/dns/bootnode.test.finney.opentensor.ai/tcp/30333/p2p/12D3KooWPM4mLcKJGtyVtkggqdG84zWrd7Rij6PGQDoijh1X86Vr`.
+
+Two flags the compose file passes that you should add deliberately, not by
+default:
+
+- `--rpc-external` — listen for RPC on all interfaces instead of localhost.
+  The containers need it (localhost inside a container is unreachable from
+  outside); on a host it exposes your RPC port to whatever your firewall
+  allows.
+- `--rpc-cors all` — required if browsers will talk to the node; harmless
+  otherwise.
+
+`node-subtensor --help` lists every flag; useful ones include `--name` (the
+node's telemetry/network name), `--rpc-max-connections`, `--rpc-rate-limit`,
+and `--log <target>=<level>`.
+
+### As a systemd service
+
+```ini
+[Unit]
+Description=subtensor node
+After=network.target
+
+[Service]
+User=subtensor
+ExecStart=/usr/local/bin/node-subtensor \
+  --base-path /var/lib/subtensor \
+  --chain /opt/subtensor/chainspecs/raw_spec_finney.json \
+  --sync warp --database paritydb \
+  --db-cache 4096 --trie-cache-size 2048 \
+  --rpc-cors all --no-mdns \
+  --bootnodes /dns/bootnode.finney.chain.opentensor.ai/tcp/30333/ws/p2p/12D3KooWRwbMb85RWnT8DSXSYMWQtuDwh4LJzndoRrTDotTR5gDC
+Restart=on-failure
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Copy the binary and the `chainspecs/` directory to the paths above, create
+the `subtensor` user and data directory, then
+`systemctl enable --now subtensor`.
+
+## Verify and use it
+
+Port 9944 serves both WebSocket and HTTP JSON-RPC. Check health directly:
+
+```bash
+curl -s -H 'Content-Type: application/json' \
+  -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
+  http://127.0.0.1:9944
+```
+
+`"isSyncing":false` with a healthy peer count means you are at the chain
+head. Point the SDK and CLI at your node by passing the endpoint as the
+network:
+
+```bash
+btcli query block-info --network ws://127.0.0.1:9944
+```
+
+```python
+import bittensor as sub
+
+async with sub.Client("ws://127.0.0.1:9944") as client:
+    print(await client.block())
+```
+
+Or set `BT_CHAIN_ENDPOINT=ws://127.0.0.1:9944` once and keep using named
+networks. The node also exposes Prometheus metrics on port 9615
+(localhost-only unless you pass `--prometheus-external`).
+
+## Upgrades
+
+**Runtime** upgrades are on-chain wasm: your node applies them automatically
+at the upgrade block, no restart needed. The **node binary** still needs
+occasional updates for host-side changes (networking, RPC, database). New
+binaries ship with each release on the
+[release train](/docs/internals/release-process):
+
+```bash
+# Docker
+docker compose pull && docker compose up -d mainnet-lite
+
+# Source
+git pull && cargo build -p node-subtensor --profile production --features metadata-hash
+```
+
+Chain state in the volume or `--base-path` survives the swap. Run an outdated
+binary long enough and it will eventually fail to follow the chain — track
+releases on the [repo](https://github.com/RaoFoundation/subtensor/releases).

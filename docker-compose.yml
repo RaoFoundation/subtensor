@@ -1,5 +1,3 @@
-version: "3.8"
-
 volumes:
   mainnet-lite-volume:
   mainnet-archive-volume:
@@ -8,7 +6,7 @@ volumes:
 
 services:
   common: &common
-    image: ghcr.io/opentensor/subtensor:latest
+    image: ghcr.io/raofoundation/subtensor:latest
 ## Uncomment to build from scratch:
 #    build:
 #      context: .
@@ -25,8 +23,6 @@ services:
       - "9944"
       - "30333"
       - "9933"
-    environment:
-      - CARGO_HOME=/var/www/node-subtensor/.cargo
 
   mainnet-lite:
     <<: *common

@@ -852,6 +852,13 @@ where
             RawOrigin::Signed(handle.caller_account_id::<R>()),
         )
     }
+
+    #[precompile::public("isSubnetDissolving(uint16)")]
+    #[precompile::view]
+    fn is_subnet_dissolving(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::DissolveCleanupQueue::<R>::get().contains(&NetUid::from(netuid)))
+    }
 }
 
 #[cfg(test)]
@@ -1343,6 +1350,40 @@ mod tests {
                     (TEST_NETUID_U16,),
                 ),
                 U256::from(registration_block),
+            );
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_is_subnet_dissolving() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5003);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("isSubnetDissolving(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::zero(),
+            );
+
+            pallet_subtensor::DissolveCleanupQueue::<Runtime>::set(vec![netuid]);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("isSubnetDissolving(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::one(),
             );
         });
     }

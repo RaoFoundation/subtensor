@@ -1,6 +1,6 @@
 # Drand Bridge Pallet
 
-This is a [FRAME](https://docs.substrate.io/reference/frame-pallets/) pallet that allows Substrate-based chains to bridge to drand. It only supports bridging to drand's [Quicknet](https://drand.love/blog/quicknet-is-live-on-the-league-of-entropy-mainnet), which provides fresh randomness every 3 seconds. Adding this pallet to a runtime allows it to acquire verifiable on-chain randomness which can be used in runtime modules or ink! smart contracts. 
+This is a [FRAME](https://docs.substrate.io/reference/frame-pallets/) pallet that allows Substrate-based chains to bridge to drand. It only supports bridging to drand's [Quicknet](https://drand.love/blog/quicknet-is-live-on-the-league-of-entropy-mainnet), which provides fresh randomness every 3 seconds. Adding this pallet to a runtime allows it to acquire verifiable on-chain randomness which can be used in runtime modules or ink! smart contracts.
 
 Read [here](https://github.com/ideal-lab5/pallet-drand/blob/main/docs/how_it_works.md) for a deep-dive into the pallet.
 
@@ -13,14 +13,14 @@ Use this pallet in a Substrate runtime to acquire verifiable randomness from dra
 Usage of this pallet requires that the node support:
 - arkworks host functions
 - offchain workers
-- (optional - in case of smart contracts) Contracts pallet and drand  chain extension enabled 
+- (optional - in case of smart contracts) Contracts pallet and drand  chain extension enabled
 
 We have included a node in this repo, [substrate-node-template](https://github.com/ideal-lab5/pallet-drand/tree/main/substrate-node-template), that meets these requirements that you can use to get started.
 
 See [here](https://github.com/ideal-lab5/pallet-drand/blob/main/docs/integration.md) for a detailed guide on integrating this pallet into a runtime.
 
 ### For Pallets
-This pallet implements the [Randomness](https://paritytech.github.io/polkadot-sdk/master/frame_support/traits/trait.Randomness.html) trait. FRAME pallets can use it by configuring their runtimes 
+This pallet implements the [Randomness](https://paritytech.github.io/polkadot-sdk/master/frame_support/traits/trait.Randomness.html) trait. FRAME pallets can use it by configuring their runtimes
 
 ``` rust
 impl pallet_with_randomness for Runtime {
@@ -48,7 +48,7 @@ cargo build
 
 ## Testing
 
-We maintain a minimum of 85% coverage on all new code. You can check coverage with tarpauling by running 
+We maintain a minimum of 85% coverage on all new code. You can check coverage with tarpauling by running
 
 ``` shell
 cargo tarpaulin --rustflags="-C opt-level=0"

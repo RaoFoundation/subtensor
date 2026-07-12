@@ -11,7 +11,15 @@ permissions:
   actions: read  # required to list & download artifacts across workflows
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   apply:
+    needs: trusted-pr
     if: ${{ github.event.label.name == 'apply-benchmark-patch' }}
     runs-on: Benchmarking
 
@@ -27,16 +35,15 @@ jobs:
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Download latest bench patch artifact from heavy workflow
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
           workflow: run-benchmarks.yml
           pr: ${{ github.event.pull_request.number }}
           name: bench-patch
           path: .
-          allow_forks: true
+          allow_forks: false
           check_artifacts: true
           search_artifacts: true
           workflow_conclusion: ""
@@ -104,6 +111,8 @@ jobs:
 
       - name: Remove apply-benchmark-patch label
         if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo "${{ github.repository }}" \

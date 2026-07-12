@@ -4,6 +4,7 @@ use frame_support::{
     derive_impl,
     pallet_prelude::{Get, TypeInfo},
     traits::{ConstU32, ConstU64},
+    weights::constants::RocksDbWeight,
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -34,7 +35,7 @@ impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type BlockWeights = ();
     type BlockLength = ();
-    type DbWeight = ();
+    type DbWeight = RocksDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Hash = H256;

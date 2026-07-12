@@ -1,0 +1,74 @@
+---
+title: The CLI
+description: Configuration, global options, generated commands, and non-interactive use.
+---
+
+The `btcli` command is the SDK with a shell in front: every read in the
+catalog is `btcli query <name>`, every transaction is
+`btcli tx <name>`, and both are generated from the same registries as the
+Python API, so they cannot diverge from it.
+
+## Configuration
+
+Set connection and identity once, override per-command as needed:
+
+```bash
+btcli config set network finney
+btcli config set wallet my_coldkey
+btcli config get
+```
+
+Precedence, highest first: **CLI flag > environment variable > config file >
+built-in default**.
+
+| Option | Env | Meaning |
+| --- | --- | --- |
+| `--network`, `-n` | `BT_NETWORK` | `finney` / `test` / `local`, or a `ws://` endpoint |
+| `--wallet`, `-w` | `BT_WALLET` | coldkey wallet name |
+| `--wallet-hotkey`, `-H` | `BT_WALLET_HOTKEY` | hotkey name within the wallet |
+| `--wallet-path` | `BT_WALLET_PATH` | wallet directory |
+| `--json` | | machine-readable JSON output |
+| `--yes`, `-y` | | skip confirmation prompts |
+| `--dry-run` | | preview a mutation without submitting |
+| `--quiet`, `-q` | | suppress informational output |
+| `--signer` | | `wallet` (default) or `extension` — sign in a [browser extension](/docs/guides/extension-signing) like Talisman or Polkadot.js |
+
+## Command groups
+
+- `btcli query <name>` — every [read](/docs/query); `query --help` lists
+  them grouped by topic.
+- `btcli tx <name>` — every [transaction](/docs/tx); `tx --help` lists them
+  grouped by pallet. All support `--dry-run`, `--yes`, and `--proxy-for`.
+- Familiar workflows also have hand-written groups that wrap the same
+  machinery: `wallet`, `stake`, `subnets`, `weights`, `axon`, `proxy`,
+  `multisig`, `crowd`, `lock`, `timelock`, `config`.
+- The v9 shorthands still work as hidden aliases: `w`, `st`, `s`, `su`, `c`,
+  `wt`, `cr`, `d` (plus variants like `wallets`, `subnet`, `conf`), and every
+  hyphenated command also accepts its snake_case spelling
+  (`wallet new_hotkey`, `tx add_stake`). `-h` works as `--help` everywhere.
+- `btcli evm` — the [EVM layer](/docs/guides/evm): keys, funding, precompiles,
+  and contract deployment.
+- `btcli tools` — the JSON catalog of every transaction op with schemas,
+  for agents.
+
+## Interactive by default, safe when it can't be
+
+Run a `tx` command with required options missing and the CLI prompts for them,
+then shows the plan and asks for confirmation. In a non-interactive session
+(no TTY) without `--yes`, the command is **declined rather than left
+hanging** — automation never blocks on a prompt it can't answer.
+
+## Address arguments
+
+Any address option (`--dest`, `--hotkey`, `--coldkey`, ...) accepts a raw ss58
+address, an address-book or proxy-book name, or a local key name (`HOTKEY`,
+`WALLET/HOTKEY`, or a wallet name for coldkey options). `--hotkey` /
+`--coldkey` fall back to the configured wallet when omitted; destination
+options never default.
+
+## Shell completion
+
+Completion scripts for bash, zsh, and fish ship in `completions/` and install
+into the standard system locations. If your shell doesn't auto-load them (e.g.
+a venv install), source the script from your rc file, or run
+`btcli --install-completion`.

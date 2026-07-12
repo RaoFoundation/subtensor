@@ -1,0 +1,60 @@
+@import '../../media-queries.css';
+
+.sectionWrapper {
+  padding: 0 56px;
+
+  @mixin tablet {
+    padding: 0 56px;
+  }
+}
+
+.typography-text-link {
+  font-family: 'Haffer';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 150%;
+  letter-spacing: 3%;
+  text-transform: uppercase;
+
+  &.medium {
+    font-weight: 400;
+  }
+}
+
+.typography-caption-1 {
+  font-family: 'FiraCode';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 150%;
+  letter-spacing: 3%;
+  text-transform: uppercase;
+  padding-bottom: 10px;
+  margin-left: 0;
+
+  &.regular {
+    font-weight: 400;
+  }
+}
+
+.typography-heading-4 {
+  font-family: 'Haffer';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 150%;
+  letter-spacing: 3%;
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 0px 24px 0px;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+.linkContainer {
+  display: flex;
+  justify-content: center;
+  gap: 36px;
+}

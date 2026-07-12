@@ -100,7 +100,7 @@ jobs:
           git commit -m "chore(ai-review): refresh gittensor account index"
           git push -u origin "$BRANCH"
           gh pr create \
-            --base devnet-ready \
+            --base main \
             --head "$BRANCH" \
             --title "chore(ai-review): refresh gittensor account index" \
             --body "Automated refresh of \`known-gittensor-accounts.json\` from on-chain bounty data."

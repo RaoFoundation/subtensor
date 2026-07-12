@@ -1,0 +1,8 @@
+.env
+.local-chain
+subtensor-reference
+mainnet-clone/
+mainnet-clone-chainspec.json
+js-tests/node_modules
+js-tests/temp/*
+!js-tests/temp/.gitkeep

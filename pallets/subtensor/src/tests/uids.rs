@@ -62,7 +62,7 @@ fn test_replace_neuron() {
             NeuronCertificateOf::default(),
         );
         Prometheus::<Test>::insert(netuid, hotkey_account_id, PrometheusInfoOf::default());
-        AssociatedEvmAddress::<Test>::insert(netuid, neuron_uid, (evm_address, 1));
+        SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
 
         // Replace the neuron.
         SubtensorModule::replace_neuron(netuid, neuron_uid, &new_hotkey_account_id, block_number);
@@ -126,6 +126,7 @@ fn test_replace_neuron() {
             vec![]
         );
         assert_eq!(AssociatedEvmAddress::<Test>::get(netuid, neuron_uid), None);
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).is_empty());
     });
 }
 
@@ -154,7 +155,7 @@ fn test_bonds_cleared_on_replace() {
         let neuron_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey_account_id);
         assert_ok!(neuron_uid);
         let neuron_uid = neuron_uid.unwrap();
-        AssociatedEvmAddress::<Test>::insert(netuid, neuron_uid, (evm_address, 1));
+        SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
 
         // Set non-default bonds.
         Bonds::<Test>::insert(NetUidStorageIndex::from(netuid), neuron_uid, vec![(0, 1)]);
@@ -187,6 +188,7 @@ fn test_bonds_cleared_on_replace() {
             vec![]
         );
         assert_eq!(AssociatedEvmAddress::<Test>::get(netuid, neuron_uid), None);
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).is_empty());
     });
 }
 
@@ -314,7 +316,7 @@ fn test_replace_neuron_multiple_subnets() {
             &hotkey_account_id
         ));
 
-        AssociatedEvmAddress::<Test>::insert(netuid, neuron_uid.unwrap(), (evm_address, 1));
+        SubtensorModule::set_associated_evm_address(netuid, neuron_uid.unwrap(), evm_address, 1);
 
         // Replace the neuron (ONLY on ONE network).
         SubtensorModule::replace_neuron(
@@ -340,6 +342,7 @@ fn test_replace_neuron_multiple_subnets() {
             AssociatedEvmAddress::<Test>::get(netuid, neuron_uid.unwrap()),
             None
         );
+        assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).is_empty());
     });
 }
 
@@ -375,7 +378,7 @@ fn test_replace_neuron_subnet_owner_not_replaced() {
         let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         let neuron_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &owner_hotkey)
             .expect("Owner neuron should be registered by add_dynamic_network");
-        AssociatedEvmAddress::<Test>::insert(netuid, neuron_uid, (evm_address, 1));
+        SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
         let current_block = SubtensorModule::get_current_block_as_u64();
         SubtensorModule::replace_neuron(netuid, neuron_uid, &new_hotkey_account_id, current_block);
 
@@ -391,6 +394,10 @@ fn test_replace_neuron_subnet_owner_not_replaced() {
             SubtensorModule::get_uid_for_net_and_hotkey(netuid, &new_hotkey_account_id);
         assert_err!(new_key_uid, Error::<Test>::HotKeyNotRegisteredInSubNet,);
         assert!(AssociatedEvmAddress::<Test>::get(netuid, neuron_uid).is_some());
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).into_inner(),
+            vec![(neuron_uid, 1)]
+        );
     });
 }
 
@@ -411,7 +418,7 @@ fn test_replace_neuron_subnet_owner_not_replaced_if_in_sn_owner_hotkey_map() {
         let owner_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &owner_hotkey)
             .expect("Owner neuron should already be registered by add_dynamic_network");
 
-        AssociatedEvmAddress::<Test>::insert(netuid, owner_uid, (evm_address, 1));
+        SubtensorModule::set_associated_evm_address(netuid, owner_uid, evm_address, 1);
 
         // Register another hotkey for the owner
         register_ok_neuron(netuid, other_owner_hotkey, owner_coldkey, 0);
@@ -433,10 +440,14 @@ fn test_replace_neuron_subnet_owner_not_replaced_if_in_sn_owner_hotkey_map() {
             "Owner's first hotkey should remain registered"
         );
         assert!(AssociatedEvmAddress::<Test>::get(netuid, owner_uid).is_some());
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).into_inner(),
+            vec![(owner_uid, 1)]
+        );
 
         let new_key_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &additional_hotkey_1);
         assert_err!(new_key_uid, Error::<Test>::HotKeyNotRegisteredInSubNet,);
-        AssociatedEvmAddress::<Test>::insert(netuid, other_owner_uid, (evm_address, 1));
+        SubtensorModule::set_associated_evm_address(netuid, other_owner_uid, evm_address, 1);
 
         // Try to replace the other owner hotkey
         SubtensorModule::replace_neuron(

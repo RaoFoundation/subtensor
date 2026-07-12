@@ -1,0 +1,12 @@
+.canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: clamp(45vh, 50vh, 580px);
+  box-sizing: border-box;
+
+  & canvas {
+    max-width: 100%;
+    object-fit: cover;
+  }
+}

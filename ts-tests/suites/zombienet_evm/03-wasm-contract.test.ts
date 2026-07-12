@@ -15,6 +15,7 @@ import {
     instantiateWasmContract,
     sendWasmContractExtrinsic,
     sendWasmContractExtrinsicAllowFailure,
+    sendWasmContractExtrinsicWithEvents,
     setTargetRegistrationsPerInterval,
     startCall,
     sudoSetAdminFreezeWindow,
@@ -850,14 +851,12 @@ describeSuite({
                     destination_netuid: netuid,
                     amount: moveAmount,
                 });
-                await sendWasmContractExtrinsic(api, coldkey, contractAddress, data);
-                const originStakeAfter = (
-                    await api.apis.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid(
-                        convertPublicKeyToSs58(hotkey.publicKey),
-                        convertPublicKeyToSs58(coldkey.publicKey),
-                        netuid
-                    )
-                )?.stake;
+                // Assert on the StakeMoved event rather than a strict decrease of the
+                // origin stake: emission credited to the origin hotkey between the
+                // before/after reads can outweigh the moved amount and flake the test.
+                const result = await sendWasmContractExtrinsicWithEvents(api, coldkey, contractAddress, data);
+                const stakeMoved = await api.event.SubtensorModule.StakeMoved.filter(result.events);
+                expect(stakeMoved.length).toBeGreaterThan(0);
                 const destStakeAfter = (
                     await api.apis.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid(
                         convertPublicKeyToSs58(hotkey2.publicKey),
@@ -865,8 +864,7 @@ describeSuite({
                         netuid
                     )
                 )?.stake;
-                expect(originStakeAfter !== undefined && destStakeAfter !== undefined).toBeTruthy();
-                expect(originStakeAfter < originStakeBefore!).toBeTruthy();
+                expect(destStakeAfter).toBeDefined();
                 expect(destStakeAfter > destStakeBefore).toBeTruthy();
             },
         });
@@ -1211,6 +1209,143 @@ describeSuite({
                 expect(balanceBefore - balanceAfter < 10_000_000).toBeTruthy();
                 expect(stakeAfter).toEqual(stakeBefore);
                 expect(alphaOutAfter > alphaOutBefore).toBeTruthy();
+            },
+        });
+
+        it({
+            id: "T36",
+            title: "Can get subnet registration state",
+            test: async () => {
+                const queryMessage = inkClient.message("get_subnet_registration_state");
+
+                const data = queryMessage.encode({
+                    netuid: netuid,
+                });
+
+                const response = await api.apis.ContractsApi.call(
+                    convertPublicKeyToSs58(hotkey.publicKey),
+                    contractAddress,
+                    BigInt(0),
+                    undefined,
+                    undefined,
+                    Binary.fromBytes(data.asBytes())
+                );
+
+                expect(response.result.success).toBeTruthy();
+                const result = queryMessage.decode(response.result.value).value.value;
+                if (
+                    typeof result === "object" &&
+                    "netuid" in result &&
+                    "exists" in result &&
+                    "registered_subnet_counter" in result
+                ) {
+                    expect(result.netuid).toEqual(netuid);
+                    expect(result.registered_subnet_counter).toBeGreaterThanOrEqual(BigInt(0));
+                    expect(result.exists).toEqual(true);
+                } else {
+                    throw new Error("result is not an object");
+                }
+            },
+        });
+
+        it({
+            id: "T37",
+            title: "Can get coldkey lock",
+            test: async () => {
+                const queryMessage = inkClient.message("get_coldkey_lock");
+                const queryArgs = {
+                    coldkey: Binary.fromBytes(coldkey.publicKey),
+                    netuid: netuid,
+                };
+
+                async function queryColdkeyLock() {
+                    const data = queryMessage.encode(queryArgs);
+                    const response = await api.apis.ContractsApi.call(
+                        convertPublicKeyToSs58(hotkey.publicKey),
+                        contractAddress,
+                        BigInt(0),
+                        undefined,
+                        undefined,
+                        Binary.fromBytes(data.asBytes())
+                    );
+                    expect(response.result.success).toBeTruthy();
+                    return queryMessage.decode(response.result.value).value.value as
+                        | {
+                              locked_mass: bigint;
+                              conviction_bits: bigint;
+                              last_update: bigint;
+                          }
+                        | undefined;
+                }
+
+                let lock = await queryColdkeyLock();
+                if (!lock) {
+                    await addStakeViaContract(false);
+
+                    const lockAmount = tao(1);
+                    const lockTx = api.tx.SubtensorModule.lock_stake({
+                        hotkey: convertPublicKeyToSs58(hotkey.publicKey),
+                        netuid: netuid,
+                        amount: lockAmount,
+                    });
+                    await waitForTransactionWithRetry(api, lockTx, coldkey, "lock_stake");
+
+                    lock = await queryColdkeyLock();
+                }
+
+                expect(lock).toBeDefined();
+
+                if (
+                    typeof lock === "object" &&
+                    "locked_mass" in lock &&
+                    "conviction_bits" in lock &&
+                    "last_update" in lock
+                ) {
+                    expect(lock.locked_mass).toBeGreaterThanOrEqual(BigInt(0));
+                    expect(lock.conviction_bits).toBeGreaterThanOrEqual(BigInt(0));
+                    expect(lock.last_update).toBeGreaterThanOrEqual(BigInt(0));
+                } else {
+                    throw new Error("result is not an object");
+                }
+            },
+        });
+
+        it({
+            id: "T38",
+            title: "Can get stake availability",
+            test: async () => {
+                const queryMessage = inkClient.message("get_stake_availability");
+
+                const data = queryMessage.encode({
+                    coldkey: Binary.fromBytes(coldkey.publicKey),
+                    netuid: netuid,
+                });
+
+                const response = await api.apis.ContractsApi.call(
+                    convertPublicKeyToSs58(hotkey.publicKey),
+                    contractAddress,
+                    BigInt(0),
+                    undefined,
+                    undefined,
+                    Binary.fromBytes(data.asBytes())
+                );
+
+                expect(response.result.success).toBeTruthy();
+                const result = queryMessage.decode(response.result.value).value.value;
+                if (
+                    typeof result === "object" &&
+                    "netuid" in result &&
+                    "locked" in result &&
+                    "available" in result &&
+                    "total" in result
+                ) {
+                    expect(result.netuid).toEqual(netuid);
+                    expect(result.locked).toBeGreaterThanOrEqual(BigInt(0));
+                    expect(result.available).toBeGreaterThanOrEqual(BigInt(0));
+                    expect(result.total).toBeGreaterThanOrEqual(BigInt(0));
+                } else {
+                    throw new Error("result is not an object");
+                }
             },
         });
     },

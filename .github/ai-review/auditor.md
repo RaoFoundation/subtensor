@@ -70,7 +70,7 @@ Look up the PR author's gittensor association:
 
 1. Read `.github/ai-review/known-gittensor-accounts.json` (auto-maintained from on-chain bounty data).
 2. Read `.github/ai-review/gittensor-accounts.txt` (nucleus-curated supplement).
-3. If neither matches, apply the heuristic: ≥70% of the author's recent merged PRs are to gittensor-whitelisted repos (subtensor / opentensor / latent-to / etc.) AND average PR size is small. If so, classify as `LIKELY`.
+3. If neither matches, apply the heuristic: ≥70% of the author's recent merged PRs are to gittensor-whitelisted repos (subtensor / RaoFoundation / opentensor / latent-to / etc.) AND average PR size is small. If so, classify as `LIKELY`.
 
 Tier the author:
 - **KNOWN** (on-chain or curated): high confidence gittensor miner.
@@ -99,9 +99,9 @@ Apply `.github/copilot-instructions.md` in full. Particular emphasis:
 
   | Base branch | Network endpoint | CI workflow |
   | --- | --- | --- |
-  | `devnet` / `devnet-ready` | `wss://dev.chain.opentensor.ai:443` | check-devnet |
-  | `testnet` / `testnet-ready` | `wss://test.finney.opentensor.ai:443` | check-testnet |
-  | `finney` / `main` | `wss://entrypoint-finney.opentensor.ai:443` | check-finney |
+  | `devnet` | `wss://dev.chain.opentensor.ai:443` | check-devnet |
+  | `testnet` | `wss://test.finney.opentensor.ai:443` | check-testnet |
+  | `mainnet` | `wss://entrypoint-finney.opentensor.ai:443` | check-mainnet |
   | anything else | _(no spec-version check)_ | — |
 
   Also: a bump is NOT required if the PR carries the `no-spec-version-bump`

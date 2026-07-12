@@ -28,7 +28,7 @@ use frame_system::Config;
 use pallet_drand::types::RoundNumber;
 use pallet_scheduler::ScheduledOf;
 use scale_info::prelude::collections::VecDeque;
-use sp_core::{H256, U256, crypto::Ss58Codec};
+use sp_core::{H160, H256, U256, crypto::Ss58Codec};
 use sp_io::hashing::twox_128;
 use sp_runtime::{
     AccountId32,
@@ -37,7 +37,7 @@ use sp_runtime::{
 use sp_std::marker::PhantomData;
 use substrate_fixed::types::{I96F32, U64F64};
 use substrate_fixed::{traits::ToFixed, types::extra::U2};
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 
 #[allow(clippy::arithmetic_side_effects)]
 fn close(value: u64, target: u64, eps: u64) {
@@ -45,6 +45,83 @@ fn close(value: u64, target: u64, eps: u64) {
         (value as i64 - target as i64).abs() < eps as i64,
         "Assertion failed: value = {value}, target = {target}, eps = {eps}"
     )
+}
+
+#[test]
+fn test_migrate_associated_evm_address_index() {
+    new_test_ext(1).execute_with(|| {
+        let migration_name = b"migrate_associated_evm_address_index".to_vec();
+        let netuid = NetUid::from(1);
+        let other_netuid = NetUid::from(2);
+        let evm_key = H160::repeat_byte(1);
+        let other_evm_key = H160::repeat_byte(2);
+
+        HasMigrationRun::<Test>::remove(&migration_name);
+        AssociatedUidsByEvmAddress::<Test>::remove(netuid, evm_key);
+        AssociatedUidsByEvmAddress::<Test>::remove(other_netuid, other_evm_key);
+
+        AssociatedEvmAddress::<Test>::insert(netuid, 0, (evm_key, 10));
+        AssociatedEvmAddress::<Test>::insert(netuid, 1, (evm_key, 11));
+        AssociatedEvmAddress::<Test>::insert(other_netuid, 0, (other_evm_key, 12));
+
+        crate::migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<Test>();
+
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_key).into_inner(),
+            vec![(0, 10), (1, 11)]
+        );
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<Test>::get(other_netuid, other_evm_key).into_inner(),
+            vec![(0, 12)]
+        );
+        assert!(HasMigrationRun::<Test>::get(&migration_name));
+    });
+}
+
+#[test]
+fn test_migrate_associated_evm_address_index_reconciles_over_cap_buckets() {
+    new_test_ext(1).execute_with(|| {
+        let migration_name = b"migrate_associated_evm_address_index".to_vec();
+        let netuid = NetUid::from(1);
+        let evm_key = H160::repeat_byte(1);
+
+        HasMigrationRun::<Test>::remove(&migration_name);
+        AssociatedUidsByEvmAddress::<Test>::remove(netuid, evm_key);
+
+        // Seed more forward-map associations for a single address than the reverse index can hold.
+        let cap = MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS;
+        let total = cap + 8;
+        for uid in 0..total {
+            AssociatedEvmAddress::<Test>::insert(netuid, uid as u16, (evm_key, 100 + uid as u64));
+        }
+
+        crate::migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<Test>();
+
+        // The reverse index is bounded by the cap.
+        let bucket = AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_key);
+        assert_eq!(bucket.len() as u32, cap);
+
+        // The forward map was pruned to match, so the two maps agree on the cap: every remaining
+        // forward entry is present in the reverse index, and there are no extras on either side.
+        let forward: Vec<u16> = AssociatedEvmAddress::<Test>::iter_prefix(netuid)
+            .map(|(uid, _)| uid)
+            .collect();
+        assert_eq!(forward.len() as u32, cap);
+        for uid in &forward {
+            assert!(
+                bucket.iter().any(|(stored_uid, _)| stored_uid == uid),
+                "forward uid {uid} missing from reverse index"
+            );
+        }
+        for (uid, _) in bucket.iter() {
+            assert!(
+                forward.contains(uid),
+                "reverse uid {uid} missing from forward map"
+            );
+        }
+
+        assert!(HasMigrationRun::<Test>::get(&migration_name));
+    });
 }
 
 #[test]
@@ -123,14 +200,17 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (coldkey_to_move, netuid, old_hotkey),
             moved_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_to_move), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, old_hotkey),
             discarded_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_with_conflict), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, new_hotkey),
             existing_destination_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, new_hotkey, coldkey_with_conflict), ());
         DecayingLock::<Test>::insert(coldkey_to_move, netuid, false);
         DecayingLock::<Test>::insert(coldkey_with_conflict, netuid, false);
         DecayingLock::<Test>::insert(chained_coldkey, chained_netuid, false);
@@ -148,6 +228,10 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (chained_coldkey, chained_netuid, chained_first_hotkey),
             chained_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert(
+            (chained_netuid, chained_first_hotkey, chained_coldkey),
+            (),
+        );
         HotkeyLock::<Test>::insert(chained_netuid, chained_first_hotkey, chained_lock.clone());
 
         let weight =
@@ -157,14 +241,34 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
         assert!(HasMigrationRun::<Test>::get(&migration_name));
         assert!(Lock::<Test>::get((coldkey_to_move, netuid, old_hotkey)).is_none());
         assert!(Lock::<Test>::get((coldkey_with_conflict, netuid, old_hotkey)).is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_to_move
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_with_conflict
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_to_move, netuid, new_hotkey)),
             Some(moved_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_to_move
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_with_conflict, netuid, new_hotkey)),
             Some(existing_destination_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_with_conflict
+        )));
         assert!(HotkeyLock::<Test>::get(netuid, old_hotkey).is_none());
 
         let new_aggregate = HotkeyLock::<Test>::get(netuid, new_hotkey)
@@ -193,10 +297,25 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             chained_middle_hotkey
         ))
         .is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_first_hotkey,
+            chained_coldkey
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_middle_hotkey,
+            chained_coldkey
+        )));
         assert_eq!(
             Lock::<Test>::get((chained_coldkey, chained_netuid, chained_final_hotkey)),
             Some(chained_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_final_hotkey,
+            chained_coldkey
+        )));
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_first_hotkey).is_none());
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_middle_hotkey).is_none());
         assert_eq!(
@@ -4691,6 +4810,7 @@ fn test_migrate_subnet_balances() {
 fn test_migrate_fix_total_issuance_evm_fees() {
     new_test_ext(1).execute_with(|| {
         const MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_evm_fees";
+        const DUST_MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_after_dust_collection";
 
         let account = U256::from(42);
         let balances_total_issuance = TaoBalance::from(123_456_789_u64);
@@ -4711,16 +4831,29 @@ fn test_migrate_fix_total_issuance_evm_fees() {
         assert!(!weight.is_zero(), "weight must be non-zero");
         assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
         assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
 
         let second_wrong_value = TaoBalance::from(555_u64);
         TotalIssuance::<Test>::put(second_wrong_value);
 
         crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
 
+        assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
+        assert!(HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
+
+        let third_wrong_value = TaoBalance::from(777_u64);
+        TotalIssuance::<Test>::put(third_wrong_value);
+
+        crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
+
         assert_eq!(
             TotalIssuance::<Test>::get(),
-            second_wrong_value,
-            "migration must not run more than once"
+            third_wrong_value,
+            "migration must not run after all known migration keys have run"
         );
     });
 }

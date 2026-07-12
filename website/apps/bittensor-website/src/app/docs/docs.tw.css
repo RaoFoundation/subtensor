@@ -1,0 +1,327 @@
+/* Docs styles: Tailwind v4 without preflight, so the CSS-module marketing
+   pages are untouched. Compiled to docs.css by `yarn build:docs-css` (the
+   Tailwind CLI) instead of PostCSS, keeping Tailwind out of the marketing
+   CSS-module pipeline entirely. Utility generation is limited to the docs
+   sources via source(none) + @source below. */
+
+/* No cascade layers: the site's global reset.css is unlayered, and unlayered
+   rules would always beat layered utilities. */
+@import 'tailwindcss/theme.css';
+@import 'tailwindcss/utilities.css' source(none);
+
+@source './';
+@source '../../components';
+@source '../../lib';
+@source '../../../../../../docs';
+
+/* ---------------------------------------------------------------------------
+   Preflight-lite, scoped to the docs subtree. The docs components were built
+   against Tailwind's preflight; the marketing site ships its own reset that
+   leaves form controls untouched. @layer base loses to the unlayered
+   utilities above, so utility classes still win on these elements.
+--------------------------------------------------------------------------- */
+
+@layer base {
+  .bt-docs,
+  .bt-docs *,
+  .bt-docs *::before,
+  .bt-docs *::after {
+    box-sizing: border-box;
+  }
+
+  .bt-docs button {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    cursor: pointer;
+  }
+
+  .bt-docs input {
+    border: none;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+  }
+
+  .bt-docs svg {
+    display: block;
+  }
+
+  .bt-docs kbd {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Design tokens — bittensor.com's language: white paper, #292929 ink,
+   monochrome hairlines, Haffer for text, FiraCode for labels and code.
+   Fonts come from @raofoundation/ui's font-face declarations.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans: 'Haffer', 'Inter', sans-serif;
+  --font-mono: 'FiraCode', ui-monospace, monospace;
+
+  --color-bg: var(--bt-bg);
+  --color-fg: var(--bt-fg);
+  --color-mute: var(--bt-mute);
+  --color-line: var(--bt-line);
+  --color-panel: var(--bt-panel);
+  --color-hover: var(--bt-hover);
+}
+
+/* The site's font-face set only covers weights 200/400/700; the docs
+   typography also uses 500 and 600. These add faces to the family without
+   changing the existing mappings. */
+@font-face {
+  font-family: 'Haffer';
+  src: url(../fonts/Haffer-Medium.ttf);
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Haffer';
+  src: url(../fonts/Haffer-SemiBold.ttf);
+  font-weight: 600;
+  font-style: normal;
+}
+
+:root {
+  --bt-bg: rgb(255, 255, 255);
+  --bt-fg: rgb(41, 41, 41);
+  --bt-mute: rgb(110, 110, 110);
+  --bt-line: rgba(41, 41, 41, 0.12);
+  --bt-panel: rgb(250, 250, 250);
+  --bt-hover: rgba(41, 41, 41, 0.05);
+}
+
+/* Scoped to the docs subtree (.bt-docs) so marketing pages keep their own
+   base styles. */
+
+.bt-docs {
+  background: var(--bt-bg);
+  color: var(--bt-fg);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+.bt-docs :focus-visible {
+  outline: 1px solid var(--bt-fg);
+  outline-offset: 2px;
+}
+
+.bt-docs ::selection {
+  background: var(--bt-fg);
+  color: var(--bt-bg);
+}
+
+/* The signature element: small uppercase FiraCode labels. */
+.bt-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 450;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------------------
+   Prose — modeled on bittensor.com's article pages: small Haffer body with a
+   tall line, mono small-caps section headers, hairline tables.
+--------------------------------------------------------------------------- */
+
+.prose {
+  font-size: 0.9375rem;
+  line-height: 1.8;
+}
+
+.prose > * + * {
+  margin-top: 1em;
+}
+
+.prose h2 {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: 3em;
+  margin-bottom: 1.25em;
+}
+
+.prose h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin-top: 2.25em;
+  margin-bottom: 0.75em;
+}
+
+.prose h4 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-top: 2em;
+  margin-bottom: 0.5em;
+}
+
+.prose h2 code,
+.prose h3 code {
+  font-size: inherit;
+  letter-spacing: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* Heading anchors */
+.prose :is(h2, h3, h4) {
+  scroll-margin-top: 8rem;
+}
+
+.prose :is(h2, h3, h4) > a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.prose :is(h2, h3, h4) > a:hover::after {
+  content: ' #';
+  color: var(--bt-mute);
+}
+
+.prose a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--bt-line);
+  transition: text-decoration-color 120ms;
+}
+
+.prose a:hover {
+  text-decoration-color: var(--bt-fg);
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose ul,
+.prose ol {
+  padding-inline-start: 1.375em;
+}
+
+.prose ul {
+  list-style-type: '—  ';
+}
+
+.prose ol {
+  list-style-type: decimal;
+}
+
+.prose li {
+  margin-block: 0.375em;
+  padding-inline-start: 0.25em;
+}
+
+.prose li::marker {
+  color: var(--bt-mute);
+}
+
+.prose blockquote {
+  border-inline-start: 1px solid var(--bt-fg);
+  padding-inline-start: 1.25em;
+  color: var(--bt-mute);
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--bt-line);
+  margin-block: 3em;
+}
+
+/* Inline code — chromeless: the face change alone marks it, like the rest
+   of bittensor.com. */
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.8125em;
+  white-space: nowrap;
+}
+
+/* Tables */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--bt-line);
+  font-size: 0.875rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 450;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: start;
+  color: var(--bt-mute);
+  border-bottom: 1px solid var(--bt-line);
+  padding: 0.625rem 1rem;
+}
+
+.prose td {
+  border-bottom: 1px solid var(--bt-line);
+  padding: 0.625rem 1rem;
+  vertical-align: top;
+}
+
+.prose tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Code blocks — shiki output (bt-light theme).
+--------------------------------------------------------------------------- */
+
+.prose pre.shiki {
+  border: 1px solid var(--bt-line);
+  border-radius: 2px;
+  background: var(--bt-panel) !important;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  margin-block: 1.25em;
+}
+
+/* Code block titles (```bash title="...") render as a data attribute. */
+.bt-codeblock {
+  position: relative;
+}
+
+.bt-codeblock > .bt-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.bt-codeblock:hover > .bt-copy,
+.bt-codeblock > .bt-copy:focus-visible {
+  opacity: 1;
+}
+
+/* Minimal scrollbars */
+.bt-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bt-line) transparent;
+}

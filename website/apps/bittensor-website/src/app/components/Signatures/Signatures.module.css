@@ -1,0 +1,21 @@
+.container {
+  text-align: justify;
+  width: 100%;
+}
+
+.delegates_container {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.title {
+  width: 100%;
+  text-align: center;
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  margin-bottom: -8px;
+  text-transform: uppercase;
+  margin-bottom: 40px;
+}

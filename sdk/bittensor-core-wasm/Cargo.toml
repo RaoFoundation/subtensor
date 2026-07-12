@@ -1,0 +1,25 @@
+[package]
+name = "bittensor-core-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "wasm-bindgen bindings for bittensor-core — the browser/TS sibling of bittensor-core-py"
+license = "Apache-2.0"
+
+[lib]
+name = "bittensor_core_wasm"
+# rlib alongside cdylib so `cargo check/clippy --workspace` on native targets
+# still type-checks the crate.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# No `host` feature: this crate must stay on the portable seam CI enforces
+# with the wasm32 check (no reqwest, rayon, sodiumoxide, openssl).
+bittensor-core = { path = "../bittensor-core", default-features = false }
+hex = "0.4.3"
+js-sys = "0.3"
+scale-info = { version = "2.11.6", default-features = false }
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true

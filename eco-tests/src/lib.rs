@@ -7,3 +7,6 @@ mod tests;
 
 #[cfg(test)]
 mod tests_taocom_indexer;
+
+#[cfg(test)]
+mod tests_mentat_indexer;

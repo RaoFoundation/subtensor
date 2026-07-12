@@ -1,0 +1,112 @@
+@import '../../styles/media-queries.css';
+.sectionWrapper {
+  padding: 0 56px;
+
+  @mixin tablet {
+    padding: 0 56px;
+  }
+}
+
+.typography-text-link {
+  font-family: 'Haffer';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 150%;
+  letter-spacing: 3%;
+  text-transform: uppercase;
+
+  &.medium {
+    font-weight: 400;
+  }
+}
+
+.typography-caption-1 {
+  font-family: 'FiraCode';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 150%;
+  letter-spacing: 3%;
+  text-transform: uppercase;
+  padding-bottom: 10px;
+  margin-left: 0;
+
+  &.regular {
+    font-weight: 400;
+  }
+}
+
+.typography-heading-4 {
+  font-family: 'Haffer';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 150%;
+  letter-spacing: 3%;
+}
+
+.footer {
+  @extend .sectionWrapper;
+  padding-top: 16px;
+  padding-bottom: 8px;
+
+  display: none;
+  flex-direction: column;
+  row-gap: 40px;
+
+  @mixin tablet {
+    flex-direction: row;
+    justify-content: space-between;
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  &_title {
+    @extend .typography-heading-4;
+
+    @mixin tablet {
+      grid-column: 1 / 3;
+    }
+
+    @mixin desktop {
+      grid-column: 1 / 3;
+      display: flex;
+    }
+  }
+
+  &_modules {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-column-gap: 52px;
+    grid-row-gap: 52px;
+    list-style: none;
+
+    @mixin tablet {
+      grid-column: 7 / 13;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 0 0px;
+      grid-column-gap: 120px;
+    }
+
+    @mixin desktop {
+      grid-column: 7 / 13;
+      grid-column-gap: 120px;
+    }
+  }
+
+  &_moduleTitle {
+    display: block;
+    margin-bottom: 0px;
+    @extend .section_header;
+
+    @extend .typography-caption-1;
+  }
+
+  &_links {
+    display: flex;
+    flex-direction: column;
+    row-gap: 4px;
+    list-style-type: none;
+    @extend .link_color;
+
+    @extend .typography-caption-1;
+  }
+}

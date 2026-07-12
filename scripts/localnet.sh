@@ -1,7 +1,9 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # If binaries are compiled in CI then skip this script
-if [ -n "$BUILT_IN_CI" ]; then
+if [ -n "${BUILT_IN_CI:-}" ]; then
   echo "[*] BUILT_IN_CI is set to '$BUILT_IN_CI'. Skipping script..."
   exit 0
 fi
@@ -49,11 +51,18 @@ fi
 # Ensure the build directory exists
 mkdir -p "$BUILD_DIR"
 
+# Cross-compiled builds land in a target-triple subdirectory.
+if [[ -n "${CARGO_BUILD_TARGET:-}" ]]; then
+  NODE_BINARY="$BUILD_DIR/$CARGO_BUILD_TARGET/release/node-subtensor"
+else
+  NODE_BINARY="$BUILD_DIR/release/node-subtensor"
+fi
+
 SPEC_PATH="${SCRIPT_DIR}/specs/"
 FULL_PATH="$SPEC_PATH$CHAIN.json"
 
 # Kill any existing nodes which may have not exited correctly after a previous run.
-pkill -9 'node-subtensor'
+pkill -9 'node-subtensor' || true
 
 if [ ! -d "$SPEC_PATH" ]; then
   echo "*** Creating directory ${SPEC_PATH}..."
@@ -71,7 +80,7 @@ if [[ "$BUILD_BINARY" == "1" ]]; then
     --manifest-path "$BASE_DIR/Cargo.toml"
   )
 
-  if [[ -n "$CARGO_BUILD_TARGET" ]]; then
+  if [[ -n "${CARGO_BUILD_TARGET:-}" ]]; then
     echo "[+] Cross-compiling for target: $CARGO_BUILD_TARGET"
     BUILD_CMD+=(--target "$CARGO_BUILD_TARGET")
   else
@@ -83,21 +92,21 @@ if [[ "$BUILD_BINARY" == "1" ]]; then
 fi
 
 echo "*** Building chainspec..."
-"$BUILD_DIR/release/node-subtensor" build-spec --disable-default-bootnode --raw --chain "$CHAIN" >"$FULL_PATH"
+"$NODE_BINARY" build-spec --disable-default-bootnode --raw --chain "$CHAIN" >"$FULL_PATH"
 echo "*** Chainspec built and output to file"
 
-# Generate node keys
-"$BUILD_DIR/release/node-subtensor" key generate-node-key --chain="$FULL_PATH" --base-path /tmp/one
-"$BUILD_DIR/release/node-subtensor" key generate-node-key --chain="$FULL_PATH" --base-path /tmp/two
-"$BUILD_DIR/release/node-subtensor" key generate-node-key --chain="$FULL_PATH" --base-path /tmp/three
+# Generate node keys (exits non-zero when a key already exists — that's fine)
+"$NODE_BINARY" key generate-node-key --chain="$FULL_PATH" --base-path /tmp/one || true
+"$NODE_BINARY" key generate-node-key --chain="$FULL_PATH" --base-path /tmp/two || true
+"$NODE_BINARY" key generate-node-key --chain="$FULL_PATH" --base-path /tmp/three || true
 
 if [ $NO_PURGE -eq 1 ]; then
   echo "*** Purging previous state skipped..."
 else
   echo "*** Purging previous state..."
-  "$BUILD_DIR/release/node-subtensor" purge-chain -y --base-path /tmp/two --chain="$FULL_PATH" >/dev/null 2>&1
-  "$BUILD_DIR/release/node-subtensor" purge-chain -y --base-path /tmp/one --chain="$FULL_PATH" >/dev/null 2>&1
-  "$BUILD_DIR/release/node-subtensor" purge-chain -y --base-path /tmp/three --chain="$FULL_PATH" >/dev/null 2>&1
+  "$NODE_BINARY" purge-chain -y --base-path /tmp/two --chain="$FULL_PATH" >/dev/null 2>&1
+  "$NODE_BINARY" purge-chain -y --base-path /tmp/one --chain="$FULL_PATH" >/dev/null 2>&1
+  "$NODE_BINARY" purge-chain -y --base-path /tmp/three --chain="$FULL_PATH" >/dev/null 2>&1
   echo "*** Previous chainstate purged"
 fi
 
@@ -105,7 +114,7 @@ if [ $BUILD_ONLY -eq 0 ]; then
   echo "*** Starting localnet nodes..."
 
   one_start=(
-    "$BUILD_DIR/release/node-subtensor"
+    "$NODE_BINARY"
     --base-path /tmp/one
     --chain="$FULL_PATH"
     --one
@@ -119,7 +128,7 @@ if [ $BUILD_ONLY -eq 0 ]; then
   )
 
   two_start=(
-    "$BUILD_DIR/release/node-subtensor"
+    "$NODE_BINARY"
     --base-path /tmp/two
     --chain="$FULL_PATH"
     --two
@@ -133,13 +142,13 @@ if [ $BUILD_ONLY -eq 0 ]; then
   )
 
   # Insert //Three keys manually (no --three shorthand exists in Substrate)
-  "$BUILD_DIR/release/node-subtensor" key insert \
+  "$NODE_BINARY" key insert \
     --base-path /tmp/three \
     --chain="$FULL_PATH" \
     --scheme Sr25519 \
     --suri "//Three" \
     --key-type aura
-  "$BUILD_DIR/release/node-subtensor" key insert \
+  "$NODE_BINARY" key insert \
     --base-path /tmp/three \
     --chain="$FULL_PATH" \
     --scheme Ed25519 \
@@ -147,7 +156,7 @@ if [ $BUILD_ONLY -eq 0 ]; then
     --key-type gran
 
   three_start=(
-    "$BUILD_DIR/release/node-subtensor"
+    "$NODE_BINARY"
     --base-path /tmp/three
     --chain="$FULL_PATH"
     --name Three
@@ -161,7 +170,7 @@ if [ $BUILD_ONLY -eq 0 ]; then
   )
 
   # Provide RUN_IN_DOCKER local environment variable if run script in the docker image
-  if [ "${RUN_IN_DOCKER}" == "1" ]; then
+  if [ "${RUN_IN_DOCKER:-}" == "1" ]; then
     one_start+=(--unsafe-rpc-external)
     two_start+=(--unsafe-rpc-external)
     three_start+=(--unsafe-rpc-external)

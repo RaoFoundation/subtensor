@@ -1,0 +1,23 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: max-content;
+  width: stretch;
+  font-size: 12px;
+  gap: 30px;
+  text-align: center;
+}
+
+.header {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.terms {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  line-height: 2;
+}

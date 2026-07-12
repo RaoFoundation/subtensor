@@ -1132,7 +1132,7 @@ fn test_set_identity_for_non_existent_subnet() {
                 logo_url.clone(),
                 additional.clone(),
             ),
-            Error::<Test>::NotSubnetOwner // Since there's no owner, it should fail
+            Error::<Test>::SubnetNotExists // Since there's no owner, it should fail
         );
     });
 }

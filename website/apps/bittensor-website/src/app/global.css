@@ -1,0 +1,13 @@
+.katex {
+  font-size: 2em;
+}
+
+.math.math-display {
+  display: block;
+  text-align: center;
+}
+
+html,
+body {
+  height: 100svh;
+}

@@ -5,9 +5,9 @@ description = "Add the ability to commit generic hashed data for network partici
 authors = ["Bittensor Nucleus Team"]
 homepage = "https://bittensor.com"
 edition.workspace = true
-license = "Unlicense"
+license = "Apache-2.0"
 publish = false
-repository = "https://github.com/opentensor/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 
 [lints]
 workspace = true

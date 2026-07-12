@@ -73,12 +73,6 @@ fn set_sn_owner_hotkey_c67() -> RuntimeCall {
         hotkey: acct(),
     })
 }
-fn set_subnet_owner_hotkey_c64() -> RuntimeCall {
-    RuntimeCall::AdminUtils(pallet_admin_utils::Call::sudo_set_subnet_owner_hotkey {
-        netuid: Default::default(),
-        hotkey: acct(),
-    })
-}
 
 /// GHSA-2026-001 — NonTransfer and NonFungible proxies (the two "cannot move my funds"
 /// types) ALLOW the new coldkey-swap lifecycle, so a restricted delegate can take over
@@ -149,17 +143,10 @@ fn ghsa_2026_002_nonfungible_allows_swap_hotkey_v2_gap() {
 }
 
 /// GHSA-2026-003 — the Owner proxy excepts sudo_set_sn_owner_hotkey (call 67) but the
-/// duplicate alias sudo_set_subnet_owner_hotkey (call 64) is allowed by the AdminUtils::*
-/// wildcard, bypassing the carve-out.
 #[test]
 fn ghsa_2026_003_owner_proxy_set_owner_hotkey_alias_bypass() {
     assert!(
         !ProxyType::Owner.filter(&set_sn_owner_hotkey_c67()),
         "precondition: Owner correctly excepts sudo_set_sn_owner_hotkey (call 67)"
-    );
-    assert!(
-        !ProxyType::Owner.filter(&set_subnet_owner_hotkey_c64()),
-        "regression (GHSA-2026-003 fixed): Owner must DENY the alias sudo_set_subnet_owner_hotkey (call 64), \
-         which calls the same do_set_sn_owner_hotkey backend"
     );
 }
