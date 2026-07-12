@@ -1522,7 +1522,7 @@ export class Client {
       const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
       const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
       const metadataHashOptionProvided = hasOwn(options, 'metadataHash')
-      const defaultMetadataHash = runtimeSupportsMetadataHash(runtime) || resolved.requiresMetadataProof
+      const defaultMetadataHash = resolved.requiresMetadataProof
       const chainInfo = resolved.requiresMetadataProof || (!metadataHashOptionProvided && defaultMetadataHash)
         ? await this.chainInfo(runtime, snapshot.blockHash)
         : undefined
@@ -2827,28 +2827,28 @@ interface CallDescriptorEntry {
   path: string
   descriptor: Descriptor
   args: readonly string[]
-  argTypeIds: readonly number[]
+  argTypes: readonly string[]
 }
 
 const CALL_DESCRIPTOR_ENTRIES: CallDescriptorEntry[] = [
-  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'], argTypeIds: [174, 176] },
-  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'], argTypeIds: [174, 176] },
-  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'], argTypeIds: [0, 40, 6] },
-  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'], argTypeIds: [40, 0] },
-  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'], argTypeIds: [40, 13] },
-  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
-  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypeIds: [40, 6, 6, 14, 0, 0] },
-  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network'), args: ['hotkey'], argTypeIds: [0] },
-  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'], argTypeIds: [0, 40, 6] },
-  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypeIds: [40, 206, 206, 206, 6] },
-  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register'), args: ['hotkey'], argTypeIds: [0] },
-  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypeIds: [40, 4, 8, 40, 2, 2, 2, 2] },
-  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypeIds: [40, 4, 8, 40, 2] },
-  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'], argTypeIds: [0, 40, 44] },
-  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'], argTypeIds: [40, 206, 206, 6] },
-  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'], argTypeIds: [40] },
-  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
-  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'], argTypeIds: [0] },
+  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'], argTypes: ['MultiAddress<AccountId32, ()>', 'Compact<u64>'] },
+  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'], argTypes: ['MultiAddress<AccountId32, ()>', 'Compact<u64>'] },
+  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'], argTypes: ['AccountId32', 'u16', 'u64'] },
+  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'], argTypes: ['u16', 'AccountId32'] },
+  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'], argTypes: ['u16', 'H256'] },
+  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'u16', 'u16', 'u64'] },
+  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypes: ['u16', 'u64', 'u64', 'Vec<u8>', 'AccountId32', 'AccountId32'] },
+  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network'), args: ['hotkey'], argTypes: ['AccountId32'] },
+  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'], argTypes: ['AccountId32', 'u16', 'u64'] },
+  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypes: ['u16', 'Vec<u16>', 'Vec<u16>', 'Vec<u16>', 'u64'] },
+  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register'), args: ['hotkey'], argTypes: ['AccountId32'] },
+  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypes: ['u16', 'u32', 'u128', 'u16', 'u8', 'u8', 'u8', 'u8'] },
+  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypes: ['u16', 'u32', 'u128', 'u16', 'u8'] },
+  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'], argTypes: ['AccountId32', 'u16', 'Vec<(u64, AccountId32)>'] },
+  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'], argTypes: ['u16', 'Vec<u16>', 'Vec<u16>', 'u64'] },
+  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'], argTypes: ['u16'] },
+  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'u16', 'u16', 'u64'] },
+  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'], argTypes: ['AccountId32'] },
 ]
 
 export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssue[] {
@@ -2939,19 +2939,20 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
           kind: 'call',
           message: `call ${pallet}.${item} argument type ID metadata is unavailable`,
         })
-      } else if (actualArgTypeIds.length !== entry.argTypeIds.length) {
+      } else if (actualArgTypeIds.length !== entry.argTypes.length) {
         issues.push({
           ...entry,
           kind: 'call',
-          message: `call ${pallet}.${item} argument type ID count drifted: expected ${entry.argTypeIds.length}, got ${actualArgTypeIds.length}`,
+          message: `call ${pallet}.${item} argument type count drifted: expected ${entry.argTypes.length}, got ${actualArgTypeIds.length}`,
         })
       } else {
-        for (let index = 0; index < entry.argTypeIds.length; index += 1) {
-          if (actualArgTypeIds[index] !== entry.argTypeIds[index]) {
+        const actualArgTypes = actualArgTypeIds.map((typeId) => runtimeTypeName(runtime, typeId))
+        for (let index = 0; index < entry.argTypes.length; index += 1) {
+          if (actualArgTypes[index] !== entry.argTypes[index]) {
             issues.push({
               ...entry,
               kind: 'call',
-              message: `call ${pallet}.${item} argument ${index} type ID drifted: expected ${entry.argTypeIds[index]}, got ${actualArgTypeIds[index]}`,
+              message: `call ${pallet}.${item} argument ${index} type drifted: expected ${entry.argTypes[index]}, got ${actualArgTypes[index]} (type ID ${actualArgTypeIds[index]})`,
             })
           }
         }
@@ -2974,6 +2975,14 @@ function callArgumentTypeIds(callInfo: { argTypeIds?: unknown; argTypes?: unknow
     return ids.every((value) => Number.isSafeInteger(value) && value >= 0) ? ids : null
   }
   return null
+}
+
+function runtimeTypeName(runtime: Runtime, typeId: number): string {
+  try {
+    return runtime.typeNameOf(typeId) ?? `scale_info::${typeId}`
+  } catch {
+    return `scale_info::${typeId}`
+  }
 }
 
 function descriptorEntries(value: unknown, prefix: string): Array<{ path: string; descriptor: Descriptor }> {
@@ -3269,11 +3278,6 @@ function parseNonce(value: unknown, name: string): number {
     throw new ChainError(`${name} returned invalid nonce ${String(value)}`)
   }
   return nonce
-}
-
-function runtimeSupportsMetadataHash(runtime: Runtime): boolean {
-  const identifiers = runtime.signedExtensionIdentifiers?.() ?? []
-  return identifiers.includes('CheckMetadataHash')
 }
 
 function isMetadataAtVersionUnavailable(error: unknown): boolean {

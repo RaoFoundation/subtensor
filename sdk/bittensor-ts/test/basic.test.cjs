@@ -1026,7 +1026,84 @@ test('descriptor schema validation reports metadata drift', () => {
   assert.ok(issues.some((issue) => issue.path === 'storage.Balances.TotalIssuance'))
   assert.ok(issues.some((issue) => issue.path === 'runtimeApi.StakeInfoRuntimeApi.get_stake_fee'))
   assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferKeepAlive' && /argument count/.test(issue.message)))
-  assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferAllowDeath' && /type ID drifted/.test(issue.message)))
+  assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferAllowDeath' && /type drifted/.test(issue.message)))
+})
+
+test('descriptor schema validation accepts metadata-local type ID shifts', () => {
+  const runtime = {
+    pallet(name) {
+      if (name === 'Balances') return { storage: Object.values(core.storage.Balances).map(([, item]) => ({ name: item })) }
+      if (name === 'SubtensorModule') return { storage: Object.values(core.storage.SubtensorModule).map(([, item]) => ({ name: item })) }
+      if (name === 'System') return { storage: Object.values(core.storage.System).map(([, item]) => ({ name: item })) }
+      if (name === 'Timestamp') return { storage: Object.values(core.storage.Timestamp).map(([, item]) => ({ name: item })) }
+      if (name === 'Multisig') return { storage: Object.values(core.storage.Multisig).map(([, item]) => ({ name: item })) }
+      if (name === 'Proxy') return { storage: Object.values(core.storage.Proxy).map(([, item]) => ({ name: item })) }
+      return null
+    },
+    constantInfo() {
+      return {}
+    },
+    runtimeApis() {
+      return Object.fromEntries(
+        Object.entries(core.runtimeApi).map(([api, methods]) => [
+          api,
+          Object.fromEntries(Object.keys(methods).map((method) => [method, { inputs: [], inputDetails: [], outputTypeId: 0 }])),
+        ]),
+      )
+    },
+    metadataIr() {
+      return {
+        pallets: [
+          {
+            name: 'Balances',
+            calls: [
+              { name: 'transfer_keep_alive', args: ['dest', 'value'], argTypeIds: [176, 178] },
+              { name: 'transfer_allow_death', args: ['dest', 'value'], argTypeIds: [176, 178] },
+            ],
+          },
+          {
+            name: 'SubtensorModule',
+            calls: [
+              { name: 'add_stake', args: ['hotkey', 'netuid', 'amount_staked'], argTypeIds: [0, 40, 6] },
+              { name: 'burned_register', args: ['netuid', 'hotkey'], argTypeIds: [40, 0] },
+              { name: 'commit_weights', args: ['netuid', 'commit_hash'], argTypeIds: [40, 13] },
+              { name: 'move_stake', args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
+              { name: 'register', args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypeIds: [40, 6, 6, 14, 0, 0] },
+              { name: 'register_network', args: ['hotkey'], argTypeIds: [0] },
+              { name: 'remove_stake', args: ['hotkey', 'netuid', 'amount_unstaked'], argTypeIds: [0, 40, 6] },
+              { name: 'reveal_weights', args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypeIds: [40, 209, 209, 209, 6] },
+              { name: 'root_register', args: ['hotkey'], argTypeIds: [0] },
+              { name: 'serve_axon', args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypeIds: [40, 4, 8, 40, 2, 2, 2, 2] },
+              { name: 'serve_prometheus', args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypeIds: [40, 4, 8, 40, 2] },
+              { name: 'set_children', args: ['hotkey', 'netuid', 'children'], argTypeIds: [0, 40, 44] },
+              { name: 'set_weights', args: ['netuid', 'dests', 'weights', 'version_key'], argTypeIds: [40, 209, 209, 6] },
+              { name: 'start_call', args: ['netuid'], argTypeIds: [40] },
+              { name: 'transfer_stake', args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
+              { name: 'unstake_all', args: ['hotkey'], argTypeIds: [0] },
+            ],
+          },
+        ],
+      }
+    },
+    typeNameOf(typeId) {
+      return {
+        0: 'AccountId32',
+        2: 'u8',
+        4: 'u32',
+        6: 'u64',
+        8: 'u128',
+        13: 'H256',
+        14: 'Vec<u8>',
+        40: 'u16',
+        44: 'Vec<(u64, AccountId32)>',
+        176: 'MultiAddress<AccountId32, ()>',
+        178: 'Compact<u64>',
+        209: 'Vec<u16>',
+      }[typeId] ?? null
+    },
+  }
+  const issues = core.validateDescriptorSchema(runtime)
+  assert.deepEqual(issues, [])
 })
 
 test('Rust decoder unwraps Metadata_metadata_at_version responses strictly', () => {
@@ -1591,7 +1668,7 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   )
 })
 
-test('Client enables metadata hash by default for software signers when supported', async () => {
+test('Client leaves metadata hash disabled by default for software signers', async () => {
   const callData = Buffer.from([5, 6, 7])
   const { runtime, captures } = fakeSigningRuntime({
     metadataBytes: goldenMetadataBytes(),
@@ -1614,10 +1691,15 @@ test('Client enables metadata hash by default for software signers when supporte
 
   await client.signExtrinsic(callData, signer, { period: null })
 
+  assert.equal(captures.encoded.params.metadataHashEnabled, false)
+  assert.equal(captures.payloadParams.metadataHash, null)
+  assert.equal(request.metadataHash, undefined)
+
+  const explicitMetadataHash = Buffer.alloc(32, 3)
+  await client.signExtrinsic(callData, signer, { period: null, metadataHash: explicitMetadataHash })
   assert.equal(captures.encoded.params.metadataHashEnabled, true)
-  assert.equal(captures.payloadParams.metadataHash.length, 32)
-  assert.equal(typeof request.metadataHash, 'string')
-  assert.equal(request.metadataHash.length, 66)
+  assert.deepEqual(captures.payloadParams.metadataHash, explicitMetadataHash)
+  assert.equal(request.metadataHash, `0x${explicitMetadataHash.toString('hex')}`)
 })
 
 test('Client passes structured payloads to extension signPayload signers', async () => {
