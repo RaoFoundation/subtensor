@@ -15,7 +15,7 @@ use sodiumoxide::crypto::sealedbox;
 #[cfg(feature = "host")]
 use sodiumoxide::crypto::sign::ed25519 as sign_ed25519;
 use sp_core::crypto::Pair as PairT;
-use sp_core::{ByteArray, ed25519, sr25519};
+use sp_core::{ed25519, sr25519, ByteArray};
 use zeroize::Zeroizing;
 
 use crate::error::CoreError;
