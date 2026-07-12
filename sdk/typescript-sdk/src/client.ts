@@ -14,6 +14,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 export const DEFAULT_MAX_REQUEST_RETRIES = 2
 export const DEFAULT_RETRY_BACKOFF_MS = 250
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
+export const DEFAULT_NONCE_RECONCILE_BLOCKS = 8
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
@@ -142,9 +143,11 @@ export interface ChainSigner {
 }
 
 export type SignerLike = Keypair | ChainSigner | LedgerDevice
+export type ExtrinsicStatus = 'submitted' | 'inBlock' | 'finalized' | 'failed'
 
 export interface ExtrinsicResult {
-  success: boolean
+  status: ExtrinsicStatus
+  success?: boolean
   message: string
   extrinsicHash: string
   blockHash?: string
@@ -199,6 +202,7 @@ interface SubscriptionState {
   queue: unknown[]
   waiters: SubscriptionWaiter[]
   closed: boolean
+  resubscribe: boolean
   subscribeMethod: string
   params: unknown[]
   unsubscribeMethod: string
@@ -240,6 +244,12 @@ interface NonceAccountState {
 interface NonceReservation {
   address: string
   nonce: number
+}
+
+type SubmittedExtrinsicLocation = 'pool' | 'block' | null
+
+interface SubscriptionOptions {
+  resubscribe?: boolean
 }
 
 const MANAGED_NONCE = Symbol('managedNonce')
@@ -367,12 +377,14 @@ export class JsonRpcTransport {
     subscribeMethod: string,
     params: unknown[] = [],
     unsubscribeMethod: string,
+    options: SubscriptionOptions = {},
   ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
     if (this.isHttpEndpoint()) throw new ChainError('subscriptions require a WebSocket endpoint')
     const state: SubscriptionState = {
       queue: [],
       waiters: [],
       closed: false,
+      resubscribe: options.resubscribe ?? true,
       subscribeMethod,
       params,
       unsubscribeMethod,
@@ -578,7 +590,8 @@ export class JsonRpcTransport {
     if (this.closed) return
     for (const state of this.subscriptions) {
       state.subscription = undefined
-      void this.resubscribe(state)
+      if (state.resubscribe) void this.resubscribe(state)
+      else this.closeSubscription(state, error)
     }
   }
 
@@ -1114,14 +1127,25 @@ export class Client {
   }
 
   async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
+    return this.signExtrinsicWithNonce(call, signer, options, false)
+  }
+
+  private async signExtrinsicWithNonce(
+    call: CallLike,
+    signer: SignerLike,
+    options: SubmitOptions,
+    manageNonce: boolean,
+  ): Promise<ManagedSignedExtrinsicResult> {
     let resolved: ResolvedSigner | undefined
     let reservation: NonceReservation | undefined
     try {
       const runtime = await this.runtimeAt()
       const callData = await this.callData(call)
       resolved = await this.resolveSigner(signer, runtime)
-      reservation = options.nonce == null ? await this.reserveNonce(resolved.ss58Address) : undefined
-      const nonce = options.nonce ?? reservation!.nonce
+      reservation = manageNonce && options.nonce == null
+        ? await this.reserveNonce(resolved.ss58Address)
+        : undefined
+      const nonce = options.nonce ?? reservation?.nonce ?? await this.peekNextIndex(resolved.ss58Address)
       const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
       const { era, eraBlockHash } = await this.normalizeEra(period)
       const tip = balanceRao(options.tip ?? 0)
@@ -1194,7 +1218,7 @@ export class Client {
   }
 
   async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    const signed = await this.signExtrinsic(call, signer, options)
+    const signed = await this.signExtrinsicWithNonce(call, signer, options, true)
     return this.submitSigned(signed, signed.signerAddress, options)
   }
 
@@ -1208,24 +1232,18 @@ export class Client {
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
     const reservation = managedNonceReservation(extrinsic)
-    let submitted = false
-    try {
-      if (!options.waitForInclusion && !options.waitForFinalization) {
-        const hash = String(await this.rpc('author_submitExtrinsic', [hex(bytes)]))
-        submitted = true
-        if (reservation != null) await this.submitNonce(reservation)
-        return { success: true, message: 'Submitted', extrinsicHash: hash, events: [] }
-      }
-      const watcher = await this.watchSigned(bytes, {
+    if (options.waitForInclusion || options.waitForFinalization) {
+      const watcher = await this.watchSigned(extrinsic, {
         waitForFinalization: options.waitForFinalization ?? false,
       })
-      submitted = true
+      return await watcher.result
+    }
+    try {
+      const hash = String(await this.rpc('author_submitExtrinsic', [hex(bytes)]))
       if (reservation != null) await this.submitNonce(reservation)
-      const result = await watcher.result
-      if (reservation != null) await this.confirmNonce(reservation)
-      return result
+      return { status: 'submitted', message: 'Submitted', extrinsicHash: hash, events: [] }
     } catch (error) {
-      if (reservation != null) await this.failNonce(reservation, !submitted || nonceReusableAfterSubmissionError(error))
+      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
       throw error
     }
   }
@@ -1238,18 +1256,37 @@ export class Client {
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    const subscription = await this.transport.subscribe(
-      'author_submitAndWatchExtrinsic',
-      [hex(bytes)],
-      'author_unwatchExtrinsic',
+    const reservation = managedNonceReservation(extrinsic)
+    let subscription: AsyncIterable<unknown> & { unsubscribe(): Promise<void> }
+    try {
+      subscription = await this.transport.subscribe(
+        'author_submitAndWatchExtrinsic',
+        [hex(bytes)],
+        'author_unwatchExtrinsic',
+        { resubscribe: false },
+      )
+      if (reservation != null) await this.submitNonce(reservation)
+    } catch (error) {
+      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+      throw error
+    }
+    const result = this.resolveWatchedExtrinsic(
+      subscription,
+      extrinsicHash,
+      options.waitForFinalization ?? false,
+    ).then(
+      async (value) => {
+        if (reservation != null) await this.confirmNonce(reservation)
+        return value
+      },
+      async (error) => {
+        if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+        throw error
+      },
     )
     return {
       extrinsicHash,
-      result: this.resolveWatchedExtrinsic(
-        subscription,
-        extrinsicHash,
-        options.waitForFinalization ?? false,
-      ),
+      result,
       unsubscribe: () => subscription.unsubscribe(),
     }
   }
@@ -1271,8 +1308,13 @@ export class Client {
   private async reserveNonce(address: string): Promise<NonceReservation> {
     return this.withNonceAccount(address, async (state) => {
       if (state.next == null) state.next = await this.peekNextIndex(address)
-      const nonce = state.reusable.shift() ?? state.next
-      if (nonce === state.next) state.next += 1
+      state.reusable.sort((left, right) => left - right)
+      let nonce = state.next
+      if (state.reusable.length > 0 && state.reusable[0] <= state.next) {
+        nonce = state.reusable.shift() as number
+      }
+      while (state.statuses.has(nonce) && state.statuses.get(nonce) !== 'reusable') nonce += 1
+      if (nonce >= state.next) state.next = nonce + 1
       state.statuses.set(nonce, 'reserved')
       return { address, nonce }
     })
@@ -1299,9 +1341,79 @@ export class Client {
       if (reusable && !state.reusable.includes(reservation.nonce)) {
         state.reusable.push(reservation.nonce)
         state.reusable.sort((left, right) => left - right)
+      } else if (!reusable) {
+        state.reusable = state.reusable.filter((nonce) => nonce !== reservation.nonce)
       }
       pruneNonceStatuses(state)
     })
+  }
+
+  private async reconcileNonceReservation(
+    reservation: NonceReservation,
+    extrinsicHash?: string,
+  ): Promise<void> {
+    const [location, chainNext] = await Promise.all([
+      extrinsicHash == null
+        ? Promise.resolve<SubmittedExtrinsicLocation>(null)
+        : this.submittedExtrinsicLocation(extrinsicHash).catch(() => null),
+      this.peekNextIndex(reservation.address).catch(() => undefined),
+    ])
+    await this.withNonceAccount(reservation.address, (state) => {
+      const submitted = location != null || (chainNext != null && chainNext > reservation.nonce)
+      if (chainNext != null) state.next = chainNext
+      else if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
+
+      const minimumReusableNonce = submitted
+        ? Math.max(state.next, reservation.nonce + 1)
+        : state.next
+      state.reusable = state.reusable.filter(
+        (nonce) => nonce >= minimumReusableNonce && nonce !== reservation.nonce,
+      )
+      for (const [nonce, status] of state.statuses) {
+        if (status === 'reusable' || (submitted && nonce <= reservation.nonce)) {
+          state.statuses.delete(nonce)
+        }
+      }
+
+      if (submitted) {
+        if (state.next <= reservation.nonce) state.next = reservation.nonce + 1
+        state.statuses.set(reservation.nonce, location === 'block' ? 'confirmed' : 'submitted')
+      } else {
+        state.statuses.set(reservation.nonce, 'reusable')
+        if (!state.reusable.includes(reservation.nonce)) {
+          state.reusable.push(reservation.nonce)
+          state.reusable.sort((left, right) => left - right)
+        }
+      }
+      while (state.statuses.has(state.next) && state.statuses.get(state.next) !== 'reusable') {
+        state.next += 1
+      }
+      pruneNonceStatuses(state)
+    })
+  }
+
+  private async submittedExtrinsicLocation(extrinsicHash: string): Promise<SubmittedExtrinsicLocation> {
+    const normalized = extrinsicHash.toLowerCase()
+    if (await this.pendingExtrinsicsContain(normalized).catch(() => false)) return 'pool'
+    return await this.recentBlocksContainExtrinsic(normalized).catch(() => false) ? 'block' : null
+  }
+
+  private async pendingExtrinsicsContain(extrinsicHash: string): Promise<boolean> {
+    const pending = await this.rpc('author_pendingExtrinsics')
+    if (!Array.isArray(pending)) return false
+    return pending.some((extrinsic) => hashExtrinsicHex(extrinsic) === extrinsicHash)
+  }
+
+  private async recentBlocksContainExtrinsic(extrinsicHash: string): Promise<boolean> {
+    const current = await this.blockNumber()
+    const earliest = Math.max(0, current - DEFAULT_NONCE_RECONCILE_BLOCKS + 1)
+    for (let number = current; number >= earliest; number -= 1) {
+      const blockHash = await this.blockHash(number)
+      const raw = await this.rpc('chain_getBlock', [blockHash])
+      const extrinsics = (raw as { block?: { extrinsics?: unknown[] } })?.block?.extrinsics ?? []
+      if (extrinsics.some((extrinsic) => hashExtrinsicHex(extrinsic) === extrinsicHash)) return true
+    }
+    return false
   }
 
   private withNonceAccount<T>(
@@ -1605,8 +1717,10 @@ export class Client {
     const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed')
     const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
     const feeEvent = triggered.find((event) => eventName(event) === 'TransactionPayment.TransactionFeePaid')
+    const dispatchSuccess = success && failed == null
     return {
-      success: success && failed == null,
+      status: dispatchSuccess ? finalized ? 'finalized' : 'inBlock' : 'failed',
+      success: dispatchSuccess,
       message: failed == null ? 'Success' : 'Extrinsic failed',
       extrinsicHash,
       blockHash,
@@ -2247,10 +2361,13 @@ function managedNonceReservation(extrinsic: unknown): NonceReservation | undefin
   return (extrinsic as ManagedSignedExtrinsicResult)[MANAGED_NONCE]
 }
 
-function nonceReusableAfterSubmissionError(error: unknown): boolean {
-  if (error instanceof JsonRpcError) return true
-  if (!(error instanceof ChainError)) return false
-  return /\b(dropped|invalid)\b/i.test(error.message)
+function hashExtrinsicHex(extrinsic: unknown): string | undefined {
+  if (typeof extrinsic !== 'string') return undefined
+  try {
+    return hex(blake2_256(hexToBuffer(extrinsic))).toLowerCase()
+  } catch {
+    return undefined
+  }
 }
 
 function pruneNonceStatuses(state: NonceAccountState): void {

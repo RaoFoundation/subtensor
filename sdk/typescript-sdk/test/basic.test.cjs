@@ -836,6 +836,38 @@ test('JsonRpcTransport restores websocket subscriptions after reconnect', async 
   await subscription.unsubscribe()
 })
 
+test('JsonRpcTransport does not resubmit submit-and-watch subscriptions after reconnect', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  let submissions = 0
+  FakeWebSocket.onSend = (socket, message) => {
+    if (message.method === 'author_submitAndWatchExtrinsic') {
+      submissions += 1
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: 'watch-1' }))
+    }
+  }
+
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+  const subscription = await transport.subscribe(
+    'author_submitAndWatchExtrinsic',
+    ['0x01'],
+    'author_unwatchExtrinsic',
+    { resubscribe: false },
+  )
+  const iterator = subscription[Symbol.asyncIterator]()
+  const pending = iterator.next()
+
+  FakeWebSocket.sockets[0].close()
+
+  await assert.rejects(pending, /connection closed/)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(submissions, 1)
+  assert.equal(FakeWebSocket.sockets.length, 1)
+})
+
 test('JsonRpcTransport bounds retries and supports request cancellation', async (t) => {
   const { FakeWebSocket, restore } = installFakeWebSocket()
   t.after(restore)
@@ -1013,6 +1045,7 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   const signed = await client.signExtrinsic(callData, signer, { period: null })
 
   assert.equal(signed.signerAddress, address)
+  assert.equal(signed.nonce, 12)
   assert.equal(client.lastNonceAddress, address)
   assert.equal(request.address, address)
   assert.equal(request.type, 'bytes')
@@ -1023,6 +1056,8 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.deepEqual(captures.encoded.signature, Buffer.alloc(64, 9))
   assert.equal(captures.encoded.signatureVersion, core.CRYPTO_SR25519)
   assert.equal(captures.encoded.params.metadataHashEnabled, false)
+  assert.equal(await client.accountNextIndex(address), 12)
+  assert.equal(await client.accountNextIndex(address), 13)
 })
 
 test('Client estimateFee peeks the chain nonce without reserving it', async () => {
@@ -1136,7 +1171,7 @@ test('Client releases only the failed reserved nonce', async () => {
     },
   }
 
-  const signing = client.signExtrinsic(callData, signer, { period: null })
+  const signing = client.submit(callData, signer, { period: null })
   await started
   const independentlyReserved = await client.accountNextIndex(address)
   releaseSign()
@@ -1147,6 +1182,135 @@ test('Client releases only the failed reserved nonce', async () => {
   assert.equal(independentlyReserved, 13)
   assert.equal(reusable, 12)
   assert.equal(next, 14)
+})
+
+test('Client reuses an ambiguous submit nonce only after reconciliation proves it absent', async () => {
+  const callData = Buffer.from([4, 5, 6])
+  const { runtime } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 13)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const typedSignature = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    Buffer.alloc(64, 8),
+  ])
+  const nonceReads = []
+  client.rpc = async (method, params = []) => {
+    if (method === 'system_accountNextIndex') {
+      nonceReads.push(params[0])
+      return 20
+    }
+    if (method === 'state_getRuntimeVersion') {
+      return {
+        specName: 'node-subtensor',
+        specVersion: runtime.specVersion,
+        transactionVersion: runtime.transactionVersion,
+      }
+    }
+    if (method === 'system_properties') {
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    if (method === 'author_submitExtrinsic') throw new core.JsonRpcError('lost response')
+    throw new Error(`unexpected RPC ${method}`)
+  }
+  const signer = {
+    address,
+    publicKey,
+    signRaw() {
+      return { signature: `0x${typedSignature.toString('hex')}` }
+    },
+  }
+
+  await assert.rejects(() => client.submit(callData, signer, { period: null }), /lost response/)
+  assert.equal(await client.accountNextIndex(address), 20)
+  assert.deepEqual(nonceReads, [address, address])
+})
+
+test('Client protects an ambiguous submit nonce when the extrinsic is still pending', async () => {
+  const callData = Buffer.from([4, 5, 7])
+  const { runtime } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 15)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const typedSignature = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    Buffer.alloc(64, 3),
+  ])
+  const nonceReads = []
+  let submittedHex
+  client.rpc = async (method, params = []) => {
+    if (method === 'system_accountNextIndex') {
+      nonceReads.push(params[0])
+      return 40
+    }
+    if (method === 'state_getRuntimeVersion') {
+      return {
+        specName: 'node-subtensor',
+        specVersion: runtime.specVersion,
+        transactionVersion: runtime.transactionVersion,
+      }
+    }
+    if (method === 'system_properties') {
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    if (method === 'author_submitExtrinsic') {
+      submittedHex = params[0]
+      throw new core.JsonRpcError('lost response')
+    }
+    if (method === 'author_pendingExtrinsics') return [submittedHex]
+    throw new Error(`unexpected RPC ${method}`)
+  }
+  const signer = {
+    address,
+    publicKey,
+    signRaw() {
+      return { signature: `0x${typedSignature.toString('hex')}` }
+    },
+  }
+
+  await assert.rejects(() => client.submit(callData, signer, { period: null }), /lost response/)
+  assert.equal(await client.accountNextIndex(address), 41)
+  assert.deepEqual(nonceReads, [address, address])
+})
+
+test('Client submit without inclusion reports pool submission, not execution success', async () => {
+  const callData = Buffer.from([7, 7, 7])
+  const { runtime } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 14)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const typedSignature = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    Buffer.alloc(64, 6),
+  ])
+  client.rpc = async (method) => {
+    if (method === 'system_accountNextIndex') return 30
+    if (method === 'state_getRuntimeVersion') {
+      return {
+        specName: 'node-subtensor',
+        specVersion: runtime.specVersion,
+        transactionVersion: runtime.transactionVersion,
+      }
+    }
+    if (method === 'system_properties') {
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    if (method === 'author_submitExtrinsic') return `0x${'ab'.repeat(32)}`
+    throw new Error(`unexpected RPC ${method}`)
+  }
+  const signer = {
+    address,
+    publicKey,
+    signRaw() {
+      return { signature: `0x${typedSignature.toString('hex')}` }
+    },
+  }
+
+  const result = await client.submit(callData, signer, { period: null })
+
+  assert.equal(result.status, 'submitted')
+  assert.equal(result.success, undefined)
+  assert.equal(result.message, 'Submitted')
 })
 
 test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', async () => {
@@ -1273,6 +1437,36 @@ test('wallet helpers keep mnemonic and keyfile passwords separate', (t) => {
     cold.getColdkey(keyfilePassword).publicKey,
     core.Keypair.fromMnemonic(mnemonic, core.CRYPTO_SR25519, mnemonicPassword).publicKey,
   )
+})
+
+test('wallet keyfile writes are restrictive and reject symlink targets', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bittensor-wallet-atomic-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const keypair = core.Keypair.fromUri('//Alice')
+  const wallet = new core.Wallet({ name: 'atomic', hotkey: 'default', path: root })
+
+  wallet.setHotkey(keypair)
+
+  const hotkeyPath = wallet.hotkeyFile.path
+  const hotkeyDir = path.dirname(hotkeyPath)
+  assert.equal(fs.lstatSync(hotkeyPath).isFile(), true)
+  assert.equal(fs.statSync(hotkeyPath).mode & 0o777, 0o600)
+  assert.equal(fs.statSync(hotkeyDir).mode & 0o777, 0o700)
+  assert.deepEqual(
+    fs.readdirSync(hotkeyDir).filter((name) => name.endsWith('.tmp')),
+    [],
+  )
+
+  const target = path.join(root, 'outside-target')
+  fs.writeFileSync(target, 'do not replace')
+  const linkedWallet = new core.Wallet({ name: 'atomic', hotkey: 'linked', path: root })
+  fs.symlinkSync(target, linkedWallet.hotkeyFile.path)
+
+  assert.throws(
+    () => linkedWallet.setHotkey(keypair, { overwrite: true }),
+    /symlink/,
+  )
+  assert.equal(fs.readFileSync(target, 'utf8'), 'do not replace')
 })
 
 test('arbitrary StorageInfo helpers call Rust directly', () => {
