@@ -156,7 +156,7 @@ prepare_writer() {
   local output_file="$2"
 
   case "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}" in
-    push:refs/heads/main|schedule:refs/heads/main|workflow_dispatch:refs/heads/main|push:refs/heads/bittensor-core-exploration|workflow_dispatch:refs/heads/bittensor-core-exploration|push:refs/heads/codex/subtensor-r2-sccache|workflow_dispatch:refs/heads/codex/subtensor-r2-sccache)
+    push:refs/heads/main|schedule:refs/heads/main|workflow_dispatch:refs/heads/main)
       ;;
     *)
       disable_prepare "$config_file" "$output_file" "writer mode is restricted to trusted cache-source branches"

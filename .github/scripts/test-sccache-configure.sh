@@ -171,24 +171,16 @@ assert_contains "$tmp/output" 'enabled=true'
 assert_contains "$tmp/env" 'SCCACHE_BACKEND=r2'
 assert_contains "$tmp/env" 'RUSTC_WRAPPER=sccache'
 
-for trusted_event in push workflow_dispatch; do
-  reset_outputs
-  export AWS_ACCESS_KEY_ID=writer-access-key-test
-  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
-  export GITHUB_EVENT_NAME="$trusted_event"
-  export GITHUB_REF=refs/heads/bittensor-core-exploration
-  "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-pr2846-$trusted_event.log"
-  assert_contains "$tmp/output" 'available=true'
-done
-
-for trusted_event in push workflow_dispatch; do
-  reset_outputs
-  export AWS_ACCESS_KEY_ID=writer-access-key-test
-  export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
-  export GITHUB_EVENT_NAME="$trusted_event"
-  export GITHUB_REF=refs/heads/codex/subtensor-r2-sccache
-  "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-pr2855-$trusted_event.log"
-  assert_contains "$tmp/output" 'available=true'
+for untrusted_branch in bittensor-core-exploration codex/subtensor-r2-sccache; do
+  for untrusted_event in push workflow_dispatch; do
+    reset_outputs
+    export AWS_ACCESS_KEY_ID=writer-access-key-test
+    export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+    export GITHUB_EVENT_NAME="$untrusted_event"
+    export GITHUB_REF="refs/heads/$untrusted_branch"
+    "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-untrusted.log"
+    assert_contains "$tmp/output" 'available=false'
+  done
 done
 
 for trusted_event in schedule workflow_dispatch; do

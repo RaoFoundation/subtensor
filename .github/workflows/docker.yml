@@ -109,7 +109,7 @@ jobs:
           actual=$(docker image inspect subtensor-release-check:${{ matrix.arch }} --format '{{.Architecture}}')
           test "$actual" = "${{ matrix.arch }}"
           docker run --rm --platform linux/${{ matrix.arch }} \
-            subtensor-release-check:${{ matrix.arch }} --version
+            subtensor-release-check:${{ matrix.arch }} --help > /dev/null
 
   publish:
     needs: [setup, binary, image]
