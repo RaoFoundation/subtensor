@@ -29,6 +29,7 @@ pub const CRYPTO_ED25519: u8 = 0;
 pub const CRYPTO_SR25519: u8 = 1;
 
 pub const DEFAULT_SS58_FORMAT: u16 = 42;
+const MAX_SS58_ACCOUNT_ADDRESS_LEN: usize = 64;
 
 fn crypto_err(msg: impl Into<String>) -> CoreError {
     CoreError::Crypto(msg.into())
@@ -46,6 +47,9 @@ fn as_bytes<T: AsRef<[u8]>>(value: &T) -> Vec<u8> {
 }
 
 pub fn public_key_from_ss58(ss58_address: &str) -> Result<[u8; 32], CoreError> {
+    if ss58_address.len() > MAX_SS58_ACCOUNT_ADDRESS_LEN {
+        return Err(crypto_err("invalid ss58 address length"));
+    }
     let decoded = base58::base58_decode(ss58_address)
         .ok_or_else(|| crypto_err("invalid ss58 address: invalid base58"))?;
     if decoded.len() != 35 && decoded.len() != 36 {
@@ -646,6 +650,16 @@ mod tests {
         let public = Keypair::new(Some(&full.ss58_address()), None, CRYPTO_SR25519, 42).unwrap();
         assert_eq!(public.ss58_address(), full.ss58_address());
         assert_eq!(public.public_key_bytes(), full.public_key_bytes());
+    }
+
+    #[test]
+    fn public_key_from_ss58_rejects_pathological_length_before_decode() {
+        let long_address = "1".repeat(MAX_SS58_ACCOUNT_ADDRESS_LEN + 1);
+        let error = public_key_from_ss58(&long_address).expect_err("long ss58 must reject");
+        assert!(
+            error.to_string().contains("invalid ss58 address length"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

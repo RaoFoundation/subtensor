@@ -4,6 +4,7 @@ use napi::bindgen_prelude::{AsyncTask, Buffer};
 use napi::{Env, Task};
 use napi_derive::napi;
 use std::path::PathBuf;
+use zeroize::Zeroizing;
 
 use crate::errors::{invalid_arg, CoreResultExt, NapiResult};
 
@@ -20,7 +21,7 @@ impl NativeKeypair {
 
 pub struct KeypairFromEncryptedJsonTask {
     json_data: String,
-    passphrase: String,
+    passphrase: Zeroizing<String>,
 }
 
 impl Task for KeypairFromEncryptedJsonTask {
@@ -28,7 +29,7 @@ impl Task for KeypairFromEncryptedJsonTask {
     type JsValue = NativeKeypair;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        Keypair::from_encrypted_json(&self.json_data, &self.passphrase).napi()
+        Keypair::from_encrypted_json(&self.json_data, self.passphrase.as_str()).napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -38,7 +39,7 @@ impl Task for KeypairFromEncryptedJsonTask {
 
 pub struct KeypairToKeyfileDataTask {
     keypair: Keypair,
-    password: Option<String>,
+    password: Option<Zeroizing<String>>,
 }
 
 impl Task for KeypairToKeyfileDataTask {
@@ -46,7 +47,11 @@ impl Task for KeypairToKeyfileDataTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        keyfiles::keypair_to_keyfile_data(&self.keypair, self.password.as_deref()).napi()
+        keyfiles::keypair_to_keyfile_data(
+            &self.keypair,
+            self.password.as_ref().map(|value| value.as_str()),
+        )
+        .napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -55,8 +60,8 @@ impl Task for KeypairToKeyfileDataTask {
 }
 
 pub struct DeserializeKeypairFromKeyfileTask {
-    keyfile_data: Vec<u8>,
-    password: Option<String>,
+    keyfile_data: Zeroizing<Vec<u8>>,
+    password: Option<Zeroizing<String>>,
 }
 
 impl Task for DeserializeKeypairFromKeyfileTask {
@@ -64,8 +69,11 @@ impl Task for DeserializeKeypairFromKeyfileTask {
     type JsValue = NativeKeypair;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        keyfiles::deserialize_keypair_from_keyfile(&self.keyfile_data, self.password.as_deref())
-            .napi()
+        keyfiles::deserialize_keypair_from_keyfile(
+            &self.keyfile_data,
+            self.password.as_ref().map(|value| value.as_str()),
+        )
+        .napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -75,7 +83,7 @@ impl Task for DeserializeKeypairFromKeyfileTask {
 
 pub struct ReadKeypairKeyfileTask {
     path: PathBuf,
-    password: Option<String>,
+    password: Option<Zeroizing<String>>,
 }
 
 impl Task for ReadKeypairKeyfileTask {
@@ -83,7 +91,11 @@ impl Task for ReadKeypairKeyfileTask {
     type JsValue = NativeKeypair;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        keyfiles::read_keypair_from_keyfile(&self.path, self.password.as_deref()).napi()
+        keyfiles::read_keypair_from_keyfile(
+            &self.path,
+            self.password.as_ref().map(|value| value.as_str()),
+        )
+        .napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -94,7 +106,7 @@ impl Task for ReadKeypairKeyfileTask {
 pub struct WriteKeypairKeyfileTask {
     keypair: Keypair,
     path: PathBuf,
-    password: Option<String>,
+    password: Option<Zeroizing<String>>,
     overwrite: bool,
     allow_plaintext: bool,
 }
@@ -107,7 +119,7 @@ impl Task for WriteKeypairKeyfileTask {
         keyfiles::save_keypair_to_keyfile(
             &self.keypair,
             &self.path,
-            self.password.as_deref(),
+            self.password.as_ref().map(|value| value.as_str()),
             self.overwrite,
             self.allow_plaintext,
         )
@@ -122,7 +134,7 @@ impl Task for WriteKeypairKeyfileTask {
 pub struct WriteKeypairPairKeyfileTask {
     private_keypair: Keypair,
     private_path: PathBuf,
-    private_password: Option<String>,
+    private_password: Option<Zeroizing<String>>,
     public_keypair: Keypair,
     public_path: PathBuf,
     overwrite: bool,
@@ -137,7 +149,7 @@ impl Task for WriteKeypairPairKeyfileTask {
         keyfiles::save_keypair_pair_to_keyfiles(
             &self.private_keypair,
             &self.private_path,
-            self.private_password.as_deref(),
+            self.private_password.as_ref().map(|value| value.as_str()),
             &self.public_keypair,
             &self.public_path,
             self.overwrite,
@@ -152,8 +164,8 @@ impl Task for WriteKeypairPairKeyfileTask {
 }
 
 pub struct EncryptKeyfileDataTask {
-    keyfile_data: Vec<u8>,
-    password: String,
+    keyfile_data: Zeroizing<Vec<u8>>,
+    password: Zeroizing<String>,
 }
 
 impl Task for EncryptKeyfileDataTask {
@@ -161,7 +173,7 @@ impl Task for EncryptKeyfileDataTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        keyfiles::encrypt_keyfile_data(&self.keyfile_data, &self.password).napi()
+        keyfiles::encrypt_keyfile_data(&self.keyfile_data, self.password.as_str()).napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -170,8 +182,8 @@ impl Task for EncryptKeyfileDataTask {
 }
 
 pub struct DecryptKeyfileDataTask {
-    keyfile_data: Vec<u8>,
-    password: Option<String>,
+    keyfile_data: Zeroizing<Vec<u8>>,
+    password: Option<Zeroizing<String>>,
 }
 
 impl Task for DecryptKeyfileDataTask {
@@ -179,7 +191,11 @@ impl Task for DecryptKeyfileDataTask {
     type JsValue = Buffer;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        keyfiles::decrypt_keyfile_data(&self.keyfile_data, self.password.as_deref()).napi()
+        keyfiles::decrypt_keyfile_data(
+            &self.keyfile_data,
+            self.password.as_ref().map(|value| value.as_str()),
+        )
+        .napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -308,7 +324,7 @@ pub fn keypair_from_encrypted_json(
 ) -> AsyncTask<KeypairFromEncryptedJsonTask> {
     AsyncTask::new(KeypairFromEncryptedJsonTask {
         json_data,
-        passphrase,
+        passphrase: Zeroizing::new(passphrase),
     })
 }
 
@@ -379,7 +395,7 @@ pub fn keypair_to_keyfile_data(
 ) -> AsyncTask<KeypairToKeyfileDataTask> {
     AsyncTask::new(KeypairToKeyfileDataTask {
         keypair: keypair.inner.clone(),
-        password,
+        password: password.map(Zeroizing::new),
     })
 }
 
@@ -396,8 +412,8 @@ pub fn deserialize_keypair_from_keyfile(
     password: Option<String>,
 ) -> AsyncTask<DeserializeKeypairFromKeyfileTask> {
     AsyncTask::new(DeserializeKeypairFromKeyfileTask {
-        keyfile_data: keyfile_data.to_vec(),
-        password,
+        keyfile_data: Zeroizing::new(keyfile_data.to_vec()),
+        password: password.map(Zeroizing::new),
     })
 }
 
@@ -408,7 +424,7 @@ pub fn read_keypair_keyfile(
 ) -> AsyncTask<ReadKeypairKeyfileTask> {
     AsyncTask::new(ReadKeypairKeyfileTask {
         path: PathBuf::from(path),
-        password,
+        password: password.map(Zeroizing::new),
     })
 }
 
@@ -423,7 +439,7 @@ pub fn write_keypair_keyfile(
     AsyncTask::new(WriteKeypairKeyfileTask {
         keypair: keypair.inner.clone(),
         path: PathBuf::from(path),
-        password,
+        password: password.map(Zeroizing::new),
         overwrite,
         allow_plaintext,
     })
@@ -442,7 +458,7 @@ pub fn write_keypair_pair_keyfile(
     AsyncTask::new(WriteKeypairPairKeyfileTask {
         private_keypair: private_keypair.inner.clone(),
         private_path: PathBuf::from(private_path),
-        private_password,
+        private_password: private_password.map(Zeroizing::new),
         public_keypair: public_keypair.inner.clone(),
         public_path: PathBuf::from(public_path),
         overwrite,
@@ -456,8 +472,8 @@ pub fn encrypt_keyfile_data(
     password: String,
 ) -> AsyncTask<EncryptKeyfileDataTask> {
     AsyncTask::new(EncryptKeyfileDataTask {
-        keyfile_data: keyfile_data.to_vec(),
-        password,
+        keyfile_data: Zeroizing::new(keyfile_data.to_vec()),
+        password: Zeroizing::new(password),
     })
 }
 
@@ -467,8 +483,8 @@ pub fn decrypt_keyfile_data(
     password: Option<String>,
 ) -> AsyncTask<DecryptKeyfileDataTask> {
     AsyncTask::new(DecryptKeyfileDataTask {
-        keyfile_data: keyfile_data.to_vec(),
-        password,
+        keyfile_data: Zeroizing::new(keyfile_data.to_vec()),
+        password: password.map(Zeroizing::new),
     })
 }
 

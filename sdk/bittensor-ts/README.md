@@ -31,6 +31,10 @@ raw generated Node-API module as `@bittensor/sdk/native`, so every native
 entry point is callable even when an ergonomic wrapper has not yet been
 added.
 
+This package is currently monorepo-internal and intentionally remains marked
+`"private": true`. A public npm release needs a cross-platform native binary
+layout and CI matrix for Linux, macOS, and Windows before that flag is removed.
+
 Browser bundlers should import the explicit `@bittensor/sdk/browser` subpath.
 That entrypoint is a portable browser subset, not a method-for-method mirror of
 the Node API. It does not load `native.cjs`, `.node` binaries, Node `Buffer`,

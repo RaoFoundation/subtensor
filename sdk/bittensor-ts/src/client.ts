@@ -26,6 +26,7 @@ export const DEFAULT_MAX_REQUEST_RETRIES = 2
 export const DEFAULT_RETRY_BACKOFF_MS = 250
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
 export const DEFAULT_NONCE_RECONCILE_BLOCKS = 8
+export const DEFAULT_MAX_NONCE_STATUS_HISTORY = 256
 export const DEFAULT_ENDPOINT_VALIDATION_TTL_MS = 60_000
 export const DEFAULT_MAX_SUBSCRIPTION_QUEUE = 1024
 export const DEFAULT_MAX_WS_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -173,7 +174,7 @@ export interface SignerPayloadContext {
 export interface ExtensionSignRawRequest {
   address: string
   data: string
-  type: 'payload'
+  type: 'bytes'
   payload: Buffer
   metadataHash?: string
   metadataProof?: Buffer
@@ -525,12 +526,66 @@ export class JsonRpcTransport {
     }
   }
 
+  private async requestWebSocketOnly(
+    method: string,
+    params: unknown[] = [],
+    options: RpcRequestOptions = {},
+  ): Promise<unknown> {
+    if (this.closed) throw new ChainError('transport closed')
+    const requestOptions = {
+      ...options,
+      timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
+    }
+    throwIfAborted(requestOptions.signal)
+    const maxRetries = requestOptions.maxRetries ?? this.maxRequestRetries
+    const retryForever = requestOptions.retryForever ?? this.retryForever
+    const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
+    const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
+    let attempt = 0
+    for (;;) {
+      const endpointAttempt = this.currentWebSocketAttempt()
+      try {
+        await this.ensureEndpointValidated(endpointAttempt, requestOptions)
+        return await this.wsRequest(endpointAttempt, method, params, requestOptions)
+      } catch (error) {
+        if (error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
+        if (error instanceof EndpointValidationError) this.validatedEndpoints.delete(endpointAttempt.endpoint)
+        if (!retryForever && attempt >= maxRetries) throw error
+        attempt += 1
+        const nextIndex = this.nextWebSocketEndpointIndex(endpointAttempt.index)
+        if (nextIndex == null) throw error
+        this.rotateEndpoint(endpointAttempt, nextIndex)
+        const capped = Math.min(retryBackoffMs * (2 ** Math.max(0, attempt - 1)), maxRetryBackoffMs)
+        await delay(capped, requestOptions.signal)
+      }
+    }
+  }
+
   private currentAttempt(): EndpointAttempt {
     return {
       endpoint: this.endpoint,
       index: this.endpointIndex,
       generation: this.generation,
     }
+  }
+
+  private currentWebSocketAttempt(): EndpointAttempt {
+    const current = this.currentAttempt()
+    if (!this.isHttpEndpoint(current.endpoint)) return current
+    const nextIndex = this.nextWebSocketEndpointIndex(current.index)
+    if (nextIndex == null) {
+      throw new ChainError('subscriptions require a WebSocket endpoint')
+    }
+    this.rotateEndpoint(current, nextIndex)
+    return this.currentAttempt()
+  }
+
+  private nextWebSocketEndpointIndex(afterIndex: number): number | undefined {
+    for (let offset = 1; offset <= this.endpoints.length; offset += 1) {
+      const index = (afterIndex + offset) % this.endpoints.length
+      if (!this.isHttpEndpoint(this.endpoints[index])) return index
+    }
+    return undefined
   }
 
   private async ensureEndpointValidated(attempt: EndpointAttempt, options: RpcRequestOptions): Promise<void> {
@@ -554,7 +609,7 @@ export class JsonRpcTransport {
     unsubscribeMethod: string,
     options: SubscriptionOptions = {},
   ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
-    if (this.isHttpEndpoint(this.endpoint)) throw new ChainError('subscriptions require a WebSocket endpoint')
+    this.currentWebSocketAttempt()
     const state: SubscriptionState = {
       queue: [],
       waiters: [],
@@ -587,7 +642,9 @@ export class JsonRpcTransport {
       for (const waiter of state.waiters.splice(0)) waiter.resolve({ done: true, value: undefined })
       const subscription = state.subscription
       state.subscription = undefined
-      if (subscription != null) await this.request(unsubscribeMethod, [subscription]).catch(() => undefined)
+      if (subscription != null) {
+        await this.requestWebSocketOnly(unsubscribeMethod, [subscription]).catch(() => undefined)
+      }
     }
     return {
       unsubscribe,
@@ -852,12 +909,16 @@ export class JsonRpcTransport {
     } catch {
       // Ignore close errors while tearing down a failed connection.
     }
+    this.transitionDisconnectedSubscriptions(connection.generation, error)
+  }
+
+  private transitionDisconnectedSubscriptions(generation: number, error: Error): void {
     for (const [subscription, entry] of this.subscriptionsById) {
-      if (entry.generation === connection.generation) this.subscriptionsById.delete(subscription)
+      if (entry.generation === generation) this.subscriptionsById.delete(subscription)
     }
     if (this.closed) return
     for (const state of this.subscriptions) {
-      if (state.subscriptionGeneration !== connection.generation) continue
+      if (state.subscriptionGeneration !== generation) continue
       state.subscription = undefined
       state.subscriptionGeneration = undefined
       if (state.resubscribe) void this.resubscribe(state)
@@ -867,10 +928,10 @@ export class JsonRpcTransport {
 
   private async activateSubscription(state: SubscriptionState): Promise<void> {
     const subscription = String(
-      await this.request(state.subscribeMethod, state.params, state.requestOptions),
+      await this.requestWebSocketOnly(state.subscribeMethod, state.params, state.requestOptions),
     )
     if (state.closed) {
-      await this.request(state.unsubscribeMethod, [subscription]).catch(() => undefined)
+      await this.requestWebSocketOnly(state.unsubscribeMethod, [subscription]).catch(() => undefined)
       return
     }
     state.subscription = subscription
@@ -904,7 +965,7 @@ export class JsonRpcTransport {
     }
   }
 
-  private rotateEndpoint(attempt: EndpointAttempt = this.currentAttempt()): boolean {
+  private rotateEndpoint(attempt: EndpointAttempt = this.currentAttempt(), nextIndex?: number): boolean {
     if (
       attempt.generation !== this.generation ||
       attempt.index !== this.endpointIndex ||
@@ -912,10 +973,14 @@ export class JsonRpcTransport {
     ) return true
     this.validatedEndpoints.delete(attempt.endpoint)
     const socket = this.socket
+    const error = new ChainError(`endpoint rotated from ${attempt.endpoint}`)
+    this.failPending(error, attempt.generation)
     this.generation += 1
-    if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
+    if (nextIndex != null) this.endpointIndex = nextIndex
+    else if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
     this.socket = undefined
     this.connecting = undefined
+    this.transitionDisconnectedSubscriptions(attempt.generation, error)
     try {
       socket?.socket.close()
     } catch {
@@ -939,6 +1004,7 @@ export class Client {
   readonly subnets: SubnetsNamespace
   readonly neurons: NeuronsNamespace
   readonly staking: StakingNamespace
+  readonly ready?: Promise<this>
 
   private readonly headRuntimeTtlMs: number
   private readonly historicalRuntimeCacheSize: number
@@ -985,7 +1051,10 @@ export class Client {
       options.historicalRuntimeCacheSize,
       DEFAULT_HISTORICAL_RUNTIME_CACHE_SIZE,
     )
-    if (options.autoConnect) void this.connect()
+    if (options.autoConnect) {
+      this.ready = this.connect()
+      this.ready.catch(() => undefined)
+    }
   }
 
   async connect(): Promise<this> {
@@ -1777,6 +1846,7 @@ export class Client {
       if (state.next == null) {
         const chainNext = await this.peekNextIndex(address)
         await this.resolveAmbiguousNonce(address, state, chainNext)
+        advanceNonceStateToChainNext(state, chainNext)
         if (state.next == null) state.next = chainNext
       }
       state.reusable.sort((left, right) => left - right)
@@ -1794,6 +1864,7 @@ export class Client {
   private async submitNonce(reservation: NonceReservation): Promise<void> {
     await this.withNonceAccount(reservation.address, (state) => {
       state.statuses.set(reservation.nonce, 'submitted')
+      pruneNonceStatuses(state)
     })
   }
 
@@ -1853,11 +1924,12 @@ export class Client {
         return
       }
 
-      if (chainNext != null) state.next = chainNext
+      if (chainNext != null) advanceNonceStateToChainNext(state, chainNext)
       else if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
       if (state.ambiguous != null && reservation.nonce >= state.ambiguous.nonce) {
         state.ambiguous = undefined
       }
+      if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
 
       const minimumReusableNonce = Math.max(state.next, reservation.nonce + 1)
       state.reusable = state.reusable.filter(
@@ -1869,7 +1941,6 @@ export class Client {
         }
       }
 
-      if (state.next <= reservation.nonce) state.next = reservation.nonce + 1
       state.statuses.set(reservation.nonce, location === 'block' ? 'confirmed' : 'submitted')
       while (state.statuses.has(state.next) && state.statuses.get(state.next) !== 'reusable') {
         state.next += 1
@@ -2220,7 +2291,7 @@ export class Client {
         await signerShape.signRaw({
           address: context.address,
           data: hex(payload),
-          type: 'payload',
+          type: 'bytes',
           payload,
           metadataHash: context.metadataHash == null ? undefined : hex(context.metadataHash),
           metadataProof: context.metadataProof,
@@ -2271,7 +2342,7 @@ export class Client {
       for await (const status of subscription) {
         if (abortError != null) throw abortError
         const normalized = normalizeStatus(status)
-        const fatal = ['usurped', 'retracted', 'finalitytimeout', 'dropped', 'invalid'].find((name) =>
+        const fatal = ['usurped', 'finalitytimeout', 'dropped', 'invalid'].find((name) =>
           hasOwn(normalized, name),
         )
         if (fatal != null) throw new ChainError(`Extrinsic ${fatal}`, status)
@@ -3272,11 +3343,32 @@ function hashExtrinsicHex(extrinsic: unknown): string | undefined {
   }
 }
 
-function pruneNonceStatuses(state: NonceAccountState): void {
-  if (state.statuses.size <= 512) return
+function advanceNonceStateToChainNext(state: NonceAccountState, chainNext: number): void {
+  if (state.next == null || state.next < chainNext) state.next = chainNext
+  state.reusable = state.reusable.filter((nonce) => nonce >= chainNext)
   for (const [nonce, status] of state.statuses) {
-    if (state.statuses.size <= 256) break
-    if (status === 'confirmed' || status === 'failed') state.statuses.delete(nonce)
+    if (nonce >= chainNext) continue
+    if (status === 'ambiguous' && state.ambiguous?.nonce === nonce) {
+      state.ambiguous = undefined
+    }
+    state.statuses.delete(nonce)
+  }
+  pruneNonceStatuses(state)
+}
+
+function pruneNonceStatuses(state: NonceAccountState): void {
+  if (state.next != null) {
+    for (const [nonce, status] of state.statuses) {
+      if (nonce >= state.next) continue
+      if (status === 'submitted' || status === 'confirmed' || status === 'failed') {
+        state.statuses.delete(nonce)
+      }
+    }
+  }
+  if (state.statuses.size <= DEFAULT_MAX_NONCE_STATUS_HISTORY * 2) return
+  for (const [nonce, status] of state.statuses) {
+    if (state.statuses.size <= DEFAULT_MAX_NONCE_STATUS_HISTORY) break
+    if (status !== 'reserved' && status !== 'ambiguous') state.statuses.delete(nonce)
   }
 }
 
@@ -3303,6 +3395,7 @@ function clearAmbiguousNonceState(state: NonceAccountState, next: number): void 
   state.ambiguous = undefined
   state.next = next
   state.reusable = state.reusable.filter((nonce) => nonce >= next)
+  pruneNonceStatuses(state)
 }
 
 function sameHex(left: string, right: string): boolean {

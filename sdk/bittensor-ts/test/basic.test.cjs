@@ -727,6 +727,14 @@ test('private key bytes are not exported to JavaScript', async (t) => {
 
   const encrypted = await alice.toKeyfileData('review-password')
   assert.equal(core.keyfileDataIsEncrypted(encrypted), true)
+  await assert.rejects(
+    () => alice.toKeyfileData(''),
+    /keyfile password must not be empty/,
+  )
+  await assert.rejects(
+    () => alice.writeKeyfile(path.join(root, 'empty-password'), { password: '' }),
+    /keyfile password must not be empty/,
+  )
 })
 
 test('fallible Runtime construction uses the native factory', () => {
@@ -1351,6 +1359,81 @@ test('JsonRpcTransport restores websocket subscriptions after reconnect', async 
   await subscription.unsubscribe()
 })
 
+test('JsonRpcTransport routes subscriptions only to WebSocket fallbacks', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  let nextSubscription = 1
+  FakeWebSocket.onSend = (socket, message) => {
+    if (message.method === 'chain_subscribeNewHeads') {
+      const subscription = `sub-${nextSubscription++}`
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: subscription }))
+      return
+    }
+    if (message.method === 'chain_unsubscribeNewHeads') {
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: true }))
+    }
+  }
+
+  const httpPrimary = new core.JsonRpcTransport('http://node-a', ['ws://node-b'], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+  const initialSubscription = await httpPrimary.subscribe(
+    'chain_subscribeNewHeads',
+    [],
+    'chain_unsubscribeNewHeads',
+  )
+  assert.equal(FakeWebSocket.sockets.at(-1).url, 'ws://node-b')
+  await initialSubscription.unsubscribe()
+
+  const mixedFallbacks = new core.JsonRpcTransport('ws://node-a', ['http://node-b', 'ws://node-c'], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+  const subscription = await mixedFallbacks.subscribe(
+    'chain_subscribeNewHeads',
+    [],
+    'chain_unsubscribeNewHeads',
+  )
+  mixedFallbacks.endpointIndex = 1
+  FakeWebSocket.sockets.at(-1).close()
+  await waitFor(
+    () => FakeWebSocket.sockets.some((socket) =>
+      socket.url === 'ws://node-c' &&
+        socket.sent.some((message) => message.method === 'chain_subscribeNewHeads'),
+    ),
+    'resubscribe on websocket fallback',
+  )
+  await subscription.unsubscribe()
+})
+
+test('JsonRpcTransport rejects old pending websocket requests on endpoint rotation', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  FakeWebSocket.onSend = () => undefined
+  const transport = new core.JsonRpcTransport('ws://node-a', ['ws://node-b'], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+    retryBackoffMs: 1,
+    maxRetryBackoffMs: 1,
+  })
+
+  const oldPending = transport.request('state_getStorage', [], {
+    timeoutMs: 1_000,
+    maxRetries: 0,
+  })
+  await waitFor(() => FakeWebSocket.sockets[0]?.sent.length === 1, 'first pending request')
+  const rotating = transport.request('state_getMetadata', [], {
+    timeoutMs: 5,
+    maxRetries: 1,
+    retryBackoffMs: 1,
+    maxRetryBackoffMs: 1,
+  })
+  rotating.catch(() => undefined)
+
+  await assert.rejects(oldPending, /endpoint rotated from ws:\/\/node-a/)
+})
+
 test('JsonRpcTransport rejects pending requests on malformed websocket JSON', async (t) => {
   const { FakeWebSocket, restore } = installFakeWebSocket()
   t.after(restore)
@@ -1614,6 +1697,24 @@ test('Client accepts an injected WebSocket factory when no global WebSocket exis
 
   assert.equal(await client.rpc('state_getMetadata'), '0x1234')
   assert.deepEqual(urls, ['ws://node-a'])
+})
+
+test('Client autoConnect exposes a handled readiness promise', async (t) => {
+  const originalRuntimeAt = core.Client.prototype.runtimeAt
+  t.after(() => {
+    core.Client.prototype.runtimeAt = originalRuntimeAt
+  })
+  core.Client.prototype.runtimeAt = async () => {
+    throw new Error('startup failed')
+  }
+
+  const client = new core.Client('local', {
+    endpoint: 'http://127.0.0.1:9944',
+    autoConnect: true,
+  })
+
+  assert.ok(client.ready instanceof Promise)
+  await assert.rejects(client.ready, /startup failed/)
 })
 
 test('Client validates fallback endpoint genesis before use', async (t) => {
@@ -1986,7 +2087,7 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.equal(signed.nonce, 12)
   assert.equal(client.lastNonceAddress, address)
   assert.equal(request.address, address)
-  assert.equal(request.type, 'payload')
+  assert.equal(request.type, 'bytes')
   assert.equal(request.data, '0x090909')
   assert.equal(request.metadataProof, undefined)
   assert.deepEqual(captures.encoded.callData, callData)
@@ -2660,6 +2761,7 @@ test('Client submit without inclusion reports pool submission, not execution suc
   assert.equal(result.status, 'submitted')
   assert.equal(result.success, undefined)
   assert.equal(result.message, 'Submitted')
+  assert.equal(client.nonceAccounts.get(address).statuses.size, 0)
 })
 
 test('Client treats string and object fatal watch statuses as failures', async () => {
@@ -2679,6 +2781,35 @@ test('Client treats string and object fatal watch statuses as failures', async (
     () => client.resolveWatchedExtrinsic(subscriptionFor({ invalid: '0xdead' }), `0x${'02'.repeat(32)}`, false),
     /Extrinsic invalid/,
   )
+})
+
+test('Client continues watching after retracted extrinsic status', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const blockHash = `0x${'33'.repeat(32)}`
+  const extrinsicHash = `0x${'44'.repeat(32)}`
+  const subscription = {
+    async *[Symbol.asyncIterator]() {
+      yield { retracted: `0x${'22'.repeat(32)}` }
+      yield { finalized: blockHash }
+    },
+    async unsubscribe() {},
+  }
+  client.resolveInclusion = async (hash, block, finalized) => ({
+    status: 'finalized',
+    success: true,
+    message: 'Success',
+    extrinsicHash: hash,
+    blockHash: block,
+    finalized,
+    events: [],
+  })
+
+  const result = await client.resolveWatchedExtrinsic(subscription, extrinsicHash, true)
+
+  assert.equal(result.status, 'finalized')
+  assert.equal(result.extrinsicHash, extrinsicHash)
+  assert.equal(result.blockHash, blockHash)
+  assert.equal(result.finalized, true)
 })
 
 test('Client reports included extrinsics with missing dispatch outcome as unknown', async () => {

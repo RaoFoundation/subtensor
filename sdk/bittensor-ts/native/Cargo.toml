@@ -21,6 +21,7 @@ napi = { version = "3.10.3", default-features = false, features = ["napi8", "ser
 napi-derive = "3.5.9"
 scale-info = { workspace = true, features = ["std", "serde"] }
 serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
+zeroize = "1"
 
 [build-dependencies]
 napi-build = "2.3.2"

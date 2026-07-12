@@ -31,6 +31,13 @@ fn key_err(msg: impl Into<String>) -> CoreError {
     CoreError::Keyfile(msg.into())
 }
 
+fn require_non_empty_password(password: &str) -> Result<&str, CoreError> {
+    if password.is_empty() {
+        return Err(key_err("keyfile password must not be empty"));
+    }
+    Ok(password)
+}
+
 pub fn keyfile_data_is_encrypted_nacl(keyfile_data: &[u8]) -> bool {
     keyfile_data.starts_with(b"$NACL")
 }
@@ -90,6 +97,7 @@ fn nacl_decrypt(keyfile_data: &[u8], key: &secretbox::Key) -> Result<Vec<u8>, Co
 
 pub fn encrypt_keyfile_data(keyfile_data: &[u8], password: &str) -> Result<Vec<u8>, CoreError> {
     ensure_sodium()?;
+    let password = require_non_empty_password(password)?;
     let key = derive_key(password.as_bytes())?;
     let nonce = secretbox::gen_nonce();
     let encrypted_data = secretbox::seal(keyfile_data, &nonce, &key);
@@ -383,27 +391,104 @@ fn prepare_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError>
 }
 
 fn ensure_private_directory(path: &Path) -> Result<(), CoreError> {
+    let path = normalize_directory_path(path);
     reject_symlink_ancestors(path)?;
-    fs::create_dir_all(path).map_err(|error| {
-        key_err(format!(
-            "failed to create wallet directory {}: {error}",
-            path.display()
-        ))
-    })?;
+    create_missing_private_directories(path)?;
     reject_symlink_ancestors(path)?;
+    validate_wallet_directory(path)
+}
+
+fn normalize_directory_path(path: &Path) -> &Path {
+    if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    }
+}
+
+fn create_missing_private_directories(path: &Path) -> Result<(), CoreError> {
+    let mut current = PathBuf::new();
+    let mut saw_component = false;
+
+    for component in path.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(key_err(format!(
+                    "wallet path {} must not contain parent directory components",
+                    path.display()
+                )));
+            }
+            Component::Prefix(prefix) => current.push(prefix.as_os_str()),
+            Component::RootDir | Component::Normal(_) => current.push(component.as_os_str()),
+        }
+        saw_component = true;
+        if current.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => validate_wallet_directory_metadata(path, &current, &metadata)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::create_dir(&current) {
+                    Ok(()) => set_private_directory_permissions(&current)?,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let metadata = fs::symlink_metadata(&current).map_err(|error| {
+                            key_err(format!(
+                                "failed to inspect wallet directory {}: {error}",
+                                current.display()
+                            ))
+                        })?;
+                        validate_wallet_directory_metadata(path, &current, &metadata)?;
+                    }
+                    Err(error) => {
+                        return Err(key_err(format!(
+                            "failed to create wallet directory {}: {error}",
+                            current.display()
+                        )));
+                    }
+                }
+            }
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to inspect wallet path ancestor {}: {error}",
+                    current.display()
+                )));
+            }
+        }
+    }
+
+    if !saw_component {
+        validate_wallet_directory(Path::new("."))?;
+    }
+    Ok(())
+}
+
+fn validate_wallet_directory(path: &Path) -> Result<(), CoreError> {
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         key_err(format!(
             "failed to inspect wallet directory {}: {error}",
             path.display()
         ))
     })?;
+    validate_wallet_directory_metadata(path, path, &metadata)
+}
+
+fn validate_wallet_directory_metadata(
+    path: &Path,
+    current: &Path,
+    metadata: &fs::Metadata,
+) -> Result<(), CoreError> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(key_err(format!(
             "wallet path {} must be a real directory",
-            path.display()
+            if current == path {
+                path.display().to_string()
+            } else {
+                current.display().to_string()
+            }
         )));
     }
-    set_private_directory_permissions(path)
+    Ok(())
 }
 
 fn reject_symlink_ancestors(path: &Path) -> Result<(), CoreError> {
@@ -575,44 +660,74 @@ fn write_temp_keyfile(path: &Path, data: &[u8]) -> Result<PathBuf, CoreError> {
 }
 
 fn commit_one_keyfile(path: &Path, temp_path: &Path, overwrite: bool) -> Result<(), CoreError> {
+    if overwrite {
+        return commit_overwrite_keyfile(path, temp_path);
+    }
+    commit_new_keyfile(path, temp_path)
+}
+
+fn commit_overwrite_keyfile(path: &Path, temp_path: &Path) -> Result<(), CoreError> {
     let dir = path
         .parent()
         .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
-    if overwrite {
+    let mut backup = None;
+    let mut committed = false;
+    let result = (|| -> Result<(), CoreError> {
+        backup = move_existing_to_backup(path)?;
         fs::rename(temp_path, path).map_err(|error| {
             key_err(format!(
                 "failed to atomically replace keyfile {}: {error}",
                 path.display()
             ))
         })?;
+        committed = true;
+        set_private_file_permissions(path)?;
+        fsync_directory(dir);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        if committed {
+            remove_file_if_exists(path);
+        }
+        restore_backup(path, backup.as_deref());
+        fsync_directory(dir);
     } else {
-        commit_new_keyfile(path, temp_path)?;
-        return Ok(());
+        if let Some(path) = backup {
+            let _ = fs::remove_file(path);
+        }
     }
-    set_private_file_permissions(path)?;
-    fsync_directory(dir);
-    Ok(())
+    result
 }
 
 fn commit_new_keyfile(path: &Path, temp_path: &Path) -> Result<(), CoreError> {
     let dir = path
         .parent()
         .ok_or_else(|| key_err("keyfile path must have a parent directory"))?;
-    fs::hard_link(temp_path, path).map_err(|error| {
-        key_err(format!(
-            "failed to atomically create keyfile {}: {error}",
-            path.display()
-        ))
-    })?;
-    fs::remove_file(temp_path).map_err(|error| {
-        key_err(format!(
-            "failed to remove temporary keyfile {}: {error}",
-            temp_path.display()
-        ))
-    })?;
-    set_private_file_permissions(path)?;
-    fsync_directory(dir);
-    Ok(())
+    let mut created = false;
+    let result = (|| -> Result<(), CoreError> {
+        fs::hard_link(temp_path, path).map_err(|error| {
+            key_err(format!(
+                "failed to atomically create keyfile {}: {error}",
+                path.display()
+            ))
+        })?;
+        created = true;
+        fs::remove_file(temp_path).map_err(|error| {
+            key_err(format!(
+                "failed to remove temporary keyfile {}: {error}",
+                temp_path.display()
+            ))
+        })?;
+        set_private_file_permissions(path)?;
+        fsync_directory(dir);
+        Ok(())
+    })();
+    if result.is_err() && created {
+        remove_file_if_exists(path);
+        fsync_directory(dir);
+    }
+    result
 }
 
 fn atomic_write_keyfile_pair(
@@ -1056,6 +1171,77 @@ mod tests {
         assert!(!restored_public.has_private_key());
         assert!(keyfile_data_is_encrypted(&fs::read(&private_path).unwrap()));
         assert!(!keyfile_data_is_encrypted(&fs::read(&public_path).unwrap()));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn empty_passwords_are_rejected_by_low_level_keyfile_apis() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let public_keypair = Keypair::new(
+            Some(&keypair.ss58_address()),
+            None,
+            keypair.crypto_type(),
+            keypair.ss58_format(),
+        )
+        .unwrap();
+        let dir = temp_test_dir("empty-password");
+
+        assert!(encrypt_keyfile_data(b"{}", "").is_err());
+        assert!(keypair_to_keyfile_data(&keypair, Some("")).is_err());
+        assert!(
+            save_keypair_to_keyfile(&keypair, &dir.join("hotkey"), Some(""), false, false,)
+                .is_err()
+        );
+        assert!(save_keypair_pair_to_keyfiles(
+            &keypair,
+            &dir.join("hotkey-pair"),
+            Some(""),
+            &public_keypair,
+            &dir.join("hotkeypub.txt"),
+            false,
+            false,
+        )
+        .is_err());
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn writing_keyfile_does_not_chmod_existing_parent_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("existing-parent-permissions");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let nested = dir.join("wallet");
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+
+        save_keypair_to_keyfile(
+            &keypair,
+            &nested.join("hotkey"),
+            Some("test-password"),
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            fs::metadata(&nested).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(nested.join("hotkey"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
 
         fs::remove_dir_all(dir).unwrap();
     }
