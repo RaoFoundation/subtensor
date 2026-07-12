@@ -20,16 +20,6 @@ on:
         description: "Run only the try-runtime build and cached network checks"
         type: boolean
         default: false
-      benchmark_runner_pool:
-        description: "Temporary cached try-runtime runner comparison"
-        type: choice
-        default: current
-        options:
-          - current
-          - bhs
-          - turbo16
-          - hosted
-
 concurrency:
   group: runtime-checks-${{ github.ref }}
   cancel-in-progress: true
@@ -218,7 +208,7 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build-try-runtime
-    runs-on: ${{ fromJSON(inputs.benchmark_runner_pool == 'bhs' && '["self-hosted","fireactions-turbo-8"]' || inputs.benchmark_runner_pool == 'turbo16' && '["self-hosted","fireactions-turbo-16"]' || inputs.benchmark_runner_pool == 'hosted' && '"ubuntu-latest"' || '["self-hosted","fireactions-tryruntime"]') }}
+    runs-on: [self-hosted, fireactions-turbo-16]
     timeout-minutes: 90
     permissions:
       contents: read
