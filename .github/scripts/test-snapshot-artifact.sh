@@ -13,14 +13,34 @@ now=$(jq -nr '"2026-07-12T14:00:00Z" | fromdateiso8601')
 repo_id=608683796
 
 write_artifacts() {
-  jq -n --argjson artifacts "$1" '{artifacts: $artifacts}' > "$tmp/artifacts.json"
+  local artifacts="$1"
+  jq -n --argjson artifacts "$artifacts" '{artifacts: $artifacts}' > "$tmp/artifacts.json"
+  jq -n --argjson artifacts "$artifacts" '
+    {
+      workflow_runs: [
+        $artifacts[]
+        | {
+            id: .workflow_run.id,
+            path: ".github/workflows/refresh-mainnet-snapshot.yml",
+            head_branch: .workflow_run.head_branch,
+            head_sha: .workflow_run.head_sha,
+            repository: {id: .workflow_run.repository_id},
+            head_repository: {id: .workflow_run.head_repository_id},
+            conclusion: (.producer_conclusion // "success")
+          }
+      ] | unique_by(.id)
+    }
+  ' > "$tmp/workflow-runs.json"
 }
 
 artifact() {
   local id="$1" name="$2" created="$3" branch="$4" repository_id="$5" expired="$6" run_id="$7"
+  local head_sha
+  printf -v head_sha '%040x' "$run_id"
   jq -nc \
     --argjson id "$id" --arg name "$name" --arg created "$created" --arg branch "$branch" \
-    --argjson repository_id "$repository_id" --argjson expired "$expired" --argjson run_id "$run_id" '
+    --argjson repository_id "$repository_id" --argjson expired "$expired" --argjson run_id "$run_id" \
+    --arg head_sha "$head_sha" '
       {
         id: $id,
         name: $name,
@@ -32,7 +52,8 @@ artifact() {
           id: $run_id,
           repository_id: $repository_id,
           head_repository_id: $repository_id,
-          head_branch: $branch
+          head_branch: $branch,
+          head_sha: $head_sha
         }
       }
     '
@@ -43,8 +64,11 @@ select_fixture() {
   local output="$tmp/output"
   local status=0
   : > "$output"
-  ARTIFACTS_JSON_FILE="$tmp/artifacts.json" NOW_EPOCH="$now" \
-    "$helper" select try-runtime-snap-v0.10.1-mainnet main "$repo_id" 72 "$output" "$requirement" || status=$?
+  ARTIFACTS_JSON_FILE="$tmp/artifacts.json" \
+    WORKFLOW_RUNS_JSON_FILE="$tmp/workflow-runs.json" \
+    NOW_EPOCH="$now" \
+    "$helper" select try-runtime-snap-v0.10.1-mainnet main "$repo_id" \
+      .github/workflows/refresh-mainnet-snapshot.yml 72 "$output" "$requirement" || status=$?
   cat "$output"
   return "$status"
 }
@@ -76,100 +100,19 @@ valid_new=$(artifact 12 try-runtime-snap-v0.10.1-mainnet 2026-07-12T02:00:00Z ma
 wrong_branch=$(artifact 13 try-runtime-snap-v0.10.1-mainnet 2026-07-12T13:00:00Z feature "$repo_id" false 103)
 wrong_repo=$(artifact 14 try-runtime-snap-v0.10.1-mainnet 2026-07-12T13:30:00Z main 999 false 104)
 expired=$(artifact 15 try-runtime-snap-v0.10.1-mainnet 2026-07-12T13:45:00Z main "$repo_id" true 105)
-write_artifacts "$(jq -nc --argjson a "$valid_old" --argjson b "$valid_new" --argjson c "$wrong_branch" --argjson d "$wrong_repo" --argjson e "$expired" '[ $a, $b, $c, $d, $e ]')"
+wrong_workflow=$(artifact 16 try-runtime-snap-v0.10.1-mainnet 2026-07-12T13:50:00Z main "$repo_id" false 106)
+wrong_sha=$(artifact 17 try-runtime-snap-v0.10.1-mainnet 2026-07-12T13:55:00Z main "$repo_id" false 107)
+write_artifacts "$(jq -nc --argjson a "$valid_old" --argjson b "$valid_new" --argjson c "$wrong_branch" --argjson d "$wrong_repo" --argjson e "$expired" --argjson f "$wrong_workflow" --argjson g "$wrong_sha" '[ $a, $b, $c, $d, $e, $f, $g ]')"
+jq '(.workflow_runs[] | select(.id == 106) | .path) = ".github/workflows/untrusted-producer.yml"' \
+  "$tmp/workflow-runs.json" > "$tmp/workflow-runs-updated.json"
+mv "$tmp/workflow-runs-updated.json" "$tmp/workflow-runs.json"
+jq '(.workflow_runs[] | select(.id == 107) | .head_sha) = "ffffffffffffffffffffffffffffffffffffffff"' \
+  "$tmp/workflow-runs.json" > "$tmp/workflow-runs-updated.json"
+mv "$tmp/workflow-runs-updated.json" "$tmp/workflow-runs.json"
 selected=$(select_fixture)
 grep -qx 'artifact-id=12' <<<"$selected"
 grep -qx 'run-id=102' <<<"$selected"
-
-# The selected immutable artifact ID is downloaded as its archive, verified
-# against the API digest, and only then extracted.
-mkdir -p "$tmp/archive-input"
-printf 'artifact payload' > "$tmp/archive-input/payload.txt"
-(cd "$tmp/archive-input" && zip -q "$tmp/artifact.zip" payload.txt)
-archive_digest="sha256:$(sha256sum "$tmp/artifact.zip" | awk '{print $1}')"
-ARTIFACT_ZIP_FILE="$tmp/artifact.zip" \
-  "$helper" download 12 "$archive_digest" "$tmp/downloaded" >/dev/null
-grep -qx 'artifact payload' "$tmp/downloaded/payload.txt"
-if ARTIFACT_ZIP_FILE="$tmp/artifact.zip" \
-  "$helper" download 12 sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
-    "$tmp/bad-download" >/dev/null 2>&1; then
-  echo "expected artifact archive checksum mismatch to fail" >&2
-  exit 1
-fi
-
-# Exercise the real ranged-download branch with deterministic fake GitHub and
-# byte-range clients. One worker fails once, forcing a fresh signed URL; exact
-# part sizing, ordered assembly, archive digest, and extraction must still pass.
-fake_bin="$tmp/fake-bin"
-mkdir -p "$fake_bin"
-printf '%s\n' \
-  '#!/usr/bin/env bash' \
-  'set -euo pipefail' \
-  'wc -c < "$MOCK_ARTIFACT_ZIP" | tr -d " "' \
-  > "$fake_bin/gh"
-printf '%s\n' \
-  '#!/usr/bin/env bash' \
-  'set -euo pipefail' \
-  'headers= output= range=' \
-  'while (($#)); do' \
-  '  case "$1" in' \
-  '    --dump-header) headers="$2"; shift 2 ;;' \
-  '    --output) output="$2"; shift 2 ;;' \
-  '    --range) range="$2"; shift 2 ;;' \
-  '    --connect-timeout|--max-time|--header|--write-out) shift 2 ;;' \
-  '    *) shift ;;' \
-  '  esac' \
-  'done' \
-  'if [[ -n "$headers" ]]; then' \
-  '  printf "HTTP/1.1 302 Found\r\nLocation: https://artifact.invalid/download\r\n\r\n" > "$headers"' \
-  '  printf "x\n" >> "$MOCK_REDIRECT_LOG"' \
-  '  printf 302' \
-  '  exit 0' \
-  'fi' \
-  'if [[ -n "${MOCK_FAIL_ONCE_DIR:-}" ]] && mkdir "$MOCK_FAIL_ONCE_DIR" 2>/dev/null; then' \
-  '  exit 22' \
-  'fi' \
-  'start=${range%-*}; end=${range#*-}; count=$((end - start + 1))' \
-  'if [[ "${MOCK_IGNORE_RANGE:-false}" == true ]]; then' \
-  '  cp "$MOCK_ARTIFACT_ZIP" "$output"' \
-  'else' \
-  '  dd if="$MOCK_ARTIFACT_ZIP" of="$output" bs=1 skip="$start" count="$count" status=none' \
-  'fi' \
-  > "$fake_bin/curl"
-chmod +x "$fake_bin/gh" "$fake_bin/curl"
-
-mock_digest="sha256:$(sha256sum "$tmp/artifact.zip" | awk '{print $1}')"
-redirect_log="$tmp/redirect.log"
-PATH="$fake_bin:$PATH" \
-  GH_TOKEN=test-token \
-  GITHUB_REPOSITORY=RaoFoundation/subtensor \
-  MOCK_ARTIFACT_ZIP="$tmp/artifact.zip" \
-  MOCK_REDIRECT_LOG="$redirect_log" \
-  MOCK_FAIL_ONCE_DIR="$tmp/fail-once" \
-  ARTIFACT_DOWNLOAD_CONCURRENCY=4 \
-  ARTIFACT_RETRY_DELAY_SECONDS=0 \
-  "$helper" download 12 "$mock_digest" "$tmp/ranged-download" >/dev/null
-grep -qx 'artifact payload' "$tmp/ranged-download/payload.txt"
-[[ "$(wc -l < "$redirect_log" | tr -d ' ')" == 2 ]]
-
-# A server that ignores Range must fail closed after bounded retries and clean
-# every temporary part/archive even though the helper exits from the function.
-range_tmp="$tmp/range-tmp"
-mkdir -p "$range_tmp"
-if PATH="$fake_bin:$PATH" \
-  TMPDIR="$range_tmp" \
-  GH_TOKEN=test-token \
-  GITHUB_REPOSITORY=RaoFoundation/subtensor \
-  MOCK_ARTIFACT_ZIP="$tmp/artifact.zip" \
-  MOCK_REDIRECT_LOG="$tmp/ignored-range-redirect.log" \
-  MOCK_IGNORE_RANGE=true \
-  ARTIFACT_DOWNLOAD_CONCURRENCY=4 \
-  ARTIFACT_RETRY_DELAY_SECONDS=0 \
-  "$helper" download 12 "$mock_digest" "$tmp/ignored-range" >/dev/null 2>&1; then
-  echo "expected ignored range responses to fail" >&2
-  exit 1
-fi
-[[ -z "$(find "$range_tmp" -mindepth 1 -print -quit)" ]]
+grep -qx 'producer-sha=0000000000000000000000000000000000000066' <<<"$selected"
 
 # Exactly 72 hours is accepted, one second older fails, and optional lookup
 # reports a miss. An artifact older than 36 hours remains usable with a warning.
@@ -182,8 +125,10 @@ warning_age=$(artifact 18 try-runtime-snap-v0.10.1-mainnet 2026-07-11T01:59:59Z 
 write_artifacts "[$warning_age]"
 warning_output="$tmp/warning-output"
 : > "$warning_output"
-warning_log=$(ARTIFACTS_JSON_FILE="$tmp/artifacts.json" NOW_EPOCH="$now" \
-  "$helper" select try-runtime-snap-v0.10.1-mainnet main "$repo_id" 72 "$warning_output" required)
+warning_log=$(ARTIFACTS_JSON_FILE="$tmp/artifacts.json" \
+  WORKFLOW_RUNS_JSON_FILE="$tmp/workflow-runs.json" NOW_EPOCH="$now" \
+  "$helper" select try-runtime-snap-v0.10.1-mainnet main "$repo_id" \
+    .github/workflows/refresh-mainnet-snapshot.yml 72 "$warning_output" required)
 grep -q '^::warning::' <<<"$warning_log"
 
 too_old=$(artifact 20 try-runtime-snap-v0.10.1-mainnet 2026-07-09T13:59:59Z main "$repo_id" false 200)
@@ -220,17 +165,27 @@ jq -n \
   ' > "$tmp/mainnet.manifest.json"
 
 "$helper" validate "$tmp/mainnet.manifest.json" "$tmp/mainnet.snap" mainnet \
-  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 0.10.1 >/dev/null
+  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 \
+  0.10.1 647ca2b0493ed5c74399b73f2595643ba785c1b8 >/dev/null
+
+if "$helper" validate "$tmp/mainnet.manifest.json" "$tmp/mainnet.snap" mainnet \
+  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 \
+  0.10.1 ffffffffffffffffffffffffffffffffffffffff >/dev/null 2>&1; then
+  echo "expected producer SHA mismatch to fail" >&2
+  exit 1
+fi
 
 if "$helper" validate "$tmp/mainnet.manifest.json" "$tmp/mainnet.snap" testnet \
-  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 0.10.1 >/dev/null 2>&1; then
+  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 \
+  0.10.1 647ca2b0493ed5c74399b73f2595643ba785c1b8 >/dev/null 2>&1; then
   echo "expected network mismatch to fail" >&2
   exit 1
 fi
 
 printf 'corrupt' >> "$tmp/mainnet.snap"
 if "$helper" validate "$tmp/mainnet.manifest.json" "$tmp/mainnet.snap" mainnet \
-  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 0.10.1 >/dev/null 2>&1; then
+  0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03 \
+  0.10.1 647ca2b0493ed5c74399b73f2595643ba785c1b8 >/dev/null 2>&1; then
   echo "expected checksum/size mismatch to fail" >&2
   exit 1
 fi

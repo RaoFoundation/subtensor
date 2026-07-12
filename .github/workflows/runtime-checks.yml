@@ -49,6 +49,7 @@ jobs:
     name: detect relevant changes
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       runtime: ${{ steps.filter.outputs.runtime }}
@@ -57,6 +58,8 @@ jobs:
       sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
       snapshot_ci: ${{ steps.filter.outputs.snapshot_ci }}
     steps:
+      - uses: actions/checkout@v4
+
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
       - name: Filter changed paths
@@ -67,28 +70,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          # SDK-only changes are covered by sdk-checks and the Rust SDK e2e
-          # workflow; they should not force clone-upgrade or SDK drift.
-          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/|scripts/(sccache-configure|snapshot-artifact|test-snapshot-artifact)\.sh)$'
-          docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
-          python_sdk_pattern='^sdk/(python|bittensor-core|bittensor-core-py|bittensor-core-wasm)/|^Cargo.lock$|^\.github/workflows/runtime-checks\.yml$'
-          sdk_drift_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$'
-          snapshot_pattern='^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|scripts/(snapshot-artifact|test-snapshot-artifact)\.sh)$'
-          runtime=false; docs=false; python_sdk=false; sdk_drift=false; snapshot_ci=false
-          grep -qE "$runtime_pattern" <<< "$files" && runtime=true
-          grep -qE "$docs_pattern" <<< "$files" && docs=true
-          grep -qE "$python_sdk_pattern" <<< "$files" && python_sdk=true
-          grep -qE "$sdk_drift_pattern" <<< "$files" && sdk_drift=true
-          grep -qE "$snapshot_pattern" <<< "$files" && snapshot_ci=true
-          echo "runtime=$runtime, docs=$docs, python_sdk=$python_sdk, sdk_drift=$sdk_drift, snapshot_ci=$snapshot_ci"
-          {
-            echo "runtime=$runtime"
-            echo "docs=$docs"
-            echo "python_sdk=$python_sdk"
-            echo "sdk_drift=$sdk_drift"
-            echo "snapshot_ci=$snapshot_ci"
-          } >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+            --paginate --jq '.[].filename' \
+            | .github/scripts/classify-runtime-changes.sh "$GITHUB_OUTPUT"
 
   snapshot-artifact-tests:
     name: snapshot artifact contract tests
@@ -98,6 +82,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: .github/scripts/test-snapshot-artifact.sh
+      - run: .github/scripts/test-runtime-change-filter.sh
 
   # Build the try-runtime wasm independently so its consumers do not wait for
   # the unrelated release node build. The source check also makes the
@@ -229,9 +214,6 @@ jobs:
           - name: testnet
             uri: wss://archive.dev.opentensor.ai:8443
             genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
-          # Keep endpoint-heavy checks near the archive RPCs. Measurements
-          # from BHS showed materially higher per-request latency, which
-          # compounds during try-runtime's state traversal.
           - name: mainnet
             uri: wss://archive.dev.opentensor.ai:443
             genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
@@ -294,6 +276,7 @@ jobs:
             "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network.name }}" \
             "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml \
             72 "$GITHUB_OUTPUT" required
 
       - name: Mark snapshot restore start
@@ -302,14 +285,14 @@ jobs:
 
       - name: Download selected try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_DOWNLOAD_CONCURRENCY: 16
-        run: |
-          .github/scripts/snapshot-artifact.sh download \
-            "${{ steps.snapshot.outputs.artifact-id }}" \
-            "${{ steps.snapshot.outputs.digest }}" \
-            snap
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.snapshot.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.snapshot.outputs.run-id }}
+          path: snap
+          merge-multiple: true
 
       - name: Validate try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
@@ -320,7 +303,7 @@ jobs:
           .github/scripts/snapshot-artifact.sh validate \
             "$manifest" "$snapshot" \
             "${{ matrix.network.name }}" "${{ matrix.network.genesis }}" \
-            "$TRY_RUNTIME_VERSION"
+            "$TRY_RUNTIME_VERSION" "${{ steps.snapshot.outputs.producer-sha }}"
           echo "TRY_RUNTIME_SNAP=$snapshot" >> "$GITHUB_ENV"
           restore_seconds=$(($(date -u +%s) - SNAPSHOT_RESTORE_STARTED))
           block=$(jq -er '.finalized_block_number' "$manifest")
@@ -514,19 +497,21 @@ jobs:
             mainnet-snapshot \
             "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml \
             168 "$GITHUB_OUTPUT" optional
 
       - name: Download selected mainnet clone snapshot
         id: download-clone-snapshot
         if: steps.clone-snapshot.outputs.found == 'true'
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          .github/scripts/snapshot-artifact.sh download \
-            "${{ steps.clone-snapshot.outputs.artifact-id }}" \
-            "${{ steps.clone-snapshot.outputs.digest }}" \
-            /tmp/mainnet-snapshot
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.clone-snapshot.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.clone-snapshot.outputs.run-id }}
+          path: /tmp/mainnet-snapshot
+          merge-multiple: true
 
       - name: Restore mainnet clone snapshot
         id: restore-clone-snapshot
