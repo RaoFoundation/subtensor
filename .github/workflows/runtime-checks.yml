@@ -457,12 +457,29 @@ jobs:
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
 
+      - name: Prepare clone for the localnet-tuned e2e suite
+        # Sudo-neutralize the mainnet-state assumptions the e2e suite trips
+        # over (network rate limit, subnet limit, lock-cost doubling, unfunded
+        # //Bob); see the script docstring for the full rationale.
+        if: ${{ matrix.shard.sdk }}
+        working-directory: sdk/python
+        run: uv run python scripts/prepare_clone_for_e2e.py ${{ env.WS_ENDPOINT }}
+
       - name: SDK e2e tests against upgraded clone
         if: ${{ matrix.shard.sdk }}
         working-directory: sdk/python
         env:
           E2E_ENDPOINT: ws://127.0.0.1:9944
-        run: uv run pytest -m e2e
+        # Deliberately a subset: reads, error decoding, and the intent sweep
+        # (every registered intent plans against the live upgraded runtime).
+        # The full write-path suite already runs on localnet in the Bittensor
+        # E2E workflow; on the clone's production runtime each write waits for
+        # 12-second-block finalization, which would blow the job timeout.
+        run: >-
+          uv run pytest -m e2e
+          tests/e2e/test_reads.py
+          tests/e2e/test_errors.py
+          tests/e2e/test_intent_sweep.py
 
       - name: Dump clone node and harness logs
         if: failure()
