@@ -309,8 +309,9 @@ jobs:
           uv run python -m codegen.check --names
 
   # For every PR: sudo-upgrade a local clone of mainnet with the proposed
-  # runtime, then run the clone regression suite, the SDK metadata drift gate,
-  # and the SDK e2e suite against the upgraded chain. Consumes the
+  # runtime, then run the clone regression suite and the SDK metadata drift
+  # gate against the upgraded chain. (Chain-facing SDK e2e coverage lives in
+  # the Rust suite under check-bittensor-e2e-tests.yml.) Consumes the
   # node-release artifact instead of building, and restores the nightly
   # mainnet-snapshot artifact instead of re-scraping mainnet state (falls back
   # to a live scrape when no snapshot exists or the `fresh-mainnet-clone`
@@ -482,30 +483,6 @@ jobs:
         if: ${{ matrix.shard.sdk && (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true') }}
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
-
-      - name: Prepare clone for the localnet-tuned e2e suite
-        # Sudo-neutralize the mainnet-state assumptions the e2e suite trips
-        # over (network rate limit, subnet limit, lock-cost doubling, unfunded
-        # //Bob); see the script docstring for the full rationale.
-        if: ${{ matrix.shard.sdk }}
-        working-directory: sdk/python
-        run: uv run python scripts/prepare_clone_for_e2e.py ${{ env.WS_ENDPOINT }}
-
-      - name: SDK e2e tests against upgraded clone
-        if: ${{ matrix.shard.sdk }}
-        working-directory: sdk/python
-        env:
-          E2E_ENDPOINT: ws://127.0.0.1:9944
-        # Deliberately a subset: reads, error decoding, and the intent sweep
-        # (every registered intent plans against the live upgraded runtime).
-        # The full write-path suite already runs on localnet in the Bittensor
-        # E2E workflow; on the clone's production runtime each write waits for
-        # 12-second-block finalization, which would blow the job timeout.
-        run: >-
-          uv run pytest -m e2e
-          tests/e2e/test_reads.py
-          tests/e2e/test_errors.py
-          tests/e2e/test_intent_sweep.py
 
       - name: Dump clone node and harness logs
         if: failure()
