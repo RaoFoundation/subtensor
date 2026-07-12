@@ -61,6 +61,7 @@ function fakeSigningRuntime(overrides = {}) {
   const runtime = {
     specVersion: 419,
     transactionVersion: 1,
+    extrinsicVersion: 4,
     ss58Format: 42,
     metadataBytes: Buffer.alloc(0),
     signaturePayloadParts(params) {
@@ -620,6 +621,19 @@ test('Rust keypair is compatible with Polkadot.js and Moonwall signer expectatio
   // for the same payload are both valid but are not required to be identical.
   assert.equal(alice.verify(payload, raw, alice.publicKey), true)
   assert.equal(alice.verify(payload, typed, alice.publicKey), true)
+  const srSignatureLabelledEd25519 = Buffer.concat([
+    Buffer.from([core.CRYPTO_ED25519]),
+    raw,
+  ])
+  assert.equal(alice.verify(payload, srSignatureLabelledEd25519), false)
+
+  const aliceEd25519 = core.Keypair.fromUri('//Alice', core.CRYPTO_ED25519)
+  const edRaw = aliceEd25519.sign(payload)
+  const edSignatureLabelledSr25519 = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    edRaw,
+  ])
+  assert.equal(aliceEd25519.verify(payload, edSignatureLabelledSr25519), false)
 })
 
 test('mnemonics and secret URIs never appear in public keypair metadata', () => {
@@ -720,6 +734,84 @@ test('public constants and low-level hashes are exposed', () => {
   )
   assert.equal(core.blake2_256(Buffer.from('System')).length, 32)
   assert.ok(core.PARALLEL_DECODE_THRESHOLD > 0)
+})
+
+test('MEV shield high-level helper prefixes ciphertext with key hash', () => {
+  const publicKey = Buffer.alloc(1184, 0x42)
+  const ciphertext = core.sealMevShieldTransaction(publicKey, Buffer.from('payload'))
+
+  assert.deepEqual(ciphertext.subarray(0, 16), core.twox_128(publicKey))
+  assert.equal(ciphertext.readUInt16LE(16), 1088)
+})
+
+test('browser MEV shield wrapper keeps high-level prefix and low-level option', async () => {
+  const browser = await import(`${pathToFileURL(path.join(__dirname, '..', 'dist', 'browser.mjs')).href}?shield=${Date.now()}`)
+  const calls = []
+  browser.configureBrowserWasm(async () => ({
+    default: async () => undefined,
+    encryptMlkem768(publicKey, plaintext, includeKeyHash = false) {
+      calls.push({
+        publicKey: Array.from(publicKey),
+        plaintext: Array.from(plaintext),
+        includeKeyHash,
+      })
+      return Uint8Array.of(includeKeyHash ? 1 : 0, publicKey[0] ?? 0, plaintext[0] ?? 0)
+    },
+  }))
+  await browser.initBrowser()
+
+  assert.deepEqual(
+    Array.from(browser.sealMevShieldTransaction(Uint8Array.of(7), Uint8Array.of(8))),
+    [1, 7, 8],
+  )
+  assert.equal(calls.at(-1).includeKeyHash, true)
+  assert.deepEqual(
+    Array.from(browser.encryptMlkem768(Uint8Array.of(7), Uint8Array.of(8), false)),
+    [0, 7, 8],
+  )
+  assert.equal(calls.at(-1).includeKeyHash, false)
+})
+
+test('browser Keypair.verify rejects wrong typed signature scheme before native verify', async () => {
+  const browser = await import(`${pathToFileURL(path.join(__dirname, '..', 'dist', 'browser.mjs')).href}?verify=${Date.now()}`)
+  let verifyCalls = 0
+  class FakeKeypair {
+    constructor(ss58Address, publicKey, cryptoType = browser.CRYPTO_SR25519, ss58Format = 42) {
+      this.ss58Address = ss58Address ?? '5Fake'
+      this.publicKey = publicKey ?? new Uint8Array(32)
+      this.cryptoType = cryptoType
+      this.ss58Format = ss58Format
+      this.kind = cryptoType === browser.CRYPTO_ED25519 ? 'Ed25519' : 'Sr25519'
+    }
+
+    sign() {
+      return new Uint8Array(64)
+    }
+
+    verify() {
+      verifyCalls += 1
+      return true
+    }
+
+    derive() {
+      return this
+    }
+  }
+  browser.configureBrowserWasm(async () => ({
+    default: async () => undefined,
+    Keypair: FakeKeypair,
+  }))
+  await browser.initBrowser()
+  const keypair = new browser.Keypair('5Fake', new Uint8Array(32), browser.CRYPTO_SR25519, 42)
+  const wrong = new Uint8Array(65)
+  wrong[0] = browser.CRYPTO_ED25519
+  const right = new Uint8Array(65)
+  right[0] = browser.CRYPTO_SR25519
+
+  assert.equal(keypair.verify(Uint8Array.of(1), wrong), false)
+  assert.equal(verifyCalls, 0)
+  assert.equal(keypair.verify(Uint8Array.of(1), right), true)
+  assert.equal(verifyCalls, 1)
 })
 
 test('epoch schedule functions stay in Rust', () => {
@@ -1183,6 +1275,62 @@ test('JsonRpcTransport rejects pending requests on malformed websocket JSON', as
   await assert.rejects(pending, /invalid JSON-RPC message/)
 })
 
+test('JsonRpcTransport validates HTTP JSON-RPC envelopes and response size', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  let mode = 'id'
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(String(init.body))
+    let body
+    if (mode === 'id') {
+      body = JSON.stringify({ jsonrpc: '2.0', id: request.id + 1, result: '0x00' })
+    } else if (mode === 'both') {
+      body = JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: '0x00',
+        error: { message: 'also bad' },
+      })
+    } else {
+      body = JSON.stringify({ jsonrpc: '2.0', id: request.id, result: 'x'.repeat(128) })
+    }
+    return new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  const transport = new core.JsonRpcTransport('http://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+    maxMessageBytes: 256,
+  })
+  await assert.rejects(
+    () => transport.request('state_getMetadata'),
+    /id did not match/,
+  )
+
+  mode = 'both'
+  await assert.rejects(
+    () => transport.request('state_getMetadata'),
+    /exactly one of result or error/,
+  )
+
+  mode = 'large'
+  const cappedTransport = new core.JsonRpcTransport('http://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+    maxMessageBytes: 32,
+  })
+  await assert.rejects(
+    () => cappedTransport.request('state_getMetadata'),
+    /exceeded size limit/,
+  )
+})
+
 test('JsonRpcTransport caps subscription notification queues', async (t) => {
   const { FakeWebSocket, restore } = installFakeWebSocket()
   t.after(restore)
@@ -1547,6 +1695,7 @@ test('Client caches historical runtimes by block hash with LRU eviction', async 
 
 test('Client queryBatch decodes metadata defaults for missing storage values', async () => {
   const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const blockHash = `0x${'33'.repeat(32)}`
   const keys = [Buffer.from([1]), Buffer.from([2])]
   const runtime = {
     storageKeyBatch() {
@@ -1570,14 +1719,82 @@ test('Client queryBatch decodes metadata defaults for missing storage values', a
       return bytes[0]
     },
   }
-  client.runtimeAt = async () => runtime
-  client.resolveBlockHash = async () => null
+  client.finalizedHead = async () => blockHash
+  client.runtimeAt = async (block) => {
+    assert.equal(block, blockHash)
+    return runtime
+  }
   client.rpc = async (method, params = []) => {
     assert.equal(method, 'state_queryStorageAt')
+    assert.deepEqual(params, [['0x01', '0x02'], blockHash])
     return [{ changes: [['0x01', '0x05']] }]
   }
 
   assert.deepEqual(await client.queryBatch('Example', 'Value', [[], []]), [5, 9])
+})
+
+test('Client query and runtimeCall pin default reads to one finalized block', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const blockHash = `0x${'34'.repeat(32)}`
+  const calls = []
+  const runtime = {
+    storageKey() {
+      return Buffer.from([3])
+    },
+    storageEntry() {
+      return {
+        pallet: 'Example',
+        name: 'Value',
+        prefix: 'Example',
+        modifier: 'Default',
+        valueType: 'u8',
+        valueTypeId: 0,
+        paramTypes: [],
+        paramTypeIds: [],
+        paramHashers: [],
+        defaultBytes: Buffer.from([0]),
+      }
+    },
+    decode(_type, bytes) {
+      return bytes[0]
+    },
+    runtimeApis() {
+      return {
+        ExampleApi: {
+          thing: {
+            inputDetails: [],
+            outputTypeId: 7,
+            outputType: 'u8',
+          },
+        },
+      }
+    },
+    encodeRuntimeApiInput() {
+      return Buffer.from([9, 9])
+    },
+    decodeTypeId(typeId, bytes) {
+      assert.equal(typeId, 7)
+      return bytes[0]
+    },
+  }
+  client.finalizedHead = async () => blockHash
+  client.runtimeAt = async (block) => {
+    assert.equal(block, blockHash)
+    return runtime
+  }
+  client.rpc = async (method, params = []) => {
+    calls.push({ method, params })
+    if (method === 'state_getStorage') return '0x05'
+    if (method === 'state_call') return '0x07'
+    throw new Error(`unexpected RPC ${method}`)
+  }
+
+  assert.equal(await client.query('Example', 'Value'), 5)
+  assert.equal(await client.runtimeCall('ExampleApi', 'thing'), 7)
+  assert.deepEqual(calls, [
+    { method: 'state_getStorage', params: ['0x03', blockHash] },
+    { method: 'state_call', params: ['ExampleApi_thing', '0x0909', blockHash] },
+  ])
 })
 
 test('Client queryMap pins reads and rejects pagination without progress', async () => {
@@ -1717,6 +1934,7 @@ test('Client enables metadata hash by default for software signers when supporte
 test('Client passes structured payloads to extension signPayload signers', async () => {
   const callData = Buffer.from([5, 6, 7])
   const { runtime, captures } = fakeSigningRuntime({
+    extrinsicVersion: 5,
     signedExtensionIdentifiers() {
       return ['CheckNonce']
     },
@@ -1741,7 +1959,7 @@ test('Client passes structured payloads to extension signPayload signers', async
 
   assert.equal(payload.address, address)
   assert.equal(payload.method, '0x050607')
-  assert.equal(payload.version, 4)
+  assert.equal(payload.version, 5)
   assert.deepEqual(payload.signedExtensions, ['CheckNonce'])
   assert.equal(captures.encoded.params.metadataHashEnabled, false)
 })
@@ -1760,6 +1978,71 @@ test('Client rejects mismatched submit hashes and keeps local hash authoritative
     return `0x${'00'.repeat(32)}`
   }
   await assert.rejects(() => client.submitSigned(Buffer.from([1, 2])), /returned hash/)
+})
+
+test('Client reconciles managed nonce before rejecting mismatched submit hash', async () => {
+  const callData = Buffer.from([7, 5, 3])
+  const capturedNonces = []
+  const { runtime } = fakeSigningRuntime({
+    signaturePayload(_callData, params) {
+      capturedNonces.push(params.nonce)
+      return Buffer.from([Number(params.nonce)])
+    },
+    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
+      return {
+        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
+        hash: Buffer.alloc(32, Number(params.nonce)),
+      }
+    },
+  })
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 22)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const typedSignature = Buffer.concat([
+    Buffer.from([core.CRYPTO_SR25519]),
+    Buffer.alloc(64, 4),
+  ])
+  const nonceReads = []
+  client.rpc = async (method, params = []) => {
+    if (method === 'system_accountNextIndex') {
+      nonceReads.push(params[0])
+      return 30
+    }
+    if (method === 'state_getRuntimeVersion') {
+      return {
+        specName: 'node-subtensor',
+        specVersion: runtime.specVersion,
+        transactionVersion: runtime.transactionVersion,
+      }
+    }
+    if (method === 'system_properties') {
+      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
+    }
+    if (method === 'author_submitExtrinsic') return `0x${'ff'.repeat(32)}`
+    if (method === 'author_pendingExtrinsics') return []
+    if (method === 'chain_getHeader') return { number: '0x0' }
+    if (method === 'chain_getBlockHash') return `0x${'02'.repeat(32)}`
+    if (method === 'chain_getBlock') return { block: { extrinsics: [] } }
+    throw new Error(`unexpected RPC ${method}`)
+  }
+  const signer = {
+    address,
+    publicKey,
+    signRaw() {
+      return { signature: `0x${typedSignature.toString('hex')}` }
+    },
+  }
+
+  await assert.rejects(
+    () => client.submit(callData, signer, { period: null }),
+    /returned hash/,
+  )
+  await assert.rejects(
+    () => client.submit(callData, signer, { period: null }),
+    /nonce 30 .* ambiguous/,
+  )
+  assert.deepEqual(capturedNonces, [30])
+  assert.deepEqual(nonceReads, [address, address, address])
 })
 
 test('Client estimateFee peeks the chain nonce without reserving it', async () => {

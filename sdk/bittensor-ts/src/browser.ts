@@ -822,6 +822,7 @@ export class Keypair {
     const rawSignature = hasType ? suppliedSignature.subarray(1) : suppliedSignature
 
     if (signerPublic == null) {
+      if (hasType && cryptoType !== this.cryptoType) return false
       return this.handle.verify(typeof message === 'string' ? message : toBytes(message, 'message'), rawSignature)
     }
     if (typeof signerPublic === 'string' && !signerPublic.startsWith('0x')) {
@@ -1026,6 +1027,13 @@ export function revealRound(encryptedData: BrowserByteLike): number {
 export function sealMevShieldTransaction(
   publicKey: BrowserByteLike,
   plaintext: BrowserByteLike,
+): Uint8Array {
+  return encryptMlkem768(publicKey, plaintext, true)
+}
+
+export function encryptMlkem768(
+  publicKey: BrowserByteLike,
+  plaintext: BrowserByteLike,
   includeKeyHash = false,
 ): Uint8Array {
   return copyBytes(
@@ -1036,6 +1044,8 @@ export function sealMevShieldTransaction(
     ),
   )
 }
+
+export const encrypt_mlkem768 = encryptMlkem768
 
 export function mlkemKdfId(): Uint8Array {
   return copyBytes(wasmSync().mlkemKdfId())

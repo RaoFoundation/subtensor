@@ -427,6 +427,7 @@ export class Keypair implements PolkadotCompatibleKeypair {
     const rawSignature = hasType ? suppliedSignature.subarray(1) : suppliedSignature
 
     if (signerPublic == null) {
+      if (hasType && cryptoType !== this.cryptoType) return false
       return nativeCall(() => this.handle.verify(coerceMessage(message), rawSignature))
     }
     if (typeof signerPublic === 'string' && !signerPublic.startsWith('0x')) {

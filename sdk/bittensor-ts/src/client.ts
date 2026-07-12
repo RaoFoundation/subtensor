@@ -63,6 +63,7 @@ export interface ClientOptions {
   retryBackoffMs?: number
   maxRetryBackoffMs?: number
   endpointValidationTtlMs?: number
+  maxMessageBytes?: number
 }
 
 export interface RpcRequestOptions {
@@ -606,17 +607,16 @@ export class JsonRpcTransport {
     options: RpcRequestOptions,
   ): Promise<unknown> {
     const request = withRequestSignal(options)
+    const id = this.id++
     try {
       const response = await fetch(attempt.endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: this.id++, method, params }),
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         signal: request.signal,
       })
       if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${attempt.endpoint}`)
-      const payload = await response.json()
-      if (payload.error) throw new JsonRpcError(payload.error.message, payload.error.code, payload.error.data)
-      return payload.result
+      return jsonRpcResponseResult(await parseJsonRpcResponse(response, this.maxMessageBytes), id)
     } catch (error) {
       throw normalizeAbortError(error, request)
     } finally {
@@ -959,6 +959,7 @@ export class Client {
       retryBackoffMs: options.retryBackoffMs,
       maxRetryBackoffMs: options.maxRetryBackoffMs,
       endpointValidationTtlMs: options.endpointValidationTtlMs,
+      maxMessageBytes: options.maxMessageBytes,
     })
     this.balances = new BalancesNamespace(this)
     this.subnets = new SubnetsNamespace(this)
@@ -1192,10 +1193,10 @@ export class Client {
   ): Promise<T | undefined> {
     const [moduleName, itemName, itemParams, blockRef] =
       normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
-    const blockHash = await this.resolveBlockHash(blockRef)
+    const blockHash = await this.resolveReadBlockHash(blockRef)
     const runtime = await this.runtimeAt(blockHash)
     const key = runtime.storageKey(moduleName, itemName, itemParams)
-    const raw = await this.rpc('state_getStorage', [hex(key), ...(blockHash == null ? [] : [blockHash])])
+    const raw = await this.rpc('state_getStorage', [hex(key), blockHash])
     const entry = runtime.storageEntry(moduleName, itemName)
     return decodeStorageValue<T>(runtime, entry, raw)
   }
@@ -1209,10 +1210,10 @@ export class Client {
     const [moduleName, itemName, sets, blockRef] =
       normalizeBatchArgs(pallet, storageFunction, paramSetsOrBlock, block)
     if (sets.length === 0) return []
-    const blockHash = await this.resolveBlockHash(blockRef)
+    const blockHash = await this.resolveReadBlockHash(blockRef)
     const runtime = await this.runtimeAt(blockHash)
     const keys = runtime.storageKeyBatch(moduleName, itemName, sets)
-    const raw = await this.rpc('state_queryStorageAt', [keys.map(hex), ...(blockHash == null ? [] : [blockHash])])
+    const raw = await this.rpc('state_queryStorageAt', [keys.map(hex), blockHash])
     const changes = ((raw as Array<{ changes?: Array<[string, string | null]> }>)[0]?.changes ?? [])
     const valueByKey = new Map(changes.map(([key, value]) => [key.toLowerCase(), value]))
     const entry = runtime.storageEntry(moduleName, itemName)
@@ -1317,12 +1318,12 @@ export class Client {
     block?: number | string | null,
   ): Promise<T> {
     const [apiName, methodName, callParams, blockRef] = normalizeRuntimeArgs(api, method, paramsOrBlock, block)
-    const blockHash = await this.resolveBlockHash(blockRef)
+    const blockHash = await this.resolveReadBlockHash(blockRef)
     const runtime = await this.runtimeAt(blockHash)
     const info = runtime.runtimeApis()[apiName]?.[methodName]
     if (info == null) throw new ChainError(`runtime API ${apiName}.${methodName} not found`)
     const encoded = runtime.encodeRuntimeApiInput(apiName, methodName, callParams)
-    const raw = await this.rpc('state_call', [`${apiName}_${methodName}`, hex(encoded), blockHash ?? null])
+    const raw = await this.rpc('state_call', [`${apiName}_${methodName}`, hex(encoded), blockHash])
     return runtime.decodeTypeId<T>(info.outputTypeId, hexToBuffer(String(raw)), false)
   }
 
@@ -1640,14 +1641,23 @@ export class Client {
       else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
-    const returnedHash = normalizeHash32(hash, 'author_submitExtrinsic hash')
-    if (reservation != null) await this.submitNonce(reservation)
-    else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
+    let returnedHash: string
+    try {
+      returnedHash = normalizeHash32(hash, 'author_submitExtrinsic hash')
+    } catch (error) {
+      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
+      throw error
+    }
     if (!sameHex(returnedHash, extrinsicHash)) {
+      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw new ChainError(
         `author_submitExtrinsic returned hash ${returnedHash}, expected ${extrinsicHash}`,
       )
     }
+    if (reservation != null) await this.submitNonce(reservation)
+    else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
     return { status: 'submitted', message: 'Submitted', extrinsicHash, events: [] }
   }
 
@@ -3315,6 +3325,88 @@ function signerPublicKey(value: ByteLike | undefined, ss58Address: string): Buff
     : toBuffer(value, 'signer.publicKey')
 }
 
+async function parseJsonRpcResponse(response: Response, maxBytes: number): Promise<unknown> {
+  const responseLike = response as Response & { json?: () => Promise<unknown> }
+  if (response.body != null || typeof response.text === 'function') {
+    const raw = await readResponseText(response, maxBytes)
+    try {
+      return JSON.parse(raw) as unknown
+    } catch {
+      throw new JsonRpcError('invalid JSON-RPC response')
+    }
+  }
+  if (typeof responseLike.json === 'function') return responseLike.json()
+  throw new JsonRpcError('HTTP JSON-RPC response body is not readable')
+}
+
+async function readResponseText(response: Response, maxBytes: number): Promise<string> {
+  const body = response.body
+  if (body == null || typeof body.getReader !== 'function') {
+    const text = await response.text()
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+      throw new JsonRpcError('JSON-RPC response exceeded size limit')
+    }
+    return text
+  }
+
+  const reader = body.getReader()
+  const chunks: Buffer[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value == null) continue
+      const chunk = Buffer.from(value)
+      total += chunk.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        throw new JsonRpcError('JSON-RPC response exceeded size limit')
+      }
+      chunks.push(chunk)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return Buffer.concat(chunks, total).toString('utf8')
+}
+
+function jsonRpcResponseResult(payload: unknown, expectedId: number): unknown {
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new JsonRpcError('invalid JSON-RPC response envelope')
+  }
+  const envelope = payload as {
+    jsonrpc?: unknown
+    id?: unknown
+    result?: unknown
+    error?: unknown
+  }
+  if (envelope.jsonrpc !== '2.0') {
+    throw new JsonRpcError('invalid JSON-RPC response version')
+  }
+  if (envelope.id !== expectedId) {
+    throw new JsonRpcError('JSON-RPC response id did not match request id')
+  }
+  const hasResult = hasOwn(envelope, 'result')
+  const hasError = hasOwn(envelope, 'error')
+  if (hasResult === hasError) {
+    throw new JsonRpcError('JSON-RPC response must contain exactly one of result or error')
+  }
+  if (hasError) {
+    const error = envelope.error
+    if (error == null || typeof error !== 'object') {
+      throw new JsonRpcError('invalid JSON-RPC error response')
+    }
+    const rpcError = error as { message?: unknown; code?: unknown; data?: unknown }
+    throw new JsonRpcError(
+      String(rpcError.message ?? 'JSON-RPC error'),
+      typeof rpcError.code === 'number' ? rpcError.code : undefined,
+      rpcError.data,
+    )
+  }
+  return envelope.result
+}
+
 function extensionSignPayload(context: SignerPayloadContext): ExtensionSignPayloadRequest {
   return {
     address: context.address,
@@ -3328,7 +3420,7 @@ function extensionSignPayload(context: SignerPayloadContext): ExtensionSignPaylo
     specVersion: u32Hex(context.runtime.specVersion),
     tip: compactIntegerHex(context.txParams.tip ?? 0n),
     transactionVersion: u32Hex(context.runtime.transactionVersion),
-    version: 4,
+    version: context.runtime.extrinsicVersion,
     assetId: context.txParams.tipAssetId == null ? null : compactIntegerHex(context.txParams.tipAssetId),
     metadataHash: context.metadataHash == null ? undefined : hex(context.metadataHash),
     mode: context.metadataHash == null ? 0 : 1,
