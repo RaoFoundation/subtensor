@@ -27,6 +27,7 @@ on:
         options:
           - current
           - bhs
+          - turbo16
           - hosted
 
 concurrency:
@@ -217,7 +218,7 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build-try-runtime
-    runs-on: ${{ fromJSON(inputs.benchmark_runner_pool == 'bhs' && '["self-hosted","fireactions-turbo-8"]' || inputs.benchmark_runner_pool == 'hosted' && '"ubuntu-latest"' || '["self-hosted","fireactions-tryruntime"]') }}
+    runs-on: ${{ fromJSON(inputs.benchmark_runner_pool == 'bhs' && '["self-hosted","fireactions-turbo-8"]' || inputs.benchmark_runner_pool == 'turbo16' && '["self-hosted","fireactions-turbo-16"]' || inputs.benchmark_runner_pool == 'hosted' && '"ubuntu-latest"' || '["self-hosted","fireactions-tryruntime"]') }}
     timeout-minutes: 90
     permissions:
       contents: read
