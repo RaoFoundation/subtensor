@@ -86,7 +86,7 @@ jobs:
       matrix:
         platform:
           # triple names used in scripts/install_prebuilt_binaries.sh
-          - runner: [self-hosted, fireactions-heavy]
+          - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
           - runner: [ubuntu-24.04-arm]
@@ -145,7 +145,7 @@ jobs:
   # Collect all binaries and publish the multi-arch image.
   docker:
     needs: [setup, artifacts]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@v4
         with:

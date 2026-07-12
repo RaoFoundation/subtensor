@@ -5,9 +5,8 @@ name: Check Rust
 
 on:
   pull_request:
-  # Runs on main serve two purposes: post-merge validation, and seeding the
-  # shared sccache pool — Actions caches written on the default branch are
-  # readable by every PR, while PR-written caches stay scoped to their PR.
+  # Main pushes retain post-merge validation and populate R2 while compiling;
+  # legacy non-MMDS pools keep the GitHub Actions backend as a fallback.
   push:
     branches: [main]
   workflow_dispatch:
@@ -55,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py|-wasm)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/rust-setup/)'
+          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py|-wasm)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/(rust-setup|sccache-setup)/|scripts/sccache-configure\.sh$)'
           if grep -qE "$pattern" <<< "$files"; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
           else
@@ -67,7 +66,7 @@ jobs:
     name: cargo fmt
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rust-setup
@@ -88,9 +87,12 @@ jobs:
     name: cargo clippy (${{ matrix.features.name }})
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    # Compile-bound (~20 min on the light boxes with a cold cache); the heavy
-    # pool's extra cores cut the wall time roughly in half.
-    runs-on: [self-hosted, fireactions-heavy]
+    # Compile-bound; the shared 8-core pool avoids the legacy 2-core cold-cache
+    # path without consuming the 16-core critical-path lane.
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     env:
       SKIP_WASM_BUILD: 1
     strategy:
@@ -107,6 +109,9 @@ jobs:
         with:
           cache-key: clippy-${{ matrix.features.name }}
           components: clippy
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets ${{ matrix.features.flags }} -- -D warnings
 
@@ -114,7 +119,10 @@ jobs:
     name: no cargo check warnings
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     env:
       RUSTFLAGS: -D warnings
       SKIP_WASM_BUILD: 1
@@ -123,6 +131,9 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: lints
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: cargo check (fail on warnings)
         run: |
           set -euo pipefail
@@ -134,9 +145,11 @@ jobs:
     name: cargo test
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    # Turbo pool: longest job in this workflow (see runtime-checks.yml for
-    # the two-replica routing budget).
-    runs-on: [self-hosted, fireactions-turbo]
+    # Longest job in this workflow; retain the reserved 16-core turbo lane.
+    runs-on: [self-hosted, fireactions-turbo-16]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -144,6 +157,9 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: cargo-test
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Install cargo-nextest
         run: |
           curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
@@ -166,7 +182,10 @@ jobs:
     name: bittensor-core wasm32 seam
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     # No RUSTFLAGS deny here: it would apply to dependencies too, and the
     # vendored w3f-bls fork carries warnings in this feature combination.
     # This job asserts the seam compiles; warning hygiene stays with the
@@ -178,6 +197,9 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: core-wasm
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - name: cargo check bittensor-core (portable core, wasm32)
@@ -211,7 +233,10 @@ jobs:
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     # Compile-bound, same reasoning as clippy.
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -219,6 +244,9 @@ jobs:
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: cargo-fix
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: cargo fix --workspace
         run: |
           cargo fix --workspace
@@ -228,12 +256,18 @@ jobs:
     name: zepter feature propagation
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rust-setup
         with:
           cache-key: zepter
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Install and run zepter
         run: |
           cargo install --locked -q zepter

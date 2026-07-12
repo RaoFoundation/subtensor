@@ -19,7 +19,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy staging docs to Vercel
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

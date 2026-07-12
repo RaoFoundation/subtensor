@@ -26,11 +26,18 @@ on:
       - "build.rs"
       - "rust-toolchain.toml"
       - "Dockerfile"
+      - "Dockerfile.prebuilt"
+      - "Cross.toml"
+      - ".github/actions/build-production-binary/**"
+      - ".github/actions/rust-setup/**"
       - ".github/workflows/check-docker.yml"
 
 concurrency:
   group: check-docker-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   trusted-pr:
@@ -40,18 +47,62 @@ jobs:
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
-  build:
-    name: docker build
+  binary:
+    name: production binary (amd64)
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-16]
+    environment:
+      name: sccache-writer
+      deployment: false
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - uses: ./.github/actions/build-production-binary
+        with:
+          arch: amd64
+          target: x86_64-unknown-linux-gnu
+          cache-key: docker-production-amd64
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-node-amd64
+          path: build/ci_target/amd64/node-subtensor
+          if-no-files-found: error
+
+  image:
+    name: docker image (amd64, no push)
+    needs: [trusted-pr, binary]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: production-node-amd64
+          path: build/ci_target/amd64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        run: docker build .
+      - name: Build Docker image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          platforms: linux/amd64
+          tags: subtensor-ci:amd64
+          load: true
+          push: false
+
+      - name: Verify image architecture and executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(docker image inspect subtensor-ci:amd64 --format '{{.Architecture}}')
+          test "$actual" = amd64
+          docker run --rm --platform linux/amd64 subtensor-ci:amd64 --help > /dev/null

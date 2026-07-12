@@ -35,7 +35,7 @@ permissions:
 jobs:
   check:
     name: Compare chain spec_version with main
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     permissions:
       contents: read
       actions: read # list/download the release-train artifact
@@ -103,7 +103,7 @@ jobs:
     name: Cut GitHub release
     needs: check
     if: needs.check.outputs.ready == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     # MIRROR_DEPLOY_KEY lives in the mainnet environment secrets; one
     # approval of the run covers this and the publish jobs below.
     environment: mainnet
@@ -163,7 +163,7 @@ jobs:
     name: Dispatch Docker image publishing
     needs: [check, release]
     if: needs.check.outputs.ready == 'true'
-    runs-on: [self-hosted, fireactions-light]
+    runs-on: [self-hosted, fireactions-turbo-8]
     permissions:
       actions: write
     steps:
@@ -193,7 +193,7 @@ jobs:
     name: Publish Python SDK to PyPI
     needs: [check, release, build-core]
     if: needs.check.outputs.ready == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     # PyPI trusted publishing (OIDC); publishers for `bittensor` and
     # bittensor-core are registered against this workflow + mainnet environment.
     environment: mainnet
@@ -230,7 +230,7 @@ jobs:
     name: Publish Rust crates to crates.io
     needs: [check, release]
     if: needs.check.outputs.ready == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     steps:
       - uses: actions/checkout@v4
@@ -266,7 +266,7 @@ jobs:
     name: Deploy production website and docs
     needs: [check, release]
     if: needs.check.outputs.ready == 'true'
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     steps:
       - uses: actions/checkout@v4

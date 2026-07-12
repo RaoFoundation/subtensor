@@ -76,7 +76,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh jq
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -114,7 +114,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" jq
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -139,7 +139,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -181,7 +181,7 @@ jobs:
           diff -u build/rust-e2e/expected-tests.txt build/rust-e2e/compiled-tests.txt
 
       - name: Upload compiled Rust e2e binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bittensor-core-e2e
           path: build/rust-e2e/bittensor-core-e2e
@@ -195,15 +195,18 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runner: [self-hosted, fireactions-heavy]
+          - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
 
     runs-on: ${{ matrix.platform.runner }}
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -217,6 +220,13 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           rustup target add ${{ matrix.platform.triple }}
+
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Patch limits for local run
         run: |
@@ -259,7 +269,7 @@ jobs:
             build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binaries-${{ matrix.platform.triple }}-fast-runtime
           path: build/
@@ -271,13 +281,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: binaries-*
           path: build/
@@ -324,7 +334,7 @@ jobs:
     name: "rust-e2e: ${{ matrix.test }}"
     steps:
       - name: Download compiled Rust e2e binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: bittensor-core-e2e
           path: rust-e2e

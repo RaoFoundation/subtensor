@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -65,7 +65,7 @@ jobs:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: ts-tests/.nvmrc
 
@@ -87,7 +87,10 @@ jobs:
 
   # Build the node binary in both variants and share as artifacts.
   build:
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
     needs: [trusted-pr, typescript-formatting, changes]
     if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
@@ -102,7 +105,7 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install system dependencies
         run: |
@@ -114,17 +117,25 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
-      - name: Utilize Shared Rust Cache
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Cache Cargo registry and git data
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: e2e-${{ matrix.variant }}
           cache-on-failure: true
+          cache-targets: false
 
       - name: Build node-subtensor (${{ matrix.variant }})
         run: cargo build --profile release ${{ matrix.flags }} -p node-subtensor
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: node-subtensor-${{ matrix.variant }}
           path: target/release/node-subtensor
@@ -132,7 +143,7 @@ jobs:
 
   run-e2e-tests:
     needs: [trusted-pr, build]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
 
     strategy:
@@ -156,10 +167,10 @@ jobs:
 
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Download binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: node-subtensor-${{ matrix.binary }}
           path: target/release
@@ -168,7 +179,7 @@ jobs:
         run: chmod +x target/release/node-subtensor
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: ts-tests/.nvmrc
 

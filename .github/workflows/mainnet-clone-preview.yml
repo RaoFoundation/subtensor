@@ -44,7 +44,10 @@ env:
 jobs:
   clone-preview:
     name: Sudo-upgrade mainnet clone, expose endpoint
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
     if: >-
       contains(github.event.pull_request.labels.*.name, 'mainnet-clone') &&
       github.event.pull_request.head.repo.fork == false
@@ -59,19 +62,27 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
       - name: Check-out repository under $GITHUB_WORKSPACE
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Utilize Shared Rust Cache
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Cache Cargo registry and git data
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: clone-upgrade
           cache-on-failure: true
+          cache-targets: false
 
       - name: Build node and runtime
         run: cargo build --release -p node-subtensor
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
 
@@ -134,7 +145,7 @@ jobs:
           exit 1
 
       - name: Post endpoint as sticky PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           WSS_URL: ${{ steps.tunnel.outputs.wss_url }}
           KEEP_ALIVE_MINUTES: ${{ env.KEEP_ALIVE_MINUTES }}
@@ -183,7 +194,7 @@ jobs:
       # (cancelled runs get a short grace period for cleanup steps).
       - name: Mark endpoint offline
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const marker = '<!-- mainnet-clone-preview -->';

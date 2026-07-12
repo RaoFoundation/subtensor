@@ -26,7 +26,10 @@ jobs:
   build:
     name: build ${{ matrix.version.name }}
     needs: trusted-pr
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
     if: contains(github.event.pull_request.labels.*.name, 'check-node-compat')
     env:
       RUST_BACKTRACE: full
@@ -38,7 +41,12 @@ jobs:
           - name: new
             ref: ${{ github.head_ref }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out CI support action
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: ci-support
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ matrix.version.ref }}
           path: ${{ matrix.version.name }}
@@ -51,20 +59,28 @@ jobs:
             build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config unzip
 
       - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
-      - name: Shared Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Shared R2 compiler cache
+        uses: ./ci-support/.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Cache Cargo registry and git data
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: check-node-compat-${{ matrix.version.name }}
           workspaces: ${{ matrix.version.name }}
+          cache-targets: false
 
       - name: Build ${{ matrix.version.name }}
         working-directory: ${{ matrix.version.name }}
         run: cargo build --release --locked
 
       - name: Upload ${{ matrix.version.name }} node binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: node-subtensor-${{ matrix.version.name }}
           path: ${{ matrix.version.name }}/target/release/node-subtensor
@@ -73,24 +89,24 @@ jobs:
   test:
     name: run compat harness
     needs: [trusted-pr, build]
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Download old node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: node-subtensor-old
           path: /tmp/node-subtensor-old
 
       - name: Download new node binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: node-subtensor-new
           path: /tmp/node-subtensor-new
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
 
