@@ -22,11 +22,11 @@ jobs:
       matrix:
         include:
           - test: smoke_devnet
-            runner: [self-hosted, fireactions-turbo-8]
+            runner: [self-hosted, fireactions-tryruntime]
           - test: smoke_testnet
-            runner: [self-hosted, fireactions-turbo-8]
+            runner: [self-hosted, fireactions-tryruntime]
           - test: smoke_mainnet
-            runner: [self-hosted, fireactions-turbo-8]
+            runner: [self-hosted, fireactions-tryruntime-finney]
     steps:
       - uses: actions/checkout@v4
 
