@@ -16,16 +16,8 @@ on:
         description: "Bypass cached try-runtime snapshots and scrape all networks live"
         type: boolean
         default: false
-      snapshot_source_branch:
-        description: "Trusted snapshot artifact branch (manual measurement only)"
-        type: string
-        default: main
       try_runtime_only:
         description: "Run only the try-runtime build and cached network checks"
-        type: boolean
-        default: false
-      skip_devnet:
-        description: "Skip devnet when measuring a partially completed producer run"
         type: boolean
         default: false
 
@@ -79,7 +71,7 @@ jobs:
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
           # SDK-only changes are covered by sdk-checks and the Rust SDK e2e
           # workflow; they should not force clone-upgrade or SDK drift.
-          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/|scripts/(sccache-configure|snapshot-artifact|test-snapshot-artifact)\.sh$)'
+          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/|scripts/(sccache-configure|snapshot-artifact|test-snapshot-artifact)\.sh)$'
           docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
           python_sdk_pattern='^sdk/(python|bittensor-core|bittensor-core-py|bittensor-core-wasm)/|^Cargo.lock$|^\.github/workflows/runtime-checks\.yml$'
           sdk_drift_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$'
@@ -225,33 +217,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        selected: [devnet, testnet, mainnet]
-        exclude:
-          - selected: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_devnet && 'devnet' || '__none__' }}
-        include:
+        network:
           # NOTE: the hostnames are misleading — archive.dev.opentensor.ai
           # serves the TESTNET archive on :8443 and the MAINNET archive on
           # :443 (verified by genesis hash; try-runtime wants archive nodes,
           # which is why we don't use the entrypoint hostnames). The
           # "Verify endpoint" step below enforces each URI's identity.
-          - selected: devnet
-            network:
-              name: devnet
-              uri: wss://dev.chain.opentensor.ai:443
-              genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
-          - selected: testnet
-            network:
-              name: testnet
-              uri: wss://archive.dev.opentensor.ai:8443
-              genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
-          - selected: mainnet
-            network:
-              name: mainnet
-              uri: wss://archive.dev.opentensor.ai:443
-              genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+          - name: devnet
+            uri: wss://dev.chain.opentensor.ai:443
+            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+          - name: testnet
+            uri: wss://archive.dev.opentensor.ai:8443
+            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
           # Keep endpoint-heavy checks near the archive RPCs. Measurements
           # from BHS showed materially higher per-request latency, which
           # compounds during try-runtime's state traversal.
+          - name: mainnet
+            uri: wss://archive.dev.opentensor.ai:443
+            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
     steps:
       - uses: actions/checkout@v4
 
@@ -309,7 +292,7 @@ jobs:
           set -euo pipefail
           .github/scripts/snapshot-artifact.sh select \
             "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network.name }}" \
-            "${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_source_branch || github.event.repository.default_branch }}" \
+            "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
             72 "$GITHUB_OUTPUT" required
 
@@ -528,7 +511,7 @@ jobs:
           set -euo pipefail
           .github/scripts/snapshot-artifact.sh select \
             mainnet-snapshot \
-            "${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_source_branch || github.event.repository.default_branch }}" \
+            "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
             168 "$GITHUB_OUTPUT" optional
 
