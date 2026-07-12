@@ -46,8 +46,12 @@ export const rustCore = Object.freeze({
   }),
   keyfiles: Object.freeze({
     serializeKeypair: keys.serializeKeypair,
+    serializePublicKeypair: keys.serializePublicKeypair,
+    serialize_public_keypair: keys.serialize_public_keypair,
     serializedKeypairToKeyfileData: keys.serializedKeypairToKeyfileData,
     serialized_keypair_to_keyfile_data: keys.serialized_keypair_to_keyfile_data,
+    dangerouslySerializePrivateKeypair: keys.dangerouslySerializePrivateKeypair,
+    dangerously_serialize_private_keypair: keys.dangerously_serialize_private_keypair,
     keypairToKeyfileData: keys.keypairToKeyfileData,
     keypair_to_keyfile_data: keys.keypair_to_keyfile_data,
     deserializeKeypair: keys.deserializeKeypair,

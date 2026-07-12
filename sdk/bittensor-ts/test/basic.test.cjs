@@ -75,6 +75,30 @@ function fakeSigningRuntime(overrides = {}) {
       captures.payloadParams = params
       return Buffer.from([9, 9, 9])
     },
+    signerPayload(address, callData, params) {
+      captures.signerPayload = { address, callData: Buffer.from(callData), params }
+      return {
+        address,
+        blockHash: `0x${Buffer.from(params.eraBlockHash).toString('hex')}`,
+        blockNumber: '0x00000000',
+        era: '0x00',
+        genesisHash: `0x${Buffer.from(params.genesisHash).toString('hex')}`,
+        method: `0x${Buffer.from(callData).toString('hex')}`,
+        nonce: '0x30',
+        signedExtensions: runtime.signedExtensionIdentifiers(),
+        specVersion: '0xa3010000',
+        tip: '0x00',
+        transactionVersion: '0x01000000',
+        version: runtime.extrinsicVersion,
+        assetId: params.tipAssetId == null ? null : '0x010000',
+        metadataHash:
+          params.metadataHash == null ? undefined : `0x${Buffer.from(params.metadataHash).toString('hex')}`,
+        mode: params.metadataHash == null ? 0 : 1,
+      }
+    },
+    signedExtensionIdentifiers() {
+      return ['CheckNonce']
+    },
     encodeSignedExtrinsic(callData, publicKey, signature, signatureVersion, params) {
       captures.encoded = { callData, publicKey, signature, signatureVersion, params }
       return {
@@ -582,10 +606,17 @@ test('Python-compatible bittensor_core names are exported', () => {
   )
 
   const publicOnly = new core.Keypair(alice.ss58_address)
+  assert.throws(() => alice.serialize(), /public-only keypairs/)
   const publicKeyfile = JSON.parse(
     core.serialized_keypair_to_keyfile_data(publicOnly).toString('utf8'),
   )
   assert.equal(publicKeyfile.ss58Address, alice.ss58_address)
+  assert.deepEqual(
+    JSON.parse(core.serializePublicKeypair(publicOnly).toString('utf8')),
+    JSON.parse(publicOnly.serialize().toString('utf8')),
+  )
+  const privatePlaintext = core.dangerouslySerializePrivateKeypair(alice)
+  assert.equal(core.deserializeKeypair(privatePlaintext).ss58_address, alice.ss58_address)
   assert.equal(core.keyfile_data_is_encrypted(Buffer.from('plain')), false)
   assert.deepEqual(core.mlkem_kdf_id(), core.MLKEM_KDF_ID)
   assert.equal(typeof core.metadata_digest, 'function')
@@ -672,13 +703,17 @@ test('private key bytes are not exported to JavaScript', async (t) => {
     Object.prototype.hasOwnProperty.call(core.native.NativeKeypair.prototype, 'privateKey'),
     false,
   )
-  assert.throws(() => alice.serialize(), /plaintext private key serialization is disabled/)
-  assert.throws(() => core.serializeKeypair(alice), /plaintext private key serialization is disabled/)
+  assert.throws(() => alice.serialize(), /public-only keypairs/)
+  assert.throws(() => core.serializeKeypair(alice), /public-only keypairs/)
   const rawNativeSerialize = core.native.serializeKeypair(
     core.native.keypairFromUri('//Alice', core.CRYPTO_SR25519),
   )
   assert.equal(rawNativeSerialize instanceof Error, true)
   assert.match(rawNativeSerialize.message, /plaintext private key serialization is disabled/)
+  assert.equal(
+    core.deserializeKeypair(core.dangerouslySerializePrivateKeypair(alice)).ss58Address,
+    alice.ss58Address,
+  )
 
   const publicOnly = new core.Keypair(alice.ss58Address)
   const publicKeyfile = JSON.parse(publicOnly.serialize().toString('utf8'))
@@ -699,6 +734,45 @@ test('fallible Runtime construction uses the native factory', () => {
     () => new core.Runtime(Buffer.from([0, 1, 2, 3]), 1, 1),
     (error) => error instanceof core.CodecError,
   )
+})
+
+test('Runtime signer payload encodes signed extension fields through metadata', () => {
+  const runtime = new core.Runtime(goldenMetadataBytes(), 419, 1, 42)
+  const genesisHash = Buffer.alloc(32, 0)
+  const eraBlockHash = Buffer.alloc(32, 0x42)
+  const metadataHash = Buffer.alloc(32, 3)
+  const payload = runtime.signerPayload('5F', Buffer.from([5, 6, 7]), {
+    era: { period: 64, current: 70 },
+    nonce: 12,
+    tip: 1,
+    tipAssetId: null,
+    genesisHash,
+    eraBlockHash,
+    metadataHash,
+  })
+
+  assert.equal(payload.address, '5F')
+  assert.equal(payload.method, '0x050607')
+  assert.equal(payload.blockHash, `0x${eraBlockHash.toString('hex')}`)
+  assert.equal(payload.blockNumber, '0x46000000')
+  assert.equal(payload.nonce, '0x30')
+  assert.equal(payload.tip, '0x04')
+  assert.equal(payload.assetId == null, true)
+  assert.equal(payload.metadataHash, `0x${metadataHash.toString('hex')}`)
+  assert.equal(payload.mode, 1)
+  assert.ok(payload.signedExtensions.includes('ChargeTransactionPayment'))
+
+  const noAsset = runtime.signerPayload('5F', Buffer.from([5, 6, 7]), {
+    era: '00',
+    nonce: 12,
+    tip: 1,
+    tipAssetId: null,
+    genesisHash,
+    eraBlockHash,
+    metadataHash: null,
+  })
+  assert.equal(noAsset.assetId == null, true)
+  assert.equal(noAsset.metadataHash == null, true)
 })
 
 test('compact codec is the Rust implementation', () => {
@@ -1025,6 +1099,11 @@ test('transaction amounts require explicit units', () => {
     'transfer_keep_alive',
     { dest: '5F', value: 2n },
   ])
+  assert.deepEqual(core.calls.subtensor.removeStake('5F', 8, core.alphaAmount('1.0', 8)), [
+    'SubtensorModule',
+    'remove_stake',
+    { hotkey: '5F', netuid: 8, amount_unstaked: 1_000_000_000n },
+  ])
   assert.deepEqual(core.calls.balances.transferKeepAlive('5F', core.Balance.fromTao('0.5')), [
     'Balances',
     'transfer_keep_alive',
@@ -1041,6 +1120,10 @@ test('transaction amounts require explicit units', () => {
   assert.throws(
     () => core.calls.balances.transferKeepAlive('5F', core.Balance.fromAlpha('1', 7)),
     /must be a TAO balance/,
+  )
+  assert.throws(
+    () => core.calls.balances.transferKeepAlive('5F', core.alphaAmount('1', 7)),
+    /must be a TAO amount/,
   )
   assert.throws(
     () => core.calls.balances.transferKeepAlive('5F', '1'),
@@ -1068,6 +1151,14 @@ test('transaction amounts require explicit units', () => {
   assert.throws(
     () => core.calls.subtensor.removeStake('5F', 8, core.Balance.fromAlpha('1', 7)),
     /subnet-8 alpha/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.removeStake('5F', 8, core.taoAmount('1')),
+    /must be subnet-8 alpha, not TAO/,
+  )
+  assert.throws(
+    () => core.calls.subtensor.removeStake('5F', 8, core.alphaAmount('1', 7)),
+    /subnet-8 alpha, not subnet-7 alpha/,
   )
   assert.deepEqual(core.calls.subtensor.removeStake('5F', 8, core.Balance.fromAlpha('1', 8)), [
     'SubtensorModule',
@@ -1428,6 +1519,44 @@ test('JsonRpcTransport bounds retries and supports request cancellation', async 
     pending,
     (error) => error.name === 'RequestAbortedError',
   )
+})
+
+test('JsonRpcTransport only retries idempotent RPC methods by default', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  let requests = 0
+  globalThis.fetch = async () => {
+    requests += 1
+    throw new Error('connection dropped')
+  }
+  const transport = new core.JsonRpcTransport('http://node-a', [], false, {
+    requestTimeoutMs: 5,
+    maxRequestRetries: 2,
+    retryBackoffMs: 1,
+    maxRetryBackoffMs: 1,
+  })
+
+  await assert.rejects(
+    () => transport.request('engine_createBlock'),
+    /connection dropped/,
+  )
+  assert.equal(requests, 1)
+
+  requests = 0
+  await assert.rejects(
+    () => transport.request('state_getMetadata'),
+    /connection dropped/,
+  )
+  assert.equal(requests, 3)
+
+  requests = 0
+  await assert.rejects(
+    () => transport.request('engine_createBlock', [], { maxRetries: 2 }),
+    /connection dropped/,
+  )
+  assert.equal(requests, 3)
 })
 
 test('JsonRpcTransport can disable retryForever for transaction submissions', async (t) => {
@@ -1857,7 +1986,7 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.equal(signed.nonce, 12)
   assert.equal(client.lastNonceAddress, address)
   assert.equal(request.address, address)
-  assert.equal(request.type, 'bytes')
+  assert.equal(request.type, 'payload')
   assert.equal(request.data, '0x090909')
   assert.equal(request.metadataProof, undefined)
   assert.deepEqual(captures.encoded.callData, callData)
@@ -1936,16 +2065,34 @@ test('Client passes structured payloads to extension signPayload signers', async
   const { runtime, captures } = fakeSigningRuntime({
     extrinsicVersion: 5,
     signedExtensionIdentifiers() {
-      return ['CheckNonce']
+      return ['CheckNonce', 'ChargeAssetTxPayment', 'CheckMetadataHash']
     },
-    encodeEra() {
-      return Buffer.from([0])
+    signerPayload(address, callData, params) {
+      captures.signerPayload = { address, callData: Buffer.from(callData), params }
+      return {
+        address,
+        blockHash: '0x4242424242424242424242424242424242424242424242424242424242424242',
+        blockNumber: '0x2a000000',
+        era: '0x2500',
+        genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        method: `0x${Buffer.from(callData).toString('hex')}`,
+        nonce: '0x3000',
+        signedExtensions: ['CheckNonce', 'ChargeAssetTxPayment', 'CheckMetadataHash'],
+        specVersion: '0xa3010000',
+        tip: '0x0400',
+        transactionVersion: '0x01000000',
+        version: 5,
+        assetId: '0x010000',
+        metadataHash: '0x0303030303030303030303030303030303030303030303030303030303030303',
+        mode: 1,
+      }
     },
   })
   const client = fakeSigningClient(runtime, callData)
   const publicKey = Buffer.alloc(32, 6)
   const address = core.ss58FromPublic(publicKey, 42)
   let payload
+  let rawCalls = 0
   const signer = {
     address,
     publicKey,
@@ -1953,15 +2100,31 @@ test('Client passes structured payloads to extension signPayload signers', async
       payload = value
       return { signature: `0x${Buffer.alloc(64, 9).toString('hex')}` }
     },
+    signRaw() {
+      rawCalls += 1
+      throw new Error('signRaw should not be used when signPayload exists')
+    },
   }
 
-  await client.signExtrinsic(callData, signer, { period: null })
+  await client.signExtrinsic(callData, signer, {
+    period: 64,
+    tip: core.raoAmount(1),
+    tipAssetId: 0n,
+    metadataHash: Buffer.alloc(32, 3),
+  })
 
   assert.equal(payload.address, address)
   assert.equal(payload.method, '0x050607')
   assert.equal(payload.version, 5)
-  assert.deepEqual(payload.signedExtensions, ['CheckNonce'])
-  assert.equal(captures.encoded.params.metadataHashEnabled, false)
+  assert.equal(payload.assetId, '0x010000')
+  assert.equal(payload.nonce, '0x3000')
+  assert.equal(payload.tip, '0x0400')
+  assert.equal(payload.mode, 1)
+  assert.deepEqual(payload.signedExtensions, ['CheckNonce', 'ChargeAssetTxPayment', 'CheckMetadataHash'])
+  assert.equal(rawCalls, 0)
+  assert.deepEqual(captures.signerPayload.callData, callData)
+  assert.equal(captures.signerPayload.params.tipAssetId, 0n)
+  assert.equal(captures.encoded.params.metadataHashEnabled, true)
 })
 
 test('Client rejects invalid chain nonce values', async () => {

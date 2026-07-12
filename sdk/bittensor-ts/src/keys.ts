@@ -506,7 +506,28 @@ export class Keypair implements PolkadotCompatibleKeypair {
   }
 
   serialize(): Buffer {
+    return this.serializePublic()
+  }
+
+  serializePublic(): Buffer {
+    if (this.kind !== 'PublicOnly') {
+      throw new Error(
+        'Keypair.serialize() only supports public-only keypairs; use toKeyfileData(password) or dangerouslySerializePrivateKeypair()',
+      )
+    }
     return nativeCall(() => native.serializeKeypair(this.handle))
+  }
+
+  serialize_public(): Buffer {
+    return this.serializePublic()
+  }
+
+  dangerouslySerializePrivateKeypair(): Buffer {
+    return nativeCall(() => native.dangerouslySerializeKeypair(this.handle))
+  }
+
+  dangerously_serialize_private_keypair(): Buffer {
+    return this.dangerouslySerializePrivateKeypair()
   }
 
   toKeyfileData(password?: string | null): Promise<Buffer> {
@@ -640,8 +661,19 @@ export function serializeKeypair(keypair: Keypair): Buffer {
   return keypair.serialize()
 }
 
+export function serializePublicKeypair(keypair: Keypair): Buffer {
+  return keypair.serializePublic()
+}
+
+export const serialize_public_keypair = serializePublicKeypair
 export const serializedKeypairToKeyfileData = serializeKeypair
 export const serialized_keypair_to_keyfile_data = serializedKeypairToKeyfileData
+
+export function dangerouslySerializePrivateKeypair(keypair: Keypair): Buffer {
+  return keypair.dangerouslySerializePrivateKeypair()
+}
+
+export const dangerously_serialize_private_keypair = dangerouslySerializePrivateKeypair
 
 export function deserializeKeypair(keyfileData: ByteLike): Keypair {
   return Keypair.deserialize(keyfileData)

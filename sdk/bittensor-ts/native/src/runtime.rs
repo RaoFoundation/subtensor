@@ -9,7 +9,9 @@ use std::sync::Arc;
 use bittensor_core::codec::batch::PARALLEL_THRESHOLD;
 use bittensor_core::codec::decode::{compact_len, compact_u128, convert_type_string, Cursor};
 use bittensor_core::codec::encode::compact;
-use bittensor_core::codec::extrinsic::{era_birth, multisig_account_id, multisig_ss58, TxParams};
+use bittensor_core::codec::extrinsic::{
+    era_birth, multisig_account_id, multisig_ss58, SignerPayload, TxParams,
+};
 use bittensor_core::codec::storage::{concat_hash_len, hash_param, storage_prefix};
 use bittensor_core::codec::Value;
 use bittensor_core::runtime::type_string::{Primitive, TypeSpec};
@@ -91,9 +93,50 @@ pub struct NativePayloadParts {
 }
 
 #[napi(object)]
+pub struct NativeSignerPayload {
+    pub address: String,
+    pub block_hash: String,
+    pub block_number: String,
+    pub era: String,
+    pub genesis_hash: String,
+    pub method: String,
+    pub nonce: String,
+    pub signed_extensions: Vec<String>,
+    pub spec_version: String,
+    pub tip: String,
+    pub transaction_version: String,
+    pub version: u8,
+    pub asset_id: Option<String>,
+    pub metadata_hash: Option<String>,
+    pub mode: Option<u8>,
+}
+
+#[napi(object)]
 pub struct NativeSignedExtrinsic {
     pub bytes: Buffer,
     pub hash: Buffer,
+}
+
+impl From<SignerPayload> for NativeSignerPayload {
+    fn from(value: SignerPayload) -> Self {
+        Self {
+            address: value.address,
+            block_hash: value.block_hash,
+            block_number: value.block_number,
+            era: value.era,
+            genesis_hash: value.genesis_hash,
+            method: value.method,
+            nonce: value.nonce,
+            signed_extensions: value.signed_extensions,
+            spec_version: value.spec_version,
+            tip: value.tip,
+            transaction_version: value.transaction_version,
+            version: value.version,
+            asset_id: value.asset_id,
+            metadata_hash: value.metadata_hash,
+            mode: value.mode,
+        }
+    }
 }
 
 #[napi(object)]
@@ -1061,6 +1104,20 @@ impl NativeRuntime {
         let params = self.tx_params(params)?;
         self.inner
             .signature_payload(call_data.as_ref(), &params)
+            .napi()
+            .map(Into::into)
+    }
+
+    #[napi(js_name = "signerPayload")]
+    pub fn signer_payload(
+        &self,
+        address: String,
+        call_data: Buffer,
+        params: NativeTxParams,
+    ) -> NapiResult<NativeSignerPayload> {
+        let params = self.tx_params(params)?;
+        self.inner
+            .signer_payload(&address, call_data.as_ref(), &params)
             .napi()
             .map(Into::into)
     }

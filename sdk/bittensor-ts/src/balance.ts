@@ -3,7 +3,8 @@ const MAX_SAFE_RAO = BigInt(Number.MAX_SAFE_INTEGER)
 const AMOUNT_UNIT = '__bittensorAmountUnit'
 
 export type BalanceLike = Balance | bigint | number | string
-export type TransactionAmount = Balance | bigint | RaoAmount | TaoAmount
+export type AmountUnit = 'rao' | 'tao' | 'alpha'
+export type TransactionAmount = Balance | bigint | RaoAmount | TaoAmount | AlphaAmount
 export type AssetId = bigint | number | string
 
 export interface RaoAmount {
@@ -13,6 +14,12 @@ export interface RaoAmount {
 
 export interface TaoAmount {
   readonly [AMOUNT_UNIT]: 'tao'
+  readonly rao: bigint
+}
+
+export interface AlphaAmount {
+  readonly [AMOUNT_UNIT]: 'alpha'
+  readonly netuid: number
   readonly rao: bigint
 }
 
@@ -168,7 +175,7 @@ export function balanceRao(value: BalanceLike): bigint {
 
 export function transactionAmountRao(
   value: TransactionAmount,
-  options: { name?: string; taoOnly?: boolean } = {},
+  options: { name?: string; taoOnly?: boolean; alphaOnly?: boolean } = {},
 ): bigint {
   const name = options.name ?? 'transaction amount'
   let rao: bigint
@@ -176,14 +183,24 @@ export function transactionAmountRao(
     if (options.taoOnly && value.netuid !== 0) {
       throw new UnitMismatchError(`${name} must be a TAO balance, not subnet-${value.netuid} alpha`)
     }
+    if (options.alphaOnly && value.netuid === 0) {
+      throw new UnitMismatchError(`${name} must be an alpha balance, not TAO`)
+    }
     rao = value.rao
   } else if (typeof value === 'bigint') {
     rao = value
   } else if (isBrandedAmount(value)) {
+    const unit = brandedAmountUnit(value)
+    if (options.taoOnly && unit === 'alpha') {
+      throw new UnitMismatchError(`${name} must be a TAO amount, not subnet-${brandedAmountNetuid(value) ?? 'unknown'} alpha`)
+    }
+    if (options.alphaOnly && unit === 'tao') {
+      throw new UnitMismatchError(`${name} must be an alpha amount, not TAO`)
+    }
     rao = value.rao
   } else {
     throw new TypeError(
-      `${name} must be a Balance, bigint rao amount, raoAmount(...), or taoAmount(...)`,
+      `${name} must be a Balance, bigint rao amount, raoAmount(...), taoAmount(...), or alphaAmount(...)`,
     )
   }
   if (rao < 0n) throw new RangeError(`${name} must be non-negative`)
@@ -209,7 +226,7 @@ export function tao_transaction_amount_rao(value: TransactionAmount, name = 'tra
 }
 
 export function alphaTransactionAmountRao(value: TransactionAmount, name = 'transaction amount'): bigint {
-  return transactionAmountRao(value, { name })
+  return transactionAmountRao(value, { name, alphaOnly: true })
 }
 
 export function alpha_transaction_amount_rao(value: TransactionAmount, name = 'transaction amount'): bigint {
@@ -230,6 +247,15 @@ export function taoAmount(value: number | string): TaoAmount {
   }) as TaoAmount
 }
 
+export function alphaAmount(value: number | string, netuid: number): AlphaAmount {
+  const normalizedNetuid = alphaAmountNetuid(netuid)
+  return Object.freeze({
+    [AMOUNT_UNIT]: 'alpha',
+    netuid: normalizedNetuid,
+    rao: Balance.fromAlpha(value, normalizedNetuid).rao,
+  }) as AlphaAmount
+}
+
 function parseRao(value: bigint | number | string): bigint {
   return parseInteger(value, 'balance rao')
 }
@@ -248,14 +274,28 @@ function parseInteger(value: bigint | number | string, name: string): bigint {
   throw new RangeError(`${name} must be an integer`)
 }
 
-function isBrandedAmount(value: unknown): value is RaoAmount | TaoAmount {
-  return (
-    typeof value === 'object' &&
-    value != null &&
-    ((value as Record<typeof AMOUNT_UNIT, unknown>)[AMOUNT_UNIT] === 'rao' ||
-      (value as Record<typeof AMOUNT_UNIT, unknown>)[AMOUNT_UNIT] === 'tao') &&
-    typeof (value as { rao?: unknown }).rao === 'bigint'
-  )
+function alphaAmountNetuid(netuid: number): number {
+  if (!Number.isSafeInteger(netuid) || netuid <= 0) {
+    throw new RangeError('alphaAmount requires a positive safe-integer netuid')
+  }
+  return netuid
+}
+
+export function brandedAmountUnit(value: unknown): AmountUnit | undefined {
+  if (typeof value !== 'object' || value == null) return undefined
+  if (typeof (value as { rao?: unknown }).rao !== 'bigint') return undefined
+  const unit = (value as Record<typeof AMOUNT_UNIT, unknown>)[AMOUNT_UNIT]
+  return unit === 'rao' || unit === 'tao' || unit === 'alpha' ? unit : undefined
+}
+
+export function brandedAmountNetuid(value: unknown): number | undefined {
+  if (brandedAmountUnit(value) !== 'alpha') return undefined
+  const netuid = (value as { netuid?: unknown }).netuid
+  return Number.isSafeInteger(netuid) && Number(netuid) > 0 ? Number(netuid) : undefined
+}
+
+function isBrandedAmount(value: unknown): value is RaoAmount | TaoAmount | AlphaAmount {
+  return brandedAmountUnit(value) != null
 }
 
 export const tao = Balance.fromTao
@@ -263,4 +303,5 @@ export const alpha = Balance.fromAlpha
 export const rao = Balance.fromRao
 export const rao_amount = raoAmount
 export const tao_amount = taoAmount
+export const alpha_amount = alphaAmount
 export const transaction_amount_rao = transactionAmountRao

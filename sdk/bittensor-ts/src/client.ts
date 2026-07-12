@@ -1,14 +1,17 @@
 import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from './crypto'
 import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
 import { LedgerDevice } from './ledger'
-import { Runtime, decodeOptionalOpaqueMetadata, encodeCompact, eraBirth } from './runtime'
+import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
 import { toBuffer } from './wire'
 import {
   Balance,
+  UnitMismatchError,
   type AssetId,
   type BalanceLike,
   type TransactionAmount,
   assetIdValue,
+  brandedAmountNetuid,
+  brandedAmountUnit,
   taoTransactionAmountRao,
   transactionAmountRao,
 } from './balance'
@@ -28,6 +31,33 @@ export const DEFAULT_MAX_SUBSCRIPTION_QUEUE = 1024
 export const DEFAULT_MAX_WS_MESSAGE_BYTES = 16 * 1024 * 1024
 const V15_METADATA_VERSION_HEX = '0x0f000000'
 const V15_METADATA_MISSING_NEEDLE = 'Exported method Metadata_metadata_at_version is not found'
+const IDEMPOTENT_RPC_METHODS = new Set([
+  'chain_getBlock',
+  'chain_getBlockHash',
+  'chain_getFinalizedHead',
+  'chain_getHeader',
+  'chain_subscribeFinalizedHeads',
+  'chain_subscribeNewHeads',
+  'chain_unsubscribeFinalizedHeads',
+  'chain_unsubscribeNewHeads',
+  'state_call',
+  'state_getKeysPaged',
+  'state_getMetadata',
+  'state_getRuntimeVersion',
+  'state_getStorage',
+  'state_queryStorageAt',
+  'state_subscribeRuntimeVersion',
+  'state_subscribeStorage',
+  'state_unsubscribeRuntimeVersion',
+  'state_unsubscribeStorage',
+  'system_accountNextIndex',
+  'system_chain',
+  'system_health',
+  'system_name',
+  'system_properties',
+  'system_version',
+  'author_pendingExtrinsics',
+])
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
@@ -143,7 +173,7 @@ export interface SignerPayloadContext {
 export interface ExtensionSignRawRequest {
   address: string
   data: string
-  type: 'bytes'
+  type: 'payload'
   payload: Buffer
   metadataHash?: string
   metadataProof?: Buffer
@@ -151,23 +181,7 @@ export interface ExtensionSignRawRequest {
   chainInfo?: ChainInfo
 }
 
-export interface ExtensionSignPayloadRequest {
-  address: string
-  blockHash: string
-  blockNumber: string
-  era: string
-  genesisHash: string
-  method: string
-  nonce: string
-  signedExtensions: string[]
-  specVersion: string
-  tip: string
-  transactionVersion: string
-  version: number
-  assetId?: string | null
-  metadataHash?: string
-  mode?: number
-}
+export interface ExtensionSignPayloadRequest extends RuntimeSignerPayload {}
 
 export type SignerSignature =
   | ByteLike
@@ -480,8 +494,9 @@ export class JsonRpcTransport {
       timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
     }
     throwIfAborted(requestOptions.signal)
-    const maxRetries = requestOptions.maxRetries ?? this.maxRequestRetries
-    const retryForever = requestOptions.retryForever ?? this.retryForever
+    const retryByDefault = IDEMPOTENT_RPC_METHODS.has(method)
+    const maxRetries = requestOptions.maxRetries ?? (retryByDefault ? this.maxRequestRetries : 0)
+    const retryForever = requestOptions.retryForever ?? (retryByDefault ? this.retryForever : false)
     const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
     const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
     let attempt = 0
@@ -2194,12 +2209,18 @@ export class Client {
         context.cryptoType,
       )
     }
+    if (signerShape.signPayload != null) {
+      return normalizeSignature(
+        await signerShape.signPayload(extensionSignPayload(context), context),
+        context.cryptoType,
+      )
+    }
     if (signerShape.signRaw != null) {
       return normalizeSignature(
         await signerShape.signRaw({
           address: context.address,
           data: hex(payload),
-          type: 'bytes',
+          type: 'payload',
           payload,
           metadataHash: context.metadataHash == null ? undefined : hex(context.metadataHash),
           metadataProof: context.metadataProof,
@@ -2211,12 +2232,6 @@ export class Client {
     }
     if (signerShape.sign != null) {
       return normalizeSignature(await signerShape.sign(payload, context), context.cryptoType)
-    }
-    if (signerShape.signPayload != null) {
-      return normalizeSignature(
-        await signerShape.signPayload(extensionSignPayload(context), context),
-        context.cryptoType,
-      )
     }
     throw new ChainError('signer must implement signBytes(), signRaw(), sign(), or extension-style signPayload()')
   }
@@ -3136,7 +3151,17 @@ function positiveInteger(value: unknown, name: string): number {
 
 function alphaTransactionAmountForNetuid(value: TransactionAmount, netuid: number, name: string): bigint {
   if (value instanceof Balance && value.netuid !== netuid) {
-    throw new RangeError(`${name} must be subnet-${netuid} alpha, not ${value.netuid === 0 ? 'TAO' : `subnet-${value.netuid} alpha`}`)
+    throw new UnitMismatchError(`${name} must be subnet-${netuid} alpha, not ${value.netuid === 0 ? 'TAO' : `subnet-${value.netuid} alpha`}`)
+  }
+  const unit = brandedAmountUnit(value)
+  if (unit === 'tao') {
+    throw new UnitMismatchError(`${name} must be subnet-${netuid} alpha, not TAO`)
+  }
+  if (unit === 'alpha') {
+    const amountNetuid = brandedAmountNetuid(value)
+    if (amountNetuid !== netuid) {
+      throw new UnitMismatchError(`${name} must be subnet-${netuid} alpha, not subnet-${amountNetuid ?? 'unknown'} alpha`)
+    }
   }
   return transactionAmountRao(value, { name })
 }
@@ -3408,47 +3433,7 @@ function jsonRpcResponseResult(payload: unknown, expectedId: number): unknown {
 }
 
 function extensionSignPayload(context: SignerPayloadContext): ExtensionSignPayloadRequest {
-  return {
-    address: context.address,
-    blockHash: hex(context.txParams.eraBlockHash),
-    blockNumber: u32Hex(eraCurrentBlock(context.txParams.era)),
-    era: eraPayloadHex(context.runtime, context.txParams.era),
-    genesisHash: hex(context.txParams.genesisHash),
-    method: hex(context.callData),
-    nonce: compactIntegerHex(context.txParams.nonce),
-    signedExtensions: context.runtime.signedExtensionIdentifiers(),
-    specVersion: u32Hex(context.runtime.specVersion),
-    tip: compactIntegerHex(context.txParams.tip ?? 0n),
-    transactionVersion: u32Hex(context.runtime.transactionVersion),
-    version: context.runtime.extrinsicVersion,
-    assetId: context.txParams.tipAssetId == null ? null : compactIntegerHex(context.txParams.tipAssetId),
-    metadataHash: context.metadataHash == null ? undefined : hex(context.metadataHash),
-    mode: context.metadataHash == null ? 0 : 1,
-  }
-}
-
-function eraPayloadHex(runtime: Runtime, era: ScaleValue): string {
-  if (typeof era === 'string') return era.startsWith('0x') ? era : `0x${era}`
-  return hex(runtime.encodeEra(era))
-}
-
-function eraCurrentBlock(era: ScaleValue): number {
-  const value = recordValue(era)
-  return Number(value?.current ?? 0)
-}
-
-function compactIntegerHex(value: bigint | number): string {
-  return hex(encodeCompact(value))
-}
-
-function u32Hex(value: bigint | number): string {
-  const numeric = typeof value === 'bigint' ? Number(value) : value
-  if (!Number.isInteger(numeric) || numeric < 0 || numeric > 0xffffffff) {
-    throw new ChainError(`value ${String(value)} cannot be encoded as u32`)
-  }
-  const out = Buffer.alloc(4)
-  out.writeUInt32LE(numeric, 0)
-  return hex(out)
+  return context.runtime.signerPayload(context.address, context.callData, context.txParams)
 }
 
 function normalizeSignature(

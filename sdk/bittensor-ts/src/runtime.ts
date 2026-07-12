@@ -2,6 +2,7 @@ import native, {
   type NativeCursorHandle,
   type NativeExtrinsicParams,
   type NativeRuntimeHandle,
+  type NativeSignerPayload,
   type NativeStorageChange,
   type NativeTxParams,
 } from './native'
@@ -37,6 +38,12 @@ import type {
 
 export type PayloadPartsTuple = [Buffer, Buffer]
 export type SignedExtrinsicTuple = [Buffer, Buffer]
+
+export interface RuntimeSignerPayload extends NativeSignerPayload {
+  assetId?: string | null
+  metadataHash?: string | null
+  mode?: number | null
+}
 
 function nativeTxParams(params: TransactionParams): NativeTxParams {
   return {
@@ -837,6 +844,16 @@ export class Runtime {
   signaturePayload(callData: ByteLike, params: TransactionParams): Buffer {
     return nativeCall(() =>
       this.handle.signaturePayload(toBuffer(callData, 'callData'), nativeTxParams(params)),
+    )
+  }
+
+  signerPayload(
+    address: string,
+    callData: ByteLike,
+    params: TransactionParams,
+  ): RuntimeSignerPayload {
+    return nativeCall(() =>
+      this.handle.signerPayload(address, toBuffer(callData, 'callData'), nativeTxParams(params)),
     )
   }
 

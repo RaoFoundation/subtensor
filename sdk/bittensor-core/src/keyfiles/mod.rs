@@ -10,7 +10,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use base64::{engine::general_purpose, Engine as _};
 use fernet::Fernet;
@@ -383,12 +383,14 @@ fn prepare_keyfile_target(path: &Path, overwrite: bool) -> Result<(), CoreError>
 }
 
 fn ensure_private_directory(path: &Path) -> Result<(), CoreError> {
+    reject_symlink_ancestors(path)?;
     fs::create_dir_all(path).map_err(|error| {
         key_err(format!(
             "failed to create wallet directory {}: {error}",
             path.display()
         ))
     })?;
+    reject_symlink_ancestors(path)?;
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         key_err(format!(
             "failed to inspect wallet directory {}: {error}",
@@ -402,6 +404,51 @@ fn ensure_private_directory(path: &Path) -> Result<(), CoreError> {
         )));
     }
     set_private_directory_permissions(path)
+}
+
+fn reject_symlink_ancestors(path: &Path) -> Result<(), CoreError> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(key_err(format!(
+                    "wallet path {} must not contain parent directory components",
+                    path.display()
+                )));
+            }
+            Component::Prefix(prefix) => current.push(prefix.as_os_str()),
+            Component::RootDir | Component::Normal(_) => current.push(component.as_os_str()),
+        }
+        if current.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(key_err(format!(
+                        "wallet path {} must not contain symlink ancestor {}",
+                        path.display(),
+                        current.display()
+                    )));
+                }
+                if !metadata.is_dir() {
+                    return Err(key_err(format!(
+                        "wallet path ancestor {} must be a directory",
+                        current.display()
+                    )));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(key_err(format!(
+                    "failed to inspect wallet path ancestor {}: {error}",
+                    current.display()
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1009,6 +1056,34 @@ mod tests {
         assert!(!restored_public.has_private_key());
         assert!(keyfile_data_is_encrypted(&fs::read(&private_path).unwrap()));
         assert!(!keyfile_data_is_encrypted(&fs::read(&public_path).unwrap()));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_symlink_wallet_directory_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let dir = temp_test_dir("symlink-ancestor");
+        let real = dir.join("real");
+        let link = dir.join("link");
+        fs::create_dir(&real).unwrap();
+        symlink(&real, &link).unwrap();
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+
+        let err = save_keypair_to_keyfile(
+            &keypair,
+            &link.join("wallet").join("hotkey"),
+            Some("test-password"),
+            false,
+            false,
+        )
+        .expect_err("symlink ancestors must be rejected");
+        assert!(
+            err.to_string().contains("symlink ancestor"),
+            "unexpected error: {err}"
+        );
 
         fs::remove_dir_all(dir).unwrap();
     }

@@ -365,6 +365,13 @@ pub fn serialize_keypair(keypair: &NativeKeypair) -> NapiResult<Buffer> {
         .map(Into::into)
 }
 
+#[napi(js_name = "dangerouslySerializeKeypair")]
+pub fn dangerously_serialize_keypair(keypair: &NativeKeypair) -> NapiResult<Buffer> {
+    keyfiles::serialized_keypair_to_keyfile_data(&keypair.inner)
+        .napi()
+        .map(Into::into)
+}
+
 #[napi(js_name = "keypairToKeyfileData")]
 pub fn keypair_to_keyfile_data(
     keypair: &NativeKeypair,

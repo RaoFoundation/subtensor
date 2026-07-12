@@ -46,6 +46,24 @@ export interface NativeTxParams {
   metadataHash?: Buffer | null
 }
 
+export interface NativeSignerPayload {
+  address: string
+  blockHash: string
+  blockNumber: string
+  era: string
+  genesisHash: string
+  method: string
+  nonce: string
+  signedExtensions: string[]
+  specVersion: string
+  tip: string
+  transactionVersion: string
+  version: number
+  assetId?: string | null
+  metadataHash?: string | null
+  mode?: number | null
+}
+
 export interface NativeExtrinsicParams {
   era: unknown
   nonce: bigint
@@ -195,6 +213,11 @@ export interface NativeRuntimeHandle {
     includedInSignedData: Buffer
   }
   signaturePayload(callData: Buffer, params: NativeTxParams): Buffer
+  signerPayload(
+    address: string,
+    callData: Buffer,
+    params: NativeTxParams,
+  ): NativeSignerPayload
   encodeSignedExtrinsic(
     callData: Buffer,
     publicKey: Buffer,
@@ -296,6 +319,7 @@ export interface NativeBinding {
   publicKeyFromSs58(ss58Address: string): Buffer
   ss58FromPublic(publicKey: Buffer, ss58Format: number): string
   serializeKeypair(keypair: NativeKeypairHandle): Buffer
+  dangerouslySerializeKeypair(keypair: NativeKeypairHandle): Buffer
   keypairToKeyfileData(
     keypair: NativeKeypairHandle,
     password?: string | null,
