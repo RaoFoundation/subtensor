@@ -138,5 +138,6 @@ Mnemonic, password, and secret-URI derivation state is retained only by the Rust
 reconstructs a child secret URI. `npm run build` also generates binding
 coverage from the Rust-side `#[napi]` and `#[wasm_bindgen]` annotations, then
 checks that surface against the generated N-API declarations, `src/native.ts`,
-the generated WASM declarations, and `BrowserWasmModule`, so binding additions
-cannot silently disappear from either TypeScript boundary.
+the generated WASM declarations, `BrowserWasmModule`, and an explicit
+public-browser-wrapper allowlist, so binding additions cannot silently
+disappear from either TypeScript boundary.

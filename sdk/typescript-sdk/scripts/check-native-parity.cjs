@@ -363,6 +363,19 @@ function cloneSurface(surface) {
   }
 }
 
+function allowlistedSurface(values, classes = {}) {
+  return {
+    values: new Set(values),
+    classes: new Map(
+      Object.entries(classes).map(([className, members]) => {
+        const instance = new Set(members.instance ?? [])
+        const statics = new Set(members.statics ?? [])
+        return [className, { instance, statics }]
+      }),
+    ),
+  }
+}
+
 const nativeClassInterfaces = {
   NativeKeypair: { instance: 'NativeKeypairHandle' },
   NativeRuntime: { instance: 'NativeRuntimeHandle', statics: 'NativeRuntimeConstructor' },
@@ -374,6 +387,104 @@ const wasmClassInterfaces = {
   Keypair: { instance: 'BrowserWasmKeypair', statics: 'BrowserWasmKeypairConstructor' },
   Runtime: { instance: 'BrowserWasmRuntime', statics: 'BrowserWasmRuntimeConstructor' },
 }
+
+const browserWrapperExpected = allowlistedSurface(
+  [
+    'CRYPTO_ED25519',
+    'CRYPTO_SR25519',
+    'DEFAULT_SS58_FORMAT',
+    'Keypair',
+    'Runtime',
+    'configureBrowserWasm',
+    'coreVersion',
+    'decryptWithSignature',
+    'encrypt',
+    'encryptAtRound',
+    'eraBirth',
+    'generateCommitV2',
+    'generateExtrinsicProof',
+    'getEncryptedCommitment',
+    'initBrowser',
+    'loadBrowser',
+    'metadataDigest',
+    'mlkemKdfId',
+    'multisigAccountId',
+    'publicKeyFromSs58',
+    'ready',
+    'revealRound',
+    'sealMevShieldTransaction',
+    'setDefaultBrowserWasmLoader',
+    'ss58FromPublic',
+    'verifySignature',
+  ],
+  {
+    Runtime: {
+      instance: [
+        'composeCall',
+        'constant',
+        'decode',
+        'decodeBatch',
+        'decodeCall',
+        'decodeExtrinsic',
+        'decodeMapChanges',
+        'decodeMapPairs',
+        'decodeStorageKeyParams',
+        'encode',
+        'encodeEra',
+        'encodeSignedExtrinsic',
+        'extrinsicVersion',
+        'isV15',
+        'metadataIr',
+        'moduleError',
+        'registryJson',
+        'runtimeApiMap',
+        'runtimeApis',
+        'signaturePayload',
+        'signaturePayloadParts',
+        'signedExtensionIdentifiers',
+        'specVersion',
+        'ss58Format',
+        'storageEntry',
+        'storageKey',
+        'storageKeyBatch',
+        'storagePrefix',
+        'transactionVersion',
+        'typeIdOf',
+        'typeNameOf',
+      ],
+    },
+    Keypair: {
+      statics: [
+        'createFromMnemonic',
+        'createFromPrivateKey',
+        'createFromSeed',
+        'createFromUri',
+        'fromMnemonic',
+        'fromPrivateKey',
+        'fromSeed',
+        'fromUri',
+        'generateMnemonic',
+      ],
+      instance: [
+        'address',
+        'addressRaw',
+        'cryptoType',
+        'derive',
+        'isLocked',
+        'kind',
+        'meta',
+        'publicKey',
+        'scheme',
+        'setMeta',
+        'sign',
+        'ss58Address',
+        'ss58Format',
+        'type',
+        'verify',
+      ],
+    },
+  },
+)
 
 try {
   const nativeExpected = rustBindingSurface(nativeRustRoot, 'napi')
@@ -439,6 +550,13 @@ try {
       wasmExpected,
       wasmClassInterfaces,
     ),
+    ...compareSurface(
+      'src/browser.ts public browser wrapper',
+      browserPublic,
+      browserWrapperExpected,
+      'wrapper',
+      'browser wrapper allowlist',
+    ),
   ]
 
   if (failures.length > 0) {
@@ -448,7 +566,7 @@ try {
   }
   console.log(
     `Binding parity OK: native ${nativeExpected.values.size} Rust exports, ` +
-      `WASM ${wasmExpected.values.size} Rust exports, browser portable wrapper ${browserPublic.values.size} exports`,
+      `WASM ${wasmExpected.values.size} Rust exports, browser portable wrapper ${browserWrapperExpected.values.size} exports`,
   )
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
