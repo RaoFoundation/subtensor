@@ -23,16 +23,30 @@ function compactLength(buffer, offset) {
 }
 
 function goldenMetadataBytes() {
+  const raw = Buffer.from(goldenMetadataResponseHex().slice(2), 'hex')
+  assert.equal(raw[0], 1)
+  const decoded = compactLength(raw, 1)
+  return raw.subarray(decoded.offset, decoded.offset + decoded.length)
+}
+
+function goldenMetadataResponseHex() {
   const golden = JSON.parse(
     fs.readFileSync(
       path.join(__dirname, '..', '..', 'python', 'tests', 'fixtures', 'golden.json'),
       'utf8',
     ),
   )
-  const raw = Buffer.from(golden.metadata.v15_hex.slice(2), 'hex')
-  assert.equal(raw[0], 1)
-  const decoded = compactLength(raw, 1)
-  return raw.subarray(decoded.offset, decoded.offset + decoded.length)
+  return golden.metadata.v15_hex
+}
+
+function goldenLegacyMetadataHex() {
+  const golden = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, '..', '..', 'python', 'tests', 'fixtures', 'golden.json'),
+      'utf8',
+    ),
+  )
+  return golden.metadata.v14_hex
 }
 
 function ledgerProofVector() {
@@ -110,9 +124,11 @@ function fakeSigningClient(runtime, callData) {
 }
 
 function fakeRuntimeCacheClient(options = {}) {
-  const metadataHex = `0x${goldenMetadataBytes().toString('hex')}`
+  const metadataV15Hex = options.metadataV15Hex ?? goldenMetadataResponseHex()
+  const legacyMetadataHex = options.legacyMetadataHex ?? goldenLegacyMetadataHex()
   const calls = {
     metadata: [],
+    metadataAtVersion: [],
     version: [],
     properties: [],
   }
@@ -139,9 +155,14 @@ function fakeRuntimeCacheClient(options = {}) {
         transactionVersion: version.transactionVersion,
       }
     }
+    if (method === 'state_call' && params[0] === 'Metadata_metadata_at_version') {
+      calls.metadataAtVersion.push({ versionHex: params[1], blockHash: params[2] ?? null })
+      if (options.metadataAtVersionError != null) throw options.metadataAtVersionError
+      return metadataV15Hex
+    }
     if (method === 'state_getMetadata') {
       calls.metadata.push(blockHash)
-      return metadataHex
+      return legacyMetadataHex
     }
     if (method === 'system_properties') {
       calls.properties.push(blockHash)
@@ -1254,13 +1275,15 @@ test('Client expires head runtime metadata and invalidates it on runtime upgrade
   const cached = await client.runtimeAt()
   assert.equal(cached, first)
   assert.equal(calls.version.length, 1)
-  assert.equal(calls.metadata.length, 1)
+  assert.deepEqual(calls.metadataAtVersion, [{ versionHex: '0x0f000000', blockHash: null }])
+  assert.equal(calls.metadata.length, 0)
 
   client.headRuntimeCache.expiresAtMs = 0
   const sameVersion = await client.runtimeAt()
   assert.equal(sameVersion, first)
   assert.equal(calls.version.length, 2)
-  assert.equal(calls.metadata.length, 1)
+  assert.deepEqual(calls.metadataAtVersion, [{ versionHex: '0x0f000000', blockHash: null }])
+  assert.equal(calls.metadata.length, 0)
 
   setHeadVersion(420, 2)
   client.headRuntimeCache.expiresAtMs = 0
@@ -1269,7 +1292,21 @@ test('Client expires head runtime metadata and invalidates it on runtime upgrade
   assert.equal(upgraded.specVersion, 420)
   assert.equal(upgraded.transactionVersion, 2)
   assert.equal(calls.version.length, 3)
-  assert.deepEqual(calls.metadata, [null, null])
+  assert.deepEqual(calls.metadataAtVersion, [
+    { versionHex: '0x0f000000', blockHash: null },
+    { versionHex: '0x0f000000', blockHash: null },
+  ])
+  assert.equal(calls.metadata.length, 0)
+})
+
+test('Client falls back to legacy metadata when V15 metadata runtime API is unavailable', async () => {
+  const { client, calls } = fakeRuntimeCacheClient({
+    metadataAtVersionError: new Error('Execution failed: Exported method Metadata_metadata_at_version is not found'),
+  })
+
+  await client.runtimeAt()
+  assert.deepEqual(calls.metadataAtVersion, [{ versionHex: '0x0f000000', blockHash: null }])
+  assert.deepEqual(calls.metadata, [null])
 })
 
 test('Client caches historical runtimes by block hash with LRU eviction', async () => {
@@ -1286,7 +1323,8 @@ test('Client caches historical runtimes by block hash with LRU eviction', async 
   const runtimeA = await client.runtimeAt(blockA)
   assert.equal(await client.runtimeAt(blockA), runtimeA)
   assert.deepEqual(calls.version, [blockA])
-  assert.deepEqual(calls.metadata, [blockA])
+  assert.deepEqual(calls.metadataAtVersion, [{ versionHex: '0x0f000000', blockHash: blockA }])
+  assert.equal(calls.metadata.length, 0)
 
   await client.runtimeAt(blockB)
   await client.runtimeAt(blockC)
@@ -1296,7 +1334,12 @@ test('Client caches historical runtimes by block hash with LRU eviction', async 
 
   assert.equal(await client.runtimeAt(blockA), runtimeA)
   assert.deepEqual(calls.version, [blockA, blockB, blockC, blockA])
-  assert.deepEqual(calls.metadata, [blockA, blockB, blockC])
+  assert.deepEqual(calls.metadataAtVersion, [
+    { versionHex: '0x0f000000', blockHash: blockA },
+    { versionHex: '0x0f000000', blockHash: blockB },
+    { versionHex: '0x0f000000', blockHash: blockC },
+  ])
+  assert.equal(calls.metadata.length, 0)
 })
 
 test('Client queryBatch decodes metadata defaults for missing storage values', async () => {

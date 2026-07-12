@@ -24,6 +24,8 @@ export const DEFAULT_RETRY_BACKOFF_MS = 250
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
 export const DEFAULT_NONCE_RECONCILE_BLOCKS = 8
 export const DEFAULT_ENDPOINT_VALIDATION_TTL_MS = 60_000
+const V15_METADATA_VERSION_HEX = '0x0f000000'
+const V15_METADATA_MISSING_NEEDLE = 'Exported method Metadata_metadata_at_version is not found'
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
   test: 'wss://test.finney.opentensor.ai:443',
@@ -920,9 +922,9 @@ export class Client {
       return cached
     }
 
-    const metadataHex = await this.rpc('state_getMetadata', blockHash == null ? [] : [blockHash])
+    const metadataBytes = await this.runtimeMetadata(blockHash)
     const runtime = new Runtime(
-      hexToBuffer(String(metadataHex)),
+      metadataBytes,
       version.specVersion,
       version.transactionVersion,
       ss58Format,
@@ -930,6 +932,29 @@ export class Client {
     const entry = { runtime, ss58Format, ...version }
     this.cacheRuntimeBySpecVersion(entry)
     return entry
+  }
+
+  private async runtimeMetadata(blockHash: string | null): Promise<Buffer> {
+    let v15Result: unknown
+    try {
+      v15Result = await this.rpc('state_call', [
+        'Metadata_metadata_at_version',
+        V15_METADATA_VERSION_HEX,
+        blockHash,
+      ])
+    } catch (error) {
+      if (!isMetadataAtVersionUnavailable(error)) throw error
+      v15Result = null
+    }
+
+    if (v15Result != null) {
+      const metadata = stripOptionOpaqueMetadata(hexToBuffer(String(v15Result)))
+      if (metadata != null) return metadata
+    }
+
+    const legacy = await this.rpc('state_getMetadata', blockHash == null ? [] : [blockHash])
+    if (legacy == null) throw new ChainError(`no metadata for block ${blockHash ?? 'head'}`)
+    return hexToBuffer(String(legacy))
   }
 
   private cacheRuntimeBySpecVersion(entry: RuntimeCacheEntry): void {
@@ -2830,6 +2855,14 @@ function sameHex(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
 
+function isMetadataAtVersionUnavailable(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error)
+  const data = String(error instanceof JsonRpcError && error.data != null ? error.data : '')
+  const text = `${message} ${data}`
+  return text.includes(V15_METADATA_MISSING_NEEDLE) ||
+    (text.includes('Metadata_metadata_at_version') && /not found|unknown function/i.test(text))
+}
+
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key)
 }
@@ -2946,6 +2979,36 @@ function hex(bytes: ByteLike): string {
 function hexToBuffer(value: string): Buffer {
   const text = value.startsWith('0x') ? value.slice(2) : value
   return Buffer.from(text, 'hex')
+}
+
+function stripOptionOpaqueMetadata(data: Buffer): Buffer | null {
+  if (data.length === 0 || data[0] === 0) return null
+  if (data.length < 2) throw new ChainError('invalid Metadata_metadata_at_version response')
+  const { length, offset } = decodeCompactLength(data, 1)
+  const end = offset + length
+  if (end > data.length) throw new ChainError('truncated Metadata_metadata_at_version response')
+  return data.subarray(offset, end)
+}
+
+function decodeCompactLength(data: Buffer, offset: number): { length: number; offset: number } {
+  const first = data[offset]
+  if (first == null) throw new ChainError('truncated compact length')
+  const mode = first & 0b11
+  if (mode === 0) return { length: first >> 2, offset: offset + 1 }
+  if (mode === 1) {
+    if (offset + 2 > data.length) throw new ChainError('truncated compact length')
+    return { length: data.readUInt16LE(offset) >> 2, offset: offset + 2 }
+  }
+  if (mode === 2) {
+    if (offset + 4 > data.length) throw new ChainError('truncated compact length')
+    return { length: data.readUInt32LE(offset) >>> 2, offset: offset + 4 }
+  }
+  const byteCount = (first >> 2) + 4
+  if (offset + 1 + byteCount > data.length) throw new ChainError('truncated compact length')
+  let length = 0
+  for (let i = 0; i < byteCount; i += 1) length += data[offset + 1 + i] * (256 ** i)
+  if (!Number.isSafeInteger(length)) throw new ChainError('compact length exceeds safe integer range')
+  return { length, offset: offset + 1 + byteCount }
 }
 
 function hexNumber(value: string): number {
