@@ -302,13 +302,14 @@ jobs:
 
       - name: Download selected try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          .github/scripts/snapshot-artifact.sh download \
-            "${{ steps.snapshot.outputs.artifact-id }}" \
-            "${{ steps.snapshot.outputs.digest }}" \
-            snap
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.snapshot.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.snapshot.outputs.run-id }}
+          path: snap
+          merge-multiple: true
 
       - name: Validate try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
