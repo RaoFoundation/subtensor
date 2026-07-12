@@ -1,0 +1,9 @@
+[build.env]
+passthrough = ["LD_LIBRARY_PATH", "WASM_BUILD_WORKSPACE_HINT"]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture $CROSS_DEB_ARCH",
+  "apt-get update",
+  "DEBIAN_FRONTEND=noninteractive apt-get --assume-yes install clang libclang-dev libssl-dev libssl-dev:$CROSS_DEB_ARCH libudev-dev libudev-dev:$CROSS_DEB_ARCH protobuf-compiler",
+]

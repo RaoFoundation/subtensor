@@ -174,6 +174,11 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "CallDisabled": _C.DISABLED,
     "FirstEmissionBlockNumberAlreadySet": _C.ALREADY_EXISTS,
     "NeedWaitingMoreBlocksToStarCall": _C.TOO_EARLY,
+    "StartCallNotReady": _C.TOO_EARLY,
+    "WaitingForDissolvedSubnetCleanup": _C.TOO_EARLY,
+    # Lock id space is one-per-subnet-registration; overflow means the coldkey
+    # holds the maximum number of registered subnets, not an arithmetic bug.
+    "LockIdOverFlow": _C.LIMIT_EXCEEDED,
     "NotEnoughAlphaOutToRecycle": _C.INSUFFICIENT_LIQUIDITY,
     "CannotBurnOrRecycleOnRootSubnet": _C.INVALID_ARGUMENT,
     "UnableToRecoverPublicKey": _C.INVALID_ARGUMENT,
@@ -201,6 +206,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "SubnetLimitReached": _C.LIMIT_EXCEEDED,
     "CannotAffordLockCost": _C.INSUFFICIENT_BALANCE,
     "EvmKeyAssociateRateLimitExceeded": _C.RATE_LIMITED,
+    "EvmKeyAssociationLimitExceeded": _C.LIMIT_EXCEEDED,
     "SameAutoStakeHotkeyAlreadySet": _C.ALREADY_EXISTS,
     "UidMapCouldNotBeCleared": _C.INTERNAL,
     "TrimmingWouldExceedMaxImmunePercentage": _C.LIMIT_EXCEEDED,
@@ -212,6 +218,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "VotingPowerTrackingNotEnabled": _C.DISABLED,
     "InvalidVotingPowerEmaAlpha": _C.INVALID_ARGUMENT,
     "Deprecated": _C.DISABLED,  # also AdminUtils, Swap
+    "SubnetBuybackRateLimitExceeded": _C.RATE_LIMITED,
+    "NetworkDissolveAlreadyQueued": _C.ALREADY_EXISTS,
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
     "ColdkeySwapAnnounced": _C.ALREADY_EXISTS,
     # The account is frozen because its pending coldkey swap is disputed; all
@@ -342,6 +350,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ContributionTooLow": _C.INVALID_ARGUMENT,
     "InvalidOrigin": _C.NOT_AUTHORIZED,
     "AlreadyFinalized": _C.ALREADY_EXISTS,
+    "AlreadyFinalizing": _C.ALREADY_EXISTS,
     "ContributionPeriodNotEnded": _C.TOO_EARLY,
     "NoContribution": _C.NOT_FOUND,
     "CapNotRaised": _C.TOO_EARLY,

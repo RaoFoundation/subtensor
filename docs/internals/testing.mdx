@@ -9,7 +9,7 @@ how to reproduce each locally saves round-trips:
 | Suite | What it covers | Run locally | CI workflow |
 |-------|----------------|-------------|-------------|
 | Rust unit tests | Pallet and runtime logic | `cargo test --workspace` (below) | `check-rust.yml` |
-| TypeScript / Moonwall | End-to-end chain behavior, EVM, zombienet multi-node | `ts-tests/` (below) | `typescript-e2e.yml` |
+| TypeScript / Moonwall | End-to-end chain behavior, EVM, zombienet multi-node | `ts-tests/` (below) | `bittensor-ts-e2e.yml` |
 | Migration checks | `on_runtime_upgrade` against live state | try-runtime CLI (below) | `try-runtime.yml` |
 | [Mainnet clone](/docs/internals/mainnet-clone) | Runtime upgrade + regression tests on cloned mainnet state | `clones/` scripts | `check-clone-upgrade.yml` |
 | [Python SDK](/docs/internals/sdk-tests) | SDK unit + e2e tests, codegen drift gates | `cd sdk/python && just check` | `check-clone-upgrade.yml` |

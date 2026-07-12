@@ -15,7 +15,7 @@ env:
 
 jobs:
   update-chainspecs:
-    runs-on: [self-hosted, fireactions-heavy]
+    runs-on: [self-hosted, fireactions-turbo-8]
     permissions:
       contents: write
     env:

@@ -3,6 +3,9 @@ name: Bittensor E2E Test
 permissions:
   pull-requests: write
   contents: read
+  # Push/pull the per-PR localnet image on GHCR. Fork PRs never reach the
+  # image jobs (they need the trusted-pr gate), so this is non-fork only.
+  packages: write
 
 concurrency:
   group: e2e-cli-${{ github.ref }}
@@ -49,6 +52,10 @@ env:
   VERBOSE: ${{ github.event.inputs.verbose }}
   # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
+  # Per-commit tag on GHCR: built once, pulled by every test job. Registry
+  # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
+  # because layers download compressed and in parallel.
+  LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet:ci-${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   trusted-pr:
@@ -69,7 +76,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh jq
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -107,21 +114,28 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" jq
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.10"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
-          enable-cache: "false"
+          enable-cache: "true"
+          cache-dependency-glob: "sdk/python/uv.lock"
 
+      # One matrix entry per test FILE, not per test: every job pays ~2-3
+      # minutes of fixed cost (checkout, uv sync, downloading + loading the
+      # localnet image, booting a chain), so per-test fan-out spent ~20x more
+      # time on setup than on tests. The e2e conftest's fixtures are already
+      # session-scoped — one localnet shared by all tests in a pytest run —
+      # so a per-file job is the granularity the suite was written for.
       - name: Collect in-repo SDK e2e tests
         id: get-tests
         working-directory: sdk/python
@@ -134,10 +148,12 @@ jobs:
             | jq -R -s -c '
                 split("\n")
                 | map(select(. != ""))
+                | map(split("::")[0])
+                | unique
                 | map({nodeid: ., label: (sub("^tests/e2e/"; "") | sub("\\.py$"; ""))})
               '
           )
-          echo "Found tests: $test_matrix"
+          echo "Found test files: $test_matrix"
           if [ "$test_matrix" = "[]" ] || [ -z "$test_matrix" ]; then
             echo "No e2e tests found — failing."
             exit 1
@@ -152,16 +168,19 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: [self-hosted, fireactions-heavy]
+          - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
         runtime: ["fast-runtime", "non-fast-runtime"]
 
     runs-on: ${{ matrix.platform.runner }}
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -175,6 +194,13 @@ jobs:
         run: |
           source "$HOME/.cargo/env"
           rustup target add ${{ matrix.platform.triple }}
+
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Patch limits for local run
         run: |
@@ -219,7 +245,7 @@ jobs:
             build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binaries-${{ matrix.platform.triple }}-${{ matrix.runtime }}
           path: build/
@@ -231,13 +257,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: binaries-*
           path: build/
@@ -254,16 +280,17 @@ jobs:
           docker info | grep "Docker Root Dir"
 
       - name: Build Docker Image
-        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t localnet .
+        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t "$LOCALNET_IMAGE_CI" .
 
-      - name: Save Docker Image as Tar
-        run: docker save -o /mnt/data/subtensor-localnet.tar localnet
-
-      - name: Upload Docker Image as Artifact
-        uses: actions/upload-artifact@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          name: subtensor-localnet
-          path: /mnt/data/subtensor-localnet.tar
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker Image to GHCR
+        run: docker push "$LOCALNET_IMAGE_CI"
 
   run-sdk-e2e-tests:
     needs:
@@ -282,31 +309,34 @@ jobs:
     name: "sdk: ${{ matrix.label }}"
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
-          enable-cache: "false"
+          enable-cache: "true"
+          cache-dependency-glob: "sdk/python/uv.lock"
 
       - name: Install in-repo SDK
         working-directory: sdk/python
         run: |
           uv sync --locked --all-extras --dev
 
-      - name: Download Cached Docker Image
-        uses: actions/download-artifact@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          name: subtensor-localnet
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load Docker Image
-        run: docker load -i subtensor-localnet.tar
+      - name: Pull Docker Image
+        run: docker pull "$LOCALNET_IMAGE_CI"
 
       - name: Retag Docker Image
-        run: docker tag localnet "$LOCALNET_IMAGE"
+        run: docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"
 
       - name: Run with retry
         working-directory: sdk/python
@@ -317,8 +347,15 @@ jobs:
           for i in 1 2; do
             echo "Attempt $i: Running tests"
             # -m e2e overrides the default addopts (-m 'not e2e') which would
-            # otherwise deselect the collected test and fail with "no tests ran".
-            uv run pytest "${{ matrix.nodeid }}" -s -m e2e
+            # otherwise deselect the collected tests and fail with "no tests
+            # ran". The retry reruns only what failed (--lf reads pytest's
+            # cache from attempt 1) against a fresh localnet — the session
+            # fixture tears the container down and boots a new one per run.
+            if [ "$i" = "1" ]; then
+              uv run pytest "${{ matrix.nodeid }}" -s -m e2e
+            else
+              uv run pytest "${{ matrix.nodeid }}" -s -m e2e --lf
+            fi
             status=$?
             if [ $status -eq 0 ]; then
               echo "Tests passed on attempt $i"

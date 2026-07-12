@@ -255,7 +255,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
         "sudo_set_subnet_owner_cut",
-        "sudo_set_subnet_owner_hotkey",
         "sudo_set_subtoken_enabled",
         "sudo_set_tao_flow_cutoff",
         "sudo_set_tao_flow_normalization_exponent",

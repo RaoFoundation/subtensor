@@ -1,0 +1,30 @@
+name: Validate sccache integration
+
+on:
+  pull_request:
+    paths:
+      - ".github/actions/rust-setup/**"
+      - ".github/actions/sccache-setup/**"
+      - ".github/scripts/sccache-configure.sh"
+      - ".github/scripts/test-sccache-configure.sh"
+      - ".github/workflows/check-bittensor-e2e-tests.yml"
+      - ".github/workflows/check-node-compat.yml"
+      - ".github/workflows/mainnet-clone-preview.yml"
+      - ".github/workflows/runtime-checks.yml"
+      - ".github/workflows/sccache-warm.yml"
+      - ".github/workflows/bittensor-ts-e2e.yml"
+      - ".github/workflows/validate-sccache.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-config-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Test fail-open and writer event gates
+        run: .github/scripts/test-sccache-configure.sh

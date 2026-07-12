@@ -69,7 +69,7 @@ jobs:
 
     steps:
       - name: Check out PR branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # Fall back to the current repo/ref so workflow_dispatch and
           # scheduled runs work too.
@@ -85,13 +85,17 @@ jobs:
             build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+
+      - name: Cache Cargo registry and git data
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: bench-${{ hashFiles('**/Cargo.lock') }}
           cache-on-failure: true
+          cache-targets: false
 
       - name: Build node with benchmarks + weight tools
         run: |
@@ -114,7 +118,7 @@ jobs:
 
       - name: Upload patch artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bench-patch
           path: bench-patch.tgz
