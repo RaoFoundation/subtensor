@@ -229,6 +229,37 @@ pub fn deserialize_keypair_from_keyfile(
     deserialize_keypair_from_keyfile_data(keyfile_data)
 }
 
+pub fn read_keypair_from_keyfile(
+    path: &Path,
+    password: Option<&str>,
+) -> Result<Keypair, CoreError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        key_err(format!(
+            "failed to inspect keyfile {}: {error}",
+            path.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(key_err(format!(
+            "refusing to read keyfile through symlink {}",
+            path.display()
+        )));
+    }
+    if !metadata.is_file() {
+        return Err(key_err(format!(
+            "keyfile path {} is not a regular file",
+            path.display()
+        )));
+    }
+    let keyfile_data = Zeroizing::new(fs::read(path).map_err(|error| {
+        key_err(format!(
+            "failed to read keyfile {}: {error}",
+            path.display()
+        ))
+    })?);
+    deserialize_keypair_from_keyfile(&keyfile_data, password)
+}
+
 pub fn save_keypair_to_keyfile(
     keypair: &Keypair,
     path: &Path,

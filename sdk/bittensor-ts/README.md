@@ -112,6 +112,11 @@ await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
 await client.close()
 ```
 
+`client.submit()` manages nonce reservation for in-process submissions. Detached
+flows using `signExtrinsic()` followed by `submitSigned()` or `watchSigned()`
+record the signed nonce after submission, but callers producing multiple
+detached transactions concurrently should pass explicit `nonce` values.
+
 ## Browser example
 
 ```ts

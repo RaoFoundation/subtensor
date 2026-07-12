@@ -301,6 +301,7 @@ export interface NativeBinding {
     keyfileData: Buffer,
     password?: string | null,
   ): NativeKeypairHandle
+  readKeypairKeyfile(path: string, password?: string | null): NativeKeypairHandle
   writeKeypairKeyfile(
     keypair: NativeKeypairHandle,
     path: string,

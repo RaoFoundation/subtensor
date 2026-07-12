@@ -219,6 +219,12 @@ export class Keypair implements PolkadotCompatibleKeypair {
     )
   }
 
+  static fromKeyfile(path: string, password?: string | null): Keypair {
+    return Keypair.wrap(
+      nativeCall(() => native.readKeypairKeyfile(path, password ?? undefined)),
+    )
+  }
+
   get cryptoType(): number {
     return this.handle.cryptoType
   }
@@ -477,6 +483,10 @@ export function deserializeKeypairFromKeyfile(
   password?: string | null,
 ): Keypair {
   return Keypair.fromKeyfileData(keyfileData, password)
+}
+
+export function readKeypairKeyfile(path: string, password?: string | null): Keypair {
+  return Keypair.fromKeyfile(path, password)
 }
 
 export function encryptKeyfileData(keyfileData: ByteLike, password: string): Buffer {

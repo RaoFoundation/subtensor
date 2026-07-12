@@ -49,6 +49,7 @@ export interface RpcRequestOptions {
   signal?: AbortSignal
   timeoutMs?: number
   maxRetries?: number
+  retryForever?: boolean
   retryBackoffMs?: number
   maxRetryBackoffMs?: number
 }
@@ -357,6 +358,7 @@ export class JsonRpcTransport {
     }
     throwIfAborted(requestOptions.signal)
     const maxRetries = requestOptions.maxRetries ?? this.maxRequestRetries
+    const retryForever = requestOptions.retryForever ?? this.retryForever
     const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
     const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
     let attempt = 0
@@ -367,7 +369,7 @@ export class JsonRpcTransport {
           : await this.wsRequest(method, params, requestOptions)
       } catch (error) {
         if (error instanceof JsonRpcError || error instanceof RequestAbortedError) throw error
-        if (!this.retryForever && attempt >= maxRetries) throw error
+        if (!retryForever && attempt >= maxRetries) throw error
         attempt += 1
         this.rotateEndpoint()
         const capped = Math.min(retryBackoffMs * (2 ** Math.max(0, attempt - 1)), maxRetryBackoffMs)
@@ -395,6 +397,7 @@ export class JsonRpcTransport {
         signal: options.signal,
         timeoutMs: options.timeoutMs,
         maxRetries: options.maxRetries,
+        retryForever: options.retryForever,
         retryBackoffMs: options.retryBackoffMs,
         maxRetryBackoffMs: options.maxRetryBackoffMs,
       },
@@ -1244,6 +1247,7 @@ export class Client {
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
     const reservation = managedNonceReservation(extrinsic)
+    const detachedReservation = reservation == null ? detachedNonceReservation(extrinsic) : undefined
     if (options.waitForInclusion || options.waitForFinalization) {
       const watcher = await this.watchSigned(extrinsic, {
         waitForFinalization: options.waitForFinalization ?? false,
@@ -1256,11 +1260,15 @@ export class Client {
       const hash = String(await this.transport.request('author_submitExtrinsic', [hex(bytes)], {
         timeoutMs: options.timeoutMs,
         signal: options.signal,
+        maxRetries: 0,
+        retryForever: false,
       }))
       if (reservation != null) await this.submitNonce(reservation)
+      else if (detachedReservation != null) await this.submitDetachedNonce(detachedReservation)
       return { status: 'submitted', message: 'Submitted', extrinsicHash: hash, events: [] }
     } catch (error) {
       if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+      else if (detachedReservation != null) await this.quarantineNonce(detachedReservation)
       throw error
     }
   }
@@ -1274,6 +1282,7 @@ export class Client {
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
     const reservation = managedNonceReservation(extrinsic)
+    const detachedReservation = reservation == null ? detachedNonceReservation(extrinsic) : undefined
     let subscription: AsyncIterable<unknown> & { unsubscribe(): Promise<void> }
     try {
       subscription = await this.transport.subscribe(
@@ -1284,11 +1293,15 @@ export class Client {
           resubscribe: false,
           timeoutMs: options.timeoutMs,
           signal: options.signal,
+          maxRetries: 0,
+          retryForever: false,
         },
       )
       if (reservation != null) await this.submitNonce(reservation)
+      else if (detachedReservation != null) await this.submitDetachedNonce(detachedReservation)
     } catch (error) {
       if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+      else if (detachedReservation != null) await this.quarantineNonce(detachedReservation)
       throw error
     }
     const result = this.resolveWatchedExtrinsic(
@@ -1302,10 +1315,12 @@ export class Client {
     ).then(
       async (value) => {
         if (reservation != null) await this.confirmNonce(reservation)
+        else if (detachedReservation != null) await this.confirmDetachedNonce(detachedReservation)
         return value
       },
       async (error) => {
         if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
+        else if (detachedReservation != null) await this.reconcileDetachedNonce(detachedReservation, extrinsicHash)
         throw error
       },
     )
@@ -1350,11 +1365,19 @@ export class Client {
     })
   }
 
+  private async submitDetachedNonce(reservation: NonceReservation): Promise<void> {
+    await this.noteExternalNonce(reservation, 'submitted')
+  }
+
   private async confirmNonce(reservation: NonceReservation): Promise<void> {
     await this.withNonceAccount(reservation.address, (state) => {
       state.statuses.set(reservation.nonce, 'confirmed')
       pruneNonceStatuses(state)
     })
+  }
+
+  private async confirmDetachedNonce(reservation: NonceReservation): Promise<void> {
+    await this.noteExternalNonce(reservation, 'confirmed')
   }
 
   private async failNonce(reservation: NonceReservation, reusable: boolean): Promise<void> {
@@ -1370,6 +1393,37 @@ export class Client {
       }
       pruneNonceStatuses(state)
     })
+  }
+
+  private async quarantineNonce(reservation: NonceReservation): Promise<void> {
+    await this.withNonceAccount(reservation.address, (state) => {
+      quarantineNonceState(state, reservation.nonce)
+    })
+  }
+
+  private async noteExternalNonce(
+    reservation: NonceReservation,
+    status: Exclude<NonceStatus, 'reserved' | 'reusable' | 'failed'>,
+  ): Promise<void> {
+    await this.withNonceAccount(reservation.address, (state) => {
+      if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
+      state.reusable = state.reusable.filter((nonce) => nonce > reservation.nonce)
+      for (const [nonce, existingStatus] of state.statuses) {
+        if (existingStatus === 'reusable' || nonce <= reservation.nonce) state.statuses.delete(nonce)
+      }
+      state.statuses.set(reservation.nonce, status)
+      while (state.next != null && state.statuses.has(state.next) && state.statuses.get(state.next) !== 'reusable') {
+        state.next += 1
+      }
+      pruneNonceStatuses(state)
+    })
+  }
+
+  private async reconcileDetachedNonce(
+    reservation: NonceReservation,
+    extrinsicHash?: string,
+  ): Promise<void> {
+    await this.reconcileNonceReservation(reservation, extrinsicHash)
   }
 
   private async reconcileNonceReservation(
@@ -1395,41 +1449,26 @@ export class Client {
       const location = locationResult.ok ? locationResult.location : undefined
       const chainNext = chainNextResult.ok ? chainNextResult.nonce : undefined
       const submitted = location != null || (chainNext != null && chainNext > reservation.nonce)
-      const definitelyAbsent =
-        locationResult.ok &&
-        location == null &&
-        chainNext != null &&
-        chainNext <= reservation.nonce
-      if (!submitted && !definitelyAbsent) {
-        invalidateNonceState(state)
+      if (!submitted) {
+        quarantineNonceState(state, reservation.nonce)
         return
       }
 
       if (chainNext != null) state.next = chainNext
       else if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
 
-      const minimumReusableNonce = submitted
-        ? Math.max(state.next, reservation.nonce + 1)
-        : state.next
+      const minimumReusableNonce = Math.max(state.next, reservation.nonce + 1)
       state.reusable = state.reusable.filter(
         (nonce) => nonce >= minimumReusableNonce && nonce !== reservation.nonce,
       )
       for (const [nonce, status] of state.statuses) {
-        if (status === 'reusable' || (submitted && nonce <= reservation.nonce)) {
+        if (status === 'reusable' || nonce <= reservation.nonce) {
           state.statuses.delete(nonce)
         }
       }
 
-      if (submitted) {
-        if (state.next <= reservation.nonce) state.next = reservation.nonce + 1
-        state.statuses.set(reservation.nonce, location === 'block' ? 'confirmed' : 'submitted')
-      } else {
-        state.statuses.set(reservation.nonce, 'reusable')
-        if (!state.reusable.includes(reservation.nonce)) {
-          state.reusable.push(reservation.nonce)
-          state.reusable.sort((left, right) => left - right)
-        }
-      }
+      if (state.next <= reservation.nonce) state.next = reservation.nonce + 1
+      state.statuses.set(reservation.nonce, location === 'block' ? 'confirmed' : 'submitted')
       while (state.statuses.has(state.next) && state.statuses.get(state.next) !== 'reusable') {
         state.next += 1
       }
@@ -2419,6 +2458,17 @@ function managedNonceReservation(extrinsic: unknown): NonceReservation | undefin
   return (extrinsic as ManagedSignedExtrinsicResult)[MANAGED_NONCE]
 }
 
+function detachedNonceReservation(extrinsic: unknown): NonceReservation | undefined {
+  if (managedNonceReservation(extrinsic) != null) return undefined
+  if (extrinsic == null || typeof extrinsic !== 'object') return undefined
+  if (Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array) return undefined
+  const signed = extrinsic as Partial<SignedExtrinsicResult>
+  const address = stringValue(signed.signerAddress)
+  const nonce = Number(signed.nonce)
+  if (address == null || !Number.isSafeInteger(nonce) || nonce < 0) return undefined
+  return { address, nonce }
+}
+
 function hashExtrinsicHex(extrinsic: unknown): string | undefined {
   if (typeof extrinsic !== 'string') return undefined
   try {
@@ -2436,10 +2486,14 @@ function pruneNonceStatuses(state: NonceAccountState): void {
   }
 }
 
-function invalidateNonceState(state: NonceAccountState): void {
+function quarantineNonceState(state: NonceAccountState, nonce: number): void {
   state.next = undefined
   state.reusable = []
-  state.statuses.clear()
+  for (const [existingNonce, status] of state.statuses) {
+    if (status === 'reusable') state.statuses.delete(existingNonce)
+  }
+  state.statuses.set(nonce, 'failed')
+  pruneNonceStatuses(state)
 }
 
 function stringValue(value: unknown): string | undefined {

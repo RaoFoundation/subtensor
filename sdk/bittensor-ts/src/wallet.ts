@@ -1,6 +1,5 @@
 import {
   existsSync,
-  readFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -45,8 +44,7 @@ export class Keyfile {
   }
 
   getKeypair(password?: string | null): Keypair {
-    const data = readFileSync(this.path)
-    return Keypair.fromKeyfileData(data, password ?? undefined)
+    return Keypair.fromKeyfile(this.path, password ?? undefined)
   }
 
   setKeypair(keypair: Keypair, options: SaveKeyOptions = {}): void {

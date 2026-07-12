@@ -221,6 +221,13 @@ pub fn deserialize_keypair_from_keyfile(
         .map(NativeKeypair::new)
 }
 
+#[napi(js_name = "readKeypairKeyfile")]
+pub fn read_keypair_keyfile(path: String, password: Option<String>) -> NapiResult<NativeKeypair> {
+    keyfiles::read_keypair_from_keyfile(&PathBuf::from(path), password.as_deref())
+        .napi()
+        .map(NativeKeypair::new)
+}
+
 #[napi(js_name = "writeKeypairKeyfile")]
 pub fn write_keypair_keyfile(
     keypair: &NativeKeypair,
