@@ -1668,10 +1668,11 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   )
 })
 
-test('Client leaves metadata hash disabled by default for software signers', async () => {
+test('Client enables metadata hash by default for software signers when supported', async () => {
   const callData = Buffer.from([5, 6, 7])
+  const metadataBytes = goldenMetadataBytes()
   const { runtime, captures } = fakeSigningRuntime({
-    metadataBytes: goldenMetadataBytes(),
+    metadataBytes,
     signedExtensionIdentifiers() {
       return ['CheckNonce', 'CheckMetadataHash']
     },
@@ -1691,9 +1692,20 @@ test('Client leaves metadata hash disabled by default for software signers', asy
 
   await client.signExtrinsic(callData, signer, { period: null })
 
-  assert.equal(captures.encoded.params.metadataHashEnabled, false)
-  assert.equal(captures.payloadParams.metadataHash, null)
-  assert.equal(request.metadataHash, undefined)
+  const expectedMetadataHash = core.metadataDigest(metadataBytes, {
+    specVersion: runtime.specVersion,
+    specName: 'node-subtensor',
+    base58Prefix: 42,
+    decimals: 9,
+    tokenSymbol: 'TAO',
+  })
+  assert.equal(captures.encoded.params.metadataHashEnabled, true)
+  assert.deepEqual(captures.payloadParams.metadataHash, expectedMetadataHash)
+  assert.equal(request.metadataHash, `0x${expectedMetadataHash.toString('hex')}`)
+  await assert.rejects(
+    () => client.signExtrinsic(callData, signer, { period: null, metadataHash: null }),
+    /metadataHash cannot be disabled/,
+  )
 
   const explicitMetadataHash = Buffer.alloc(32, 3)
   await client.signExtrinsic(callData, signer, { period: null, metadataHash: explicitMetadataHash })

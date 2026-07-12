@@ -255,10 +255,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - variant: release 
-            flags: ""
+          - variant: release
+            flags: "--features metadata-hash"
           - variant: fast
-            flags: "--features fast-runtime"
+            flags: "--features fast-runtime,metadata-hash"
     env:
       RUST_BACKTRACE: full
     steps:
