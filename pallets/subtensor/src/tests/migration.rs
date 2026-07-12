@@ -28,6 +28,7 @@ use frame_system::Config;
 use pallet_drand::types::RoundNumber;
 use pallet_scheduler::ScheduledOf;
 use scale_info::prelude::collections::VecDeque;
+use share_pool::SafeFloat;
 use sp_core::{H160, H256, U256, crypto::Ss58Codec};
 use sp_io::hashing::twox_128;
 use sp_runtime::{
@@ -5065,5 +5066,126 @@ fn test_migrate_dynamic_tempo_idempotent() {
             last_epoch_first,
             "second migration call must be a no-op"
         );
+    });
+}
+
+#[test]
+fn test_migrate_alpha_v1_to_v2_finalizes_legacy_maps_and_preserves_values() {
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_alpha_v1_to_v2";
+        HasMigrationRun::<Test>::remove(MIGRATION_NAME.to_vec());
+
+        let hot_a = U256::from(1);
+        let cold_a = U256::from(2);
+        let hot_b = U256::from(3);
+        let cold_b = U256::from(4);
+        let netuid = NetUid::from(7);
+
+        // Legacy Alpha (v1): two non-zero entries plus a zero entry.
+        let legacy_alpha_value = U64F64::from(123_456_u64);
+        Alpha::<Test>::insert((hot_a, cold_a, netuid), legacy_alpha_value);
+        Alpha::<Test>::insert((hot_b, cold_b, netuid), U64F64::from(7_u64));
+        Alpha::<Test>::insert((hot_b, cold_a, netuid), U64F64::from(0_u64));
+
+        // Legacy TotalHotkeyShares (v1).
+        let legacy_shares_value = U64F64::from(9_876_u64);
+        TotalHotkeyShares::<Test>::insert(hot_a, netuid, legacy_shares_value);
+
+        // Defense-in-depth probe: a colliding v2 entry already exists. The lazy
+        // invariant says this never happens on-chain, but if it did the migration
+        // must keep the (newer) v2 value.
+        let pre_existing_v2 = SafeFloat::from(999_u64);
+        AlphaV2::<Test>::insert((hot_b, cold_b, netuid), pre_existing_v2.clone());
+
+        // Capture the merged read-path view before migration (merges v1 + v2, v2 wins).
+        let before: BTreeMap<_, SafeFloat> = SubtensorModule::alpha_iter().collect();
+
+        // Run the migration.
+        let _ = migrations::migrate_alpha_v1_to_v2::migrate_alpha_v1_to_v2::<Test>();
+
+        assert!(
+            HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "migration should be marked as completed"
+        );
+
+        // Legacy maps are fully drained.
+        assert_eq!(
+            Alpha::<Test>::iter().count(),
+            0,
+            "legacy Alpha map must be empty"
+        );
+        assert_eq!(
+            TotalHotkeyShares::<Test>::iter().count(),
+            0,
+            "legacy TotalHotkeyShares map must be empty"
+        );
+
+        // Non-zero legacy values are relocated byte-for-byte (same conversion the
+        // read path already uses).
+        assert_eq!(
+            AlphaV2::<Test>::get((hot_a, cold_a, netuid)),
+            SafeFloat::from(legacy_alpha_value)
+        );
+        assert_eq!(
+            TotalHotkeySharesV2::<Test>::get(hot_a, netuid),
+            SafeFloat::from(legacy_shares_value)
+        );
+
+        // The zero legacy entry was dropped, not carried into v2.
+        assert!(
+            AlphaV2::<Test>::get((hot_b, cold_a, netuid)).is_zero(),
+            "zero legacy entry must not be carried into v2"
+        );
+
+        // Defense in depth: the pre-existing v2 value wins over the colliding
+        // legacy value (7), matching the v2-wins semantics of alpha_iter.
+        assert_eq!(
+            AlphaV2::<Test>::get((hot_b, cold_b, netuid)),
+            pre_existing_v2
+        );
+
+        // The merged read path is unchanged by the migration (behavior preservation).
+        let after: BTreeMap<_, SafeFloat> = SubtensorModule::alpha_iter().collect();
+        assert_eq!(
+            before.get(&(hot_a, cold_a, netuid)),
+            after.get(&(hot_a, cold_a, netuid)),
+            "read-path value for the migrated key must be unchanged"
+        );
+        assert_eq!(
+            before.get(&(hot_b, cold_b, netuid)),
+            after.get(&(hot_b, cold_b, netuid)),
+            "colliding key read-path value must be unchanged"
+        );
+
+        // Idempotency: a second run is a no-op.
+        let v2_count = AlphaV2::<Test>::iter().count();
+        let _ = migrations::migrate_alpha_v1_to_v2::migrate_alpha_v1_to_v2::<Test>();
+        assert_eq!(
+            AlphaV2::<Test>::iter().count(),
+            v2_count,
+            "second run must not mutate"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_alpha_v1_to_v2_is_a_noop_on_empty_legacy_maps() {
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_alpha_v1_to_v2";
+        HasMigrationRun::<Test>::remove(MIGRATION_NAME.to_vec());
+
+        // No legacy data at all (fresh state / fully lazy-migrated steady state).
+        assert_eq!(Alpha::<Test>::iter().count(), 0);
+        assert_eq!(TotalHotkeyShares::<Test>::iter().count(), 0);
+
+        let _ = migrations::migrate_alpha_v1_to_v2::migrate_alpha_v1_to_v2::<Test>();
+
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(
+            AlphaV2::<Test>::iter().count(),
+            0,
+            "must not synthesize any v2 entries"
+        );
+        assert_eq!(TotalHotkeySharesV2::<Test>::iter().count(), 0);
     });
 }

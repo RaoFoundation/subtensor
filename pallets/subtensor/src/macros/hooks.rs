@@ -179,7 +179,11 @@ mod hooks {
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
                 .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
                 // Populate reverse lookup index for EVM address associations.
-                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>());
+                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>())
+                // Finalize the lazy Alpha -> AlphaV2 / TotalHotkeyShares -> TotalHotkeySharesV2
+                // migration (issue #2636): copy remaining legacy entries into the v2 maps and
+                // clear the legacy maps so the v1-first read fallback can be removed later.
+                .saturating_add(migrations::migrate_alpha_v1_to_v2::migrate_alpha_v1_to_v2::<T>());
             weight
         }
 
