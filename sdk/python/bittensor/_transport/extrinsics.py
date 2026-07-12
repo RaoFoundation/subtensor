@@ -11,11 +11,11 @@ instead of raw bytes). When signing happens out-of-process (QR / air-gapped
 devices), the caller holds the ``UnsignedExtrinsic`` and runs the second step
 whenever the signature comes back.
 
-When the runtime declares ``CheckMetadataHash``, the transport signs the
-runtime's RFC-0078 metadata digest into the payload by default. Signers that
-verify the runtime before signing (Ledger's generic app) may expose
-``metadata_digest(SigningContext)`` to compute that digest themselves and keep
-any context they need for clear-signing proofs.
+The transport signs the runtime's RFC-0078 metadata digest into every payload
+and refuses signing when the runtime cannot verify it with
+``CheckMetadataHash``. Signers that verify the runtime before signing (Ledger's
+generic app) may expose ``metadata_digest(SigningContext)`` to compute that
+digest themselves and keep any context they need for clear-signing proofs.
 
 Outcome side: the event-walk that turns a block's ``System.Events`` entries
 into success/fee/weight/error for one extrinsic, including Bittensor's
@@ -100,6 +100,7 @@ def signer_payload_json(
     metadata_hash: Optional[bytes] = None,
 ) -> dict:
     """The Polkadot-JS ``SignerPayloadJSON`` for browser-extension signers."""
+    metadata_hash = default_metadata_hash(codec, metadata_hash)
     era_hex = "0x00" if era == IMMORTAL else "0x" + codec.encode_era(era).hex()
     # Numeric fields are big-endian value hex at the field's SCALE width —
     # Polkadot-JS parses hex-string ints as BE numbers (AbstractInt), matching
@@ -123,14 +124,10 @@ def signer_payload_json(
         payload["signedExtensions"] = signed_extensions
     if tip_asset_id is not None:
         payload["assetId"] = "0x" + codec.encode_compact(tip_asset_id).hex()
-    # Polkadot-JS wire shape: ``mode`` is a plain number and a disabled
-    # ``metadataHash`` is null (GenericSignerPayload.toPayload).
-    if metadata_hash is not None:
-        payload["mode"] = 1
-        payload["metadataHash"] = "0x" + metadata_hash.hex()
-    elif codec.supports_metadata_hash():
-        payload["mode"] = 0
-        payload["metadataHash"] = None
+    # Polkadot-JS wire shape: ``mode`` is a plain number. Mode 1 commits the
+    # signature to the RFC-0078 metadata digest used to compose the call.
+    payload["mode"] = 1
+    payload["metadataHash"] = "0x" + metadata_hash.hex()
     return payload
 
 
@@ -155,6 +152,7 @@ def prepare_extrinsic(
     self-contained: it can cross a process boundary (QR display, file export)
     and later be reunited with a signature via :func:`attach_signature`.
     """
+    metadata_hash = default_metadata_hash(codec, metadata_hash)
     call_data, included_in_extrinsic, included_in_signed_data = codec.signature_payload_parts(
         call,
         era=era,
@@ -226,6 +224,9 @@ def attach_signature(
     anywhere — an in-process keypair, an extension, a QR round-trip. The call
     is spliced back in from its raw bytes, so nothing needs re-composing.
     """
+    if unsigned.metadata_hash is None:
+        raise ValueError("unsigned extrinsic is missing a CheckMetadataHash digest")
+    default_metadata_hash(codec, unsigned.metadata_hash)
     signature, signature_version = _normalize_signature(signature, unsigned.crypto_type)
     data, extrinsic_hash = codec.encode_signed_extrinsic(
         unsigned.call_data,
@@ -236,39 +237,48 @@ def attach_signature(
         nonce=unsigned.nonce,
         tip=unsigned.tip,
         tip_asset_id=unsigned.tip_asset_id,
-        metadata_hash_enabled=unsigned.metadata_hash is not None,
+        metadata_hash_enabled=True,
     )
     return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
 
 
-async def resolve_metadata_hash(
-    codec: RuntimeCodec, keypair: Any, genesis_hash: str
-) -> Optional[bytes]:
-    """The CheckMetadataHash digest to sign, or None when unavailable.
+async def resolve_metadata_hash(codec: RuntimeCodec, keypair: Any, genesis_hash: str) -> bytes:
+    """The CheckMetadataHash digest to sign.
 
-    Supporting runtimes get metadata hashing by default. Signers that verify
+    The runtime must be able to verify the digest on-chain. Signers that verify
     the runtime before signing match :class:`MetadataVerifyingSigner` (sync or
     async); everything they need to compute the RFC-0078 digest is in the
     context, and their hook still runs first so hardware signers can retain
     context for the later proof.
     """
+    if not codec.supports_metadata_hash():
+        return default_metadata_hash(codec)
     if not isinstance(keypair, MetadataVerifyingSigner):
-        return codec.metadata_digest() if codec.supports_metadata_hash() else None
+        return default_metadata_hash(codec)
     digest = keypair.metadata_digest(_signing_context(codec, genesis_hash))
     if inspect.isawaitable(digest):
         digest = await digest
-    if digest is not None:
-        return bytes(digest)
-    return codec.metadata_digest() if codec.supports_metadata_hash() else None
+    return default_metadata_hash(codec, digest)
 
 
-def default_metadata_hash(
-    codec: RuntimeCodec, metadata_hash: Optional[bytes] = None
-) -> Optional[bytes]:
-    """Explicit metadata hash, or the runtime digest when CheckMetadataHash exists."""
-    if metadata_hash is not None:
-        return bytes(metadata_hash)
-    return codec.metadata_digest() if codec.supports_metadata_hash() else None
+def default_metadata_hash(codec: RuntimeCodec, metadata_hash: Optional[bytes] = None) -> bytes:
+    """The runtime's RFC-0078 metadata digest, failing closed if unverifiable.
+
+    Signed payloads must enable ``CheckMetadataHash`` and sign the digest for
+    the exact metadata used to compose their call bytes. If a caller supplies a
+    digest explicitly, it still has to match this codec's metadata.
+    """
+    if not codec.supports_metadata_hash():
+        raise ValueError("runtime does not declare CheckMetadataHash; refusing to sign")
+    digest = codec.metadata_digest()
+    if metadata_hash is None:
+        return digest
+    supplied = bytes(metadata_hash)
+    if len(supplied) != len(digest):
+        raise ValueError("metadata_hash must be 32 bytes")
+    if supplied != digest:
+        raise ValueError("metadata_hash does not match the runtime metadata digest")
+    return supplied
 
 
 def _signing_context(codec: RuntimeCodec, genesis_hash: str) -> SigningContext:
@@ -317,7 +327,7 @@ async def create_signed_extrinsic(
             nonce=nonce,
             tip=tip,
             tip_asset_id=tip_asset_id,
-            metadata_hash_enabled=metadata_hash is not None,
+            metadata_hash_enabled=True,
         )
         return SignedExtrinsic(data=data, extrinsic_hash=extrinsic_hash)
     unsigned = prepare_extrinsic(

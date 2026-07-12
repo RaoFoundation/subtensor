@@ -102,13 +102,16 @@ def test_signature_normalization_forms_are_equivalent():
     assert len(assembled) == 1
 
 
-def test_payload_json_declares_signed_extensions():
-    """With no digest supplied, payload JSON uses the Polkadot-JS disabled-mode shape."""
+def test_payload_json_declares_metadata_hash():
+    """With no digest supplied, payload JSON signs the runtime metadata digest."""
+    c = codec()
     kp = Keypair.create_from_uri("//Alice")
-    payload = _prepare(_nested_calls()["Balances.transfer_keep_alive"], kp).payload_json
+    unsigned = _prepare(_nested_calls()["Balances.transfer_keep_alive"], kp)
+    payload = unsigned.payload_json
     assert "CheckMetadataHash" in payload["signedExtensions"]
-    assert payload["mode"] == 0
-    assert payload["metadataHash"] is None
+    assert payload["mode"] == 1
+    assert unsigned.metadata_hash == c.metadata_digest()
+    assert payload["metadataHash"] == "0x" + c.metadata_digest().hex()
 
 
 def test_create_signed_extrinsic_enables_metadata_hash_by_default():
@@ -133,17 +136,14 @@ def test_create_signed_extrinsic_enables_metadata_hash_by_default():
         )
     )
 
-    expected_unsigned = _prepare(call, signer, metadata_hash=digest)
+    expected_unsigned = _prepare(call, signer)
     expected = ex.attach_signature(c, expected_unsigned, signer.signature)
-    disabled_unsigned = _prepare(call, signer)
-    disabled = ex.attach_signature(c, disabled_unsigned, signer.signature)
 
     assert ex.default_metadata_hash(c) == digest
     assert signer.payload == expected_unsigned.payload
     assert expected_unsigned.payload_json["mode"] == 1
     assert expected_unsigned.payload_json["metadataHash"] == "0x" + digest.hex()
     assert signed.data == expected.data
-    assert signed.data != disabled.data
 
 
 def test_payload_json_pins_polkadot_js_number_shape():
@@ -173,7 +173,7 @@ def test_metadata_hash_mode_survives_roundtrip():
     c = codec()
     kp = Keypair.create_from_uri("//Alice")
     call = _nested_calls()["Balances.transfer_keep_alive"]
-    digest = bytes(range(32))
+    digest = c.metadata_digest()
     unsigned = _prepare(call, kp, metadata_hash=digest)
     imported = UnsignedExtrinsic.from_dict(json.loads(json.dumps(unsigned.to_dict())))
     assert imported.metadata_hash == digest
@@ -181,10 +181,31 @@ def test_metadata_hash_mode_survives_roundtrip():
     assert imported.payload_json["metadataHash"] == "0x" + digest.hex()
 
     signature = kp.sign(imported.payload)
-    enabled = ex.attach_signature(c, imported, signature)
-    disabled = ex.attach_signature(c, _prepare(call, kp), signature)
-    # Only the mode byte differs in the assembled extrinsic; the digest itself
-    # is implied data, signed but never transmitted.
-    diffs = [i for i, (a, b) in enumerate(zip(enabled.data, disabled.data)) if a != b]
-    assert len(diffs) == 1
-    assert enabled.data[diffs[0]] == 1 and disabled.data[diffs[0]] == 0
+    signed = ex.attach_signature(c, imported, signature)
+    assert signed.data.endswith(imported.call_data)
+
+
+def test_metadata_hash_fails_closed():
+    """Signing payloads must not silently disable CheckMetadataHash."""
+    c = codec()
+    kp = Keypair.create_from_uri("//Alice")
+    call = _nested_calls()["Balances.transfer_keep_alive"]
+    digest = c.metadata_digest()
+    bad_digest = bytes([digest[0] ^ 0x01]) + digest[1:]
+
+    with pytest.raises(ValueError, match="does not match"):
+        _prepare(call, kp, metadata_hash=bad_digest)
+
+    class _NoMetadataHashRuntime:
+        def supports_metadata_hash(self):
+            return False
+
+    with pytest.raises(ValueError, match="CheckMetadataHash"):
+        ex.default_metadata_hash(_NoMetadataHashRuntime())
+
+    unsigned = _prepare(call, kp)
+    legacy_data = unsigned.to_dict()
+    legacy_data["metadata_hash"] = None
+    legacy = UnsignedExtrinsic.from_dict(legacy_data)
+    with pytest.raises(ValueError, match="missing a CheckMetadataHash"):
+        ex.attach_signature(c, legacy, kp.sign(unsigned.payload))

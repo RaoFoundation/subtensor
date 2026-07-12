@@ -94,7 +94,9 @@ class UnsignedExtrinsic:
     era_block_hash: str
     spec_version: int
     transaction_version: int
-    metadata_hash: Optional[bytes]  # CheckMetadataHash digest; None = mode Disabled
+    # CheckMetadataHash digest. New prepared extrinsics always set this; None is
+    # only accepted when loading old JSON and is rejected before submission.
+    metadata_hash: Optional[bytes]
     payload: bytes  # the exact bytes to sign
     payload_json: dict  # Polkadot-JS SignerPayloadJSON
     # The payload's wire seams (payload = call_data ++ included_in_extrinsic ++

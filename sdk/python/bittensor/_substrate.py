@@ -181,7 +181,11 @@ class Substrate(Protocol):
         tip: int = 0,
         metadata_hash: Optional[bytes] = None,
     ) -> UnsignedExtrinsic:
-        """An unsigned extrinsic for out-of-process signing (no key material)."""
+        """An unsigned extrinsic for out-of-process signing (no key material).
+
+        ``metadata_hash`` defaults to the current runtime's RFC-0078 digest and
+        must be verifiable by ``CheckMetadataHash``.
+        """
         ...
 
     async def submit_signature(
@@ -554,7 +558,10 @@ class RpcSubstrate:
         Only the account's *address* is needed — the private key can live on a
         QR-scanned vault device, a Ledger, or another machine entirely. The
         result carries the exact payload bytes to sign plus the Polkadot-JS
-        payload JSON; hand the signature to :meth:`submit_signature`.
+        payload JSON; hand the signature to :meth:`submit_signature`. The
+        payload always commits to the RFC-0078 digest of the metadata used to
+        compose the call, and signing is refused if the runtime cannot verify
+        that digest via ``CheckMetadataHash``.
         """
         try:
             return await self.raw.prepare_unsigned(

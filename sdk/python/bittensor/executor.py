@@ -388,7 +388,9 @@ class Executor:
         signature with :meth:`submit_signature`. Mortal eras are the deadline:
         with the default period the signature must come back within ~64
         blocks; pass a longer ``period`` (or ``None`` for an immortal
-        extrinsic) when the round-trip is slower than that.
+        extrinsic) when the round-trip is slower than that. The payload commits
+        to the RFC-0078 digest of the metadata used to compose the call, and
+        runtimes without ``CheckMetadataHash`` verification are refused.
         """
         composed = call if hasattr(call, "data") else await self.substrate.compose(call)
         return await self.substrate.prepare(

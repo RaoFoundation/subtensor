@@ -553,10 +553,10 @@ class SubstrateConnection:
         the account's next index is fetched fresh — never from the pipelining
         cache, since the signature may come back much later.
 
-        ``metadata_hash`` enables the ``CheckMetadataHash`` extension with the
-        given RFC-0078 digest. When omitted and the runtime declares
-        ``CheckMetadataHash``, the transport signs the runtime metadata digest
-        by default.
+        ``metadata_hash`` must match the RFC-0078 digest for the metadata used
+        to compose ``call``. When omitted, the transport computes it from the
+        current runtime metadata. Runtimes that cannot verify
+        ``CheckMetadataHash`` are refused for signing.
         """
         codec = await self._runtimes.codec_at(None)
         if nonce is None:

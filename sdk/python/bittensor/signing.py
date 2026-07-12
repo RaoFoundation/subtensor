@@ -13,11 +13,11 @@ structurally (no base class needed — just define the method):
   extension-style signers that take the Polkadot-JS ``SignerPayloadJSON``
   instead of raw payload bytes (:class:`bittensor.ExtensionSigner`).
 - ``metadata_digest(SigningContext) -> bytes`` — for signers that verify the
-  runtime before signing (Ledger's generic app refuses to blind-sign). When
-  the runtime declares ``CheckMetadataHash``, the transport signs the RFC-0078
-  merkleized-metadata digest into the payload and the assembled extrinsic
-  carries the matching mode byte; the hook lets clear-signing devices compute
-  the digest themselves and keep proof context.
+  runtime before signing (Ledger's generic app refuses to blind-sign). The
+  transport signs the RFC-0078 merkleized-metadata digest into the payload,
+  refuses runtimes without ``CheckMetadataHash``, and assembles the matching
+  mode byte; the hook lets clear-signing devices compute the digest themselves
+  and keep proof context.
 
 Either hook may be sync or async. A signature of 65 bytes carries its
 MultiSignature version prefix in the first byte (as hardware devices return).
