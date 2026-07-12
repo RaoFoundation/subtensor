@@ -132,6 +132,13 @@ pallet-subtensor-swap-rpc = { workspace = true, features = ["std"] }
 pallet-subtensor-swap-runtime-api = { workspace = true, features = ["std"] }
 subtensor-macros.workspace = true
 
+# Optional global allocator (off by default). Archive nodes serving sustained RPC load show
+# unbounded anonymous-memory growth (~3-4 GB/h) that fits the glibc-malloc arena-fragmentation
+# profile across the node's hundreds of threads; linking jemalloc as the global allocator (as the
+# polkadot binary does) is the proposed mitigation (issue #2724). Gated behind a feature so the
+# default release binary is unchanged until an operator opts in.
+tikv-jemallocator = { version = "0.5", optional = true, default-features = false }
+
 [build-dependencies]
 substrate-build-script-utils.workspace = true
 
@@ -145,6 +152,9 @@ rocksdb = [
 	"sc-cli/rocksdb",
 ]
 default = ["rocksdb", "sql", "txpool"]
+# Use tikv-jemallocator as the global allocator in the release binary (off by default).
+# See the `tikv-jemallocator` dependency note and issue #2724.
+jemalloc-allocator = ["dep:tikv-jemallocator"]
 fast-runtime = [
 	"node-subtensor-runtime/fast-runtime",
 	"subtensor-runtime-common/fast-runtime",
