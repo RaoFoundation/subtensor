@@ -1,9 +1,9 @@
 name: Runtime Checks
 
-# Build-once, fan-out gate for every PR: one job compiles the runtime wasm and
-# the release node binary, then try-runtime (devnet/testnet/mainnet), the
-# spec-version comparison, and the mainnet clone-upgrade suite all consume the
-# artifacts instead of rebuilding. Consolidates the former try-runtime.yml,
+# Build-artifacts-once, fan-out gate for every PR: independent jobs compile the
+# runtime wasm and release node in parallel, then try-runtime
+# (devnet/testnet/mainnet), the spec-version comparison, and the mainnet
+# clone-upgrade suite consume the artifacts instead of rebuilding. Consolidates the former try-runtime.yml,
 # check-spec-version.yml, and check-clone-upgrade.yml (artifacts are scoped to
 # a single workflow run, so the fan-out jobs must live in one file).
 
@@ -11,6 +11,19 @@ on:
   pull_request:
     types: [labeled, unlabeled, synchronize, opened, reopened]
   workflow_dispatch:
+    inputs:
+      fresh_state:
+        description: "Bypass cached try-runtime snapshots and scrape all networks live"
+        type: boolean
+        default: false
+      snapshot_source_branch:
+        description: "Trusted snapshot artifact branch (manual measurement only)"
+        type: string
+        default: main
+      try_runtime_only:
+        description: "Run only the try-runtime build and cached network checks"
+        type: boolean
+        default: false
 
 concurrency:
   group: runtime-checks-${{ github.ref }}
@@ -20,6 +33,7 @@ env:
   CARGO_TERM_COLOR: always
   WS_ENDPOINT: ws://127.0.0.1:9944
   MAINNET_RPC: https://entrypoint-finney.opentensor.ai
+  TRY_RUNTIME_VERSION: "0.10.1"
 
 jobs:
   # Fork PRs must not run on self-hosted runners — checkout executes untrusted
@@ -46,6 +60,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       python_sdk: ${{ steps.filter.outputs.python_sdk }}
       sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
+      snapshot_ci: ${{ steps.filter.outputs.snapshot_ci }}
     steps:
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
@@ -60,38 +75,45 @@ jobs:
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
           # SDK-only changes are covered by sdk-checks and the Rust SDK e2e
           # workflow; they should not force clone-upgrade or SDK drift.
-          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/runtime-checks\.yml|actions/(rust-setup|sccache-setup)/|scripts/sccache-configure\.sh$)'
+          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/|scripts/(sccache-configure|snapshot-artifact|test-snapshot-artifact)\.sh$)'
           docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
           python_sdk_pattern='^sdk/(python|bittensor-core|bittensor-core-py|bittensor-core-wasm)/|^Cargo.lock$|^\.github/workflows/runtime-checks\.yml$'
           sdk_drift_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$'
-          runtime=false; docs=false; python_sdk=false; sdk_drift=false
+          snapshot_pattern='^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|scripts/(snapshot-artifact|test-snapshot-artifact)\.sh)$'
+          runtime=false; docs=false; python_sdk=false; sdk_drift=false; snapshot_ci=false
           grep -qE "$runtime_pattern" <<< "$files" && runtime=true
           grep -qE "$docs_pattern" <<< "$files" && docs=true
           grep -qE "$python_sdk_pattern" <<< "$files" && python_sdk=true
           grep -qE "$sdk_drift_pattern" <<< "$files" && sdk_drift=true
-          echo "runtime=$runtime, docs=$docs, python_sdk=$python_sdk, sdk_drift=$sdk_drift"
+          grep -qE "$snapshot_pattern" <<< "$files" && snapshot_ci=true
+          echo "runtime=$runtime, docs=$docs, python_sdk=$python_sdk, sdk_drift=$sdk_drift, snapshot_ci=$snapshot_ci"
           {
             echo "runtime=$runtime"
             echo "docs=$docs"
             echo "python_sdk=$python_sdk"
             echo "sdk_drift=$sdk_drift"
+            echo "snapshot_ci=$snapshot_ci"
           } >> "$GITHUB_OUTPUT"
 
-  # The single compile of this workflow. Two artifacts:
-  #   try-runtime-wasm — production profile + try-runtime feature, used by the
-  #     three try-runtime network checks.
-  #   node-release — release node binary + its wbuild runtime wasm, used by
-  #     the clone-upgrade suite (start-local-clone.sh expects the binary at
-  #     target/release/node-subtensor; update-runtime-with-alice.ts expects the
-  #     wasm at target/release/wbuild/node-subtensor-runtime/).
-  build:
-    name: build runtime artifacts
+  snapshot-artifact-tests:
+    name: snapshot artifact contract tests
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.snapshot_ci == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/test-snapshot-artifact.sh
+
+  # Build the try-runtime wasm independently so its consumers do not wait for
+  # the unrelated release node build. The source check also makes the
+  # --disable-mbm-checks optimization self-disabling when MBMs are introduced.
+  build-try-runtime:
+    name: build try-runtime wasm
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true'
-    # Keep this build on the reserved 16-core turbo lane: it gates every
-    # try-runtime check and clone shard. General and background work uses the
-    # 8-core pool so it cannot consume this critical-path capacity.
     runs-on: [self-hosted, fireactions-turbo-16]
+    outputs:
+      mbm_args: ${{ steps.mbm.outputs.args }}
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
@@ -113,11 +135,25 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
+      - name: Detect multi-block migration configuration
+        id: mbm
+        run: |
+          set -euo pipefail
+          definitions=$(grep -cE '^[[:space:]]*type MultiBlockMigrator[[:space:]]*=' runtime/src/lib.rs || true)
+          if [ "$definitions" -ne 1 ]; then
+            echo "::error::expected exactly one MultiBlockMigrator definition, found $definitions"
+            exit 1
+          fi
+          if grep -qE '^[[:space:]]*type MultiBlockMigrator[[:space:]]*=[[:space:]]*\(\)[[:space:]]*;' runtime/src/lib.rs; then
+            echo "args=--disable-mbm-checks" >> "$GITHUB_OUTPUT"
+            echo "No multi-block migrator configured; duplicate MBM state loading will be disabled."
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "Multi-block migrator configured; retaining the full MBM execution path."
+          fi
+
       - name: Build runtime wasm (production, try-runtime feature)
         run: cargo build --profile production -p node-subtensor-runtime --features try-runtime -q --locked
-
-      - name: Build node-subtensor (release)
-        run: cargo build --release -p node-subtensor
 
       - name: Upload try-runtime wasm
         uses: actions/upload-artifact@v4
@@ -126,6 +162,40 @@ jobs:
           path: target/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
           if-no-files-found: error
           retention-days: 3
+
+  # Release node + its wbuild runtime wasm, used only by clone-upgrade.
+  # start-local-clone.sh expects the binary at target/release/node-subtensor;
+  # update-runtime-with-alice.ts expects the wasm under target/release/wbuild.
+  build-node-release:
+    name: build release node
+    needs: [trusted-pr, changes]
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
+    timeout-minutes: 60
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: runtime-checks-node
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Add wasm target and rust-src
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Build node-subtensor (release)
+        run: cargo build --release -p node-subtensor
 
       - name: Upload release node + runtime wasm
         uses: actions/upload-artifact@v4
@@ -137,12 +207,12 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # For every PR: run try-runtime's on-runtime-upgrade checks against the
-  # current state of each live network, using the shared wasm artifact and the
-  # prebuilt try-runtime-cli — no Rust toolchain on these runners.
+  # For every PR: run try-runtime's on-runtime-upgrade checks against a recent,
+  # finalized snapshot of each network. Live state is an explicit diagnostic
+  # bypass only; cached jobs never contact a network endpoint.
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
-    needs: build
+    needs: build-try-runtime
     runs-on: [self-hosted, fireactions-tryruntime]
     permissions:
       contents: read
@@ -170,7 +240,20 @@ jobs:
             uri: wss://archive.dev.opentensor.ai:443
             genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve cached or fresh state mode
+        id: state-mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          MANUAL_FRESH: ${{ inputs.fresh_state || false }}
+        run: |
+          .github/scripts/snapshot-artifact.sh mode \
+            "$EVENT_NAME" "$LABELS_JSON" "$MANUAL_FRESH" "$GITHUB_OUTPUT"
+
       - name: Verify endpoint serves the expected network
+        if: steps.state-mode.outputs.fresh-state == 'true'
         run: |
           http_uri="${{ matrix.network.uri }}"
           http_uri="${http_uri/wss:/https:}"
@@ -189,11 +272,11 @@ jobs:
           name: try-runtime-wasm
           path: runtime-blob
 
-      - name: Download try-runtime-cli v0.10.1
+      - name: Download try-runtime-cli v${{ env.TRY_RUNTIME_VERSION }}
         run: |
           TRY_RUNTIME_BIN="$RUNNER_TEMP/try-runtime"
           curl --fail --silent --show-error --location \
-            "https://github.com/paritytech/try-runtime-cli/releases/download/v0.10.1/try-runtime-x86_64-unknown-linux-musl" \
+            "https://github.com/paritytech/try-runtime-cli/releases/download/v${TRY_RUNTIME_VERSION}/try-runtime-x86_64-unknown-linux-musl" \
             --output "$TRY_RUNTIME_BIN"
           chmod +x "$TRY_RUNTIME_BIN"
           echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
@@ -204,46 +287,85 @@ jobs:
       # the clone snapshot: only artifacts produced on the default branch.
       # The .snap format is coupled to the try-runtime-cli release, so the
       # producer and this job must pin the same version.
-      - name: Restore try-runtime state snapshot
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'fresh-try-runtime-state') }}
+      - name: Select try-runtime state snapshot
+        id: snapshot
+        if: steps.state-mode.outputs.fresh-state != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # gh api prints the JSON error body to stdout on 404, so validate
-          # the id shape rather than trusting non-empty output.
-          run_id=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/refresh-mainnet-snapshot.yml/runs?branch=main&status=success&per_page=1" \
-            --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)
-          if ! [[ "$run_id" =~ ^[0-9]+$ ]]; then
-            echo "No snapshot run available; falling back to a live scrape."
-            exit 0
-          fi
-          # No checkout in this job, so gh cannot infer the repository.
-          if ! gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n "try-runtime-snap-${{ matrix.network.name }}" -D snap; then
-            echo "Snapshot download failed (expired or that network's scrape failed); falling back to a live scrape."
-            exit 0
-          fi
-          echo "Restored ${{ matrix.network.name }}.snap from run $run_id."
-          echo "TRY_RUNTIME_SNAP=snap/${{ matrix.network.name }}.snap" >> "$GITHUB_ENV"
+          .github/scripts/snapshot-artifact.sh select \
+            "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network.name }}" \
+            "${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_source_branch || github.event.repository.default_branch }}" \
+            "${{ github.repository_id }}" \
+            72 "$GITHUB_OUTPUT" required
+
+      - name: Mark snapshot restore start
+        if: steps.state-mode.outputs.fresh-state != 'true'
+        run: echo "SNAPSHOT_RESTORE_STARTED=$(date -u +%s)" >> "$GITHUB_ENV"
+
+      - name: Download selected try-runtime state snapshot
+        if: steps.state-mode.outputs.fresh-state != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh download \
+            "${{ steps.snapshot.outputs.artifact-id }}" \
+            "${{ steps.snapshot.outputs.digest }}" \
+            snap
+
+      - name: Validate try-runtime state snapshot
+        if: steps.state-mode.outputs.fresh-state != 'true'
+        run: |
+          set -euo pipefail
+          snapshot="snap/${{ matrix.network.name }}.snap"
+          manifest="snap/${{ matrix.network.name }}.manifest.json"
+          .github/scripts/snapshot-artifact.sh validate \
+            "$manifest" "$snapshot" \
+            "${{ matrix.network.name }}" "${{ matrix.network.genesis }}" \
+            "$TRY_RUNTIME_VERSION"
+          echo "TRY_RUNTIME_SNAP=$snapshot" >> "$GITHUB_ENV"
+          restore_seconds=$(($(date -u +%s) - SNAPSHOT_RESTORE_STARTED))
+          block=$(jq -er '.finalized_block_number' "$manifest")
+          spec=$(jq -er '.source_spec_name + "/" + (.source_spec_version | tostring)' "$manifest")
+          {
+            echo "### ${{ matrix.network.name }} cached state"
+            echo "- Artifact: ${{ steps.snapshot.outputs.artifact-id }} (run ${{ steps.snapshot.outputs.run-id }})"
+            echo "- Age: ${{ steps.snapshot.outputs.age-hours }}h"
+            echo "- Finalized block: $block"
+            echo "- Runtime: $spec"
+            echo "- Restore and validation: ${restore_seconds}s"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check migrations
         env:
           NODE_URI: ${{ matrix.network.uri }}
+          FRESH_STATE: ${{ steps.state-mode.outputs.fresh-state }}
+          MBM_ARGS: ${{ needs.build-try-runtime.outputs.mbm_args }}
         run: |
+          set -euo pipefail
           export RUST_LOG=remote-ext=debug,runtime=debug
-          if [ -n "${TRY_RUNTIME_SNAP:-}" ]; then
-            state=(snap --path "$TRY_RUNTIME_SNAP")
-          else
+          if [ "$FRESH_STATE" = true ]; then
             state=(live --uri "$NODE_URI")
+            state_mode=live
+          else
+            : "${TRY_RUNTIME_SNAP:?cached execution requires a validated snapshot}"
+            state=(snap --path "$TRY_RUNTIME_SNAP")
+            state_mode=cached
           fi
+          mbm=()
+          [ -z "$MBM_ARGS" ] || mbm+=("$MBM_ARGS")
+          started=$(date -u +%s)
           "$TRY_RUNTIME_BIN" \
             --runtime runtime-blob/node_subtensor_runtime.compact.compressed.wasm \
             on-runtime-upgrade \
             --checks=all \
             --blocktime 12000 \
             --disable-spec-version-check --no-weight-warnings \
+            "${mbm[@]}" \
             "${state[@]}"
+          elapsed=$(($(date -u +%s) - started))
+          echo "- Replay mode: $state_mode (${elapsed}s)" >> "$GITHUB_STEP_SUMMARY"
 
   # Runtime-affecting PRs must carry a spec_version newer than what mainnet is
   # running — otherwise the release train will build the merge and then no-op
@@ -254,7 +376,10 @@ jobs:
   spec-version:
     name: spec_version newer than mainnet
     needs: [trusted-pr, changes]
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') && (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') }}
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, 'no-spec-version-bump') &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -286,7 +411,9 @@ jobs:
   sdk-checks:
     name: SDK offline checks
     needs: [trusted-pr, changes]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true'
+    if: >-
+      (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
@@ -315,7 +442,7 @@ jobs:
   # node-release artifact instead of building, and restores the nightly
   # mainnet-snapshot artifact instead of re-scraping mainnet state (falls back
   # to a live scrape when no snapshot exists or the `fresh-mainnet-clone`
-  # label is set). Auto-skips (via the `build` need) when the PR touches
+  # label is set). Auto-skips (via the `build-node-release` need) when the PR touches
   # nothing runtime-relevant.
   #
   # The regression tests are wall-clock-bound (they wait on 12-second blocks)
@@ -324,7 +451,7 @@ jobs:
   # subset, preserving the suite's original relative order within each shard.
   clone-upgrade:
     name: clone-upgrade (${{ matrix.shard.name }})
-    needs: [trusted-pr, changes, build]
+    needs: [trusted-pr, changes, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
@@ -378,35 +505,57 @@ jobs:
         with:
           node-version: 20
 
-      - name: Restore mainnet snapshot
+      - name: Select mainnet clone snapshot
+        id: clone-snapshot
         if: ${{ !contains(github.event.pull_request.labels.*.name, 'fresh-mainnet-clone') }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Only trust snapshots produced on the default branch — schedule and
-          # dispatch runs of refresh-mainnet-snapshot execute main's code, so
-          # a PR can never poison the snapshot another PR consumes.
-          # gh api prints the JSON error body to stdout on 404 (e.g. before
-          # the snapshot workflow ever ran on main), so validate the id shape
-          # rather than trusting non-empty output.
-          run_id=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/refresh-mainnet-snapshot.yml/runs?branch=main&status=success&per_page=1" \
-            --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)
-          if ! [[ "$run_id" =~ ^[0-9]+$ ]]; then
-            echo "No snapshot available; falling back to a live mainnet scrape."
-            exit 0
-          fi
-          if ! gh run download "$run_id" -n mainnet-snapshot -D /tmp/mainnet-snapshot; then
-            echo "Snapshot download failed (likely expired); falling back to a live scrape."
-            exit 0
-          fi
+          .github/scripts/snapshot-artifact.sh select \
+            mainnet-snapshot \
+            "${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_source_branch || github.event.repository.default_branch }}" \
+            "${{ github.repository_id }}" \
+            168 "$GITHUB_OUTPUT" optional
+
+      - name: Download selected mainnet clone snapshot
+        id: download-clone-snapshot
+        if: steps.clone-snapshot.outputs.found == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh download \
+            "${{ steps.clone-snapshot.outputs.artifact-id }}" \
+            "${{ steps.clone-snapshot.outputs.digest }}" \
+            /tmp/mainnet-snapshot
+
+      - name: Restore mainnet clone snapshot
+        id: restore-clone-snapshot
+        if: steps.download-clone-snapshot.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
           tar -xzf /tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
           rm -rf /tmp/mainnet-snapshot
-          echo "Restored snapshot from run $run_id."
+          echo "Restored artifact ${{ steps.clone-snapshot.outputs.artifact-id }} from run ${{ steps.clone-snapshot.outputs.run-id }}."
           # Tells start-local-clone.sh to keep the pre-initialized database
           # instead of wiping it and re-running genesis init.
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+
+      - name: Fall back after an unusable clone snapshot
+        if: >-
+          steps.clone-snapshot.outputs.found == 'true' &&
+          (steps.download-clone-snapshot.outcome != 'success' ||
+           steps.restore-clone-snapshot.outcome != 'success')
+        run: |
+          echo "::warning::selected clone snapshot was unusable; falling back to a live mainnet scrape"
+          rm -rf /tmp/mainnet-snapshot clones/mainnet-clone clones/mainnet-clone-chainspec.json
+
+      - name: Fall back after clone snapshot lookup failure
+        if: steps.clone-snapshot.outcome == 'failure'
+        run: echo "::warning::clone snapshot lookup failed; falling back to a live mainnet scrape"
 
       - name: Create mainnet clone
         # No-op when the snapshot restored the chainspec; otherwise scrapes
@@ -514,7 +663,7 @@ jobs:
   # cascading into skipped shards — fails.
   clone-upgrade-gate:
     name: Sudo-upgrade mainnet clone and test
-    needs: [changes, build, clone-upgrade]
+    needs: [changes, build-node-release, clone-upgrade]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -522,7 +671,7 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           SHARDS: ${{ needs.clone-upgrade.result }}
-          BUILD: ${{ needs.build.result }}
+          BUILD: ${{ needs.build-node-release.result }}
           LABEL_SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
         run: |
           echo "changes=$CHANGES shards=$SHARDS build=$BUILD label-skip=$LABEL_SKIP"
