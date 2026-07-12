@@ -199,9 +199,13 @@ jobs:
           snapshot="${{ matrix.network.name }}.snap"
           manifest="${{ matrix.network.name }}.manifest.json"
           # The positional path must precede --uri because --uri is variadic.
+          # remote-externalities creates four value-fetch workers per URI. The
+          # archive endpoint is dedicated to this workload, so open four
+          # independent clients to it (16 value-fetch workers in total).
+          rpc_uri="${{ matrix.network.uri }}"
           "$TRY_RUNTIME_BIN" create-snapshot \
             "$snapshot" \
-            --uri "${{ matrix.network.uri }}" \
+            --uri "$rpc_uri" "$rpc_uri" "$rpc_uri" "$rpc_uri" \
             --at "${{ steps.source.outputs.block-hash }}"
 
           snapshot_size=$(stat -c '%s' "$snapshot")
