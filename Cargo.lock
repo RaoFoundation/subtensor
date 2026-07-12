@@ -1637,6 +1637,7 @@ dependencies = [
  "chacha20poly1305",
  "fernet",
  "frame-metadata 23.0.0",
+ "getrandom 0.2.17",
  "hex",
  "hidapi",
  "ledger-apdu",
@@ -1660,6 +1661,7 @@ dependencies = [
  "tle",
  "twox-hash 2.1.2",
  "w3f-bls 0.1.3",
+ "web-time",
  "zeroize",
 ]
 
@@ -1672,6 +1674,17 @@ dependencies = [
  "parity-scale-codec",
  "pyo3",
  "scale-info",
+]
+
+[[package]]
+name = "bittensor-core-wasm"
+version = "0.1.0"
+dependencies = [
+ "bittensor-core",
+ "hex",
+ "js-sys",
+ "scale-info",
+ "wasm-bindgen",
 ]
 
 [[package]]

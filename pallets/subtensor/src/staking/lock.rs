@@ -31,23 +31,30 @@ impl LockState {
     }
 }
 
-/// Unsigned decrease produced by rolling a lock forward.
+/// Change produced by rolling a lock forward. Locked mass only ever
+/// decreases, but conviction can move either way (it matures upward from
+/// locked mass and decays downward once the mass is gone), so its change is
+/// carried as separate unsigned growth/decay components.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RollDelta {
     pub locked_mass_delta: AlphaBalance,
-    pub conviction_delta: U64F64,
+    pub conviction_decay: U64F64,
+    pub conviction_growth: U64F64,
 }
 
 impl RollDelta {
     pub fn zero() -> Self {
         Self {
             locked_mass_delta: AlphaBalance::ZERO,
-            conviction_delta: U64F64::saturating_from_num(0),
+            conviction_decay: U64F64::saturating_from_num(0),
+            conviction_growth: U64F64::saturating_from_num(0),
         }
     }
 
     pub fn is_zero(&self) -> bool {
-        self.locked_mass_delta.is_zero() && self.conviction_delta == U64F64::saturating_from_num(0)
+        self.locked_mass_delta.is_zero()
+            && self.conviction_decay == U64F64::saturating_from_num(0)
+            && self.conviction_growth == U64F64::saturating_from_num(0)
     }
 }
 
@@ -248,8 +255,16 @@ impl ConvictionModel {
         *aggregate = Self::reduce_lock(
             aggregate,
             roll_delta.locked_mass_delta,
-            roll_delta.conviction_delta,
+            roll_delta.conviction_decay,
         );
+        // Conviction matured by the individual lock must be credited to the
+        // aggregate here: bumping last_update below means the aggregate's own
+        // roll-forward will never cover this window, so dropping the growth
+        // (as a saturating decrease-only delta used to) permanently
+        // understates aggregate conviction.
+        aggregate.conviction = aggregate
+            .conviction
+            .saturating_add(roll_delta.conviction_growth);
         aggregate.last_update = now;
         *aggregate_dirty = true;
     }
@@ -448,7 +463,8 @@ impl ConvictionModel {
 
         let roll_delta = RollDelta {
             locked_mass_delta: previous_locked_mass.saturating_sub(rolled.locked_mass),
-            conviction_delta: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_decay: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_growth: rolled.conviction.saturating_sub(previous_conviction),
         };
 
         (rolled, roll_delta)

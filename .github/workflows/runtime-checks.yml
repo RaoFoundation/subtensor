@@ -129,6 +129,10 @@ jobs:
     name: try-runtime ${{ matrix.network.name }}
     needs: build
     runs-on: ${{ matrix.network.runner }}
+    permissions:
+      contents: read
+      # Cross-run artifact download (the nightly try-runtime state snapshot).
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -183,18 +187,52 @@ jobs:
           chmod +x "$TRY_RUNTIME_BIN"
           echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
 
+      # State scraping dominates this job's wall clock (30-40 min for mainnet).
+      # The nightly refresh-mainnet-snapshot workflow publishes a .snap per
+      # network; replaying against it is minutes instead. Same trust rule as
+      # the clone snapshot: only artifacts produced on the default branch.
+      # The .snap format is coupled to the try-runtime-cli release, so the
+      # producer and this job must pin the same version.
+      - name: Restore try-runtime state snapshot
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'fresh-try-runtime-state') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # gh api prints the JSON error body to stdout on 404, so validate
+          # the id shape rather than trusting non-empty output.
+          run_id=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/refresh-mainnet-snapshot.yml/runs?branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)
+          if ! [[ "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "No snapshot run available; falling back to a live scrape."
+            exit 0
+          fi
+          # No checkout in this job, so gh cannot infer the repository.
+          if ! gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n "try-runtime-snap-${{ matrix.network.name }}" -D snap; then
+            echo "Snapshot download failed (expired or that network's scrape failed); falling back to a live scrape."
+            exit 0
+          fi
+          echo "Restored ${{ matrix.network.name }}.snap from run $run_id."
+          echo "TRY_RUNTIME_SNAP=snap/${{ matrix.network.name }}.snap" >> "$GITHUB_ENV"
+
       - name: Check migrations
         env:
           NODE_URI: ${{ matrix.network.uri }}
         run: |
           export RUST_LOG=remote-ext=debug,runtime=debug
+          if [ -n "${TRY_RUNTIME_SNAP:-}" ]; then
+            state=(snap --path "$TRY_RUNTIME_SNAP")
+          else
+            state=(live --uri "$NODE_URI")
+          fi
           "$TRY_RUNTIME_BIN" \
             --runtime runtime-blob/node_subtensor_runtime.compact.compressed.wasm \
             on-runtime-upgrade \
             --checks=all \
             --blocktime 12000 \
             --disable-spec-version-check --no-weight-warnings \
-            live --uri "$NODE_URI"
+            "${state[@]}"
 
   # Runtime-affecting PRs must carry a spec_version newer than what mainnet is
   # running — otherwise the release train will build the merge and then no-op

@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/rust-setup/)'
+          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py|-wasm)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/rust-setup/)'
           if grep -qE "$pattern" <<< "$files"; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
           else
@@ -156,6 +156,55 @@ jobs:
         run: cargo nextest run --workspace --all-features
       - name: cargo test --doc --workspace --all-features
         run: cargo test --doc --workspace --all-features
+
+  # The browser seam: bittensor-core without its `host` feature must keep
+  # compiling for wasm32 (the future wasm-bindgen/TS binding target). This
+  # check is what keeps "browser-compatible" an invariant instead of an
+  # intention — any new dependency that assumes an OS, threads, or C
+  # toolchain fails here instead of surfacing when the wasm binding lands.
+  core-wasm:
+    name: bittensor-core wasm32 seam
+    needs: [trusted-pr, changes]
+    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    runs-on: [self-hosted, fireactions-light]
+    # No RUSTFLAGS deny here: it would apply to dependencies too, and the
+    # vendored w3f-bls fork carries warnings in this feature combination.
+    # This job asserts the seam compiles; warning hygiene stays with the
+    # `warnings` job.
+    env:
+      SKIP_WASM_BUILD: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: core-wasm
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: cargo check bittensor-core (portable core, wasm32)
+        run: cargo check -p bittensor-core --no-default-features --target wasm32-unknown-unknown
+      # The wasm-bindgen binding crate itself (npm packaging happens via
+      # wasm-pack at release time; this asserts it keeps compiling).
+      - name: cargo check bittensor-core-wasm (wasm32)
+        run: cargo check -p bittensor-core-wasm --target wasm32-unknown-unknown
+      # Behavioral gate for the JS marshalling seam: the smoke test replays
+      # the golden fixtures (byte-exact calls, storage keys, signature
+      # payloads) plus the BigInt/u256/depth boundary probes that a type
+      # check can never see. Release profile, not --dev: the unoptimized
+      # build overflows wasm's per-function locals limit (wasm-bindgen
+      # rejects it with "too many locals"), and release is the artifact
+      # that actually ships to npm.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install wasm-pack
+        run: |
+          curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
+            | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
+          wasm-pack --version
+      - name: wasm smoke test (node)
+        run: |
+          wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node
+          node sdk/bittensor-core-wasm/tests/smoke.mjs
 
   fix:
     name: cargo fix leaves no diff
