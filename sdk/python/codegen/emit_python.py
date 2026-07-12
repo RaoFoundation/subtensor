@@ -187,6 +187,13 @@ def _emit_item_classes(
     lines.append("    name: str\n")
     if extra_field:
         lines.append(f"    {extra_field}: str = ''\n")
+        lines.append("\n")
+        lines.append("    def __iter__(self):\n")
+        lines.append(
+            f"        # Unpacking feeds (module, storage_function) signatures; {extra_field}\n"
+        )
+        lines.append("        # is metadata for normalization, reached by attribute only.\n")
+        lines.append("        return iter((self.container, self.name))\n")
     lines.append("\n\n")
     _check_unique(
         f"{item_class} descriptor groups",

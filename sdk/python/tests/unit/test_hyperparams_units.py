@@ -41,11 +41,13 @@ def test_ratio_fraction_non_ratio_idents_return_none():
 # --- metadata-primary kind resolution ------------------------------------------
 
 
-def test_committed_descriptors_carry_no_identity():
-    # The committed _generated/storage.py predates the newtype TypeInfo work:
-    # two-field descriptors, so every kind still comes from the hand table.
+def test_committed_descriptors_agree_with_hand_table():
+    # The committed _generated/storage.py is regenerated against the newtype
+    # TypeInfo runtime: descriptors that carry a unit-bearing identity must
+    # resolve to the same kind the hand table records, and the rest fall back.
     for name in hp.HYPERPARAMS:
-        assert hp.metadata_kind(name) is None
+        derived = hp.metadata_kind(name)
+        assert derived in (None, hp.HYPERPARAMS[name].kind)
         assert hp.kind_of(name) == hp.HYPERPARAMS[name].kind
 
 
@@ -75,10 +77,11 @@ def test_metadata_identity_overrides_hand_table(monkeypatch):
 
 
 def test_units_gate_passes_on_committed_metadata(capsys):
-    # Pre-newtype descriptors carry no identities, so nothing is derivable
-    # and the gate must pass trivially.
+    # The committed descriptors must agree with the hand table regardless of
+    # how many carry a derivable identity (that count grows as the runtime
+    # newtypes more storage values).
     assert check_units() == 0
-    assert "0 metadata-derived" in capsys.readouterr().out
+    assert "metadata-derived" in capsys.readouterr().out
 
 
 def test_units_gate_flags_disagreement(monkeypatch, capsys):

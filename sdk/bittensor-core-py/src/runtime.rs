@@ -632,10 +632,8 @@ impl PyRuntime {
             for item in pallet.storage.iter().filter(|s| !s.name.contains(':')) {
                 let storage_entry = PyDict::new(py);
                 storage_entry.set_item("name", &item.name)?;
-                storage_entry.set_item(
-                    "value_type_ident",
-                    self.inner.type_ident(item.value_type),
-                )?;
+                storage_entry
+                    .set_item("value_type_ident", self.inner.type_ident(item.value_type))?;
                 storage.append(storage_entry)?;
             }
             entry.set_item("storage", storage)?;
