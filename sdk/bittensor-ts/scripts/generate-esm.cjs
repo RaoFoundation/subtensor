@@ -43,7 +43,25 @@ function generate(entry) {
     `import * as sdk from './${entry}.js'`,
     '',
     ...(entry === 'browser'
-      ? ["sdk.setDefaultBrowserWasmLoader(() => import('./wasm/bittensor_core_wasm.js'))", '']
+      ? [
+          "async function __loadBittensorCoreWasm() {",
+          "  const wasmBindings = await import('./wasm/bittensor_core_wasm_bg.js')",
+          "  const wasmAsset = await import('./wasm/bittensor_core_wasm_bg.wasm')",
+          "  const wasmUrl = wasmAsset.default ?? wasmAsset",
+          "  const response = await fetch(wasmUrl)",
+          "  if (!response.ok) throw new Error(`failed to fetch bittensor-core WASM: ${response.status}`)",
+          "  const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), {",
+          "    './bittensor_core_wasm_bg.js': wasmBindings,",
+          "  })",
+          "  wasmBindings.__wbg_set_wasm(instance.exports)",
+          "  if (typeof instance.exports.__wbindgen_start === 'function') instance.exports.__wbindgen_start()",
+          "  const module = { ...wasmBindings }",
+          "  delete module.default",
+          "  return module",
+          "}",
+          "sdk.setDefaultBrowserWasmLoader(__loadBittensorCoreWasm)",
+          '',
+        ]
       : []),
     ...sorted.map((name) => `export const ${name} = sdk.${name}`),
     '',
