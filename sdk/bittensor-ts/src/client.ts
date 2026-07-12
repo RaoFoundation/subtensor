@@ -1,7 +1,7 @@
-import { blake2_256, generateExtrinsicProof, metadataDigest } from './crypto'
-import { CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
+import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from './crypto'
+import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
 import { LedgerDevice } from './ledger'
-import { Runtime, eraBirth } from './runtime'
+import { Runtime, decodeCompactLength as decodeCompactLengthNative, encodeCompact, eraBirth } from './runtime'
 import { toBuffer } from './wire'
 import {
   Balance,
@@ -24,6 +24,8 @@ export const DEFAULT_RETRY_BACKOFF_MS = 250
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
 export const DEFAULT_NONCE_RECONCILE_BLOCKS = 8
 export const DEFAULT_ENDPOINT_VALIDATION_TTL_MS = 60_000
+export const DEFAULT_MAX_SUBSCRIPTION_QUEUE = 1024
+export const DEFAULT_MAX_WS_MESSAGE_BYTES = 16 * 1024 * 1024
 const V15_METADATA_VERSION_HEX = '0x0f000000'
 const V15_METADATA_MISSING_NEEDLE = 'Exported method Metadata_metadata_at_version is not found'
 export const NETWORKS = Object.freeze({
@@ -39,6 +41,7 @@ export const NETWORK_GENESIS_HASHES = Object.freeze({
 
 export type NetworkName = keyof typeof NETWORKS
 export type Descriptor = readonly [string, string]
+export type ServeIp = bigint | number | string
 export type CallLike =
   | readonly [string, string, ScaleValue?]
   | { pallet?: string; module?: string; call?: string; function?: string; params?: ScaleValue }
@@ -81,6 +84,8 @@ export interface JsonRpcTransportOptions {
   retryBackoffMs?: number
   maxRetryBackoffMs?: number
   endpointValidationTtlMs?: number
+  maxSubscriptionQueue?: number
+  maxMessageBytes?: number
 }
 
 export interface SubmitOptions {
@@ -92,6 +97,13 @@ export interface SubmitOptions {
   waitForInclusion?: boolean
   waitForFinalization?: boolean
   timeoutMs?: number
+  signal?: AbortSignal
+}
+
+export interface QueryMapOptions {
+  pageSize?: number
+  maxPages?: number
+  maxResults?: number
   signal?: AbortSignal
 }
 
@@ -138,10 +150,28 @@ export interface ExtensionSignRawRequest {
   chainInfo?: ChainInfo
 }
 
+export interface ExtensionSignPayloadRequest {
+  address: string
+  blockHash: string
+  blockNumber: string
+  era: string
+  genesisHash: string
+  method: string
+  nonce: string
+  signedExtensions: string[]
+  specVersion: string
+  tip: string
+  transactionVersion: string
+  version: number
+  assetId?: string | null
+  metadataHash?: string
+  mode?: number
+}
+
 export type SignerSignature =
   | ByteLike
   | string
-  | { signature: ByteLike | string }
+  | { signature: ByteLike | string; signedTransaction?: unknown }
 
 export interface ChainSigner {
   readonly ss58Address?: string
@@ -151,16 +181,20 @@ export interface ChainSigner {
   readonly requiresMetadataProof?: boolean
   readonly requiresMetadataHash?: boolean
   getAccount?(context: SignerAccountContext): SignerAccount | Promise<SignerAccount>
+  signBytes?(
+    payload: ByteLike,
+    context: SignerPayloadContext,
+  ): SignerSignature | Promise<SignerSignature>
   sign?(
     payload: ByteLike,
     context?: SignerPayloadContext,
   ): SignerSignature | Promise<SignerSignature>
-  signPayload?(
-    payload: ByteLike,
-    context: SignerPayloadContext,
-  ): SignerSignature | Promise<SignerSignature>
   signRaw?(
     request: ExtensionSignRawRequest,
+  ): SignerSignature | Promise<SignerSignature>
+  signPayload?(
+    payload: ExtensionSignPayloadRequest,
+    context: SignerPayloadContext,
   ): SignerSignature | Promise<SignerSignature>
 }
 
@@ -217,6 +251,7 @@ export interface DescriptorSchemaIssue {
 }
 
 interface RpcRequest {
+  generation: number
   resolve(value: unknown): void
   reject(error: Error): void
   cleanup(): void
@@ -237,7 +272,23 @@ interface SubscriptionState {
   unsubscribeMethod: string
   requestOptions: RpcRequestOptions
   subscription?: string
+  subscriptionGeneration?: number
+  error?: Error
   resubscribing?: Promise<void>
+}
+
+interface EndpointAttempt {
+  endpoint: string
+  index: number
+  generation: number
+}
+
+interface ActiveConnection extends EndpointAttempt {
+  socket: WebSocketLike
+}
+
+interface ConnectingAttempt extends EndpointAttempt {
+  promise: Promise<ActiveConnection>
 }
 
 interface ResolvedSigner {
@@ -375,17 +426,20 @@ export class JsonRpcTransport {
   private readonly retryBackoffMs: number
   private readonly maxRetryBackoffMs: number
   private readonly endpointValidationTtlMs: number
+  private readonly maxSubscriptionQueue: number
+  private readonly maxMessageBytes: number
   private readonly webSocketConstructor?: WebSocketConstructor
   private readonly webSocketFactory?: WebSocketFactory
   private readonly validateEndpoint?: EndpointValidator
   private readonly validatedEndpoints = new Map<string, number>()
   private endpointIndex = 0
+  private generation = 0
   private id = 1
-  private socket?: WebSocketLike
-  private connecting?: Promise<WebSocketLike>
+  private socket?: ActiveConnection
+  private connecting?: ConnectingAttempt
   private pending = new Map<number, RpcRequest>()
   private subscriptions = new Set<SubscriptionState>()
-  private subscriptionsById = new Map<string, SubscriptionState>()
+  private subscriptionsById = new Map<string, { state: SubscriptionState; generation: number }>()
   private closed = false
 
   constructor(
@@ -404,6 +458,11 @@ export class JsonRpcTransport {
       options.endpointValidationTtlMs,
       DEFAULT_ENDPOINT_VALIDATION_TTL_MS,
     )
+    this.maxSubscriptionQueue = nonNegativeInteger(
+      options.maxSubscriptionQueue,
+      DEFAULT_MAX_SUBSCRIPTION_QUEUE,
+    )
+    this.maxMessageBytes = nonNegativeInteger(options.maxMessageBytes, DEFAULT_MAX_WS_MESSAGE_BYTES)
     this.webSocketConstructor = options.webSocketConstructor ?? options.webSocket
     this.webSocketFactory = options.webSocketFactory
     this.validateEndpoint = options.validateEndpoint
@@ -414,6 +473,7 @@ export class JsonRpcTransport {
   }
 
   async request(method: string, params: unknown[] = [], options: RpcRequestOptions = {}): Promise<unknown> {
+    if (this.closed) throw new ChainError('transport closed')
     const requestOptions = {
       ...options,
       timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
@@ -424,41 +484,51 @@ export class JsonRpcTransport {
     const retryBackoffMs = requestOptions.retryBackoffMs ?? this.retryBackoffMs
     const maxRetryBackoffMs = requestOptions.maxRetryBackoffMs ?? this.maxRetryBackoffMs
     let attempt = 0
+    const attemptedEndpoints = new Set<string>()
     for (;;) {
+      const endpointAttempt = this.currentAttempt()
+      attemptedEndpoints.add(endpointAttempt.endpoint)
       try {
-        await this.ensureEndpointValidated(requestOptions)
-        return this.isHttpEndpoint()
-          ? await this.httpRequest(method, params, requestOptions)
-          : await this.wsRequest(method, params, requestOptions)
+        await this.ensureEndpointValidated(endpointAttempt, requestOptions)
+        return this.isHttpEndpoint(endpointAttempt.endpoint)
+          ? await this.httpRequest(endpointAttempt, method, params, requestOptions)
+          : await this.wsRequest(endpointAttempt, method, params, requestOptions)
       } catch (error) {
-        if (error instanceof JsonRpcError || error instanceof RequestAbortedError || error instanceof EndpointValidationError) throw error
+        if (error instanceof RequestAbortedError || error instanceof JsonRpcError) throw error
+        if (error instanceof EndpointValidationError) {
+          this.validatedEndpoints.delete(endpointAttempt.endpoint)
+          if (attemptedEndpoints.size >= this.endpoints.length || !this.rotateEndpoint(endpointAttempt)) throw error
+          continue
+        }
         if (!retryForever && attempt >= maxRetries) throw error
         attempt += 1
-        this.rotateEndpoint()
+        this.rotateEndpoint(endpointAttempt)
         const capped = Math.min(retryBackoffMs * (2 ** Math.max(0, attempt - 1)), maxRetryBackoffMs)
         await delay(capped, requestOptions.signal)
       }
     }
   }
 
-  private async ensureEndpointValidated(options: RpcRequestOptions): Promise<void> {
+  private currentAttempt(): EndpointAttempt {
+    return {
+      endpoint: this.endpoint,
+      index: this.endpointIndex,
+      generation: this.generation,
+    }
+  }
+
+  private async ensureEndpointValidated(attempt: EndpointAttempt, options: RpcRequestOptions): Promise<void> {
     if (this.validateEndpoint == null) return
-    const endpoint = this.endpoint
-    const validUntil = this.validatedEndpoints.get(endpoint)
+    const validUntil = this.validatedEndpoints.get(attempt.endpoint)
     const now = Date.now()
     if (validUntil != null && validUntil > now) return
-    try {
-      await this.validateEndpoint(endpoint, (method, params = []) =>
-        this.isHttpEndpoint()
-          ? this.httpRequest(method, params, options)
-          : this.wsRequest(method, params, options),
-      )
-    } catch (error) {
-      if (error instanceof EndpointValidationError) throw error
-      throw error
-    }
+    await this.validateEndpoint(attempt.endpoint, (method, params = []) =>
+      this.isHttpEndpoint(attempt.endpoint)
+        ? this.httpRequest(attempt, method, params, options)
+        : this.wsRequest(attempt, method, params, options),
+    )
     if (this.endpointValidationTtlMs > 0) {
-      this.validatedEndpoints.set(endpoint, Date.now() + this.endpointValidationTtlMs)
+      this.validatedEndpoints.set(attempt.endpoint, Date.now() + this.endpointValidationTtlMs)
     }
   }
 
@@ -468,7 +538,7 @@ export class JsonRpcTransport {
     unsubscribeMethod: string,
     options: SubscriptionOptions = {},
   ): Promise<AsyncIterable<unknown> & { unsubscribe(): Promise<void> }> {
-    if (this.isHttpEndpoint()) throw new ChainError('subscriptions require a WebSocket endpoint')
+    if (this.isHttpEndpoint(this.endpoint)) throw new ChainError('subscriptions require a WebSocket endpoint')
     const state: SubscriptionState = {
       queue: [],
       waiters: [],
@@ -517,27 +587,33 @@ export class JsonRpcTransport {
 
   close(): void {
     this.closed = true
-    this.socket?.close()
+    this.generation += 1
+    this.socket?.socket.close()
     this.socket = undefined
     this.connecting = undefined
     this.failPending(new ChainError('transport closed'))
     for (const state of [...this.subscriptions]) this.closeSubscription(state)
   }
 
-  private isHttpEndpoint(): boolean {
-    return this.endpoint.startsWith('http://') || this.endpoint.startsWith('https://')
+  private isHttpEndpoint(endpoint: string): boolean {
+    return endpoint.startsWith('http://') || endpoint.startsWith('https://')
   }
 
-  private async httpRequest(method: string, params: unknown[], options: RpcRequestOptions): Promise<unknown> {
+  private async httpRequest(
+    attempt: EndpointAttempt,
+    method: string,
+    params: unknown[],
+    options: RpcRequestOptions,
+  ): Promise<unknown> {
     const request = withRequestSignal(options)
     try {
-      const response = await fetch(this.endpoint, {
+      const response = await fetch(attempt.endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: this.id++, method, params }),
         signal: request.signal,
       })
-      if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${this.endpoint}`)
+      if (!response.ok) throw new JsonRpcError(`HTTP ${response.status} from ${attempt.endpoint}`)
       const payload = await response.json()
       if (payload.error) throw new JsonRpcError(payload.error.message, payload.error.code, payload.error.data)
       return payload.result
@@ -548,8 +624,13 @@ export class JsonRpcTransport {
     }
   }
 
-  private async wsRequest(method: string, params: unknown[], options: RpcRequestOptions): Promise<unknown> {
-    const socket = await this.connect(options)
+  private async wsRequest(
+    attempt: EndpointAttempt,
+    method: string,
+    params: unknown[],
+    options: RpcRequestOptions,
+  ): Promise<unknown> {
+    const connection = await this.connect(attempt, options)
     const id = this.id++
     const promise = new Promise<unknown>((resolve, reject) => {
       const request = withRequestSignal(options)
@@ -560,6 +641,7 @@ export class JsonRpcTransport {
         reject(error)
       }
       this.pending.set(id, {
+        generation: connection.generation,
         resolve(value) {
           cleanup()
           resolve(value)
@@ -573,7 +655,7 @@ export class JsonRpcTransport {
       request.onAbort((error) => fail(error))
     })
     try {
-      socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
+      connection.socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
     } catch (error) {
       const pending = this.pending.get(id)
       this.pending.delete(id)
@@ -583,19 +665,34 @@ export class JsonRpcTransport {
     return promise
   }
 
-  private async connect(options: RpcRequestOptions = {}): Promise<WebSocketLike> {
+  private async connect(attempt: EndpointAttempt, options: RpcRequestOptions = {}): Promise<ActiveConnection> {
     if (this.closed) throw new ChainError('transport closed')
-    if (this.socket?.readyState === 1) return this.socket
-    if (this.connecting != null) return this.connecting
+    if (
+      this.socket?.generation === attempt.generation &&
+      this.socket.endpoint === attempt.endpoint &&
+      this.socket.socket.readyState === 1
+    ) return this.socket
+    if (
+      this.connecting?.generation === attempt.generation &&
+      this.connecting.endpoint === attempt.endpoint
+    ) return this.connecting.promise
+    if (this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
+      throw new ChainError(`stale endpoint attempt for ${attempt.endpoint}`)
+    }
 
-    this.connecting = new Promise((resolve, reject) => {
+    const connecting: ConnectingAttempt = {
+      ...attempt,
+      promise: undefined as unknown as Promise<ActiveConnection>,
+    }
+    this.connecting = connecting
+    connecting.promise = new Promise((resolve, reject) => {
       const request = withRequestSignal(options)
       let socket: WebSocketLike
       try {
-        socket = this.createWebSocket(this.endpoint)
+        socket = this.createWebSocket(attempt.endpoint)
       } catch (error) {
         request.cleanup()
-        this.connecting = undefined
+        if (this.connecting === connecting) this.connecting = undefined
         reject(error)
         return
       }
@@ -605,8 +702,10 @@ export class JsonRpcTransport {
         if (settled) return
         settled = true
         cleanup()
-        this.socket = undefined
-        this.connecting = undefined
+        if (this.generation === attempt.generation) {
+          this.socket = undefined
+          if (this.connecting === connecting) this.connecting = undefined
+        }
         try {
           socket.close()
         } catch {
@@ -619,15 +718,30 @@ export class JsonRpcTransport {
         if (settled) return
         settled = true
         cleanup()
-        this.socket = socket
-        this.connecting = undefined
-        resolve(socket)
+        if (this.generation !== attempt.generation || this.endpoint !== attempt.endpoint) {
+          if (this.connecting === connecting) this.connecting = undefined
+          try {
+            socket.close()
+          } catch {
+            // Ignore close errors while discarding a stale connection.
+          }
+          reject(new ChainError(`stale connection opened for ${attempt.endpoint}`))
+          return
+        }
+        const connection = { ...attempt, socket }
+        this.socket = connection
+        if (this.connecting === connecting) this.connecting = undefined
+        resolve(connection)
       })
-      socket.addEventListener('error', () => fail(new ChainError(`could not connect to ${this.endpoint}`)))
-      socket.addEventListener('close', () => this.handleSocketClose(new ChainError(`connection closed: ${this.endpoint}`)))
-      socket.addEventListener('message', (event) => this.handleMessage(event.data))
+      socket.addEventListener('error', () => fail(new ChainError(`could not connect to ${attempt.endpoint}`)))
+      socket.addEventListener('close', () => {
+        const error = new ChainError(`connection closed: ${attempt.endpoint}`)
+        if (!settled) fail(error)
+        else this.handleSocketClose({ ...attempt, socket }, error)
+      })
+      socket.addEventListener('message', (event) => this.handleMessage({ ...attempt, socket }, event.data))
     })
-    return this.connecting
+    return connecting.promise
   }
 
   private createWebSocket(url: string): WebSocketLike {
@@ -643,51 +757,94 @@ export class JsonRpcTransport {
     return new WebSocketImpl(url)
   }
 
-  private handleMessage(data: unknown): void {
-    const message = JSON.parse(String(data))
-    if (typeof message.id === 'number') {
-      const pending = this.pending.get(message.id)
-      if (pending == null) return
-      this.pending.delete(message.id)
-      if (message.error) pending.reject(new JsonRpcError(message.error.message, message.error.code, message.error.data))
-      else pending.resolve(message.result)
+  private handleMessage(connection: ActiveConnection, data: unknown): void {
+    if (!this.isCurrentConnection(connection)) return
+    const raw = typeof data === 'string'
+      ? data
+      : Buffer.isBuffer(data) || data instanceof Uint8Array
+        ? Buffer.from(data).toString('utf8')
+        : String(data)
+    if (Buffer.byteLength(raw, 'utf8') > this.maxMessageBytes) {
+      this.handleSocketClose(connection, new ChainError('JSON-RPC message exceeded size limit'))
       return
     }
-    const subscription = message.params?.subscription
+    let message: unknown
+    try {
+      message = JSON.parse(raw)
+    } catch {
+      this.handleSocketClose(connection, new ChainError('invalid JSON-RPC message'))
+      return
+    }
+    if (typeof message !== 'object' || message == null) return
+    const rpcMessage = message as {
+      id?: unknown
+      error?: { message?: string; code?: number; data?: unknown }
+      result?: unknown
+      params?: { subscription?: unknown; result?: unknown }
+    }
+    if (typeof rpcMessage.id === 'number') {
+      const pending = this.pending.get(rpcMessage.id)
+      if (pending == null || pending.generation !== connection.generation) return
+      this.pending.delete(rpcMessage.id)
+      if (rpcMessage.error) pending.reject(new JsonRpcError(String(rpcMessage.error.message ?? 'JSON-RPC error'), rpcMessage.error.code, rpcMessage.error.data))
+      else pending.resolve(rpcMessage.result)
+      return
+    }
+    const subscription = rpcMessage.params?.subscription
     if (subscription == null) return
-    const state = this.subscriptionsById.get(subscription)
-    if (state == null || state.closed) return
-    const result = message.params?.result
+    const entry = this.subscriptionsById.get(String(subscription))
+    if (entry == null || entry.generation !== connection.generation || entry.state.closed) return
+    const state = entry.state
+    const result = rpcMessage.params?.result
     const waiter = state.waiters.shift()
     if (waiter != null) waiter.resolve({ done: false, value: result })
-    else state.queue.push(result)
+    else if (state.queue.length >= this.maxSubscriptionQueue) {
+      this.closeSubscription(state, new ChainError('subscription notification queue exceeded limit'))
+    } else {
+      state.queue.push(result)
+    }
   }
 
   private subscriptionNext(state: SubscriptionState): Promise<IteratorResult<unknown>> {
     if (state.queue.length > 0) return Promise.resolve({ done: false, value: state.queue.shift() })
-    if (state.closed) return Promise.resolve({ done: true, value: undefined })
+    if (state.closed) {
+      return state.error == null
+        ? Promise.resolve({ done: true, value: undefined })
+        : Promise.reject(state.error)
+    }
     return new Promise((resolve, reject) => {
       state.waiters.push({ resolve, reject })
     })
   }
 
-  private failPending(error: Error): void {
-    this.socket = undefined
-    this.connecting = undefined
-    for (const pending of this.pending.values()) {
+  private failPending(error: Error, generation?: number): void {
+    if (generation == null || this.socket?.generation === generation) this.socket = undefined
+    if (generation == null || this.connecting?.generation === generation) this.connecting = undefined
+    for (const [id, pending] of this.pending) {
+      if (generation != null && pending.generation !== generation) continue
+      this.pending.delete(id)
       pending.cleanup()
       pending.reject(error)
     }
-    this.pending.clear()
   }
 
-  private handleSocketClose(error: Error): void {
-    this.validatedEndpoints.delete(this.endpoint)
-    this.failPending(error)
-    this.subscriptionsById.clear()
+  private handleSocketClose(connection: ActiveConnection, error: Error): void {
+    if (!this.isCurrentConnection(connection)) return
+    this.validatedEndpoints.delete(connection.endpoint)
+    this.failPending(error, connection.generation)
+    try {
+      connection.socket.close()
+    } catch {
+      // Ignore close errors while tearing down a failed connection.
+    }
+    for (const [subscription, entry] of this.subscriptionsById) {
+      if (entry.generation === connection.generation) this.subscriptionsById.delete(subscription)
+    }
     if (this.closed) return
     for (const state of this.subscriptions) {
+      if (state.subscriptionGeneration !== connection.generation) continue
       state.subscription = undefined
+      state.subscriptionGeneration = undefined
       if (state.resubscribe) void this.resubscribe(state)
       else this.closeSubscription(state, error)
     }
@@ -702,7 +859,8 @@ export class JsonRpcTransport {
       return
     }
     state.subscription = subscription
-    this.subscriptionsById.set(subscription, state)
+    state.subscriptionGeneration = this.generation
+    this.subscriptionsById.set(subscription, { state, generation: this.generation })
   }
 
   private resubscribe(state: SubscriptionState): Promise<void> {
@@ -720,26 +878,41 @@ export class JsonRpcTransport {
   private closeSubscription(state: SubscriptionState, error?: Error): void {
     if (state.closed) return
     state.closed = true
+    state.error = error
     this.subscriptions.delete(state)
     if (state.subscription != null) this.subscriptionsById.delete(state.subscription)
     state.subscription = undefined
+    state.subscriptionGeneration = undefined
     for (const waiter of state.waiters.splice(0)) {
       if (error == null) waiter.resolve({ done: true, value: undefined })
       else waiter.reject(error)
     }
   }
 
-  private rotateEndpoint(): void {
-    this.validatedEndpoints.delete(this.endpoint)
+  private rotateEndpoint(attempt: EndpointAttempt = this.currentAttempt()): boolean {
+    if (
+      attempt.generation !== this.generation ||
+      attempt.index !== this.endpointIndex ||
+      attempt.endpoint !== this.endpoint
+    ) return true
+    this.validatedEndpoints.delete(attempt.endpoint)
     const socket = this.socket
+    this.generation += 1
+    if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
     this.socket = undefined
     this.connecting = undefined
     try {
-      socket?.close()
+      socket?.socket.close()
     } catch {
       // Ignore close errors while rotating to another endpoint.
     }
-    if (this.endpoints.length > 1) this.endpointIndex = (this.endpointIndex + 1) % this.endpoints.length
+    return this.endpointIndex !== attempt.index || this.endpoints.length > 1
+  }
+
+  private isCurrentConnection(connection: ActiveConnection): boolean {
+    return this.socket?.socket === connection.socket &&
+      this.socket.generation === connection.generation &&
+      this.socket.endpoint === connection.endpoint
   }
 }
 
@@ -1054,25 +1227,40 @@ export class Client {
     storageFunction?: string | ScaleValue[],
     paramsOrBlock?: ScaleValue[] | number | string | null,
     block?: number | string | null,
-    pageSize = 512,
+    pageSizeOrOptions: number | QueryMapOptions = 512,
   ): Promise<Array<[K, V]>> {
     const [moduleName, itemName, itemParams, blockRef] =
       normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
-    const blockHash = await this.resolveBlockHash(blockRef)
+    const blockHash = await this.resolveReadBlockHash(blockRef)
     const runtime = await this.runtimeAt(blockHash)
     const prefix = runtime.storageKey(moduleName, itemName, itemParams)
     const entry = runtime.storageEntry(moduleName, itemName)
+    const options = normalizeQueryMapOptions(pageSizeOrOptions)
     const out: Array<[K, V]> = []
     let startKey: string | null = null
+    let pages = 0
+    const seenPageStarts = new Set<string>()
     for (;;) {
-      const keys = (await this.rpc('state_getKeysPaged', [
+      throwIfAborted(options.signal)
+      if (options.maxPages != null && pages >= options.maxPages) {
+        throw new ChainError(`queryMap exceeded maxPages ${options.maxPages}`)
+      }
+      const pageStart = startKey ?? ''
+      if (seenPageStarts.has(pageStart)) throw new ChainError('queryMap pagination did not advance')
+      seenPageStarts.add(pageStart)
+      const keys = (await this.transport.request('state_getKeysPaged', [
         hex(prefix),
-        pageSize,
+        options.pageSize,
         startKey,
         ...(blockHash == null ? [] : [blockHash]),
-      ])) as string[]
+      ], { signal: options.signal })) as string[]
       if (keys.length === 0) break
-      const raw = await this.rpc('state_queryStorageAt', [keys, ...(blockHash == null ? [] : [blockHash])])
+      pages += 1
+      const lastKey = keys[keys.length - 1]
+      if (lastKey == null || (startKey != null && lastKey.toLowerCase() === startKey.toLowerCase())) {
+        throw new ChainError('queryMap pagination did not advance')
+      }
+      const raw = await this.transport.request('state_queryStorageAt', [keys, ...(blockHash == null ? [] : [blockHash])], { signal: options.signal })
       const changes = ((raw as Array<{ changes?: Array<[string, string | null]> }>)[0]?.changes ?? [])
       const valueByKey = new Map(changes.map(([key, value]) => [key.toLowerCase(), value]))
       for (const key of keys) {
@@ -1081,8 +1269,9 @@ export class Client {
         const decodedKey = runtime.decodeStorageKeyParams<K>(moduleName, itemName, hexToBuffer(key), itemParams.length)
         const normalizedKey = (decodedKey.length === 1 ? decodedKey[0] : decodedKey) as K
         out.push([normalizedKey, runtime.decode<V>(entry.valueType, hexToBuffer(value), false)])
+        if (options.maxResults != null && out.length >= options.maxResults) return out
       }
-      startKey = keys[keys.length - 1]
+      startKey = lastKey
     }
     return out
   }
@@ -1336,15 +1525,19 @@ export class Client {
       const { era, eraBlockHash } = await this.normalizeEra(period, snapshot)
       const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
       const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
-      const chainInfo = resolved.requiresMetadataProof
+      const metadataHashOptionProvided = hasOwn(options, 'metadataHash')
+      const defaultMetadataHash = runtimeSupportsMetadataHash(runtime) || resolved.requiresMetadataProof
+      const chainInfo = resolved.requiresMetadataProof || (!metadataHashOptionProvided && defaultMetadataHash)
         ? await this.chainInfo(runtime, snapshot.blockHash)
         : undefined
       const metadataHash =
-        options.metadataHash == null
-          ? resolved.requiresMetadataProof
+        metadataHashOptionProvided
+          ? options.metadataHash == null
+            ? null
+            : toBuffer(options.metadataHash, 'metadataHash')
+          : defaultMetadataHash
             ? metadataDigest(runtime.metadataBytes, chainInfo!)
             : null
-          : toBuffer(options.metadataHash, 'metadataHash')
       const txParams = {
         era,
         nonce,
@@ -1430,21 +1623,28 @@ export class Client {
       })
       return await watcher.result
     }
+    let hash: string
     try {
-      const hash = String(await this.transport.request('author_submitExtrinsic', [hex(bytes)], {
+      hash = String(await this.transport.request('author_submitExtrinsic', [hex(bytes)], {
         timeoutMs: options.timeoutMs,
         signal: options.signal,
         maxRetries: 0,
         retryForever: false,
       }))
-      if (reservation != null) await this.submitNonce(reservation)
-      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
-      return { status: 'submitted', message: 'Submitted', extrinsicHash: hash, events: [] }
     } catch (error) {
       if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
       else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
+    const returnedHash = normalizeHash32(hash, 'author_submitExtrinsic hash')
+    if (reservation != null) await this.submitNonce(reservation)
+    else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
+    if (!sameHex(returnedHash, extrinsicHash)) {
+      throw new ChainError(
+        `author_submitExtrinsic returned hash ${returnedHash}, expected ${extrinsicHash}`,
+      )
+    }
+    return { status: 'submitted', message: 'Submitted', extrinsicHash, events: [] }
   }
 
   async watchSigned(
@@ -1506,8 +1706,7 @@ export class Client {
   }
 
   async peekNextIndex(address: string): Promise<number> {
-    const nonce = Number(await this.rpc('system_accountNextIndex', [address]))
-    return nonce
+    return parseNonce(await this.rpc('system_accountNextIndex', [address]), 'system_accountNextIndex')
   }
 
   async accountNextIndex(address: string, _useCache = false): Promise<number> {
@@ -1733,15 +1932,22 @@ export class Client {
       nonce: await this.peekNextIndex(account.ss58Address),
       period: null,
     }, false, snapshot)
-    const length = Buffer.alloc(4)
-    length.writeUInt32LE(signed.bytes.length, 0)
+    const queryInfo = runtime.runtimeApis().TransactionPaymentApi?.query_info
+    const inputDetails = queryInfo?.inputDetails ?? []
+    if (queryInfo == null || inputDetails.length !== 2) {
+      throw new ChainError('TransactionPaymentApi.query_info metadata is unavailable')
+    }
+    const encodedInput = Buffer.concat([
+      runtime.encodeId(inputDetails[0].typeId, signed.bytes),
+      runtime.encodeId(inputDetails[1].typeId, signed.bytes.length),
+    ])
     const raw = await this.rpc('state_call', [
       'TransactionPaymentApi_query_info',
-      hex(Buffer.concat([signed.bytes, length])),
+      hex(encodedInput),
       snapshot.blockHash,
     ])
     const info = runtime.decodeTypeId<Record<string, ScaleValue>>(
-      runtime.runtimeApis().TransactionPaymentApi.query_info.outputTypeId,
+      queryInfo.outputTypeId,
       hexToBuffer(String(raw)),
       false,
     )
@@ -1813,7 +2019,7 @@ export class Client {
 
   serveAxon(
     signer: SignerLike,
-    args: { netuid: number; ip: number; port: number; version?: number; ipType?: number; protocol?: number },
+    args: { netuid: number; ip: ServeIp; port: number; version?: number; ipType?: number; protocol?: number },
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
     return this.submit(calls.subtensor.serveAxon(args.netuid, args.ip, args.port, args.version, args.ipType, args.protocol), signer, {
@@ -1824,7 +2030,7 @@ export class Client {
 
   serve_axon(
     signer: SignerLike,
-    args: { netuid: number; ip: number; port: number; version?: number; ipType?: number; protocol?: number },
+    args: { netuid: number; ip: ServeIp; port: number; version?: number; ipType?: number; protocol?: number },
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
     return this.serveAxon(signer, args, options)
@@ -1924,6 +2130,11 @@ export class Client {
     return this.blockHash(block)
   }
 
+  async resolveReadBlockHash(block?: number | string | null): Promise<string> {
+    const blockHash = await this.resolveBlockHash(block)
+    return blockHash ?? await this.finalizedHead()
+  }
+
   private async resolveSigner(signer: SignerLike, runtime: Runtime): Promise<ResolvedSigner> {
     const normalizedSigner: Keypair | ChainSigner =
       signer instanceof LedgerDevice ? signer.signer() : signer
@@ -1939,7 +2150,14 @@ export class Client {
       throw new ChainError('signer must expose an address, ss58Address, or getAccount()')
     }
     const publicKey = signerPublicKey(account?.publicKey ?? signerShape.publicKey, ss58Address)
+    const addressPublicKey = publicKeyFromSs58(ss58Address)
+    if (!publicKey.equals(addressPublicKey)) {
+      throw new ChainError('signer publicKey does not match signer address')
+    }
     const cryptoType = account?.cryptoType ?? signerShape.cryptoType ?? CRYPTO_SR25519
+    if (cryptoType !== CRYPTO_ED25519 && cryptoType !== CRYPTO_SR25519) {
+      throw new ChainError(`unsupported signer cryptoType ${cryptoType}`)
+    }
     return {
       signer: normalizedSigner,
       ss58Address,
@@ -1960,9 +2178,9 @@ export class Client {
     context: SignerPayloadContext,
   ): Promise<NormalizedSignature> {
     const signerShape = signer as ChainSigner
-    if (signerShape.signPayload != null) {
+    if (signerShape.signBytes != null) {
       return normalizeSignature(
-        await signerShape.signPayload(payload, context),
+        await signerShape.signBytes(payload, context),
         context.cryptoType,
       )
     }
@@ -1984,7 +2202,13 @@ export class Client {
     if (signerShape.sign != null) {
       return normalizeSignature(await signerShape.sign(payload, context), context.cryptoType)
     }
-    throw new ChainError('signer must implement sign(), signPayload(), or signRaw()')
+    if (signerShape.signPayload != null) {
+      return normalizeSignature(
+        await signerShape.signPayload(extensionSignPayload(context), context),
+        context.cryptoType,
+      )
+    }
+    throw new ChainError('signer must implement signBytes(), signRaw(), sign(), or extension-style signPayload()')
   }
 
   private async normalizeEra(
@@ -2052,6 +2276,9 @@ export class Client {
     const failed = triggered.find((event) => eventName(event) === 'System.ExtrinsicFailed')
     const success = triggered.some((event) => eventName(event) === 'System.ExtrinsicSuccess')
     const feeEvent = triggered.find((event) => eventName(event) === 'TransactionPayment.TransactionFeePaid')
+    const failureMessage = failed == null
+      ? undefined
+      : dispatchFailureMessage(await this.runtimeAt(blockHash), failed)
     if (!success && failed == null) {
       return {
         status: 'unknown',
@@ -2071,7 +2298,7 @@ export class Client {
     return {
       status: dispatchSuccess ? finalized ? 'finalized' : 'inBlock' : 'failed',
       success: dispatchSuccess,
-      message: failed == null ? 'Success' : 'Extrinsic failed',
+      message: failed == null ? 'Success' : failureMessage ?? 'Extrinsic failed',
       extrinsicHash,
       blockHash,
       blockNumber,
@@ -2172,10 +2399,11 @@ export class SubnetsNamespace {
   constructor(private readonly client: Client) {}
 
   async subnet(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
+    const blockHash = await this.client.resolveReadBlockHash(block)
     const [tempo, burn, count] = await Promise.all([
-      this.client.query(storage.SubtensorModule.Tempo, [netuid], block),
-      this.client.query(storage.SubtensorModule.Burn, [netuid], block),
-      this.client.query(storage.SubtensorModule.SubnetworkN, [netuid], block),
+      this.client.query(storage.SubtensorModule.Tempo, [netuid], blockHash),
+      this.client.query(storage.SubtensorModule.Burn, [netuid], blockHash),
+      this.client.query(storage.SubtensorModule.SubnetworkN, [netuid], blockHash),
     ])
     return { netuid, tempo: Number(tempo ?? 0), burn: Balance.fromRao(String(burn ?? 0)), neuronCount: Number(count ?? 0) }
   }
@@ -2185,11 +2413,12 @@ export class SubnetsNamespace {
   }
 
   async all(block?: number | string | null): Promise<SubnetInfo[]> {
+    const blockHash = await this.client.resolveReadBlockHash(block)
     const [added, tempos, burns, counts] = await Promise.all([
-      this.client.queryMap<number, boolean>(storage.SubtensorModule.NetworksAdded, [], block),
-      this.client.queryMap<number, number>(storage.SubtensorModule.Tempo, [], block),
-      this.client.queryMap<number, bigint>(storage.SubtensorModule.Burn, [], block),
-      this.client.queryMap<number, number>(storage.SubtensorModule.SubnetworkN, [], block),
+      this.client.queryMap<number, boolean>(storage.SubtensorModule.NetworksAdded, [], blockHash),
+      this.client.queryMap<number, number>(storage.SubtensorModule.Tempo, [], blockHash),
+      this.client.queryMap<number, bigint>(storage.SubtensorModule.Burn, [], blockHash),
+      this.client.queryMap<number, number>(storage.SubtensorModule.SubnetworkN, [], blockHash),
     ])
     const tempoByNetuid = new Map(tempos.map(([key, value]) => [Number(key), Number(value)]))
     const burnByNetuid = new Map(burns.map(([key, value]) => [Number(key), String(value)]))
@@ -2480,17 +2709,17 @@ export const calls = Object.freeze({
         destination_hotkey: destinationHotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: transactionAmountRao(amount),
+        alpha_amount: alphaTransactionAmountForNetuid(amount, originNetuid, 'alpha amount'),
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
-      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
+      return call('SubtensorModule', 'register', { netuid, _block_number: BigInt(blockNumber), _nonce: BigInt(nonce), _work: work, hotkey, _coldkey: coldkey })
     },
     registerNetwork(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
     },
     removeStake(hotkey: string, netuid: number, amount: TransactionAmount) {
-      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: transactionAmountRao(amount) })
+      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: alphaTransactionAmountForNetuid(amount, netuid, 'unstake amount') })
     },
     revealWeights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
       return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
@@ -2498,11 +2727,13 @@ export const calls = Object.freeze({
     rootRegister(hotkey: string) {
       return call('SubtensorModule', 'root_register', { hotkey })
     },
-    serveAxon(netuid: number, ip: number, port: number, version = 0, ipType = 4, protocol = 4) {
-      return call('SubtensorModule', 'serve_axon', { netuid, version, ip, port, ip_type: ipType, protocol, placeholder1: 0, placeholder2: 0 })
+    serveAxon(netuid: number, ip: ServeIp, port: number, version = 0, ipType?: number, protocol = 4) {
+      const normalizedIp = normalizeServeIp(ip, ipType)
+      return call('SubtensorModule', 'serve_axon', { netuid, version, ip: normalizedIp.value, port, ip_type: normalizedIp.type, protocol, placeholder1: 0, placeholder2: 0 })
     },
-    servePrometheus(netuid: number, ip: number, port: number, version = 0, ipType = 4) {
-      return call('SubtensorModule', 'serve_prometheus', { netuid, version, ip, port, ip_type: ipType })
+    servePrometheus(netuid: number, ip: ServeIp, port: number, version = 0, ipType?: number) {
+      const normalizedIp = normalizeServeIp(ip, ipType)
+      return call('SubtensorModule', 'serve_prometheus', { netuid, version, ip: normalizedIp.value, port, ip_type: normalizedIp.type })
     },
     setChildren(hotkey: string, netuid: number, children: ScaleValue) {
       return call('SubtensorModule', 'set_children', { hotkey, netuid, children })
@@ -2519,7 +2750,7 @@ export const calls = Object.freeze({
         hotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: transactionAmountRao(amount),
+        alpha_amount: alphaTransactionAmountForNetuid(amount, originNetuid, 'alpha amount'),
       })
     },
     unstakeAll(hotkey: string) {
@@ -2550,17 +2781,17 @@ export const calls = Object.freeze({
         destination_hotkey: destinationHotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: transactionAmountRao(alphaAmount),
+        alpha_amount: alphaTransactionAmountForNetuid(alphaAmount, originNetuid, 'alpha amount'),
       })
     },
     register(netuid: number, blockNumber: bigint | number | string, nonce: bigint | number | string, work: ByteLike, hotkey: string, coldkey: string) {
-      return call('SubtensorModule', 'register', { netuid, block_number: BigInt(blockNumber), nonce: BigInt(nonce), work, hotkey, coldkey })
+      return call('SubtensorModule', 'register', { netuid, _block_number: BigInt(blockNumber), _nonce: BigInt(nonce), _work: work, hotkey, _coldkey: coldkey })
     },
     register_network(hotkey: string) {
       return call('SubtensorModule', 'register_network', { hotkey })
     },
     remove_stake(hotkey: string, netuid: number, amountUnstaked: TransactionAmount) {
-      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: transactionAmountRao(amountUnstaked) })
+      return call('SubtensorModule', 'remove_stake', { hotkey, netuid, amount_unstaked: alphaTransactionAmountForNetuid(amountUnstaked, netuid, 'unstake amount') })
     },
     reveal_weights(netuid: number, uids: number[], values: number[], salt: number[], versionKey: bigint | number | string) {
       return call('SubtensorModule', 'reveal_weights', { netuid, uids, values, salt, version_key: BigInt(versionKey) })
@@ -2568,11 +2799,13 @@ export const calls = Object.freeze({
     root_register(hotkey: string) {
       return call('SubtensorModule', 'root_register', { hotkey })
     },
-    serve_axon(netuid: number, ip: number, port: number, version = 0, ipType = 4, protocol = 4) {
-      return call('SubtensorModule', 'serve_axon', { netuid, version, ip, port, ip_type: ipType, protocol, placeholder1: 0, placeholder2: 0 })
+    serve_axon(netuid: number, ip: ServeIp, port: number, version = 0, ipType?: number, protocol = 4) {
+      const normalizedIp = normalizeServeIp(ip, ipType)
+      return call('SubtensorModule', 'serve_axon', { netuid, version, ip: normalizedIp.value, port, ip_type: normalizedIp.type, protocol, placeholder1: 0, placeholder2: 0 })
     },
-    serve_prometheus(netuid: number, ip: number, port: number, version = 0, ipType = 4) {
-      return call('SubtensorModule', 'serve_prometheus', { netuid, version, ip, port, ip_type: ipType })
+    serve_prometheus(netuid: number, ip: ServeIp, port: number, version = 0, ipType?: number) {
+      const normalizedIp = normalizeServeIp(ip, ipType)
+      return call('SubtensorModule', 'serve_prometheus', { netuid, version, ip: normalizedIp.value, port, ip_type: normalizedIp.type })
     },
     set_children(hotkey: string, netuid: number, children: ScaleValue) {
       return call('SubtensorModule', 'set_children', { hotkey, netuid, children })
@@ -2589,7 +2822,7 @@ export const calls = Object.freeze({
         hotkey,
         origin_netuid: originNetuid,
         destination_netuid: destinationNetuid,
-        alpha_amount: transactionAmountRao(alphaAmount),
+        alpha_amount: alphaTransactionAmountForNetuid(alphaAmount, originNetuid, 'alpha amount'),
       })
     },
     unstake_all(hotkey: string) {
@@ -2598,25 +2831,31 @@ export const calls = Object.freeze({
   }),
 })
 
-const CALL_DESCRIPTOR_ENTRIES: Array<{ path: string; descriptor: Descriptor }> = [
-  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive') },
-  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death') },
-  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake') },
-  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register') },
-  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights') },
-  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake') },
-  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register') },
-  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network') },
-  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake') },
-  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights') },
-  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register') },
-  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon') },
-  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus') },
-  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children') },
-  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights') },
-  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call') },
-  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake') },
-  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all') },
+interface CallDescriptorEntry {
+  path: string
+  descriptor: Descriptor
+  args: readonly string[]
+}
+
+const CALL_DESCRIPTOR_ENTRIES: CallDescriptorEntry[] = [
+  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'] },
+  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'] },
+  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'] },
+  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'] },
+  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'] },
+  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'] },
+  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', '_block_number', '_nonce', '_work', 'hotkey', '_coldkey'] },
+  { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network'), args: ['hotkey'] },
+  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'] },
+  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'] },
+  { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register'), args: ['hotkey'] },
+  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'] },
+  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'] },
+  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'] },
+  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'] },
+  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'] },
+  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'] },
+  { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'] },
 ]
 
 export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssue[] {
@@ -2646,6 +2885,28 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
       issues.push({ ...entry, kind: 'runtimeApi', message: `runtime API ${api} not found` })
     } else if (apiMap[api][method] == null) {
       issues.push({ ...entry, kind: 'runtimeApi', message: `runtime API method ${api}.${method} not found` })
+    } else {
+      const methodInfo = apiMap[api][method]
+      const inputs = methodInfo.inputs ?? []
+      const inputDetails = methodInfo.inputDetails ?? []
+      if (inputDetails.length > 0 && inputs.length !== inputDetails.length) {
+        issues.push({
+          ...entry,
+          kind: 'runtimeApi',
+          message: `runtime API method ${api}.${method} input metadata disagrees: inputs=${inputs.length}, inputDetails=${inputDetails.length}`,
+        })
+      }
+      for (let index = 0; index < Math.min(inputs.length, inputDetails.length); index += 1) {
+        const [inputName, inputType] = inputs[index]
+        const detail = inputDetails[index]
+        if (inputName !== detail.name || inputType !== detail.type) {
+          issues.push({
+            ...entry,
+            kind: 'runtimeApi',
+            message: `runtime API method ${api}.${method} input ${index} drifted: expected ${inputName}: ${inputType}, got ${detail.name}: ${detail.type}`,
+          })
+        }
+      }
     }
   }
   const metadata = runtime.metadataIr()
@@ -2654,8 +2915,30 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
     const palletInfo = metadata.pallets.find((candidate) => candidate.name === pallet)
     if (palletInfo == null) {
       issues.push({ ...entry, kind: 'call', message: `pallet ${pallet} not found` })
-    } else if (!palletInfo.calls.some((callInfo) => callInfo.name === item)) {
-      issues.push({ ...entry, kind: 'call', message: `call ${pallet}.${item} not found` })
+    } else {
+      const callInfo = palletInfo.calls.find((candidate) => candidate.name === item)
+      if (callInfo == null) {
+        issues.push({ ...entry, kind: 'call', message: `call ${pallet}.${item} not found` })
+        continue
+      }
+      const actualArgs = callInfo.args ?? []
+      if (actualArgs.length !== entry.args.length) {
+        issues.push({
+          ...entry,
+          kind: 'call',
+          message: `call ${pallet}.${item} argument count drifted: expected ${entry.args.length}, got ${actualArgs.length}`,
+        })
+        continue
+      }
+      for (let index = 0; index < entry.args.length; index += 1) {
+        if (actualArgs[index] !== entry.args[index]) {
+          issues.push({
+            ...entry,
+            kind: 'call',
+            message: `call ${pallet}.${item} argument ${index} drifted: expected ${entry.args[index]}, got ${actualArgs[index]}`,
+          })
+        }
+      }
     }
   }
   return issues
@@ -2776,6 +3059,93 @@ function nonNegativeInteger(value: unknown, fallback: number): number {
   return Math.floor(nonNegativeNumber(value, fallback))
 }
 
+function normalizeQueryMapOptions(value: number | QueryMapOptions): Required<Pick<QueryMapOptions, 'pageSize'>> & Omit<QueryMapOptions, 'pageSize'> {
+  if (typeof value === 'number') return { pageSize: positiveInteger(value, 'queryMap pageSize') }
+  return {
+    ...value,
+    pageSize: positiveInteger(value.pageSize ?? 512, 'queryMap pageSize'),
+    maxPages: value.maxPages == null ? undefined : positiveInteger(value.maxPages, 'queryMap maxPages'),
+    maxResults: value.maxResults == null ? undefined : positiveInteger(value.maxResults, 'queryMap maxResults'),
+  }
+}
+
+function positiveInteger(value: unknown, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new RangeError(`${name} must be a positive safe integer`)
+  return parsed
+}
+
+function alphaTransactionAmountForNetuid(value: TransactionAmount, netuid: number, name: string): bigint {
+  if (value instanceof Balance && value.netuid !== netuid) {
+    throw new RangeError(`${name} must be subnet-${netuid} alpha, not ${value.netuid === 0 ? 'TAO' : `subnet-${value.netuid} alpha`}`)
+  }
+  return transactionAmountRao(value, { name })
+}
+
+function normalizeServeIp(value: ServeIp, ipType?: number): { value: bigint | number; type: number } {
+  let parsed: bigint
+  let inferredType = ipType ?? 4
+  if (typeof value === 'bigint') {
+    parsed = value
+  } else if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value)) throw new RangeError('ip must be a safe integer, bigint, or string')
+    parsed = BigInt(value)
+  } else {
+    const text = value.trim()
+    if (/^\d+$/.test(text)) parsed = BigInt(text)
+    else if (/^0x[0-9a-fA-F]+$/.test(text)) parsed = BigInt(text)
+    else if (text.includes(':')) {
+      parsed = parseIpv6(text)
+      inferredType = ipType ?? 6
+    } else if (text.includes('.')) {
+      parsed = parseIpv4(text)
+      inferredType = ipType ?? 4
+    } else {
+      throw new RangeError('ip string must be decimal, hex, IPv4, or IPv6')
+    }
+  }
+  if (parsed < 0n || parsed >= (1n << 128n)) throw new RangeError('ip must fit in u128')
+  return {
+    value: parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed,
+    type: inferredType,
+  }
+}
+
+function parseIpv4(value: string): bigint {
+  const parts = value.split('.')
+  if (parts.length !== 4) throw new RangeError('invalid IPv4 address')
+  let out = 0n
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) throw new RangeError('invalid IPv4 address')
+    const byte = Number(part)
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) throw new RangeError('invalid IPv4 address')
+    out = (out << 8n) + BigInt(byte)
+  }
+  return out
+}
+
+function parseIpv6(value: string): bigint {
+  const zoneFree = value.split('%', 1)[0]
+  const doubleColon = zoneFree.indexOf('::')
+  if (doubleColon !== zoneFree.lastIndexOf('::')) throw new RangeError('invalid IPv6 address')
+  const parseSide = (side: string): number[] => side === ''
+    ? []
+    : side.split(':').flatMap((part) => {
+        if (part.includes('.')) {
+          const ipv4 = parseIpv4(part)
+          return [Number((ipv4 >> 16n) & 0xffffn), Number(ipv4 & 0xffffn)]
+        }
+        if (!/^[0-9a-fA-F]{1,4}$/.test(part)) throw new RangeError('invalid IPv6 address')
+        return [Number.parseInt(part, 16)]
+      })
+  const left = parseSide(doubleColon >= 0 ? zoneFree.slice(0, doubleColon) : zoneFree)
+  const right = doubleColon >= 0 ? parseSide(zoneFree.slice(doubleColon + 2)) : []
+  const missing = doubleColon >= 0 ? 8 - left.length - right.length : 0
+  const groups = doubleColon >= 0 ? [...left, ...Array(missing).fill(0), ...right] : left
+  if (missing < 0 || groups.length !== 8) throw new RangeError('invalid IPv6 address')
+  return groups.reduce((out, group) => (out << 16n) + BigInt(group), 0n)
+}
+
 function accountAddress(account?: SignerAccount | null): string | undefined {
   return stringValue(account?.ss58Address) ?? stringValue(account?.address)
 }
@@ -2855,6 +3225,25 @@ function sameHex(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
 
+function normalizeHash32(value: string, name: string): string {
+  const bytes = hexToBuffer(value)
+  if (bytes.length !== 32) throw new ChainError(`${name} must be a 32-byte hex string`)
+  return hex(bytes)
+}
+
+function parseNonce(value: unknown, name: string): number {
+  const nonce = typeof value === 'bigint' ? Number(value) : Number(value)
+  if (!Number.isSafeInteger(nonce) || nonce < 0) {
+    throw new ChainError(`${name} returned invalid nonce ${String(value)}`)
+  }
+  return nonce
+}
+
+function runtimeSupportsMetadataHash(runtime: Runtime): boolean {
+  const identifiers = runtime.signedExtensionIdentifiers?.() ?? []
+  return identifiers.includes('CheckMetadataHash')
+}
+
 function isMetadataAtVersionUnavailable(error: unknown): boolean {
   const message = String(error instanceof Error ? error.message : error)
   const data = String(error instanceof JsonRpcError && error.data != null ? error.data : '')
@@ -2877,10 +3266,62 @@ function signerPublicKey(value: ByteLike | undefined, ss58Address: string): Buff
     : toBuffer(value, 'signer.publicKey')
 }
 
+function extensionSignPayload(context: SignerPayloadContext): ExtensionSignPayloadRequest {
+  return {
+    address: context.address,
+    blockHash: hex(context.txParams.eraBlockHash),
+    blockNumber: u32Hex(eraCurrentBlock(context.txParams.era)),
+    era: eraPayloadHex(context.runtime, context.txParams.era),
+    genesisHash: hex(context.txParams.genesisHash),
+    method: hex(context.callData),
+    nonce: compactIntegerHex(context.txParams.nonce),
+    signedExtensions: context.runtime.signedExtensionIdentifiers(),
+    specVersion: u32Hex(context.runtime.specVersion),
+    tip: compactIntegerHex(context.txParams.tip ?? 0n),
+    transactionVersion: u32Hex(context.runtime.transactionVersion),
+    version: 4,
+    assetId: context.txParams.tipAssetId == null ? null : compactIntegerHex(context.txParams.tipAssetId),
+    metadataHash: context.metadataHash == null ? undefined : hex(context.metadataHash),
+    mode: context.metadataHash == null ? 0 : 1,
+  }
+}
+
+function eraPayloadHex(runtime: Runtime, era: ScaleValue): string {
+  if (typeof era === 'string') return era.startsWith('0x') ? era : `0x${era}`
+  return hex(runtime.encodeEra(era))
+}
+
+function eraCurrentBlock(era: ScaleValue): number {
+  const value = recordValue(era)
+  return Number(value?.current ?? 0)
+}
+
+function compactIntegerHex(value: bigint | number): string {
+  return hex(encodeCompact(value))
+}
+
+function u32Hex(value: bigint | number): string {
+  const numeric = typeof value === 'bigint' ? Number(value) : value
+  if (!Number.isInteger(numeric) || numeric < 0 || numeric > 0xffffffff) {
+    throw new ChainError(`value ${String(value)} cannot be encoded as u32`)
+  }
+  const out = Buffer.alloc(4)
+  out.writeUInt32LE(numeric, 0)
+  return hex(out)
+}
+
 function normalizeSignature(
   result: SignerSignature,
   fallbackCryptoType: number,
 ): NormalizedSignature {
+  if (
+    result != null &&
+    typeof result === 'object' &&
+    !(Buffer.isBuffer(result) || result instanceof Uint8Array) &&
+    (result as { signedTransaction?: unknown }).signedTransaction != null
+  ) {
+    throw new ChainError('signer returned signedTransaction, which is not supported by this signing path')
+  }
   const raw = signatureBytes(result)
   if (raw.length === 65 && raw[0] <= CRYPTO_SR25519) {
     return { signature: Buffer.from(raw.subarray(1)), cryptoType: raw[0] }
@@ -2977,38 +3418,31 @@ function hex(bytes: ByteLike): string {
 }
 
 function hexToBuffer(value: string): Buffer {
-  const text = value.startsWith('0x') ? value.slice(2) : value
-  return Buffer.from(text, 'hex')
+  return hexToBytes(value)
 }
 
 function stripOptionOpaqueMetadata(data: Buffer): Buffer | null {
-  if (data.length === 0 || data[0] === 0) return null
-  if (data.length < 2) throw new ChainError('invalid Metadata_metadata_at_version response')
-  const { length, offset } = decodeCompactLength(data, 1)
+  if (data.length === 0) throw new ChainError('invalid Metadata_metadata_at_version response')
+  if (data[0] === 0) {
+    if (data.length !== 1) throw new ChainError('invalid Metadata_metadata_at_version response')
+    return null
+  }
+  if (data[0] !== 1 || data.length < 2) throw new ChainError('invalid Metadata_metadata_at_version response')
+  let decoded
+  try {
+    decoded = decodeCompactLengthNative(data.subarray(1), false)
+  } catch (error) {
+    throw new ChainError('invalid Metadata_metadata_at_version compact length', error)
+  }
+  if (decoded.value < 0n || decoded.value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ChainError('Metadata_metadata_at_version response is too large')
+  }
+  const length = Number(decoded.value)
+  const offset = 1 + decoded.offset
   const end = offset + length
   if (end > data.length) throw new ChainError('truncated Metadata_metadata_at_version response')
+  if (end !== data.length) throw new ChainError('invalid Metadata_metadata_at_version response')
   return data.subarray(offset, end)
-}
-
-function decodeCompactLength(data: Buffer, offset: number): { length: number; offset: number } {
-  const first = data[offset]
-  if (first == null) throw new ChainError('truncated compact length')
-  const mode = first & 0b11
-  if (mode === 0) return { length: first >> 2, offset: offset + 1 }
-  if (mode === 1) {
-    if (offset + 2 > data.length) throw new ChainError('truncated compact length')
-    return { length: data.readUInt16LE(offset) >> 2, offset: offset + 2 }
-  }
-  if (mode === 2) {
-    if (offset + 4 > data.length) throw new ChainError('truncated compact length')
-    return { length: data.readUInt32LE(offset) >>> 2, offset: offset + 4 }
-  }
-  const byteCount = (first >> 2) + 4
-  if (offset + 1 + byteCount > data.length) throw new ChainError('truncated compact length')
-  let length = 0
-  for (let i = 0; i < byteCount; i += 1) length += data[offset + 1 + i] * (256 ** i)
-  if (!Number.isSafeInteger(length)) throw new ChainError('compact length exceeds safe integer range')
-  return { length, offset: offset + 1 + byteCount }
 }
 
 function hexNumber(value: string): number {
@@ -3051,6 +3485,85 @@ function feeFromEvent(event: unknown): Balance | undefined {
   if (attrs == null || typeof attrs !== 'object') return undefined
   const amount = (attrs as Record<string, unknown>).actual_fee ?? (attrs as Record<string, unknown>).actualFee ?? (attrs as Record<string, unknown>).fee
   return amount == null ? undefined : Balance.fromRao(String(amount))
+}
+
+function dispatchFailureMessage(runtime: Runtime, event: unknown): string {
+  const message = formatDispatchError(runtime, dispatchErrorFromEvent(event))
+  return message == null ? 'Extrinsic failed' : `Extrinsic failed: ${message}`
+}
+
+function dispatchErrorFromEvent(event: unknown): unknown {
+  const outer = recordValue(event)
+  if (outer == null) return undefined
+  const attrs = recordValue(outer.attributes)
+  if (attrs != null) {
+    return attrs.dispatch_error ?? attrs.dispatchError ?? attrs.error
+  }
+  const nested = recordValue(outer.ExtrinsicFailed)
+  return nested?.dispatch_error ?? nested?.dispatchError ?? nested
+}
+
+function formatDispatchError(runtime: Runtime, error: unknown): string | undefined {
+  if (typeof error === 'string') return error
+  const value = recordValue(error)
+  if (value == null) return undefined
+  const moduleError = recordValue(value.Module ?? value.module)
+  if (moduleError != null) return formatModuleDispatchError(runtime, moduleError)
+  const err = value.Err ?? value.err
+  if (err != null) return formatDispatchError(runtime, err)
+  const entries = Object.entries(value)
+  if (entries.length !== 1) return undefined
+  const [variant, payload] = entries[0]
+  const nested = formatDispatchError(runtime, payload)
+  return nested == null ? variant : `${variant}.${nested}`
+}
+
+function formatModuleDispatchError(runtime: Runtime, value: Record<string, unknown>): string | undefined {
+  const moduleIndex = unsignedByteValue(value.index)
+  const errorIndex = dispatchModuleErrorIndex(value.error)
+  if (moduleIndex == null || errorIndex == null) return undefined
+  try {
+    const resolved = runtime.moduleError(moduleIndex, errorIndex)
+    const name = Array.isArray(resolved) ? resolved[0] : resolved.name
+    const rawDocs = Array.isArray(resolved) ? resolved[1] : resolved.docs
+    const docs = rawDocs.map((doc) => doc.trim()).filter(Boolean).join(' ')
+    return docs.length === 0 ? name : `${name}: ${docs}`
+  } catch {
+    return `Module(${moduleIndex}, ${errorIndex})`
+  }
+}
+
+function dispatchModuleErrorIndex(value: unknown): number | undefined {
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return value[0]
+  if (typeof value === 'string' && value.startsWith('0x')) {
+    try {
+      return hexToBuffer(value)[0]
+    } catch {
+      return undefined
+    }
+  }
+  if (Array.isArray(value)) return unsignedByteValue(value[0])
+  return unsignedByteValue(value)
+}
+
+function unsignedByteValue(value: unknown): number | undefined {
+  let numeric: number
+  if (typeof value === 'number') numeric = value
+  else if (typeof value === 'bigint') {
+    if (value < 0n || value > 255n) return undefined
+    numeric = Number(value)
+  } else if (typeof value === 'string') {
+    numeric = value.startsWith('0x') ? Number.parseInt(value.slice(2), 16) : Number(value)
+  } else {
+    return undefined
+  }
+  return Number.isInteger(numeric) && numeric >= 0 && numeric <= 255 ? numeric : undefined
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }
 
 interface RequestSignal {

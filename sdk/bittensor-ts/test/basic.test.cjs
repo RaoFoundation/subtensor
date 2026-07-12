@@ -10,6 +10,10 @@ const { pathToFileURL } = require('node:url')
 
 const core = require('../dist/index.js')
 
+function submittedExtrinsicHash(extrinsicHex) {
+  return `0x${core.blake2_256(Buffer.from(String(extrinsicHex).slice(2), 'hex')).toString('hex')}`
+}
+
 function compactLength(buffer, offset) {
   const first = buffer[offset]
   const mode = first & 0b11
@@ -981,6 +985,29 @@ test('transaction amounts require explicit units', () => {
     () => core.assetIdValue(core.taoAmount('1')),
     /must be a bigint/,
   )
+  assert.throws(
+    () => core.calls.subtensor.removeStake('5F', 8, core.Balance.fromAlpha('1', 7)),
+    /subnet-8 alpha/,
+  )
+  assert.deepEqual(core.calls.subtensor.removeStake('5F', 8, core.Balance.fromAlpha('1', 8)), [
+    'SubtensorModule',
+    'remove_stake',
+    { hotkey: '5F', netuid: 8, amount_unstaked: 1_000_000_000n },
+  ])
+  assert.deepEqual(core.calls.subtensor.serveAxon(1, '2001:db8::1', 30333), [
+    'SubtensorModule',
+    'serve_axon',
+    {
+      netuid: 1,
+      version: 0,
+      ip: 0x20010db8000000000000000000000001n,
+      port: 30333,
+      ip_type: 6,
+      protocol: 4,
+      placeholder1: 0,
+      placeholder2: 0,
+    },
+  ])
 })
 
 test('descriptor schema validation reports metadata drift', () => {
@@ -1002,6 +1029,7 @@ test('descriptor schema validation reports metadata drift', () => {
   const issues = core.validateDescriptorSchema(runtime)
   assert.ok(issues.some((issue) => issue.path === 'storage.Balances.TotalIssuance'))
   assert.ok(issues.some((issue) => issue.path === 'runtimeApi.StakeInfoRuntimeApi.get_stake_fee'))
+  assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferKeepAlive' && /argument count/.test(issue.message)))
   assert.ok(issues.some((issue) => issue.path === 'calls.balances.transferAllowDeath'))
 })
 
@@ -1051,6 +1079,55 @@ test('JsonRpcTransport restores websocket subscriptions after reconnect', async 
   assert.deepEqual(await iterator.next(), { done: false, value: { number: 2 } })
 
   await subscription.unsubscribe()
+})
+
+test('JsonRpcTransport rejects pending requests on malformed websocket JSON', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+  })
+
+  const pending = transport.request('state_getMetadata')
+  await waitFor(() => FakeWebSocket.sockets[0]?.sent.length === 1, 'websocket request send')
+  FakeWebSocket.sockets[0].emit('message', { data: '{not-json' })
+
+  await assert.rejects(pending, /invalid JSON-RPC message/)
+})
+
+test('JsonRpcTransport caps subscription notification queues', async (t) => {
+  const { FakeWebSocket, restore } = installFakeWebSocket()
+  t.after(restore)
+  FakeWebSocket.onSend = (socket, message) => {
+    if (message.method === 'chain_subscribeNewHeads') {
+      queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: 'sub-1' }))
+    }
+  }
+  const transport = new core.JsonRpcTransport('ws://node-a', [], false, {
+    requestTimeoutMs: 100,
+    maxRequestRetries: 0,
+    maxSubscriptionQueue: 1,
+  })
+  const subscription = await transport.subscribe(
+    'chain_subscribeNewHeads',
+    [],
+    'chain_unsubscribeNewHeads',
+  )
+  const iterator = subscription[Symbol.asyncIterator]()
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-1', result: { number: 1 } },
+  })
+  FakeWebSocket.sockets[0].serverMessage({
+    jsonrpc: '2.0',
+    method: 'chain_subscription',
+    params: { subscription: 'sub-1', result: { number: 2 } },
+  })
+
+  assert.deepEqual(await iterator.next(), { done: false, value: { number: 1 } })
+  await assert.rejects(() => iterator.next(), /subscription notification queue exceeded limit/)
 })
 
 test('JsonRpcTransport does not resubmit submit-and-watch subscriptions after reconnect', async (t) => {
@@ -1256,6 +1333,45 @@ test('Client fallback can validate from expected genesis when primary is unavail
   assert.equal(await client.rpc('state_getMetadata'), '0x1234')
 })
 
+test('Client rotates past a wrong-genesis primary to a valid fallback', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  const expectedGenesis = `0x${'dd'.repeat(32)}`
+  const wrongGenesis = `0x${'ee'.repeat(32)}`
+  globalThis.fetch = async (url, init) => {
+    const request = JSON.parse(String(init.body))
+    const endpoint = String(url)
+    if (request.method === 'chain_getBlockHash') {
+      return {
+        ok: true,
+        json: async () => ({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: endpoint.includes('primary') ? wrongGenesis : expectedGenesis,
+        }),
+      }
+    }
+    return {
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: request.id, result: '0x1234' }),
+    }
+  }
+
+  const client = new core.Client('local', {
+    endpoint: 'http://primary',
+    expectedGenesisHash: expectedGenesis,
+    fallbackEndpoints: ['http://fallback'],
+    maxRequestRetries: 1,
+    requestTimeoutMs: 100,
+    retryBackoffMs: 0,
+    maxRetryBackoffMs: 0,
+  })
+
+  assert.equal(await client.rpc('state_getMetadata'), '0x1234')
+})
+
 test('Client requires expected genesis for custom fallback endpoints', () => {
   assert.throws(
     () => new core.Client('local', {
@@ -1369,12 +1485,46 @@ test('Client queryBatch decodes metadata defaults for missing storage values', a
   }
   client.runtimeAt = async () => runtime
   client.resolveBlockHash = async () => null
-  client.rpc = async (method) => {
+  client.rpc = async (method, params = []) => {
     assert.equal(method, 'state_queryStorageAt')
     return [{ changes: [['0x01', '0x05']] }]
   }
 
   assert.deepEqual(await client.queryBatch('Example', 'Value', [[], []]), [5, 9])
+})
+
+test('Client queryMap pins reads and rejects pagination without progress', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const blockHash = `0x${'44'.repeat(32)}`
+  const calls = []
+  const runtime = {
+    storageKey() {
+      return Buffer.from([0])
+    },
+    storageEntry() {
+      return { valueType: 'u8' }
+    },
+    decodeStorageKeyParams(_pallet, _name, key) {
+      return [key[0]]
+    },
+    decode(_type, bytes) {
+      return bytes[0]
+    },
+  }
+  client.finalizedHead = async () => blockHash
+  client.runtimeAt = async (block) => {
+    assert.equal(block, blockHash)
+    return runtime
+  }
+  client.transport.request = async (method, params = []) => {
+    calls.push({ method, params })
+    if (method === 'state_getKeysPaged') return ['0x01']
+    if (method === 'state_queryStorageAt') return [{ changes: [['0x01', '0x05']] }]
+    throw new Error(`unexpected ${method}`)
+  }
+
+  await assert.rejects(() => client.queryMap('Example', 'Map'), /pagination did not advance/)
+  assert.ok(calls.every((call) => call.params.at(-1) === blockHash))
 })
 
 test('Client signs extrinsics with extension-style signRaw signers', async () => {
@@ -1425,6 +1575,87 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
     () => client.signExtrinsic(callData, signer, { period: null, tipAssetId: -1 }),
     /tipAssetId must be non-negative/,
   )
+  await assert.rejects(
+    () => client.signExtrinsic(callData, { ...signer, publicKey: Buffer.alloc(32, 7) }, { period: null }),
+    /publicKey does not match/,
+  )
+})
+
+test('Client enables metadata hash by default for software signers when supported', async () => {
+  const callData = Buffer.from([5, 6, 7])
+  const { runtime, captures } = fakeSigningRuntime({
+    metadataBytes: Buffer.from([1, 2, 3, 4]),
+    signedExtensionIdentifiers() {
+      return ['CheckNonce', 'CheckMetadataHash']
+    },
+  })
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 6)
+  const address = core.ss58FromPublic(publicKey, 42)
+  let request
+  const signer = {
+    address,
+    publicKey,
+    signRaw(req) {
+      request = req
+      return { signature: `0x${Buffer.alloc(64, 9).toString('hex')}` }
+    },
+  }
+
+  await client.signExtrinsic(callData, signer, { period: null })
+
+  assert.equal(captures.encoded.params.metadataHashEnabled, true)
+  assert.equal(captures.payloadParams.metadataHash.length, 32)
+  assert.equal(typeof request.metadataHash, 'string')
+  assert.equal(request.metadataHash.length, 66)
+})
+
+test('Client passes structured payloads to extension signPayload signers', async () => {
+  const callData = Buffer.from([5, 6, 7])
+  const { runtime, captures } = fakeSigningRuntime({
+    signedExtensionIdentifiers() {
+      return ['CheckNonce']
+    },
+    encodeEra() {
+      return Buffer.from([0])
+    },
+  })
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 6)
+  const address = core.ss58FromPublic(publicKey, 42)
+  let payload
+  const signer = {
+    address,
+    publicKey,
+    signPayload(value) {
+      payload = value
+      return { signature: `0x${Buffer.alloc(64, 9).toString('hex')}` }
+    },
+  }
+
+  await client.signExtrinsic(callData, signer, { period: null })
+
+  assert.equal(payload.address, address)
+  assert.equal(payload.method, '0x050607')
+  assert.equal(payload.version, 4)
+  assert.deepEqual(payload.signedExtensions, ['CheckNonce'])
+  assert.equal(captures.encoded.params.metadataHashEnabled, false)
+})
+
+test('Client rejects invalid chain nonce values', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  client.rpc = async () => 'NaN'
+  await assert.rejects(() => client.accountNextIndex('5F'), /invalid nonce/)
+})
+
+test('Client rejects mismatched submit hashes and keeps local hash authoritative', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  client.signedExtrinsicNonceTracking = async () => ({})
+  client.transport.request = async (method) => {
+    assert.equal(method, 'author_submitExtrinsic')
+    return `0x${'00'.repeat(32)}`
+  }
+  await assert.rejects(() => client.submitSigned(Buffer.from([1, 2])), /returned hash/)
 })
 
 test('Client estimateFee peeks the chain nonce without reserving it', async () => {
@@ -1434,10 +1665,23 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
       return {
         TransactionPaymentApi: {
           query_info: {
+            inputDetails: [
+              { name: 'uxt', typeId: 10, type: 'Extrinsic' },
+              { name: 'len', typeId: 11, type: 'u32' },
+            ],
             outputTypeId: 1,
           },
         },
       }
+    },
+    encodeId(typeId, value) {
+      if (typeId === 10) return Buffer.from(value)
+      if (typeId === 11) {
+        const out = Buffer.alloc(4)
+        out.writeUInt32LE(value, 0)
+        return out
+      }
+      throw new Error(`unexpected type ${typeId}`)
     },
     decodeTypeId() {
       return { partial_fee: 123n }
@@ -1538,7 +1782,7 @@ test('Client serializes concurrent initial nonce reservations during submit', as
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_submitExtrinsic') return `0x${'cd'.repeat(32)}`
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {
@@ -1602,7 +1846,7 @@ test('Client releases only the failed reserved nonce', async () => {
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_submitExtrinsic') return `0x${'ef'.repeat(32)}`
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const failingSigner = {
@@ -1675,7 +1919,7 @@ test('Client quarantines an ambiguous submit nonce even when a fallback node rep
     if (method === 'author_submitExtrinsic') {
       submitAttempts += 1
       if (submitAttempts === 1) throw new core.JsonRpcError('lost response')
-      return `0x${'aa'.repeat(32)}`
+      return submittedExtrinsicHash(params[0])
     }
     if (method === 'author_pendingExtrinsics') return []
     if (method === 'chain_getHeader') return { number: '0x0' }
@@ -1745,7 +1989,7 @@ test('Client invalidates nonce state after unknown ambiguous submission reconcil
       if (submitAttempts === 1) {
         throw new core.JsonRpcError('lost response')
       }
-      return `0x${'bb'.repeat(32)}`
+      return submittedExtrinsicHash(params[0])
     }
     if (method === 'author_pendingExtrinsics') throw new Error('network still unavailable')
     throw new Error(`unexpected RPC ${method}`)
@@ -1809,7 +2053,7 @@ test('Client protects an ambiguous submit nonce when the extrinsic is still pend
       submitAttempts += 1
       submittedHex = params[0]
       if (submitAttempts === 1) throw new core.JsonRpcError('lost response')
-      return `0x${'bc'.repeat(32)}`
+      return submittedExtrinsicHash(params[0])
     }
     if (method === 'author_pendingExtrinsics') return [submittedHex]
     throw new Error(`unexpected RPC ${method}`)
@@ -1838,7 +2082,7 @@ test('Client submit without inclusion reports pool submission, not execution suc
     Buffer.from([core.CRYPTO_SR25519]),
     Buffer.alloc(64, 6),
   ])
-  client.rpc = async (method) => {
+  client.rpc = async (method, params = []) => {
     if (method === 'system_accountNextIndex') return 30
     if (method === 'state_getRuntimeVersion') {
       return {
@@ -1850,7 +2094,7 @@ test('Client submit without inclusion reports pool submission, not execution suc
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_submitExtrinsic') return `0x${'ab'.repeat(32)}`
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {
@@ -1955,7 +2199,7 @@ test('Client records detached submitSigned nonces before the next managed submit
     if (method === 'author_submitExtrinsic') {
       submitMaxRetries.push(options.maxRetries)
       submitRetryForever.push(options.retryForever)
-      return `0x${'dd'.repeat(32)}`
+      return submittedExtrinsicHash(params[0])
     }
     throw new Error(`unexpected RPC ${method}`)
   }
@@ -2019,7 +2263,7 @@ test('Client decodes detached signed nonce instead of trusting mutable public fi
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_submitExtrinsic') return `0x${'df'.repeat(32)}`
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {
@@ -2078,7 +2322,7 @@ test('Client invalidates nonce state for opaque externally signed submissions', 
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_submitExtrinsic') return `0x${'ce'.repeat(32)}`
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {
@@ -2254,7 +2498,7 @@ test('Client submission watches support timeout and reconcile managed nonces', a
     if (method === 'chain_getHeader') return { number: '0x0' }
     if (method === 'chain_getBlockHash') return `0x${'02'.repeat(32)}`
     if (method === 'chain_getBlock') return { block: { extrinsics: [] } }
-    if (method === 'author_submitExtrinsic') return `0x${'cc'.repeat(32)}`
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {

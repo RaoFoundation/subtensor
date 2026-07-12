@@ -27,7 +27,7 @@ export class LedgerSigner {
     )
   }
 
-  signPayload(
+  signBytes(
     payload: ByteLike,
     context: { proof?: ByteLike; metadataProof?: ByteLike } = {},
   ): Promise<Buffer> {
@@ -41,6 +41,16 @@ export class LedgerSigner {
       payload,
       proof,
     )
+  }
+
+  signPayload(
+    payload: unknown,
+    context: { proof?: ByteLike; metadataProof?: ByteLike } = {},
+  ): Promise<Buffer> {
+    if (!(Buffer.isBuffer(payload) || payload instanceof Uint8Array)) {
+      throw new Error('LedgerSigner.signPayload does not accept structured payloads; use signBytes')
+    }
+    return this.signBytes(payload, context)
   }
 }
 
