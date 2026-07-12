@@ -392,8 +392,23 @@ jobs:
       - name: Create mainnet clone
         # No-op when the snapshot restored the chainspec; otherwise scrapes
         # mainnet state live (first run, expired snapshot, or the
-        # fresh-mainnet-clone label).
-        run: ./clones/scripts/clone-mainnet.sh
+        # fresh-mainnet-clone label). The live scrape's warp sync sometimes
+        # wedges downloading finality proofs (stuck at 0.00 MiB for an hour+,
+        # observed repeatedly); a healthy scrape finishes in ~15 minutes, so
+        # kill and retry — a fresh node picks new peers and unsticks. The
+        # script self-cleans partial state when the chainspec is missing.
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=30 1200 ./clones/scripts/clone-mainnet.sh; then
+              exit 0
+            fi
+            echo "::warning::mainnet scrape attempt ${attempt} timed out or failed; retrying"
+            # timeout only signals the script; reap its orphaned sync node so
+            # the retry can rebind ports and reuse the base path.
+            pkill -9 -f build-patched-spec || true
+            sleep 10
+          done
+          exit 1
 
       - name: Start local clone
         run: |
