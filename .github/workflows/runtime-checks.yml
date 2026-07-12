@@ -208,7 +208,7 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build-try-runtime
-    runs-on: [self-hosted, fireactions-turbo-16]
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
