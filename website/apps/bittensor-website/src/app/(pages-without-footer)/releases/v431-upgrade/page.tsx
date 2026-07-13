@@ -236,11 +236,13 @@ const page = () => {
             Subnet ownership is therefore no longer fixed at registration; it is contestable
             through open, on-chain rules. Two lock modes are available, and both are
             exponential processes rather than fixed terms. A perpetual lock&apos;s conviction
-            approaches its locked mass asymptotically — it never quite completes — at a pace
-            set by the chain&apos;s <i>maturity rate</i>, a time constant of roughly 43 days at
-            current values. A decaying lock — the default — frees its locked mass at the
-            chain&apos;s <i>unlock rate</i>, a time constant of roughly 130 days, so its
-            conviction peaks and then unwinds. Both rates are governance-set storage values
+            approaches its locked mass asymptotically — it never quite completes. The
+            chain&apos;s <i>maturity rate </i>sets the exponential time constant, roughly 43
+            days at current values: after one time constant conviction stands at about 63% of
+            the locked mass, after two about 86%, and so on. A decaying lock — the default —
+            frees its locked mass on the chain&apos;s <i>unlock rate</i>, a time constant of
+            roughly 130 days, after which about 37% of the mass remains locked; its conviction
+            peaks and then unwinds. Both rates are governance-set storage values
             that can change, and there is one exception: locks credited to the subnet
             owner&apos;s own hotkey mature instantly, so their conviction always equals their
             locked mass. The mechanism is designed to reward long-horizon commitment to a
