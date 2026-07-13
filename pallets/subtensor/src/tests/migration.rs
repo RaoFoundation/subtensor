@@ -79,6 +79,51 @@ fn test_migrate_associated_evm_address_index() {
 }
 
 #[test]
+fn test_migrate_clear_orphan_subnet_identities_v3() {
+    new_test_ext(1).execute_with(|| {
+        let migration_name = b"migrate_clear_orphan_subnet_identities_v3".to_vec();
+        HasMigrationRun::<Test>::remove(&migration_name);
+
+        let orphan_netuid = NetUid::from(1);
+        let live_netuid = NetUid::from(2);
+
+        // live_netuid is a registered network; orphan_netuid is not.
+        NetworksAdded::<Test>::insert(live_netuid, true);
+
+        let orphan_identity = SubnetIdentityV3 {
+            subnet_name: b"orphan".to_vec(),
+            ..Default::default()
+        };
+        let live_identity = SubnetIdentityV3 {
+            subnet_name: b"live".to_vec(),
+            ..Default::default()
+        };
+
+        SubnetIdentitiesV3::<Test>::insert(orphan_netuid, orphan_identity);
+        SubnetIdentitiesV3::<Test>::insert(live_netuid, live_identity.clone());
+
+        crate::migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<Test>();
+
+        // The orphan identity is removed; the live subnet identity is preserved.
+        assert!(!SubnetIdentitiesV3::<Test>::contains_key(orphan_netuid));
+        assert_eq!(
+            SubnetIdentitiesV3::<Test>::get(live_netuid),
+            Some(live_identity.clone())
+        );
+
+        // Migration is marked as run.
+        assert!(HasMigrationRun::<Test>::get(&migration_name));
+
+        // Idempotent: re-running is a no-op (live identity still present).
+        crate::migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<Test>();
+        assert_eq!(
+            SubnetIdentitiesV3::<Test>::get(live_netuid),
+            Some(live_identity)
+        );
+    });
+}
+
+#[test]
 fn test_migrate_associated_evm_address_index_reconciles_over_cap_buckets() {
     new_test_ext(1).execute_with(|| {
         let migration_name = b"migrate_associated_evm_address_index".to_vec();

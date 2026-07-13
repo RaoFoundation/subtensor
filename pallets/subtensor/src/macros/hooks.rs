@@ -179,7 +179,9 @@ mod hooks {
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
                 .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
                 // Populate reverse lookup index for EVM address associations.
-                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>());
+                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>())
+                // Remove orphan SubnetIdentitiesV3 entries left for recycled netuids.
+                .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>());
             weight
         }
 
