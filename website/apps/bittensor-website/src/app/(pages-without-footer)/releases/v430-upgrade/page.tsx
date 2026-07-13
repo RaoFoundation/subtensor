@@ -353,8 +353,11 @@ async def main():
 asyncio.run(main())`}
           </pre>
           <p style={{textAlign: 'left', width: '100%'}}>
-            The CLI follows the same model — every mutation supports --dry-run, which shows the
-            fee, the predicted effects, and any policy verdict without submitting:
+            The CLI is generated from the same catalog: every transaction is a btcli tx
+            command and every query a btcli query command, with hand-written groups wrapping
+            the familiar workflows and the v9 shorthands preserved as aliases. Every mutation
+            supports --dry-run, which shows the fee, the predicted effects, and any policy
+            verdict without submitting:
           </p>
           <pre className={styles.code_block}>
             {`btcli config set network finney
@@ -396,6 +399,35 @@ btcli tx transfer --dest 5F...dest --amount-tao 1.5 -w my_coldkey`}
               future time and nobody, including the author, can open early; the same mechanism
               that secures commit-reveal weights, exposed directly. See{' '}
               <DocLink href='/docs/guides/timelock'>timelock</DocLink>.
+            </li>
+            <li>
+              <strong>Proxies as a first-class signer</strong> — every transaction accepts
+              --proxy-for, so a delegate key can act for a coldkey that never comes online;
+              scoped proxy types, announced (delayed) proxies, and pure proxy accounts are all
+              supported. See <DocLink href='/docs/concepts/advanced'>advanced operations</DocLink>.
+            </li>
+            <li>
+              <strong>Multisig accounts</strong> — create and operate k-of-n multisig
+              accounts, with the full approve, execute, and cancel flow wrapped by the btcli
+              multisig command group.
+            </li>
+            <li>
+              <strong>Atomic batches and MEV-shielded submission</strong> — compose several
+              intents into one all-or-nothing transaction, or encrypt a coldkey transaction to
+              the next block&apos;s ephemeral key so it cannot be observed or front-run in the
+              mempool.
+            </li>
+            <li>
+              <strong>Safer key rotation</strong> — hotkey swaps move registrations and stake
+              to a new key, and a leaked coldkey can be evacuated through an announced,
+              five-day-delayed swap that the real owner can dispute. See{' '}
+              <DocLink href='/docs/concepts/wallets'>wallets and keys</DocLink>.
+            </li>
+            <li>
+              <strong>Address safety</strong> — CLI address arguments resolve from a saved
+              address book or local key names as well as raw ss58, a defense against address
+              poisoning documented in{' '}
+              <DocLink href='/docs/concepts/wallets'>address hygiene</DocLink>.
             </li>
           </ol>
         </section>
