@@ -363,6 +363,41 @@ btcli query metagraph --netuid 1
 btcli tx transfer --dest 5F...dest --amount-tao 1.5 --dry-run
 btcli tx transfer --dest 5F...dest --amount-tao 1.5 -w my_coldkey`}
           </pre>
+          <p style={{textAlign: 'left', width: '100%'}}>
+            Beyond the consolidation, v11 adds capabilities that did not exist in the old
+            stack:
+          </p>
+          <ol className={styles.list}>
+            <li>
+              <strong>Unit-safe money</strong> — every Balance is tagged with its currency, so
+              TAO and subnet alpha cannot be silently mixed; arithmetic across units raises
+              instead of producing a wrong number. See{' '}
+              <DocLink href='/docs/concepts/money'>money</DocLink>.
+            </li>
+            <li>
+              <strong>Policy guardrails</strong> — a client can be bound to hard limits
+              (maximum fee, maximum spend, allowed subnets), and any transaction that would
+              exceed them is refused before it is signed. See{' '}
+              <DocLink href='/docs/concepts/transactions'>the transaction model</DocLink>.
+            </li>
+            <li>
+              <strong>Typed errors</strong> — every failure returns a semantic error code and
+              a remediation hint rather than prose, with the full mapping published as a
+              machine-readable catalog. See <DocLink href='/docs/errors'>errors</DocLink>.
+            </li>
+            <li>
+              <strong>Signed requests</strong> — hotkey-signed HTTP between validators and
+              miners, so a request provably came from a specific hotkey, covers exactly the
+              bytes received, and cannot be replayed. See{' '}
+              <DocLink href='/docs/guides/signed-requests'>signed requests</DocLink>.
+            </li>
+            <li>
+              <strong>Timelock encryption</strong> — seal data that anyone can open at a known
+              future time and nobody, including the author, can open early; the same mechanism
+              that secures commit-reveal weights, exposed directly. See{' '}
+              <DocLink href='/docs/guides/timelock'>timelock</DocLink>.
+            </li>
+          </ol>
         </section>
 
         <section className={styles.section}>
