@@ -1620,13 +1620,10 @@ export class BrowserChainClient {
     const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
     const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
     const metadataHashOptionProvided = hasOwn(options, 'metadataHash')
-    const supportsMetadataHash = runtimeSupportsMetadataHash(runtime)
-    const defaultMetadataHash = supportsMetadataHash || resolved.requiresMetadataProof
+    const defaultMetadataHash = resolved.requiresMetadataProof
     if (metadataHashOptionProvided && options.metadataHash == null && defaultMetadataHash) {
       throw new ChainError(
-        supportsMetadataHash
-          ? 'metadataHash cannot be disabled when the runtime declares CheckMetadataHash'
-          : 'metadataHash cannot be disabled for a signer that requires metadata proof',
+        'metadataHash cannot be disabled for a signer that requires metadata proof',
       )
     }
     const chainInfo = resolved.requiresMetadataProof || (!metadataHashOptionProvided && defaultMetadataHash)
@@ -3634,11 +3631,6 @@ function parseNonce(value: unknown, name: string): number {
     throw new ChainError(`${name} returned invalid nonce ${String(value)}`)
   }
   return nonce
-}
-
-function runtimeSupportsMetadataHash(runtime: Runtime): boolean {
-  const identifiers = runtime.signedExtensionIdentifiers?.() ?? []
-  return identifiers.includes('CheckMetadataHash')
 }
 
 function isMetadataAtVersionUnavailable(error: unknown): boolean {

@@ -1,5 +1,8 @@
 import { BINDING_VERSION, Client, Keypair, blake2_256, storage } from "@bittensor/sdk";
-import { describeSuite, expect } from "@moonwall/cli";
+import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { ApiPromise } from "@polkadot/api";
+import { tao } from "../../../utils";
+import { devForceSetBalance } from "../../../utils/dev-helpers.js";
 
 function getSdkEndpoint(): string | undefined {
     if (process.env.BT_CHAIN_ENDPOINT) {
@@ -18,6 +21,12 @@ describeSuite({
     title: "Rust-backed bittensor-ts integration",
     foundationMethods: "dev",
     testCases: ({ it, context }) => {
+        let polkadotJs: ApiPromise;
+
+        beforeAll(() => {
+            polkadotJs = context.polkadotJs();
+        });
+
         it({
             id: "T01",
             title: "connects, constructs, submits, and reads with the SDK chain client",
@@ -30,18 +39,31 @@ describeSuite({
 
                 const client = await new Client(endpoint).connect();
                 const signer = Keypair.fromUri("//Ferdie");
+                await devForceSetBalance(polkadotJs, context, signer.ss58Address, tao(1_000));
                 const remark = blake2_256(Buffer.from(`bittensor-ts:${BINDING_VERSION}`));
                 const call = await client.composeCall("System", "remark", { remark });
 
                 try {
                     await client.assertDescriptorSchema();
-                    const nonce = await client.accountNextIndex(signer.ss58Address);
-                    const signed = await client.signExtrinsic(call, signer, { allowRawCall: true, nonce });
-                    const watcher = await client.watchSigned(signed);
+                    const includedPromise = client.submit(call, signer, {
+                        allowRawCall: true,
+                        waitForInclusion: true,
+                        timeoutMs: 30_000,
+                    });
 
-                    await context.createBlock();
+                    let included: Awaited<typeof includedPromise> | undefined;
+                    for (let attempt = 0; attempt < 10 && included === undefined; attempt++) {
+                        await context.createBlock();
+                        const raced = await Promise.race([
+                            includedPromise.then((result) => ({ result })),
+                            new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+                        ]);
+                        if (raced !== null) {
+                            included = raced.result;
+                        }
+                    }
 
-                    const included = await watcher.result;
+                    included ??= await includedPromise;
                     expect(included.success, included.message).to.be.true;
                     expect(included.blockHash).to.not.be.undefined;
                     expect(included.extrinsicIndex).to.be.a("number");

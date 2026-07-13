@@ -807,21 +807,10 @@ impl Client {
             }
             _ => (Value::str("00"), self.genesis_hash),
         };
-        let supports_metadata_hash = runtime
-            .extrinsic
-            .signed_extensions
-            .iter()
-            .any(|extension| extension.identifier == "CheckMetadataHash");
-        let default_metadata_hash = supports_metadata_hash || signer.requires_metadata_proof;
+        let default_metadata_hash = signer.requires_metadata_proof;
         let mut chain_info = None;
         let metadata_hash = match options.metadata_hash {
             MetadataHashMode::Explicit(hash) => Some(hash),
-            MetadataHashMode::Disabled if supports_metadata_hash => {
-                return Err(CoreError::Policy(
-                    "metadataHash cannot be disabled when the runtime declares CheckMetadataHash"
-                        .into(),
-                ));
-            }
             MetadataHashMode::Disabled if signer.requires_metadata_proof => {
                 return Err(CoreError::Policy(
                     "metadataHash cannot be disabled for a signer that requires metadata proof"
