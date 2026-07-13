@@ -378,6 +378,8 @@ jobs:
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     timeout-minutes: 30
+    permissions:
+      contents: write # publish the proposal pre-release + tag
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -449,6 +451,49 @@ jobs:
             > wasm/pending-release.json
           cat wasm/pending-release.json
 
+      # Everything a signer (or btcli) needs to locate, verify, and sign the
+      # proposal, in one machine-readable file. `btcli upgrade check/sign`
+      # consumes it via the release asset URL.
+      - name: Build upgrade manifest
+        if: steps.guard.outputs.should_propose == 'true'
+        run: |
+          spec="${{ needs.build.outputs.spec_version }}"
+          tag="v${spec}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          jq -n \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg tag "$tag" \
+            --arg base "$base" \
+            --arg network "finney" \
+            --slurpfile pending wasm/pending-release.json \
+            --slurpfile digest wasm/subtensor-digest.json \
+            --slurpfile sudo .github/scripts/deploy/sudo-signatories.json \
+            '{
+              kind: "runtime-upgrade-proposal",
+              network: $network,
+              repo: $repo,
+              tag: $tag,
+              spec_version: $pending[0].expected_spec_version,
+              commit: $pending[0].commit,
+              call_hash: $pending[0].proposal.callHash,
+              proposal: $pending[0].proposal,
+              ci_address: $pending[0].proposal.ciAddress,
+              deployment_multisig: $pending[0].proposal.multisigAddress,
+              sudo_key: $pending[0].proposal.sudoKey,
+              sudo: {signatories: $sudo[0].signatories, threshold: $sudo[0].threshold},
+              wasm_sha256: $digest[0].sha256,
+              srtool_rustc: ($digest[0].rustc // null),
+              max_weight: {ref_time: 50000000000, proof_size: 0},
+              assets: {
+                wasm: ($base + "/subtensor.wasm"),
+                digest: ($base + "/subtensor-digest.json"),
+                call_data: ($base + "/proxy_proxy_blob.hex"),
+                pending_release: ($base + "/pending-release.json"),
+                manifest: ($base + "/upgrade-manifest.json")
+              }
+            }' > wasm/upgrade-manifest.json
+          cat wasm/upgrade-manifest.json
+
       - name: Upload runtime + call data artifacts
         if: steps.guard.outputs.should_propose == 'true'
         uses: actions/upload-artifact@v4
@@ -459,5 +504,109 @@ jobs:
             wasm/subtensor-digest.json
             wasm/proxy_proxy_blob.hex
             wasm/pending-release.json
+            wasm/upgrade-manifest.json
           if-no-files-found: error
           retention-days: 90
+
+      # The single URL to share with the other signers. A *pre-release* at the
+      # deployed commit: the release page carries the signer instructions and
+      # the artifacts as stable-URL assets; watch-mainnet-release.yml promotes
+      # it to a final release once the upgrade executes on chain.
+      - name: Publish proposal pre-release
+        if: steps.guard.outputs.should_propose == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          spec="${{ needs.build.outputs.spec_version }}"
+          tag="v${spec}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
+
+          # A published (non-prerelease) v<spec> means this spec already
+          # shipped; never touch it. A pre-release for the same spec is a
+          # respun proposal (e.g. the first train failed mid-way): replace it.
+          if existing=$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease' 2>/dev/null); then
+            if [ "$existing" != "true" ]; then
+              echo "release $tag already published as a final release; refusing to overwrite"
+              exit 1
+            fi
+            echo "replacing existing proposal pre-release $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
+
+          commit=$(jq -r '.commit' wasm/pending-release.json)
+          call_hash=$(jq -r '.proposal.callHash' wasm/pending-release.json)
+          height=$(jq -r '.proposal.blockHeight' wasm/pending-release.json)
+          index=$(jq -r '.proposal.extrinsicIndex' wasm/pending-release.json)
+          ci_address=$(jq -r '.proposal.ciAddress' wasm/pending-release.json)
+          deploy_ms=$(jq -r '.proposal.multisigAddress' wasm/pending-release.json)
+          sha256=$(jq -r '.sha256' wasm/subtensor-digest.json)
+
+          cat > release-body.md <<EOF
+          ## Proposed runtime upgrade to spec ${spec} (awaiting signatures)
+
+          CI has submitted its half of the 2-of-2 deployment multisig for this
+          upgrade on finney. It executes once the sudo multisig (triumvirate)
+          produces the second approval. This tag is the exact code being
+          deployed.
+
+          ### Sign it
+
+          Each triumvirate member runs:
+
+          \`\`\`
+          btcli upgrade sign --url ${url} -w <your-wallet>
+          \`\`\`
+
+          btcli verifies the call data against the chain (structure, sudo key,
+          on-chain call hash) before submitting, and picks the right approval
+          (first / interior / final) from chain state automatically.
+
+          ### Verify it independently (recommended)
+
+          Build the runtime from this tag with srtool and compare byte-for-byte
+          (see \`.github/scripts/deploy/README.md\` for the full recipe):
+
+          \`\`\`
+          git fetch origin && git checkout ${tag}
+          # srtool build, then:
+          btcli upgrade check --url ${url} --wasm <path/to/your-build.wasm>
+          \`\`\`
+
+          Without \`--wasm\`, \`btcli upgrade check --url ${url}\` still verifies
+          the published artifacts against each other and the chain, but trusts
+          the released wasm; a local srtool build closes that gap.
+
+          ### Proposal details
+
+          | | |
+          | --- | --- |
+          | spec_version | \`${spec}\` |
+          | commit | \`${commit}\` |
+          | call hash | \`${call_hash}\` |
+          | deployment timepoint | \`${height}:${index}\` |
+          | CI key | \`${ci_address}\` |
+          | deployment multisig | \`${deploy_ms}\` |
+          | wasm sha256 | \`${sha256}\` |
+          EOF
+
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$commit" \
+            --prerelease \
+            --title "Runtime ${spec} (proposed)" \
+            --notes-file release-body.md \
+            wasm/subtensor.wasm \
+            wasm/subtensor-digest.json \
+            wasm/proxy_proxy_blob.hex \
+            wasm/pending-release.json \
+            wasm/upgrade-manifest.json
+
+          {
+            echo "## Share this with the other signers"
+            echo ""
+            echo "**${url}**"
+            echo ""
+            echo '```'
+            echo "btcli upgrade sign --url ${url} -w <your-wallet>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

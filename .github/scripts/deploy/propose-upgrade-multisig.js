@@ -197,13 +197,15 @@ blob artifact provided by the CI.
         fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
       }
 
-      // Machine-readable record for the release watcher
+      // Machine-readable record for the release watcher and upgrade manifest
       const pendingRelease = {
         callHash,
         blockHash,
         blockHeight,
         extrinsicIndex,
         multisigAddress,
+        ciAddress: ciKeyAddress,
+        sudoKey,
         specVersionBefore,
       };
       fs.writeFileSync(
