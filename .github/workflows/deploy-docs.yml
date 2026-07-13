@@ -25,8 +25,10 @@ jobs:
   deploy:
     name: Deploy staging docs to Vercel
     runs-on: [self-hosted, fireactions-turbo-8]
-    # Production deploys are gated behind the same environment approval as the
-    # post-upgrade promotion in watch-mainnet-release.yml.
+    # Production deploys only run from main (a dispatch on any other ref would
+    # otherwise ship unreviewed code) and are gated behind the same environment
+    # approval as the post-upgrade promotion in watch-mainnet-release.yml.
+    if: ${{ !inputs.production || github.ref == 'refs/heads/main' }}
     environment: ${{ inputs.production && 'mainnet' || null }}
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
