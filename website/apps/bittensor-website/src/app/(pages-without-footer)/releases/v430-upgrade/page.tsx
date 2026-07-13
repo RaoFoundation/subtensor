@@ -107,6 +107,74 @@ const ConvictionGraph = () => (
   </svg>
 );
 
+const EMISSION_BARS = {
+  before: [150, 108, 70],
+  after: [109, 109, 109],
+  ages: ['3 MO', '1 YR', '2 YR'],
+} as const;
+
+const EmissionGraph = () => (
+  <svg
+    className={styles.graph}
+    viewBox='0 0 760 340'
+    role='img'
+    aria-label='Before v430, three subnets with the same price received progressively less emission with age; after v430, their emission shares are equal because price alone determines the split.'
+  >
+    {(['before', 'after'] as const).map((panel, p) => {
+      const x0 = p === 0 ? 80 : 425;
+      return (
+        <g key={panel}>
+          <text {...GRAPH_TEXT} x={x0 + 128} y='40' textAnchor='middle'>
+            {panel === 'before' ? 'BEFORE V430' : 'AFTER V430'}
+          </text>
+          <text
+            {...GRAPH_TEXT}
+            x={x0 + 128}
+            y='58'
+            textAnchor='middle'
+            fill='rgba(41, 41, 41, 0.55)'
+          >
+            {panel === 'before' ? 'SAME PRICE, LESS WITH AGE' : 'EMISSION FOLLOWS PRICE'}
+          </text>
+          {EMISSION_BARS[panel].map((h, i) => {
+            const x = x0 + i * 90;
+            return (
+              <g key={i}>
+                <rect
+                  x={x}
+                  y={270 - h}
+                  width='56'
+                  height={h}
+                  fill={panel === 'before' ? 'rgba(41, 41, 41, 0.12)' : 'rgba(209, 81, 104, 0.12)'}
+                  stroke={panel === 'before' ? 'rgb(41, 41, 41)' : '#d15168'}
+                  strokeWidth='1'
+                />
+                <text {...GRAPH_TEXT} x={x + 28} y='288' textAnchor='middle'>
+                  {EMISSION_BARS.ages[i]}
+                </text>
+              </g>
+            );
+          })}
+          <line
+            x1={x0 - 10}
+            y1='270'
+            x2={x0 + 266}
+            y2='270'
+            stroke='rgb(41, 41, 41)'
+            strokeWidth='1'
+          />
+        </g>
+      );
+    })}
+    <text {...GRAPH_TEXT} x='380' y='168' textAnchor='middle' fontSize='16'>
+      {'\u2192'}
+    </text>
+    <text {...GRAPH_TEXT} x='380' y='320' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
+      THREE SUBNETS, IDENTICAL MOVING-AVERAGE PRICE
+    </text>
+  </svg>
+);
+
 const page = () => {
   return (
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
@@ -187,6 +255,12 @@ const page = () => {
             operate <i>within </i>each subnet — capping liquidity injection and reserving the
             root stakers&apos; share of dividends — but it no longer affects how emission is
             divided between subnets.
+          </p>
+          <EmissionGraph />
+          <p className={styles.graph_caption}>
+            Three subnets with an identical moving-average price. Before v430, the
+            root-proportion term reduced each subnet&apos;s share as its alpha issuance grew;
+            after, the same price earns the same emission regardless of age.
           </p>
           <p>
             The result is that a subnet&apos;s emission share is a direct function of its
