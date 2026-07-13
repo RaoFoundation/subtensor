@@ -3,5 +3,4 @@ self-hosted-runner:
   labels:
     - fireactions-turbo-16
     - fireactions-turbo-8
-    - fireactions-tryruntime
     - Benchmarking
