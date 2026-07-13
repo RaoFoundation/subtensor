@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+
+log_file="clone-node.log"
+ready_attempts=450
+advance_timeout_seconds=60
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: start-local-clone-and-wait.sh MODE
+
+Modes:
+  accelerated   Seal every 250ms and require 20 blocks of advancement
+  manual        Use manual sealing and require RPC health only
+  node-default  Preserve the node's default sealing and require RPC health only
+EOF
+  exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+mode="$1"
+
+cd "$REPO_ROOT"
+case "$mode" in
+  accelerated)
+    nohup ./clones/scripts/start-local-clone.sh --sealing 250 > "$log_file" 2>&1 &
+    ;;
+  manual)
+    nohup ./clones/scripts/start-local-clone.sh --sealing manual > "$log_file" 2>&1 &
+    ;;
+  node-default)
+    nohup ./clones/scripts/start-local-clone.sh > "$log_file" 2>&1 &
+    ;;
+  *) usage ;;
+esac
+node_pid=$!
+
+cleanup_on_failure() {
+  local status=$?
+  (( status != 0 )) || return
+  echo "Clone node startup failed; last log lines:"
+  tail -n 200 "$log_file" 2>/dev/null || true
+  "$SCRIPT_DIR/stop-local-clone.sh" || true
+}
+trap cleanup_on_failure EXIT
+
+rpc() {
+  local method="$1"
+  curl -fsS -H "Content-Type: application/json" \
+    -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":[]}" \
+    http://127.0.0.1:9944
+}
+
+ready=false
+for ((attempt = 1; attempt <= ready_attempts; attempt++)); do
+  if rpc system_health > /dev/null; then
+    ready=true
+    break
+  fi
+  kill -0 "$node_pid" 2>/dev/null || break
+  sleep 2
+done
+[[ "$ready" == true ]] || exit 1
+
+if [[ "$mode" != accelerated ]]; then
+  echo "Clone node is healthy."
+  trap - EXIT
+  exit 0
+fi
+
+height() {
+  local hex
+  hex=$(rpc chain_getHeader | jq -er '.result.number')
+  echo $((16#${hex#0x}))
+}
+
+first=$(height)
+deadline=$(($(date +%s) + advance_timeout_seconds))
+while (( $(date +%s) < deadline )); do
+  current=$(height)
+  if (( current >= first + 20 )); then
+    echo "Clone advanced from block $first to $current."
+    trap - EXIT
+    exit 0
+  fi
+  sleep 1
+done
+
+exit 1

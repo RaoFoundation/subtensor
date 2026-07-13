@@ -40,6 +40,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   TRY_RUNTIME_VERSION: "0.10.1"
+  # v0.10.1 exposes parallelism only through the number of URI values.
+  SNAPSHOT_RPC_CLIENTS: "4"
 
 jobs:
   snapshot:
@@ -73,31 +75,11 @@ jobs:
 
       - name: Genesis-init the local clone database
         run: |
-          nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
           # Genesis init from the ~2 GB chainspec takes several minutes before
-          # the RPC server comes up.
-          up=false
-          for _ in $(seq 1 450); do
-            if curl -sf -H "Content-Type: application/json" \
-              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
-              http://127.0.0.1:9944 > /dev/null; then
-              up=true
-              break
-            fi
-            sleep 2
-          done
-          if [ "$up" != true ]; then
-            echo "Clone node failed to start:"
-            cat clone-node.log
-            exit 1
-          fi
+          # the RPC server comes up. Preserve the node's default consensus mode
+          # and only require RPC health before packaging.
+          ./clones/scripts/start-local-clone-and-wait.sh node-default
           ./clones/scripts/stop-local-clone.sh
-          # pkill returns before the node finishes flushing the db; wait for
-          # the process to actually exit before packaging.
-          for _ in $(seq 1 60); do
-            pgrep -f "node-subtensor.*--base-path clones/mainnet-clone" > /dev/null || break
-            sleep 2
-          done
 
       - name: Package snapshot
         run: |
@@ -201,13 +183,20 @@ jobs:
           snapshot="${{ matrix.network.name }}.snap"
           manifest="${{ matrix.network.name }}.manifest.json"
           # The positional path must precede --uri because --uri is variadic.
-          # remote-externalities creates four value-fetch workers per URI. The
-          # archive endpoint is dedicated to this workload, so open four
-          # independent clients to it (16 value-fetch workers in total).
+          # Each client creates four remote-externalities value-fetch workers;
+          # the archive endpoint is dedicated to this workload.
           rpc_uri="${{ matrix.network.uri }}"
+          [[ "$SNAPSHOT_RPC_CLIENTS" =~ ^[1-9][0-9]*$ ]] || {
+            echo "invalid SNAPSHOT_RPC_CLIENTS: $SNAPSHOT_RPC_CLIENTS" >&2
+            exit 2
+          }
+          rpc_uris=()
+          for ((client = 0; client < SNAPSHOT_RPC_CLIENTS; client++)); do
+            rpc_uris+=("$rpc_uri")
+          done
           "$TRY_RUNTIME_BIN" create-snapshot \
             "$snapshot" \
-            --uri "$rpc_uri" "$rpc_uri" "$rpc_uri" "$rpc_uri" \
+            --uri "${rpc_uris[@]}" \
             --at "${{ steps.source.outputs.block-hash }}"
 
           snapshot_size=$(stat -c '%s' "$snapshot")
