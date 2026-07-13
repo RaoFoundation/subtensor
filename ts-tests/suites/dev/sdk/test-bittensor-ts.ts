@@ -29,20 +29,20 @@ describeSuite({
                 }
 
                 const client = await new Client(endpoint).connect();
-                const alice = Keypair.fromUri("//Alice");
+                const signer = Keypair.fromUri("//Ferdie");
                 const remark = blake2_256(Buffer.from(`bittensor-ts:${BINDING_VERSION}`));
                 const call = await client.composeCall("System", "remark", { remark });
 
                 try {
                     await client.assertDescriptorSchema();
-                    const nonce = await client.accountNextIndex(alice.ss58Address);
-                    const signed = await client.signExtrinsic(call, alice, { allowRawCall: true, nonce });
+                    const nonce = await client.accountNextIndex(signer.ss58Address);
+                    const signed = await client.signExtrinsic(call, signer, { allowRawCall: true, nonce });
                     const watcher = await client.watchSigned(signed);
 
                     await context.createBlock();
 
                     const included = await watcher.result;
-                    expect(included.success).to.be.true;
+                    expect(included.success, included.message).to.be.true;
                     expect(included.blockHash).to.not.be.undefined;
                     expect(included.extrinsicIndex).to.be.a("number");
 
