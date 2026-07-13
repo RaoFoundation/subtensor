@@ -50,7 +50,12 @@
   font-family: 'FiraCode';
   font-size: 12px;
   font-weight: 200;
-  width: 100%;
+  /* Viewport-based width: with white-space pre, width 100% would let the
+     longest code line dictate the section's min-content width and force the
+     whole page to overflow horizontally on narrow screens. The page
+     container is max-width 960px with 32px side padding. */
+  width: calc(100vw - 64px);
+  max-width: 896px;
   margin: 0;
   padding: 16px 20px;
   border: 1px solid rgba(41, 41, 41, 0.2);
@@ -65,6 +70,14 @@
   width: 100%;
   height: auto;
   margin-top: 8px;
+}
+
+/* The SVG scales with the viewport, so at phone widths the 10px labels
+   become ~5px. CSS font-size beats the SVG presentation attribute. */
+@media (max-width: 640px) {
+  .graph text {
+    font-size: 16px;
+  }
 }
 
 .graph_caption {
