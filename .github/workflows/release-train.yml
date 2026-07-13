@@ -360,10 +360,14 @@ jobs:
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
+      # --check-url makes a re-run after a partial upload idempotent: files
+      # already on the index are skipped instead of failing with a 400
+      # duplicate (e.g. the SDK wheel landed but bittensor-core didn't).
       - name: Publish to PyPI
         run: |
           ls -la dist
-          uv publish --trusted-publishing always dist/*
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/ dist/*
 
   # ------------------------------------------------------------------
   # Stage 3: mainnet — the human gate.
