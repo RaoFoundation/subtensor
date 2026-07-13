@@ -217,6 +217,12 @@ export class Runtime implements RustRuntimePublic<Buffer, ByteLike, IntegerLike>
     )
   }
 
+  static fromNativeHandle(handle: NativeRuntimeHandle): Runtime {
+    const runtime = Object.create(Runtime.prototype) as Runtime
+    ;(runtime as unknown as { handle: NativeRuntimeHandle }).handle = handle
+    return runtime
+  }
+
   get specVersion(): number {
     return this.handle.specVersion
   }

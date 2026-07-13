@@ -15,7 +15,7 @@ use serde_json::Value as JsonValue;
 
 use crate::errors::{invalid_arg, CoreResultExt, NapiResult};
 use crate::keys::NativeKeypair;
-use crate::runtime::{NativeSignerPayload, NativeTxParams};
+use crate::runtime::{NativeRuntime, NativeSignerPayload, NativeTxParams};
 use crate::values::{from_wire, to_wire};
 
 #[napi(object)]
@@ -225,6 +225,9 @@ client_task!(
 );
 client_task!(ClientSwapQuoteTask, SwapQuote, NativeSwapQuote, |value| {
     Ok(quote_to_native(value))
+});
+client_task!(ClientChainInfoTask, ChainInfo, NativeChainInfo, |value| {
+    Ok(chain_info_to_native(value))
 });
 
 pub struct ClientWireValueTask {
@@ -879,6 +882,19 @@ impl NativeClient {
         AsyncTask::new(ClientBoolTask::new(Arc::clone(&self.inner), |client| {
             client.refresh_runtime()
         }))
+    }
+
+    #[napi(js_name = "runtime")]
+    pub fn runtime(&self) -> NapiResult<NativeRuntime> {
+        self.inner.runtime().napi().map(NativeRuntime::from_arc)
+    }
+
+    #[napi(js_name = "chainInfo")]
+    pub fn chain_info(&self) -> NapiResult<AsyncTask<ClientChainInfoTask>> {
+        Ok(AsyncTask::new(ClientChainInfoTask::new(
+            Arc::clone(&self.inner),
+            |client| client.chain_info(),
+        )))
     }
 
     #[napi(js_name = "composeCall")]

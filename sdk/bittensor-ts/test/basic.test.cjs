@@ -116,7 +116,7 @@ function fakeSigningRuntime(overrides = {}) {
 }
 
 function fakeSigningClient(runtime, callData) {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const finalizedHash = `0x${'42'.repeat(32)}`
   client.runtimeAt = async () => runtime
   client.callData = async () => Buffer.from(callData)
@@ -157,7 +157,7 @@ function fakeRuntimeCacheClient(options = {}) {
     transactionVersion: 1,
   }
   const blockVersions = new Map()
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'http://127.0.0.1:9944',
     headRuntimeTtlMs: options.headRuntimeTtlMs ?? 1_000,
     historicalRuntimeCacheSize: options.historicalRuntimeCacheSize ?? 2,
@@ -1005,6 +1005,7 @@ test('module-shaped export mirrors the public Rust crate', () => {
 
 test('chain client surface is exported without Polkadot.js glue', () => {
   assert.equal(typeof core.Client, 'function')
+  assert.equal(typeof core.BrowserChainClient, 'function')
   assert.equal(typeof core.Client.prototype.watchSigned, 'function')
   assert.equal(Object.prototype.hasOwnProperty.call(core, 'NativeChainClient'), false)
   assert.equal(Object.prototype.hasOwnProperty.call(core, 'RustWallet'), false)
@@ -1041,12 +1042,58 @@ test('chain client surface is exported without Polkadot.js glue', () => {
   ])
 })
 
+test('Node Client keeps the Rust native backend authoritative', async () => {
+  assert.throws(
+    () => new core.Client('local', {
+      endpoint: 'http://primary',
+      fallbackEndpoints: ['http://fallback'],
+    }),
+    /BrowserChainClient/,
+  )
+  assert.throws(
+    () => new core.Client('local', {
+      endpoint: 'ws://node-a',
+      webSocketFactory() {
+        throw new Error('not reached')
+      },
+    }),
+    /BrowserChainClient/,
+  )
+
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const calls = []
+  const blockHash = `0x${'55'.repeat(32)}`
+  client.requireNativeClient = async () => ({
+    finalizedHead() {
+      calls.push({ method: 'finalizedHead' })
+      return blockHash
+    },
+    query(pallet, storage, params, block) {
+      calls.push({ method: 'query', pallet, storage, params, block })
+      return 42
+    },
+  })
+  client.rpc = async () => {
+    throw new Error('raw RPC should not be used by Node Client query')
+  }
+
+  assert.equal(await client.query('Example', 'Value'), 42)
+  assert.deepEqual(calls, [
+    { method: 'finalizedHead' },
+    { method: 'query', pallet: 'Example', storage: 'Value', params: [], block: blockHash },
+  ])
+  await assert.rejects(
+    () => client.queryMap('Example', 'Map', [], null, { pageSize: 1 }),
+    /delegates map pagination to Rust/,
+  )
+})
+
 test('declared Node runtime supports the default WebSocket client path', () => {
   assert.equal(typeof globalThis.WebSocket, 'function')
 })
 
 test('Client subnet hyperparameters read uses the v3 runtime API', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const calls = []
   client.runtime = async (method, params, block) => {
     calls.push({ method, params, block })
@@ -1812,7 +1859,7 @@ test('Client accepts an injected WebSocket factory when no global WebSocket exis
     }))
   }
 
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'ws://node-a',
     webSocketFactory(url) {
       urls.push(url)
@@ -1839,7 +1886,7 @@ test('Client passes maxSubscriptionQueue into its transport', async (t) => {
       queueMicrotask(() => socket.serverMessage({ jsonrpc: '2.0', id: message.id, result: 'sub-1' }))
     }
   }
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'ws://node-a',
     expectedGenesisHash: genesis,
     requestTimeoutMs: 100,
@@ -1868,15 +1915,15 @@ test('Client passes maxSubscriptionQueue into its transport', async (t) => {
 })
 
 test('Client autoConnect exposes a handled readiness promise', async (t) => {
-  const originalRuntimeAt = core.Client.prototype.runtimeAt
+  const originalRuntimeAt = core.BrowserChainClient.prototype.runtimeAt
   t.after(() => {
-    core.Client.prototype.runtimeAt = originalRuntimeAt
+    core.BrowserChainClient.prototype.runtimeAt = originalRuntimeAt
   })
-  core.Client.prototype.runtimeAt = async () => {
+  core.BrowserChainClient.prototype.runtimeAt = async () => {
     throw new Error('startup failed')
   }
 
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'http://127.0.0.1:9944',
     autoConnect: true,
   })
@@ -1914,7 +1961,7 @@ test('Client validates fallback endpoint genesis before use', async (t) => {
     }
   }
 
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'http://primary',
     expectedGenesisHash: primaryGenesis,
     fallbackEndpoints: ['http://fallback'],
@@ -1953,7 +2000,7 @@ test('Client fallback can validate from expected genesis when primary is unavail
     }
   }
 
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'http://primary',
     expectedGenesisHash: expectedGenesis,
     fallbackEndpoints: ['http://fallback'],
@@ -1992,7 +2039,7 @@ test('Client rotates past a wrong-genesis primary to a valid fallback', async (t
     }
   }
 
-  const client = new core.Client('local', {
+  const client = new core.BrowserChainClient('local', {
     endpoint: 'http://primary',
     expectedGenesisHash: expectedGenesis,
     fallbackEndpoints: ['http://fallback'],
@@ -2007,7 +2054,7 @@ test('Client rotates past a wrong-genesis primary to a valid fallback', async (t
 
 test('Client requires expected genesis for custom fallback endpoints', () => {
   assert.throws(
-    () => new core.Client('local', {
+    () => new core.BrowserChainClient('local', {
       endpoint: 'http://primary',
       fallbackEndpoints: ['http://fallback'],
     }),
@@ -2092,7 +2139,7 @@ test('Client caches historical runtimes by block hash with LRU eviction', async 
 })
 
 test('Client queryBatch decodes metadata defaults for missing storage values', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const blockHash = `0x${'33'.repeat(32)}`
   const keys = [Buffer.from([1]), Buffer.from([2])]
   const runtime = {
@@ -2132,7 +2179,7 @@ test('Client queryBatch decodes metadata defaults for missing storage values', a
 })
 
 test('Client query and runtimeCall pin default reads to one finalized block', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const blockHash = `0x${'34'.repeat(32)}`
   const calls = []
   const runtime = {
@@ -2196,7 +2243,7 @@ test('Client query and runtimeCall pin default reads to one finalized block', as
 })
 
 test('Client queryMap pins reads and rejects pagination without progress', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const blockHash = `0x${'44'.repeat(32)}`
   const calls = []
   const runtime = {
@@ -2333,7 +2380,7 @@ test('Client accepts raw metadata calls only with explicit raw permission', asyn
 })
 
 test('Client callData composes trusted Rust intent calls', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const captures = {}
   client.composeCall = async (pallet, fn, params, block) => {
     captures.composeCall = { pallet, fn, params, block }
@@ -2469,13 +2516,13 @@ test('Client passes structured payloads to extension signPayload signers', async
 })
 
 test('Client rejects invalid chain nonce values', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   client.rpc = async () => 'NaN'
   await assert.rejects(() => client.accountNextIndex('5F'), /invalid nonce/)
 })
 
 test('Client rejects mismatched submit hashes and keeps local hash authoritative', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   client.transport.request = async (method) => {
     assert.equal(method, 'author_submitExtrinsic')
     return `0x${'00'.repeat(32)}`
@@ -2563,7 +2610,7 @@ test('Client submit delegates automatic Keypair nonces to the Rust client', asyn
   const signer = core.Keypair.fromUri('//Alice')
   const callData = Buffer.from([1, 2, 3])
   const { runtime } = fakeSigningRuntime()
-  client.headRuntime = async () => runtime
+  client.runtimeAt = async () => runtime
   const calls = []
   const plan = {
     callData,
@@ -2590,7 +2637,7 @@ test('Client submit delegates automatic Keypair nonces to the Rust client', asyn
     feeRao: null,
     warnings: [],
   }
-  client.tryNativeClient = () => ({
+  client.requireNativeClient = () => ({
     externalSigningPlan(submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options) {
       calls.push({ stage: 'plan', submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options })
       return plan
@@ -2634,7 +2681,7 @@ test('Client submit uses the Rust signing plan for external signers', async () =
   const callData = Buffer.from([3, 1, 4])
   const { runtime } = fakeSigningRuntime()
   const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
-  client.headRuntime = async () => runtime
+  client.runtimeAt = async () => runtime
   const publicKey = Buffer.alloc(32, 24)
   const address = core.ss58FromPublic(publicKey, 42)
   const signerPayload = {
@@ -2680,7 +2727,7 @@ test('Client submit uses the Rust signing plan for external signers', async () =
     warnings: [],
   }
   const calls = []
-  client.tryNativeClient = () => ({
+  client.requireNativeClient = () => ({
     externalSigningPlan(submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options) {
       calls.push({ stage: 'plan', submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options })
       return plan
@@ -2847,7 +2894,7 @@ test('Client submit without inclusion reports pool submission, not execution suc
 })
 
 test('Client treats string and object fatal watch statuses as failures', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const subscriptionFor = (status) => ({
     async *[Symbol.asyncIterator]() {
       yield status
@@ -2866,7 +2913,7 @@ test('Client treats string and object fatal watch statuses as failures', async (
 })
 
 test('Client continues watching after retracted extrinsic status', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const blockHash = `0x${'33'.repeat(32)}`
   const extrinsicHash = `0x${'44'.repeat(32)}`
   const subscription = {
@@ -2895,7 +2942,7 @@ test('Client continues watching after retracted extrinsic status', async () => {
 })
 
 test('Client reports included extrinsics with missing dispatch outcome as unknown', async () => {
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   const extrinsic = '0x0102'
   const extrinsicHash = `0x${core.blake2_256(Buffer.from([1, 2])).toString('hex')}`
   client.rpc = async (method) => {
@@ -2918,7 +2965,7 @@ test('Client reports included extrinsics with missing dispatch outcome as unknow
 test('Client submitSigned submits detached bytes without nonce coordination', async () => {
   const submitMaxRetries = []
   const submitRetryForever = []
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   client.transport.request = async (method, params = [], options = {}) => {
     if (method === 'author_submitExtrinsic') {
       submitMaxRetries.push(options.maxRetries)
@@ -2963,7 +3010,7 @@ test('Client watchSigned submits detached bytes without nonce coordination', asy
     }
   }
 
-  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const client = new core.BrowserChainClient('local', { endpoint: 'http://127.0.0.1:9944' })
   client.transport = new core.JsonRpcTransport('ws://node-a', [], false, {
     requestTimeoutMs: 100,
     maxRequestRetries: 0,

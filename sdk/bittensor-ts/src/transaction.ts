@@ -1,5 +1,6 @@
 import native, {
   type NativeBlockHeader,
+  type NativeChainInfo,
   type NativeClientHandle,
   type NativeExecutorHandle,
   type NativeExternalSigner,
@@ -20,6 +21,7 @@ import { nativeAsync, nativeCall } from './errors'
 import { fromWire, toWire } from './wire'
 import type { ScaleValue } from './types'
 import { Keypair, nativeKeypairHandle } from './keys'
+import { Runtime } from './runtime'
 
 export type SignerRoleName = 'coldkey' | 'hotkey'
 export type SignerRoleLike = SignerRoleName | number
@@ -354,6 +356,14 @@ export class NativeChainClient {
 
   refreshRuntime(): Promise<boolean> {
     return nativeAsync(() => this.native.refreshRuntime())
+  }
+
+  runtime(): Runtime {
+    return Runtime.fromNativeHandle(nativeCall(() => this.native.runtime()))
+  }
+
+  chainInfo(): Promise<NativeChainInfo> {
+    return nativeAsync(() => this.native.chainInfo())
   }
 
   blockHash(block?: bigint | number | null): Promise<string> {

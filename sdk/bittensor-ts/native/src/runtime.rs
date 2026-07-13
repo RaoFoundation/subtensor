@@ -280,6 +280,10 @@ pub struct NativeRuntime {
 }
 
 impl NativeRuntime {
+    pub(crate) fn from_arc(inner: Arc<Runtime>) -> Self {
+        Self { inner }
+    }
+
     fn entry(&self, pallet: &str, name: &str) -> NapiResult<&StorageInfo> {
         self.inner.storage_entry(pallet, name).ok_or_else(|| {
             into_napi(CoreError::NotInRuntime(format!(

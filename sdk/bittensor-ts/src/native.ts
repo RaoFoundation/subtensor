@@ -451,6 +451,8 @@ export interface NativeClientHandle {
   header(blockHash?: string | null): Promise<NativeBlockHeader>
   readCatalog(): string[]
   refreshRuntime(): Promise<boolean>
+  runtime(): NativeRuntimeHandle
+  chainInfo(): Promise<NativeChainInfo>
   composeCall(pallet: string, callFunction: string, params: unknown): Promise<Buffer>
   decodeScale(typeName: string, data: Buffer): unknown
   constant(pallet: string, name: string): unknown

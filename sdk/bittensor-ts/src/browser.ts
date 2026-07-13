@@ -317,10 +317,6 @@ function toInteger(value: BrowserIntegerLike, name = 'value'): number {
   return value
 }
 
-function cryptoTypeForKeyType(type: SubstrateKeyType): number {
-  return type === 'ed25519' ? CRYPTO_ED25519 : CRYPTO_SR25519
-}
-
 function keyTypeForCryptoType(cryptoType: number): SubstrateKeyType {
   if (cryptoType === CRYPTO_ED25519) return 'ed25519'
   if (cryptoType === CRYPTO_SR25519) return 'sr25519'

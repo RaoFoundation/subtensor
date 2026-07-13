@@ -19,13 +19,14 @@ The Node TypeScript layer is limited to JavaScript-friendly names and defaults,
 lossless `Buffer`/`bigint`/`Map` boundary conversion, error classes,
 signing-compatibility adapters for the signer objects expected by Polkadot.js,
 Polkadot API, and Moonwall, wallet filesystem management, generated-style
-descriptors, and the client responsibilities that deliberately remain outside
-the current blocking Rust client: async WebSocket transport, subscriptions,
-endpoint fallback, browser support, and extension-signer interop. On Node,
-chain reads, call composition, fee estimation, Rust-keypair signing,
-inclusion/finalization receipts, dispatch-error interpretation, and high-level
-transaction semantics prefer the native Rust client and transaction executor when
-available. High-level TypeScript transaction helpers construct Rust
+descriptors, and extension-signer interop. On Node, the default `Client` uses
+the native Rust client as the authoritative backend for connection, runtime
+refresh and caching, storage reads, runtime calls, call composition, nonce
+reads, fee estimation, signing plans, submission, inclusion/finalization
+receipts, dispatch-error interpretation, and high-level transaction semantics.
+The independent TypeScript JSON-RPC transport is exposed separately as
+`BrowserChainClient` for browser/custom-transport use cases where the native
+client cannot run. High-level TypeScript transaction helpers construct Rust
 `IntentCall` values, and arbitrary pallet/function calls are classified as raw
 by Rust policy before signing.
 
@@ -64,9 +65,11 @@ The native crate is isolated under `sdk/bittensor-ts/native`; it links
 `sdk/bittensor-core` directly and contains binding glue only. No chain
 algorithm is reimplemented in TypeScript.
 
-Node.js 22 or newer is required for the default WSS client path because the
-SDK uses the unflagged global `WebSocket`. Older Node runtimes can still use
-HTTP endpoints or pass `webSocketFactory`/`webSocketConstructor` explicitly.
+Node.js 22 or newer is required for `BrowserChainClient`'s default WSS path
+because that transport uses the unflagged global `WebSocket`. Older Node
+runtimes can still use HTTP endpoints with `BrowserChainClient` or pass
+`webSocketFactory`/`webSocketConstructor` explicitly. The default Node `Client`
+delegates transport to Rust.
 Browser builds also require `wasm-pack` so `npm run build` can emit the
 `dist/wasm/bittensor_core_wasm.js` bundle used by `@bittensor/sdk/browser`.
 
@@ -121,18 +124,24 @@ await client.transfer(alice, '5F...', Balance.fromTao('0.01'), {
 await client.close()
 ```
 
-Fallback endpoints are validated against a trusted genesis hash before use.
-Known mainnet aliases (`finney`, `archive`) use the checked-in mainnet genesis
-hash. Custom endpoint sets, and named networks without a built-in trust anchor,
-must pass `expectedGenesisHash` when `fallbackEndpoints` are configured:
+`Client` is the Node-native high-level client. Raw JSON-RPC calls,
+subscriptions, injected WebSockets, and endpoint fallback belong to the explicit
+`BrowserChainClient` transport client:
 
 ```ts
-const client = new Client('local', {
+import { BrowserChainClient } from '@bittensor/sdk'
+
+const client = new BrowserChainClient('local', {
   endpoint: 'wss://primary.example',
   fallbackEndpoints: ['wss://fallback.example'],
   expectedGenesisHash: '0x...',
 })
 ```
+
+Fallback endpoints are validated against a trusted genesis hash before use.
+Known mainnet aliases (`finney`, `archive`) use the checked-in mainnet genesis
+hash. Custom endpoint sets, and named networks without a built-in trust anchor,
+must pass `expectedGenesisHash` when `fallbackEndpoints` are configured.
 
 Transaction amount inputs are intentionally explicit. Pass `Balance.fromTao("1.25")`
 or `taoAmount("1.25")` for TAO-denominated values, and pass `123n` or
@@ -143,7 +152,9 @@ TAO/alpha amounts with more than nine fractional digits are rejected.
 `client.submit()` delegates automatic nonce selection to the Rust client when
 submitting with a native `Keypair`. Low-level manual signing APIs such as
 `signExtrinsic()` require an explicit `nonce`, and detached flows using
-`submitSigned()` or `watchSigned()` do not inspect or coordinate nonce state.
+`submitSigned()` delegate encoded submission to Rust. `watchSigned()` is only
+available on `BrowserChainClient`, where the TypeScript WebSocket transport owns
+the subscription.
 
 High-level transaction helpers such as `transfer()`, `staking.addStake()`,
 `setWeights()`, registration, and serving route through Rust trusted
