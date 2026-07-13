@@ -567,18 +567,20 @@ jobs:
 
           ### Verify it independently (recommended)
 
-          Build the runtime from this tag with srtool and compare byte-for-byte
-          (see \`.github/scripts/deploy/README.md\` for the full recipe):
+          One command rebuilds the runtime from this tag with srtool,
+          byte-compares it against the released wasm, and prints the sign
+          command pinned to your own build (needs docker; see
+          \`.github/scripts/deploy/README.md\` for the manual recipe):
 
           \`\`\`
           git fetch origin && git checkout ${tag}
-          # srtool build, then:
-          btcli upgrade check --url ${url} --wasm <path/to/your-build.wasm>
+          ./scripts/verify-upgrade.sh
           \`\`\`
 
-          Without \`--wasm\`, \`btcli upgrade check --url ${url}\` still verifies
-          the published artifacts against each other and the chain, but trusts
-          the released wasm; a local srtool build closes that gap.
+          Signing without verifying trusts the released wasm: plain
+          \`btcli upgrade check --url ${url}\` still verifies the published
+          artifacts against each other and the chain, but only a local srtool
+          build proves the bytes came from this source.
 
           ### Proposal details
 
