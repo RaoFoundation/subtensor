@@ -524,13 +524,13 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          tar -xzf /tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
+          checkpoint=/tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
+          ./clones/scripts/local-clone-checkpoint.sh restore "$checkpoint"
           echo "Restored artifact ${{ steps.clone-snapshot.outputs.artifact-id }} from run ${{ steps.clone-snapshot.outputs.run-id }}."
           # Tells start-local-clone.sh to keep the pre-initialized database
           # instead of wiping it and re-running genesis init.
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
-          echo "CLONE_CHECKPOINT=/tmp/mainnet-snapshot/mainnet-snapshot.tar.gz" >> "$GITHUB_ENV"
-          echo "CLONE_CHECKPOINT_GZIP=1" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
 
       - name: Fall back after an unusable clone snapshot
         if: >-
@@ -539,7 +539,8 @@ jobs:
            steps.restore-clone-snapshot.outcome != 'success')
         run: |
           echo "::warning::selected clone snapshot was unusable; falling back to a live mainnet scrape"
-          rm -rf /tmp/mainnet-snapshot clones/mainnet-clone clones/mainnet-clone-chainspec.json
+          ./clones/scripts/local-clone-checkpoint.sh clear
+          rm -rf /tmp/mainnet-snapshot
 
       - name: Fall back after clone snapshot lookup failure
         if: steps.clone-snapshot.outcome == 'failure'
@@ -570,44 +571,22 @@ jobs:
         if: steps.restore-clone-snapshot.outcome != 'success'
         run: |
           set -euo pipefail
-          nohup ./clones/scripts/start-local-clone.sh --sealing manual > clone-node.log 2>&1 &
-          for _ in $(seq 1 450); do
-            if curl -sf -H "Content-Type: application/json" \
-              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
-              http://127.0.0.1:9944 > /dev/null; then
-              break
-            fi
-            sleep 2
-          done
-          if ! curl -sf -H "Content-Type: application/json" \
-            -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
-            http://127.0.0.1:9944 > /dev/null; then
-            cat clone-node.log
-            exit 1
-          fi
-          ./clones/scripts/stop-local-clone.sh
-          for _ in $(seq 1 60); do
-            pgrep -f 'node-subtensor.*--base-path clones/mainnet-clone' > /dev/null || break
-            sleep 1
-          done
-          if pgrep -f 'node-subtensor.*--base-path clones/mainnet-clone' > /dev/null; then
-            echo "Clone did not stop before checkpointing."
-            exit 1
-          fi
-          tar -cf /tmp/mainnet-clone-pristine.tar \
-            clones/mainnet-clone-chainspec.json \
-            clones/mainnet-clone
+          ./clones/scripts/start-local-clone-and-wait.sh manual
+          checkpoint=/tmp/mainnet-clone-pristine.tar
+          ./clones/scripts/local-clone-checkpoint.sh create "$checkpoint"
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
-          echo "CLONE_CHECKPOINT=/tmp/mainnet-clone-pristine.tar" >> "$GITHUB_ENV"
-          echo "CLONE_CHECKPOINT_GZIP=0" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
+
+      - name: Install clone test dependencies
+        working-directory: clones/js-tests
+        run: npm ci
 
       - name: Start isolated issuance clone
-        run: .github/scripts/start-accelerated-clone.sh
+        run: ./clones/scripts/start-local-clone-and-wait.sh accelerated
 
       - name: Sudo-upgrade issuance clone with proposed runtime
         working-directory: clones/js-tests
         run: |
-          npm ci
           # Right after genesis the node occasionally rejects the first
           # extrinsic with "bad signature" (observed in the former sharded
           # workflow while identical transactions succeeded seconds later).
@@ -617,31 +596,18 @@ jobs:
       - name: Run isolated issuance regression
         working-directory: clones/js-tests
         env:
-          CLONE_REGRESSION_TESTS: test-total-issuance-trackers.ts
+          CLONE_REGRESSION_PHASE: pristine
           CLONE_REGRESSION_TIMEOUT_MS: 1800000
         run: npm run test:clone-regressions
 
       - name: Stop isolated issuance clone
-        run: |
-          ./clones/scripts/stop-local-clone.sh
-          for _ in $(seq 1 60); do
-            pgrep -f 'node-subtensor.*--base-path clones/mainnet-clone' > /dev/null || exit 0
-            sleep 1
-          done
-          exit 1
+        run: ./clones/scripts/stop-local-clone.sh
 
       - name: Restore pristine clone for remaining regressions
-        run: |
-          set -euo pipefail
-          rm -rf clones/mainnet-clone clones/mainnet-clone-chainspec.json
-          if [ "$CLONE_CHECKPOINT_GZIP" = "1" ]; then
-            tar -xzf "$CLONE_CHECKPOINT"
-          else
-            tar -xf "$CLONE_CHECKPOINT"
-          fi
+        run: ./clones/scripts/local-clone-checkpoint.sh restore "$CLONE_CHECKPOINT"
 
       - name: Start regression clone
-        run: .github/scripts/start-accelerated-clone.sh
+        run: ./clones/scripts/start-local-clone-and-wait.sh accelerated
 
       - name: Sudo-upgrade regression clone with proposed runtime
         working-directory: clones/js-tests
@@ -654,15 +620,7 @@ jobs:
       - name: Run remaining clone regression tests
         working-directory: clones/js-tests
         env:
-          CLONE_REGRESSION_TESTS: >-
-            test-balancer-operation.ts
-            test-balancer-edge-emission-issuance.ts
-            test-locks-conviction.ts
-            test-lock-dust-cleanup.ts
-            test-proxy-filter-security-regressions.ts
-            test-hotkey-swap-and-proxy-stake.ts
-            test-net-tao-flow-emission-allocation.ts
-            test-alpha-deprecated-stake-histogram.ts
+          CLONE_REGRESSION_PHASE: remaining
           CLONE_REGRESSION_TIMEOUT_MS: 1800000
         run: npm run test:clone-regressions
 

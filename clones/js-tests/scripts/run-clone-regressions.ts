@@ -14,35 +14,63 @@ const testsDir = path.join(__dirname, "..", "tests");
 // beats burning half an hour of runner time per stuck test.
 const TEST_TIMEOUT_MS = Number(process.env.CLONE_REGRESSION_TIMEOUT_MS ?? 15 * 60 * 1000);
 
+const CLONE_REGRESSION_PHASES = ["pristine", "remaining"] as const;
+type CloneRegressionPhase = (typeof CLONE_REGRESSION_PHASES)[number];
+
 const CLONE_REGRESSIONS = [
   // This test asserts the global issuance mirrors before and after each
-  // scenario, so run it before forceSetBalance-based tests mutate the clone.
-  "test-total-issuance-trackers.ts",
-  "test-balancer-operation.ts",
-  "test-balancer-edge-emission-issuance.ts",
-  "test-locks-conviction.ts",
-  "test-lock-dust-cleanup.ts",
-  "test-proxy-filter-security-regressions.ts",
-  "test-hotkey-swap-and-proxy-stake.ts",
-  "test-net-tao-flow-emission-allocation.ts",
-  "test-alpha-deprecated-stake-histogram.ts",
-];
+  // scenario, so it owns the pristine phase before forceSetBalance-based tests
+  // mutate the clone.
+  { name: "test-total-issuance-trackers.ts", phase: "pristine" },
+  { name: "test-balancer-operation.ts", phase: "remaining" },
+  { name: "test-balancer-edge-emission-issuance.ts", phase: "remaining" },
+  { name: "test-locks-conviction.ts", phase: "remaining" },
+  { name: "test-lock-dust-cleanup.ts", phase: "remaining" },
+  { name: "test-proxy-filter-security-regressions.ts", phase: "remaining" },
+  { name: "test-hotkey-swap-and-proxy-stake.ts", phase: "remaining" },
+  { name: "test-net-tao-flow-emission-allocation.ts", phase: "remaining" },
+  { name: "test-alpha-deprecated-stake-histogram.ts", phase: "remaining" },
+] as const satisfies ReadonlyArray<{ name: string; phase: CloneRegressionPhase }>;
 
-// CI shards the suite across parallel clones; CLONE_REGRESSION_TESTS selects
-// a subset (whitespace/comma separated). Unknown names fail loudly so a typo
-// in a shard definition can't silently skip a regression test.
+const regressionNames = new Set<string>(CLONE_REGRESSIONS.map(({ name }) => name));
+const regressionPhases = new Set<string>(CLONE_REGRESSION_PHASES);
+
+// CI selects a named phase, keeping suite membership canonical here. Explicit
+// filename selection remains available for targeted local/debug runs.
+const requestedPhase = (process.env.CLONE_REGRESSION_PHASE ?? "").trim();
 const requested = (process.env.CLONE_REGRESSION_TESTS ?? "").split(/[\s,]+/).filter(Boolean);
-const unknown = requested.filter((name) => !CLONE_REGRESSIONS.includes(name));
+const cliArgs = process.argv.slice(2);
+const unknownArgs = cliArgs.filter((arg) => arg !== "--list");
+if (unknownArgs.length > 0) {
+  console.error(`Unknown argument(s): ${unknownArgs.join(", ")}`);
+  process.exit(1);
+}
+if (requestedPhase && requested.length > 0) {
+  console.error("Set either CLONE_REGRESSION_PHASE or CLONE_REGRESSION_TESTS, not both");
+  process.exit(1);
+}
+if (requestedPhase && !regressionPhases.has(requestedPhase)) {
+  console.error(`Unknown regression phase: ${requestedPhase}`);
+  process.exit(1);
+}
+const unknown = requested.filter((name) => !regressionNames.has(name));
 if (unknown.length > 0) {
   console.error(`Unknown regression test(s): ${unknown.join(", ")}`);
   process.exit(1);
 }
 const selected =
   requested.length > 0
-    ? CLONE_REGRESSIONS.filter((name) => requested.includes(name))
-    : CLONE_REGRESSIONS;
+    ? CLONE_REGRESSIONS.filter(({ name }) => requested.includes(name))
+    : requestedPhase
+      ? CLONE_REGRESSIONS.filter(({ phase }) => phase === requestedPhase)
+      : CLONE_REGRESSIONS;
 
-for (const name of selected) {
+if (cliArgs.includes("--list")) {
+  console.log(selected.map(({ name }) => name).join("\n"));
+  process.exit(0);
+}
+
+for (const { name } of selected) {
   const script = path.join(testsDir, name);
   console.log(`\n=== clone regression: ${name} (timeout ${TEST_TIMEOUT_MS}ms) ===`);
   const result = spawnSync(process.execPath, ["--import", "tsx", script], {
