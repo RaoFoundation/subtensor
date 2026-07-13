@@ -52,32 +52,6 @@
             "foundation": {
                 "type": "zombie",
                 "zombieSpec": {
-                    "configPath": "./configs/zombie_node.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"]
-                }
-            ]
-        },
-        {
-            "name": "zombienet_staking_single",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_staking"],
-            "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
                     "configPath": "./configs/zombie_single_node.json",
                     "skipBlockCheck": []
                 }
@@ -130,9 +104,9 @@
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_shield"],
             "include": [
-                "00.00-basic.test.ts",
-                "00.01-basic.test.ts",
-                "02-edge-cases.test.ts"
+                "suites/zombienet_shield/00.00-basic.test.ts",
+                "suites/zombienet_shield/00.01-basic.test.ts",
+                "suites/zombienet_shield/02-edge-cases.test.ts"
             ],
             "runScripts": [
                 "generate-types.sh",
@@ -168,9 +142,9 @@
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_shield"],
             "include": [
-                "01-scaling.test.ts",
-                "03-timing.test.ts",
-                "04-mortality.test.ts"
+                "suites/zombienet_shield/01-scaling.test.ts",
+                "suites/zombienet_shield/03-timing.test.ts",
+                "suites/zombienet_shield/04-mortality.test.ts"
             ],
             "runScripts": [
                 "generate-types.sh",
@@ -212,32 +186,6 @@
             "foundation": {
                 "type": "zombie",
                 "zombieSpec": {
-                    "configPath": "./configs/zombie_node.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"]
-                }
-            ]
-        },
-        {
-            "name": "zombienet_coldkey_swap_single",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_coldkey_swap"],
-            "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
                     "configPath": "./configs/zombie_single_node.json",
                     "skipBlockCheck": []
                 }
@@ -254,40 +202,6 @@
             ]
         }, {
             "name": "zombienet_evm",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_evm"],
-            "runScripts": [
-                "generate-types.sh",
-                "generate-ink-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
-                    "configPath": "./configs/zombie_node.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"],
-                    "descriptor": "subtensor"
-                },
-                {
-                    "name": "EVM",
-                    "type": "ethers",
-                    "endpoints": ["http://127.0.0.1:9947"],
-                    "descriptor": "evm"
-                }
-            ]
-        },
-        {
-            "name": "zombienet_evm_single",
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_evm"],
             "runScripts": [
@@ -321,32 +235,6 @@
             ]
         }, {
             "name": "zombienet_subnets",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_subnets"],
-            "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
-                    "configPath": "./configs/zombie_node.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"]
-                }
-            ]
-        },
-        {
-            "name": "zombienet_subnets_single",
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_subnets"],
             "runScripts": [
