@@ -130,7 +130,7 @@ jobs:
     strategy:
       fail-fast: false
       # Snapshot production is off the PR critical path. Serialize the network
-      # jobs to bound archive RPC load and hosted-runner usage.
+      # jobs to bound archive RPC load and shared-runner usage.
       max-parallel: 1
       matrix:
         network:
@@ -200,16 +200,12 @@ jobs:
           export RUST_LOG=remote-ext=debug
           snapshot="${{ matrix.network.name }}.snap"
           manifest="${{ matrix.network.name }}.manifest.json"
-          resource_usage="$RUNNER_TEMP/${{ matrix.network.name }}-snapshot-resources.txt"
-          trap 'cat "$resource_usage" 2>/dev/null || true' EXIT
-          df -h "$GITHUB_WORKSPACE"
-          free -h
           # The positional path must precede --uri because --uri is variadic.
           # remote-externalities creates four value-fetch workers per URI. The
           # archive endpoint is dedicated to this workload, so open four
           # independent clients to it (16 value-fetch workers in total).
           rpc_uri="${{ matrix.network.uri }}"
-          /usr/bin/time -v -o "$resource_usage" "$TRY_RUNTIME_BIN" create-snapshot \
+          "$TRY_RUNTIME_BIN" create-snapshot \
             "$snapshot" \
             --uri "$rpc_uri" "$rpc_uri" "$rpc_uri" "$rpc_uri" \
             --at "${{ steps.source.outputs.block-hash }}"
