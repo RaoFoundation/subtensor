@@ -913,6 +913,21 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Refund the TAO the AMM could not consume (e.g. when the user-supplied
+        // price limit is hit before the full `tao_staked` is swapped). Without
+        // this, the unswapped remainder is stranded on the subnet PalletId
+        // account. Mirrors the alpha refund in `unstake_from_subnet`.
+        let consumed_tao = swap_result
+            .amount_paid_in
+            .saturating_add(swap_result.fee_paid);
+        let refund_tao = tao_staked.saturating_sub(consumed_tao);
+        if !refund_tao.is_zero() {
+            Self::transfer_tao_from_subnet(netuid, coldkey, refund_tao)?;
+            // `swap_tao_for_alpha` bumped `TotalStake` by the full `tao_staked`;
+            // only `consumed_tao` actually became stake, so back out the refund.
+            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(refund_tao));
+        }
+
         // Record TAO inflow
         Self::record_tao_inflow(netuid, swap_result.amount_paid_in.into());
 
