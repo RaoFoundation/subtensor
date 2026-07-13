@@ -21,8 +21,9 @@ export function createEthersWallet(provider: ethers.JsonRpcProvider): ethers.Wal
     return new ethers.Wallet(account.privateKey, provider);
 }
 
-export async function getEthBalance(provider: ethers.Provider, address: string): Promise<bigint> {
-    return provider.getBalance(address);
+/** Read an uncached latest balance directly from the node. */
+export async function getEthBalance(provider: ethers.JsonRpcProvider, address: string): Promise<bigint> {
+    return BigInt(await provider.send("eth_getBalance", [address, "latest"]));
 }
 
 /**
@@ -41,7 +42,7 @@ export async function waitForEthBalance(
     let actual = 0n;
 
     while (Date.now() < deadline) {
-        actual = BigInt(await provider.send("eth_getBalance", [address, "latest"]));
+        actual = await getEthBalance(provider, address);
         if (actual === expected) {
             return actual;
         }

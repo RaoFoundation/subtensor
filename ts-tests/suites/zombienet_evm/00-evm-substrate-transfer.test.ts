@@ -49,7 +49,7 @@ function expectWithinTxFee(actual: bigint, expected: bigint): void {
 async function transferAndGetFee(
     wallet: ethers.Wallet,
     wallet2: ethers.Wallet,
-    provider: ethers.Provider,
+    provider: ethers.JsonRpcProvider,
     maxFeePerGas: bigint,
     maxPriorityFeePerGas: bigint
 ): Promise<bigint> {
