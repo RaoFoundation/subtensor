@@ -6,7 +6,7 @@ use std::time::Duration;
 use bittensor_core::client::{
     BlockHeader, DispatchError, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan,
     MetadataHashMode, SubnetHyperparameter, SubnetHyperparameterValue, SubnetInfo, SwapQuote,
-    TxOutcome, TxWait, DEFAULT_RECEIPT_TIMEOUT,
+    TxOutcome, TxSubmitOptions, TxWait, DEFAULT_RECEIPT_TIMEOUT,
 };
 use bittensor_core::codec::Value;
 use bittensor_core::digest::ChainInfo;
@@ -166,6 +166,12 @@ impl NativeCancellationToken {
     #[napi(getter)]
     pub fn cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for NativeCancellationToken {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1177,6 +1183,7 @@ impl NativeClient {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[napi(js_name = "submit")]
     pub fn submit(
         &self,
@@ -1205,7 +1212,15 @@ impl NativeClient {
             cancellation,
             move |client, cancelled| {
                 client.submit_with_cancel(
-                    &call_data, &signer, nonce, period, wait, timeout, cancelled,
+                    &call_data,
+                    &signer,
+                    TxSubmitOptions {
+                        nonce,
+                        period,
+                        wait,
+                        timeout,
+                        cancelled,
+                    },
                 )
             },
         )

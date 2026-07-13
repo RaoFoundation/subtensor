@@ -1360,7 +1360,10 @@ mod tests {
 
     #[test]
     fn global_root_claim_modes_do_not_bypass_subnet_allowlists() {
-        let intent = IntentCall::set_root_claim_type("Swap", None).expect("valid root claim");
+        let intent = match IntentCall::set_root_claim_type("Swap", None) {
+            Ok(intent) => intent,
+            Err(error) => panic!("valid root claim failed: {error}"),
+        };
         let subnet_only = Policy {
             allowed_netuids: Some(BTreeSet::from([1])),
             ..Policy::default()
@@ -1383,8 +1386,10 @@ mod tests {
 
     #[test]
     fn keep_subnets_root_claim_remains_subnet_scoped() {
-        let intent = IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1]))
-            .expect("valid root claim");
+        let intent = match IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])) {
+            Ok(intent) => intent,
+            Err(error) => panic!("valid root claim failed: {error}"),
+        };
         let allowed = Policy {
             allowed_netuids: Some(BTreeSet::from([1])),
             ..Policy::default()

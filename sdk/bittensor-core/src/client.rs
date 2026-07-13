@@ -42,6 +42,27 @@ pub enum TxWait {
     Finalized,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TxSubmitOptions<'a> {
+    pub nonce: Option<u64>,
+    pub period: Option<u64>,
+    pub wait: TxWait,
+    pub timeout: Duration,
+    pub cancelled: Option<&'a AtomicBool>,
+}
+
+impl Default for TxSubmitOptions<'_> {
+    fn default() -> Self {
+        Self {
+            nonce: None,
+            period: Some(DEFAULT_ERA_PERIOD),
+            wait: TxWait::Included,
+            timeout: DEFAULT_RECEIPT_TIMEOUT,
+            cancelled: None,
+        }
+    }
+}
+
 /// A decoded block header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockHeader {
@@ -1109,32 +1130,43 @@ impl Client {
         wait: TxWait,
         timeout: Duration,
     ) -> Result<TxOutcome, CoreError> {
-        self.submit_with_cancel(call_data, signer, nonce, period, wait, timeout, None)
+        self.submit_with_cancel(
+            call_data,
+            signer,
+            TxSubmitOptions {
+                nonce,
+                period,
+                wait,
+                timeout,
+                cancelled: None,
+            },
+        )
     }
 
     pub fn submit_with_cancel(
         &self,
         call_data: &[u8],
         signer: &Keypair,
-        nonce: Option<u64>,
-        period: Option<u64>,
-        wait: TxWait,
-        timeout: Duration,
-        cancelled: Option<&AtomicBool>,
+        options: TxSubmitOptions<'_>,
     ) -> Result<TxOutcome, CoreError> {
         let address = signer.ss58_address();
-        let explicit_nonce = nonce.is_some();
+        let explicit_nonce = options.nonce.is_some();
         let mut last = None;
         for _ in 0..NONCE_RETRY_LIMIT {
-            check_cancelled(cancelled)?;
-            let nonce = match nonce {
+            check_cancelled(options.cancelled)?;
+            let nonce = match options.nonce {
                 Some(nonce) => nonce,
                 None => self.reserve_nonce(&address)?,
             };
-            let (extrinsic, hash) = self.sign_extrinsic(call_data, signer, nonce, period)?;
-            let outcome = match self
-                .submit_encoded_with_wait_cancelled(&extrinsic, hash, wait, timeout, cancelled)
-            {
+            let (extrinsic, hash) =
+                self.sign_extrinsic(call_data, signer, nonce, options.period)?;
+            let outcome = match self.submit_encoded_with_wait_cancelled(
+                &extrinsic,
+                hash,
+                options.wait,
+                options.timeout,
+                options.cancelled,
+            ) {
                 Ok(outcome) => outcome,
                 Err(error) if !explicit_nonce && is_cancelled_before_submission_error(&error) => {
                     self.invalidate_nonce(&address)?;
@@ -2566,8 +2598,12 @@ mod reorg_finalization_tests {
             ]),
         ]);
 
+        let typed = match subnet_hyperparameters_v3(&raw) {
+            Ok(value) => value,
+            Err(error) => panic!("valid V3 value failed to decode: {error}"),
+        };
         assert_eq!(
-            subnet_hyperparameters_v3(&raw).expect("valid V3 value"),
+            typed,
             Some(vec![
                 SubnetHyperparameter {
                     name: "tempo".into(),
@@ -2579,9 +2615,11 @@ mod reorg_finalization_tests {
                 },
             ])
         );
-        assert_eq!(
-            subnet_hyperparameters_v3(&Value::Null).expect("null V3 value"),
-            None
-        );
+
+        let empty = match subnet_hyperparameters_v3(&Value::Null) {
+            Ok(value) => value,
+            Err(error) => panic!("null V3 value failed to decode: {error}"),
+        };
+        assert_eq!(empty, None);
     }
 }
