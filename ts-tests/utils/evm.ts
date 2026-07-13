@@ -1,4 +1,4 @@
-import { subtensor } from "@polkadot-api/descriptors";
+import type { subtensor } from "@polkadot-api/descriptors";
 import { Keyring } from "@polkadot/keyring";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
@@ -16,9 +16,32 @@ export async function disableWhiteListCheck(api: TypedApi<typeof subtensor>, dis
     await waitForTransactionWithRetry(api, tx, alice, "disable_whitelist", 5);
 }
 
+class UncachedNonceWallet extends ethers.Wallet {
+    constructor(
+        privateKey: string,
+        private readonly rpcProvider: ethers.JsonRpcProvider
+    ) {
+        super(privateKey, rpcProvider);
+    }
+
+    /**
+     * Bypass ethers' 250ms request cache for nonce reads. Development blocks
+     * seal every 100ms, so a cached pending nonce can already be stale when the
+     * next transaction is populated and cause a spurious "nonce too low".
+     */
+    override async getNonce(blockTag: ethers.BlockTag = "latest"): Promise<number> {
+        if (blockTag !== "pending") {
+            return super.getNonce(blockTag);
+        }
+
+        const nonce = await this.rpcProvider.send("eth_getTransactionCount", [this.address, "pending"]);
+        return ethers.getNumber(nonce, "nonce");
+    }
+}
+
 export function createEthersWallet(provider: ethers.JsonRpcProvider): ethers.Wallet {
     const account = ethers.Wallet.createRandom();
-    return new ethers.Wallet(account.privateKey, provider);
+    return new UncachedNonceWallet(account.privateKey, provider);
 }
 
 /** Read an uncached latest balance directly from the node. */
