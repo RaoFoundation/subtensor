@@ -427,19 +427,9 @@ jobs:
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true' || needs.changes.outputs.python_sdk == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
     runs-on: [self-hosted, fireactions-turbo-8]
-    environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
-      deployment: false
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - name: Enable shared compiler cache for SDK core
-        uses: ./.github/actions/sccache-setup
-        with:
-          credential-mode: auto
-          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Install uv
         run: |
@@ -477,9 +467,6 @@ jobs:
     name: clone-upgrade
     needs: [trusted-pr, changes, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
-    environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
-      deployment: false
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
     permissions:
@@ -488,14 +475,6 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v4
-
-      - name: Enable shared compiler cache for SDK core
-        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
-        uses: ./.github/actions/sccache-setup
-        with:
-          credential-mode: auto
-          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Download release node + runtime wasm
         uses: actions/download-artifact@v4
@@ -675,6 +654,10 @@ jobs:
       - name: Run remaining clone regression tests
         working-directory: clones/js-tests
         env:
+          # This scan is against the isolated local clone. Larger pages reduce
+          # hundreds of loopback RPC round trips without increasing public RPC
+          # load or changing the assertions.
+          ALPHA_HISTOGRAM_PAGE_SIZE: 5000
           CLONE_REGRESSION_TESTS: >-
             test-balancer-operation.ts
             test-balancer-edge-emission-issuance.ts
