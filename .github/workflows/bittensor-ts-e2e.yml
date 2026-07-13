@@ -204,15 +204,29 @@ jobs:
           npm --prefix sdk/bittensor-ts ci
           npm --prefix sdk/bittensor-ts run check
 
+      - name: Package bittensor-ts build
+        run: |
+          set -euo pipefail
+          mapfile -t native_bins < <(find sdk/bittensor-ts -maxdepth 1 -type f -name '*.node' -printf '%f\n' | sort)
+          if [ "${#native_bins[@]}" -eq 0 ]; then
+            echo "::error::No bittensor-ts native binary was produced"
+            exit 1
+          fi
+          tar -czf "$RUNNER_TEMP/bittensor-ts-build.tar.gz" \
+            -C sdk/bittensor-ts \
+            dist \
+            native.cjs \
+            native.generated.d.ts \
+            "${native_bins[@]}"
+          tar -tzf "$RUNNER_TEMP/bittensor-ts-build.tar.gz" > "$RUNNER_TEMP/bittensor-ts-build.files"
+          grep -qx 'dist/index.js' "$RUNNER_TEMP/bittensor-ts-build.files"
+          grep -qx 'native.cjs' "$RUNNER_TEMP/bittensor-ts-build.files"
+
       - name: Upload bittensor-ts build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bittensor-ts
-          path: |
-            sdk/bittensor-ts/dist
-            sdk/bittensor-ts/native.cjs
-            sdk/bittensor-ts/native.generated.d.ts
-            sdk/bittensor-ts/*.node
+          path: ${{ runner.temp }}/bittensor-ts-build.tar.gz
           if-no-files-found: error
 
   test-bittensor-ts-node-min:
@@ -237,7 +251,13 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: bittensor-ts
-          path: sdk/bittensor-ts
+          path: ${{ runner.temp }}/bittensor-ts
+
+      - name: Extract bittensor-ts build
+        run: |
+          tar -xzf "$RUNNER_TEMP/bittensor-ts/bittensor-ts-build.tar.gz" -C sdk/bittensor-ts
+          test -s sdk/bittensor-ts/dist/index.js
+          test -s sdk/bittensor-ts/native.cjs
 
       - name: Test package on minimum supported Node
         run: |
@@ -343,7 +363,13 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: bittensor-ts
-          path: sdk/bittensor-ts
+          path: ${{ runner.temp }}/bittensor-ts
+
+      - name: Extract bittensor-ts build
+        run: |
+          tar -xzf "$RUNNER_TEMP/bittensor-ts/bittensor-ts-build.tar.gz" -C sdk/bittensor-ts
+          test -s sdk/bittensor-ts/dist/index.js
+          test -s sdk/bittensor-ts/native.cjs
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

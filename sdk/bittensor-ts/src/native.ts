@@ -1,8 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import type {
+  RustEpochScheduleState,
+  RustKeypairKind,
+  RustMapPair,
+  RustPayloadParts,
+  RustSignedExtrinsic,
+  RustSignedExtrinsicParams,
+  RustStorageChange,
+  RustStorageEntry,
+  RustTransactionParams,
+} from './rust-bindings'
+
 export interface NativeKeypairHandle {
   readonly cryptoType: number
-  readonly kind: 'Ed25519' | 'Sr25519' | 'PublicOnly'
+  readonly kind: RustKeypairKind
   readonly publicKey: Buffer
   readonly ss58Address: string
   readonly ss58Format: number
@@ -13,28 +25,11 @@ export interface NativeKeypairHandle {
   decrypt(ciphertext: Buffer): Buffer
 }
 
-export interface NativeStorageEntry {
-  pallet: string
-  name: string
-  prefix: string
-  modifier: string
-  valueType: string
-  valueTypeId: number
-  paramTypes: string[]
-  paramTypeIds: number[]
-  paramHashers: string[]
-  defaultBytes: Buffer
-}
+export interface NativeStorageEntry extends RustStorageEntry<Buffer> {}
 
-export interface NativeStorageChange {
-  key: string
-  value?: string | null
-}
+export interface NativeStorageChange extends RustStorageChange {}
 
-export interface NativeMapPair {
-  key: unknown
-  value: unknown
-}
+export interface NativeMapPair<K = unknown, V = unknown> extends RustMapPair<K, V> {}
 
 export interface NativeBlockHeader {
   hash: string
@@ -63,14 +58,8 @@ export interface NativeSignedExtrinsic {
   hash: string
 }
 
-export interface NativeTxParams {
-  era: unknown
-  nonce: bigint
+export interface NativeTxParams extends RustTransactionParams<Buffer, bigint> {
   tip: bigint
-  tipAssetId?: bigint | null
-  genesisHash: Buffer
-  eraBlockHash: Buffer
-  metadataHash?: Buffer | null
 }
 
 export interface NativeSignerPayload {
@@ -91,11 +80,8 @@ export interface NativeSignerPayload {
   mode?: number | null
 }
 
-export interface NativeExtrinsicParams {
-  era: unknown
-  nonce: bigint
+export interface NativeExtrinsicParams extends RustSignedExtrinsicParams<bigint> {
   tip: bigint
-  tipAssetId?: bigint | null
   metadataHashEnabled: boolean
 }
 
@@ -235,10 +221,7 @@ export interface NativeRuntimeHandle {
   moduleError(moduleIndex: number, errorIndex: number): { name: string; docs: string[] }
   signedExtensionIdentifiers(): string[]
   encodeEra(era: unknown): Buffer
-  signaturePayloadParts(params: NativeTxParams): {
-    includedInExtrinsic: Buffer
-    includedInSignedData: Buffer
-  }
+  signaturePayloadParts(params: NativeTxParams): RustPayloadParts<Buffer>
   signaturePayload(callData: Buffer, params: NativeTxParams): Buffer
   signerPayload(
     address: string,
@@ -251,7 +234,7 @@ export interface NativeRuntimeHandle {
     signature: Buffer,
     signatureVersion: number,
     params: NativeExtrinsicParams,
-  ): { bytes: Buffer; hash: Buffer }
+  ): RustSignedExtrinsic<Buffer>
   decodeExtrinsic(data: Buffer, strict: boolean): unknown
   runtimeApiMap(): unknown
   metadataIr(): unknown
@@ -266,14 +249,7 @@ export interface NativeRuntimeConstructor {
   ): NativeRuntimeHandle
 }
 
-export interface NativeEpochScheduleState {
-  lastEpochBlock: bigint
-  pendingEpochAt: bigint
-  subnetEpochIndex: bigint
-  tempo: number
-  blocksSinceLastStep: bigint
-  currentBlock: bigint
-}
+export interface NativeEpochScheduleState extends RustEpochScheduleState<bigint> {}
 
 export interface NativeLedgerHandle {
   appVersion(): Promise<{ major: number; minor: number; patch: number }>
@@ -307,6 +283,49 @@ export interface NativePlan {
   violations: string[]
   ok: boolean
   callData: Buffer
+}
+
+export interface NativeExternalSigningOptions {
+  nonce?: bigint | null
+  period?: bigint | null
+  immortal?: boolean | null
+  tip?: bigint | null
+  tipAssetId?: bigint | null
+  metadataHashMode?: 'auto' | 'disabled' | 'explicit' | string | null
+  metadataHash?: Buffer | null
+}
+
+export interface NativeExternalSigner {
+  signerAddress: string
+  publicKey: Buffer
+  cryptoType: number
+  requiresMetadataProof: boolean
+}
+
+export interface NativeChainInfo {
+  specVersion: number
+  specName: string
+  base58Prefix: number
+  decimals: number
+  tokenSymbol: string
+}
+
+export interface NativeExternalSigningPlanHandle {
+  readonly callData: Buffer
+  readonly signerAddress: string
+  readonly publicKey: Buffer
+  readonly cryptoType: number
+  readonly nonce: bigint
+  readonly payload: Buffer
+  readonly includedInExtrinsic: Buffer
+  readonly includedInSignedData: Buffer
+  readonly metadataHash?: Buffer | null
+  readonly metadataProof?: Buffer | null
+  readonly txParams: NativeTxParams
+  readonly signerPayload: NativeSignerPayload
+  readonly chainInfo?: NativeChainInfo | null
+  readonly feeRao?: string | null
+  readonly warnings: string[]
 }
 
 export interface NativeDispatchError {
@@ -426,52 +445,75 @@ export interface NativeClientHandle {
   readonly endpoint: string
   readonly ss58Format: number
   readonly genesisHash: Buffer
-  blockHash(block?: bigint | null): string
-  finalizedHead(): string
-  blockNumber(blockHash?: string | null): bigint
-  header(blockHash?: string | null): NativeBlockHeader
+  blockHash(block?: bigint | null): Promise<string>
+  finalizedHead(): Promise<string>
+  blockNumber(blockHash?: string | null): Promise<bigint>
+  header(blockHash?: string | null): Promise<NativeBlockHeader>
   readCatalog(): string[]
-  refreshRuntime(): boolean
-  composeCall(pallet: string, callFunction: string, params: unknown): Buffer
+  refreshRuntime(): Promise<boolean>
+  composeCall(pallet: string, callFunction: string, params: unknown): Promise<Buffer>
   decodeScale(typeName: string, data: Buffer): unknown
   constant(pallet: string, name: string): unknown
-  query(pallet: string, storage: string, params: unknown, blockHash?: string | null): unknown
-  queryBatch(pallet: string, storage: string, paramSets: unknown, blockHash?: string | null): unknown[]
-  queryMap(pallet: string, storage: string, fixedParams: unknown, blockHash?: string | null): NativeMapPair[]
-  runtimeCall(api: string, method: string, params: unknown, blockHash?: string | null): unknown
-  accountNextIndex(address: string): bigint
+  query(pallet: string, storage: string, params: unknown, blockHash?: string | null): Promise<unknown>
+  queryBatch(pallet: string, storage: string, paramSets: unknown, blockHash?: string | null): Promise<unknown[]>
+  queryMap(pallet: string, storage: string, fixedParams: unknown, blockHash?: string | null): Promise<NativeMapPair[]>
+  runtimeCall(api: string, method: string, params: unknown, blockHash?: string | null): Promise<unknown>
+  accountNextIndex(address: string): Promise<bigint>
   signExtrinsic(
     callData: Buffer,
     signer: NativeKeypairHandle,
     nonce: bigint,
     period?: bigint | null,
-  ): NativeSignedExtrinsic
-  estimateFee(callData: Buffer, signer: NativeKeypairHandle): string
+  ): Promise<NativeSignedExtrinsic>
+  estimateFee(callData: Buffer, signer: NativeKeypairHandle): Promise<string>
   submit(
     callData: Buffer,
     signer: NativeKeypairHandle,
     nonce?: bigint | null,
     period?: bigint | null,
     waitForFinalization?: boolean | null,
-  ): NativeTxOutcome
+  ): Promise<NativeTxOutcome>
   submitEncoded(
     extrinsic: Buffer,
     expectedHash: string,
     waitForFinalization?: boolean | null,
-  ): NativeTxOutcome
-  balanceRao(address: string): string
-  existentialDepositRao(): string
-  subnets(blockHash?: string | null): NativeSubnetInfo[]
-  metagraph(netuid: number, blockHash?: string | null): unknown
-  neurons(netuid: number, blockHash?: string | null): unknown[]
-  subnetHyperparameters(netuid: number, blockHash?: string | null): unknown
-  stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): string
-  quoteStake(netuid: number, amountRao: bigint, blockHash?: string | null): NativeSwapQuote
-  composeIntent(intent: NativeIntentCallHandle): Buffer
+  ): Promise<NativeTxOutcome>
+  externalSigningPlan(
+    callData: Buffer,
+    signer: NativeExternalSigner,
+    options?: NativeExternalSigningOptions | null,
+  ): Promise<NativeExternalSigningPlanHandle>
+  externalSigningPlanForIntent(
+    intent: NativeIntentCallHandle,
+    signer: NativeExternalSigner,
+    policy: NativePolicyHandle,
+    options?: NativeExternalSigningOptions | null,
+  ): Promise<NativeExternalSigningPlanHandle>
+  estimateFeeExternal(plan: NativeExternalSigningPlanHandle): Promise<string>
+  assembleExternal(
+    plan: NativeExternalSigningPlanHandle,
+    signature: Buffer,
+    cryptoType?: number | null,
+  ): Promise<NativeSignedExtrinsic>
+  submitExternal(
+    plan: NativeExternalSigningPlanHandle,
+    signature: Buffer,
+    waitForFinalization?: boolean | null,
+    cryptoType?: number | null,
+  ): Promise<NativeTxOutcome>
+  balanceRao(address: string): Promise<string>
+  existentialDepositRao(): Promise<string>
+  subnets(blockHash?: string | null): Promise<NativeSubnetInfo[]>
+  metagraph(netuid: number, blockHash?: string | null): Promise<unknown>
+  neurons(netuid: number, blockHash?: string | null): Promise<unknown[]>
+  subnetHyperparameters(netuid: number, blockHash?: string | null): Promise<unknown>
+  stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): Promise<string>
+  quoteStake(netuid: number, amountRao: bigint, blockHash?: string | null): Promise<NativeSwapQuote>
+  composeIntent(intent: NativeIntentCallHandle): Promise<Buffer>
 }
 
 export interface NativeClientConstructor {
-  connect(endpoint: string): NativeClientHandle
+  connect(endpoint: string): Promise<NativeClientHandle>
 }
 
 export interface NativeWalletHandle {}
@@ -482,18 +524,18 @@ export interface NativeWalletConstructor {
 }
 
 export interface NativeExecutorHandle {
-  plan(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): NativePlan
+  plan(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): Promise<NativePlan>
   planWithPolicy(
     intent: NativeIntentCallHandle,
     wallet: NativeWalletHandle,
     policy: NativePolicyHandle,
-  ): NativePlan
+  ): Promise<NativePlan>
   execute(
     intent: NativeIntentCallHandle,
     wallet: NativeWalletHandle,
     waitForFinalization?: boolean | null,
-  ): NativeTxOutcome
-  submitShielded(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): NativeTxOutcome
+  ): Promise<NativeTxOutcome>
+  submitShielded(intent: NativeIntentCallHandle, wallet: NativeWalletHandle): Promise<NativeTxOutcome>
 }
 
 export interface NativeExecutorConstructor {
@@ -510,6 +552,7 @@ export interface NativeBinding {
   NativeSpendKind: { readonly None: number; readonly Bounded: number; readonly Unbounded: number }
   NativePolicy: NativePolicyConstructor
   NativeIntentCall: NativeIntentCallConstructor
+  NativeExternalSigningPlan: { readonly prototype: NativeExternalSigningPlanHandle }
   NativeClient: NativeClientConstructor
   NativeWallet: NativeWalletConstructor
   NativeExecutor: NativeExecutorConstructor

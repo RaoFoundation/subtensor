@@ -2,6 +2,9 @@ import native, {
   type NativeBlockHeader,
   type NativeClientHandle,
   type NativeExecutorHandle,
+  type NativeExternalSigner,
+  type NativeExternalSigningOptions,
+  type NativeExternalSigningPlanHandle,
   type NativeIntentCallHandle,
   type NativeMapPair,
   type NativePlan,
@@ -13,7 +16,7 @@ import native, {
   type NativeTxOutcome,
   type NativeWalletHandle,
 } from './native'
-import { nativeCall } from './errors'
+import { nativeAsync, nativeCall } from './errors'
 import { fromWire, toWire } from './wire'
 import type { ScaleValue } from './types'
 import { Keypair, nativeKeypairHandle } from './keys'
@@ -329,8 +332,8 @@ export class NativeChainClient {
     this.native = nativeClient
   }
 
-  static connect(endpoint: string): NativeChainClient {
-    return new NativeChainClient(nativeCall(() => native.NativeClient.connect(endpoint)))
+  static async connect(endpoint: string): Promise<NativeChainClient> {
+    return new NativeChainClient(await nativeAsync(() => native.NativeClient.connect(endpoint)))
   }
 
   get endpoint(): string {
@@ -349,28 +352,28 @@ export class NativeChainClient {
     return nativeCall(() => this.native.readCatalog())
   }
 
-  refreshRuntime(): boolean {
-    return nativeCall(() => this.native.refreshRuntime())
+  refreshRuntime(): Promise<boolean> {
+    return nativeAsync(() => this.native.refreshRuntime())
   }
 
-  blockHash(block?: bigint | number | null): string {
-    return nativeCall(() => this.native.blockHash(block == null ? undefined : bigintValue(block, 'block')))
+  blockHash(block?: bigint | number | null): Promise<string> {
+    return nativeAsync(() => this.native.blockHash(block == null ? undefined : bigintValue(block, 'block')))
   }
 
-  finalizedHead(): string {
-    return nativeCall(() => this.native.finalizedHead())
+  finalizedHead(): Promise<string> {
+    return nativeAsync(() => this.native.finalizedHead())
   }
 
-  blockNumber(blockHash?: string | null): number {
-    return Number(nativeCall(() => this.native.blockNumber(blockHash ?? undefined)))
+  async blockNumber(blockHash?: string | null): Promise<number> {
+    return Number(await nativeAsync(() => this.native.blockNumber(blockHash ?? undefined)))
   }
 
-  header(blockHash?: string | null): NativeBlockHeader {
-    return nativeCall(() => this.native.header(blockHash ?? undefined))
+  header(blockHash?: string | null): Promise<NativeBlockHeader> {
+    return nativeAsync(() => this.native.header(blockHash ?? undefined))
   }
 
-  composeCall(pallet: string, fn: string, params: ScaleValue = {}): Buffer {
-    return nativeCall(() => this.native.composeCall(pallet, fn, toWire(params)))
+  composeCall(pallet: string, fn: string, params: ScaleValue = {}): Promise<Buffer> {
+    return nativeAsync(() => this.native.composeCall(pallet, fn, toWire(params)))
   }
 
   decodeScale(typeName: string, data: Buffer): ScaleValue {
@@ -381,42 +384,42 @@ export class NativeChainClient {
     return fromWire(nativeCall(() => this.native.constant(pallet, name)))
   }
 
-  query(pallet: string, storage: string, params: ScaleValue[] = [], blockHash?: string | null): ScaleValue {
-    return fromWire(nativeCall(() =>
+  async query(pallet: string, storage: string, params: ScaleValue[] = [], blockHash?: string | null): Promise<ScaleValue> {
+    return fromWire(await nativeAsync(() =>
       this.native.query(pallet, storage, toWire(params), blockHash ?? undefined),
     ))
   }
 
-  queryBatch(
+  async queryBatch(
     pallet: string,
     storage: string,
     paramSets: ScaleValue[][] = [],
     blockHash?: string | null,
-  ): ScaleValue[] {
-    return nativeCall(() =>
+  ): Promise<ScaleValue[]> {
+    return (await nativeAsync(() =>
       this.native.queryBatch(pallet, storage, toWire(paramSets), blockHash ?? undefined),
-    ).map(fromWire)
+    )).map(fromWire)
   }
 
-  queryMap(
+  async queryMap(
     pallet: string,
     storage: string,
     fixedParams: ScaleValue[] = [],
     blockHash?: string | null,
-  ): Array<[ScaleValue, ScaleValue]> {
-    return nativeCall(() =>
+  ): Promise<Array<[ScaleValue, ScaleValue]>> {
+    return (await nativeAsync(() =>
       this.native.queryMap(pallet, storage, toWire(fixedParams), blockHash ?? undefined),
-    ).map((pair: NativeMapPair) => [fromWire(pair.key), fromWire(pair.value)])
+    )).map((pair: NativeMapPair) => [fromWire(pair.key), fromWire(pair.value)])
   }
 
-  runtimeCall(api: string, method: string, params: ScaleValue[] = [], blockHash?: string | null): ScaleValue {
-    return fromWire(nativeCall(() =>
+  async runtimeCall(api: string, method: string, params: ScaleValue[] = [], blockHash?: string | null): Promise<ScaleValue> {
+    return fromWire(await nativeAsync(() =>
       this.native.runtimeCall(api, method, toWire(params), blockHash ?? undefined),
     ))
   }
 
-  accountNextIndex(address: string): number {
-    return Number(nativeCall(() => this.native.accountNextIndex(address)))
+  async accountNextIndex(address: string): Promise<number> {
+    return Number(await nativeAsync(() => this.native.accountNextIndex(address)))
   }
 
   signExtrinsic(
@@ -424,8 +427,8 @@ export class NativeChainClient {
     signer: Keypair,
     nonce: bigint | number,
     period?: bigint | number | null,
-  ): NativeSignedExtrinsic {
-    return nativeCall(() =>
+  ): Promise<NativeSignedExtrinsic> {
+    return nativeAsync(() =>
       this.native.signExtrinsic(
         callData,
         nativeKeypairHandle(signer),
@@ -435,8 +438,8 @@ export class NativeChainClient {
     )
   }
 
-  estimateFee(callData: Buffer, signer: Keypair): bigint {
-    return BigInt(nativeCall(() => this.native.estimateFee(callData, nativeKeypairHandle(signer))))
+  async estimateFee(callData: Buffer, signer: Keypair): Promise<bigint> {
+    return BigInt(await nativeAsync(() => this.native.estimateFee(callData, nativeKeypairHandle(signer))))
   }
 
   submit(
@@ -445,8 +448,8 @@ export class NativeChainClient {
     nonce?: bigint | number | null,
     period?: bigint | number | null,
     waitForFinalization = false,
-  ): NativeTxOutcome {
-    return nativeCall(() =>
+  ): Promise<NativeTxOutcome> {
+    return nativeAsync(() =>
       this.native.submit(
         callData,
         nativeKeypairHandle(signer),
@@ -457,46 +460,117 @@ export class NativeChainClient {
     )
   }
 
-  submitEncoded(extrinsic: Buffer, expectedHash: string, waitForFinalization = false): NativeTxOutcome {
-    return nativeCall(() => this.native.submitEncoded(extrinsic, expectedHash, waitForFinalization))
+  submitEncoded(extrinsic: Buffer, expectedHash: string, waitForFinalization = false): Promise<NativeTxOutcome> {
+    return nativeAsync(() => this.native.submitEncoded(extrinsic, expectedHash, waitForFinalization))
   }
 
-  balanceRao(address: string): bigint {
-    return BigInt(nativeCall(() => this.native.balanceRao(address)))
+  externalSigningPlan(
+    callData: Buffer,
+    signerAddress: string,
+    publicKey: Buffer,
+    cryptoType: number,
+    requiresMetadataProof: boolean,
+    options?: NativeExternalSigningOptions | null,
+  ): Promise<NativeExternalSigningPlanHandle> {
+    const signer: NativeExternalSigner = {
+      signerAddress,
+      publicKey,
+      cryptoType,
+      requiresMetadataProof,
+    }
+    return nativeAsync(() =>
+      this.native.externalSigningPlan(
+        callData,
+        signer,
+        options ?? undefined,
+      ),
+    )
   }
 
-  existentialDepositRao(): bigint {
-    return BigInt(nativeCall(() => this.native.existentialDepositRao()))
+  externalSigningPlanForIntent(
+    intent: IntentCall,
+    signerAddress: string,
+    publicKey: Buffer,
+    cryptoType: number,
+    requiresMetadataProof: boolean,
+    policy: Policy,
+    options?: NativeExternalSigningOptions | null,
+  ): Promise<NativeExternalSigningPlanHandle> {
+    const signer: NativeExternalSigner = {
+      signerAddress,
+      publicKey,
+      cryptoType,
+      requiresMetadataProof,
+    }
+    return nativeAsync(() =>
+      this.native.externalSigningPlanForIntent(
+        intent.native,
+        signer,
+        policy.native,
+        options ?? undefined,
+      ),
+    )
   }
 
-  subnets(blockHash?: string | null): NativeSubnetInfo[] {
-    return nativeCall(() => this.native.subnets(blockHash ?? undefined))
+  async estimateFeeExternal(plan: NativeExternalSigningPlanHandle): Promise<bigint> {
+    return BigInt(await nativeAsync(() => this.native.estimateFeeExternal(plan)))
   }
 
-  metagraph(netuid: number, blockHash?: string | null): ScaleValue {
-    return fromWire(nativeCall(() => this.native.metagraph(netuid, blockHash ?? undefined)))
+  assembleExternal(
+    plan: NativeExternalSigningPlanHandle,
+    signature: Buffer,
+    cryptoType?: number | null,
+  ): Promise<NativeSignedExtrinsic> {
+    return nativeAsync(() => this.native.assembleExternal(plan, signature, cryptoType ?? undefined))
   }
 
-  neurons(netuid: number, blockHash?: string | null): ScaleValue[] {
-    return nativeCall(() => this.native.neurons(netuid, blockHash ?? undefined)).map(fromWire)
+  submitExternal(
+    plan: NativeExternalSigningPlanHandle,
+    signature: Buffer,
+    waitForFinalization = false,
+    cryptoType?: number | null,
+  ): Promise<NativeTxOutcome> {
+    return nativeAsync(() =>
+      this.native.submitExternal(plan, signature, waitForFinalization, cryptoType ?? undefined),
+    )
   }
 
-  subnetHyperparameters(netuid: number, blockHash?: string | null): ScaleValue {
-    return fromWire(nativeCall(() => this.native.subnetHyperparameters(netuid, blockHash ?? undefined)))
+  async balanceRao(address: string): Promise<bigint> {
+    return BigInt(await nativeAsync(() => this.native.balanceRao(address)))
   }
 
-  stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): bigint {
-    return BigInt(nativeCall(() => this.native.stakeRao(coldkey, hotkey, netuid, blockHash ?? undefined)))
+  async existentialDepositRao(): Promise<bigint> {
+    return BigInt(await nativeAsync(() => this.native.existentialDepositRao()))
   }
 
-  quoteStake(netuid: number, amountRao: bigint | number | string, blockHash?: string | null): NativeSwapQuote {
-    return nativeCall(() =>
+  subnets(blockHash?: string | null): Promise<NativeSubnetInfo[]> {
+    return nativeAsync(() => this.native.subnets(blockHash ?? undefined))
+  }
+
+  async metagraph(netuid: number, blockHash?: string | null): Promise<ScaleValue> {
+    return fromWire(await nativeAsync(() => this.native.metagraph(netuid, blockHash ?? undefined)))
+  }
+
+  async neurons(netuid: number, blockHash?: string | null): Promise<ScaleValue[]> {
+    return (await nativeAsync(() => this.native.neurons(netuid, blockHash ?? undefined))).map(fromWire)
+  }
+
+  async subnetHyperparameters(netuid: number, blockHash?: string | null): Promise<ScaleValue> {
+    return fromWire(await nativeAsync(() => this.native.subnetHyperparameters(netuid, blockHash ?? undefined)))
+  }
+
+  async stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): Promise<bigint> {
+    return BigInt(await nativeAsync(() => this.native.stakeRao(coldkey, hotkey, netuid, blockHash ?? undefined)))
+  }
+
+  quoteStake(netuid: number, amountRao: bigint | number | string, blockHash?: string | null): Promise<NativeSwapQuote> {
+    return nativeAsync(() =>
       this.native.quoteStake(netuid, bigintValue(amountRao, 'amountRao'), blockHash ?? undefined),
     )
   }
 
-  composeIntent(intent: IntentCall): Buffer {
-    return nativeCall(() => this.native.composeIntent(intent.native))
+  composeIntent(intent: IntentCall): Promise<Buffer> {
+    return nativeAsync(() => this.native.composeIntent(intent.native))
   }
 }
 
@@ -533,12 +607,12 @@ export class Executor {
     )
   }
 
-  plan(intent: IntentCall, wallet: RustWallet): NativePlan {
-    return nativeCall(() => this.native.plan(intent.native, wallet.native))
+  plan(intent: IntentCall, wallet: RustWallet): Promise<NativePlan> {
+    return nativeAsync(() => this.native.plan(intent.native, wallet.native))
   }
 
-  execute(intent: IntentCall, wallet: RustWallet, waitForFinalization = true): NativeTxOutcome {
-    return nativeCall(() => this.native.execute(intent.native, wallet.native, waitForFinalization))
+  execute(intent: IntentCall, wallet: RustWallet, waitForFinalization = true): Promise<NativeTxOutcome> {
+    return nativeAsync(() => this.native.execute(intent.native, wallet.native, waitForFinalization))
   }
 }
 

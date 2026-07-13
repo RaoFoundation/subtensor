@@ -19,17 +19,18 @@ use codec::Decode;
 use reqwest::blocking::Client as HttpClient;
 use serde_json::{json, Value as JsonValue};
 
-use crate::codec::extrinsic::{era_birth, TxParams};
+use crate::codec::extrinsic::{era_birth, SignerPayload, TxParams};
 use crate::codec::value::Value;
+use crate::digest::{generate_extrinsic_proof, metadata_digest, ChainInfo};
 use crate::error::CoreError;
-use crate::keys::Keypair;
+use crate::keys::{public_key_from_ss58, Keypair};
 use crate::mlkem;
 use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
-const DEFAULT_ERA_PERIOD: u64 = 64;
+pub const DEFAULT_ERA_PERIOD: u64 = 64;
 const STORAGE_PAGE_SIZE: u64 = 1_000;
 const RAO_PER_TAO: u128 = 1_000_000_000;
 
@@ -93,6 +94,66 @@ pub struct TxOutcome {
     pub error: Option<DispatchError>,
     pub message: String,
     pub data: BTreeMap<String, Value>,
+}
+
+/// How a Rust-owned signing plan should treat RFC-0078 metadata hashes.
+#[derive(Debug, Clone)]
+pub enum MetadataHashMode {
+    Auto,
+    Disabled,
+    Explicit([u8; 32]),
+}
+
+/// Public signer identity supplied by a caller that will produce the
+/// signature outside Rust. Rust still owns nonce/era/payload construction and
+/// validates the returned signature before assembling bytes.
+#[derive(Debug, Clone)]
+pub struct ExternalSigner {
+    pub ss58_address: String,
+    pub public_key: [u8; 32],
+    pub crypto_type: u8,
+    pub requires_metadata_proof: bool,
+}
+
+/// Options that affect the exact signed payload. Defaults match the native
+/// transaction executor so local and external signers share the same plan.
+#[derive(Debug, Clone)]
+pub struct ExternalSigningOptions {
+    pub nonce: Option<u64>,
+    pub period: Option<u64>,
+    pub tip: u128,
+    pub tip_asset_id: Option<u128>,
+    pub metadata_hash: MetadataHashMode,
+}
+
+impl Default for ExternalSigningOptions {
+    fn default() -> Self {
+        Self {
+            nonce: None,
+            period: Some(DEFAULT_ERA_PERIOD),
+            tip: 0,
+            tip_asset_id: None,
+            metadata_hash: MetadataHashMode::Auto,
+        }
+    }
+}
+
+/// Fully specified transaction signing plan for external signers.
+#[derive(Debug, Clone)]
+pub struct ExternalSigningPlan {
+    pub call_data: Vec<u8>,
+    pub signer_address: String,
+    pub public_key: [u8; 32],
+    pub crypto_type: u8,
+    pub params: TxParams,
+    pub payload: Vec<u8>,
+    pub included_in_extrinsic: Vec<u8>,
+    pub included_in_signed_data: Vec<u8>,
+    pub signer_payload: SignerPayload,
+    pub metadata_proof: Option<Vec<u8>>,
+    pub chain_info: Option<ChainInfo>,
+    pub fee_rao: Option<u128>,
+    pub warnings: Vec<String>,
 }
 
 impl TxOutcome {
@@ -503,6 +564,255 @@ impl Client {
         json_u64(&value)
     }
 
+    /// Chain constants used for RFC-0078 metadata hashes and Ledger proofs.
+    pub fn chain_info(&self) -> Result<ChainInfo, CoreError> {
+        let runtime = self.runtime()?;
+        self.chain_info_for_runtime(&runtime)
+    }
+
+    fn chain_info_for_runtime(&self, runtime: &Runtime) -> Result<ChainInfo, CoreError> {
+        let spec_name = self
+            .runtime_version()
+            .map(|version| version.spec_name)
+            .unwrap_or_else(|_| "node-subtensor".into());
+        let properties = match self.rpc_value("system_properties", json!([])) {
+            Ok(properties) => properties,
+            Err(CoreError::Rpc(_)) => JsonValue::Object(Default::default()),
+            Err(error) => return Err(error),
+        };
+        let base58_prefix = property_u64(
+            &properties,
+            &["ss58Format", "ss58Prefix"],
+            u64::from(runtime.ss58_format),
+        )?;
+        let decimals = property_u64(&properties, &["tokenDecimals", "decimals"], 9)?;
+        Ok(ChainInfo {
+            spec_version: runtime.spec_version,
+            spec_name,
+            base58_prefix: u16::try_from(base58_prefix).map_err(|_| {
+                CoreError::Rpc(format!("ss58 prefix {base58_prefix} does not fit u16"))
+            })?,
+            decimals: u8::try_from(decimals).map_err(|_| {
+                CoreError::Rpc(format!("token decimals {decimals} does not fit u8"))
+            })?,
+            token_symbol: property_string(&properties, &["tokenSymbol", "symbol"], "TAO"),
+        })
+    }
+
+    fn tx_params_for_external(
+        &self,
+        runtime: &Runtime,
+        signer: &ExternalSigner,
+        options: ExternalSigningOptions,
+    ) -> Result<(TxParams, Option<ChainInfo>), CoreError> {
+        let nonce = match options.nonce {
+            Some(nonce) => nonce,
+            None => self.account_next_index(&signer.ss58_address)?,
+        };
+        let current = self.block_number()?;
+        let (era, era_block_hash) = match options.period {
+            Some(period) if period > 0 => {
+                let birth = era_birth(period, current);
+                let hash = parse_h256(&self.block_hash(Some(birth))?)?;
+                (
+                    Value::record(vec![
+                        ("period".into(), Value::Uint(u128::from(period))),
+                        ("current".into(), Value::Uint(u128::from(current))),
+                    ]),
+                    hash,
+                )
+            }
+            _ => (Value::str("00"), self.genesis_hash),
+        };
+        let supports_metadata_hash = runtime
+            .extrinsic
+            .signed_extensions
+            .iter()
+            .any(|extension| extension.identifier == "CheckMetadataHash");
+        let default_metadata_hash = supports_metadata_hash || signer.requires_metadata_proof;
+        let mut chain_info = None;
+        let metadata_hash = match options.metadata_hash {
+            MetadataHashMode::Explicit(hash) => Some(hash),
+            MetadataHashMode::Disabled if supports_metadata_hash => {
+                return Err(CoreError::Policy(
+                    "metadataHash cannot be disabled when the runtime declares CheckMetadataHash"
+                        .into(),
+                ));
+            }
+            MetadataHashMode::Disabled if signer.requires_metadata_proof => {
+                return Err(CoreError::Policy(
+                    "metadataHash cannot be disabled for a signer that requires metadata proof"
+                        .into(),
+                ));
+            }
+            MetadataHashMode::Disabled => None,
+            MetadataHashMode::Auto if default_metadata_hash => {
+                let info = self.chain_info_for_runtime(runtime)?;
+                let digest = metadata_digest(&runtime.metadata_bytes, &info)?;
+                chain_info = Some(info);
+                Some(digest)
+            }
+            MetadataHashMode::Auto => None,
+        };
+        if signer.requires_metadata_proof && chain_info.is_none() {
+            chain_info = Some(self.chain_info_for_runtime(runtime)?);
+        }
+        Ok((
+            TxParams {
+                era,
+                nonce,
+                tip: options.tip,
+                tip_asset_id: options.tip_asset_id,
+                genesis_hash: self.genesis_hash,
+                era_block_hash,
+                metadata_hash,
+            },
+            chain_info,
+        ))
+    }
+
+    /// Create the exact payload an external signer must sign.
+    pub fn external_signing_plan(
+        &self,
+        call_data: &[u8],
+        signer: ExternalSigner,
+        options: ExternalSigningOptions,
+    ) -> Result<ExternalSigningPlan, CoreError> {
+        let address_key = public_key_from_ss58(&signer.ss58_address)?;
+        if address_key != signer.public_key {
+            return Err(CoreError::Crypto(
+                "signer public key does not match signer address".into(),
+            ));
+        }
+        let runtime = self.runtime()?;
+        let (params, chain_info) = self.tx_params_for_external(&runtime, &signer, options)?;
+        let (included_in_extrinsic, included_in_signed_data) =
+            runtime.signature_payload_parts(&params)?;
+        let metadata_proof = if signer.requires_metadata_proof {
+            let info = chain_info.as_ref().ok_or_else(|| {
+                CoreError::Codec("chain info is required for metadata proof".into())
+            })?;
+            Some(generate_extrinsic_proof(
+                call_data,
+                &included_in_extrinsic,
+                &included_in_signed_data,
+                &runtime.metadata_bytes,
+                info,
+            )?)
+        } else {
+            None
+        };
+        let payload = runtime.signature_payload(call_data, &params)?;
+        let signer_payload = runtime.signer_payload(&signer.ss58_address, call_data, &params)?;
+        let mut warnings = Vec::new();
+        let fee_rao = match self.estimate_fee_for_plan(
+            &runtime,
+            call_data,
+            signer.public_key,
+            signer.crypto_type,
+            &params,
+        ) {
+            Ok(fee) => Some(fee),
+            Err(error) => {
+                warnings.push(format!("could not estimate fee: {error}"));
+                None
+            }
+        };
+        Ok(ExternalSigningPlan {
+            call_data: call_data.to_vec(),
+            signer_address: signer.ss58_address,
+            public_key: signer.public_key,
+            crypto_type: signer.crypto_type,
+            params,
+            payload,
+            included_in_extrinsic,
+            included_in_signed_data,
+            signer_payload,
+            metadata_proof,
+            chain_info,
+            fee_rao,
+            warnings,
+        })
+    }
+
+    pub fn estimate_fee_external_plan(
+        &self,
+        plan: &ExternalSigningPlan,
+    ) -> Result<u128, CoreError> {
+        let runtime = self.runtime()?;
+        self.estimate_fee_for_plan(
+            &runtime,
+            &plan.call_data,
+            plan.public_key,
+            plan.crypto_type,
+            &plan.params,
+        )
+    }
+
+    fn estimate_fee_for_plan(
+        &self,
+        runtime: &Runtime,
+        call_data: &[u8],
+        public_key: [u8; 32],
+        crypto_type: u8,
+        params: &TxParams,
+    ) -> Result<u128, CoreError> {
+        let signature = vec![0u8; 64];
+        let (extrinsic, _) = runtime.encode_signed_extrinsic(
+            call_data,
+            public_key,
+            &signature,
+            crypto_type,
+            params,
+        )?;
+        self.payment_query_fee(&extrinsic)
+    }
+
+    pub fn assemble_external_extrinsic(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+    ) -> Result<(Vec<u8>, String), CoreError> {
+        let signature_crypto_type = crypto_type.unwrap_or(plan.crypto_type);
+        if signature_crypto_type != plan.crypto_type {
+            return Err(CoreError::Crypto(
+                "signature crypto type does not match the Rust signing plan".into(),
+            ));
+        }
+        let verifier = Keypair::new(
+            Some(&plan.signer_address),
+            Some(&plan.public_key),
+            plan.crypto_type,
+            self.ss58_format,
+        )?;
+        if !verifier.verify(&plan.payload, signature)? {
+            return Err(CoreError::Crypto(
+                "external signature does not verify against the Rust signing plan".into(),
+            ));
+        }
+        let runtime = self.runtime()?;
+        let (extrinsic, hash) = runtime.encode_signed_extrinsic(
+            &plan.call_data,
+            plan.public_key,
+            signature,
+            signature_crypto_type,
+            &plan.params,
+        )?;
+        Ok((extrinsic, hex_prefixed(&hash)))
+    }
+
+    pub fn submit_external(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+        wait_for_finalization: bool,
+    ) -> Result<TxOutcome, CoreError> {
+        let (extrinsic, hash) = self.assemble_external_extrinsic(plan, signature, crypto_type)?;
+        self.submit_encoded(&extrinsic, hash, wait_for_finalization)
+    }
+
     /// Sign without submitting. Returns `(encoded extrinsic, 0x hash)`.
     pub fn sign_extrinsic(
         &self,
@@ -552,7 +862,11 @@ impl Client {
         let nonce = self.account_next_index(&signer.ss58_address())?;
         let (extrinsic, _) =
             self.sign_extrinsic(call_data, signer, nonce, Some(DEFAULT_ERA_PERIOD))?;
-        let value = self.rpc_value("payment_queryInfo", json!([hex_prefixed(&extrinsic)]))?;
+        self.payment_query_fee(&extrinsic)
+    }
+
+    fn payment_query_fee(&self, extrinsic: &[u8]) -> Result<u128, CoreError> {
+        let value = self.rpc_value("payment_queryInfo", json!([hex_prefixed(extrinsic)]))?;
         let object = value
             .as_object()
             .ok_or_else(|| CoreError::Rpc("payment_queryInfo returned a non-object".into()))?;
@@ -1200,10 +1514,11 @@ impl RpcBootstrap {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct RuntimeVersion {
     spec_version: u32,
     transaction_version: u32,
+    spec_name: String,
 }
 
 fn parse_runtime_version(value: JsonValue) -> Result<RuntimeVersion, CoreError> {
@@ -1221,6 +1536,11 @@ fn parse_runtime_version(value: JsonValue) -> Result<RuntimeVersion, CoreError> 
             .map_err(|_| CoreError::Rpc("specVersion does not fit u32".into()))?,
         transaction_version: u32::try_from(json_u64(transaction)?)
             .map_err(|_| CoreError::Rpc("transactionVersion does not fit u32".into()))?,
+        spec_name: object
+            .get("specName")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("node-subtensor")
+            .to_owned(),
     })
 }
 
@@ -1562,6 +1882,36 @@ fn json_string<'a>(value: &'a JsonValue, context: &str) -> Result<&'a str, CoreE
         JsonValue::String(text) => Ok(text),
         _ => Err(CoreError::Rpc(format!("{context} is not a string"))),
     }
+}
+
+fn property_value<'a>(properties: &'a JsonValue, keys: &[&str]) -> Option<&'a JsonValue> {
+    let object = properties.as_object()?;
+    keys.iter().find_map(|key| object.get(*key))
+}
+
+fn first_property(value: &JsonValue) -> &JsonValue {
+    value
+        .as_array()
+        .and_then(|items| items.first())
+        .unwrap_or(value)
+}
+
+fn property_u64(properties: &JsonValue, keys: &[&str], fallback: u64) -> Result<u64, CoreError> {
+    let Some(value) = property_value(properties, keys).map(first_property) else {
+        return Ok(fallback);
+    };
+    if value.is_null() {
+        return Ok(fallback);
+    }
+    json_u64(value)
+}
+
+fn property_string(properties: &JsonValue, keys: &[&str], fallback: &str) -> String {
+    property_value(properties, keys)
+        .map(first_property)
+        .and_then(JsonValue::as_str)
+        .unwrap_or(fallback)
+        .to_owned()
 }
 
 fn json_number_u64(value: &JsonValue) -> Option<u64> {

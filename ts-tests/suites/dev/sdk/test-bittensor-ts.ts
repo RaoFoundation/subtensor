@@ -35,7 +35,8 @@ describeSuite({
 
                 try {
                     await client.assertDescriptorSchema();
-                    const signed = await client.signExtrinsic(call, alice);
+                    const nonce = await client.accountNextIndex(alice.ss58Address);
+                    const signed = await client.signExtrinsic(call, alice, { allowRawCall: true, nonce });
                     const watcher = await client.watchSigned(signed);
 
                     await context.createBlock();

@@ -25,6 +25,7 @@ export type {
   SignerRoleName,
 } from './transaction'
 export * from './types'
+export * from './rust-bindings'
 export * from './value'
 export * from './wallet'
 export { fromWire, toWire, WIRE_TAG }

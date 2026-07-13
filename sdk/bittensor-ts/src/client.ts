@@ -2,9 +2,9 @@ import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from '
 import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58, ss58FromPublic } from './keys'
 import { LedgerDevice } from './ledger'
 import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
-import { Executor, IntentCall, NativeChainClient, Policy, RustWallet, isIntentCall, rawCall, type PolicyOptions, type SignerRoleLike } from './transaction'
-import { toBigInt, toBuffer } from './wire'
-import type { NativeTxOutcome } from './native'
+import { IntentCall, NativeChainClient, Policy, isIntentCall, rawCall, type PolicyOptions, type SignerRoleLike } from './transaction'
+import { WIRE_TAG, fromWire, toBigInt, toBuffer } from './wire'
+import type { NativeChainInfo, NativeExternalSigningOptions, NativeExternalSigningPlanHandle, NativeTxOutcome } from './native'
 import {
   Balance,
   UnitMismatchError,
@@ -20,15 +20,13 @@ import {
 import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, StorageEntry, TransactionParams } from './types'
 
 export const SS58_FORMAT = 42
-export const DEFAULT_ERA_PERIOD = 128
+export const DEFAULT_ERA_PERIOD = 64
 export const DEFAULT_HEAD_RUNTIME_TTL_MS = 12_000
 export const DEFAULT_HISTORICAL_RUNTIME_CACHE_SIZE = 64
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 export const DEFAULT_MAX_REQUEST_RETRIES = 2
 export const DEFAULT_RETRY_BACKOFF_MS = 250
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 5_000
-export const DEFAULT_NONCE_RECONCILE_BLOCKS = 8
-export const DEFAULT_MAX_NONCE_STATUS_HISTORY = 256
 export const DEFAULT_ENDPOINT_VALIDATION_TTL_MS = 60_000
 export const DEFAULT_MAX_SUBSCRIPTION_QUEUE = 1024
 export const DEFAULT_MAX_WS_MESSAGE_BYTES = 16 * 1024 * 1024
@@ -59,7 +57,6 @@ const IDEMPOTENT_RPC_METHODS = new Set([
   'system_name',
   'system_properties',
   'system_version',
-  'author_pendingExtrinsics',
 ])
 export const NETWORKS = Object.freeze({
   finney: 'wss://entrypoint-finney.opentensor.ai:443',
@@ -177,6 +174,7 @@ export interface SignerPayloadContext {
   includedInExtrinsic?: Buffer
   includedInSignedData?: Buffer
   chainInfo?: ChainInfo
+  signerPayload?: ExtensionSignPayloadRequest
 }
 
 export interface ExtensionSignRawRequest {
@@ -323,6 +321,13 @@ interface ResolvedSigner {
   requiresMetadataProof: boolean
 }
 
+interface NativeSigningPlan {
+  native: NativeChainClient
+  runtime: Runtime
+  resolved: ResolvedSigner
+  plan: NativeExternalSigningPlanHandle
+}
+
 interface RuntimeVersionInfo {
   specVersion: number
   transactionVersion: number
@@ -344,48 +349,14 @@ interface SigningSnapshot {
   genesisHash: string
 }
 
-type NonceStatus = 'reserved' | 'submitted' | 'confirmed' | 'failed' | 'reusable' | 'ambiguous'
+const nativeClientAccess = new WeakMap<Client, () => Promise<NativeChainClient | undefined>>()
 
-interface AmbiguousNonce {
-  nonce: number
-  extrinsicHash?: string
-  sinceMs: number
-}
-
-interface NonceAccountState {
-  next?: number
-  reusable: number[]
-  statuses: Map<number, NonceStatus>
-  ambiguous?: AmbiguousNonce
-  queue: Promise<void>
-}
-
-interface NonceReservation {
-  address: string
-  nonce: number
-}
-
-interface NonceTrackingInfo {
-  reservation?: NonceReservation
-  invalidateAddress?: string
-}
-
-type SubmittedExtrinsicLocation = 'pool' | 'block' | null
-
-const nativeClientAccess = new WeakMap<Client, () => NativeChainClient | undefined>()
-
-function nativeRustClient(client: Client): NativeChainClient | undefined {
-  return nativeClientAccess.get(client)?.()
+function nativeRustClient(client: Client): Promise<NativeChainClient | undefined> {
+  return nativeClientAccess.get(client)?.() ?? Promise.resolve(undefined)
 }
 
 interface SubscriptionOptions extends RpcRequestOptions {
   resubscribe?: boolean
-}
-
-const MANAGED_NONCE = Symbol('managedNonce')
-
-type ManagedSignedExtrinsicResult = SignedExtrinsicResult & {
-  [MANAGED_NONCE]?: NonceReservation
 }
 
 interface NormalizedSignature {
@@ -1057,10 +1028,10 @@ export class Client {
   private runtimesBySpecVersion = new Map<number, RuntimeCacheEntry>()
   private historicalRuntimeCache = new Map<string, RuntimeCacheEntry>()
   private genesis?: string
-  private nonceAccounts = new Map<string, NonceAccountState>()
   private readonly nativeEligible: boolean
   private readonly validateDescriptorsOnLoad: boolean
   private nativeClient?: NativeChainClient
+  private nativeClientPromise?: Promise<NativeChainClient | undefined>
   private nativeUnavailable = false
 
   constructor(network: string = 'finney', options: ClientOptions = {}) {
@@ -1113,7 +1084,7 @@ export class Client {
   }
 
   async connect(): Promise<this> {
-    if (this.tryNativeClient() == null) await this.runtimeAt()
+    if (await this.tryNativeClient() == null) await this.runtimeAt()
     return this
   }
 
@@ -1121,19 +1092,25 @@ export class Client {
     this.transport.close()
   }
 
-  private tryNativeClient(): NativeChainClient | undefined {
+  private async tryNativeClient(): Promise<NativeChainClient | undefined> {
     if (!this.nativeEligible) return undefined
     if (this.nativeUnavailable) return undefined
     if (this.nativeClient != null) return this.nativeClient
-    try {
-      const client = NativeChainClient.connect(this.endpoint)
-      this.nativeClient = client
-      this.genesis = hex(client.genesisHash)
-      return client
-    } catch {
-      this.nativeUnavailable = true
-      return undefined
+    if (this.nativeClientPromise == null) {
+      this.nativeClientPromise = NativeChainClient.connect(this.endpoint).then(
+        (client) => {
+          this.nativeClient = client
+          this.genesis = hex(client.genesisHash)
+          return client
+        },
+        () => {
+          this.nativeUnavailable = true
+          this.nativeClientPromise = undefined
+          return undefined
+        },
+      )
     }
+    return this.nativeClientPromise
   }
 
   async block(): Promise<number> {
@@ -1149,15 +1126,15 @@ export class Client {
   }
 
   async blockNumber(blockHash?: string | null): Promise<number> {
-    const native = this.tryNativeClient()
-    if (native != null) return native.blockNumber(blockHash)
+    const native = await this.tryNativeClient()
+    if (native != null) return await native.blockNumber(blockHash)
     const header = await this.rpc('chain_getHeader', blockHash == null ? [] : [blockHash])
     return headerNumber(header)
   }
 
   async blockHash(block?: number | null): Promise<string> {
-    const native = this.tryNativeClient()
-    if (native != null) return native.blockHash(block == null ? undefined : block)
+    const native = await this.tryNativeClient()
+    if (native != null) return await native.blockHash(block == null ? undefined : block)
     return String(await this.rpc('chain_getBlockHash', block == null ? [] : [block]))
   }
 
@@ -1170,13 +1147,13 @@ export class Client {
   }
 
   async finalizedHead(): Promise<string> {
-    const native = this.tryNativeClient()
-    if (native != null) return native.finalizedHead()
+    const native = await this.tryNativeClient()
+    if (native != null) return await native.finalizedHead()
     return String(await this.rpc('chain_getFinalizedHead'))
   }
 
   async genesisHash(): Promise<string> {
-    const native = this.tryNativeClient()
+    const native = await this.tryNativeClient()
     if (native != null) {
       this.genesis = hex(native.genesisHash)
       return this.genesis
@@ -1363,8 +1340,8 @@ export class Client {
     const [moduleName, itemName, itemParams, blockRef] =
       normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    const native = this.tryNativeClient()
-    if (native != null) return native.query(moduleName, itemName, itemParams, blockHash) as T
+    const native = await this.tryNativeClient()
+    if (native != null) return await native.query(moduleName, itemName, itemParams, blockHash) as T
     const runtime = await this.runtimeAt(blockHash)
     const key = runtime.storageKey(moduleName, itemName, itemParams)
     const raw = await this.rpc('state_getStorage', [hex(key), blockHash])
@@ -1382,8 +1359,8 @@ export class Client {
       normalizeBatchArgs(pallet, storageFunction, paramSetsOrBlock, block)
     if (sets.length === 0) return []
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    const native = this.tryNativeClient()
-    if (native != null) return native.queryBatch(moduleName, itemName, sets, blockHash) as Array<T | undefined>
+    const native = await this.tryNativeClient()
+    if (native != null) return await native.queryBatch(moduleName, itemName, sets, blockHash) as Array<T | undefined>
     const runtime = await this.runtimeAt(blockHash)
     const keys = runtime.storageKeyBatch(moduleName, itemName, sets)
     const raw = await this.rpc('state_queryStorageAt', [keys.map(hex), blockHash])
@@ -1407,8 +1384,8 @@ export class Client {
       normalizeStorageArgs(pallet, storageFunction, paramsOrBlock, block)
     const blockHash = await this.resolveReadBlockHash(blockRef)
     if (pageSizeOrOptions === 512) {
-      const native = this.tryNativeClient()
-      if (native != null) return native.queryMap(moduleName, itemName, itemParams, blockHash) as Array<[K, V]>
+      const native = await this.tryNativeClient()
+      if (native != null) return await native.queryMap(moduleName, itemName, itemParams, blockHash) as Array<[K, V]>
     }
     const runtime = await this.runtimeAt(blockHash)
     const prefix = runtime.storageKey(moduleName, itemName, itemParams)
@@ -1496,8 +1473,8 @@ export class Client {
   ): Promise<T> {
     const [apiName, methodName, callParams, blockRef] = normalizeRuntimeArgs(api, method, paramsOrBlock, block)
     const blockHash = await this.resolveReadBlockHash(blockRef)
-    const native = this.tryNativeClient()
-    if (native != null) return native.runtimeCall(apiName, methodName, callParams, blockHash) as T
+    const native = await this.tryNativeClient()
+    if (native != null) return await native.runtimeCall(apiName, methodName, callParams, blockHash) as T
     const runtime = await this.runtimeAt(blockHash)
     const info = runtime.runtimeApis()[apiName]?.[methodName]
     if (info == null) throw new ChainError(`runtime API ${apiName}.${methodName} not found`)
@@ -1548,24 +1525,24 @@ export class Client {
   ): Promise<T | undefined> {
     const [moduleName, constantName] = typeof pallet === 'string' ? [pallet, name as string] : pallet
     if (block == null) {
-      const native = this.tryNativeClient()
+      const native = await this.tryNativeClient()
       if (native != null) return native.constant(moduleName, constantName) as T
     }
     return (await this.runtimeAt(block)).constant<T>(moduleName, constantName)
   }
 
-  decodeScale<T extends ScaleValue = ScaleValue>(
+  async decodeScale<T extends ScaleValue = ScaleValue>(
     typeString: string,
     data: ByteLike | string,
     block?: number | string | null,
   ): Promise<T> {
     if (block == null) {
-      const native = this.tryNativeClient()
+      const native = await this.tryNativeClient()
       if (native != null) {
-        return Promise.resolve(native.decodeScale(
+        return native.decodeScale(
           typeString,
           typeof data === 'string' ? hexToBuffer(data) : toBuffer(data, 'data'),
-        ) as T)
+        ) as T
       }
     }
     return this.runtimeAt(block).then((runtime) =>
@@ -1581,10 +1558,10 @@ export class Client {
     return this.decodeScale<T>(typeString, data, block)
   }
 
-  composeCall(pallet: string, fn: string, params: ScaleValue = {}, block?: number | string | null): Promise<Buffer> {
+  async composeCall(pallet: string, fn: string, params: ScaleValue = {}, block?: number | string | null): Promise<Buffer> {
     if (block == null) {
-      const native = this.tryNativeClient()
-      if (native != null) return Promise.resolve(native.composeCall(pallet, fn, params))
+      const native = await this.tryNativeClient()
+      if (native != null) return await native.composeCall(pallet, fn, params)
     }
     return this.runtimeAt(block).then((runtime) => runtime.composeCall(pallet, fn, params))
   }
@@ -1681,45 +1658,28 @@ export class Client {
   }
 
   async signExtrinsic(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<SignedExtrinsicResult> {
-    return this.signExtrinsicWithNonce(call, signer, options, false)
+    this.assertExplicitNonce(options, 'signExtrinsic')
+    const nativeSigned = await this.signExtrinsicWithNativePlan(call, signer, options)
+    if (nativeSigned != null) return nativeSigned
+    return this.signExtrinsicWithSnapshot(call, signer, options, await this.signingSnapshot())
   }
 
-  private async signExtrinsicWithNonce(
+  private async signExtrinsicWithNativePlan(
     call: CallLike,
     signer: SignerLike,
     options: SubmitOptions,
-    manageNonce: boolean,
-  ): Promise<ManagedSignedExtrinsicResult> {
-    if (!manageNonce) {
-      const nativeSigned = this.signExtrinsicWithNative(call, signer, options)
-      if (nativeSigned != null) return nativeSigned
-    }
-    return this.signExtrinsicWithSnapshot(call, signer, options, manageNonce, await this.signingSnapshot())
-  }
-
-  private signExtrinsicWithNative(
-    call: CallLike,
-    signer: SignerLike,
-    options: SubmitOptions,
-  ): ManagedSignedExtrinsicResult | undefined {
-    if (!(signer instanceof Keypair) || !nativeSigningOptionsSupported(options)) return undefined
-    const native = this.tryNativeClient()
+  ): Promise<SignedExtrinsicResult | undefined> {
+    const native = await this.tryNativeClient()
     if (native == null) return undefined
-    const callData = this.composeNativeCallData(call, options, native)
-    const nonce = options.nonce ?? native.accountNextIndex(signer.ss58Address)
-    const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
-    const signed = native.signExtrinsic(
-      callData,
-      signer,
-      toBigInt(nonce, 'nonce'),
-      period == null ? null : toBigInt(period, 'period'),
-    )
+    const planned = await this.nativeSigningPlan(call, signer, options, native)
+    const signature = await this.signRustPlan(planned)
+    const signed = await native.assembleExternal(planned.plan, signature.signature, signature.cryptoType)
     return {
       bytes: Buffer.from(signed.bytes),
       hash: hexToBuffer(signed.hash),
       hex: hex(signed.bytes),
-      signerAddress: signer.ss58Address,
-      nonce,
+      signerAddress: planned.resolved.ss58Address,
+      nonce: parseNonce(planned.plan.nonce, 'native signing plan nonce'),
     }
   }
 
@@ -1727,142 +1687,119 @@ export class Client {
     call: CallLike,
     signer: SignerLike,
     options: SubmitOptions,
-    manageNonce: boolean,
     snapshot: SigningSnapshot,
-  ): Promise<ManagedSignedExtrinsicResult> {
-    let resolved: ResolvedSigner | undefined
-    let reservation: NonceReservation | undefined
-    try {
-      const { runtime } = snapshot
-      const prepared = this.prepareCallForSigning(call, runtime, options)
-      const callData = prepared.callData
-      resolved = await this.resolveSigner(signer, runtime)
-      reservation = manageNonce && options.nonce == null
-        ? await this.reserveNonce(resolved.ss58Address)
-        : undefined
-      const nonce = options.nonce ?? reservation?.nonce ?? await this.peekNextIndex(resolved.ss58Address)
-      const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
-      const { era, eraBlockHash } = await this.normalizeEra(period, snapshot)
-      const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
-      const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
-      const metadataHashOptionProvided = hasOwn(options, 'metadataHash')
-      const supportsMetadataHash = runtimeSupportsMetadataHash(runtime)
-      const defaultMetadataHash = supportsMetadataHash || resolved.requiresMetadataProof
-      if (metadataHashOptionProvided && options.metadataHash == null && defaultMetadataHash) {
-        throw new ChainError(
-          supportsMetadataHash
-            ? 'metadataHash cannot be disabled when the runtime declares CheckMetadataHash'
-            : 'metadataHash cannot be disabled for a signer that requires metadata proof',
+  ): Promise<SignedExtrinsicResult> {
+    const { runtime } = snapshot
+    const prepared = this.prepareCallForSigning(call, runtime, options)
+    const callData = prepared.callData
+    const resolved = await this.resolveSigner(signer, runtime)
+    const nonce = this.explicitNonce(options, 'signExtrinsic')
+    const period = options.period === undefined ? DEFAULT_ERA_PERIOD : options.period
+    const { era, eraBlockHash } = await this.normalizeEra(period, snapshot)
+    const tip = taoTransactionAmountRao(options.tip ?? 0n, 'tip')
+    const tipAssetId = options.tipAssetId == null ? null : assetIdValue(options.tipAssetId, 'tipAssetId')
+    const metadataHashOptionProvided = hasOwn(options, 'metadataHash')
+    const supportsMetadataHash = runtimeSupportsMetadataHash(runtime)
+    const defaultMetadataHash = supportsMetadataHash || resolved.requiresMetadataProof
+    if (metadataHashOptionProvided && options.metadataHash == null && defaultMetadataHash) {
+      throw new ChainError(
+        supportsMetadataHash
+          ? 'metadataHash cannot be disabled when the runtime declares CheckMetadataHash'
+          : 'metadataHash cannot be disabled for a signer that requires metadata proof',
+      )
+    }
+    const chainInfo = resolved.requiresMetadataProof || (!metadataHashOptionProvided && defaultMetadataHash)
+      ? await this.chainInfo(runtime, snapshot.blockHash)
+      : undefined
+    const metadataHash =
+      metadataHashOptionProvided
+        ? options.metadataHash == null
+          ? null
+          : toBuffer(options.metadataHash, 'metadataHash')
+        : defaultMetadataHash
+          ? metadataDigest(runtime.metadataBytes, chainInfo!)
+          : null
+    const txParams = {
+      era,
+      nonce,
+      tip,
+      tipAssetId,
+      genesisHash: hexToBuffer(snapshot.genesisHash),
+      eraBlockHash: hexToBuffer(eraBlockHash),
+      metadataHash,
+    }
+    const proofParts = resolved.requiresMetadataProof
+      ? runtime.signaturePayloadParts(txParams)
+      : undefined
+    const metadataProof = proofParts == null
+      ? undefined
+      : generateExtrinsicProof(
+          callData,
+          proofParts.includedInExtrinsic,
+          proofParts.includedInSignedData,
+          runtime.metadataBytes,
+          chainInfo!,
         )
-      }
-      const chainInfo = resolved.requiresMetadataProof || (!metadataHashOptionProvided && defaultMetadataHash)
-        ? await this.chainInfo(runtime, snapshot.blockHash)
-        : undefined
-      const metadataHash =
-        metadataHashOptionProvided
-          ? options.metadataHash == null
-            ? null
-            : toBuffer(options.metadataHash, 'metadataHash')
-          : defaultMetadataHash
-            ? metadataDigest(runtime.metadataBytes, chainInfo!)
-            : null
-      const txParams = {
-        era,
-        nonce,
-        tip,
-        tipAssetId,
-        genesisHash: hexToBuffer(snapshot.genesisHash),
-        eraBlockHash: hexToBuffer(eraBlockHash),
-        metadataHash,
-      }
-      const proofParts = resolved.requiresMetadataProof
-        ? runtime.signaturePayloadParts(txParams)
-        : undefined
-      const metadataProof = proofParts == null
-        ? undefined
-        : generateExtrinsicProof(
-            callData,
-            proofParts.includedInExtrinsic,
-            proofParts.includedInSignedData,
-            runtime.metadataBytes,
-            chainInfo!,
-          )
-      const payload = runtime.signaturePayload(callData, txParams)
-      const context: SignerPayloadContext = {
-        client: this,
-        runtime,
-        address: resolved.ss58Address,
-        publicKey: resolved.publicKey,
-        cryptoType: resolved.cryptoType,
-        callData,
-        payload,
-        txParams,
-        metadataHash,
-        metadataProof,
-        proof: metadataProof,
-        includedInExtrinsic: proofParts?.includedInExtrinsic,
-        includedInSignedData: proofParts?.includedInSignedData,
-        chainInfo,
-      }
-      const signedBySigner = await this.signWithSigner(resolved.signer, payload, context)
-      const signed = runtime.encodeSignedExtrinsic(callData, resolved.publicKey, signedBySigner.signature, signedBySigner.cryptoType, {
-        era,
-        nonce,
-        tip,
-        tipAssetId,
-        metadataHashEnabled: metadataHash != null,
-      })
-      const result: ManagedSignedExtrinsicResult = {
-        ...signed,
-        hex: hex(signed.bytes),
-        signerAddress: resolved.ss58Address,
-        nonce,
-      }
-      if (reservation != null) result[MANAGED_NONCE] = reservation
-      return result
-    } catch (error) {
-      if (reservation != null) await this.failNonce(reservation, true)
-      throw error
+    const payload = runtime.signaturePayload(callData, txParams)
+    const context: SignerPayloadContext = {
+      client: this,
+      runtime,
+      address: resolved.ss58Address,
+      publicKey: resolved.publicKey,
+      cryptoType: resolved.cryptoType,
+      callData,
+      payload,
+      txParams,
+      metadataHash,
+      metadataProof,
+      proof: metadataProof,
+      includedInExtrinsic: proofParts?.includedInExtrinsic,
+      includedInSignedData: proofParts?.includedInSignedData,
+      chainInfo,
+    }
+    const signedBySigner = await this.signWithSigner(resolved.signer, payload, context)
+    const signed = runtime.encodeSignedExtrinsic(callData, resolved.publicKey, signedBySigner.signature, signedBySigner.cryptoType, {
+      era,
+      nonce,
+      tip,
+      tipAssetId,
+      metadataHashEnabled: metadataHash != null,
+    })
+    return {
+      ...signed,
+      hex: hex(signed.bytes),
+      signerAddress: resolved.ss58Address,
+      nonce,
     }
   }
 
   async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    const nativeResult = this.submitWithNative(call, signer, options)
+    const nativeResult = await this.submitWithNativePlan(call, signer, options)
     if (nativeResult != null) return nativeResult
-    const signed = await this.signExtrinsicWithNonce(call, signer, options, true)
+    this.assertExplicitNonce(options, 'submit')
+    const signed = await this.signExtrinsic(call, signer, options)
     return this.submitSigned(signed, signed.signerAddress, options)
   }
 
-  private submitWithNative(
+  private async submitWithNativePlan(
     call: CallLike,
     signer: SignerLike,
     options: SubmitOptions,
-  ): Promise<ExtrinsicResult> | undefined {
-    if (!(signer instanceof Keypair) || !nativeSubmissionOptionsSupported(options)) return undefined
-    if (!options.waitForInclusion && !options.waitForFinalization) return undefined
-    const native = this.tryNativeClient()
+  ): Promise<ExtrinsicResult | undefined> {
+    const native = await this.tryNativeClient()
     if (native == null) return undefined
-    return Promise.resolve().then(() => {
-      if (isIntentCall(call) && options.nonce == null && options.period === undefined) {
-        const policy = policyForSubmitOptions(options)
-        const executor = new Executor(native, policy)
-        return nativeOutcomeToExtrinsicResult(
-          executor.execute(call, RustWallet.fromKeypair(signer), options.waitForFinalization === true),
-          options.waitForFinalization === true,
-        )
-      }
-      const callData = this.composeNativeCallData(call, options, native)
-      return nativeOutcomeToExtrinsicResult(
-        native.submit(
-          callData,
-          signer,
-          options.nonce == null ? null : toBigInt(options.nonce, 'nonce'),
-          options.period === undefined || options.period == null ? null : toBigInt(options.period, 'period'),
-          options.waitForFinalization === true,
-        ),
+    assertNativeSubmitOptions(options)
+    const planned = await this.nativeSigningPlan(call, signer, options, native)
+    const signature = await this.signRustPlan(planned)
+    return nativeOutcomeToExtrinsicResult(
+      await native.submitExternal(
+        planned.plan,
+        signature.signature,
         options.waitForFinalization === true,
-      )
-    })
+        signature.cryptoType,
+      ),
+      options.waitForFinalization === true,
+    )
   }
 
   async submitSigned(
@@ -1870,12 +1807,11 @@ export class Client {
     signerAddress?: string,
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
+    void signerAddress
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    const tracking = await this.signedExtrinsicNonceTracking(bytes, extrinsic, signerAddress)
-    const reservation = tracking.reservation
     if (options.waitForInclusion || options.waitForFinalization) {
       const watcher = await this.watchSigned(extrinsic, {
         signerAddress,
@@ -1894,27 +1830,19 @@ export class Client {
         retryForever: false,
       }))
     } catch (error) {
-      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
     let returnedHash: string
     try {
       returnedHash = normalizeHash32(hash, 'author_submitExtrinsic hash')
     } catch (error) {
-      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
     if (!sameHex(returnedHash, extrinsicHash)) {
-      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw new ChainError(
         `author_submitExtrinsic returned hash ${returnedHash}, expected ${extrinsicHash}`,
       )
     }
-    if (reservation != null) await this.submitNonce(reservation)
-    else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
     return { status: 'submitted', message: 'Submitted', extrinsicHash, events: [] }
   }
 
@@ -1922,12 +1850,11 @@ export class Client {
     extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
     options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
   ): Promise<ExtrinsicWatcher> {
+    void options.signerAddress
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    const tracking = await this.signedExtrinsicNonceTracking(bytes, extrinsic, options.signerAddress)
-    const reservation = tracking.reservation
     let subscription: AsyncIterable<unknown> & { unsubscribe(): Promise<void> }
     try {
       subscription = await this.transport.subscribe(
@@ -1942,11 +1869,7 @@ export class Client {
           retryForever: false,
         },
       )
-      if (reservation != null) await this.submitNonce(reservation)
-      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
     } catch (error) {
-      if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-      else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
       throw error
     }
     const result = this.resolveWatchedExtrinsic(
@@ -1956,17 +1879,6 @@ export class Client {
       {
         timeoutMs: options.timeoutMs,
         signal: options.signal,
-      },
-    ).then(
-      async (value) => {
-        if (reservation != null) await this.confirmNonce(reservation)
-        else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
-        return value
-      },
-      async (error) => {
-        if (reservation != null) await this.reconcileNonceReservation(reservation, extrinsicHash)
-        else if (tracking.invalidateAddress != null) this.clearNonce(tracking.invalidateAddress)
-        throw error
       },
     )
     return {
@@ -1984,217 +1896,17 @@ export class Client {
     return this.peekNextIndex(address)
   }
 
-  clearNonce(address: string): void {
-    this.nonceAccounts.delete(address)
+  private assertExplicitNonce(options: SubmitOptions, operation: string): void {
+    this.explicitNonce(options, operation)
   }
 
-  private async signedExtrinsicNonceTracking(
-    bytes: Buffer,
-    extrinsic: unknown,
-    signerAddress?: string,
-  ): Promise<NonceTrackingInfo> {
-    const decoded = await this.decodeExtrinsicNonceReservation(bytes).catch(() => undefined)
-    if (decoded != null) return { reservation: decoded }
-
-    const managed = managedNonceReservation(extrinsic)
-    if (managed != null) return { reservation: managed }
-
-    const address = stringValue(signerAddress)
-    return address == null ? {} : { invalidateAddress: address }
-  }
-
-  private async decodeExtrinsicNonceReservation(bytes: Buffer): Promise<NonceReservation | undefined> {
-    const runtime = await this.runtimeAt()
-    const decoded = runtime.decodeExtrinsic(bytes, false) as unknown
-    const fields = decoded == null || typeof decoded !== 'object'
-      ? {}
-      : decoded as Record<string, unknown>
-    const address = extrinsicSignerAddress(fields.address, runtime.ss58Format)
-    const nonce = safeNonceNumber(fields.nonce)
-    return address == null || nonce == null ? undefined : { address, nonce }
-  }
-
-  private async reserveNonce(address: string): Promise<NonceReservation> {
-    return this.withNonceAccount(address, async (state) => {
-      if (state.next == null) {
-        const chainNext = await this.peekNextIndex(address)
-        await this.resolveAmbiguousNonce(address, state, chainNext)
-        advanceNonceStateToChainNext(state, chainNext)
-        if (state.next == null) state.next = chainNext
-      }
-      state.reusable.sort((left, right) => left - right)
-      let nonce = state.next
-      if (state.reusable.length > 0 && state.reusable[0] <= state.next) {
-        nonce = state.reusable.shift() as number
-      }
-      while (state.statuses.has(nonce) && state.statuses.get(nonce) !== 'reusable') nonce += 1
-      if (nonce >= state.next) state.next = nonce + 1
-      state.statuses.set(nonce, 'reserved')
-      return { address, nonce }
-    })
-  }
-
-  private async submitNonce(reservation: NonceReservation): Promise<void> {
-    await this.withNonceAccount(reservation.address, (state) => {
-      state.statuses.set(reservation.nonce, 'submitted')
-      pruneNonceStatuses(state)
-    })
-  }
-
-  private async confirmNonce(reservation: NonceReservation): Promise<void> {
-    await this.withNonceAccount(reservation.address, (state) => {
-      state.statuses.set(reservation.nonce, 'confirmed')
-      pruneNonceStatuses(state)
-    })
-  }
-
-  private async failNonce(reservation: NonceReservation, reusable: boolean): Promise<void> {
-    await this.withNonceAccount(reservation.address, (state) => {
-      const current = state.statuses.get(reservation.nonce)
-      if (current === 'confirmed') return
-      state.statuses.set(reservation.nonce, reusable ? 'reusable' : 'failed')
-      if (reusable && !state.reusable.includes(reservation.nonce)) {
-        state.reusable.push(reservation.nonce)
-        state.reusable.sort((left, right) => left - right)
-      } else if (!reusable) {
-        state.reusable = state.reusable.filter((nonce) => nonce !== reservation.nonce)
-      }
-      pruneNonceStatuses(state)
-    })
-  }
-
-  private async quarantineNonce(reservation: NonceReservation, extrinsicHash?: string): Promise<void> {
-    await this.withNonceAccount(reservation.address, (state) => {
-      quarantineNonceState(state, reservation.nonce, extrinsicHash)
-    })
-  }
-
-  private async reconcileNonceReservation(
-    reservation: NonceReservation,
-    extrinsicHash?: string,
-  ): Promise<void> {
-    const [locationResult, chainNextResult] = await Promise.all([
-      extrinsicHash == null
-        ? Promise.resolve<{ ok: true; location: SubmittedExtrinsicLocation }>({
-            ok: true,
-            location: null,
-          })
-        : this.submittedExtrinsicLocation(extrinsicHash).then(
-            (location) => ({ ok: true as const, location }),
-            (error) => ({ ok: false as const, error }),
-          ),
-      this.peekNextIndex(reservation.address).then(
-        (nonce) => ({ ok: true as const, nonce }),
-        (error) => ({ ok: false as const, error }),
-      ),
-    ])
-    await this.withNonceAccount(reservation.address, (state) => {
-      const location = locationResult.ok ? locationResult.location : undefined
-      const chainNext = chainNextResult.ok ? chainNextResult.nonce : undefined
-      const submitted = location != null || (chainNext != null && chainNext > reservation.nonce)
-      if (!submitted) {
-        quarantineNonceState(state, reservation.nonce, extrinsicHash)
-        return
-      }
-
-      if (chainNext != null) advanceNonceStateToChainNext(state, chainNext)
-      else if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
-      if (state.ambiguous != null && reservation.nonce >= state.ambiguous.nonce) {
-        state.ambiguous = undefined
-      }
-      if (state.next == null || state.next <= reservation.nonce) state.next = reservation.nonce + 1
-
-      const minimumReusableNonce = Math.max(state.next, reservation.nonce + 1)
-      state.reusable = state.reusable.filter(
-        (nonce) => nonce >= minimumReusableNonce && nonce !== reservation.nonce,
+  private explicitNonce(options: SubmitOptions, operation: string): number {
+    if (options.nonce == null) {
+      throw new ChainError(
+        `${operation} requires options.nonce; use submit() with a native Keypair for Rust-managed nonce submission or pass an explicit nonce for low-level signing`,
       )
-      for (const [nonce, status] of state.statuses) {
-        if (status === 'reusable' || nonce <= reservation.nonce) {
-          state.statuses.delete(nonce)
-        }
-      }
-
-      state.statuses.set(reservation.nonce, location === 'block' ? 'confirmed' : 'submitted')
-      while (state.statuses.has(state.next) && state.statuses.get(state.next) !== 'reusable') {
-        state.next += 1
-      }
-      pruneNonceStatuses(state)
-    })
-  }
-
-  private async resolveAmbiguousNonce(
-    address: string,
-    state: NonceAccountState,
-    chainNext: number,
-  ): Promise<void> {
-    const ambiguous = state.ambiguous
-    if (ambiguous == null) return
-
-    if (chainNext > ambiguous.nonce) {
-      clearAmbiguousNonceState(state, chainNext)
-      return
     }
-
-    if (ambiguous.extrinsicHash != null) {
-      const location = await this.submittedExtrinsicLocation(ambiguous.extrinsicHash).catch(() => undefined)
-      if (location != null) {
-        clearAmbiguousNonceState(state, Math.max(chainNext, ambiguous.nonce + 1))
-        state.statuses.set(ambiguous.nonce, location === 'block' ? 'confirmed' : 'submitted')
-        pruneNonceStatuses(state)
-        return
-      }
-    }
-
-    throw new ChainError(
-      `nonce ${ambiguous.nonce} for ${address} is ambiguous after a failed submission; automatic submissions are paused until the chain nonce advances, the original extrinsic is located, or clearNonce(address) is called`,
-    )
-  }
-
-  private async submittedExtrinsicLocation(extrinsicHash: string): Promise<SubmittedExtrinsicLocation> {
-    const normalized = extrinsicHash.toLowerCase()
-    if (await this.pendingExtrinsicsContain(normalized)) return 'pool'
-    return await this.recentBlocksContainExtrinsic(normalized) ? 'block' : null
-  }
-
-  private async pendingExtrinsicsContain(extrinsicHash: string): Promise<boolean> {
-    const pending = await this.rpc('author_pendingExtrinsics')
-    if (!Array.isArray(pending)) return false
-    return pending.some((extrinsic) => hashExtrinsicHex(extrinsic) === extrinsicHash)
-  }
-
-  private async recentBlocksContainExtrinsic(extrinsicHash: string): Promise<boolean> {
-    const current = await this.blockNumber()
-    const earliest = Math.max(0, current - DEFAULT_NONCE_RECONCILE_BLOCKS + 1)
-    for (let number = current; number >= earliest; number -= 1) {
-      const blockHash = await this.blockHash(number)
-      const raw = await this.rpc('chain_getBlock', [blockHash])
-      const extrinsics = (raw as { block?: { extrinsics?: unknown[] } })?.block?.extrinsics ?? []
-      if (extrinsics.some((extrinsic) => hashExtrinsicHex(extrinsic) === extrinsicHash)) return true
-    }
-    return false
-  }
-
-  private withNonceAccount<T>(
-    address: string,
-    operation: (state: NonceAccountState) => T | Promise<T>,
-  ): Promise<T> {
-    const state = this.nonceAccount(address)
-    const run = state.queue.then(() => operation(state), () => operation(state))
-    state.queue = run.then(() => undefined, () => undefined)
-    return run
-  }
-
-  private nonceAccount(address: string): NonceAccountState {
-    let state = this.nonceAccounts.get(address)
-    if (state == null) {
-      state = {
-        reusable: [],
-        statuses: new Map(),
-        queue: Promise.resolve(),
-      }
-      this.nonceAccounts.set(address, state)
-    }
-    return state
+    return parseNonce(options.nonce, 'nonce')
   }
 
   async estimateFee(
@@ -2202,12 +1914,13 @@ export class Client {
     signer: SignerLike,
     options: Pick<SubmitOptions, 'allowRawCall' | 'policy' | 'rawSignerRole'> = {},
   ): Promise<Balance> {
-    if (signer instanceof Keypair) {
-      const native = this.tryNativeClient()
-      if (native != null) {
-        const callData = this.composeNativeCallData(call, options, native)
-        return Balance.fromRao(native.estimateFee(callData, signer))
-      }
+    const native = await this.tryNativeClient()
+    if (native != null) {
+      const planned = await this.nativeSigningPlan(call, signer, options as SubmitOptions, native)
+      const feeRao = planned.plan.feeRao == null
+        ? await native.estimateFeeExternal(planned.plan)
+        : BigInt(planned.plan.feeRao)
+      return Balance.fromRao(feeRao)
     }
     const snapshot = await this.signingSnapshot()
     const { runtime } = snapshot
@@ -2216,7 +1929,7 @@ export class Client {
       ...options,
       nonce: await this.peekNextIndex(account.ss58Address),
       period: null,
-    }, false, snapshot)
+    }, snapshot)
     const queryInfo = runtime.runtimeApis().TransactionPaymentApi?.query_info
     if (queryInfo == null) {
       throw new ChainError('TransactionPaymentApi.query_info metadata is unavailable')
@@ -2410,6 +2123,65 @@ export class Client {
     return runtime.composeCall(pallet, fn, params)
   }
 
+  private async nativeSigningPlan(
+    call: CallLike,
+    signer: SignerLike,
+    options: SubmitOptions,
+    native: NativeChainClient,
+  ): Promise<NativeSigningPlan> {
+    const runtime = await this.headRuntime()
+    const resolved = await this.resolveSigner(signer, runtime)
+    const planOptions = nativeExternalSigningOptions(options)
+    let plan: NativeExternalSigningPlanHandle
+    if (isIntentCall(call)) {
+      plan = await native.externalSigningPlanForIntent(
+        call,
+        resolved.ss58Address,
+        resolved.publicKey,
+        resolved.cryptoType,
+        resolved.requiresMetadataProof,
+        policyForSubmitOptions(options),
+        planOptions,
+      )
+    } else if (Buffer.isBuffer(call) || call instanceof Uint8Array) {
+      assertRawBytesAllowed(options)
+      plan = await native.externalSigningPlan(
+        toBuffer(call, 'call'),
+        resolved.ss58Address,
+        resolved.publicKey,
+        resolved.cryptoType,
+        resolved.requiresMetadataProof,
+        planOptions,
+      )
+    } else {
+      if (!rawCallsAllowed(options)) {
+        throw new ChainError(
+          'raw metadata calls require explicit raw-call permission; use an IntentCall trusted constructor or pass allowRawCall: true',
+        )
+      }
+      const [pallet, fn, params] = normalizeCall(call)
+      const intent = rawCall(pallet, fn, params, {
+        op: `${pallet}.${fn}`,
+        signerRole: options.rawSignerRole ?? 'coldkey',
+      })
+      plan = await native.externalSigningPlanForIntent(
+        intent,
+        resolved.ss58Address,
+        resolved.publicKey,
+        resolved.cryptoType,
+        resolved.requiresMetadataProof,
+        policyForSubmitOptions(options),
+        planOptions,
+      )
+    }
+    return { native, runtime, resolved, plan }
+  }
+
+  private async signRustPlan(planned: NativeSigningPlan): Promise<NormalizedSignature> {
+    const context = nativePlanSignerContext(this, planned.runtime, planned.resolved, planned.plan)
+    return this.signWithSigner(planned.resolved.signer, context.payload, context)
+  }
+
   private prepareCallForSigning(
     call: CallLike,
     runtime: Runtime,
@@ -2435,33 +2207,6 @@ export class Client {
     })
     this.enforceIntentPolicy(intent, options)
     return { callData: this.callDataWithRuntime(intent, runtime), intent }
-  }
-
-  private composeNativeCallData(
-    call: CallLike,
-    options: Pick<SubmitOptions, 'allowRawCall' | 'policy' | 'rawSignerRole'>,
-    native: NativeChainClient,
-  ): Buffer {
-    if (isIntentCall(call)) {
-      this.enforceIntentPolicy(call, options as SubmitOptions)
-      return native.composeIntent(call)
-    }
-    if (Buffer.isBuffer(call) || call instanceof Uint8Array) {
-      assertRawBytesAllowed(options as SubmitOptions)
-      return toBuffer(call, 'call')
-    }
-    if (!rawCallsAllowed(options as SubmitOptions)) {
-      throw new ChainError(
-        'raw metadata calls require explicit raw-call permission; use an IntentCall trusted constructor or pass allowRawCall: true',
-      )
-    }
-    const [pallet, fn, params] = normalizeCall(call)
-    const intent = rawCall(pallet, fn, params, {
-      op: `${pallet}.${fn}`,
-      signerRole: options.rawSignerRole ?? 'coldkey',
-    })
-    this.enforceIntentPolicy(intent, options as SubmitOptions)
-    return native.composeIntent(intent)
   }
 
   private enforceIntentPolicy(intent: IntentCall, options: SubmitOptions): void {
@@ -2763,9 +2508,9 @@ export class SubnetsNamespace {
 
   async subnet(netuid: number, block?: number | string | null): Promise<SubnetInfo> {
     const blockHash = await this.client.resolveReadBlockHash(block)
-    const native = nativeRustClient(this.client)
+    const native = await nativeRustClient(this.client)
     if (native != null) {
-      const subnet = native.subnets(blockHash).find((item) => item.netuid === netuid)
+      const subnet = (await native.subnets(blockHash)).find((item) => item.netuid === netuid)
       if (subnet != null) {
         return {
           netuid: subnet.netuid,
@@ -2789,9 +2534,9 @@ export class SubnetsNamespace {
 
   async all(block?: number | string | null): Promise<SubnetInfo[]> {
     const blockHash = await this.client.resolveReadBlockHash(block)
-    const native = nativeRustClient(this.client)
+    const native = await nativeRustClient(this.client)
     if (native != null) {
-      return native.subnets(blockHash).map((subnet) => ({
+      return (await native.subnets(blockHash)).map((subnet) => ({
         netuid: subnet.netuid,
         tempo: subnet.tempo,
         burn: Balance.fromRao(subnet.burnRao),
@@ -2831,18 +2576,20 @@ export class SubnetsNamespace {
     return this.exists(netuid, block)
   }
 
-  metagraph<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
-    const native = nativeRustClient(this.client)
+  async metagraph<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    const native = await nativeRustClient(this.client)
     if (native != null) {
-      return this.client.resolveReadBlockHash(block).then((blockHash) => native.metagraph(netuid, blockHash) as T)
+      const blockHash = await this.client.resolveReadBlockHash(block)
+      return await native.metagraph(netuid, blockHash) as T
     }
     return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_metagraph, [netuid], block)
   }
 
-  hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
-    const native = nativeRustClient(this.client)
+  async hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+    const native = await nativeRustClient(this.client)
     if (native != null) {
-      return this.client.resolveReadBlockHash(block).then((blockHash) => native.subnetHyperparameters(netuid, blockHash) as T)
+      const blockHash = await this.client.resolveReadBlockHash(block)
+      return await native.subnetHyperparameters(netuid, blockHash) as T
     }
     return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [netuid], block)
   }
@@ -2871,10 +2618,11 @@ export class SubnetsNamespace {
 export class NeuronsNamespace {
   constructor(private readonly client: Client) {}
 
-  all<T extends ScaleValue = ScaleValue>(netuid: number, lite = true, block?: number | string | null): Promise<T> {
-    const native = nativeRustClient(this.client)
+  async all<T extends ScaleValue = ScaleValue>(netuid: number, lite = true, block?: number | string | null): Promise<T> {
+    const native = await nativeRustClient(this.client)
     if (native != null && lite) {
-      return this.client.resolveReadBlockHash(block).then((blockHash) => native.neurons(netuid, blockHash) as T)
+      const blockHash = await this.client.resolveReadBlockHash(block)
+      return await native.neurons(netuid, blockHash) as T
     }
     return this.client.runtime<T>(
       lite ? runtimeApi.NeuronInfoRuntimeApi.get_neurons_lite : runtimeApi.NeuronInfoRuntimeApi.get_neurons,
@@ -2905,10 +2653,10 @@ export class StakingNamespace {
   constructor(private readonly client: Client) {}
 
   async get(coldkey: string, hotkey: string, netuid: number, block?: number | string | null): Promise<Balance> {
-    const native = nativeRustClient(this.client)
+    const native = await nativeRustClient(this.client)
     if (native != null) {
       const blockHash = await this.client.resolveReadBlockHash(block)
-      return Balance.fromRao(native.stakeRao(coldkey, hotkey, netuid, blockHash), netuid)
+      return Balance.fromRao(await native.stakeRao(coldkey, hotkey, netuid, blockHash), netuid)
     }
     const info = await this.client.runtime<Record<string, ScaleValue> | null>(
       runtimeApi.StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
@@ -3248,23 +2996,23 @@ interface CallDescriptorEntry {
 }
 
 const CALL_DESCRIPTOR_ENTRIES: CallDescriptorEntry[] = [
-  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'], argTypes: ['MultiAddress<AccountId32, ()>', 'Compact<u64>'] },
-  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'], argTypes: ['MultiAddress<AccountId32, ()>', 'Compact<u64>'] },
-  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'], argTypes: ['AccountId32', 'u16', 'u64'] },
-  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'], argTypes: ['u16', 'AccountId32'] },
-  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'], argTypes: ['u16', 'H256'] },
-  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'u16', 'u16', 'u64'] },
-  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypes: ['u16', 'u64', 'u64', 'Vec<u8>', 'AccountId32', 'AccountId32'] },
+  { path: 'calls.balances.transferKeepAlive', descriptor: descriptor('Balances', 'transfer_keep_alive'), args: ['dest', 'value'], argTypes: ['MultiAddress<AccountId32, ()>', 'Compact<TaoBalance>'] },
+  { path: 'calls.balances.transferAllowDeath', descriptor: descriptor('Balances', 'transfer_allow_death'), args: ['dest', 'value'], argTypes: ['MultiAddress<AccountId32, ()>', 'Compact<TaoBalance>'] },
+  { path: 'calls.subtensor.addStake', descriptor: descriptor('SubtensorModule', 'add_stake'), args: ['hotkey', 'netuid', 'amount_staked'], argTypes: ['AccountId32', 'NetUid', 'TaoBalance'] },
+  { path: 'calls.subtensor.burnedRegister', descriptor: descriptor('SubtensorModule', 'burned_register'), args: ['netuid', 'hotkey'], argTypes: ['NetUid', 'AccountId32'] },
+  { path: 'calls.subtensor.commitWeights', descriptor: descriptor('SubtensorModule', 'commit_weights'), args: ['netuid', 'commit_hash'], argTypes: ['NetUid', 'H256'] },
+  { path: 'calls.subtensor.moveStake', descriptor: descriptor('SubtensorModule', 'move_stake'), args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'NetUid', 'NetUid', 'AlphaBalance'] },
+  { path: 'calls.subtensor.register', descriptor: descriptor('SubtensorModule', 'register'), args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypes: ['NetUid', 'u64', 'u64', 'Vec<u8>', 'AccountId32', 'AccountId32'] },
   { path: 'calls.subtensor.registerNetwork', descriptor: descriptor('SubtensorModule', 'register_network'), args: ['hotkey'], argTypes: ['AccountId32'] },
-  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'], argTypes: ['AccountId32', 'u16', 'u64'] },
-  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypes: ['u16', 'Vec<u16>', 'Vec<u16>', 'Vec<u16>', 'u64'] },
+  { path: 'calls.subtensor.removeStake', descriptor: descriptor('SubtensorModule', 'remove_stake'), args: ['hotkey', 'netuid', 'amount_unstaked'], argTypes: ['AccountId32', 'NetUid', 'AlphaBalance'] },
+  { path: 'calls.subtensor.revealWeights', descriptor: descriptor('SubtensorModule', 'reveal_weights'), args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypes: ['NetUid', 'Vec<u16>', 'Vec<u16>', 'Vec<u16>', 'u64'] },
   { path: 'calls.subtensor.rootRegister', descriptor: descriptor('SubtensorModule', 'root_register'), args: ['hotkey'], argTypes: ['AccountId32'] },
-  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypes: ['u16', 'u32', 'u128', 'u16', 'u8', 'u8', 'u8', 'u8'] },
-  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypes: ['u16', 'u32', 'u128', 'u16', 'u8'] },
-  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'], argTypes: ['AccountId32', 'u16', 'Vec<(u64, AccountId32)>'] },
-  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'], argTypes: ['u16', 'Vec<u16>', 'Vec<u16>', 'u64'] },
-  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'], argTypes: ['u16'] },
-  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'u16', 'u16', 'u64'] },
+  { path: 'calls.subtensor.serveAxon', descriptor: descriptor('SubtensorModule', 'serve_axon'), args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypes: ['NetUid', 'u32', 'u128', 'u16', 'u8', 'u8', 'u8', 'u8'] },
+  { path: 'calls.subtensor.servePrometheus', descriptor: descriptor('SubtensorModule', 'serve_prometheus'), args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypes: ['NetUid', 'u32', 'u128', 'u16', 'u8'] },
+  { path: 'calls.subtensor.setChildren', descriptor: descriptor('SubtensorModule', 'set_children'), args: ['hotkey', 'netuid', 'children'], argTypes: ['AccountId32', 'NetUid', 'Vec<(u64, AccountId32)>'] },
+  { path: 'calls.subtensor.setWeights', descriptor: descriptor('SubtensorModule', 'set_weights'), args: ['netuid', 'dests', 'weights', 'version_key'], argTypes: ['NetUid', 'Vec<u16>', 'Vec<u16>', 'u64'] },
+  { path: 'calls.subtensor.startCall', descriptor: descriptor('SubtensorModule', 'start_call'), args: ['netuid'], argTypes: ['NetUid'] },
+  { path: 'calls.subtensor.transferStake', descriptor: descriptor('SubtensorModule', 'transfer_stake'), args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypes: ['AccountId32', 'AccountId32', 'NetUid', 'NetUid', 'AlphaBalance'] },
   { path: 'calls.subtensor.unstakeAll', descriptor: descriptor('SubtensorModule', 'unstake_all'), args: ['hotkey'], argTypes: ['AccountId32'] },
 ]
 
@@ -3645,94 +3393,6 @@ function staticSignerAddress(signer: unknown): string | undefined {
   return stringValue(value.ss58Address) ?? stringValue(value.address)
 }
 
-function managedNonceReservation(extrinsic: unknown): NonceReservation | undefined {
-  if (extrinsic == null || typeof extrinsic !== 'object') return undefined
-  if (Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array) return undefined
-  return (extrinsic as ManagedSignedExtrinsicResult)[MANAGED_NONCE]
-}
-
-function extrinsicSignerAddress(value: unknown, ss58Format: number): string | undefined {
-  if (typeof value === 'string') return value
-  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
-    return value.length === 32 ? ss58FromPublic(value, ss58Format) : undefined
-  }
-  if (value == null || typeof value !== 'object') return undefined
-  for (const candidate of Object.values(value as Record<string, unknown>)) {
-    const address = extrinsicSignerAddress(candidate, ss58Format)
-    if (address != null) return address
-  }
-  return undefined
-}
-
-function safeNonceNumber(value: unknown): number | undefined {
-  const nonce = typeof value === 'bigint' ? Number(value) : Number(value)
-  return Number.isSafeInteger(nonce) && nonce >= 0 ? nonce : undefined
-}
-
-function hashExtrinsicHex(extrinsic: unknown): string | undefined {
-  if (typeof extrinsic !== 'string') return undefined
-  try {
-    return hex(blake2_256(hexToBuffer(extrinsic))).toLowerCase()
-  } catch {
-    return undefined
-  }
-}
-
-function advanceNonceStateToChainNext(state: NonceAccountState, chainNext: number): void {
-  if (state.next == null || state.next < chainNext) state.next = chainNext
-  state.reusable = state.reusable.filter((nonce) => nonce >= chainNext)
-  for (const [nonce, status] of state.statuses) {
-    if (nonce >= chainNext) continue
-    if (status === 'ambiguous' && state.ambiguous?.nonce === nonce) {
-      state.ambiguous = undefined
-    }
-    state.statuses.delete(nonce)
-  }
-  pruneNonceStatuses(state)
-}
-
-function pruneNonceStatuses(state: NonceAccountState): void {
-  if (state.next != null) {
-    for (const [nonce, status] of state.statuses) {
-      if (nonce >= state.next) continue
-      if (status === 'submitted' || status === 'confirmed' || status === 'failed') {
-        state.statuses.delete(nonce)
-      }
-    }
-  }
-  if (state.statuses.size <= DEFAULT_MAX_NONCE_STATUS_HISTORY * 2) return
-  for (const [nonce, status] of state.statuses) {
-    if (state.statuses.size <= DEFAULT_MAX_NONCE_STATUS_HISTORY) break
-    if (status !== 'reserved' && status !== 'ambiguous') state.statuses.delete(nonce)
-  }
-}
-
-function quarantineNonceState(state: NonceAccountState, nonce: number, extrinsicHash?: string): void {
-  state.next = undefined
-  state.reusable = []
-  for (const [existingNonce, status] of state.statuses) {
-    if (status === 'reusable') state.statuses.delete(existingNonce)
-  }
-  state.statuses.set(nonce, 'ambiguous')
-  state.ambiguous = {
-    nonce,
-    extrinsicHash,
-    sinceMs: Date.now(),
-  }
-  pruneNonceStatuses(state)
-}
-
-function clearAmbiguousNonceState(state: NonceAccountState, next: number): void {
-  const ambiguous = state.ambiguous
-  if (ambiguous != null && state.statuses.get(ambiguous.nonce) === 'ambiguous') {
-    state.statuses.delete(ambiguous.nonce)
-  }
-  state.ambiguous = undefined
-  state.next = next
-  state.reusable = state.reusable.filter((nonce) => nonce >= next)
-  pruneNonceStatuses(state)
-}
-
 function sameHex(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
@@ -3901,8 +3561,92 @@ function jsonRpcSubscriptionNotification(
   return { subscription: String(subscription), result: paramsObject.result }
 }
 
+function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSigningOptions {
+  const out: NativeExternalSigningOptions = {}
+  if (options.nonce != null) out.nonce = toBigInt(options.nonce, 'nonce')
+  if (options.period === null) {
+    out.immortal = true
+  } else if (options.period !== undefined) {
+    out.period = toBigInt(options.period, 'period')
+  }
+  if (options.tip != null) {
+    out.tip = taoTransactionAmountRao(options.tip, 'tip')
+  }
+  if (options.tipAssetId != null) {
+    out.tipAssetId = assetIdValue(options.tipAssetId, 'tipAssetId')
+  }
+  if (hasOwn(options, 'metadataHash')) {
+    if (options.metadataHash == null) {
+      out.metadataHashMode = 'disabled'
+    } else {
+      out.metadataHashMode = 'explicit'
+      out.metadataHash = toBuffer(options.metadataHash, 'metadataHash')
+    }
+  }
+  return out
+}
+
+function nativePlanSignerContext(
+  client: Client,
+  runtime: Runtime,
+  resolved: ResolvedSigner,
+  plan: NativeExternalSigningPlanHandle,
+): SignerPayloadContext {
+  const metadataHash = plan.metadataHash == null ? null : Buffer.from(plan.metadataHash)
+  const metadataProof = plan.metadataProof == null ? undefined : Buffer.from(plan.metadataProof)
+  return {
+    client,
+    runtime,
+    address: resolved.ss58Address,
+    publicKey: Buffer.from(plan.publicKey),
+    cryptoType: plan.cryptoType,
+    callData: Buffer.from(plan.callData),
+    payload: Buffer.from(plan.payload),
+    txParams: nativeTxParamsToTransactionParams(plan.txParams),
+    metadataHash,
+    metadataProof,
+    proof: metadataProof,
+    includedInExtrinsic: Buffer.from(plan.includedInExtrinsic),
+    includedInSignedData: Buffer.from(plan.includedInSignedData),
+    chainInfo: plan.chainInfo == null ? undefined : nativeChainInfoToChainInfo(plan.chainInfo),
+    signerPayload: plan.signerPayload,
+  }
+}
+
+function nativeTxParamsToTransactionParams(
+  params: NativeExternalSigningPlanHandle['txParams'],
+): TransactionParams {
+  return {
+    era: fromWire(params.era),
+    nonce: params.nonce,
+    tip: params.tip,
+    tipAssetId: params.tipAssetId ?? null,
+    genesisHash: Buffer.from(params.genesisHash),
+    eraBlockHash: Buffer.from(params.eraBlockHash),
+    metadataHash: params.metadataHash == null ? null : Buffer.from(params.metadataHash),
+  }
+}
+
+function nativeChainInfoToChainInfo(info: NativeChainInfo): ChainInfo {
+  return {
+    specVersion: info.specVersion,
+    specName: info.specName,
+    base58Prefix: info.base58Prefix,
+    decimals: info.decimals,
+    tokenSymbol: info.tokenSymbol,
+  }
+}
+
+function assertNativeSubmitOptions(options: SubmitOptions): void {
+  if (options.signal != null || options.timeoutMs != null) {
+    throw new ChainError(
+      'native Rust transaction execution does not support signal or timeoutMs; use submitSigned()/watchSigned() for custom transport cancellation',
+    )
+  }
+}
+
 function extensionSignPayload(context: SignerPayloadContext): ExtensionSignPayloadRequest {
-  return context.runtime.signerPayload(context.address, context.callData, context.txParams)
+  return context.signerPayload ?? context.runtime.signerPayload(context.address, context.callData, context.txParams)
 }
 
 function normalizeSignature(
@@ -4020,18 +3764,6 @@ function policyForSubmitOptions(options: SubmitOptions): Policy {
   })
 }
 
-function nativeSigningOptionsSupported(options: SubmitOptions): boolean {
-  return options.tip == null &&
-    options.tipAssetId == null &&
-    !hasOwn(options, 'metadataHash')
-}
-
-function nativeSubmissionOptionsSupported(options: SubmitOptions): boolean {
-  return nativeSigningOptionsSupported(options) &&
-    options.signal == null &&
-    options.timeoutMs == null
-}
-
 function nativeOutcomeToExtrinsicResult(outcome: NativeTxOutcome, finalized: boolean): ExtrinsicResult {
   const blockNumber = outcome.blockNumber == null ? undefined : Number(outcome.blockNumber)
   const extrinsicIndex = outcome.extrinsicIndex ?? undefined
@@ -4119,17 +3851,68 @@ function eventName(event: unknown): string {
 
 function eventExtrinsicIndex(event: unknown): number | null {
   const value = event as { extrinsic_idx?: unknown; phase?: unknown }
-  if (value.extrinsic_idx != null) return Number(value.extrinsic_idx)
+  const index = eventIndexNumber(value.extrinsic_idx)
+  if (index != null) return index
   const phase = value.phase as Record<string, unknown> | undefined
   const apply = phase?.ApplyExtrinsic ?? phase?.applyExtrinsic
-  return apply == null ? null : Number(apply)
+  return eventIndexNumber(apply)
+}
+
+function eventIndexNumber(value: unknown): number | null {
+  if (value == null) return null
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 0 ? value : null
+  if (typeof value === 'bigint') {
+    const number = Number(value)
+    return Number.isSafeInteger(number) && number >= 0 ? number : null
+  }
+  if (typeof value === 'string') {
+    if (!/^(?:0x[0-9a-fA-F]+|\d+)$/.test(value)) return null
+    const number = Number(value)
+    return Number.isSafeInteger(number) && number >= 0 ? number : null
+  }
+  if (typeof value !== 'object' || Buffer.isBuffer(value) || value instanceof Uint8Array) return null
+
+  const object = value as Record<string, unknown>
+  if (object[WIRE_TAG] === 'bigint' && typeof object.value === 'string') {
+    return eventIndexNumber(object.value)
+  }
+  if (Array.isArray(value) && value.length === 1) return eventIndexNumber(value[0])
+
+  const entries = Object.entries(object).filter(([key]) => key !== WIRE_TAG)
+  if (entries.length !== 1) return null
+  return eventIndexNumber(entries[0][1])
 }
 
 function feeFromEvent(event: unknown): Balance | undefined {
   const attrs = (event as { attributes?: unknown }).attributes
   if (attrs == null || typeof attrs !== 'object') return undefined
   const amount = (attrs as Record<string, unknown>).actual_fee ?? (attrs as Record<string, unknown>).actualFee ?? (attrs as Record<string, unknown>).fee
-  return amount == null ? undefined : Balance.fromRao(String(amount))
+  const rao = decimalAmount(amount)
+  return rao == null ? undefined : Balance.fromRao(rao)
+}
+
+function decimalAmount(value: unknown): string | undefined {
+  if (value == null) return undefined
+  if (typeof value === 'bigint') return value >= 0n ? value.toString(10) : undefined
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? value.toString(10) : undefined
+  }
+  if (typeof value === 'string') {
+    if (/^\d+$/.test(value)) return value
+    if (/^0x[0-9a-fA-F]+$/.test(value)) return BigInt(value).toString(10)
+    return undefined
+  }
+  if (typeof value !== 'object' || Buffer.isBuffer(value) || value instanceof Uint8Array) return undefined
+
+  const object = value as Record<string, unknown>
+  if (object[WIRE_TAG] === 'bigint' && typeof object.value === 'string') {
+    return decimalAmount(object.value)
+  }
+  if (Array.isArray(value) && value.length === 1) return decimalAmount(value[0])
+
+  const entries = Object.entries(object).filter(([key]) => key !== WIRE_TAG)
+  if (entries.length !== 1) return undefined
+  return decimalAmount(entries[0][1])
 }
 
 function dispatchFailureMessage(runtime: Runtime, event: unknown): string {

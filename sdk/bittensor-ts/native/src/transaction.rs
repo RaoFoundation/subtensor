@@ -1,15 +1,21 @@
 use std::sync::Arc;
 
-use bittensor_core::client::{BlockHeader, DispatchError, SubnetInfo, SwapQuote, TxOutcome};
+use bittensor_core::client::{
+    BlockHeader, DispatchError, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan,
+    MetadataHashMode, SubnetInfo, SwapQuote, TxOutcome,
+};
+use bittensor_core::codec::Value;
+use bittensor_core::digest::ChainInfo;
 use bittensor_core::transaction::{Executor, IntentCall, Plan, Policy, SignerRole, Spend, Wallet};
-use bittensor_core::Client;
-use napi::bindgen_prelude::{BigInt, Buffer};
+use bittensor_core::{Client, CoreError};
+use napi::bindgen_prelude::{AsyncTask, BigInt, Buffer, Unknown};
+use napi::{Env, ScopedTask, Task};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 
 use crate::errors::{invalid_arg, CoreResultExt, NapiResult};
 use crate::keys::NativeKeypair;
-use crate::runtime::NativeMapPair;
+use crate::runtime::{NativeSignerPayload, NativeTxParams};
 use crate::values::{from_wire, to_wire};
 
 #[napi(object)]
@@ -84,6 +90,247 @@ pub struct NativeSwapQuote {
 pub struct NativeSignedExtrinsic {
     pub bytes: Buffer,
     pub hash: String,
+}
+
+#[napi(object)]
+pub struct NativeExternalSigningOptions {
+    pub nonce: Option<BigInt>,
+    pub period: Option<BigInt>,
+    pub immortal: Option<bool>,
+    pub tip: Option<BigInt>,
+    pub tip_asset_id: Option<BigInt>,
+    pub metadata_hash_mode: Option<String>,
+    pub metadata_hash: Option<Buffer>,
+}
+
+#[napi(object)]
+pub struct NativeExternalSigner {
+    pub signer_address: String,
+    pub public_key: Buffer,
+    pub crypto_type: u32,
+    pub requires_metadata_proof: bool,
+}
+
+#[napi(object)]
+pub struct NativeChainInfo {
+    pub spec_version: u32,
+    pub spec_name: String,
+    pub base58_prefix: u16,
+    pub decimals: u8,
+    pub token_symbol: String,
+}
+
+#[napi]
+pub struct NativeExternalSigningPlan {
+    pub(crate) inner: Arc<ExternalSigningPlan>,
+}
+
+type ClientJob<T> = Box<dyn FnOnce(&Client) -> Result<T, CoreError> + Send + 'static>;
+
+fn task_already_completed() -> napi::Error {
+    napi::Error::from_reason("native async task was already completed")
+}
+
+macro_rules! client_task {
+    ($name:ident, $output:ty, $js:ty, $resolve:expr) => {
+        pub struct $name {
+            client: Arc<Client>,
+            job: Option<ClientJob<$output>>,
+        }
+
+        impl $name {
+            fn new<F>(client: Arc<Client>, job: F) -> Self
+            where
+                F: FnOnce(&Client) -> Result<$output, CoreError> + Send + 'static,
+            {
+                Self {
+                    client,
+                    job: Some(Box::new(job)),
+                }
+            }
+        }
+
+        impl Task for $name {
+            type Output = $output;
+            type JsValue = $js;
+
+            fn compute(&mut self) -> napi::Result<Self::Output> {
+                let job = self.job.take().ok_or_else(task_already_completed)?;
+                job(&self.client).napi()
+            }
+
+            fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+                ($resolve)(output)
+            }
+        }
+    };
+}
+
+pub struct ClientConnectTask {
+    endpoint: String,
+}
+
+impl Task for ClientConnectTask {
+    type Output = Client;
+    type JsValue = NativeClient;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        Client::connect(self.endpoint.clone()).napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        Ok(NativeClient {
+            inner: Arc::new(output),
+        })
+    }
+}
+
+client_task!(ClientStringTask, String, String, Ok);
+client_task!(ClientBoolTask, bool, bool, Ok);
+client_task!(ClientU64Task, u64, BigInt, |value| Ok(BigInt::from(value)));
+client_task!(ClientHeaderTask, BlockHeader, NativeBlockHeader, |value| {
+    Ok(header_to_native(value))
+});
+client_task!(ClientBytesTask, Vec<u8>, Buffer, |value: Vec<u8>| {
+    Ok(value.into())
+});
+client_task!(
+    ClientTxOutcomeTask,
+    TxOutcome,
+    NativeTxOutcome,
+    outcome_to_native
+);
+client_task!(
+    ClientSignedExtrinsicTask,
+    (Vec<u8>, String),
+    NativeSignedExtrinsic,
+    |(bytes, hash): (Vec<u8>, String)| Ok(NativeSignedExtrinsic {
+        bytes: bytes.into(),
+        hash,
+    })
+);
+client_task!(
+    ClientExternalSigningPlanTask,
+    ExternalSigningPlan,
+    NativeExternalSigningPlan,
+    |plan: ExternalSigningPlan| Ok(NativeExternalSigningPlan {
+        inner: Arc::new(plan),
+    })
+);
+client_task!(
+    ClientSubnetsTask,
+    Vec<SubnetInfo>,
+    Vec<NativeSubnetInfo>,
+    |items: Vec<SubnetInfo>| Ok(items.into_iter().map(subnet_to_native).collect())
+);
+client_task!(ClientSwapQuoteTask, SwapQuote, NativeSwapQuote, |value| {
+    Ok(quote_to_native(value))
+});
+
+pub struct ClientWireValueTask {
+    client: Arc<Client>,
+    job: Option<ClientJob<Value>>,
+}
+
+impl ClientWireValueTask {
+    fn new<F>(client: Arc<Client>, job: F) -> Self
+    where
+        F: FnOnce(&Client) -> Result<Value, CoreError> + Send + 'static,
+    {
+        Self {
+            client,
+            job: Some(Box::new(job)),
+        }
+    }
+}
+
+impl<'task> ScopedTask<'task> for ClientWireValueTask {
+    type Output = Value;
+    type JsValue = Unknown<'task>;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let job = self.job.take().ok_or_else(task_already_completed)?;
+        job(&self.client).napi()
+    }
+
+    fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        env.to_js_value(&to_wire(&output)?)
+    }
+}
+
+pub struct ClientWireValuesTask {
+    client: Arc<Client>,
+    job: Option<ClientJob<Vec<Value>>>,
+}
+
+impl ClientWireValuesTask {
+    fn new<F>(client: Arc<Client>, job: F) -> Self
+    where
+        F: FnOnce(&Client) -> Result<Vec<Value>, CoreError> + Send + 'static,
+    {
+        Self {
+            client,
+            job: Some(Box::new(job)),
+        }
+    }
+}
+
+impl<'task> ScopedTask<'task> for ClientWireValuesTask {
+    type Output = Vec<Value>;
+    type JsValue = Unknown<'task>;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let job = self.job.take().ok_or_else(task_already_completed)?;
+        job(&self.client).napi()
+    }
+
+    fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        let wire = output
+            .iter()
+            .map(to_wire)
+            .collect::<napi::Result<Vec<_>>>()?;
+        env.to_js_value(&wire)
+    }
+}
+
+pub struct ClientMapTask {
+    client: Arc<Client>,
+    job: Option<ClientJob<Vec<(Value, Value)>>>,
+}
+
+impl ClientMapTask {
+    fn new<F>(client: Arc<Client>, job: F) -> Self
+    where
+        F: FnOnce(&Client) -> Result<Vec<(Value, Value)>, CoreError> + Send + 'static,
+    {
+        Self {
+            client,
+            job: Some(Box::new(job)),
+        }
+    }
+}
+
+impl<'task> ScopedTask<'task> for ClientMapTask {
+    type Output = Vec<(Value, Value)>;
+    type JsValue = Unknown<'task>;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let job = self.job.take().ok_or_else(task_already_completed)?;
+        job(&self.client).napi()
+    }
+
+    fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        let wire = output
+            .iter()
+            .map(|(key, value)| {
+                let mut item = serde_json::Map::new();
+                item.insert("key".to_owned(), to_wire(key)?);
+                item.insert("value".to_owned(), to_wire(value)?);
+                Ok(JsonValue::Object(item))
+            })
+            .collect::<napi::Result<Vec<_>>>()?;
+        env.to_js_value(&wire)
+    }
 }
 
 #[napi]
@@ -473,17 +720,96 @@ impl NativeIntentCall {
 }
 
 #[napi]
+impl NativeExternalSigningPlan {
+    #[napi(getter, js_name = "callData")]
+    pub fn call_data(&self) -> Buffer {
+        self.inner.call_data.clone().into()
+    }
+
+    #[napi(getter, js_name = "signerAddress")]
+    pub fn signer_address(&self) -> String {
+        self.inner.signer_address.clone()
+    }
+
+    #[napi(getter, js_name = "publicKey")]
+    pub fn public_key(&self) -> Buffer {
+        self.inner.public_key.to_vec().into()
+    }
+
+    #[napi(getter, js_name = "cryptoType")]
+    pub fn crypto_type(&self) -> u32 {
+        u32::from(self.inner.crypto_type)
+    }
+
+    #[napi(getter)]
+    pub fn nonce(&self) -> BigInt {
+        BigInt::from(self.inner.params.nonce)
+    }
+
+    #[napi(getter)]
+    pub fn payload(&self) -> Buffer {
+        self.inner.payload.clone().into()
+    }
+
+    #[napi(getter, js_name = "includedInExtrinsic")]
+    pub fn included_in_extrinsic(&self) -> Buffer {
+        self.inner.included_in_extrinsic.clone().into()
+    }
+
+    #[napi(getter, js_name = "includedInSignedData")]
+    pub fn included_in_signed_data(&self) -> Buffer {
+        self.inner.included_in_signed_data.clone().into()
+    }
+
+    #[napi(getter, js_name = "metadataHash")]
+    pub fn metadata_hash(&self) -> Option<Buffer> {
+        self.inner
+            .params
+            .metadata_hash
+            .map(|hash| hash.to_vec().into())
+    }
+
+    #[napi(getter, js_name = "metadataProof")]
+    pub fn metadata_proof(&self) -> Option<Buffer> {
+        self.inner.metadata_proof.clone().map(Into::into)
+    }
+
+    #[napi(getter, js_name = "txParams")]
+    pub fn tx_params(&self) -> NapiResult<NativeTxParams> {
+        tx_params_to_native(&self.inner.params)
+    }
+
+    #[napi(getter, js_name = "signerPayload")]
+    pub fn signer_payload(&self) -> NativeSignerPayload {
+        self.inner.signer_payload.clone().into()
+    }
+
+    #[napi(getter, js_name = "chainInfo")]
+    pub fn chain_info(&self) -> Option<NativeChainInfo> {
+        self.inner.chain_info.clone().map(chain_info_to_native)
+    }
+
+    #[napi(getter, js_name = "feeRao")]
+    pub fn fee_rao(&self) -> Option<String> {
+        self.inner.fee_rao.map(|value| value.to_string())
+    }
+
+    #[napi(getter)]
+    pub fn warnings(&self) -> Vec<String> {
+        self.inner.warnings.clone()
+    }
+}
+
+#[napi]
 pub struct NativeClient {
     pub(crate) inner: Arc<Client>,
 }
 
 #[napi]
 impl NativeClient {
-    #[napi(factory)]
-    pub fn connect(endpoint: String) -> napi::Result<Self> {
-        Client::connect(endpoint).napi().map(|inner| Self {
-            inner: Arc::new(inner),
-        })
+    #[napi]
+    pub fn connect(endpoint: String) -> AsyncTask<ClientConnectTask> {
+        AsyncTask::new(ClientConnectTask { endpoint })
     }
 
     #[napi(getter)]
@@ -502,34 +828,41 @@ impl NativeClient {
     }
 
     #[napi(js_name = "blockHash")]
-    pub fn block_hash(&self, block: Option<BigInt>) -> NapiResult<String> {
+    pub fn block_hash(&self, block: Option<BigInt>) -> NapiResult<AsyncTask<ClientStringTask>> {
         let block = block
             .as_ref()
             .map(|value| bigint_u64("block", value))
             .transpose()?;
-        self.inner.block_hash(block).napi()
+        Ok(AsyncTask::new(ClientStringTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.block_hash(block),
+        )))
     }
 
     #[napi(js_name = "finalizedHead")]
-    pub fn finalized_head(&self) -> NapiResult<String> {
-        self.inner.finalized_head().napi()
+    pub fn finalized_head(&self) -> AsyncTask<ClientStringTask> {
+        AsyncTask::new(ClientStringTask::new(Arc::clone(&self.inner), |client| {
+            client.finalized_head()
+        }))
     }
 
     #[napi(js_name = "blockNumber")]
-    pub fn block_number(&self, block_hash: Option<String>) -> NapiResult<BigInt> {
-        let number = match block_hash {
-            Some(hash) => self.inner.header(Some(&hash)).napi()?.number,
-            None => self.inner.block_number().napi()?,
-        };
-        Ok(BigInt::from(number))
+    pub fn block_number(&self, block_hash: Option<String>) -> AsyncTask<ClientU64Task> {
+        AsyncTask::new(ClientU64Task::new(
+            Arc::clone(&self.inner),
+            move |client| match block_hash {
+                Some(hash) => client.header(Some(&hash)).map(|header| header.number),
+                None => client.block_number(),
+            },
+        ))
     }
 
     #[napi(js_name = "header")]
-    pub fn header(&self, block_hash: Option<String>) -> NapiResult<NativeBlockHeader> {
-        self.inner
-            .header(block_hash.as_deref())
-            .napi()
-            .map(header_to_native)
+    pub fn header(&self, block_hash: Option<String>) -> AsyncTask<ClientHeaderTask> {
+        AsyncTask::new(ClientHeaderTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.header(block_hash.as_deref()),
+        ))
     }
 
     #[napi(js_name = "readCatalog")]
@@ -542,8 +875,10 @@ impl NativeClient {
     }
 
     #[napi(js_name = "refreshRuntime")]
-    pub fn refresh_runtime(&self) -> NapiResult<bool> {
-        self.inner.refresh_runtime().napi()
+    pub fn refresh_runtime(&self) -> AsyncTask<ClientBoolTask> {
+        AsyncTask::new(ClientBoolTask::new(Arc::clone(&self.inner), |client| {
+            client.refresh_runtime()
+        }))
     }
 
     #[napi(js_name = "composeCall")]
@@ -552,11 +887,12 @@ impl NativeClient {
         pallet: String,
         call_function: String,
         params: JsonValue,
-    ) -> NapiResult<Buffer> {
-        self.inner
-            .compose_call(&pallet, &call_function, &from_wire(params)?)
-            .napi()
-            .map(Buffer::from)
+    ) -> NapiResult<AsyncTask<ClientBytesTask>> {
+        let params = from_wire(params)?;
+        Ok(AsyncTask::new(ClientBytesTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.compose_call(&pallet, &call_function, &params),
+        )))
     }
 
     #[napi(js_name = "decodeScale")]
@@ -582,12 +918,12 @@ impl NativeClient {
         storage: String,
         params: JsonValue,
         block_hash: Option<String>,
-    ) -> NapiResult<JsonValue> {
+    ) -> NapiResult<AsyncTask<ClientWireValueTask>> {
         let params = wire_value_list("params", params)?;
-        self.inner
-            .query(&pallet, &storage, &params, block_hash.as_deref())
-            .napi()
-            .and_then(|value| to_wire(&value))
+        Ok(AsyncTask::new(ClientWireValueTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.query(&pallet, &storage, &params, block_hash.as_deref()),
+        )))
     }
 
     #[napi(js_name = "queryBatch")]
@@ -597,14 +933,12 @@ impl NativeClient {
         storage: String,
         param_sets: JsonValue,
         block_hash: Option<String>,
-    ) -> NapiResult<Vec<JsonValue>> {
+    ) -> NapiResult<AsyncTask<ClientWireValuesTask>> {
         let param_sets = wire_value_list_list("paramSets", param_sets)?;
-        self.inner
-            .query_batch(&pallet, &storage, &param_sets, block_hash.as_deref())
-            .napi()?
-            .iter()
-            .map(to_wire)
-            .collect()
+        Ok(AsyncTask::new(ClientWireValuesTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.query_batch(&pallet, &storage, &param_sets, block_hash.as_deref()),
+        )))
     }
 
     #[napi(js_name = "queryMap")]
@@ -614,19 +948,12 @@ impl NativeClient {
         storage: String,
         fixed_params: JsonValue,
         block_hash: Option<String>,
-    ) -> NapiResult<Vec<NativeMapPair>> {
+    ) -> NapiResult<AsyncTask<ClientMapTask>> {
         let fixed_params = wire_value_list("fixedParams", fixed_params)?;
-        self.inner
-            .query_map(&pallet, &storage, &fixed_params, block_hash.as_deref())
-            .napi()?
-            .iter()
-            .map(|(key, value)| {
-                Ok(NativeMapPair {
-                    key: to_wire(key)?,
-                    value: to_wire(value)?,
-                })
-            })
-            .collect()
+        Ok(AsyncTask::new(ClientMapTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.query_map(&pallet, &storage, &fixed_params, block_hash.as_deref()),
+        )))
     }
 
     #[napi(js_name = "runtimeCall")]
@@ -636,20 +963,19 @@ impl NativeClient {
         method: String,
         params: JsonValue,
         block_hash: Option<String>,
-    ) -> NapiResult<JsonValue> {
+    ) -> NapiResult<AsyncTask<ClientWireValueTask>> {
         let params = wire_value_list("params", params)?;
-        self.inner
-            .runtime_call(&api, &method, &params, block_hash.as_deref())
-            .napi()
-            .and_then(|value| to_wire(&value))
+        Ok(AsyncTask::new(ClientWireValueTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.runtime_call(&api, &method, &params, block_hash.as_deref()),
+        )))
     }
 
     #[napi(js_name = "accountNextIndex")]
-    pub fn account_next_index(&self, address: String) -> NapiResult<BigInt> {
-        self.inner
-            .account_next_index(&address)
-            .napi()
-            .map(BigInt::from)
+    pub fn account_next_index(&self, address: String) -> AsyncTask<ClientU64Task> {
+        AsyncTask::new(ClientU64Task::new(Arc::clone(&self.inner), move |client| {
+            client.account_next_index(&address)
+        }))
     }
 
     #[napi(js_name = "signExtrinsic")]
@@ -659,27 +985,36 @@ impl NativeClient {
         signer: &NativeKeypair,
         nonce: BigInt,
         period: Option<BigInt>,
-    ) -> NapiResult<NativeSignedExtrinsic> {
+    ) -> NapiResult<AsyncTask<ClientSignedExtrinsicTask>> {
         let nonce = bigint_u64("nonce", &nonce)?;
         let period = period
             .as_ref()
             .map(|value| bigint_u64("period", value))
             .transpose()?;
-        self.inner
-            .sign_extrinsic(&call_data, &signer.inner, nonce, period)
-            .napi()
-            .map(|(bytes, hash)| NativeSignedExtrinsic {
-                bytes: bytes.into(),
-                hash,
-            })
+        let call_data = call_data.to_vec();
+        let signer = signer.inner.clone();
+        Ok(AsyncTask::new(ClientSignedExtrinsicTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.sign_extrinsic(&call_data, &signer, nonce, period),
+        )))
     }
 
     #[napi(js_name = "estimateFee")]
-    pub fn estimate_fee(&self, call_data: Buffer, signer: &NativeKeypair) -> NapiResult<String> {
-        self.inner
-            .estimate_fee(&call_data, &signer.inner)
-            .napi()
-            .map(|value| value.to_string())
+    pub fn estimate_fee(
+        &self,
+        call_data: Buffer,
+        signer: &NativeKeypair,
+    ) -> AsyncTask<ClientStringTask> {
+        let call_data = call_data.to_vec();
+        let signer = signer.inner.clone();
+        AsyncTask::new(ClientStringTask::new(
+            Arc::clone(&self.inner),
+            move |client| {
+                client
+                    .estimate_fee(&call_data, &signer)
+                    .map(|value| value.to_string())
+            },
+        ))
     }
 
     #[napi(js_name = "submit")]
@@ -690,7 +1025,7 @@ impl NativeClient {
         nonce: Option<BigInt>,
         period: Option<BigInt>,
         wait_for_finalization: Option<bool>,
-    ) -> NapiResult<NativeTxOutcome> {
+    ) -> NapiResult<AsyncTask<ClientTxOutcomeTask>> {
         let nonce = nonce
             .as_ref()
             .map(|value| bigint_u64("nonce", value))
@@ -699,16 +1034,13 @@ impl NativeClient {
             .as_ref()
             .map(|value| bigint_u64("period", value))
             .transpose()?;
-        self.inner
-            .submit(
-                &call_data,
-                &signer.inner,
-                nonce,
-                period,
-                wait_for_finalization.unwrap_or(false),
-            )
-            .napi()
-            .and_then(outcome_to_native)
+        let call_data = call_data.to_vec();
+        let signer = signer.inner.clone();
+        let wait_for_finalization = wait_for_finalization.unwrap_or(false);
+        Ok(AsyncTask::new(ClientTxOutcomeTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.submit(&call_data, &signer, nonce, period, wait_for_finalization),
+        )))
     }
 
     #[napi(js_name = "submitEncoded")]
@@ -717,57 +1049,154 @@ impl NativeClient {
         extrinsic: Buffer,
         expected_hash: String,
         wait_for_finalization: Option<bool>,
-    ) -> NapiResult<NativeTxOutcome> {
-        self.inner
-            .submit_encoded(
-                &extrinsic,
-                expected_hash,
-                wait_for_finalization.unwrap_or(false),
-            )
-            .napi()
-            .and_then(outcome_to_native)
+    ) -> AsyncTask<ClientTxOutcomeTask> {
+        let extrinsic = extrinsic.to_vec();
+        let wait_for_finalization = wait_for_finalization.unwrap_or(false);
+        AsyncTask::new(ClientTxOutcomeTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.submit_encoded(&extrinsic, expected_hash, wait_for_finalization),
+        ))
+    }
+
+    #[napi(js_name = "externalSigningPlan")]
+    pub fn external_signing_plan(
+        &self,
+        call_data: Buffer,
+        signer: NativeExternalSigner,
+        options: Option<NativeExternalSigningOptions>,
+    ) -> NapiResult<AsyncTask<ClientExternalSigningPlanTask>> {
+        let call_data = call_data.to_vec();
+        let signer = external_signer(signer)?;
+        let options = external_signing_options(options)?;
+        Ok(AsyncTask::new(ClientExternalSigningPlanTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.external_signing_plan(&call_data, signer, options),
+        )))
+    }
+
+    #[napi(js_name = "externalSigningPlanForIntent")]
+    pub fn external_signing_plan_for_intent(
+        &self,
+        intent: &NativeIntentCall,
+        signer: NativeExternalSigner,
+        policy: &NativePolicy,
+        options: Option<NativeExternalSigningOptions>,
+    ) -> NapiResult<AsyncTask<ClientExternalSigningPlanTask>> {
+        let intent = intent.inner.clone();
+        let signer = external_signer(signer)?;
+        let policy = policy.inner.clone();
+        let options = external_signing_options(options)?;
+        Ok(AsyncTask::new(ClientExternalSigningPlanTask::new(
+            Arc::clone(&self.inner),
+            move |client| {
+                Executor::new(client).external_signing_plan(&intent, signer, options, Some(&policy))
+            },
+        )))
+    }
+
+    #[napi(js_name = "estimateFeeExternal")]
+    pub fn estimate_fee_external(
+        &self,
+        plan: &NativeExternalSigningPlan,
+    ) -> AsyncTask<ClientStringTask> {
+        let plan = Arc::clone(&plan.inner);
+        AsyncTask::new(ClientStringTask::new(
+            Arc::clone(&self.inner),
+            move |client| {
+                client
+                    .estimate_fee_external_plan(&plan)
+                    .map(|value| value.to_string())
+            },
+        ))
+    }
+
+    #[napi(js_name = "assembleExternal")]
+    pub fn assemble_external(
+        &self,
+        plan: &NativeExternalSigningPlan,
+        signature: Buffer,
+        crypto_type: Option<u32>,
+    ) -> NapiResult<AsyncTask<ClientSignedExtrinsicTask>> {
+        let plan = Arc::clone(&plan.inner);
+        let signature = signature.to_vec();
+        let crypto_type = crypto_type
+            .map(|value| u8::try_from(value).map_err(|_| invalid_arg("cryptoType must fit u8")))
+            .transpose()?;
+        Ok(AsyncTask::new(ClientSignedExtrinsicTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.assemble_external_extrinsic(&plan, &signature, crypto_type),
+        )))
+    }
+
+    #[napi(js_name = "submitExternal")]
+    pub fn submit_external(
+        &self,
+        plan: &NativeExternalSigningPlan,
+        signature: Buffer,
+        wait_for_finalization: Option<bool>,
+        crypto_type: Option<u32>,
+    ) -> NapiResult<AsyncTask<ClientTxOutcomeTask>> {
+        let plan = Arc::clone(&plan.inner);
+        let signature = signature.to_vec();
+        let crypto_type = crypto_type
+            .map(|value| u8::try_from(value).map_err(|_| invalid_arg("cryptoType must fit u8")))
+            .transpose()?;
+        let wait_for_finalization = wait_for_finalization.unwrap_or(false);
+        Ok(AsyncTask::new(ClientTxOutcomeTask::new(
+            Arc::clone(&self.inner),
+            move |client| {
+                client.submit_external(&plan, &signature, crypto_type, wait_for_finalization)
+            },
+        )))
     }
 
     #[napi(js_name = "balanceRao")]
-    pub fn balance_rao(&self, address: String) -> NapiResult<String> {
-        self.inner
-            .balance_rao(&address)
-            .napi()
-            .map(|value| value.to_string())
+    pub fn balance_rao(&self, address: String) -> AsyncTask<ClientStringTask> {
+        AsyncTask::new(ClientStringTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.balance_rao(&address).map(|value| value.to_string()),
+        ))
     }
 
     #[napi(js_name = "existentialDepositRao")]
-    pub fn existential_deposit_rao(&self) -> NapiResult<String> {
-        self.inner
-            .existential_deposit_rao()
-            .napi()
-            .map(|value| value.to_string())
+    pub fn existential_deposit_rao(&self) -> AsyncTask<ClientStringTask> {
+        AsyncTask::new(ClientStringTask::new(Arc::clone(&self.inner), |client| {
+            client
+                .existential_deposit_rao()
+                .map(|value| value.to_string())
+        }))
     }
 
     #[napi(js_name = "subnets")]
-    pub fn subnets(&self, block_hash: Option<String>) -> NapiResult<Vec<NativeSubnetInfo>> {
-        self.inner
-            .subnets(block_hash.as_deref())
-            .napi()
-            .map(|items| items.into_iter().map(subnet_to_native).collect())
+    pub fn subnets(&self, block_hash: Option<String>) -> AsyncTask<ClientSubnetsTask> {
+        AsyncTask::new(ClientSubnetsTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.subnets(block_hash.as_deref()),
+        ))
     }
 
     #[napi(js_name = "metagraph")]
-    pub fn metagraph(&self, netuid: u16, block_hash: Option<String>) -> NapiResult<JsonValue> {
-        self.inner
-            .metagraph(netuid, block_hash.as_deref())
-            .napi()
-            .and_then(|value| to_wire(&value))
+    pub fn metagraph(
+        &self,
+        netuid: u16,
+        block_hash: Option<String>,
+    ) -> AsyncTask<ClientWireValueTask> {
+        AsyncTask::new(ClientWireValueTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.metagraph(netuid, block_hash.as_deref()),
+        ))
     }
 
     #[napi(js_name = "neurons")]
-    pub fn neurons(&self, netuid: u16, block_hash: Option<String>) -> NapiResult<Vec<JsonValue>> {
-        self.inner
-            .neurons(netuid, block_hash.as_deref())
-            .napi()?
-            .iter()
-            .map(to_wire)
-            .collect()
+    pub fn neurons(
+        &self,
+        netuid: u16,
+        block_hash: Option<String>,
+    ) -> AsyncTask<ClientWireValuesTask> {
+        AsyncTask::new(ClientWireValuesTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.neurons(netuid, block_hash.as_deref()),
+        ))
     }
 
     #[napi(js_name = "subnetHyperparameters")]
@@ -775,11 +1204,11 @@ impl NativeClient {
         &self,
         netuid: u16,
         block_hash: Option<String>,
-    ) -> NapiResult<JsonValue> {
-        self.inner
-            .subnet_hyperparameters(netuid, block_hash.as_deref())
-            .napi()
-            .and_then(|value| to_wire(&value))
+    ) -> AsyncTask<ClientWireValueTask> {
+        AsyncTask::new(ClientWireValueTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.subnet_hyperparameters(netuid, block_hash.as_deref()),
+        ))
     }
 
     #[napi(js_name = "stakeRao")]
@@ -789,11 +1218,15 @@ impl NativeClient {
         hotkey: String,
         netuid: u16,
         block_hash: Option<String>,
-    ) -> NapiResult<String> {
-        self.inner
-            .stake_rao(&coldkey, &hotkey, netuid, block_hash.as_deref())
-            .napi()
-            .map(|value| value.to_string())
+    ) -> AsyncTask<ClientStringTask> {
+        AsyncTask::new(ClientStringTask::new(
+            Arc::clone(&self.inner),
+            move |client| {
+                client
+                    .stake_rao(&coldkey, &hotkey, netuid, block_hash.as_deref())
+                    .map(|value| value.to_string())
+            },
+        ))
     }
 
     #[napi(js_name = "quoteStake")]
@@ -802,20 +1235,21 @@ impl NativeClient {
         netuid: u16,
         amount_rao: BigInt,
         block_hash: Option<String>,
-    ) -> NapiResult<NativeSwapQuote> {
-        self.inner
-            .quote_stake(
-                netuid,
-                bigint_u128("amountRao", &amount_rao)?,
-                block_hash.as_deref(),
-            )
-            .napi()
-            .map(quote_to_native)
+    ) -> NapiResult<AsyncTask<ClientSwapQuoteTask>> {
+        let amount_rao = bigint_u128("amountRao", &amount_rao)?;
+        Ok(AsyncTask::new(ClientSwapQuoteTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.quote_stake(netuid, amount_rao, block_hash.as_deref()),
+        )))
     }
 
     #[napi(js_name = "composeIntent")]
-    pub fn compose_intent(&self, intent: &NativeIntentCall) -> NapiResult<Buffer> {
-        intent.inner.encode(&self.inner).napi().map(Buffer::from)
+    pub fn compose_intent(&self, intent: &NativeIntentCall) -> AsyncTask<ClientBytesTask> {
+        let intent = intent.inner.clone();
+        AsyncTask::new(ClientBytesTask::new(
+            Arc::clone(&self.inner),
+            move |client| intent.encode(client),
+        ))
     }
 }
 
@@ -850,6 +1284,87 @@ pub struct NativeExecutor {
     policy: Option<Policy>,
 }
 
+pub struct ExecutorPlanTask {
+    client: Arc<Client>,
+    policy: Option<Policy>,
+    intent: IntentCall,
+    wallet: Wallet,
+    check_policy: Option<Policy>,
+}
+
+impl Task for ExecutorPlanTask {
+    type Output = Plan;
+    type JsValue = NativePlan;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let executor = executor_from_parts(&self.client, &self.policy);
+        match &self.check_policy {
+            Some(policy) => executor
+                .plan_with_policy(&self.intent, &self.wallet, policy)
+                .napi(),
+            None => executor.plan(&self.intent, &self.wallet).napi(),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        plan_to_native(output)
+    }
+}
+
+pub struct ExecutorExecuteTask {
+    client: Arc<Client>,
+    policy: Option<Policy>,
+    intent: IntentCall,
+    wallet: Wallet,
+    wait_for_finalization: bool,
+}
+
+impl Task for ExecutorExecuteTask {
+    type Output = TxOutcome;
+    type JsValue = NativeTxOutcome;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let executor = executor_from_parts(&self.client, &self.policy);
+        executor
+            .execute_with(
+                &self.intent,
+                &self.wallet,
+                None,
+                None,
+                None,
+                self.wait_for_finalization,
+            )
+            .napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        outcome_to_native(output)
+    }
+}
+
+pub struct ExecutorSubmitShieldedTask {
+    client: Arc<Client>,
+    policy: Option<Policy>,
+    intent: IntentCall,
+    wallet: Wallet,
+}
+
+impl Task for ExecutorSubmitShieldedTask {
+    type Output = TxOutcome;
+    type JsValue = NativeTxOutcome;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let executor = executor_from_parts(&self.client, &self.policy);
+        executor
+            .submit_shielded(&self.intent, &self.wallet, None)
+            .napi()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        outcome_to_native(output)
+    }
+}
+
 #[napi]
 impl NativeExecutor {
     #[napi(factory, js_name = "fromClient")]
@@ -869,12 +1384,18 @@ impl NativeExecutor {
     }
 
     #[napi(js_name = "plan")]
-    pub fn plan(&self, intent: &NativeIntentCall, wallet: &NativeWallet) -> NapiResult<NativePlan> {
-        let executor = self.executor();
-        executor
-            .plan(&intent.inner, &wallet.inner)
-            .napi()
-            .and_then(plan_to_native)
+    pub fn plan(
+        &self,
+        intent: &NativeIntentCall,
+        wallet: &NativeWallet,
+    ) -> AsyncTask<ExecutorPlanTask> {
+        AsyncTask::new(ExecutorPlanTask {
+            client: Arc::clone(&self.client),
+            policy: self.policy.clone(),
+            intent: intent.inner.clone(),
+            wallet: wallet.inner.clone(),
+            check_policy: None,
+        })
     }
 
     #[napi(js_name = "planWithPolicy")]
@@ -883,12 +1404,14 @@ impl NativeExecutor {
         intent: &NativeIntentCall,
         wallet: &NativeWallet,
         policy: &NativePolicy,
-    ) -> NapiResult<NativePlan> {
-        let executor = self.executor();
-        executor
-            .plan_with_policy(&intent.inner, &wallet.inner, &policy.inner)
-            .napi()
-            .and_then(plan_to_native)
+    ) -> AsyncTask<ExecutorPlanTask> {
+        AsyncTask::new(ExecutorPlanTask {
+            client: Arc::clone(&self.client),
+            policy: self.policy.clone(),
+            intent: intent.inner.clone(),
+            wallet: wallet.inner.clone(),
+            check_policy: Some(policy.inner.clone()),
+        })
     }
 
     #[napi(js_name = "execute")]
@@ -897,19 +1420,14 @@ impl NativeExecutor {
         intent: &NativeIntentCall,
         wallet: &NativeWallet,
         wait_for_finalization: Option<bool>,
-    ) -> NapiResult<NativeTxOutcome> {
-        let executor = self.executor();
-        executor
-            .execute_with(
-                &intent.inner,
-                &wallet.inner,
-                None,
-                None,
-                None,
-                wait_for_finalization.unwrap_or(true),
-            )
-            .napi()
-            .and_then(outcome_to_native)
+    ) -> AsyncTask<ExecutorExecuteTask> {
+        AsyncTask::new(ExecutorExecuteTask {
+            client: Arc::clone(&self.client),
+            policy: self.policy.clone(),
+            intent: intent.inner.clone(),
+            wallet: wallet.inner.clone(),
+            wait_for_finalization: wait_for_finalization.unwrap_or(true),
+        })
     }
 
     #[napi(js_name = "submitShielded")]
@@ -917,21 +1435,20 @@ impl NativeExecutor {
         &self,
         intent: &NativeIntentCall,
         wallet: &NativeWallet,
-    ) -> NapiResult<NativeTxOutcome> {
-        let executor = self.executor();
-        executor
-            .submit_shielded(&intent.inner, &wallet.inner, None)
-            .napi()
-            .and_then(outcome_to_native)
+    ) -> AsyncTask<ExecutorSubmitShieldedTask> {
+        AsyncTask::new(ExecutorSubmitShieldedTask {
+            client: Arc::clone(&self.client),
+            policy: self.policy.clone(),
+            intent: intent.inner.clone(),
+            wallet: wallet.inner.clone(),
+        })
     }
 }
 
-impl NativeExecutor {
-    fn executor(&self) -> Executor<'_> {
-        match &self.policy {
-            Some(policy) => Executor::with_policy(&self.client, policy.clone()),
-            None => Executor::new(&self.client),
-        }
+fn executor_from_parts<'a>(client: &'a Arc<Client>, policy: &Option<Policy>) -> Executor<'a> {
+    match policy {
+        Some(policy) => Executor::with_policy(client, policy.clone()),
+        None => Executor::new(client),
     }
 }
 
@@ -1027,6 +1544,105 @@ fn quote_to_native(quote: SwapQuote) -> NativeSwapQuote {
         tao_slippage: quote.tao_slippage.to_string(),
         alpha_slippage: quote.alpha_slippage.to_string(),
     }
+}
+
+fn external_signer(signer: NativeExternalSigner) -> NapiResult<ExternalSigner> {
+    let public_key = buffer_32("publicKey", &signer.public_key)?;
+    let crypto_type =
+        u8::try_from(signer.crypto_type).map_err(|_| invalid_arg("cryptoType must fit u8"))?;
+    Ok(ExternalSigner {
+        ss58_address: signer.signer_address,
+        public_key,
+        crypto_type,
+        requires_metadata_proof: signer.requires_metadata_proof,
+    })
+}
+
+fn external_signing_options(
+    options: Option<NativeExternalSigningOptions>,
+) -> NapiResult<ExternalSigningOptions> {
+    let Some(options) = options else {
+        return Ok(ExternalSigningOptions::default());
+    };
+    let nonce = options
+        .nonce
+        .as_ref()
+        .map(|value| bigint_u64("nonce", value))
+        .transpose()?;
+    let period = if options.immortal.unwrap_or(false) {
+        None
+    } else if let Some(period) = &options.period {
+        Some(bigint_u64("period", period)?)
+    } else {
+        ExternalSigningOptions::default().period
+    };
+    let tip = options
+        .tip
+        .as_ref()
+        .map(|value| bigint_u128("tip", value))
+        .transpose()?
+        .unwrap_or(0);
+    let tip_asset_id = options
+        .tip_asset_id
+        .as_ref()
+        .map(|value| bigint_u128("tipAssetId", value))
+        .transpose()?;
+    let mode = options
+        .metadata_hash_mode
+        .as_deref()
+        .unwrap_or("auto")
+        .to_ascii_lowercase();
+    let metadata_hash = match mode.as_str() {
+        "auto" => MetadataHashMode::Auto,
+        "disabled" => MetadataHashMode::Disabled,
+        "explicit" => MetadataHashMode::Explicit(buffer_32(
+            "metadataHash",
+            options.metadata_hash.as_ref().ok_or_else(|| {
+                invalid_arg("metadataHash is required when metadataHashMode is explicit")
+            })?,
+        )?),
+        other => {
+            return Err(invalid_arg(format!(
+                "unsupported metadataHashMode {other:?}; expected auto, disabled, or explicit"
+            )))
+        }
+    };
+    Ok(ExternalSigningOptions {
+        nonce,
+        period,
+        tip,
+        tip_asset_id,
+        metadata_hash,
+    })
+}
+
+fn tx_params_to_native(
+    params: &bittensor_core::codec::extrinsic::TxParams,
+) -> NapiResult<NativeTxParams> {
+    Ok(NativeTxParams {
+        era: to_wire(&params.era)?,
+        nonce: BigInt::from(params.nonce),
+        tip: BigInt::from(params.tip),
+        tip_asset_id: params.tip_asset_id.map(BigInt::from),
+        genesis_hash: params.genesis_hash.to_vec().into(),
+        era_block_hash: params.era_block_hash.to_vec().into(),
+        metadata_hash: params.metadata_hash.map(|hash| hash.to_vec().into()),
+    })
+}
+
+fn chain_info_to_native(info: ChainInfo) -> NativeChainInfo {
+    NativeChainInfo {
+        spec_version: info.spec_version,
+        spec_name: info.spec_name,
+        base58_prefix: info.base58_prefix,
+        decimals: info.decimals,
+        token_symbol: info.token_symbol,
+    }
+}
+
+fn buffer_32(name: &str, value: &Buffer) -> NapiResult<[u8; 32]> {
+    <[u8; 32]>::try_from(value.as_ref())
+        .map_err(|_| invalid_arg(format!("{name} must be exactly 32 bytes")))
 }
 
 fn wire_value_list(name: &str, value: JsonValue) -> NapiResult<Vec<bittensor_core::codec::Value>> {

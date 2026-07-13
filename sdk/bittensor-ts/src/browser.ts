@@ -2,6 +2,25 @@ import type {
   ModuleError,
   ScaleValue,
 } from './types'
+import type {
+  RustEpochScheduleState,
+  RustKeypairKind,
+  RustKeypairMetadata,
+  RustKeypairPublic,
+  RustKeypairSignOptions,
+  RustMapPair,
+  RustMetadataIr,
+  RustMultisigAccount,
+  RustPayloadParts,
+  RustRuntimeApiMap,
+  RustRuntimePublic,
+  RustSignedExtrinsic,
+  RustSignedExtrinsicParams,
+  RustStorageChange,
+  RustStorageEntry,
+  RustSubstrateKeyType,
+  RustTransactionParams,
+} from './rust-bindings'
 
 export const CRYPTO_ED25519 = 0
 export const CRYPTO_SR25519 = 1
@@ -10,123 +29,24 @@ export const DEFAULT_SS58_FORMAT = 42
 export type BrowserByteLike = Uint8Array | ArrayBuffer | ArrayBufferView
 export type BrowserMessage = string | BrowserByteLike
 export type BrowserIntegerLike = number | bigint
-export type SubstrateKeyType = 'sr25519' | 'ed25519'
-export type KeypairKind = 'Ed25519' | 'Sr25519' | 'PublicOnly'
-
-export interface KeypairMetadata {
-  address?: string
-  name?: string
-  type?: SubstrateKeyType
-  [key: string]: unknown
-}
-
-export interface KeypairSignOptions {
-  /** Prefix the raw signature with its Substrate MultiSignature variant byte. */
-  withType?: boolean
-}
-
-export interface BrowserStorageEntry {
-  pallet: string
-  name: string
-  prefix: string
-  modifier: string
-  valueType: string
-  paramTypes: string[]
-  paramHashers: string[]
-  defaultBytes: Uint8Array
-}
-
-export interface BrowserStorageChange {
-  key: string
-  value?: string | null
-}
-
-export interface BrowserMapPair<K = ScaleValue, V = ScaleValue> {
-  key: K
-  value: V
-}
-
-export interface BrowserPayloadParts {
-  includedInExtrinsic: Uint8Array
-  includedInSignedData: Uint8Array
-}
-
-export interface BrowserTransactionParams {
-  era: ScaleValue
-  nonce: BrowserIntegerLike
-  tip?: BrowserIntegerLike
-  tipAssetId?: BrowserIntegerLike | null
-  genesisHash: BrowserByteLike
-  eraBlockHash: BrowserByteLike
-  metadataHash?: BrowserByteLike | null
-}
-
-export interface BrowserSignedExtrinsicParams {
-  era: ScaleValue
-  nonce: BrowserIntegerLike
-  tip?: BrowserIntegerLike
-  tipAssetId?: BrowserIntegerLike | null
-  metadataHashEnabled?: boolean
-}
-
-export interface BrowserSignedExtrinsic {
-  bytes: Uint8Array
-  hash: Uint8Array
-}
-
-export interface BrowserMultisigAccount {
-  accountId: Uint8Array
-  sortedSignatories: Uint8Array[]
-}
-
-export interface BrowserEpochScheduleState {
-  lastEpochBlock: BrowserIntegerLike
-  pendingEpochAt: BrowserIntegerLike
-  subnetEpochIndex: BrowserIntegerLike
-  tempo: number
-  blocksSinceLastStep: BrowserIntegerLike
-  currentBlock: BrowserIntegerLike
-}
-
-export type BrowserRuntimeApiMap = Record<
-  string,
-  Record<
-    string,
-    {
-      name: string
-      inputs: Array<[string, string]>
-      output: string
-      docs: string[]
-    }
-  >
->
-
-export interface BrowserMetadataIrCall {
-  name: string
-  args: string[]
-  docs: string
-}
-
-export interface BrowserMetadataIrError {
-  index: number
-  name: string
-  docs: string
-}
-
-export interface BrowserMetadataIrPallet {
-  name: string
-  index: number
-  calls: BrowserMetadataIrCall[]
-  errors: BrowserMetadataIrError[]
-  storage: string[]
-  constants: string[]
-}
-
-export interface BrowserMetadataIr {
-  specVersion: number
-  pallets: BrowserMetadataIrPallet[]
-  runtimeApis: Array<{ name: string; methods: string[] }>
-}
+export type SubstrateKeyType = RustSubstrateKeyType
+export type KeypairKind = RustKeypairKind
+export interface KeypairMetadata extends RustKeypairMetadata {}
+export interface KeypairSignOptions extends RustKeypairSignOptions {}
+export interface BrowserStorageEntry extends RustStorageEntry<Uint8Array> {}
+export interface BrowserStorageChange extends RustStorageChange {}
+export interface BrowserMapPair<K = ScaleValue, V = ScaleValue> extends RustMapPair<K, V> {}
+export interface BrowserPayloadParts extends RustPayloadParts<Uint8Array> {}
+export interface BrowserTransactionParams
+  extends RustTransactionParams<BrowserByteLike, BrowserIntegerLike> {}
+export interface BrowserSignedExtrinsicParams
+  extends RustSignedExtrinsicParams<BrowserIntegerLike> {}
+export interface BrowserSignedExtrinsic extends RustSignedExtrinsic<Uint8Array> {}
+export interface BrowserMultisigAccount extends RustMultisigAccount<Uint8Array> {}
+export interface BrowserEpochScheduleState
+  extends RustEpochScheduleState<BrowserIntegerLike> {}
+export type BrowserRuntimeApiMap = RustRuntimeApiMap
+export type BrowserMetadataIr = RustMetadataIr
 
 export interface BrowserWasmModule {
   default?: () => Promise<unknown> | unknown
@@ -411,6 +331,7 @@ function copyStorageEntry(entry: BrowserStorageEntry): BrowserStorageEntry {
   return {
     ...entry,
     paramTypes: entry.paramTypes.slice(),
+    paramTypeIds: entry.paramTypeIds?.slice() ?? [],
     paramHashers: entry.paramHashers.slice(),
     defaultBytes: copyBytes(entry.defaultBytes, 'defaultBytes'),
   }
@@ -440,7 +361,8 @@ function metadataHashArg(value?: BrowserByteLike | null): Uint8Array | undefined
   return value == null ? undefined : toBytes(value, 'metadataHash')
 }
 
-export class Runtime {
+export class Runtime
+  implements RustRuntimePublic<Uint8Array, BrowserByteLike, BrowserIntegerLike> {
   private readonly handle: BrowserWasmRuntime
 
   constructor(
@@ -677,7 +599,8 @@ export class Runtime {
   }
 }
 
-export class Keypair {
+export class Keypair
+  implements RustKeypairPublic<Uint8Array, BrowserByteLike, BrowserMessage> {
   private handle!: BrowserWasmKeypair
 
   constructor(

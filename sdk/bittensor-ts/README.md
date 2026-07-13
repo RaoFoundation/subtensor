@@ -140,10 +140,10 @@ or `taoAmount("1.25")` for TAO-denominated values, and pass `123n` or
 transaction builders to avoid confusing `"1"` rao with `"1.0"` TAO. Decimal
 TAO/alpha amounts with more than nine fractional digits are rejected.
 
-`client.submit()` manages nonce reservation for in-process submissions. Detached
-flows using `signExtrinsic()` followed by `submitSigned()` or `watchSigned()`
-record the signed nonce after submission, but callers producing multiple
-detached transactions concurrently should pass explicit `nonce` values.
+`client.submit()` delegates automatic nonce selection to the Rust client when
+submitting with a native `Keypair`. Low-level manual signing APIs such as
+`signExtrinsic()` require an explicit `nonce`, and detached flows using
+`submitSigned()` or `watchSigned()` do not inspect or coordinate nonce state.
 
 High-level transaction helpers such as `transfer()`, `staking.addStake()`,
 `setWeights()`, registration, and serving route through Rust trusted

@@ -35,6 +35,7 @@ import type {
   TransactionParams,
   TypeSpec,
 } from './types'
+import type { RustRuntimePublic } from './rust-bindings'
 
 export type PayloadPartsTuple = [Buffer, Buffer]
 export type SignedExtrinsicTuple = [Buffer, Buffer]
@@ -196,7 +197,7 @@ export class ScaleCursor {
   }
 }
 
-export class Runtime {
+export class Runtime implements RustRuntimePublic<Buffer, ByteLike, IntegerLike> {
   private readonly handle: NativeRuntimeHandle
 
   constructor(

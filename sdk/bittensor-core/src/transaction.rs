@@ -8,7 +8,10 @@
 
 use std::collections::BTreeSet;
 
-use crate::client::{as_u128, Client, TxOutcome};
+use crate::client::{
+    as_u128, Client, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan, TxOutcome,
+    DEFAULT_ERA_PERIOD,
+};
 use crate::codec::Value;
 use crate::error::CoreError;
 use crate::keys::{Keypair, CRYPTO_SR25519};
@@ -21,6 +24,7 @@ pub enum SignerRole {
 }
 
 /// The key material used by semantic intents.
+#[derive(Clone)]
 pub struct Wallet {
     pub coldkey: Keypair,
     pub hotkey: Keypair,
@@ -1075,6 +1079,25 @@ impl<'a> Executor<'a> {
         })
     }
 
+    pub fn external_signing_plan(
+        &self,
+        intent: &IntentCall,
+        signer: ExternalSigner,
+        options: ExternalSigningOptions,
+        policy: Option<&Policy>,
+    ) -> Result<ExternalSigningPlan, CoreError> {
+        let call_data = intent.encode(self.client)?;
+        let plan = self
+            .client
+            .external_signing_plan(&call_data, signer, options)?;
+        let active = policy.or(self.policy.as_ref());
+        let violations = active.map_or_else(Vec::new, |policy| policy.check(intent, plan.fee_rao));
+        if !violations.is_empty() {
+            return Err(CoreError::Policy(violations.join("; ")));
+        }
+        Ok(plan)
+    }
+
     pub fn execute(&self, intent: &IntentCall, wallet: &Wallet) -> Result<TxOutcome, CoreError> {
         self.execute_with(intent, wallet, None, None, None, true)
     }
@@ -1096,7 +1119,7 @@ impl<'a> Executor<'a> {
             &plan.call_data,
             wallet.signer(intent.signer),
             None,
-            Some(64),
+            Some(DEFAULT_ERA_PERIOD),
             wait_for_finalization,
         )
     }

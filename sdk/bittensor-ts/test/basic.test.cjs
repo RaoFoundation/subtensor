@@ -123,9 +123,8 @@ function fakeSigningClient(runtime, callData) {
   client.finalizedHead = async () => finalizedHash
   client.blockNumber = async () => 64
   client.genesisHash = async () => `0x${'41'.repeat(32)}`
-  client.rpc = async (method, params = []) => {
+  client.rpc = async (method) => {
     if (method === 'system_accountNextIndex') {
-      client.lastNonceAddress = params[0]
       return 12
     }
     if (method === 'state_getRuntimeVersion') {
@@ -1327,21 +1326,21 @@ test('descriptor schema validation accepts metadata-local type ID shifts', () =>
           {
             name: 'SubtensorModule',
             calls: [
-              { name: 'add_stake', args: ['hotkey', 'netuid', 'amount_staked'], argTypeIds: [0, 40, 6] },
-              { name: 'burned_register', args: ['netuid', 'hotkey'], argTypeIds: [40, 0] },
-              { name: 'commit_weights', args: ['netuid', 'commit_hash'], argTypeIds: [40, 13] },
-              { name: 'move_stake', args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
-              { name: 'register', args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypeIds: [40, 6, 6, 14, 0, 0] },
+              { name: 'add_stake', args: ['hotkey', 'netuid', 'amount_staked'], argTypeIds: [0, 41, 6] },
+              { name: 'burned_register', args: ['netuid', 'hotkey'], argTypeIds: [41, 0] },
+              { name: 'commit_weights', args: ['netuid', 'commit_hash'], argTypeIds: [41, 13] },
+              { name: 'move_stake', args: ['origin_hotkey', 'destination_hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 41, 41, 7] },
+              { name: 'register', args: ['netuid', 'block_number', 'nonce', 'work', 'hotkey', 'coldkey'], argTypeIds: [41, 9, 9, 14, 0, 0] },
               { name: 'register_network', args: ['hotkey'], argTypeIds: [0] },
-              { name: 'remove_stake', args: ['hotkey', 'netuid', 'amount_unstaked'], argTypeIds: [0, 40, 6] },
-              { name: 'reveal_weights', args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypeIds: [40, 209, 209, 209, 6] },
+              { name: 'remove_stake', args: ['hotkey', 'netuid', 'amount_unstaked'], argTypeIds: [0, 41, 7] },
+              { name: 'reveal_weights', args: ['netuid', 'uids', 'values', 'salt', 'version_key'], argTypeIds: [41, 209, 209, 209, 9] },
               { name: 'root_register', args: ['hotkey'], argTypeIds: [0] },
-              { name: 'serve_axon', args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypeIds: [40, 4, 8, 40, 2, 2, 2, 2] },
-              { name: 'serve_prometheus', args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypeIds: [40, 4, 8, 40, 2] },
-              { name: 'set_children', args: ['hotkey', 'netuid', 'children'], argTypeIds: [0, 40, 44] },
-              { name: 'set_weights', args: ['netuid', 'dests', 'weights', 'version_key'], argTypeIds: [40, 209, 209, 6] },
-              { name: 'start_call', args: ['netuid'], argTypeIds: [40] },
-              { name: 'transfer_stake', args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 40, 40, 6] },
+              { name: 'serve_axon', args: ['netuid', 'version', 'ip', 'port', 'ip_type', 'protocol', 'placeholder1', 'placeholder2'], argTypeIds: [41, 4, 8, 5, 2, 2, 2, 2] },
+              { name: 'serve_prometheus', args: ['netuid', 'version', 'ip', 'port', 'ip_type'], argTypeIds: [41, 4, 8, 5, 2] },
+              { name: 'set_children', args: ['hotkey', 'netuid', 'children'], argTypeIds: [0, 41, 44] },
+              { name: 'set_weights', args: ['netuid', 'dests', 'weights', 'version_key'], argTypeIds: [41, 209, 209, 9] },
+              { name: 'start_call', args: ['netuid'], argTypeIds: [41] },
+              { name: 'transfer_stake', args: ['destination_coldkey', 'hotkey', 'origin_netuid', 'destination_netuid', 'alpha_amount'], argTypeIds: [0, 0, 41, 41, 7] },
               { name: 'unstake_all', args: ['hotkey'], argTypeIds: [0] },
             ],
           },
@@ -1353,14 +1352,17 @@ test('descriptor schema validation accepts metadata-local type ID shifts', () =>
         0: 'AccountId32',
         2: 'u8',
         4: 'u32',
-        6: 'u64',
+        5: 'u16',
+        6: 'TaoBalance',
+        7: 'AlphaBalance',
         8: 'u128',
+        9: 'u64',
         13: 'H256',
         14: 'Vec<u8>',
-        40: 'u16',
+        41: 'NetUid',
         44: 'Vec<(u64, AccountId32)>',
         176: 'MultiAddress<AccountId32, ()>',
-        178: 'Compact<u64>',
+        178: 'Compact<TaoBalance>',
         209: 'Vec<u16>',
       }[typeId] ?? null
     },
@@ -2247,11 +2249,10 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
     },
   }
 
-  const signed = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
+  const signed = await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true })
 
   assert.equal(signed.signerAddress, address)
   assert.equal(signed.nonce, 12)
-  assert.equal(client.lastNonceAddress, address)
   assert.equal(request.address, address)
   assert.equal(request.type, 'bytes')
   assert.equal(request.data, '0x090909')
@@ -2261,23 +2262,32 @@ test('Client signs extrinsics with extension-style signRaw signers', async () =>
   assert.deepEqual(captures.encoded.signature, Buffer.alloc(64, 9))
   assert.equal(captures.encoded.signatureVersion, core.CRYPTO_SR25519)
   assert.equal(captures.encoded.params.metadataHashEnabled, false)
-  assert.equal(await client.accountNextIndex(address), 12)
-  assert.equal(await client.accountNextIndex(address), 12)
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, tip: core.Balance.fromAlpha('1', 7) }),
+    () => client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, tip: core.Balance.fromAlpha('1', 7) }),
     /tip must be a TAO balance/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, tipAssetId: core.taoAmount('1') }),
+    () => client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, tipAssetId: core.taoAmount('1') }),
     /tipAssetId must be a bigint/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, tipAssetId: -1 }),
+    () => client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, tipAssetId: -1 }),
     /tipAssetId must be non-negative/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(callData, { ...signer, publicKey: Buffer.alloc(32, 7) }, { period: null, allowRawCall: true }),
+    () => client.signExtrinsic(callData, { ...signer, publicKey: Buffer.alloc(32, 7) }, { period: null, nonce: 12, allowRawCall: true }),
     /publicKey does not match/,
+  )
+})
+
+test('Client manual signing requires an explicit nonce', async () => {
+  const { runtime } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, Buffer.from([5, 6, 7]))
+  const signer = core.Keypair.fromUri('//Alice')
+
+  await assert.rejects(
+    () => client.signExtrinsic(core.IntentCall.transfer(signer.ss58Address, 1n), signer),
+    /signExtrinsic requires options\.nonce/,
   )
 })
 
@@ -2288,16 +2298,17 @@ test('Client rejects raw call shapes unless callers opt in', async () => {
   const signer = core.Keypair.fromUri('//Alice')
 
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null }),
+    () => client.signExtrinsic(callData, signer, { period: null, nonce: 12 }),
     /opaque call bytes require explicit raw-call permission/,
   )
   await assert.rejects(
-    () => client.signExtrinsic(['System', 'remark', { remark: Buffer.from('hello') }], signer, { period: null }),
+    () => client.signExtrinsic(['System', 'remark', { remark: Buffer.from('hello') }], signer, { period: null, nonce: 12 }),
     /raw metadata calls require explicit raw-call permission/,
   )
   await assert.rejects(
     () => client.signExtrinsic(callData, signer, {
       period: null,
+      nonce: 12,
       policy: new core.Policy({ allowRawCalls: true, maxSpendRao: 1n }),
     }),
     /opaque call bytes cannot prove fee, spend, or subnet policy/,
@@ -2312,7 +2323,7 @@ test('Client accepts raw metadata calls only with explicit raw permission', asyn
   const signed = await client.signExtrinsic(
     ['System', 'remark', { remark: Buffer.from('hello') }],
     signer,
-    { period: null, allowRawCall: true },
+    { period: null, nonce: 12, allowRawCall: true },
   )
 
   assert.ok(signed.bytes.length > 0)
@@ -2364,7 +2375,7 @@ test('Client enables metadata hash by default for software signers when supporte
     },
   }
 
-  await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
+  await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true })
 
   const expectedMetadataHash = core.metadataDigest(metadataBytes, {
     specVersion: runtime.specVersion,
@@ -2377,12 +2388,12 @@ test('Client enables metadata hash by default for software signers when supporte
   assert.deepEqual(captures.payloadParams.metadataHash, expectedMetadataHash)
   assert.equal(request.metadataHash, `0x${expectedMetadataHash.toString('hex')}`)
   await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, metadataHash: null }),
+    () => client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: null }),
     /metadataHash cannot be disabled/,
   )
 
   const explicitMetadataHash = Buffer.alloc(32, 3)
-  await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true, metadataHash: explicitMetadataHash })
+  await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: explicitMetadataHash })
   assert.equal(captures.encoded.params.metadataHashEnabled, true)
   assert.deepEqual(captures.payloadParams.metadataHash, explicitMetadataHash)
   assert.equal(request.metadataHash, `0x${explicitMetadataHash.toString('hex')}`)
@@ -2437,6 +2448,7 @@ test('Client passes structured payloads to extension signPayload signers', async
   await client.signExtrinsic(callData, signer, {
     allowRawCall: true,
     period: 64,
+    nonce: 12,
     tip: core.raoAmount(1),
     tipAssetId: 0n,
     metadataHash: Buffer.alloc(32, 3),
@@ -2464,7 +2476,6 @@ test('Client rejects invalid chain nonce values', async () => {
 
 test('Client rejects mismatched submit hashes and keeps local hash authoritative', async () => {
   const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
-  client.signedExtrinsicNonceTracking = async () => ({})
   client.transport.request = async (method) => {
     assert.equal(method, 'author_submitExtrinsic')
     return `0x${'00'.repeat(32)}`
@@ -2472,7 +2483,26 @@ test('Client rejects mismatched submit hashes and keeps local hash authoritative
   await assert.rejects(() => client.submitSigned(Buffer.from([1, 2])), /returned hash/)
 })
 
-test('Client reconciles managed nonce before rejecting mismatched submit hash', async () => {
+test('Client submit with a JavaScript signer requires an explicit nonce', async () => {
+  const callData = Buffer.from([7, 5, 3])
+  const { runtime } = fakeSigningRuntime()
+  const client = fakeSigningClient(runtime, callData)
+  const publicKey = Buffer.alloc(32, 22)
+  const signer = {
+    address: core.ss58FromPublic(publicKey, 42),
+    publicKey,
+    signRaw() {
+      throw new Error('signRaw should not be reached without a nonce')
+    },
+  }
+
+  await assert.rejects(
+    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
+    /submit requires options\.nonce/,
+  )
+})
+
+test('Client submit with a JavaScript signer uses the explicit nonce without account coordination', async () => {
   const callData = Buffer.from([7, 5, 3])
   const capturedNonces = []
   const { runtime } = fakeSigningRuntime({
@@ -2488,7 +2518,7 @@ test('Client reconciles managed nonce before rejecting mismatched submit hash', 
     },
   })
   const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 22)
+  const publicKey = Buffer.alloc(32, 23)
   const address = core.ss58FromPublic(publicKey, 42)
   const typedSignature = Buffer.concat([
     Buffer.from([core.CRYPTO_SR25519]),
@@ -2498,7 +2528,7 @@ test('Client reconciles managed nonce before rejecting mismatched submit hash', 
   client.rpc = async (method, params = []) => {
     if (method === 'system_accountNextIndex') {
       nonceReads.push(params[0])
-      return 30
+      return 99
     }
     if (method === 'state_getRuntimeVersion') {
       return {
@@ -2510,11 +2540,7 @@ test('Client reconciles managed nonce before rejecting mismatched submit hash', 
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_submitExtrinsic') return `0x${'ff'.repeat(32)}`
-    if (method === 'author_pendingExtrinsics') return []
-    if (method === 'chain_getHeader') return { number: '0x0' }
-    if (method === 'chain_getBlockHash') return `0x${'02'.repeat(32)}`
-    if (method === 'chain_getBlock') return { block: { extrinsics: [] } }
+    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
   const signer = {
@@ -2525,16 +2551,179 @@ test('Client reconciles managed nonce before rejecting mismatched submit hash', 
     },
   }
 
-  await assert.rejects(
-    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
-    /returned hash/,
-  )
-  await assert.rejects(
-    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
-    /nonce 30 .* ambiguous/,
-  )
+  const result = await client.submit(callData, signer, { period: null, nonce: 30, allowRawCall: true })
+
+  assert.equal(result.status, 'submitted')
   assert.deepEqual(capturedNonces, [30])
-  assert.deepEqual(nonceReads, [address, address, address])
+  assert.deepEqual(nonceReads, [])
+})
+
+test('Client submit delegates automatic Keypair nonces to the Rust client', async () => {
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  const signer = core.Keypair.fromUri('//Alice')
+  const callData = Buffer.from([1, 2, 3])
+  const { runtime } = fakeSigningRuntime()
+  client.headRuntime = async () => runtime
+  const calls = []
+  const plan = {
+    callData,
+    signerAddress: signer.ss58Address,
+    publicKey: signer.publicKey,
+    cryptoType: signer.cryptoType,
+    nonce: 77n,
+    payload: Buffer.from([9, 8, 7]),
+    includedInExtrinsic: Buffer.alloc(0),
+    includedInSignedData: Buffer.alloc(0),
+    metadataHash: null,
+    metadataProof: null,
+    txParams: {
+      era: '00',
+      nonce: 77n,
+      tip: 0n,
+      tipAssetId: null,
+      genesisHash: Buffer.alloc(32, 1),
+      eraBlockHash: Buffer.alloc(32, 1),
+      metadataHash: null,
+    },
+    signerPayload: {},
+    chainInfo: null,
+    feeRao: null,
+    warnings: [],
+  }
+  client.tryNativeClient = () => ({
+    externalSigningPlan(submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options) {
+      calls.push({ stage: 'plan', submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options })
+      return plan
+    },
+    submitExternal(submittedPlan, signature, waitForFinalization, cryptoType) {
+      calls.push({ stage: 'submit', submittedPlan, signature, waitForFinalization, cryptoType })
+      return {
+        success: true,
+        extrinsicHash: `0x${'11'.repeat(32)}`,
+        blockHash: `0x${'22'.repeat(32)}`,
+        blockNumber: 7n,
+        extrinsicIndex: 2,
+        feeRao: null,
+        events: [],
+        error: null,
+        message: 'Success',
+      }
+    },
+  })
+
+  const result = await client.submit(callData, signer, { allowRawCall: true })
+
+  assert.equal(result.status, 'inBlock')
+  assert.equal(result.extrinsicId, '7-0002')
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].stage, 'plan')
+  assert.deepEqual(calls[0].submittedCallData, callData)
+  assert.equal(calls[0].signerAddress, signer.ss58Address)
+  assert.deepEqual(calls[0].publicKey, signer.publicKey)
+  assert.equal(calls[0].cryptoType, signer.cryptoType)
+  assert.equal(calls[0].requiresMetadataProof, false)
+  assert.deepEqual(calls[0].options, {})
+  assert.equal(calls[1].stage, 'submit')
+  assert.equal(calls[1].submittedPlan, plan)
+  assert.equal(calls[1].signature.length, 64)
+  assert.equal(calls[1].waitForFinalization, false)
+  assert.equal(calls[1].cryptoType, signer.cryptoType)
+})
+
+test('Client submit uses the Rust signing plan for external signers', async () => {
+  const callData = Buffer.from([3, 1, 4])
+  const { runtime } = fakeSigningRuntime()
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  client.headRuntime = async () => runtime
+  const publicKey = Buffer.alloc(32, 24)
+  const address = core.ss58FromPublic(publicKey, 42)
+  const signerPayload = {
+    address,
+    blockHash: `0x${'10'.repeat(32)}`,
+    blockNumber: '0x00000000',
+    era: '0x00',
+    genesisHash: `0x${'10'.repeat(32)}`,
+    method: `0x${callData.toString('hex')}`,
+    nonce: '0x2c',
+    signedExtensions: ['CheckNonce'],
+    specVersion: '0x01000000',
+    tip: '0x00',
+    transactionVersion: '0x01000000',
+    version: 4,
+    assetId: null,
+    metadataHash: null,
+    mode: null,
+  }
+  const plan = {
+    callData,
+    signerAddress: address,
+    publicKey,
+    cryptoType: core.CRYPTO_SR25519,
+    nonce: 44n,
+    payload: Buffer.from([4, 4, 4]),
+    includedInExtrinsic: Buffer.from([1]),
+    includedInSignedData: Buffer.from([2]),
+    metadataHash: null,
+    metadataProof: null,
+    txParams: {
+      era: '00',
+      nonce: 44n,
+      tip: 0n,
+      tipAssetId: null,
+      genesisHash: Buffer.alloc(32, 1),
+      eraBlockHash: Buffer.alloc(32, 1),
+      metadataHash: null,
+    },
+    signerPayload,
+    chainInfo: null,
+    feeRao: '125',
+    warnings: [],
+  }
+  const calls = []
+  client.tryNativeClient = () => ({
+    externalSigningPlan(submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options) {
+      calls.push({ stage: 'plan', submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options })
+      return plan
+    },
+    submitExternal(submittedPlan, signature, waitForFinalization, cryptoType) {
+      calls.push({ stage: 'submit', submittedPlan, signature, waitForFinalization, cryptoType })
+      return {
+        success: true,
+        extrinsicHash: `0x${'33'.repeat(32)}`,
+        blockHash: `0x${'44'.repeat(32)}`,
+        blockNumber: 8n,
+        extrinsicIndex: 1,
+        feeRao: '125',
+        events: [],
+        error: null,
+        message: 'Success',
+      }
+    },
+  })
+  const signer = {
+    address,
+    publicKey,
+    signPayload(payload, context) {
+      calls.push({ stage: 'sign', payload, context })
+      return { signature: Buffer.concat([Buffer.from([core.CRYPTO_SR25519]), Buffer.alloc(64, 6)]) }
+    },
+  }
+
+  const result = await client.submit(callData, signer, { allowRawCall: true })
+
+  assert.equal(result.status, 'inBlock')
+  assert.equal(result.fee.rao, 125n)
+  assert.equal(calls.length, 3)
+  assert.equal(calls[0].stage, 'plan')
+  assert.deepEqual(calls[0].submittedCallData, callData)
+  assert.equal(calls[0].options.nonce, undefined)
+  assert.equal(calls[1].stage, 'sign')
+  assert.deepEqual(calls[1].payload, signerPayload)
+  assert.deepEqual(calls[1].context.payload, plan.payload)
+  assert.equal(calls[2].stage, 'submit')
+  assert.equal(calls[2].submittedPlan, plan)
+  assert.deepEqual(calls[2].signature, Buffer.alloc(64, 6))
+  assert.equal(calls[2].cryptoType, core.CRYPTO_SR25519)
 })
 
 test('Client estimateFee peeks the chain nonce without reserving it', async () => {
@@ -2617,340 +2806,6 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
   assert.equal(stateCallParams[2], `0x${'42'.repeat(32)}`)
 })
 
-test('Client serializes concurrent initial nonce reservations during submit', async () => {
-  const callData = Buffer.from([8, 8, 8])
-  const capturedNonces = []
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 11)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 5),
-  ])
-  let reads = 0
-  let releaseRead
-  const readGate = new Promise((resolve) => {
-    releaseRead = resolve
-  })
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      assert.equal(params[0], address)
-      reads += 1
-      await readGate
-      return 14
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  const first = client.submit(callData, signer, { period: null, allowRawCall: true })
-  const second = client.submit(callData, signer, { period: null, allowRawCall: true })
-  await new Promise((resolve) => setImmediate(resolve))
-  assert.equal(reads, 1)
-  releaseRead()
-
-  await Promise.all([first, second])
-  assert.equal(reads, 1)
-  assert.deepEqual(capturedNonces.sort((a, b) => a - b), [14, 15])
-})
-
-test('Client releases only the failed reserved nonce', async () => {
-  const callData = Buffer.from([3, 2, 1])
-  const capturedNonces = []
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 12)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 2),
-  ])
-  let releaseSign
-  let signStarted
-  const signGate = new Promise((resolve) => {
-    releaseSign = resolve
-  })
-  const started = new Promise((resolve) => {
-    signStarted = resolve
-  })
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') return 12
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const failingSigner = {
-    address,
-    publicKey,
-    async signRaw() {
-      signStarted()
-      await signGate
-      throw new Error('signer declined')
-    },
-  }
-  const succeedingSigner = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  const signing = client.submit(callData, failingSigner, { period: null, allowRawCall: true })
-  await started
-  const independentlySubmitted = await client.submit(callData, succeedingSigner, { period: null, allowRawCall: true })
-  releaseSign()
-  await assert.rejects(signing, /signer declined/)
-  await independentlySubmitted
-  await client.submit(callData, succeedingSigner, { period: null, allowRawCall: true })
-
-  assert.deepEqual(capturedNonces, [12, 13, 12])
-})
-
-test('Client quarantines an ambiguous submit nonce even when a fallback node reports it absent', async () => {
-  const callData = Buffer.from([4, 5, 6])
-  const capturedNonces = []
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 13)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 8),
-  ])
-  const nonceReads = []
-  let submitAttempts = 0
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      nonceReads.push(params[0])
-      return 20
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') {
-      submitAttempts += 1
-      if (submitAttempts === 1) throw new core.JsonRpcError('lost response')
-      return submittedExtrinsicHash(params[0])
-    }
-    if (method === 'author_pendingExtrinsics') return []
-    if (method === 'chain_getHeader') return { number: '0x0' }
-    if (method === 'chain_getBlockHash') return `0x${'01'.repeat(32)}`
-    if (method === 'chain_getBlock') return { block: { extrinsics: [] } }
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  await assert.rejects(() => client.submit(callData, signer, { period: null, allowRawCall: true }), /lost response/)
-  await assert.rejects(
-    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
-    /nonce 20 .* ambiguous/,
-  )
-  assert.deepEqual(capturedNonces, [20])
-  assert.deepEqual(nonceReads, [address, address, address])
-})
-
-test('Client invalidates nonce state after unknown ambiguous submission reconciliation', async () => {
-  const callData = Buffer.from([4, 5, 8])
-  const capturedNonces = []
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 16)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 9),
-  ])
-  let submitAttempts = 0
-  let networkRestored = false
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      if (submitAttempts === 0) return 50
-      if (!networkRestored) throw new Error('network still unavailable')
-      return 55
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') {
-      submitAttempts += 1
-      if (submitAttempts === 1) {
-        throw new core.JsonRpcError('lost response')
-      }
-      return submittedExtrinsicHash(params[0])
-    }
-    if (method === 'author_pendingExtrinsics') throw new Error('network still unavailable')
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  await assert.rejects(() => client.submit(callData, signer, { period: null, allowRawCall: true }), /lost response/)
-  networkRestored = true
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-
-  assert.deepEqual(capturedNonces, [50, 55])
-})
-
-test('Client protects an ambiguous submit nonce when the extrinsic is still pending', async () => {
-  const callData = Buffer.from([4, 5, 7])
-  const capturedNonces = []
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 15)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 3),
-  ])
-  const nonceReads = []
-  let submitAttempts = 0
-  let submittedHex
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      nonceReads.push(params[0])
-      return 40
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') {
-      submitAttempts += 1
-      submittedHex = params[0]
-      if (submitAttempts === 1) throw new core.JsonRpcError('lost response')
-      return submittedExtrinsicHash(params[0])
-    }
-    if (method === 'author_pendingExtrinsics') return [submittedHex]
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  await assert.rejects(() => client.submit(callData, signer, { period: null, allowRawCall: true }), /lost response/)
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-  assert.deepEqual(capturedNonces, [40, 41])
-  assert.deepEqual(nonceReads, [address, address])
-})
-
 test('Client submit without inclusion reports pool submission, not execution success', async () => {
   const callData = Buffer.from([7, 7, 7])
   const { runtime } = fakeSigningRuntime()
@@ -2962,7 +2817,7 @@ test('Client submit without inclusion reports pool submission, not execution suc
     Buffer.alloc(64, 6),
   ])
   client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') return 30
+    if (method === 'system_accountNextIndex') throw new Error('submit should not read a nonce')
     if (method === 'state_getRuntimeVersion') {
       return {
         specName: 'node-subtensor',
@@ -2984,12 +2839,11 @@ test('Client submit without inclusion reports pool submission, not execution suc
     },
   }
 
-  const result = await client.submit(callData, signer, { period: null, allowRawCall: true })
+  const result = await client.submit(callData, signer, { period: null, nonce: 30, allowRawCall: true })
 
   assert.equal(result.status, 'submitted')
   assert.equal(result.success, undefined)
   assert.equal(result.message, 'Submitted')
-  assert.equal(client.nonceAccounts.get(address).statuses.size, 0)
 })
 
 test('Client treats string and object fatal watch statuses as failures', async () => {
@@ -3061,50 +2915,11 @@ test('Client reports included extrinsics with missing dispatch outcome as unknow
   assert.equal(result.extrinsicId, '42-0000')
 })
 
-test('Client records detached submitSigned nonces before the next managed submit', async () => {
-  const callData = Buffer.from([2, 4, 6])
-  const capturedNonces = []
+test('Client submitSigned submits detached bytes without nonce coordination', async () => {
   const submitMaxRetries = []
   const submitRetryForever = []
-  const publicKey = Buffer.alloc(32, 18)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-    decodeExtrinsic(data) {
-      return { address, nonce: data[1] }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 4),
-  ])
-  let nonceReads = 0
-  client.rpc = async (method, params = [], options = {}) => {
-    if (method === 'system_accountNextIndex') {
-      assert.equal(params[0], address)
-      nonceReads += 1
-      return nonceReads === 1 ? 70 : 71
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
+  client.transport.request = async (method, params = [], options = {}) => {
     if (method === 'author_submitExtrinsic') {
       submitMaxRetries.push(options.maxRetries)
       submitRetryForever.push(options.retryForever)
@@ -3112,145 +2927,21 @@ test('Client records detached submitSigned nonces before the next managed submit
     }
     throw new Error(`unexpected RPC ${method}`)
   }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
+  const detached = {
+    bytes: Buffer.from([9, 9, 9]),
+    hash: Buffer.alloc(32, 9),
+    hex: '0x090909',
+    signerAddress: 'mutating this does not affect any nonce cache',
+    nonce: 999,
   }
 
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-  const detached = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
-  assert.equal(detached.nonce, 71)
   await client.submitSigned(detached)
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
 
-  assert.deepEqual(capturedNonces, [70, 71, 72])
-  assert.deepEqual(submitMaxRetries, [0, 0, 0])
-  assert.deepEqual(submitRetryForever, [false, false, false])
-  assert.equal(nonceReads, 2)
+  assert.deepEqual(submitMaxRetries, [0])
+  assert.deepEqual(submitRetryForever, [false])
 })
 
-test('Client decodes detached signed nonce instead of trusting mutable public fields', async () => {
-  const callData = Buffer.from([2, 4, 5])
-  const capturedNonces = []
-  const publicKey = Buffer.alloc(32, 20)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-    decodeExtrinsic(data) {
-      return { address, nonce: data[1] }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 6),
-  ])
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      assert.equal(params[0], address)
-      return 70
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  const detached = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
-  detached.signerAddress = core.ss58FromPublic(Buffer.alloc(32, 99), 42)
-  detached.nonce = 999
-  await client.submitSigned(detached)
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-
-  assert.deepEqual(capturedNonces, [70, 71])
-})
-
-test('Client invalidates nonce state for opaque externally signed submissions', async () => {
-  const callData = Buffer.from([2, 4, 7])
-  const capturedNonces = []
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
-  const publicKey = Buffer.alloc(32, 21)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 2),
-  ])
-  let nonceReads = 0
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      assert.equal(params[0], address)
-      nonceReads += 1
-      return nonceReads === 1 ? 90 : 100
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
-
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-  await client.submitSigned(Buffer.from([9, 9, 9]), address)
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-
-  assert.deepEqual(capturedNonces, [90, 100])
-  assert.equal(nonceReads, 2)
-})
-
-test('Client records detached watchSigned nonces before the next managed submit', async (t) => {
+test('Client watchSigned submits detached bytes without nonce coordination', async (t) => {
   const { FakeWebSocket, restore } = installFakeWebSocket()
   t.after(restore)
   FakeWebSocket.onSend = (socket, message) => {
@@ -3272,26 +2963,7 @@ test('Client records detached watchSigned nonces before the next managed submit'
     }
   }
 
-  const callData = Buffer.from([2, 4, 8])
-  const capturedNonces = []
-  const publicKey = Buffer.alloc(32, 19)
-  const address = core.ss58FromPublic(publicKey, 42)
-  const { runtime } = fakeSigningRuntime({
-    signaturePayload(_callData, params) {
-      capturedNonces.push(params.nonce)
-      return Buffer.from([Number(params.nonce)])
-    },
-    encodeSignedExtrinsic(_callData, _publicKey, _signature, signatureVersion, params) {
-      return {
-        bytes: Buffer.from([signatureVersion, Number(params.nonce)]),
-        hash: Buffer.alloc(32, Number(params.nonce)),
-      }
-    },
-    decodeExtrinsic(data) {
-      return { address, nonce: data[1] }
-    },
-  })
-  const client = fakeSigningClient(runtime, callData)
+  const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
   client.transport = new core.JsonRpcTransport('ws://node-a', [], false, {
     requestTimeoutMs: 100,
     maxRequestRetries: 0,
@@ -3304,39 +2976,8 @@ test('Client records detached watchSigned nonces before the next managed submit'
     blockHash,
     events: [],
   })
-  const typedSignature = Buffer.concat([
-    Buffer.from([core.CRYPTO_SR25519]),
-    Buffer.alloc(64, 5),
-  ])
-  let nonceReads = 0
-  client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') {
-      assert.equal(params[0], address)
-      nonceReads += 1
-      return 80
-    }
-    if (method === 'state_getRuntimeVersion') {
-      return {
-        specName: 'node-subtensor',
-        specVersion: runtime.specVersion,
-        transactionVersion: runtime.transactionVersion,
-      }
-    }
-    if (method === 'system_properties') {
-      return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
-    }
-    throw new Error(`unexpected RPC ${method}`)
-  }
-  const signer = {
-    address,
-    publicKey,
-    signRaw() {
-      return { signature: `0x${typedSignature.toString('hex')}` }
-    },
-  }
 
-  const detached = await client.signExtrinsic(callData, signer, { period: null, allowRawCall: true })
-  const watcher = await client.watchSigned(detached, { timeoutMs: 100 })
+  const watcher = await client.watchSigned(Buffer.from([2, 4, 8]), { timeoutMs: 100 })
   await waitFor(
     () => FakeWebSocket.sockets[0].sent.some((message) => message.method === 'author_submitAndWatchExtrinsic'),
     'detached submit-and-watch request',
@@ -3347,13 +2988,9 @@ test('Client records detached watchSigned nonces before the next managed submit'
     params: { subscription: 'watch-detached', result: { inBlock: `0x${'44'.repeat(32)}` } },
   })
   await watcher.result
-  await client.submit(callData, signer, { period: null, allowRawCall: true })
-
-  assert.deepEqual(capturedNonces, [80, 81])
-  assert.equal(nonceReads, 2)
 })
 
-test('Client submission watches support timeout and reconcile managed nonces', async (t) => {
+test('Client submission watches support timeout for explicit-nonce JavaScript submissions', async (t) => {
   const { FakeWebSocket, restore } = installFakeWebSocket()
   t.after(restore)
   FakeWebSocket.onSend = (socket, message) => {
@@ -3396,7 +3033,6 @@ test('Client submission watches support timeout and reconcile managed nonces', a
     Buffer.alloc(64, 1),
   ])
   client.rpc = async (method, params = []) => {
-    if (method === 'system_accountNextIndex') return 60
     if (method === 'state_getRuntimeVersion') {
       return {
         specName: 'node-subtensor',
@@ -3407,10 +3043,6 @@ test('Client submission watches support timeout and reconcile managed nonces', a
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'author_pendingExtrinsics') return []
-    if (method === 'chain_getHeader') return { number: '0x0' }
-    if (method === 'chain_getBlockHash') return `0x${'02'.repeat(32)}`
-    if (method === 'chain_getBlock') return { block: { extrinsics: [] } }
     if (method === 'author_submitExtrinsic') return submittedExtrinsicHash(params[0])
     throw new Error(`unexpected RPC ${method}`)
   }
@@ -3423,12 +3055,8 @@ test('Client submission watches support timeout and reconcile managed nonces', a
   }
 
   await assert.rejects(
-    () => client.submit(callData, signer, { period: null, allowRawCall: true, waitForInclusion: true, timeoutMs: 5 }),
+    () => client.submit(callData, signer, { period: null, nonce: 60, allowRawCall: true, waitForInclusion: true, timeoutMs: 5 }),
     (error) => error.name === 'RequestTimeoutError',
-  )
-  await assert.rejects(
-    () => client.submit(callData, signer, { period: null, allowRawCall: true }),
-    /nonce 60 .* ambiguous/,
   )
   assert.deepEqual(capturedNonces, [60])
   assert.equal(
@@ -3495,7 +3123,7 @@ test('Client generates RFC-0078 proof for Ledger metadata-verifying signers', as
     tokenSymbol: 'TAO',
   }
 
-  const signed = await client.signExtrinsic(vector.callData, signer, { period: null, allowRawCall: true })
+  const signed = await client.signExtrinsic(vector.callData, signer, { period: null, nonce: 12, allowRawCall: true })
   const expectedMetadataHash = core.metadataDigest(metadataBytes, chainInfo)
   const expectedProof = core.generateExtrinsicProof(
     vector.callData,

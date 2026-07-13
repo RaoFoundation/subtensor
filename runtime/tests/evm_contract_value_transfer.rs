@@ -45,8 +45,9 @@ fn decode_hex(hex: &str) -> Vec<u8> {
     hex.as_bytes()
         .chunks_exact(2)
         .map(|chunk| {
-            let hi = (chunk[0] as char).to_digit(16).unwrap();
-            let lo = (chunk[1] as char).to_digit(16).unwrap();
+            let [hi, lo]: [u8; 2] = chunk.try_into().expect("chunks_exact yields pairs");
+            let hi = char::from(hi).to_digit(16).unwrap();
+            let lo = char::from(lo).to_digit(16).unwrap();
             ((hi << 4) | lo) as u8
         })
         .collect()

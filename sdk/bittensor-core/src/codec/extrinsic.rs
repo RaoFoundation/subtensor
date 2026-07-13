@@ -16,6 +16,7 @@ use crate::keys::ss58_from_public;
 use crate::runtime::{Runtime, SignedExtensionInfo};
 
 /// Everything one signature payload / signed extrinsic needs beyond the call.
+#[derive(Debug, Clone)]
 pub struct TxParams {
     /// `"00"` (immortal) or `{"period": N, "phase": P}` / `{"period": N,
     /// "current": M}` — the shapes the SDK has always fed the codec.
@@ -33,6 +34,7 @@ pub struct TxParams {
 /// signed-extension field is encoded through the runtime metadata type that
 /// also drives [`Runtime::signature_payload`], so the display payload and the
 /// bytes Rust assembles for the final extrinsic cannot drift.
+#[derive(Debug, Clone)]
 pub struct SignerPayload {
     pub address: String,
     pub block_hash: String,

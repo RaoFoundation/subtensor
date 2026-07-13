@@ -2,25 +2,22 @@ import native, { type NativeKeypairHandle } from './native'
 import { nativeAsync, nativeCall } from './errors'
 import { coerceMessage, toBuffer } from './wire'
 import type { ByteLike } from './types'
+import type {
+  RustKeypairKind,
+  RustKeypairMetadata,
+  RustKeypairPublic,
+  RustKeypairSignOptions,
+  RustSubstrateKeyType,
+} from './rust-bindings'
 
 export const CRYPTO_ED25519 = nativeCall(() => native.cryptoEd25519())
 export const CRYPTO_SR25519 = nativeCall(() => native.cryptoSr25519())
 export const DEFAULT_SS58_FORMAT = nativeCall(() => native.defaultSs58Format())
 
-export type SubstrateKeyType = 'sr25519' | 'ed25519'
-export type KeypairKind = 'Ed25519' | 'Sr25519' | 'PublicOnly'
-
-export interface KeypairMetadata {
-  address?: string
-  name?: string
-  type?: SubstrateKeyType
-  [key: string]: unknown
-}
-
-export interface KeypairSignOptions {
-  /** Prefix the raw signature with its Substrate MultiSignature variant byte. */
-  withType?: boolean
-}
+export type SubstrateKeyType = RustSubstrateKeyType
+export type KeypairKind = RustKeypairKind
+export interface KeypairMetadata extends RustKeypairMetadata {}
+export interface KeypairSignOptions extends RustKeypairSignOptions {}
 
 export interface GeneratedKeypair {
   keypair: Keypair
@@ -121,7 +118,8 @@ export function keyTypeForCryptoType(cryptoType: number): SubstrateKeyType {
   throw new RangeError(`unsupported crypto type ${cryptoType}`)
 }
 
-export class Keypair implements PolkadotCompatibleKeypair {
+export class Keypair
+  implements PolkadotCompatibleKeypair, RustKeypairPublic<Buffer, ByteLike, string | ByteLike> {
   private handle!: NativeKeypairHandle
 
   constructor(

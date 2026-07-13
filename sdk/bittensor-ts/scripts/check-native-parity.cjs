@@ -3,6 +3,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 const ts = require('typescript')
 
 const root = path.resolve(__dirname, '..')
@@ -507,6 +508,375 @@ function compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpecte
   return failures
 }
 
+function compactLength(buffer, offset) {
+  const first = buffer[offset]
+  const mode = first & 0b11
+  if (mode === 0) return { length: first >> 2, offset: offset + 1 }
+  if (mode === 1) return { length: buffer.readUInt16LE(offset) >> 2, offset: offset + 2 }
+  if (mode === 2) return { length: buffer.readUInt32LE(offset) >>> 2, offset: offset + 4 }
+  const bytes = (first >> 2) + 4
+  let length = 0
+  for (let i = 0; i < bytes; i += 1) {
+    length += buffer[offset + 1 + i] * (256 ** i)
+  }
+  return { length, offset: offset + 1 + bytes }
+}
+
+function goldenMetadataBytes() {
+  const golden = JSON.parse(
+    fs.readFileSync(
+      path.join(root, '..', 'python', 'tests', 'fixtures', 'golden.json'),
+      'utf8',
+    ),
+  )
+  const raw = Buffer.from(golden.metadata.v15_hex.slice(2), 'hex')
+  if (raw[0] !== 1) throw new Error('golden metadata fixture is not an opaque metadata wrapper')
+  const decoded = compactLength(raw, 1)
+  return raw.subarray(decoded.offset, decoded.offset + decoded.length)
+}
+
+function bytesHex(value) {
+  return Buffer.from(value).toString('hex')
+}
+
+function canonical(value) {
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+    return { bytes: bytesHex(value) }
+  }
+  if (typeof value === 'bigint') {
+    return { bigint: value.toString() }
+  }
+  if (value instanceof Map) {
+    return {
+      map: [...value.entries()].map(([key, entryValue]) => [
+        canonical(key),
+        canonical(entryValue),
+      ]),
+    }
+  }
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value != null && typeof value === 'object') {
+    const out = {}
+    for (const key of Object.keys(value).sort()) out[key] = canonical(value[key])
+    return out
+  }
+  return value
+}
+
+function stableJson(value) {
+  return JSON.stringify(canonical(value))
+}
+
+function assertSameBytes(label, nativeValue, browserValue) {
+  const nativeHex = bytesHex(nativeValue)
+  const browserHex = bytesHex(browserValue)
+  if (nativeHex !== browserHex) {
+    throw new Error(`${label} bytes differ: native ${nativeHex}, browser ${browserHex}`)
+  }
+}
+
+function assertSameValue(label, nativeValue, browserValue) {
+  const nativeJson = stableJson(nativeValue)
+  const browserJson = stableJson(browserValue)
+  if (nativeJson !== browserJson) {
+    throw new Error(
+      `${label} values differ: native ${nativeJson.slice(0, 512)}, browser ${browserJson.slice(0, 512)}`,
+    )
+  }
+}
+
+function rustStorageEntryFields(entry) {
+  return {
+    pallet: entry.pallet,
+    name: entry.name,
+    prefix: entry.prefix,
+    modifier: entry.modifier,
+    valueType: entry.valueType,
+    valueTypeId: entry.valueTypeId,
+    paramTypes: entry.paramTypes,
+    paramTypeIds: entry.paramTypeIds,
+    paramHashers: entry.paramHashers,
+    defaultBytes: entry.defaultBytes,
+  }
+}
+
+async function loadBrowserWasmModule() {
+  const wasmBindings = await import(
+    pathToFileURL(path.join(root, 'dist', 'wasm', 'bittensor_core_wasm_bg.js')).href
+  )
+  const wasmBytes = fs.readFileSync(
+    path.join(root, 'dist', 'wasm', 'bittensor_core_wasm_bg.wasm'),
+  )
+  const { instance } = await WebAssembly.instantiate(wasmBytes, {
+    './bittensor_core_wasm_bg.js': wasmBindings,
+  })
+  wasmBindings.__wbg_set_wasm(instance.exports)
+  if (typeof instance.exports.__wbindgen_start === 'function') {
+    instance.exports.__wbindgen_start()
+  }
+  const module = { ...wasmBindings }
+  delete module.default
+  return module
+}
+
+async function semanticParityFailures() {
+  const failures = []
+  const check = (label, fn) => {
+    try {
+      fn()
+    } catch (error) {
+      failures.push(
+        `semantic parity ${label}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  let nativeSdk
+  let browserSdk
+  try {
+    nativeSdk = require(path.join(root, 'dist', 'index.js'))
+    browserSdk = require(path.join(root, 'dist', 'browser.js'))
+    browserSdk.configureBrowserWasm(loadBrowserWasmModule)
+    await browserSdk.initBrowser()
+  } catch (error) {
+    failures.push(
+      `semantic parity setup failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return failures
+  }
+
+  const metadata = goldenMetadataBytes()
+  const specVersion = 419
+  const transactionVersion = 1
+  const ss58Format = 42
+  const specName = 'node-subtensor'
+  const nativeRuntime = new nativeSdk.Runtime(
+    metadata,
+    specVersion,
+    transactionVersion,
+    ss58Format,
+  )
+  const browserRuntime = new browserSdk.Runtime(
+    new Uint8Array(metadata),
+    specVersion,
+    transactionVersion,
+    ss58Format,
+  )
+  const mnemonic =
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  const nativeKeypair = nativeSdk.Keypair.fromMnemonic(mnemonic)
+  const browserKeypair = browserSdk.Keypair.fromMnemonic(mnemonic)
+
+  check('SS58', () => {
+    assertSameBytes('public key', nativeKeypair.publicKey, browserKeypair.publicKey)
+    if (nativeKeypair.ss58Address !== browserKeypair.ss58Address) {
+      throw new Error(
+        `address differs: native ${nativeKeypair.ss58Address}, browser ${browserKeypair.ss58Address}`,
+      )
+    }
+    if (
+      nativeSdk.ss58FromPublic(nativeKeypair.publicKey, ss58Format) !==
+      browserSdk.ss58FromPublic(browserKeypair.publicKey, ss58Format)
+    ) {
+      throw new Error('ss58FromPublic differs')
+    }
+    assertSameBytes(
+      'publicKeyFromSs58',
+      nativeSdk.publicKeyFromSs58(nativeKeypair.ss58Address),
+      browserSdk.publicKeyFromSs58(browserKeypair.ss58Address),
+    )
+  })
+
+  const remark = Uint8Array.of(1, 2, 3, 4)
+  const nativeCall = nativeRuntime.composeCall('System', 'remark', {
+    remark: Buffer.from(remark),
+  })
+  const browserCall = browserRuntime.composeCall('System', 'remark', { remark })
+
+  check('call encoding', () => {
+    assertSameBytes('System.remark call', nativeCall, browserCall)
+    assertSameValue(
+      'decoded System.remark call',
+      nativeRuntime.decodeCall(nativeCall),
+      browserRuntime.decodeCall(browserCall),
+    )
+  })
+
+  check('storage keys and map conversion', () => {
+    const nativeEntry = nativeRuntime.storageEntry('System', 'Account')
+    const browserEntry = browserRuntime.storageEntry('System', 'Account')
+    assertSameValue(
+      'storage entry',
+      rustStorageEntryFields(nativeEntry),
+      rustStorageEntryFields(browserEntry),
+    )
+    const nativeStorageKey = nativeRuntime.storageKey('System', 'Account', [
+      nativeKeypair.publicKey,
+    ])
+    const browserStorageKey = browserRuntime.storageKey('System', 'Account', [
+      browserKeypair.publicKey,
+    ])
+    assertSameBytes('System.Account storage key', nativeStorageKey, browserStorageKey)
+    assertSameValue(
+      'System.Account storage key params',
+      nativeRuntime.decodeStorageKeyParams('System', 'Account', nativeStorageKey),
+      browserRuntime.decodeStorageKeyParams('System', 'Account', browserStorageKey),
+    )
+    assertSameValue(
+      'System.Account map pair',
+      nativeRuntime.decodeMapPairs(
+        'System',
+        'Account',
+        [nativeStorageKey],
+        [nativeEntry.defaultBytes],
+      ),
+      browserRuntime.decodeMapPairs(
+        'System',
+        'Account',
+        [browserStorageKey],
+        [browserEntry.defaultBytes],
+      ),
+    )
+  })
+
+  const genesisHash = Buffer.alloc(32, 1)
+  const eraBlockHash = Buffer.alloc(32, 2)
+  const nativeTxParams = {
+    era: '00',
+    nonce: 7n,
+    tip: 0n,
+    tipAssetId: null,
+    genesisHash,
+    eraBlockHash,
+  }
+  const browserTxParams = {
+    era: '00',
+    nonce: 7n,
+    tip: 0n,
+    tipAssetId: null,
+    genesisHash: new Uint8Array(genesisHash),
+    eraBlockHash: new Uint8Array(eraBlockHash),
+  }
+  const nativeParts = nativeRuntime.signaturePayloadParts(nativeTxParams)
+  const browserParts = browserRuntime.signaturePayloadParts(browserTxParams)
+
+  check('signed payloads', () => {
+    assertSameValue('signature payload parts', nativeParts, browserParts)
+    assertSameBytes(
+      'signature payload',
+      nativeRuntime.signaturePayload(nativeCall, nativeTxParams),
+      browserRuntime.signaturePayload(browserCall, browserTxParams),
+    )
+  })
+
+  check('signed extrinsics', () => {
+    const signature = Buffer.from(Array.from({ length: 64 }, (_, index) => index))
+    const nativeSigned = nativeRuntime.encodeSignedExtrinsic(
+      nativeCall,
+      nativeKeypair.publicKey,
+      signature,
+      nativeKeypair.cryptoType,
+      { era: '00', nonce: 7n, tip: 0n, tipAssetId: null, metadataHashEnabled: false },
+    )
+    const browserSigned = browserRuntime.encodeSignedExtrinsic(
+      browserCall,
+      browserKeypair.publicKey,
+      new Uint8Array(signature),
+      browserKeypair.cryptoType,
+      { era: '00', nonce: 7n, tip: 0n, tipAssetId: null, metadataHashEnabled: false },
+    )
+    assertSameValue('signed extrinsic', nativeSigned, browserSigned)
+  })
+
+  check('metadata digest and proof', () => {
+    const info = {
+      specVersion,
+      specName,
+      base58Prefix: ss58Format,
+      decimals: 9,
+      tokenSymbol: 'TAO',
+    }
+    assertSameBytes(
+      'metadata digest',
+      nativeSdk.metadataDigest(metadata, info),
+      browserSdk.metadataDigest(
+        new Uint8Array(metadata),
+        specVersion,
+        specName,
+        ss58Format,
+        9,
+        'TAO',
+      ),
+    )
+    assertSameBytes(
+      'extrinsic proof',
+      nativeSdk.generateExtrinsicProof(
+        nativeCall,
+        nativeParts.includedInExtrinsic,
+        nativeParts.includedInSignedData,
+        metadata,
+        info,
+      ),
+      browserSdk.generateExtrinsicProof(
+        browserCall,
+        browserParts.includedInExtrinsic,
+        browserParts.includedInSignedData,
+        new Uint8Array(metadata),
+        specVersion,
+        specName,
+        ss58Format,
+        9,
+        'TAO',
+      ),
+    )
+  })
+
+  check('SCALE integer boundaries', () => {
+    const vectors = [
+      ['u8', 255],
+      ['u16', 65_535],
+      ['u32', 4_294_967_295],
+      ['u64', 18_446_744_073_709_551_615n],
+      ['u128', 340_282_366_920_938_463_463_374_607_431_768_211_455n],
+      ['i8', -128],
+      ['i16', -32_768],
+      ['i32', -2_147_483_648],
+      ['i64', -9_223_372_036_854_775_808n],
+      ['i128', -170_141_183_460_469_231_731_687_303_715_884_105_728n],
+    ]
+    for (const [typeName, value] of vectors) {
+      const nativeEncoded = nativeRuntime.encode(typeName, value)
+      const browserEncoded = browserRuntime.encode(typeName, value)
+      assertSameBytes(`${typeName} encoded`, nativeEncoded, browserEncoded)
+      assertSameValue(
+        `${typeName} decoded`,
+        nativeRuntime.decode(typeName, nativeEncoded),
+        browserRuntime.decode(typeName, browserEncoded),
+      )
+    }
+  })
+
+  check('enum conversion', () => {
+    assertSameBytes(
+      'immortal era',
+      nativeRuntime.encodeEra('00'),
+      browserRuntime.encodeEra('00'),
+    )
+    assertSameBytes(
+      'mortal era',
+      nativeRuntime.encodeEra({ period: 64, current: 12 }),
+      browserRuntime.encodeEra({ period: 64, current: 12 }),
+    )
+  })
+
+  check('runtime API and metadata IR', () => {
+    assertSameValue('runtime API map', nativeRuntime.runtimeApiMap(), browserRuntime.runtimeApiMap())
+    assertSameValue('metadata IR', nativeRuntime.metadataIr(), browserRuntime.metadataIr())
+  })
+
+  return failures
+}
+
 const nativeClassInterfaces = {
   NativeKeypair: { instance: 'NativeKeypairHandle' },
   NativeRuntime: { instance: 'NativeRuntimeHandle', statics: 'NativeRuntimeConstructor' },
@@ -514,6 +884,7 @@ const nativeClassInterfaces = {
   NativeLedgerDevice: { instance: 'NativeLedgerHandle', statics: 'NativeLedgerConstructor' },
   NativePolicy: { instance: 'NativePolicyHandle', statics: 'NativePolicyConstructor' },
   NativeIntentCall: { instance: 'NativeIntentCallHandle', statics: 'NativeIntentCallConstructor' },
+  NativeExternalSigningPlan: { instance: 'NativeExternalSigningPlanHandle' },
   NativeClient: { instance: 'NativeClientHandle', statics: 'NativeClientConstructor' },
   NativeWallet: { instance: 'NativeWalletHandle', statics: 'NativeWalletConstructor' },
   NativeExecutor: { instance: 'NativeExecutorHandle', statics: 'NativeExecutorConstructor' },
@@ -624,7 +995,7 @@ const browserWrapperExpected = allowlistedSurface(
   },
 )
 
-try {
+async function main() {
   const nativeExpected = rustBindingSurface(nativeRustRoot, 'napi')
   const wasmExpected = rustBindingSurface(wasmRustRoot, 'wasm_bindgen')
   const nativeGenerated = exportedSurface(
@@ -697,6 +1068,7 @@ try {
     ),
     ...compareCoreCoverage(nativeExpected, wasmExpected, browserWrapperExpected),
   ]
+  failures.push(...(await semanticParityFailures()))
 
   if (failures.length > 0) {
     console.error('Bittensor core binding parity check failed:')
@@ -707,7 +1079,9 @@ try {
     `Binding parity OK: native ${nativeExpected.values.size} Rust exports, ` +
       `WASM ${wasmExpected.values.size} Rust exports, browser portable wrapper ${browserWrapperExpected.values.size} exports`,
   )
-} catch (error) {
+}
+
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(1)
-}
+})
