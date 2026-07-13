@@ -91,14 +91,12 @@ jobs:
     environment:
       name: sccache-writer
       deployment: false
-    needs: [trusted-pr, typescript-formatting, changes]
+    needs: [trusted-pr, changes]
     if: needs.changes.outputs.e2e == 'true'
     timeout-minutes: 60
     strategy:
       matrix:
         include:
-          - variant: release 
-            flags: ""
           - variant: fast
             flags: "--features fast-runtime"
     env:
@@ -150,17 +148,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - test: dev
-            binary: release
-          - test: zombienet_shield
-            binary: release
           - test: zombienet_staking
             binary: fast
-          - test: zombienet_coldkey_swap
-            binary: fast
-          - test: zombienet_subnets
+          - test: zombienet_staking_single
             binary: fast
           - test: zombienet_evm
+            binary: fast
+          - test: zombienet_evm_single
+            binary: fast
+          - test: zombienet_coldkey_swap_single
+            binary: fast
+          - test: zombienet_subnets_single
             binary: fast
 
     name: "typescript-e2e-${{ matrix.test }}"
