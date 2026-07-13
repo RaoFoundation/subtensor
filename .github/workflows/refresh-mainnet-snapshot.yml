@@ -122,7 +122,10 @@ jobs:
   # consumer pin in runtime-checks.yml.
   try-runtime-snapshot:
     name: try-runtime snapshot ${{ matrix.network.name }}
-    runs-on: ubuntu-latest
+    # Snapshot assembly exceeds the memory available on ubuntu-latest. This is
+    # scheduled, off-critical-path work, so use the shared 8-core pool instead
+    # of retaining a dedicated runner host.
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 90
     strategy:
       fail-fast: false

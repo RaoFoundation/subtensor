@@ -190,7 +190,7 @@ jobs:
   check-devnet:
     name: Smoke-check devnet
     needs: deploy-devnet
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -278,7 +278,7 @@ jobs:
   check-testnet:
     name: Smoke-check testnet
     needs: deploy-testnet
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
