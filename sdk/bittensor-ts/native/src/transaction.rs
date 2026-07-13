@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use bittensor_core::client::{
     BlockHeader, DispatchError, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan,
-    MetadataHashMode, SubnetInfo, SwapQuote, TxOutcome, TxWait, DEFAULT_RECEIPT_TIMEOUT,
+    MetadataHashMode, SubnetHyperparameter, SubnetHyperparameterValue, SubnetInfo, SwapQuote,
+    TxOutcome, TxWait, DEFAULT_RECEIPT_TIMEOUT,
 };
 use bittensor_core::codec::Value;
 use bittensor_core::digest::ChainInfo;
@@ -85,6 +86,13 @@ pub struct NativeSubnetInfo {
     pub tempo: u16,
     pub burn_rao: String,
     pub neuron_count: u16,
+}
+
+#[napi(object)]
+pub struct NativeSubnetHyperparameter {
+    pub name: String,
+    pub value_type: String,
+    pub value: JsonValue,
 }
 
 #[napi(object)]
@@ -252,6 +260,19 @@ client_task!(
     Vec<SubnetInfo>,
     Vec<NativeSubnetInfo>,
     |items: Vec<SubnetInfo>| Ok(items.into_iter().map(subnet_to_native).collect())
+);
+client_task!(
+    ClientSubnetHyperparametersTask,
+    Option<Vec<SubnetHyperparameter>>,
+    Option<Vec<NativeSubnetHyperparameter>>,
+    |items: Option<Vec<SubnetHyperparameter>>| items
+        .map(|items| {
+            items
+                .into_iter()
+                .map(subnet_hyperparameter_to_native)
+                .collect::<NapiResult<Vec<_>>>()
+        })
+        .transpose()
 );
 client_task!(ClientSwapQuoteTask, SwapQuote, NativeSwapQuote, |value| {
     Ok(quote_to_native(value))
@@ -1374,8 +1395,8 @@ impl NativeClient {
         &self,
         netuid: u16,
         block_hash: Option<String>,
-    ) -> AsyncTask<ClientWireValueTask> {
-        AsyncTask::new(ClientWireValueTask::new(
+    ) -> AsyncTask<ClientSubnetHyperparametersTask> {
+        AsyncTask::new(ClientSubnetHyperparametersTask::new(
             Arc::clone(&self.inner),
             move |client| client.subnet_hyperparameters(netuid, block_hash.as_deref()),
         ))
@@ -1703,6 +1724,43 @@ fn subnet_to_native(subnet: SubnetInfo) -> NativeSubnetInfo {
         burn_rao: subnet.burn_rao.to_string(),
         neuron_count: subnet.neuron_count,
     }
+}
+
+fn subnet_hyperparameter_to_native(
+    entry: SubnetHyperparameter,
+) -> NapiResult<NativeSubnetHyperparameter> {
+    let (value_type, value) = match entry.value {
+        SubnetHyperparameterValue::Bool(value) => {
+            ("Bool", bittensor_core::codec::Value::Bool(value))
+        }
+        SubnetHyperparameterValue::U16(value) => {
+            ("U16", bittensor_core::codec::Value::Uint(u128::from(value)))
+        }
+        SubnetHyperparameterValue::U32(value) => {
+            ("U32", bittensor_core::codec::Value::Uint(u128::from(value)))
+        }
+        SubnetHyperparameterValue::U64(value) => {
+            ("U64", bittensor_core::codec::Value::Uint(u128::from(value)))
+        }
+        SubnetHyperparameterValue::U128(value) => {
+            ("U128", bittensor_core::codec::Value::Uint(value))
+        }
+        SubnetHyperparameterValue::TaoBalance(value) => {
+            ("TaoBalance", bittensor_core::codec::Value::Uint(value))
+        }
+        SubnetHyperparameterValue::I32F32Bits(value) => (
+            "I32F32",
+            bittensor_core::codec::Value::Int(i128::from(value)),
+        ),
+        SubnetHyperparameterValue::U64F64Bits(value) => {
+            ("U64F64", bittensor_core::codec::Value::Uint(value))
+        }
+    };
+    Ok(NativeSubnetHyperparameter {
+        name: entry.name,
+        value_type: value_type.to_owned(),
+        value: to_wire(&value)?,
+    })
 }
 
 fn quote_to_native(quote: SwapQuote) -> NativeSwapQuote {

@@ -59,6 +59,26 @@ pub struct SubnetInfo {
     pub neuron_count: u16,
 }
 
+/// One V3 subnet hyperparameter entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubnetHyperparameter {
+    pub name: String,
+    pub value: SubnetHyperparameterValue,
+}
+
+/// Typed value variants returned by `SubnetInfoRuntimeApi.get_subnet_hyperparams_v3`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubnetHyperparameterValue {
+    Bool(bool),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    TaoBalance(u128),
+    I32F32Bits(i64),
+    U64F64Bits(u128),
+}
+
 /// Swap simulation returned by the runtime API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwapQuote {
@@ -1335,13 +1355,14 @@ impl Client {
         &self,
         netuid: u16,
         block_hash: Option<&str>,
-    ) -> Result<Value, CoreError> {
-        self.runtime_call(
+    ) -> Result<Option<Vec<SubnetHyperparameter>>, CoreError> {
+        let value = self.runtime_call(
             "SubnetInfoRuntimeApi",
-            "get_subnet_hyperparams",
+            "get_subnet_hyperparams_v3",
             &[Value::Uint(u128::from(netuid))],
             block_hash,
-        )
+        )?;
+        subnet_hyperparameters_v3(&value)
     }
 
     pub fn stake_rao(
@@ -2208,6 +2229,93 @@ pub fn as_bool(value: &Value) -> Option<bool> {
     }
 }
 
+fn as_i128(value: &Value) -> Option<i128> {
+    match value {
+        Value::Int(value) => Some(*value),
+        Value::Uint(value) => i128::try_from(*value).ok(),
+        _ => None,
+    }
+}
+
+fn subnet_hyperparameters_v3(
+    value: &Value,
+) -> Result<Option<Vec<SubnetHyperparameter>>, CoreError> {
+    match value {
+        Value::Null => Ok(None),
+        Value::List(entries) => entries
+            .iter()
+            .map(subnet_hyperparameter_entry)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        other => Err(CoreError::Codec(format!(
+            "SubnetInfoRuntimeApi.get_subnet_hyperparams_v3 returned {other:?}, expected Option<Vec<HyperparamEntry>>"
+        ))),
+    }
+}
+
+fn subnet_hyperparameter_entry(value: &Value) -> Result<SubnetHyperparameter, CoreError> {
+    let name = field(value, "name")
+        .and_then(value_bytes)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| CoreError::Codec("hyperparameter entry omitted UTF-8 name".into()))?;
+    let value = field(value, "value")
+        .ok_or_else(|| CoreError::Codec(format!("hyperparameter {name} omitted value")))
+        .and_then(subnet_hyperparameter_value)?;
+    Ok(SubnetHyperparameter { name, value })
+}
+
+fn subnet_hyperparameter_value(value: &Value) -> Result<SubnetHyperparameterValue, CoreError> {
+    let Value::Dict(entries) = value else {
+        return Err(CoreError::Codec(format!(
+            "hyperparameter value {value:?} is not a V3 enum variant"
+        )));
+    };
+    let [(Value::Str(variant), payload)] = entries.as_slice() else {
+        return Err(CoreError::Codec(format!(
+            "hyperparameter value {value:?} is not a single V3 enum variant"
+        )));
+    };
+    match variant.as_str() {
+        "Bool" => as_bool(payload)
+            .map(SubnetHyperparameterValue::Bool)
+            .ok_or_else(|| CoreError::Codec("Bool hyperparameter is not a bool".into())),
+        "U16" => as_u128(payload)
+            .and_then(|value| u16::try_from(value).ok())
+            .map(SubnetHyperparameterValue::U16)
+            .ok_or_else(|| CoreError::Codec("U16 hyperparameter is outside u16".into())),
+        "U32" => as_u128(payload)
+            .and_then(|value| u32::try_from(value).ok())
+            .map(SubnetHyperparameterValue::U32)
+            .ok_or_else(|| CoreError::Codec("U32 hyperparameter is outside u32".into())),
+        "U64" => as_u128(payload)
+            .and_then(|value| u64::try_from(value).ok())
+            .map(SubnetHyperparameterValue::U64)
+            .ok_or_else(|| CoreError::Codec("U64 hyperparameter is outside u64".into())),
+        "U128" => as_u128(payload)
+            .map(SubnetHyperparameterValue::U128)
+            .ok_or_else(|| {
+                CoreError::Codec("U128 hyperparameter is not an unsigned integer".into())
+            }),
+        "TaoBalance" => as_u128(payload)
+            .map(SubnetHyperparameterValue::TaoBalance)
+            .ok_or_else(|| {
+                CoreError::Codec("TaoBalance hyperparameter is not an unsigned integer".into())
+            }),
+        "I32F32" => field(payload, "bits")
+            .and_then(as_i128)
+            .and_then(|value| i64::try_from(value).ok())
+            .map(SubnetHyperparameterValue::I32F32Bits)
+            .ok_or_else(|| CoreError::Codec("I32F32 hyperparameter omitted i64 bits".into())),
+        "U64F64" => field(payload, "bits")
+            .and_then(as_u128)
+            .map(SubnetHyperparameterValue::U64F64Bits)
+            .ok_or_else(|| CoreError::Codec("U64F64 hyperparameter omitted u128 bits".into())),
+        other => Err(CoreError::Codec(format!(
+            "unknown hyperparameter V3 value variant {other}"
+        ))),
+    }
+}
+
 pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
     match value {
         Value::Bytes(bytes) => Some(bytes.clone()),
@@ -2410,7 +2518,10 @@ fn hex_prefixed(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod reorg_finalization_tests {
-    use super::{classify_inclusion_finalization, InclusionFinalization};
+    use super::{
+        classify_inclusion_finalization, subnet_hyperparameters_v3, InclusionFinalization,
+        SubnetHyperparameter, SubnetHyperparameterValue, Value,
+    };
 
     #[test]
     fn canonical_inclusion_remains_pending_below_finalized_height() {
@@ -2441,6 +2552,47 @@ mod reorg_finalization_tests {
         assert_eq!(
             classify_inclusion_finalization("0xabc", None, 10, 9),
             Some(InclusionFinalization::Reorged)
+        );
+    }
+
+    #[test]
+    fn subnet_hyperparameters_v3_are_typed_entries() {
+        let raw = Value::List(vec![
+            Value::record(vec![
+                ("name".into(), Value::str("tempo")),
+                (
+                    "value".into(),
+                    Value::record(vec![("U16".into(), Value::Int(12))]),
+                ),
+            ]),
+            Value::record(vec![
+                ("name".into(), Value::str("burn_increase_mult")),
+                (
+                    "value".into(),
+                    Value::record(vec![(
+                        "U64F64".into(),
+                        Value::record(vec![("bits".into(), Value::Uint(1_u128 << 64))]),
+                    )]),
+                ),
+            ]),
+        ]);
+
+        assert_eq!(
+            subnet_hyperparameters_v3(&raw).expect("valid V3 value"),
+            Some(vec![
+                SubnetHyperparameter {
+                    name: "tempo".into(),
+                    value: SubnetHyperparameterValue::U16(12),
+                },
+                SubnetHyperparameter {
+                    name: "burn_increase_mult".into(),
+                    value: SubnetHyperparameterValue::U64F64Bits(1_u128 << 64),
+                },
+            ])
+        );
+        assert_eq!(
+            subnet_hyperparameters_v3(&Value::Null).expect("null V3 value"),
+            None
         );
     }
 }

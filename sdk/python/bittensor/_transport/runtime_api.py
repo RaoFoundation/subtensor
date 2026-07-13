@@ -135,9 +135,9 @@ LEGACY_RUNTIME_APIS: dict[str, dict[str, dict]] = {
         },
     },
     "SubnetInfoRuntimeApi": {
-        "get_subnet_hyperparams": {
+        "get_subnet_hyperparams_v3": {
             "params": [{"name": "netuid", "type": "u16"}],
-            "decoder": _registry_decoder("Option<SubnetHyperparameters>"),
+            "decoder": _registry_decoder("Option<Vec<HyperparamEntry>>"),
         },
         "get_subnet_info": {
             "params": [{"name": "netuid", "type": "u16"}],

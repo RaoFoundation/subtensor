@@ -17,7 +17,15 @@ import {
   taoTransactionAmountRao,
   transactionAmountRao,
 } from './balance'
-import type { ByteLike, ChainInfo, ScaleValue, SignedExtrinsic, StorageEntry, TransactionParams } from './types'
+import type {
+  ByteLike,
+  ChainInfo,
+  ScaleValue,
+  SignedExtrinsic,
+  StorageEntry,
+  SubnetHyperparameters,
+  TransactionParams,
+} from './types'
 
 export const SS58_FORMAT = 42
 export const DEFAULT_ERA_PERIOD = 64
@@ -1968,11 +1976,11 @@ export class BrowserChainClient {
     return this.subnetExists(netuid, block)
   }
 
-  getSubnetHyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+  getSubnetHyperparameters<T = SubnetHyperparameters | null>(netuid: number, block?: number | string | null): Promise<T> {
     return this.subnets.hyperparameters<T>(netuid, block)
   }
 
-  get_subnet_hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+  get_subnet_hyperparameters<T = SubnetHyperparameters | null>(netuid: number, block?: number | string | null): Promise<T> {
     return this.getSubnetHyperparameters<T>(netuid, block)
   }
 
@@ -2786,20 +2794,25 @@ export class SubnetsNamespace {
     return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_metagraph, [netuid], block)
   }
 
-  async hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+  async hyperparameters<T = SubnetHyperparameters | null>(netuid: number, block?: number | string | null): Promise<T> {
     const native = await nativeRustClient(this.client)
     if (native != null) {
       const blockHash = await this.client.resolveReadBlockHash(block)
       return await native.subnetHyperparameters(netuid, blockHash) as T
     }
-    return this.client.runtime<T>(runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [netuid], block)
+    const value = await this.client.runtime<ScaleValue>(
+      runtimeApi.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3,
+      [netuid],
+      block,
+    )
+    return subnetHyperparametersFromRuntime(value) as T
   }
 
-  subnetHyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+  subnetHyperparameters<T = SubnetHyperparameters | null>(netuid: number, block?: number | string | null): Promise<T> {
     return this.hyperparameters<T>(netuid, block)
   }
 
-  subnet_hyperparameters<T extends ScaleValue = ScaleValue>(netuid: number, block?: number | string | null): Promise<T> {
+  subnet_hyperparameters<T = SubnetHyperparameters | null>(netuid: number, block?: number | string | null): Promise<T> {
     return this.hyperparameters<T>(netuid, block)
   }
 
@@ -3796,6 +3809,61 @@ function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSig
     }
   }
   return out
+}
+
+const SUBNET_HYPERPARAMETER_VALUE_TYPES = new Set<string>([
+  'Bool',
+  'U16',
+  'U32',
+  'U64',
+  'U128',
+  'TaoBalance',
+  'I32F32',
+  'U64F64',
+])
+
+function subnetHyperparametersFromRuntime(value: ScaleValue): SubnetHyperparameters | null {
+  if (value == null) return null
+  if (!Array.isArray(value)) throw new ChainError('get_subnet_hyperparams_v3 returned a non-list value')
+  return value.map((entry) => {
+    const record = scaleRecord(entry, 'hyperparameter entry')
+    const name = hyperparameterName(record.name)
+    const variant = scaleRecord(record.value, `hyperparameter ${name} value`)
+    const keys = Object.keys(variant)
+    if (keys.length !== 1) {
+      throw new ChainError(`hyperparameter ${name} value is not a single V3 enum variant`)
+    }
+    const valueType = keys[0]
+    if (!SUBNET_HYPERPARAMETER_VALUE_TYPES.has(valueType)) {
+      throw new ChainError(`unknown subnet hyperparameter V3 value type ${valueType}`)
+    }
+    const raw = variant[valueType]
+    const value = valueType === 'I32F32' || valueType === 'U64F64'
+      ? scaleRecord(raw, `hyperparameter ${name} ${valueType} value`).bits
+      : raw
+    return { name, valueType, value } as SubnetHyperparameters[number]
+  })
+}
+
+function scaleRecord(value: ScaleValue, name: string): Record<string, ScaleValue> {
+  if (
+    value == null ||
+    typeof value !== 'object' ||
+    Buffer.isBuffer(value) ||
+    value instanceof Uint8Array ||
+    Array.isArray(value) ||
+    value instanceof Map
+  ) {
+    throw new ChainError(`${name} must be an object`)
+  }
+  return value as Record<string, ScaleValue>
+}
+
+function hyperparameterName(value: ScaleValue): string {
+  if (typeof value === 'string') return value
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return toBuffer(value, 'hyperparameter name').toString('utf8')
+  if (Array.isArray(value)) return Buffer.from(value.map((byte) => Number(byte))).toString('utf8')
+  throw new ChainError('hyperparameter entry name must be bytes or string')
 }
 
 function nativeSubmitOptions(

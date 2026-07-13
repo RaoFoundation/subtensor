@@ -14,6 +14,7 @@ import native, {
   type NativePolicyOptions,
   type NativeSignedExtrinsic,
   type NativeSubmitOptions,
+  type NativeSubnetHyperparameter,
   type NativeSubnetInfo,
   type NativeSwapQuote,
   type NativeTxOutcome,
@@ -21,7 +22,7 @@ import native, {
 } from './native'
 import { nativeAsync, nativeCall } from './errors'
 import { fromWire, toWire } from './wire'
-import type { ScaleValue } from './types'
+import type { ScaleValue, SubnetHyperparameterValueType, SubnetHyperparameters } from './types'
 import { Keypair, nativeKeypairHandle } from './keys'
 import { Runtime } from './runtime'
 
@@ -606,8 +607,14 @@ export class NativeChainClient {
     return (await nativeAsync(() => this.native.neurons(netuid, blockHash ?? undefined))).map(fromWire)
   }
 
-  async subnetHyperparameters(netuid: number, blockHash?: string | null): Promise<ScaleValue> {
-    return fromWire(await nativeAsync(() => this.native.subnetHyperparameters(netuid, blockHash ?? undefined)))
+  async subnetHyperparameters(
+    netuid: number,
+    blockHash?: string | null,
+  ): Promise<SubnetHyperparameters | null> {
+    const entries = await nativeAsync(() =>
+      this.native.subnetHyperparameters(netuid, blockHash ?? undefined),
+    )
+    return entries == null ? null : entries.map(nativeSubnetHyperparameter)
   }
 
   async stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): Promise<bigint> {
@@ -704,6 +711,28 @@ function normalizePolicyOptions(options: PolicyOptions): PolicyOptions {
     allowedNetuids: options.allowedNetuids == null ? undefined : [...options.allowedNetuids],
     allowRawCalls: options.allowRawCalls ?? undefined,
     allowGlobal: options.allowGlobal ?? undefined,
+  }
+}
+
+const SUBNET_HYPERPARAMETER_VALUE_TYPES = new Set<string>([
+  'Bool',
+  'U16',
+  'U32',
+  'U64',
+  'U128',
+  'TaoBalance',
+  'I32F32',
+  'U64F64',
+])
+
+function nativeSubnetHyperparameter(entry: NativeSubnetHyperparameter) {
+  if (!SUBNET_HYPERPARAMETER_VALUE_TYPES.has(entry.valueType)) {
+    throw new TypeError(`unknown subnet hyperparameter V3 value type ${entry.valueType}`)
+  }
+  return {
+    name: entry.name,
+    valueType: entry.valueType as SubnetHyperparameterValueType,
+    value: fromWire(entry.value as ScaleValue),
   }
 }
 

@@ -384,6 +384,24 @@ async function runBrowserPage(chromePath, url, mode) {
   }
 }
 
+async function removeTmp() {
+  let lastError
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true })
+      return
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+  try {
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 })
+  } catch {
+    throw lastError
+  }
+}
+
 async function main() {
   let server
   try {
@@ -399,7 +417,7 @@ async function main() {
     await runBrowserPage(chromePath, new URL('/default.html', served.url).href, 'default')
   } finally {
     server?.close()
-    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    await removeTmp()
   }
 }
 

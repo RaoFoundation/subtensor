@@ -1041,10 +1041,6 @@ test('chain client surface is exported without Polkadot.js glue', () => {
     'SubnetInfoRuntimeApi',
     'get_subnet_hyperparams_v3',
   ])
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(core.runtimeApi.SubnetInfoRuntimeApi, 'get_subnet_hyperparams'),
-    false,
-  )
   assert.deepEqual(core.calls.subtensor.rootRegister('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'), [
     'SubtensorModule',
     'root_register',
@@ -1139,11 +1135,20 @@ test('Client subnet hyperparameters read uses the v3 runtime API', async () => {
   const calls = []
   client.runtime = async (method, params, block) => {
     calls.push({ method, params, block })
-    return { ok: true }
+    return [
+      { name: 'tempo', value: { U16: 12 } },
+      { name: 'burn_increase_mult', value: { U64F64: { bits: 18446744073709551616n } } },
+    ]
   }
 
-  assert.deepEqual(await client.subnets.hyperparameters(7, '0xabc'), { ok: true })
-  assert.deepEqual(await client.getSubnetHyperparameters(8), { ok: true })
+  assert.deepEqual(await client.subnets.hyperparameters(7, '0xabc'), [
+    { name: 'tempo', valueType: 'U16', value: 12 },
+    { name: 'burn_increase_mult', valueType: 'U64F64', value: 18446744073709551616n },
+  ])
+  assert.deepEqual(await client.getSubnetHyperparameters(8), [
+    { name: 'tempo', valueType: 'U16', value: 12 },
+    { name: 'burn_increase_mult', valueType: 'U64F64', value: 18446744073709551616n },
+  ])
   assert.deepEqual(calls, [
     {
       method: ['SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v3'],

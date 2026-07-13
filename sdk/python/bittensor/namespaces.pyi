@@ -430,8 +430,8 @@ class Subnets(_ReadNamespace):
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:
         """Tempo, burn, and neuron count for one subnet (the three reads run concurrently)."""
 
-    async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> dict:
-        """All hyperparameters for a subnet (named fields; version-dependent set)."""
+    async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> Optional[list[dict]]:
+        """All hyperparameters for a subnet as V3 named entries."""
 
     async def subnet_identity(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """The identity metadata of a subnet, or None."""

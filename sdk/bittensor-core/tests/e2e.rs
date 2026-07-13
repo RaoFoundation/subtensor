@@ -12,7 +12,10 @@ use std::collections::BTreeSet;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use bittensor_core::client::{as_str, as_u128, field, value_bytes, variant_name};
+use bittensor_core::client::{
+    as_str, as_u128, field, value_bytes, variant_name, SubnetHyperparameter,
+    SubnetHyperparameterValue,
+};
 use bittensor_core::codec::Value;
 use bittensor_core::transaction::{Executor, IntentCall, Policy, SignerRole, Spend, Wallet};
 use bittensor_core::CoreError;
@@ -62,6 +65,17 @@ fn value_contains_u128(value: &Value, expected: u128) -> bool {
         }),
         _ => false,
     }
+}
+
+fn hyperparameter<'a>(
+    params: &'a Option<Vec<SubnetHyperparameter>>,
+    name: &str,
+) -> Option<&'a SubnetHyperparameterValue> {
+    params
+        .as_ref()?
+        .iter()
+        .find(|entry| entry.name == name)
+        .map(|entry| &entry.value)
 }
 
 macro_rules! intent_plan_test {
@@ -1087,7 +1101,10 @@ fn test_typed_reads() {
         .client
         .subnet_hyperparameters(1, None)
         .expect("hyperparameters read");
-    assert!(field(&hp, "tempo").is_some());
+    assert!(matches!(
+        hyperparameter(&hp, "tempo"),
+        Some(SubnetHyperparameterValue::U16(_))
+    ));
 
     let rate = ctx
         .client
@@ -1451,7 +1468,8 @@ fn test_owner_sets_hyperparameter() {
         .client
         .subnet_hyperparameters(netuid, None)
         .expect("hyperparameters read");
-    let applied = field(&hyperparameters, "immunity_period").and_then(as_u128) == Some(42);
+    let applied = hyperparameter(&hyperparameters, "immunity_period")
+        == Some(&SubnetHyperparameterValue::U16(42));
     let message = result.message.to_lowercase();
     let throttled = !result.success
         && ["rate limit", "prohibited", "freeze"]

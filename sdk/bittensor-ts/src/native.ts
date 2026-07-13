@@ -44,6 +44,12 @@ export interface NativeSubnetInfo {
   neuronCount: number
 }
 
+export interface NativeSubnetHyperparameter {
+  name: string
+  valueType: string
+  value: unknown
+}
+
 export interface NativeSwapQuote {
   taoAmount: string
   alphaAmount: string
@@ -532,7 +538,7 @@ export interface NativeClientHandle {
   subnets(blockHash?: string | null): Promise<NativeSubnetInfo[]>
   metagraph(netuid: number, blockHash?: string | null): Promise<unknown>
   neurons(netuid: number, blockHash?: string | null): Promise<unknown[]>
-  subnetHyperparameters(netuid: number, blockHash?: string | null): Promise<unknown>
+  subnetHyperparameters(netuid: number, blockHash?: string | null): Promise<NativeSubnetHyperparameter[] | null>
   stakeRao(coldkey: string, hotkey: string, netuid: number, blockHash?: string | null): Promise<string>
   quoteStake(netuid: number, amountRao: bigint, blockHash?: string | null): Promise<NativeSwapQuote>
   composeIntent(intent: NativeIntentCallHandle): Promise<Buffer>

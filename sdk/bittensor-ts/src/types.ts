@@ -120,6 +120,24 @@ export interface MapPair<K = ScaleValue, V = ScaleValue> {
   value: V
 }
 
+export type SubnetHyperparameterValueType =
+  | 'Bool'
+  | 'U16'
+  | 'U32'
+  | 'U64'
+  | 'U128'
+  | 'TaoBalance'
+  | 'I32F32'
+  | 'U64F64'
+
+export interface SubnetHyperparameter<T = ScaleValue> {
+  name: string
+  valueType: SubnetHyperparameterValueType
+  value: T
+}
+
+export type SubnetHyperparameters<T = ScaleValue> = SubnetHyperparameter<T>[]
+
 export interface ModuleError {
   name: string
   docs: string[]

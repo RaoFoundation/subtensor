@@ -21,7 +21,7 @@ from .context import AppContext
 def show_hyperparameters(
     app_ctx: AppContext,
     netuid: int,
-    params: dict[str, Any],
+    params: Any,
     name: Optional[str],
     hint: Optional[str] = None,
 ) -> None:
@@ -30,6 +30,7 @@ def show_hyperparameters(
     ``hint`` overrides the listing's default help line (the `sudo set` prompt
     flow reuses the listing with its own guidance).
     """
+    params = _params_by_name(params)
     if name is None:
         _listing(app_ctx, netuid, params, hint)
         return
@@ -92,6 +93,35 @@ def _single(app_ctx: AppContext, netuid: int, name: str, raw: Any) -> None:
         help=help_text,
         note=note,
     )
+
+
+def _params_by_name(params: Any) -> dict[str, Any]:
+    if params is None:
+        return {}
+    if isinstance(params, dict):
+        return params
+    if not isinstance(params, list):
+        raise TypeError("subnet hyperparameters must be a V3 list or dict")
+    out: dict[str, Any] = {}
+    for entry in params:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if isinstance(name, (bytes, bytearray)):
+            name = bytes(name).decode("utf8")
+        if not isinstance(name, str):
+            continue
+        out[name] = _v3_value(entry.get("value"))
+    return out
+
+
+def _v3_value(value: Any) -> Any:
+    if not isinstance(value, dict) or len(value) != 1:
+        return value
+    payload = next(iter(value.values()))
+    if isinstance(payload, dict) and set(payload) == {"bits"}:
+        return payload["bits"]
+    return payload
 
 
 def _example_value(kind: str, fraction: Optional[float], raw: Any) -> str:

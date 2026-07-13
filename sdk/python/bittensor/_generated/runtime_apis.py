@@ -127,8 +127,6 @@ class SubnetInfoRuntimeApi:
     get_subnets_info = Method('SubnetInfoRuntimeApi', 'get_subnets_info')
     get_subnet_info_v2 = Method('SubnetInfoRuntimeApi', 'get_subnet_info_v2')
     get_subnets_info_v2 = Method('SubnetInfoRuntimeApi', 'get_subnets_info_v2')
-    get_subnet_hyperparams = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams')
-    get_subnet_hyperparams_v2 = Method('SubnetInfoRuntimeApi', 'get_subnet_hyperparams_v2')
     get_all_dynamic_info = Method('SubnetInfoRuntimeApi', 'get_all_dynamic_info')
     get_all_metagraphs = Method('SubnetInfoRuntimeApi', 'get_all_metagraphs')
     get_metagraph = Method('SubnetInfoRuntimeApi', 'get_metagraph')
@@ -168,4 +166,3 @@ class TransactionPaymentCallApi:
     query_call_fee_details = Method('TransactionPaymentCallApi', 'query_call_fee_details')
     query_weight_to_fee = Method('TransactionPaymentCallApi', 'query_weight_to_fee')
     query_length_to_fee = Method('TransactionPaymentCallApi', 'query_length_to_fee')
-
