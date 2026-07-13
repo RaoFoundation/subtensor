@@ -25,6 +25,32 @@ export async function getEthBalance(provider: ethers.Provider, address: string):
     return provider.getBalance(address);
 }
 
+/**
+ * Wait for Frontier's latest-state view to expose an exact balance.
+ *
+ * Raw RPC is intentional: ethers caches some high-level reads briefly, which
+ * can return the pre-transaction value when development blocks are very fast.
+ */
+export async function waitForEthBalance(
+    provider: ethers.JsonRpcProvider,
+    address: string,
+    expected: bigint,
+    timeoutMs = 30_000
+): Promise<bigint> {
+    const deadline = Date.now() + timeoutMs;
+    let actual = 0n;
+
+    while (Date.now() < deadline) {
+        actual = BigInt(await provider.send("eth_getBalance", [address, "latest"]));
+        if (actual === expected) {
+            return actual;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    throw new Error(`Timed out waiting for ${address} balance ${expected}; last observed ${actual}`);
+}
+
 /** Read chain ID via RPC without ethers' cached-network checks. */
 export async function getEthChainId(provider: ethers.JsonRpcProvider): Promise<bigint> {
     const chainId = await provider.send("eth_chainId", []);

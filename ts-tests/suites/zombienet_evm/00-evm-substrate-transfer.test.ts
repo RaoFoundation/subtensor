@@ -24,6 +24,7 @@ import {
     ss58ToEthAddress,
     ss58ToH160,
     tao,
+    waitForEthBalance,
     waitForFinalizedBlocks,
     waitForTransactionWithRetry,
     WITHDRAW_CONTRACT_ABI,
@@ -137,12 +138,11 @@ describeSuite({
                 });
                 await waitForTransactionWithRetry(api, tx, signer, "substrate_to_evm");
 
-                // Frontier updates its latest-state view asynchronously after the
-                // Substrate transaction finalizes. Wait for the next finalized
-                // block before reading the mapped EVM balance.
-                await waitForFinalizedBlocks(api, 1);
-
-                const receiverBalanceAfter = await getEthBalance(provider, ethWallet.address);
+                const receiverBalanceAfter = await waitForEthBalance(
+                    provider,
+                    ethWallet.address,
+                    receiverBalance + raoToEth(transferBalance)
+                );
                 expect(receiverBalanceAfter).toEqual(receiverBalance + raoToEth(transferBalance));
             },
         });
@@ -231,12 +231,11 @@ describeSuite({
 
                 await waitForTransactionWithRetry(api, tx, signer, "evm_call");
 
-                // Frontier updates its latest-state view asynchronously after the
-                // Substrate transaction finalizes. Wait for the next finalized block
-                // instead of relying on GRANDPA lag to hide that indexing boundary.
-                await waitForFinalizedBlocks(api, 1);
-
-                const receiverBalanceAfterCall = await getEthBalance(provider, ethWallet.address);
+                const receiverBalanceAfterCall = await waitForEthBalance(
+                    provider,
+                    ethWallet.address,
+                    receiverBalance + raoToEth(tao(1))
+                );
                 expect(receiverBalanceAfterCall).toEqual(receiverBalance + raoToEth(tao(1)));
             },
         });
