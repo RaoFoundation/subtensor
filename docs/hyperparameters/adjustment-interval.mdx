@@ -1,0 +1,51 @@
+---
+title: adjustment_interval
+description: Blocks between adjustments of the registration difficulty and burn cost (legacy cadence).
+---
+
+Historically the cadence of Bittensor's registration-price controller: every
+`adjustment_interval` blocks, the chain compared registrations against
+[`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval)
+and moved the burn cost and PoW difficulty up or down. It matters today mostly
+as context — the current chain adjusts the burn price continuously instead.
+
+## How it works
+
+The parameter lives in `AdjustmentInterval` storage (u16 block count, default
+100 blocks ≈ 20 minutes, from `SubtensorInitialAdjustmentInterval` in
+`runtime/src/lib.rs`). In the current runtime, however, **no adjustment logic
+reads it**: the interval-based controller was replaced by a per-block
+mechanism in `pallets/subtensor/src/subnets/registration.rs` where each
+registration multiplies the burn by
+[`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) and the price
+decays every block with half-life
+[`burn_half_life`](/docs/hyperparameters/burn-half-life), clamped to
+\[[`min_burn`](/docs/hyperparameters/min-burn),
+[`max_burn`](/docs/hyperparameters/max-burn)\]. The value is still stored,
+returned by the `subnet_hyperparameters` query, and settable — the extrinsic
+(`sudo_set_adjustment_interval` in `pallets/admin-utils/src/lib.rs`) checks
+only that the subnet exists — but changing it has no effect on registration
+pricing. Even the root subnet's per-interval registration counter resets on
+the root epoch boundary (`tempo`), not on this interval.
+
+<HyperparamBurnController />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name adjustment_interval
+```
+
+Root/governance only — `sudo_set_adjustment_interval` requires the root
+origin, so subnet owners cannot change it. The value is a plain block count
+(12-second blocks).
+
+## Related
+
+- [`burn_half_life`](/docs/hyperparameters/burn-half-life) — the cadence's
+  replacement for burn decay
+- [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) — the
+  per-registration response
+- [`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha) — the smoothing
+  factor of the same legacy controller
+- [`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval)

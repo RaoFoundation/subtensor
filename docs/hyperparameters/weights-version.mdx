@@ -1,0 +1,50 @@
+---
+title: weights_version
+description: Minimum version key a validator must send with set_weights; a forced-upgrade lever for subnet owners.
+---
+
+`weights_version` (on chain: `WeightsVersionKey`) is a version gate on weight
+submissions. Subnet owners raise it when they ship a breaking change to their
+validator code: any validator still running the old software — and therefore
+sending an old version key — has its weights rejected until it upgrades.
+
+## How it works
+
+Every `set_weights` call carries a `version_key` argument. The chain compares
+it in `check_version_key` (`pallets/subtensor/src/subnets/weights.rs`): the
+submission passes when the subnet's `WeightsVersionKey` is 0 (the gate is
+disabled) or when the submitted key is greater than or equal to it. Otherwise
+the call fails with `IncorrectWeightVersionKey`. The value itself is opaque to
+the chain — it is a plain u64 counter whose meaning is a convention between
+the owner and their validator codebase.
+
+The key is checked at reveal time too: revealed commit-reveal weights pass
+through the same `set_weights` validation, so a version bump between commit
+and reveal invalidates in-flight commits.
+
+The SDK does not preflight this check — `btcli tx set-weights` (the
+`set_weights` intent) sends `version_key` 0 unless told otherwise, which only
+passes on subnets that leave the gate disabled. Validator code on gated
+subnets must pass the current key explicitly.
+
+Changing it has a dedicated rate limit: the owner may update it at most once
+per `WeightsVersionKeyRateLimit` tempos (currently 5).
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid N --name weights_version
+```
+
+Owner-settable; the value is a plain integer:
+
+```bash
+btcli sudo set --netuid N --name weights_version --value 1020
+```
+
+## Related
+
+- [`min_allowed_weights`](/docs/hyperparameters/min-allowed-weights) — the floor on submission size
+- [`max_weights_limit`](/docs/hyperparameters/max-weights-limit) — cap on any single weight
+- [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) — how often submissions are accepted
+- [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period) — the commit-to-reveal delay the key must survive

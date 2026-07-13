@@ -1,0 +1,35 @@
+---
+title: bonds_penalty
+description: How much out-of-consensus weight is excluded from bond accrual, from none (0) to full clipping (1).
+---
+
+`bonds_penalty` decides whether validators build bonds from their raw weights or only from the consensus-clipped portion. Subnet owners use it to punish (or tolerate) weight-setting that deviates from the stake-weighted consensus; validators care because it determines whether an out-of-consensus bet still accrues bonds.
+
+## How it works
+
+Before the bonds EMA runs, the epoch interpolates between raw and clipped weight matrices (`pallets/subtensor/src/epoch/run_epoch.rs`, around the "Bonds and Dividends" step):
+
+```
+weights_for_bonds = (1 − penalty) × weights + penalty × clipped_weights
+```
+
+- `bonds_penalty = 0`: bonds accrue from raw weights — deviating from consensus costs nothing in bond terms.
+- `bonds_penalty = 1` (the default, stored as 65535): bonds accrue only from consensus-clipped weights, so any weight above the stake-weighted median is ignored for bonding.
+
+Values in between blend the two. The interpolated matrix feeds the bonds EMA on both the classic path and the [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) path, so the penalty applies regardless of which consensus variant is active. See the [Yuma Consensus overview](/docs/concepts/emissions#yuma-consensus) for where this sits in the epoch.
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name bonds_penalty
+```
+
+Stored as u16 (65535 = 1.0, full penalty). The set command accepts the raw integer or a 0..1 fraction with a decimal point:
+
+```
+btcli sudo set --netuid N --name bonds_penalty --value 1.0
+```
+
+## Related
+
+[`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg), [`bonds_reset_enabled`](/docs/hyperparameters/bonds-reset-enabled), [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled), [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled)

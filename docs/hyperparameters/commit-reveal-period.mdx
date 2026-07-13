@@ -1,0 +1,51 @@
+---
+title: commit_reveal_period
+description: Epochs between committing a weights hash and revealing the weights, when commit-reveal is enabled.
+---
+
+`commit_reveal_period` (on chain: `RevealPeriodEpochs`) is how long committed
+weights stay hidden before they are revealed, measured in **epochs (tempos),
+not blocks**. With the default of 1 and a 360-block tempo, weights committed
+in one epoch become public roughly one tempo (~72 minutes) later. Subnet
+owners tune it to balance copy-resistance (longer hiding) against how stale
+weights are when they finally land.
+
+## How it works
+
+Each commit is tagged with the subnet's current epoch index. The reveal is
+valid in **exactly one epoch**: `is_reveal_block_range`
+(`pallets/subtensor/src/subnets/weights.rs`) requires
+`current_epoch == commit_epoch + commit_reveal_period`. Revealing earlier
+fails with `RevealTooEarly`; once the current epoch moves past that target,
+`is_commit_expired` drops the commit and a late reveal fails with
+`ExpiredWeightCommit`. A hotkey may hold at most 10 unrevealed commits.
+
+The value is bounded on-chain: `set_reveal_period` accepts 1 to 100 epochs.
+
+In practice validators rarely reveal by hand. `btcli tx set-weights` (the
+`set_weights` intent) uses timelocked commits: it reads `RevealPeriodEpochs`
+and the subnet's epoch schedule, computes the drand round whose randomness
+becomes available in the reveal epoch, and encrypts the payload to that round
+— the chain then decrypts and applies the weights itself, with no reveal
+transaction.
+
+<HyperparamWeightsRules focus="commit_reveal_period" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid N --name commit_reveal_period
+```
+
+Owner-settable; the value is an epoch (tempo) count:
+
+```bash
+btcli sudo set --netuid N --name commit_reveal_period --value 2
+```
+
+## Related
+
+- [`commit_reveal_weights_enabled`](/docs/hyperparameters/commit-reveal-weights-enabled) — the toggle that activates this delay
+- [`tempo`](/docs/hyperparameters/tempo) — the block length of one epoch
+- [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) — cooldown applied at commit time
+- [`weights_version`](/docs/hyperparameters/weights-version) — version gate checked when revealed weights land

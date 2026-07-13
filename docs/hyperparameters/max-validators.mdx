@@ -1,0 +1,48 @@
+---
+title: max_validators
+description: Maximum validator permits — only the top-stake neurons up to this count may validate.
+---
+
+`max_validators` caps how many neurons on a subnet hold a validator permit at
+once. Anyone deciding whether their stake is enough to validate on a subnet
+needs this number: without a permit, a neuron's weights are ignored and it
+earns no dividends.
+
+## How it works
+
+Every epoch recomputes permits from scratch
+(`pallets/subtensor/src/epoch/run_epoch.rs`): `is_topk_nonzero(&stake, k)`
+with `k = MaxAllowedValidators` grants permits to the top-`k` neurons by
+stake weight (alpha stake plus TAO stake scaled by `tao_weight`), skipping
+zero-stake neurons; the subnet owner's UID is always permitted. The mainnet
+default is 128, and the value must not exceed `max_allowed_uids`.
+
+Losing a permit is immediate and total: non-permitted validators' stake is
+masked from the active-stake vector, their weight rows are discarded before
+consensus, and their accumulated bonds are cleared — so a validator that
+slips out of the top-`k` re-enters later with no bond history. Permits
+interact with [`activity_cutoff`](/docs/hyperparameters/activity-cutoff):
+holding a permit is necessary but not sufficient, since an inactive permitted
+validator is also excluded. See
+[Yuma Consensus](/docs/concepts/emissions#yuma-consensus) for where permits
+sit in the pipeline.
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name max_validators
+```
+
+Not settable by the subnet owner — root/governance only
+(`sudo_set_max_allowed_validators` in AdminUtils requires the root origin
+and enforces the `max_allowed_uids` ceiling). The value is a plain integer.
+
+## Related
+
+[`rho`](/docs/hyperparameters/rho) ·
+[`kappa`](/docs/hyperparameters/kappa) ·
+[`tempo`](/docs/hyperparameters/tempo) ·
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) ·
+[`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids)

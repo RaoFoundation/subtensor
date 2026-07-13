@@ -1,0 +1,48 @@
+---
+title: tempo
+description: Blocks per epoch — how often a subnet runs Yuma Consensus and distributes emissions.
+---
+
+`tempo` is the number of 12-second blocks between a subnet's consensus
+epochs. It sets the payout cadence for everyone on the subnet: miners and
+validators are paid once per tempo, not per block.
+
+## How it works
+
+Each subnet's epoch fires once `tempo` blocks have passed since its last
+epoch: `should_run_epoch` (`pallets/subtensor/src/coinbase/run_coinbase.rs`)
+checks `current_block − LastEpochBlock ≥ tempo`. The default is 360 blocks
+(~72 minutes); at most 2 subnet epochs run per block, with extras deferred,
+and the owner can trigger an early epoch. When the epoch fires, the alpha
+accumulated since the previous epoch is distributed via
+[Yuma Consensus](/docs/concepts/emissions#yuma-consensus); see
+[Epochs](/docs/concepts/emissions#epochs) for scheduling details.
+
+`tempo` also anchors other parameters: the effective
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) is a per-mille
+factor multiplied by `tempo`, and commit-reveal delays are counted in tempos.
+Setting a new tempo resets the epoch cycle (`apply_tempo_with_cycle_reset`
+re-anchors `LastEpochBlock` to the current block), so the next epoch lands a
+full tempo after the change.
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name tempo
+```
+
+Not settable through `btcli sudo set` — root/governance only there
+(`sudo_set_tempo` in AdminUtils requires the root origin and accepts any
+u16). The subtensor pallet does expose an owner-side `set_tempo` extrinsic,
+bounded to 360–50,400 blocks (~72 minutes to ~7 days) and rate-limited,
+for owners using raw calls.
+
+## Related
+
+[`rho`](/docs/hyperparameters/rho) ·
+[`kappa`](/docs/hyperparameters/kappa) ·
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) ·
+[`max_validators`](/docs/hyperparameters/max-validators) ·
+[`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period)

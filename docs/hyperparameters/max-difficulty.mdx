@@ -1,0 +1,55 @@
+---
+title: max_difficulty
+description: Upper bound for the PoW registration difficulty controller; u64::MAX leaves difficulty unbounded above.
+---
+
+`max_difficulty` is the ceiling over
+[`difficulty`](/docs/hyperparameters/difficulty), the proof-of-work target
+for PoW neuron registration. However hot registration demand runs, the
+difficulty controller never pushes the PoW price above this value. At
+`u64::MAX` the ceiling is effectively removed — difficulty is unbounded
+above. Subnet owners tune it to cap how expensive a PoW slot can become
+during registration rushes.
+
+## How it works
+
+Storage is `MaxDifficulty` in `pallets/subtensor/src/lib.rs`, accessed via
+`get_max_difficulty` / `set_max_difficulty`
+(`pallets/subtensor/src/utils/misc.rs`). In the classic controller,
+difficulty was rescaled each adjustment interval by registration pressure
+against the target rate, then clamped to the
+\[`min_difficulty`, `max_difficulty`\] band — sustained over-target demand
+walked difficulty up until it hit this ceiling. The mainnet default is
+`u64::MAX / 4` (`SubtensorInitialMaxDifficulty` in `runtime/src/lib.rs`).
+
+On the current runtime PoW registration is deprecated — the `register`
+extrinsic routes to burned registration and nothing adjusts `difficulty`
+between intervals — so this ceiling is dormant. The playground shows the
+controller it bounds:
+
+<HyperparamPowDifficulty focus="max_difficulty" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name max_difficulty
+```
+
+Owner-settable (the AdminUtils extrinsic `sudo_set_max_difficulty` accepts
+the subnet owner or root, inside the admin window and subject to the owner
+rate limit):
+
+```
+btcli sudo set --netuid N --name max_difficulty --value 4611686018427387903
+```
+
+The value is a raw u64 difficulty, no human form.
+
+## Related
+
+[`difficulty`](/docs/hyperparameters/difficulty) ·
+[`min_difficulty`](/docs/hyperparameters/min-difficulty) ·
+[`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) ·
+[`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) ·
+[`adjustment_interval`](/docs/hyperparameters/adjustment-interval) ·
+[`max_burn`](/docs/hyperparameters/max-burn)

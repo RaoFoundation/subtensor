@@ -1,10 +1,13 @@
 """Generate the docs reference section from the SDK's own registries.
 
-Everything under docs/tx, docs/query, docs/errors.mdx (in the repo-root docs
-folder) and public/catalog/ is emitted by this script — never hand-edited. The inputs
-are the same registries that generate the CLI (`bittensor.intents.REGISTRY`,
-`bittensor.reads.REGISTRY`) and the error taxonomy (`bittensor.error_map`,
-`bittensor.result`), so the docs cannot drift from the code.
+Everything under docs/tx, docs/query, docs/errors.mdx, and the hyperparameters
+index/meta (in the repo-root docs folder) plus public/catalog/ is emitted by
+this script — never hand-edited (the per-hyperparameter explainer pages in
+docs/hyperparameters/ are hand-written; --check verifies one exists per
+parameter). The inputs are the same registries that generate the CLI
+(`bittensor.intents.REGISTRY`, `bittensor.reads.REGISTRY`), the error taxonomy
+(`bittensor.error_map`, `bittensor.result`), and the hyperparameter semantics
+table (`bittensor.hyperparams`), so the docs cannot drift from the code.
 
 Usage (from sdk/python, whose environment provides the bittensor SDK):
 
@@ -24,8 +27,9 @@ import tempfile
 from dataclasses import MISSING, fields
 from pathlib import Path
 
-from bittensor import error_descriptions, error_map, result
+from bittensor import error_descriptions, error_map, hyperparams, result
 from bittensor.intents import REGISTRY as INTENTS
+from bittensor.intents.hyperparameters import OWNER_HYPERPARAMETERS
 from bittensor.intents.registry import list_tools
 from bittensor.namespaces import NAMESPACES
 from bittensor.reads import REGISTRY as READS
@@ -478,6 +482,60 @@ def errors_page() -> str:
     return "\n".join(parts)
 
 
+# --- Hyperparameters page ---------------------------------------------------
+
+# Unit kind -> the label the docs table shows for it.
+UNIT_LABELS = {
+    "u16": "fraction (u16, 65535 = 1.0)",
+    "u64": "fraction (u64, u64::MAX = 1.0)",
+    "per_million": "fraction (1,000,000 = 1.0)",
+    "rao": "TAO amount in rao",
+    "blocks": "blocks (12s)",
+    "epochs": "epochs (tempos)",
+    "difficulty": "PoW difficulty (u64)",
+    "fixed128": "multiplier (U64F64 bits / 2^64)",
+    "int": "integer",
+    "bool": "flag",
+}
+
+
+def hyperparameters_index() -> str:
+    """The overview table; each parameter links to its hand-written explainer
+    page (docs/hyperparameters/<kebab>.mdx, checked for existence by --check)."""
+    header = frontmatter(
+        "Hyperparameters",
+        "What each subnet hyperparameter controls, its unit, and how to change it.",
+    )
+    parts = [
+        header,
+        "Read them with `btcli sudo get --netuid N` (the "
+        "[`subnet_hyperparameters`](/docs/query/subnet-hyperparameters) read); the "
+        "subnet owner changes the owner-settable ones with `btcli sudo set` (the "
+        "[`set_hyperparameter`](/docs/tx/set-hyperparameter) intent). Raw on-chain "
+        "integers are primary; where a parameter is a fixed-point fraction or a rao "
+        "amount, the value also accepts the human form with a decimal point. "
+        "Each parameter has its own explainer page.\n",
+        "| Hyperparameter | Unit | Owner-settable | What it controls |",
+        "| --- | --- | --- | --- |",
+    ]
+    for name, meta in hyperparams.HYPERPARAMS.items():
+        settable = "yes" if name in OWNER_HYPERPARAMETERS else "root only"
+        unit = UNIT_LABELS[hyperparams.kind_of(name)]
+        parts.append(
+            f"| [`{name}`](/docs/hyperparameters/{kebab(name)}) | {unit} | "
+            f"{settable} | {cell(meta.short)} |"
+        )
+    parts.append("")
+    return "\n".join(parts)
+
+
+def hyperparameters_meta() -> dict:
+    return {
+        "title": "Hyperparameters",
+        "pages": ["index", *(kebab(name) for name in hyperparams.HYPERPARAMS)],
+    }
+
+
 # --- Catalogs --------------------------------------------------------------
 
 
@@ -546,6 +604,14 @@ def generate(content_root: Path) -> None:
                 shutil.rmtree(dest)
             src.rename(dest)
         (content_root / "errors.mdx").write_text(errors)
+        # Only the index and meta are generated: the per-parameter explainer
+        # pages in this folder are hand-written and left untouched.
+        hyperparams_dir = content_root / "hyperparameters"
+        hyperparams_dir.mkdir(exist_ok=True)
+        (hyperparams_dir / "index.mdx").write_text(hyperparameters_index())
+        (hyperparams_dir / "meta.json").write_text(
+            json.dumps(hyperparameters_meta(), indent=2) + "\n"
+        )
 
 
 def check() -> int:
@@ -576,6 +642,11 @@ def check() -> int:
             for committed in sorted(committed_dir.rglob("*")):
                 if committed.is_file() and not (tmp_content / committed.relative_to(CONTENT)).exists():
                     stale.append(str(committed))
+        # Every hyperparameter must have its hand-written explainer page.
+        for name in hyperparams.HYPERPARAMS:
+            page = CONTENT / "hyperparameters" / f"{kebab(name)}.mdx"
+            if not page.exists():
+                stale.append(f"{page} (missing explainer page)")
     if stale:
         print("Generated docs are stale; run scripts/generate.py:", file=sys.stderr)
         for path in stale:
@@ -594,7 +665,10 @@ def main() -> int:
     generate(CONTENT)
     write_catalogs(CATALOG)
     n_tx, n_q = len(INTENTS), len(READS)
-    print(f"Generated {n_tx} tx pages, {n_q} query pages, errors.mdx, and 3 catalogs.")
+    print(
+        f"Generated {n_tx} tx pages, {n_q} query pages, errors.mdx, "
+        "the hyperparameters index, and 3 catalogs."
+    )
     return 0
 
 

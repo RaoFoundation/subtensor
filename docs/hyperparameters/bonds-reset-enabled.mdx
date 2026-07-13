@@ -1,0 +1,30 @@
+---
+title: bonds_reset_enabled
+description: Whether a neuron's accrued validator bonds are wiped when it commits new on-chain metadata.
+---
+
+`bonds_reset_enabled` makes metadata commitments costly for miners: when enabled, any hotkey that publishes a commitment on the subnet has all bonds pointing at it erased. Subnet owners enable it on subnets where a metadata commit signals a model or identity change that should reset accumulated validator conviction; validators care because their bonds on that miner — and the dividends they earn from them — restart from zero.
+
+## How it works
+
+When a hotkey commits metadata (the commitments pallet's `OnMetadataCommitment` hook, wired up as `ResetBondsOnCommit` in `runtime/src/lib.rs`), the chain calls `do_reset_bonds` in `pallets/subtensor/src/epoch/run_epoch.rs` for each mechanism of the subnet. If this flag is off, the call returns immediately. If it is on, the chain looks up the committing hotkey's UID and filters that UID's column out of every validator's bond vector — every bond held **on** the committing neuron is deleted, while bonds the neuron holds as a validator on others are untouched.
+
+Bonds then rebuild through the normal EMA at the rate set by [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) (or the liquid-alpha rate), so validators who re-endorse the refreshed miner regain dividends over subsequent epochs.
+
+The flag is off by default and toggling it emits a `BondsResetToggled` event (`sudo_set_bonds_reset_enabled` in `pallets/admin-utils/src/lib.rs`).
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name bonds_reset_enabled
+```
+
+Boolean — pass true or false:
+
+```
+btcli sudo set --netuid N --name bonds_reset_enabled --value true
+```
+
+## Related
+
+[`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg), [`bonds_penalty`](/docs/hyperparameters/bonds-penalty), [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled), [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled)

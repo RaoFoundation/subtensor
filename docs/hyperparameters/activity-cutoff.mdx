@@ -1,0 +1,54 @@
+---
+title: activity_cutoff
+description: Blocks without setting weights after which a validator is inactive and excluded from consensus.
+---
+
+`activity_cutoff` is the window, in blocks, that a validator can go without
+setting weights before the epoch marks it inactive and removes its stake from
+consensus. Validators care because an expired cutoff silently zeroes their
+influence and dividends; owners tune it to keep consensus limited to
+validators that are actually evaluating miners.
+
+## How it works
+
+At each epoch (`pallets/subtensor/src/epoch/run_epoch.rs`), a neuron is
+inactive when `last_update + activity_cutoff` is less than the current block,
+where `last_update` is the block of its last accepted weight submission.
+Inactive stake is masked out of the active-stake vector before consensus, so
+an inactive validator contributes nothing to the
+[`kappa`](/docs/hyperparameters/kappa)-weighted median and earns no
+dividends until it sets weights again.
+
+The effective value is derived, not stored directly:
+`get_activity_cutoff_blocks` (`pallets/subtensor/src/utils/misc.rs`) computes
+`factor_milli × tempo / 1000`, clamped to at least 1 block. The per-mille
+factor is bounded to 1,000–50,000 (one to fifty tempos); the default 13,889
+at tempo 360 yields the legacy 5,000-block cutoff (~16.7 hours).
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name activity_cutoff
+```
+
+This returns the effective block count. Owner-settable:
+
+```
+btcli sudo set --netuid N --name activity_cutoff --value 5000
+```
+
+The value is a raw block count (12s blocks), floor 360. Note that this
+dispatches the legacy absolute-blocks extrinsic; the epoch reads the
+factor-derived value, so the tempo-relative `set_activity_cutoff_factor`
+extrinsic (per-mille of [`tempo`](/docs/hyperparameters/tempo)) is the
+authoritative way to change what the epoch actually uses.
+
+## Related
+
+[`tempo`](/docs/hyperparameters/tempo) ·
+[`kappa`](/docs/hyperparameters/kappa) ·
+[`rho`](/docs/hyperparameters/rho) ·
+[`max_validators`](/docs/hyperparameters/max-validators) ·
+[`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit)

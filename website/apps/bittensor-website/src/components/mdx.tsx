@@ -9,6 +9,13 @@ import { ConvictionModeComparison } from './docs/conviction-mode-comparison';
 import { ConvictionSubnetScenario } from './docs/conviction-subnet-scenario';
 import { EmissionFlowDiagram } from './docs/emission-flow-diagram';
 import { EmissionNetworkSnapshot } from './docs/emission-network-snapshot';
+import { HyperparamBurnController } from './docs/hyperparam-burn-controller';
+import { HyperparamConsensusSigmoid } from './docs/hyperparam-consensus-sigmoid';
+import { HyperparamLiquidAlpha } from './docs/hyperparam-liquid-alpha';
+import { HyperparamOwnerCut } from './docs/hyperparam-owner-cut';
+import { HyperparamPowDifficulty } from './docs/hyperparam-pow-difficulty';
+import { HyperparamUidLifecycle } from './docs/hyperparam-uid-lifecycle';
+import { HyperparamWeightsRules } from './docs/hyperparam-weights-rules';
 import { RegistrationBurnTimeline } from './docs/registration-burn-timeline';
 import { RootProportionExplainer } from './docs/root-proportion-explainer';
 import { SubnetEmissionShareChart } from './docs/subnet-emission-share-chart';
@@ -112,6 +119,13 @@ export function getMDXComponents(components?: MDXComponents) {
     ConvictionModeComparison,
     EvmAddressDomains,
     EvmMoneyFlows,
+    HyperparamBurnController,
+    HyperparamConsensusSigmoid,
+    HyperparamLiquidAlpha,
+    HyperparamOwnerCut,
+    HyperparamPowDifficulty,
+    HyperparamUidLifecycle,
+    HyperparamWeightsRules,
     ...components,
   } satisfies MDXComponents;
 }

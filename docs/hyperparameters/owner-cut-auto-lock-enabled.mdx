@@ -1,0 +1,51 @@
+---
+title: owner_cut_auto_lock_enabled
+description: Per-subnet toggle that conviction-locks the owner's emission cut as it is paid.
+---
+
+Controls whether the subnet owner's emission cut is automatically placed under
+a [conviction lock](/docs/guides/conviction) the moment it is paid out. It
+matters to owners weighing liquidity against conviction, and to lockers
+watching the ownership race — an auto-locking owner compounds conviction every
+tempo without lifting a finger.
+
+## How it works
+
+The flag defaults to **false**. When it is on, each epoch's owner-cut payout is
+followed by an automatic `lock-stake` on the owner's coldkey: the freshly
+staked alpha is added to the owner's locked mass. If the owner already has a
+lock on the subnet, the cut locks toward that lock's existing hotkey (one lock
+per coldkey per subnet); otherwise a new lock is created toward the subnet
+owner hotkey. A zero cut is silently skipped.
+
+Locked alpha still earns dividends — the lock is a floor on unstaking, not a
+separate bucket — and it accrues conviction, which counts toward the
+aggregate-conviction threshold for automatic subnet ownership transfer. Locks
+on the owner hotkey mature instantly (conviction equals mass), so an owner
+auto-locking toward their own hotkey is defending their seat with fully mature
+conviction. Turning the flag off stops future auto-locking but does not
+release anything already locked.
+
+The flag has no effect while
+[`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) is off — no cut,
+nothing to lock.
+
+<HyperparamOwnerCut focus="owner_cut_auto_lock_enabled" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name owner_cut_auto_lock_enabled
+btcli sudo set --netuid 12 --name owner_cut_auto_lock_enabled --value true
+```
+
+Settable by the subnet owner or root; booleans take `true` or `false`. Not
+permitted on the root subnet.
+
+## Related
+
+- [`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) — the cut
+  this flag locks
+- [`transfers_enabled`](/docs/hyperparameters/transfers-enabled)
+- [Conviction locks](/docs/guides/conviction) — lock mechanics and ownership
+  transfer
