@@ -224,35 +224,6 @@ const page = () => {
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Sign and verify</p>
-          <p>
-            This release also changes how runtime upgrades are approved, and v430 was the first
-            upgrade shipped this way. The release pipeline publishes a
-            <strong> proposal release</strong>: a GitHub release tagged at the exact commit
-            deployed, carrying the runtime, its deterministic build digest, and the exact call
-            data to be signed. Keyholders approve with a single command, and the tooling
-            verifies — before anything is signed — that the call data is precisely a runtime
-            upgrade and nothing else, that the embedded runtime matches the published digest,
-            and that the on-chain proposal carries the same hash.
-          </p>
-          <p>
-            Verification is not limited to keyholders. Runtime builds are deterministic —
-            identical source produces a byte-identical runtime — so any participant can verify
-            a deployed upgrade against its published source:
-          </p>
-          <p className={styles.code_block}>
-            btcli upgrade check --url
-            https://github.com/RaoFoundation/subtensor/releases/tag/v430
-          </p>
-          <p>
-            Alternatively, build the runtime from source with the pinned toolchain and pass the
-            resulting bytes with <strong>--wasm</strong>; a passing check proves the chain is
-            running exactly the code that was compiled. The complete flow is documented in{' '}
-            <DocLink href='/docs/internals/release-process'>the release process</DocLink>.
-          </p>
-        </section>
-
-        <section className={styles.section}>
           <p className={styles.subtitle}>What you need to do</p>
           <p style={{textAlign: 'left', width: '100%'}}>
             Most participants require little or no action. In order of urgency:
