@@ -475,10 +475,30 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             <DocLink href='/docs'>bittensor.com/docs</DocLink>. The reference pages for{' '}
             <strong>all 74 transactions </strong>and <strong>all 82 queries </strong>are
             generated directly from the SDK, so the reference cannot drift from the released
-            software. The site also publishes agent catalogs and plain-text endpoints, allowing
-            AI coding assistants to consume the documentation directly. Start at the{' '}
-            <DocLink href='/docs'>documentation home</DocLink>, or point an agent at the{' '}
-            <DocLink href='/docs/agents'>agents page</DocLink>.
+            software. Start at the <DocLink href='/docs'>documentation home</DocLink>.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Built for agents</p>
+          <p>
+            The entire stack — SDK, CLI, documentation, and this website — is designed to be
+            driven by AI agents as well as humans. Every operation is discoverable at runtime
+            with a JSON schema (<strong>btcli tools</strong> on the CLI,{' '}
+            <strong>sub.intents.list_tools()</strong> in Python) and can be executed by name
+            from a plain dictionary, validated against that schema. Every mutation can be
+            previewed before it spends anything, every failure returns a machine-readable code
+            with a remediation hint, and a Policy can hard-bound what an agent&apos;s session
+            is allowed to do — spend caps, fee caps, allowed subnets.
+          </p>
+          <p>
+            The CLI never traps automation: --json produces machine-readable output on any
+            command, and a non-interactive session missing a confirmation is declined rather
+            than left hanging. The documentation publishes the same catalogs statically —
+            intents, reads, and errors as JSON — every page is fetchable as raw markdown, and
+            the full corpus is available at a single plain-text endpoint for loading into a
+            context window. The complete workflow is documented on{' '}
+            <DocLink href='/docs/agents'>the agents page</DocLink>.
           </p>
         </section>
 
