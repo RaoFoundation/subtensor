@@ -43,6 +43,7 @@ from .commands import (
     subnets,
     sudo,
     timelock,
+    upgrade,
     utils,
     wallet,
     weights,
@@ -107,6 +108,7 @@ app.add_typer(extension.app, name="extension", rich_help_panel=PANEL_ACCOUNTS)
 
 app.add_typer(proxy.app, name="proxy", rich_help_panel=PANEL_PROXY_MULTISIG)
 app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_PROXY_MULTISIG)
+app.add_typer(upgrade.app, name="upgrade", rich_help_panel=PANEL_PROXY_MULTISIG)
 
 # Hidden group aliases carried over from the v9 btcli (`btcli w list`, etc.).
 for _sub_app, _aliases in (

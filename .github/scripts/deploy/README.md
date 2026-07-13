@@ -9,10 +9,11 @@ member of the sudo multisig (the "triumvirate").
 | ------ | ------- |
 | `deploy-wasm.js` | Direct sudo upgrade for chains where CI holds the sudo key (devnet, testnet, local mainnet clones). Used by `release-train.yml`. |
 | `propose-upgrade-multisig.js` | CI's half of the mainnet deployment multisig proposal. Used by `release-train.yml`. |
-| `approve-upgrade-multisig.js` | Library for triumvirate first-signer approvals; not run directly. |
-| `prod-approval.js` | Runs `approve-upgrade-multisig` with the production triumvirate signatories. |
+| `approve-upgrade-multisig.js` | Library for triumvirate first-signer approvals (legacy path); not run directly. |
+| `prod-approval.js` | Runs `approve-upgrade-multisig` with the production triumvirate signatories (legacy path). |
 | `samvps-approval.js` | Same, for the sam-vps multisig. |
-| `test-wasm.py` | Verifies a WASM's hash and that its bytes are embedded in the call data. |
+| `sudo-signatories.json` | The triumvirate signer set + threshold; consumed by `prod-approval.js` and embedded into `upgrade-manifest.json` by the release train. |
+| `test-wasm.py` | Verifies a WASM's hash and that its bytes are embedded in the call data (legacy path; `btcli upgrade check` supersedes it). |
 
 ## Background: the two multisig layers
 
@@ -28,54 +29,62 @@ A production runtime upgrade is gated by two nested multisigs:
    `sudo.key()`. It is the *second* party of the deployment multisig, so the
    triumvirate has to produce that second approval among themselves.
 
-The first triumvirate signer runs `prod-approval.js`. That script builds the
-deployment multisig's finalizing call **and** submits the first triumvirate
-approval of it in one transaction. The remaining triumvirate signers then
-approve (and the last one executes) from PolkadotJS Apps — no script needed.
+When the proposal lands, the release train also publishes a **proposal
+pre-release** — `v<spec_version>`, tagged at the exact commit being deployed —
+whose page carries the signer instructions and these assets:
 
-Once the final approval lands and the upgrade executes on chain, the release
-watcher (`watch-mainnet-release.yml`) cuts the GitHub release and publishes the
-artifacts.
+- `subtensor.wasm` and `subtensor-digest.json` — CI's deterministic srtool build
+- `proxy_proxy_blob.hex` — the call data being signed
+- `pending-release.json` — machine-readable proposal record (timepoint etc.)
+- `upgrade-manifest.json` — everything btcli needs (call hash, commit, signer
+  set, asset URLs)
 
-> You may have been a *second* signer before. That part is done in the Polkadot
-> UI. Being the **first** signer is different: it is the script run documented
-> below, because only the first signer has to assemble the call data.
+The **URL of that pre-release page is the one thing signers need**. Once the
+final approval lands and the upgrade executes on chain, the release watcher
+(`watch-mainnet-release.yml`) promotes the pre-release to the final release
+and publishes the rest of the artifacts.
 
-## First signer: step by step
+## Signing an upgrade (the btcli path)
 
-Only the **first** signer runs the script. Everyone else approves in the UI.
-
-### 0. One-time setup
-
-```
-cd .github/scripts/deploy
-npm ci
-```
-
-You also need `python3` (for the verification step) and your triumvirate
-mnemonic.
-
-### 1. Find the CI proposal run
-
-Open the **Release Train** GitHub Action run that proposed this upgrade
-(Actions tab). You need its artifact and one timepoint from it.
-
-### 2. Build the runtime yourself with srtool
-
-Do not sign a WASM you were simply handed. Build the runtime from source with
-srtool and confirm your output matches CI's — this is the step that makes the
-later check meaningful. srtool builds are deterministic, so an identical source
-at the same toolchain produces a byte-identical, identically-hashed runtime.
-
-Check out this repo at the exact ref being deployed (the commit on `main`
-that triggered the run) and build with the **same parameters CI uses**. The
-authoritative recipe is the srtool build step in
-[`.github/workflows/release-train.yml`](../../workflows/release-train.yml);
-the key parameters are package `node-subtensor-runtime`, profile `production`,
-and build option `--features=metadata-hash`.
+Every triumvirate signer — first, interior, or last — runs the same command:
 
 ```
-git checkout <commit-being-deployed>
+btcli upgrade sign --url https://github.com/<org>/subtensor/releases/tag/v<spec> -w <your-wallet>
+```
+
+Before submitting anything, btcli verifies:
+
+- the call data is *exactly*
+  `proxy.proxy(sudo_key, None, sudo.sudoUncheckedWeight(system.setCode(<wasm>), <pinned weight>))`
+  — no batches, no extra calls (re-encoded byte-for-byte against live chain
+  metadata);
+- the embedded runtime matches the release's srtool digest;
+- the proxied account is the chain's live `sudo.key()`;
+- a pending on-chain deployment-multisig proposal carries `blake2_256(call data)`;
+- the resolved signer set derives the on-chain sudo key.
+
+It then reads your position from chain state — whether the sudo multisig
+operation is not yet opened (you are the first signer), underway (interior
+approval), or one approval short (your `as_multi` executes the upgrade) — and
+submits the matching extrinsic. No signer numbers, no timepoints, no
+PolkadotJS.
+
+Related commands:
+
+```
+btcli upgrade pending           # discover pending proposals from chain state alone
+btcli upgrade check --url ...   # run every verification without signing
+btcli multisig pending -w <ms>  # pending sudo-multisig ops; also lists pending upgrades
+```
+
+### Verifying against code you built yourself (recommended)
+
+Do not sign a WASM you were simply handed. srtool builds are deterministic:
+identical source at the same toolchain produces a byte-identical runtime. The
+pre-release tag *is* the code being deployed, so:
+
+```
+git fetch origin && git checkout v<spec>
 
 # srtool expects the runtime crate in a directory named after the package:
 ln -s . runtime/node-subtensor
@@ -90,108 +99,63 @@ docker run --rm --user root --platform=linux/amd64 \
 ```
 
 Use the srtool image whose Rust version matches subtensor's pinned toolchain
-(CI pins this in `scripts/srtool/build-srtool-image.sh`, currently `1.89.0`).
-If no prebuilt `paritytech/srtool:<rustc>` image exists for that
-version, build one from source with `scripts/srtool/build-srtool-image.sh` —
-that is what CI does. The [`srtool-cli`](https://github.com/chevdor/srtool-cli)
-wrapper auto-selects the image and is an easier alternative to the raw
-`docker run`.
+(CI pins this in `scripts/srtool/build-srtool-image.sh`; the release's
+`upgrade-manifest.json` records the version used). If no prebuilt
+`paritytech/srtool:<rustc>` image exists for that version, build one from
+source with `scripts/srtool/build-srtool-image.sh` — that is what CI does. The
+[`srtool-cli`](https://github.com/chevdor/srtool-cli) wrapper auto-selects the
+image and is an easier alternative to the raw `docker run`.
 
-When the build finishes, srtool prints the path to the generated
-`...node_subtensor_runtime.compact.compressed.wasm` and a one-line JSON digest
-as its final output line.
-
-### 3. Confirm your build matches CI, then assemble the files
-
-Download CI's artifact from the proposal run (Actions → the run →
-**Artifacts** → `mainnet-upgrade-<spec_version>`). It contains:
-
-- `subtensor.wasm` and `subtensor-digest.json` — CI's build and digest
-- `proxy_proxy_blob.hex` — the call data you will sign
-- `pending-release.json` — machine-readable proposal record (timepoint etc.)
-
-Compare your local srtool output against CI's — the SHA256 must be identical:
+Then pin the call data to *your* build:
 
 ```
-# your local build:
-shasum -a 256 .../node_subtensor_runtime.compact.compressed.wasm
-# CI's digest (sha256 field, minus the 0x):
-cat subtensor-digest.json
+btcli upgrade check --url <release-url> --wasm ./runtime/target/srtool/production/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+btcli upgrade sign  --url <release-url> --wasm <same path> -w <your-wallet>
 ```
 
-If they differ, **stop** — your source/toolchain does not match what CI built,
-and you must resolve that before signing.
+A passing check then proves the call data executes `setCode` with exactly the
+runtime you compiled from source. Without `--wasm`, `check`/`sign` still verify
+the published artifacts against each other and the chain, but the runtime bytes
+are trusted from the release.
 
-Once they match, put these three files in this directory
-(`.github/scripts/deploy`, next to `package.json`). Use **your locally built**
-runtime as `subtensor.wasm` and your srtool digest as `subtensor-digest.json`,
-plus CI's `proxy_proxy_blob.hex`:
+This structure — a URL anyone can fetch, call data anyone can re-derive from
+source, and an on-chain hash anyone can compare — is the template for later
+decentralized governance: any holder can `btcli upgrade check --url ...` and
+assert the proposal on chain matches the code they are looking at.
 
-- `subtensor.wasm` (your build)
-- `subtensor-digest.json` (your build)
-- `proxy_proxy_blob.hex` (from CI)
+## Legacy path: the node scripts
 
-Then verify the call data embeds that exact runtime:
+The pre-btcli flow still works and is kept as a fallback. It is documented
+here in abbreviated form; the scripts are unchanged.
 
-```
-python3 test-wasm.py
-```
+1. **Find the CI proposal run** (Actions → Release Train) or the proposal
+   pre-release; download `subtensor.wasm`, `subtensor-digest.json`,
+   `proxy_proxy_blob.hex`, and `pending-release.json`.
+2. **Build the runtime yourself with srtool** (see above) and confirm your
+   sha256 matches CI's digest. If they differ, **stop**.
+3. **Verify the call data** — place `subtensor.wasm` (your build),
+   `subtensor-digest.json` (your digest), and `proxy_proxy_blob.hex` (CI's) in
+   this directory and run `python3 test-wasm.py`. It must print
+   `WASM is correct`.
+4. **Note the deployment timepoint** — `blockHeight` / `extrinsicIndex` under
+   `proposal` in `pending-release.json`.
+5. **First signer only** — one-time `npm ci` in this directory, then:
 
-This confirms `subtensor.wasm` hashes to `subtensor-digest.json` and that
-`proxy_proxy_blob.hex` is, byte for byte, the expected
-`proxy.proxy(sudo_key, None, sudo.sudoUncheckedWeight(system.setCode(<your WASM>), <fixed weight>))`
-call — the WASM must be the `code` argument of `setCode`, and the call data can
-contain nothing else (no batches, no extra calls). It must print
-`WASM is correct` before you sign anything. Because the `subtensor.wasm` here is
-the one *you* built, a passing check proves the call data executes `setCode`
-with exactly the runtime you compiled from source. The one part the script
-cannot pin offline is the 32-byte proxied account, which must be the chain's
-sudo key — `prod-approval.js` verifies the sudo key separately before
-submitting, and the proxy call fails on chain if that account is not the sudo
-key.
+   ```
+   npm run prod-approval -- <wss-endpoint> <CI-address> 0 <block> <index> proxy_proxy_blob.hex
+   ```
 
-### 4. Note the deployment timepoint
+   You are prompted for your mnemonic (hidden). The script checks the
+   triumvirate 2-of-3 derives the on-chain sudo key, then submits the first
+   approval and writes `deployment-multisig-proposal.hex`.
+6. **Hand off** — send the other signers the printed **Call Hash**, the
+   **timepoint** of your approval, and `deployment-multisig-proposal.hex`.
+   Interior signers `approveAsMulti` (call hash + timepoint) and the last
+   signer `asMulti` (call data + timepoint) from PolkadotJS Apps — or they
+   simply run `btcli upgrade sign --url ...`, which interoperates with
+   approvals made either way.
 
-Read `blockHeight` and `extrinsicIndex` from CI's `pending-release.json`
-(under `proposal`). Those two numbers are the timepoint of CI's
-deployment-multisig approval — you pass them to the script in the next step as
-`<block>` and `<index>`. The same numbers appear in the **propose** job's
-summary table (Block Height / Extrinsic Index).
-
-### 5. Run the first-signer approval
-
-```
-npm run prod-approval -- <wss-endpoint> <CI-address> 0 <block> <index> proxy_proxy_blob.hex
-```
-
-- `<wss-endpoint>` — the target chain, e.g. `wss://entrypoint-finney.opentensor.ai:443`
-- `<CI-address>` — `5FW3gUUAnWZFTG3QWijcGV9ji3iySsuCj12TQi2eDtgGvxej`
-- `0` — your signer number; the first signer is always `0`
-- `<block>` `<index>` — the timepoint from step 4
-- `proxy_proxy_blob.hex` — the CI call-data file from step 3
-
-You will be prompted for your `mnemonic:` (input is hidden). The script first
-checks that the triumvirate 2-of-3 derives the on-chain sudo key and aborts if
-it does not, then submits your approval.
-
-### 6. Hand off to the other signers
-
-The script writes `deployment-multisig-proposal.hex` and prints a summary
-containing a **Call Hash** and the **Block Height / Extrinsic Index** of *your*
-approval. Send the other triumvirate signers:
-
-- the **Call Hash**,
-- the **timepoint** (your Block Height + Extrinsic Index), and
-- the `deployment-multisig-proposal.hex` file (the final signer needs the call
-  data).
-
-They then complete it from PolkadotJS Apps (Developer → Multisig, or via the
-sudo multisig account) — interior signers `approveAsMulti` with the call hash +
-your timepoint, and the last signer `asMulti` with the call data + your
-timepoint. When the final approval lands, the spec version bumps and the
-release watcher takes over.
-
-## Argument reference
+### Argument reference (legacy scripts)
 
 `prod-approval.js` (and `samvps-approval.js`) take:
 
@@ -208,6 +172,6 @@ release watcher takes over.
 
 The mnemonic is always read interactively, never passed as an argument.
 
-Triumvirate members and the threshold are defined in `prod-approval.js`
-(`SUDO_SIGNATORIES`, `SUDO_THRESHOLD`). `samvps-approval.js` is the equivalent
-for the sam-vps multisig.
+Triumvirate members and the threshold are defined in `sudo-signatories.json`
+(read by `prod-approval.js` and embedded into the release manifest).
+`samvps-approval.js` is the equivalent for the sam-vps multisig.

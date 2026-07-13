@@ -113,6 +113,7 @@ export async function sendTransaction(
 }
 
 const SECOND = 1000;
+const LOCAL_BLOCK_POLL_INTERVAL = 100;
 
 /**
  * Polls until the finalized head reaches `blockNumber` (inclusive). Use this
@@ -125,7 +126,7 @@ const SECOND = 1000;
 export async function waitUntilBlockFinalized(
     api: TypedApi<typeof subtensor>,
     blockNumber: number,
-    pollInterval = 1 * SECOND,
+    pollInterval = LOCAL_BLOCK_POLL_INTERVAL,
     timeout = 120 * SECOND
 ): Promise<void> {
     const deadline = Date.now() + timeout;
@@ -143,7 +144,7 @@ export async function waitUntilBlockFinalized(
 export async function waitForFinalizedBlocks(
     api: TypedApi<typeof subtensor>,
     count: number,
-    pollInterval = 1 * SECOND,
+    pollInterval = LOCAL_BLOCK_POLL_INTERVAL,
     timeout = 120 * SECOND
 ): Promise<void> {
     const startBlock = await api.query.System.Number.getValue({ at: "finalized" });

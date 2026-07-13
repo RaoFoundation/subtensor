@@ -72,6 +72,9 @@ jobs:
         with:
           node-version-file: ts-tests/.nvmrc
 
+      - name: Validate E2E configuration
+        run: node ts-tests/scripts/validate-e2e-config.mjs
+
       - name: Install system dependencies
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update

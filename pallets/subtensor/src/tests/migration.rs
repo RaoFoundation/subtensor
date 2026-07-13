@@ -1253,6 +1253,7 @@ fn test_per_u16_encodes_identically_to_u16() {
     assert_eq!(PerU16::zero().encode(), 0u16.encode());
 }
 
+#[allow(deprecated)]
 #[test]
 #[allow(deprecated)]
 fn test_migrate_last_tx_block_delegate_take() {

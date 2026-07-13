@@ -1,0 +1,9 @@
+{
+  "_note": "Production sudo multisig (triumvirate) signer set. 2-of-3 derives the on-chain sudo key 5DcSqBNqCmfdJZRGFSwwcRb2dZdJHZuKK8Tb1Gx8gbmF5E8s. Consumed by prod-approval.js and embedded into upgrade-manifest.json by release-train.yml; btcli verifies the derived address against the live sudo key before signing, so a stale entry fails loudly.",
+  "signatories": [
+    "5E7RCRrPVS8TckCDjr92B5ciGziwz2kfvxe4URy3L7AgirGJ",
+    "5FevFjov8435t5XC2MUSRpFYxtthE8pZy1toHpgAAia3ZphG",
+    "5GRCukV2rZmSVfJhAXoLjcrU1pMVCf2Ra1ydbiCFZdaQXDXo"
+  ],
+  "threshold": 2
+}
