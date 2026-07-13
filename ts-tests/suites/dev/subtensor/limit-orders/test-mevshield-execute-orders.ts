@@ -1,25 +1,24 @@
+import { bytesToHex as u8aToHex } from "@bittensor/sdk";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
-import type { ApiPromise } from "@polkadot/api";
 import type { KeyringPair } from "@moonwall/util";
-import { tao, generateKeyringPair } from "../../../../utils";
+import type { ApiPromise } from "@polkadot/api";
+import { generateKeyringPair, tao } from "../../../../utils";
 import {
-    devForceSetBalance,
-    devGetAlphaStake,
     devAssociateHotKey,
     devEnableSubtoken,
+    devForceSetBalance,
     devRegisterSubnet,
     devSudoSetLockReductionInterval,
 } from "../../../../utils/dev-helpers.js";
 import {
-    buildSignedOrder,
     FAR_FUTURE,
+    buildSignedOrder,
     fetchChainId,
     getOrderStatus,
     orderId,
     registerLimitOrderTypes,
 } from "../../../../utils/limit-orders.js";
 import { encryptTransaction } from "../../../../utils/shield_helpers.js";
-import { u8aToHex } from "@polkadot/util";
 
 describeSuite({
     id: "DEV_SUB_LIMIT_ORDERS_MEVSHIELD",

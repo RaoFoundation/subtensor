@@ -1,12 +1,12 @@
-import { beforeAll, beforeEach, describeSuite, expect } from "@moonwall/cli";
-import { contracts, MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import { getInkClient, InkClient } from "@polkadot-api/ink-contracts";
-import type { KeyringPair } from "@polkadot/keyring/types";
 import fs from "node:fs";
+import { beforeAll, beforeEach, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, contracts, subtensor } from "@polkadot-api/descriptors";
+import { type InkClient, getInkClient } from "@polkadot-api/ink-contracts";
 import { Binary, type TypedApi } from "polkadot-api";
 import {
-    addNewSubnetwork,
     BITTENSOR_WASM_PATH,
+    addNewSubnetwork,
     burnedRegister,
     convertPublicKeyToSs58,
     forceSetBalance,
@@ -26,6 +26,13 @@ import {
 } from "../../utils";
 
 const bittensorBytecode = fs.readFileSync(BITTENSOR_WASM_PATH);
+
+function requireDefined<T>(value: T | undefined | null, name: string): T {
+    if (value === undefined || value === null) {
+        throw new Error(`${name} is not defined`);
+    }
+    return value;
+}
 
 async function fundAccount(
     api: TypedApi<typeof subtensor>,
@@ -61,15 +68,8 @@ describeSuite({
             }
 
             const amount = tao(100);
-            let message;
-            let dest;
-            if (addStakeToContract) {
-                message = inkClient.message("add_stake");
-                dest = contractAddress;
-            } else {
-                message = inkClient.message("caller_add_stake");
-                dest = convertPublicKeyToSs58(coldkey.publicKey);
-            }
+            const message = inkClient.message(addStakeToContract ? "add_stake" : "caller_add_stake");
+            const dest = addStakeToContract ? contractAddress : convertPublicKeyToSs58(coldkey.publicKey);
 
             const data = message.encode({
                 hotkey: Binary.fromBytes(hotkey.publicKey),
@@ -233,7 +233,7 @@ describeSuite({
                 await addStakeViaContract(true);
                 const stake = await getContractStake();
 
-                let amount = stake / BigInt(2);
+                const amount = stake / BigInt(2);
                 const message = inkClient.message("remove_stake");
                 const data = message.encode({
                     hotkey: Binary.fromBytes(hotkey.publicKey),
@@ -391,7 +391,7 @@ describeSuite({
 
                 expect(stakeAfterDest).toBeDefined();
                 expect(stakeAfterOrigin < stakeBeforeOrigin).toBeTruthy();
-                expect(stakeAfterDest > stakeBeforeDest!).toBeTruthy();
+                expect(stakeAfterDest > requireDefined(stakeBeforeDest, "stakeBeforeDest")).toBeTruthy();
             },
         });
 
@@ -570,7 +570,7 @@ describeSuite({
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, data);
 
-                let autoStakeHotkey = await api.query.SubtensorModule.AutoStakeDestination.getValue(
+                const autoStakeHotkey = await api.query.SubtensorModule.AutoStakeDestination.getValue(
                     contractAddress,
                     netuid
                 );
@@ -589,7 +589,7 @@ describeSuite({
                     delegate: Binary.fromBytes(hotkey.publicKey),
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, data);
-                let proxies = await api.query.Proxy.Proxies.getValue(contractAddress);
+                const proxies = await api.query.Proxy.Proxies.getValue(contractAddress);
                 expect(proxies).toBeDefined();
                 expect(proxies.length > 0 && proxies[0].length > 0).toBeTruthy();
                 expect(proxies[0][0].delegate).toEqual(convertPublicKeyToSs58(hotkey.publicKey));
@@ -600,7 +600,7 @@ describeSuite({
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, removeData);
 
-                let proxiesAfterRemove = await api.query.Proxy.Proxies.getValue(contractAddress);
+                const proxiesAfterRemove = await api.query.Proxy.Proxies.getValue(contractAddress);
                 expect(proxiesAfterRemove).toBeDefined();
                 expect(proxiesAfterRemove[0].length).toEqual(0);
             },
@@ -760,7 +760,7 @@ describeSuite({
                         netuid
                     )
                 )?.stake;
-                expect(stakeAfter !== undefined && stakeAfter < stake!).toBeTruthy();
+                expect(stakeAfter !== undefined && stakeAfter < requireDefined(stake, "stake")).toBeTruthy();
             },
         });
 
@@ -788,7 +788,7 @@ describeSuite({
                     )
                 )?.stake;
                 expect(stakeAfter).toBeDefined();
-                expect(stakeAfter < stakeBefore!).toBeTruthy();
+                expect(stakeAfter < requireDefined(stakeBefore, "stakeBefore")).toBeTruthy();
             },
         });
 
@@ -816,7 +816,7 @@ describeSuite({
                     )
                 )?.stake;
                 expect(stakeAfter).toBeDefined();
-                expect(stakeAfter < stakeBefore!).toBeTruthy();
+                expect(stakeAfter < requireDefined(stakeBefore, "stakeBefore")).toBeTruthy();
             },
         });
 
@@ -916,8 +916,8 @@ describeSuite({
                     )
                 )?.stake;
                 expect(stakeAfterOrigin !== undefined && stakeAfterDest !== undefined).toBeTruthy();
-                expect(stakeAfterOrigin < stakeBeforeOrigin!).toBeTruthy();
-                expect(stakeAfterDest > stakeBeforeDest!).toBeTruthy();
+                expect(stakeAfterOrigin < requireDefined(stakeBeforeOrigin, "stakeBeforeOrigin")).toBeTruthy();
+                expect(stakeAfterDest > requireDefined(stakeBeforeDest, "stakeBeforeDest")).toBeTruthy();
             },
         });
 
@@ -1000,7 +1000,9 @@ describeSuite({
                         netuid
                     )
                 )?.stake;
-                expect(stakeAfter !== undefined && stakeAfter > stakeBefore!).toBeTruthy();
+                expect(
+                    stakeAfter !== undefined && stakeAfter > requireDefined(stakeBefore, "stakeBefore")
+                ).toBeTruthy();
             },
         });
 
@@ -1033,7 +1035,9 @@ describeSuite({
                         netuid
                     )
                 )?.stake;
-                expect(stakeAfter !== undefined && stakeAfter < stakeBefore!).toBeTruthy();
+                expect(
+                    stakeAfter !== undefined && stakeAfter < requireDefined(stakeBefore, "stakeBefore")
+                ).toBeTruthy();
             },
         });
 
@@ -1084,7 +1088,7 @@ describeSuite({
                 )?.stake;
                 expect(stakeAfter !== undefined && stakeAfter2 !== undefined).toBeTruthy();
                 expect(stakeAfter < stakeBefore).toBeTruthy();
-                expect(stakeAfter2 > stakeBefore2!).toBeTruthy();
+                expect(stakeAfter2 > requireDefined(stakeBefore2, "stakeBefore2")).toBeTruthy();
             },
         });
 
@@ -1115,7 +1119,9 @@ describeSuite({
                         netuid
                     )
                 )?.stake;
-                expect(stakeAfter !== undefined && stakeAfter < stakeBefore!).toBeTruthy();
+                expect(
+                    stakeAfter !== undefined && stakeAfter < requireDefined(stakeBefore, "stakeBefore")
+                ).toBeTruthy();
             },
         });
 
@@ -1158,7 +1164,7 @@ describeSuite({
                 });
                 await sendWasmContractExtrinsic(api, coldkey, contractAddress, removeData);
                 proxies = await api.query.Proxy.Proxies.getValue(convertPublicKeyToSs58(coldkey.publicKey));
-                expect(proxies !== undefined && proxies[0].length).toEqual(0);
+                expect(proxies?.[0].length).toEqual(0);
             },
         });
 

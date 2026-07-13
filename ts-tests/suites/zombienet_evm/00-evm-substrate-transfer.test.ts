@@ -1,6 +1,6 @@
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
 import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@polkadot/keyring/types";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
@@ -222,8 +222,7 @@ describeSuite({
                     gas_limit: BigInt(1000000),
                     max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                     max_priority_fee_per_gas: undefined,
-                    // PAPI encodes this field with the Binary codec despite the Uint8Array annotation.
-                    input: Binary.fromText("") as unknown as Uint8Array,
+                    input: Binary.fromText(""),
                     nonce: undefined,
                     access_list: [],
                     authorization_list: [],
@@ -426,7 +425,7 @@ describeSuite({
                         gas_limit: BigInt(1000000),
                         max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                         max_priority_fee_per_gas: undefined,
-                        input: Binary.fromText("") as unknown as Uint8Array,
+                        input: Binary.fromText(""),
                         nonce: undefined,
                         access_list: [],
                         authorization_list: [],

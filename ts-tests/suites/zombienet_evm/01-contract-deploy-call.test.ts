@@ -1,16 +1,21 @@
+import { publicKeyFromSs58 as decodeAddress, bytesToHex as u8aToHex } from "@bittensor/sdk";
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
 import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@polkadot/keyring/types";
-import { u8aToHex } from "@polkadot/util";
-import { decodeAddress } from "@polkadot/util-crypto";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
 import {
-    addNewSubnetwork,
     ALPHA_POOL_CONTRACT_ABI,
     ALPHA_POOL_CONTRACT_BYTECODE,
     BRIDGE_TOKEN_CONTRACT_ABI,
     BRIDGE_TOKEN_CONTRACT_BYTECODE,
+    IPROXY_ADDRESS,
+    IProxyABI,
+    ISTAKING_V2_ADDRESS,
+    IStakingV2ABI,
+    STAKE_WRAP_ABI,
+    STAKE_WRAP_BYTECODE,
+    addNewSubnetwork,
     burnedRegister,
     convertH160ToPublicKey,
     convertH160ToSS58,
@@ -22,13 +27,7 @@ import {
     getBalance,
     getProxies,
     getStake,
-    IPROXY_ADDRESS,
-    IProxyABI,
-    ISTAKING_V2_ADDRESS,
-    IStakingV2ABI,
     raoToEth,
-    STAKE_WRAP_ABI,
-    STAKE_WRAP_BYTECODE,
     startCall,
     sudoSetLockReductionInterval,
     tao,

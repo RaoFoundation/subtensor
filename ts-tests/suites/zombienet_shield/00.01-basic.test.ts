@@ -1,4 +1,9 @@
-import { expect, beforeAll, describeSuite } from "@moonwall/cli";
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
+import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { Binary } from "@polkadot-api/substrate-bindings";
+import type { PolkadotClient, TypedApi } from "polkadot-api";
 import {
     checkRuntime,
     encryptTransaction,
@@ -6,15 +11,10 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    keyringPairFromUri,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
-import { Binary } from "@polkadot-api/substrate-bindings";
-import { Keyring } from "@polkadot/keyring";
-import type { KeyringPair } from "@moonwall/util";
-import { hexToU8a } from "@polkadot/util";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
-import type { PolkadotClient, TypedApi } from "polkadot-api";
 
 describeSuite({
     id: "00.01_basic",
@@ -31,10 +31,9 @@ describeSuite({
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);
 
-            const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
-            charlie = keyring.addFromUri("//Charlie");
+            alice = keyringPairFromUri("//Alice");
+            bob = keyringPairFromUri("//Bob");
+            charlie = keyringPairFromUri("//Charlie");
 
             await checkRuntime(api);
 
@@ -147,7 +146,7 @@ describeSuite({
             title: "Wrong key hash is not included by the block proposer",
             test: async () => {
                 const nextKey = await getNextKey(api);
-                expect(nextKey).toBeDefined();
+                if (nextKey === undefined) throw new Error("MEV Shield NextKey is not available");
 
                 const balanceBefore = await getBalance(api, bob.address);
 
@@ -157,7 +156,7 @@ describeSuite({
                     value: 1_000_000_000n,
                 }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
 
-                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), nextKey!);
+                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), nextKey);
 
                 // Tamper the first 16 bytes (key_hash).
                 const tampered = new Uint8Array(ciphertext);
@@ -187,7 +186,7 @@ describeSuite({
             title: "Stale key is not included after rotation",
             test: async () => {
                 const staleKey = await getNextKey(api);
-                expect(staleKey).toBeDefined();
+                if (staleKey === undefined) throw new Error("MEV Shield NextKey is not available");
 
                 // Wait for enough blocks that the key has rotated past both
                 // currentKey and nextKey positions.
@@ -201,7 +200,7 @@ describeSuite({
                     value: 1_000_000_000n,
                 }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
 
-                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), staleKey!);
+                const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), staleKey);
 
                 const tx = api.tx.MevShield.submit_encrypted({
                     ciphertext: Binary.fromBytes(ciphertext),

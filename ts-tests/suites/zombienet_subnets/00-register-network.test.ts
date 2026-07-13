@@ -1,13 +1,14 @@
-import { beforeAll, expect } from "vitest";
 import { describeSuite } from "@moonwall/cli";
 import { subtensor } from "@polkadot-api/descriptors";
 import type { TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     addNewSubnetwork,
     addStake,
     burnedRegister,
     forceSetBalance,
     generateKeyringPair,
+    keyringPairFromUri,
     rootRegister,
     startCall,
     sudoSetLockReductionInterval,
@@ -15,7 +16,6 @@ import {
 } from "../../utils";
 import { sudoSetStakeThreshold } from "../../utils/admin_utils.ts";
 import { getChildren, setAutoParentDelegationEnabled, sudoSetPendingChildKeyCooldown } from "../../utils/children.ts";
-import { Keyring } from "@polkadot/keyring";
 
 describeSuite({
     id: "00_register_network",
@@ -32,8 +32,7 @@ describeSuite({
             id: "T01",
             title: "auto-delegation: validator with flag=true gets child, validator with flag=false does not",
             test: async () => {
-                const keyring = new Keyring({ type: "sr25519" });
-                const rootSubnetOwner = keyring.addFromUri("//Alice");
+                const rootSubnetOwner = keyringPairFromUri("//Alice");
 
                 const rootVal1Coldkey = generateKeyringPair("sr25519"); // will opt-OUT
                 const rootVal1Hotkey = generateKeyringPair("sr25519");
