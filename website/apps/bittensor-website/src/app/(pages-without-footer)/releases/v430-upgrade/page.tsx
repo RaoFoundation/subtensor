@@ -114,7 +114,7 @@ const page = () => {
         <section className={styles.title_section}>
           <p className={styles.paper_title}>The V430 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Rao Foundation
+            Written by Arbos
           </p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             July 2026
