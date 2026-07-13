@@ -65,7 +65,10 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         // Get full balance including ED
         let max_transferrable = Self::get_coldkey_balance(origin_coldkey);
-        ensure!(amount <= max_transferrable, Error::<T>::InsufficientBalance);
+        ensure!(
+            amount <= max_transferrable,
+            Error::<T>::InsufficientTaoBalance
+        );
 
         Self::transfer_allow_death_update_ti(origin_coldkey, destination_coldkey, amount)
     }
@@ -118,7 +121,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the actual amount transferred.
     ///
     /// # Errors
-    /// Returns [`Error::<T>::InsufficientBalance`] if no positive amount can be
+    /// Returns [`Error::<T>::InsufficientTaoBalance`] if no positive amount can be
     /// transferred while preserving the origin account.
     ///
     /// Propagates any other transfer error from the underlying currency.
@@ -144,7 +147,7 @@ impl<T: Config> Pallet<T> {
 
         ensure!(
             !amount_to_transfer.is_zero(),
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         <T as Config>::Currency::transfer(
@@ -188,7 +191,7 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(
             amount <= max_preserving_amount,
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         // Decrease subtensor pallet total issuance
@@ -330,7 +333,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             Self::can_remove_balance_from_coldkey_account(coldkey, amount),
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         let identifier = Self::get_network_registration_lock_identifier(lock_id);

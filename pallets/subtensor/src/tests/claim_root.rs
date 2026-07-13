@@ -826,7 +826,7 @@ fn test_claim_root_swap_failure_does_not_consume_claim() {
 
         assert_noop!(
             SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::from([netuid])),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
 
         assert_eq!(

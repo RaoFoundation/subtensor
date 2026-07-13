@@ -448,6 +448,42 @@ fn test_share_based_staking_denominator_precision() {
     });
 }
 
+// Regression test for #1960: removing more Alpha than is staked must return the
+// Alpha-specific `InsufficientAlphaBalance`, distinct from the TAO-side
+// `InsufficientTaoBalance`. Without the split this returns `InsufficientBalance`.
+#[test]
+fn test_decrease_stake_insufficient_alpha_returns_distinct_error() {
+    new_test_ext(1).execute_with(|| {
+        use frame_support::assert_noop;
+        use subtensor_runtime_common::BalanceOps;
+
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let coldkey = U256::from(2);
+
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+
+        // Credit a known amount of Alpha stake for the (hotkey, coldkey, netuid).
+        let staked = AlphaBalance::from(1_000u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey, netuid, staked,
+        );
+
+        // Removing more than is staked hits the Alpha balance guard and must fail
+        // with the Alpha-specific error, not the shared/TAO one.
+        assert_noop!(
+            SubtensorModule::decrease_stake(
+                &coldkey,
+                &hotkey,
+                netuid,
+                staked + AlphaBalance::from(1u64),
+            ),
+            Error::<Test>::InsufficientAlphaBalance
+        );
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::staking2::test_share_based_staking_stake_unstake_inject --exact --show-output --nocapture
 #[test]
 fn test_share_based_staking_stake_unstake_inject() {
