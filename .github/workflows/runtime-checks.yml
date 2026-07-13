@@ -654,10 +654,6 @@ jobs:
       - name: Run remaining clone regression tests
         working-directory: clones/js-tests
         env:
-          # This scan is against the isolated local clone. Larger pages reduce
-          # hundreds of loopback RPC round trips without increasing public RPC
-          # load or changing the assertions.
-          ALPHA_HISTOGRAM_PAGE_SIZE: 5000
           CLONE_REGRESSION_TESTS: >-
             test-balancer-operation.ts
             test-balancer-edge-emission-issuance.ts
