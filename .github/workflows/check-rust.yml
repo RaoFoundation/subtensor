@@ -220,9 +220,9 @@ jobs:
           node-version: 22
       - name: Install wasm-pack
         run: |
-          curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
-            | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
-          wasm-pack --version
+          cargo install --locked --version 0.13.1 --root "$RUNNER_TEMP/wasm-pack" --force wasm-pack
+          echo "$RUNNER_TEMP/wasm-pack/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/wasm-pack/bin/wasm-pack" --version
       - name: wasm smoke test (node)
         run: |
           wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node

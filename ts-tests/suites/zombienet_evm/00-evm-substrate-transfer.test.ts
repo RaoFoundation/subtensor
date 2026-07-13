@@ -1,10 +1,16 @@
 import { beforeAll, describeSuite, expect } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
 import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@polkadot/keyring/types";
 import { ethers } from "ethers";
 import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
 import {
+    GWEI,
+    IBALANCETRANSFER_ADDRESS,
+    IBalanceTransferABI,
+    MAX_TX_FEE,
+    WITHDRAW_CONTRACT_ABI,
+    WITHDRAW_CONTRACT_BYTECODE,
     bigintToRao,
     convertH160ToSS58,
     convertPublicKeyToSs58,
@@ -15,10 +21,6 @@ import {
     generateKeyringPair,
     getBalance,
     getEthBalance,
-    GWEI,
-    IBALANCETRANSFER_ADDRESS,
-    IBalanceTransferABI,
-    MAX_TX_FEE,
     raoToEth,
     sendTransaction,
     ss58ToEthAddress,
@@ -27,8 +29,6 @@ import {
     waitForEthBalance,
     waitForFinalizedBlocks,
     waitForTransactionWithRetry,
-    WITHDRAW_CONTRACT_ABI,
-    WITHDRAW_CONTRACT_BYTECODE,
 } from "../../utils";
 
 async function estimateTransactionCost(provider: ethers.Provider, tx: ethers.TransactionRequest): Promise<bigint> {
@@ -114,7 +114,7 @@ describeSuite({
                 const txResponse = await ethWallet.sendTransaction(tx);
                 const receipt = await txResponse.wait();
                 expect(receipt).toBeDefined();
-                expect(receipt!.status).toEqual(1);
+                expect(receipt?.status).toEqual(1);
 
                 const senderBalanceAfter = await getEthBalance(provider, ethWallet.address);
                 const receiverBalanceAfter = await getEthBalance(provider, ethWallet2.address);
@@ -222,8 +222,7 @@ describeSuite({
                     gas_limit: BigInt(1000000),
                     max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                     max_priority_fee_per_gas: undefined,
-                    // PAPI encodes this field with the Binary codec despite the Uint8Array annotation.
-                    input: Binary.fromText("") as unknown as Uint8Array,
+                    input: Binary.fromText(""),
                     nonce: undefined,
                     access_list: [],
                     authorization_list: [],
@@ -273,6 +272,7 @@ describeSuite({
                 const withdrawTx = await contractForCall.withdraw(raoToEth(tao(1)).toString());
                 const withdrawReceipt = await withdrawTx.wait();
                 expect(withdrawReceipt?.status).toEqual(1);
+                await waitForFinalizedBlocks(api, 2);
 
                 const contractBalanceAfterWithdraw = await getEthBalance(provider, contractAddress);
                 const callerBalanceAfterWithdraw = await getEthBalance(provider, ethWallet.address);
@@ -425,7 +425,7 @@ describeSuite({
                         gas_limit: BigInt(1000000),
                         max_fee_per_gas: [BigInt(10e9), BigInt(0), BigInt(0), BigInt(0)],
                         max_priority_fee_per_gas: undefined,
-                        input: Binary.fromText("") as unknown as Uint8Array,
+                        input: Binary.fromText(""),
                         nonce: undefined,
                         access_list: [],
                         authorization_list: [],

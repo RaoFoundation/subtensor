@@ -12,7 +12,7 @@ on:
       - ".github/workflows/mainnet-clone-preview.yml"
       - ".github/workflows/runtime-checks.yml"
       - ".github/workflows/sccache-warm.yml"
-      - ".github/workflows/typescript-e2e.yml"
+      - ".github/workflows/bittensor-ts-e2e.yml"
       - ".github/workflows/validate-sccache.yml"
   workflow_dispatch:
 

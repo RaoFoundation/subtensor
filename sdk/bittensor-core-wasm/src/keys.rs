@@ -104,6 +104,15 @@ impl Keypair {
         Ok(Self { inner })
     }
 
+    /// Derive a child without exposing or reconstructing its secret URI
+    /// outside Rust/WASM.
+    pub fn derive(&self, path: &str) -> Result<Keypair, JsValue> {
+        self.inner
+            .derive(path)
+            .map(|inner| Self { inner })
+            .map_err(to_js_err)
+    }
+
     /// Generate a fresh mnemonic with `nWords` (12/15/18/21/24; default 12).
     #[wasm_bindgen(js_name = generateMnemonic)]
     pub fn generate_mnemonic(n_words: Option<u32>) -> Result<String, JsValue> {
@@ -113,6 +122,18 @@ impl Keypair {
     #[wasm_bindgen(getter, js_name = cryptoType)]
     pub fn crypto_type(&self) -> u8 {
         self.inner.crypto_type()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn kind(&self) -> String {
+        if !self.inner.has_private_key() {
+            return "PublicOnly".to_owned();
+        }
+        match self.inner.crypto_type() {
+            keys::CRYPTO_ED25519 => "Ed25519".to_owned(),
+            keys::CRYPTO_SR25519 => "Sr25519".to_owned(),
+            _ => "PublicOnly".to_owned(),
+        }
     }
 
     #[wasm_bindgen(getter, js_name = publicKey)]

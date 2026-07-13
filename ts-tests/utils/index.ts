@@ -1,3 +1,4 @@
+export { BINDING_VERSION as BITTENSOR_SDK_BINDING_VERSION } from "@bittensor/sdk";
 export * from "./account.ts";
 export * from "./address.ts";
 export * from "./admin_utils.ts";

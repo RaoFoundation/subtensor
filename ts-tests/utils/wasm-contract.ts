@@ -1,12 +1,12 @@
-import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@polkadot/keyring/types";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, type subtensor } from "@polkadot-api/descriptors";
 import type { TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
 import { convertPublicKeyToSs58 } from "./address.ts";
 import { getBalance } from "./balance.ts";
 import {
-    sendTransaction,
     type TransactionResult,
+    sendTransaction,
     waitForFinalizedBlocks,
     waitForTransactionWithRetry,
 } from "./transactions.ts";

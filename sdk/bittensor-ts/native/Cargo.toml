@@ -1,0 +1,30 @@
+[package]
+name = "bittensor-ts-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Native Node-API bridge used by bittensor-ts"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["ledger"]
+ledger = ["bittensor-core/ledger"]
+
+[dependencies]
+bittensor-core = { path = "../../bittensor-core" }
+codec = { workspace = true }
+hex = "0.4.3"
+napi = { version = "3.10.3", default-features = false, features = ["napi8", "serde-json", "dyn-symbols"] }
+napi-derive = "3.5.9"
+scale-info = { workspace = true, features = ["std", "serde"] }
+serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
+zeroize = "1"
+
+[build-dependencies]
+napi-build = "2.3.2"
+
+[lints]
+workspace = true

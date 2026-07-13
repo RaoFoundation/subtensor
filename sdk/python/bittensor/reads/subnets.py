@@ -100,9 +100,9 @@ async def commit_reveal_enabled(view, netuid: int) -> bool:
     category="Subnets",
     param_docs={"netuid": "Subnet to query."},
 )
-async def subnet_hyperparameters(view, netuid: int) -> dict:
-    """All hyperparameters for a subnet (named fields; version-dependent set)."""
-    return await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_hyperparams, [netuid])
+async def subnet_hyperparameters(view, netuid: int) -> list[dict] | None:
+    """All hyperparameters for a subnet as V3 named entries."""
+    return await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [netuid])
 
 
 @read(

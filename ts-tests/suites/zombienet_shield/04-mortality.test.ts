@@ -1,10 +1,11 @@
-import { expect, beforeAll } from "vitest";
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
+import { describeSuite } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
+import { sleep } from "@zombienet/utils";
 import type { PolkadotClient, TypedApi } from "polkadot-api";
 import { Binary } from "polkadot-api";
-import { hexToU8a } from "@polkadot/util";
-import { subtensor, MultiAddress } from "@polkadot-api/descriptors";
-import type { KeyringPair } from "@moonwall/util";
-import { Keyring } from "@polkadot/keyring";
+import { beforeAll, expect } from "vitest";
 import {
     checkRuntime,
     encryptTransaction,
@@ -12,10 +13,9 @@ import {
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    keyringPairFromUri,
     waitForFinalizedBlocks,
 } from "../../utils";
-import { describeSuite } from "@moonwall/cli";
-import { sleep } from "@zombienet/utils";
 
 // MAX_SHIELD_ERA_PERIOD is 8 blocks. With 12s slots, that's ~96s.
 const MAX_ERA_BLOCKS = 8;
@@ -37,9 +37,8 @@ describeSuite({
 
         beforeAll(
             async () => {
-                const keyring = new Keyring({ type: "sr25519" });
-                alice = keyring.addFromUri("//Alice");
-                bob = keyring.addFromUri("//Bob");
+                alice = keyringPairFromUri("//Alice");
+                bob = keyringPairFromUri("//Bob");
 
                 apiAuthority = context.papi("Node").getTypedApi(subtensor);
 

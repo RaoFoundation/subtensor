@@ -1,17 +1,17 @@
+import { hexToBytes as hexToU8a } from "@bittensor/sdk";
 import { describeSuite } from "@moonwall/cli";
 import type { KeyringPair } from "@moonwall/util";
 import { MultiAddress, subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
-import { hexToU8a } from "@polkadot/util";
+import { sleep } from "@zombienet/utils";
 import type { PolkadotClient, TypedApi } from "polkadot-api";
 import { beforeAll, expect } from "vitest";
-import { sleep } from "@zombienet/utils";
 import {
     checkRuntime,
     getAccountNonce,
     getBalance,
     getNextKey,
     getSignerFromKeypair,
+    keyringPairFromUri,
     submitEncrypted,
     waitForFinalizedBlocks,
 } from "../../utils";
@@ -54,10 +54,9 @@ describeSuite({
         let charlie: KeyringPair;
 
         beforeAll(async () => {
-            const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
-            charlie = keyring.addFromUri("//Charlie");
+            alice = keyringPairFromUri("//Alice");
+            bob = keyringPairFromUri("//Bob");
+            charlie = keyringPairFromUri("//Charlie");
 
             client = context.papi("Node");
             api = client.getTypedApi(subtensor);

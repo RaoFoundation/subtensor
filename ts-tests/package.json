@@ -36,21 +36,15 @@
         }
     },
     "dependencies": {
+        "@bittensor/sdk": "link:../sdk/bittensor-ts",
         "@inquirer/prompts": "7.3.1",
-        "@noble/ciphers": "^2.1.1",
         "@polkadot-api/ink-contracts": "^0.4.1",
         "@polkadot-api/merkleize-metadata": "^1.1.15",
         "@polkadot-api/sdk-ink": "^0.5.1",
         "@polkadot-api/substrate-bindings": "^0.17.0",
         "@polkadot/api": "*",
-        "@polkadot/keyring": "*",
-        "@polkadot/types": "*",
-        "@polkadot/types-codec": "*",
-        "@polkadot/util": "*",
-        "@polkadot/util-crypto": "*",
         "@zombienet/orchestrator": "0.0.105",
         "ethereum-cryptography": "3.1.0",
-        "mlkem": "^2.7.0",
         "polkadot-api": "^1.22.0",
         "ps-node": "0.1.6"
     },

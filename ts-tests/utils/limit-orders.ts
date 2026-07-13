@@ -1,11 +1,9 @@
 import type { KeyringPair } from "@moonwall/util";
 import type { TypedApi } from "polkadot-api";
 import type { subtensor } from "@polkadot-api/descriptors";
-import { Keyring } from "@polkadot/keyring";
-import { u8aToHex } from "@polkadot/util";
-import { blake2AsHex } from "@polkadot/util-crypto";
+import { blake2_256, bytesToHex } from "@bittensor/sdk";
+import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
-import { MultiAddress } from "@polkadot-api/descriptors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +89,7 @@ export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
 
     return {
         order: versionedOrder,
-        signature: { Sr25519: u8aToHex(sig) as `0x${string}` },
+        signature: { Sr25519: bytesToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -102,7 +100,7 @@ export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
  */
 export function orderId(api: any, order: VersionedOrder): `0x${string}` {
     const encoded = api.registry.createType("LimitVersionedOrder", order);
-    return blake2AsHex(encoded.toU8a(), 256) as `0x${string}`;
+    return bytesToHex(blake2_256(encoded.toU8a())) as `0x${string}`;
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────────
@@ -163,8 +161,7 @@ export async function getAlphaPrice(api: TypedApi<typeof subtensor>, netuid: num
 
 /** Enable the subtoken for a subnet (required for swaps to work). */
 export async function enableSubtoken(api: TypedApi<typeof subtensor>, netuid: number): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const internalCall = api.tx.AdminUtils.sudo_set_subtoken_enabled({
         netuid,
         subtoken_enabled: true,
@@ -175,8 +172,7 @@ export async function enableSubtoken(api: TypedApi<typeof subtensor>, netuid: nu
 
 /** Sudo-enable or disable the limit-orders pallet. */
 export async function setPalletStatus(api: TypedApi<typeof subtensor>, enabled: boolean): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const tx = api.tx.Sudo.sudo({
         call: api.tx.LimitOrders.set_pallet_status({ enabled }).decodedCall,
     });
@@ -244,12 +240,11 @@ export async function computeNetAmount(
         //   alpha_to_tao ≈ floor(price * sell_alpha / 1e9)
         const sellTaoEquiv = (price * sellSideAlpha) / SCALE;
         return buySideTao - sellTaoEquiv;
-    } else {
-        // net_amount (alpha) = sell_alpha - tao_to_alpha(buy_tao, price)
-        //   tao_to_alpha ≈ floor(buy_tao * 1e9 / price)
-        const buyAlphaEquiv = (buySideTao * SCALE) / price;
-        return sellSideAlpha - buyAlphaEquiv;
     }
+    // net_amount (alpha) = sell_alpha - tao_to_alpha(buy_tao, price)
+    //   tao_to_alpha ≈ floor(buy_tao * 1e9 / price)
+    const buyAlphaEquiv = (buySideTao * SCALE) / price;
+    return sellSideAlpha - buyAlphaEquiv;
 }
 
 export async function executeBatchedOrders(
@@ -257,8 +252,7 @@ export async function executeBatchedOrders(
     netuid: number,
     orders: SignedOrder[]
 ): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
+    const alice = keyringPairFromUri("//Alice");
     const tx = api.tx.LimitOrders.execute_batched_orders({
         netuid,
         orders,

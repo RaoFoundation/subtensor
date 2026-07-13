@@ -5,7 +5,6 @@ import { generateKeyringPair, tao } from "../../../../utils";
 import {
     devForceSetBalance,
     devAddStake,
-    devGetAlphaStake,
     devAssociateHotKey,
     devEnableSubtoken,
     devRegisterSubnet,
