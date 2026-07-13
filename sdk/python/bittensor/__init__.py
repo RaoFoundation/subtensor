@@ -31,6 +31,7 @@ root logger, so it stays silent unless your application opts in:
     logging.getLogger("bittensor").setLevel(logging.DEBUG)    # just the SDK
 """
 
+import importlib.metadata as _importlib_metadata
 import logging as _logging
 
 from . import evm, http_auth, intents, reads, timelock, wallets
@@ -194,7 +195,13 @@ __all__ = [
     *sorted(_INTENT_EXPORTS),
 ]
 
-__version__ = "11.0.0.dev0"
+# The single source of truth for the version is pyproject.toml (which the
+# release workflows stamp with the rc/dev suffix at build time); read it from
+# the installed distribution so wheels report what they were published as.
+try:
+    __version__ = _importlib_metadata.version("bittensor")
+except _importlib_metadata.PackageNotFoundError:  # uninstalled source tree
+    __version__ = "0.0.0.dev0+unknown"
 
 # Removed v10 API names raise with a pointer to the replacement instead of a
 # bare AttributeError, so an un-migrated script fails with instructions

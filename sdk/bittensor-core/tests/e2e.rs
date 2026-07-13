@@ -9,6 +9,8 @@
 mod e2e_support;
 
 use std::collections::BTreeSet;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use bittensor_core::client::{as_str, as_u128, field, value_bytes, variant_name};
 use bittensor_core::codec::Value;
@@ -262,11 +264,26 @@ fn test_policy_aggregates_spend_across_batch() {
 #[test]
 fn test_mev_shield_next_key_is_mlkem768() {
     let ctx = TestContext::new();
-    let key = ctx
-        .client
-        .query("MevShield", "NextKey", &[], None)
-        .expect("NextKey read");
-    assert_eq!(value_bytes(&key).expect("NextKey bytes").len(), 1_184);
+    // NextKey is None until every localnet authority has authored a block and
+    // announced its key (the rotation inherent kills NextKey whenever the
+    // next-next author has no AuthorKeys entry yet), so poll instead of
+    // reading once right after startup.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let key = loop {
+        let key = ctx
+            .client
+            .query("MevShield", "NextKey", &[], None)
+            .expect("NextKey read");
+        if let Some(bytes) = value_bytes(&key) {
+            break bytes;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "NextKey not announced within 30s"
+        );
+        thread::sleep(Duration::from_millis(250));
+    };
+    assert_eq!(key.len(), 1_184);
 }
 
 #[test]
