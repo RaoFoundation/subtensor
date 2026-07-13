@@ -6,7 +6,10 @@ export const WIRE_TAG = '__bittensor_core_wire__' as const
 const BIGINT_TAG = 'bigint'
 const BYTES_TAG = 'bytes'
 const DICT_TAG = 'dict'
+const SERDE_JSON_NUMBER = '$serde_json::private::Number'
 const MAX_DEPTH = 256
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER)
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER)
 
 type WireValue =
   | null
@@ -141,6 +144,9 @@ function fromWireAt(value: unknown, depth: number): ScaleValue {
   }
 
   const object = value as Record<string, unknown>
+  if (typeof object[SERDE_JSON_NUMBER] === 'string') {
+    return fromSerdeJsonNumber(object[SERDE_JSON_NUMBER])
+  }
   const tag = object[WIRE_TAG]
   if (tag === BIGINT_TAG) {
     if (typeof object.value !== 'string') throw new TypeError('invalid native bigint wire value')
@@ -169,4 +175,16 @@ function fromWireAt(value: unknown, depth: number): ScaleValue {
     output[key] = fromWireAt(item, depth + 1)
   }
   return output
+}
+
+function fromSerdeJsonNumber(value: string): number | bigint {
+  if (!/^-?\d+$/.test(value)) {
+    const number = Number(value)
+    if (Number.isFinite(number)) return number
+    throw new TypeError('invalid native serde_json number wire value')
+  }
+  const bigint = BigInt(value)
+  return bigint >= MIN_SAFE_BIGINT && bigint <= MAX_SAFE_BIGINT
+    ? Number(bigint)
+    : bigint
 }

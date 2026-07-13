@@ -1812,22 +1812,13 @@ export class BrowserChainClient {
       nonce: await this.peekNextIndex(account.ss58Address),
       period: null,
     }, snapshot)
-    const queryInfo = runtime.runtimeApis().TransactionPaymentApi?.query_info
-    if (queryInfo == null) {
-      throw new ChainError('TransactionPaymentApi.query_info metadata is unavailable')
+    const info = await this.rpc('payment_queryInfo', [hex(signed.bytes)])
+    const fields = recordValue(info)
+    const partialFee = decimalAmount(fields?.partialFee ?? fields?.partial_fee)
+    if (partialFee == null) {
+      throw new ChainError('payment_queryInfo response is missing partialFee', info)
     }
-    const encodedInput = runtime.encodeRuntimeApiInput('TransactionPaymentApi', 'query_info', [signed.bytes, signed.bytes.length])
-    const raw = await this.rpc('state_call', [
-      'TransactionPaymentApi_query_info',
-      hex(encodedInput),
-      snapshot.blockHash,
-    ])
-    const info = runtime.decodeTypeId<Record<string, ScaleValue>>(
-      queryInfo.outputTypeId,
-      hexToBuffer(String(raw)),
-      false,
-    )
-    return Balance.fromRao(String(info.partial_fee ?? info.partialFee ?? 0))
+    return Balance.fromRao(partialFee)
   }
 
   submitCall(pallet: string, fn: string, params: ScaleValue, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
@@ -2267,7 +2258,7 @@ export class Client extends BrowserChainClient {
   }
 
   async close(): Promise<void> {
-    // NativeChainClient owns its connection and has no explicit close hook.
+    this.transport.close()
   }
 
   private async requireNativeClient(): Promise<NativeChainClient> {
@@ -2311,9 +2302,7 @@ export class Client extends BrowserChainClient {
 
   override async runtimeAt(block?: number | string | null): Promise<Runtime> {
     if (block != null) {
-      throw new ChainError(
-        'historical runtime snapshots are only available on BrowserChainClient; Node Client uses the Rust NativeChainClient runtime cache',
-      )
+      return super.runtimeAt(block)
     }
     return (await this.requireNativeClient()).runtime()
   }
@@ -2351,10 +2340,8 @@ export class Client extends BrowserChainClient {
     return nativeChainInfoToChainInfo(await (await this.requireNativeClient()).chainInfo())
   }
 
-  override rpc(method: string, _params: unknown[] = []): Promise<unknown> {
-    return Promise.reject(new ChainError(
-      `raw JSON-RPC method ${method} is not available on the Node Client; use BrowserChainClient for custom transport RPC`,
-    ))
+  override rpc(method: string, params: unknown[] = []): Promise<unknown> {
+    return super.rpc(method, params)
   }
 
   override async runtimeCall<T extends ScaleValue = ScaleValue>(
@@ -2376,8 +2363,12 @@ export class Client extends BrowserChainClient {
     pageSizeOrOptions: number | QueryMapOptions = 512,
   ): Promise<Array<[K, V]>> {
     if (pageSizeOrOptions !== 512) {
-      throw new ChainError(
-        'queryMap pagination controls are only available on BrowserChainClient; Node Client delegates map pagination to Rust',
+      return super.queryMap<K, V>(
+        pallet,
+        storageFunction,
+        paramsOrBlock,
+        block,
+        pageSizeOrOptions,
       )
     }
     const [moduleName, itemName, itemParams, blockRef] =
@@ -2386,8 +2377,8 @@ export class Client extends BrowserChainClient {
     return await (await this.requireNativeClient()).queryMap(moduleName, itemName, itemParams, blockHash) as Array<[K, V]>
   }
 
-  override async stateCall<T = string>(_method: string, _data: ByteLike | string, _block?: number | string | null): Promise<T> {
-    throw new ChainError('raw state_call is only available on BrowserChainClient; use runtimeCall() for Rust-backed runtime APIs')
+  override async stateCall<T = string>(method: string, data: ByteLike | string, block?: number | string | null): Promise<T> {
+    return super.stateCall<T>(method, data, block)
   }
 
   override async constant<T extends ScaleValue = ScaleValue>(
@@ -2396,7 +2387,7 @@ export class Client extends BrowserChainClient {
     block?: number | string | null,
   ): Promise<T | undefined> {
     if (block != null) {
-      throw new ChainError('historical constants are only available on BrowserChainClient')
+      return super.constant<T>(pallet, name, block)
     }
     const [moduleName, constantName] = typeof pallet === 'string' ? [pallet, name as string] : pallet
     return (await this.requireNativeClient()).constant(moduleName, constantName) as T
@@ -2408,7 +2399,7 @@ export class Client extends BrowserChainClient {
     block?: number | string | null,
   ): Promise<T> {
     if (block != null) {
-      throw new ChainError('historical SCALE decoding is only available on BrowserChainClient')
+      return super.decodeScale<T>(typeString, data, block)
     }
     return (await this.requireNativeClient()).decodeScale(
       typeString,
@@ -2418,7 +2409,7 @@ export class Client extends BrowserChainClient {
 
   override async composeCall(pallet: string, fn: string, params: ScaleValue = {}, block?: number | string | null): Promise<Buffer> {
     if (block != null) {
-      throw new ChainError('historical call composition is only available on BrowserChainClient')
+      return super.composeCall(pallet, fn, params, block)
     }
     return (await this.requireNativeClient()).composeCall(pallet, fn, params)
   }
@@ -2453,16 +2444,16 @@ export class Client extends BrowserChainClient {
     )
   }
 
-  override async *blocks(_options: { finalized?: boolean } = {}): AsyncIterable<BlockHeader> {
-    throw new ChainError('block subscriptions are only available on BrowserChainClient')
+  override async *blocks(options: { finalized?: boolean } = {}): AsyncIterable<BlockHeader> {
+    yield* super.blocks(options)
   }
 
-  override waitForBlock(_block?: number | null, _options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
-    return Promise.reject(new ChainError('block subscriptions are only available on BrowserChainClient'))
+  override waitForBlock(block?: number | null, options: { timeoutMs?: number } = {}): Promise<BlockHeader> {
+    return super.waitForBlock(block, options)
   }
 
-  override blockInfo(_block?: number | null): Promise<BlockInfo | null> {
-    return Promise.reject(new ChainError('block inspection is only available on BrowserChainClient'))
+  override blockInfo(block?: number | null): Promise<BlockInfo | null> {
+    return super.blockInfo(block)
   }
 
   override async submitSigned(
@@ -2538,7 +2529,7 @@ export class Client extends BrowserChainClient {
 
   override async validateDescriptorSchema(block?: number | string | null): Promise<DescriptorSchemaIssue[]> {
     if (block != null) {
-      throw new ChainError('historical descriptor validation is only available on BrowserChainClient')
+      return super.validateDescriptorSchema(block)
     }
     return validateDescriptorSchema((await this.requireNativeClient()).runtime())
   }
@@ -3296,7 +3287,7 @@ export function validateDescriptorSchema(runtime: Runtime): DescriptorSchemaIssu
       } else {
         const actualArgTypes = actualArgTypeIds.map((typeId) => runtimeTypeName(runtime, typeId))
         for (let index = 0; index < entry.argTypes.length; index += 1) {
-          if (actualArgTypes[index] !== entry.argTypes[index]) {
+          if (!runtimeTypeMatches(entry.argTypes[index], actualArgTypes[index])) {
             issues.push({
               ...entry,
               kind: 'call',
@@ -3331,6 +3322,17 @@ function callArgumentTypeIds(callInfo: { argTypeIds?: unknown; argTypes?: unknow
     return ids.every((value) => Number.isSafeInteger(value) && value >= 0) ? ids : null
   }
   return null
+}
+
+const RUNTIME_TYPE_ALIASES = new Map<string, string>([
+  ['AlphaBalance', 'u64'],
+  ['Compact<TaoBalance>', 'Compact<u64>'],
+  ['NetUid', 'u16'],
+  ['TaoBalance', 'u64'],
+])
+
+function runtimeTypeMatches(expected: string, actual: string): boolean {
+  return actual === expected || actual === RUNTIME_TYPE_ALIASES.get(expected)
 }
 
 function runtimeTypeName(runtime: Runtime, typeId: number): string {
@@ -3470,31 +3472,13 @@ function assertNodeClientOptions(options: ClientOptions): void {
   const unsupported = unsupportedNodeClientOptions(options)
   if (unsupported.length === 0) return
   throw new ChainError(
-    `Node Client is backed exclusively by Rust NativeChainClient; use BrowserChainClient for TypeScript transport options: ${unsupported.join(', ')}`,
+    `Node Client is backed by one Rust NativeChainClient endpoint; unsupported options: ${unsupported.join(', ')}`,
   )
 }
 
 function unsupportedNodeClientOptions(options: ClientOptions): string[] {
   const unsupported: string[] = []
   if ((options.fallbackEndpoints?.length ?? 0) > 0) unsupported.push('fallbackEndpoints')
-  for (const key of [
-    'retryForever',
-    'webSocket',
-    'webSocketConstructor',
-    'webSocketFactory',
-    'headRuntimeTtlMs',
-    'historicalRuntimeCacheSize',
-    'requestTimeoutMs',
-    'maxRequestRetries',
-    'retryBackoffMs',
-    'maxRetryBackoffMs',
-    'endpointValidationTtlMs',
-    'maxSubscriptionQueue',
-    'maxMessageBytes',
-    'validateDescriptorSchema',
-  ] satisfies Array<keyof ClientOptions>) {
-    if (hasOwn(options, key)) unsupported.push(key)
-  }
   return unsupported
 }
 

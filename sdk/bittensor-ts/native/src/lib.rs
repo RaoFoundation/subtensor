@@ -11,14 +11,16 @@ mod timelock;
 mod transaction;
 mod values;
 
-use bittensor_core::codec::value::{to_corpus_json, u256_decimal};
+use bittensor_core::codec::value::u256_decimal;
 use bittensor_core::codec::Value;
 use napi::bindgen_prelude::{BigInt, Buffer};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 
 use crate::errors::{invalid_arg, NapiResult};
-use crate::values::{from_descriptor, from_wire, to_descriptor, to_wire, WIRE_TAG};
+use crate::values::{
+    from_descriptor, from_wire, to_descriptor, to_js_safe_corpus_json, to_wire, WIRE_TAG,
+};
 
 #[napi(object)]
 pub struct NativeCoreValueField {
@@ -54,7 +56,7 @@ pub fn wire_roundtrip(value: JsonValue) -> NapiResult<JsonValue> {
 
 #[napi(js_name = "valueToCorpusJson")]
 pub fn value_to_corpus_json(value: JsonValue) -> NapiResult<JsonValue> {
-    Ok(to_corpus_json(&from_wire(value)?))
+    to_js_safe_corpus_json(&from_wire(value)?)
 }
 
 #[napi(js_name = "u256LeToDecimal")]
@@ -83,7 +85,7 @@ pub fn wire_to_core_value_descriptor(value: JsonValue) -> NapiResult<JsonValue> 
 
 #[napi(js_name = "coreValueDescriptorToCorpusJson")]
 pub fn core_value_descriptor_to_corpus_json(value: JsonValue) -> NapiResult<JsonValue> {
-    Ok(to_corpus_json(&from_descriptor(value)?))
+    to_js_safe_corpus_json(&from_descriptor(value)?)
 }
 
 #[napi(js_name = "coreValueDescriptorDisplay")]

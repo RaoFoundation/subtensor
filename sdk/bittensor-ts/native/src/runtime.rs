@@ -841,6 +841,16 @@ impl NativeRuntime {
         }
         let mut output = Vec::new();
         for (param, value) in method.inputs.iter().zip(values.iter()) {
+            if runtime_api_param_is_extrinsic(
+                &self.inner,
+                &api_name,
+                &method_name,
+                &param.name,
+                param.ty,
+            ) {
+                output.extend_from_slice(&runtime_api_extrinsic_bytes(value)?);
+                continue;
+            }
             self.inner.encode_id(param.ty, value, &mut output).napi()?;
         }
         Ok(output.into())
@@ -1460,6 +1470,58 @@ fn runtime_api_infos_json(runtime: &Runtime) -> JsonValue {
             })
             .collect(),
     )
+}
+
+fn runtime_api_param_is_extrinsic(
+    runtime: &Runtime,
+    api_name: &str,
+    method_name: &str,
+    param_name: &str,
+    type_id: u32,
+) -> bool {
+    if api_name == "TransactionPaymentApi"
+        && matches!(method_name, "query_info" | "query_fee_details")
+        && param_name == "uxt"
+    {
+        return true;
+    }
+
+    if let Some(name) = runtime.type_name_of(type_id) {
+        if matches!(
+            name,
+            "Extrinsic" | "UncheckedExtrinsic" | "UncheckedExtrinsicV4" | "OpaqueExtrinsic"
+        ) {
+            return true;
+        }
+    }
+
+    let Ok(ty) = runtime.resolve(type_id) else {
+        return false;
+    };
+    let last = ty.path.segments.last().map(String::as_str);
+    matches!(
+        last,
+        Some("Extrinsic" | "UncheckedExtrinsic" | "UncheckedExtrinsicV4" | "OpaqueExtrinsic")
+    )
+}
+
+fn runtime_api_extrinsic_bytes(value: &Value) -> NapiResult<Vec<u8>> {
+    match value {
+        Value::Bytes(bytes) => Ok(bytes.clone()),
+        Value::Str(value) => {
+            let raw = value.trim_start_matches("0x");
+            if raw.len() % 2 != 0 || !raw.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(invalid_arg(
+                    "runtime API extrinsic parameter must be bytes or even-length hex",
+                ));
+            }
+            hex::decode(raw)
+                .map_err(|error| invalid_arg(format!("invalid runtime API extrinsic hex: {error}")))
+        }
+        _ => Err(invalid_arg(
+            "runtime API extrinsic parameter must be bytes or even-length hex",
+        )),
+    }
 }
 
 fn metadata_ir_json(runtime: &Runtime) -> NapiResult<JsonValue> {

@@ -443,6 +443,70 @@ pub fn values_to_wire(values: &[Value]) -> NapiResult<JsonValue> {
         .map(JsonValue::Array)
 }
 
+pub fn to_js_safe_corpus_json(value: &Value) -> NapiResult<JsonValue> {
+    to_js_safe_corpus_json_at(value, 0)
+}
+
+fn to_js_safe_corpus_json_at(value: &Value, depth: usize) -> NapiResult<JsonValue> {
+    if depth > MAX_WIRE_DEPTH {
+        return Err(invalid_arg("corpus value nesting exceeds 256 levels"));
+    }
+    match value {
+        Value::Null => Ok(JsonValue::Null),
+        Value::Bool(value) => Ok(JsonValue::Bool(*value)),
+        Value::Int(value) if (MIN_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(value) => {
+            let integer =
+                i64::try_from(*value).map_err(|_| invalid_arg("safe integer conversion failed"))?;
+            Ok(JsonValue::Number(Number::from(integer)))
+        }
+        Value::Int(value) => Ok(JsonValue::String(value.to_string())),
+        Value::Uint(value) if *value <= MAX_SAFE_INTEGER as u128 => {
+            let integer = u64::try_from(*value)
+                .map_err(|_| invalid_arg("safe unsigned integer conversion failed"))?;
+            Ok(JsonValue::Number(Number::from(integer)))
+        }
+        Value::Uint(value) => Ok(JsonValue::String(value.to_string())),
+        Value::U256(value) => {
+            let decimal = u256_decimal(value);
+            if let Ok(value) = decimal.parse::<u128>() {
+                if value <= MAX_SAFE_INTEGER as u128 {
+                    let integer = u64::try_from(value)
+                        .map_err(|_| invalid_arg("safe u256 conversion failed"))?;
+                    return Ok(JsonValue::Number(Number::from(integer)));
+                }
+            }
+            Ok(JsonValue::String(decimal))
+        }
+        Value::Str(value) => Ok(JsonValue::String(value.clone())),
+        Value::Bytes(value) => Ok(JsonValue::String(format!("0x{}", hex::encode(value)))),
+        Value::List(values) | Value::Tuple(values) => values
+            .iter()
+            .map(|value| to_js_safe_corpus_json_at(value, depth + 1))
+            .collect::<NapiResult<Vec<_>>>()
+            .map(JsonValue::Array),
+        Value::Dict(entries) => {
+            let mut map = Map::new();
+            for (key, value) in entries {
+                map.insert(
+                    corpus_key(key),
+                    to_js_safe_corpus_json_at(value, depth + 1)?,
+                );
+            }
+            Ok(JsonValue::Object(map))
+        }
+    }
+}
+
+fn corpus_key(key: &Value) -> String {
+    match key {
+        Value::Str(value) => value.clone(),
+        Value::Int(value) => value.to_string(),
+        Value::Uint(value) => value.to_string(),
+        Value::Bool(value) => (if *value { "True" } else { "False" }).to_owned(),
+        other => format!("{other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]

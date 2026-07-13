@@ -627,6 +627,11 @@ test('Python-compatible bittensor_core names are exported', () => {
   assert.equal(typeof core.get_encrypted_commitment, 'function')
   assert.equal(typeof core.get_signature_for_round, 'function')
   assert.equal(core.era_birth(64n, 70n), core.eraBirth(64n, 70n))
+  assert.equal(typeof core.NativeChainClient, 'function')
+  assert.equal(typeof core.RustWallet, 'function')
+  assert.equal(typeof core.Executor, 'function')
+  assert.equal(core.signerRoleValue('coldkey'), core.SignerRole.Coldkey)
+  assert.equal(core.signerRoleValue('hotkey'), core.SignerRole.Hotkey)
 
   const camelMultisig = core.multisigAccountId([alice.public_key, bob.public_key], 2)
   const [snakeAccountId, snakeSorted] = core.multisig_account_id(
@@ -809,6 +814,12 @@ test('dynamic boundary preserves large bigint, bytes, and non-string map keys', 
   assert.equal(output.get('nested').wideSafeNumber, Number.MAX_SAFE_INTEGER)
 })
 
+test('dynamic boundary accepts native serde_json arbitrary-precision number markers', () => {
+  const privateNumber = '$serde_json::private::Number'
+  assert.equal(core.fromWire({ [privateNumber]: '1783957824001' }), 1783957824001)
+  assert.equal(core.fromWire({ [privateNumber]: '10000000000000000000' }), 10000000000000000000n)
+})
+
 test('public constants and low-level hashes are exposed', () => {
   assert.equal(core.CRYPTO_ED25519, 0)
   assert.equal(core.CRYPTO_SR25519, 1)
@@ -954,6 +965,10 @@ test('exact codec::Value descriptors preserve every Rust enum variant', () => {
     core.u256LeToDecimal(Buffer.alloc(32, 0xff)),
     '115792089237316195423570985008687907853269984665640564039457584007913129639935',
   )
+  assert.equal(
+    core.coreValueDescriptorToCorpusJson(core.coreValueU256Le(Buffer.alloc(32, 0xff))),
+    '115792089237316195423570985008687907853269984665640564039457584007913129639935',
+  )
 })
 
 test('public Cursor and TypeSpec APIs are forwarded to Rust', () => {
@@ -1007,9 +1022,9 @@ test('chain client surface is exported without Polkadot.js glue', () => {
   assert.equal(typeof core.Client, 'function')
   assert.equal(typeof core.BrowserChainClient, 'function')
   assert.equal(typeof core.Client.prototype.watchSigned, 'function')
-  assert.equal(Object.prototype.hasOwnProperty.call(core, 'NativeChainClient'), false)
-  assert.equal(Object.prototype.hasOwnProperty.call(core, 'RustWallet'), false)
-  assert.equal(Object.prototype.hasOwnProperty.call(core, 'Executor'), false)
+  assert.equal(typeof core.NativeChainClient, 'function')
+  assert.equal(typeof core.RustWallet, 'function')
+  assert.equal(typeof core.Executor, 'function')
   assert.equal(core.Subtensor, core.SubtensorClient)
   assert.equal(typeof core.subtensor, 'function')
   assert.equal(typeof core.Wallet, 'function')
@@ -1048,17 +1063,15 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
       endpoint: 'http://primary',
       fallbackEndpoints: ['http://fallback'],
     }),
-    /BrowserChainClient/,
+    /fallbackEndpoints/,
   )
-  assert.throws(
-    () => new core.Client('local', {
-      endpoint: 'ws://node-a',
-      webSocketFactory() {
-        throw new Error('not reached')
-      },
-    }),
-    /BrowserChainClient/,
-  )
+  assert.doesNotThrow(() => new core.Client('local', {
+    endpoint: 'ws://node-a',
+    requestTimeoutMs: 10,
+    webSocketFactory() {
+      throw new Error('not reached')
+    },
+  }))
 
   const client = new core.Client('local', { endpoint: 'http://127.0.0.1:9944' })
   const calls = []
@@ -1071,6 +1084,10 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
     query(pallet, storage, params, block) {
       calls.push({ method: 'query', pallet, storage, params, block })
       return 42
+    },
+    queryMap(pallet, storage, params, block) {
+      calls.push({ method: 'queryMap', pallet, storage, params, block })
+      return [[1, true]]
     },
     submitEncoded(bytes, expectedHash, waitForFinalization) {
       calls.push({ method: 'submitEncoded', bytes, expectedHash, waitForFinalization })
@@ -1096,10 +1113,14 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
     { method: 'finalizedHead' },
     { method: 'query', pallet: 'Example', storage: 'Value', params: [], block: blockHash },
   ])
-  await assert.rejects(
-    () => client.queryMap('Example', 'Map', [], null, { pageSize: 1 }),
-    /delegates map pagination to Rust/,
-  )
+  assert.deepEqual(await client.queryMap('Example', 'Map'), [[1, true]])
+  assert.deepEqual(calls.at(-1), {
+    method: 'queryMap',
+    pallet: 'Example',
+    storage: 'Map',
+    params: [],
+    block: blockHash,
+  })
   const watcher = await client.watchSigned(Buffer.from([1, 2, 3]), { waitForFinalization: true })
   const watched = await watcher.result
   assert.equal(watched.status, 'finalized')
@@ -2799,33 +2820,7 @@ test('Client submit uses the Rust signing plan for external signers', async () =
 
 test('Client estimateFee peeks the chain nonce without reserving it', async () => {
   const callData = Buffer.from([9, 8, 7])
-  const { runtime, captures } = fakeSigningRuntime({
-    runtimeApis() {
-      return {
-        TransactionPaymentApi: {
-          query_info: {
-            inputDetails: [
-              { name: 'uxt', typeId: 10, type: 'Extrinsic' },
-              { name: 'len', typeId: 11, type: 'u32' },
-            ],
-            outputTypeId: 1,
-          },
-        },
-      }
-    },
-    encodeRuntimeApiInput(api, method, params) {
-      assert.equal(api, 'TransactionPaymentApi')
-      assert.equal(method, 'query_info')
-      assert.equal(params.length, 2)
-      const [uxt, len] = params
-      const encodedLen = Buffer.alloc(4)
-      encodedLen.writeUInt32LE(len, 0)
-      return Buffer.concat([Buffer.from(uxt), encodedLen])
-    },
-    decodeTypeId() {
-      return { partial_fee: 123n }
-    },
-  })
+  const { runtime, captures } = fakeSigningRuntime()
   const client = fakeSigningClient(runtime, callData)
   const publicKey = Buffer.alloc(32, 8)
   const address = core.ss58FromPublic(publicKey, 42)
@@ -2834,7 +2829,7 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
     Buffer.alloc(64, 4),
   ])
   const nonceReads = []
-  let stateCallParams
+  let paymentQueryInfoParams
   client.rpc = async (method, params = []) => {
     if (method === 'system_accountNextIndex') {
       nonceReads.push(params[0])
@@ -2850,9 +2845,9 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
     if (method === 'system_properties') {
       return { ss58Format: 42, tokenDecimals: [9], tokenSymbol: ['TAO'] }
     }
-    if (method === 'state_call') {
-      stateCallParams = params
-      return '0x00'
+    if (method === 'payment_queryInfo') {
+      paymentQueryInfoParams = params
+      return { partialFee: '123' }
     }
     throw new Error(`unexpected RPC ${method}`)
   }
@@ -2873,8 +2868,7 @@ test('Client estimateFee peeks the chain nonce without reserving it', async () =
   assert.equal(firstRealNonce, 7)
   assert.equal(secondRealNonce, 7)
   assert.deepEqual(nonceReads, [address, address, address])
-  assert.equal(stateCallParams[0], 'TransactionPaymentApi_query_info')
-  assert.equal(stateCallParams[2], `0x${'42'.repeat(32)}`)
+  assert.deepEqual(paymentQueryInfoParams, ['0x010404'])
 })
 
 test('Client submit without inclusion reports pool submission, not execution success', async () => {

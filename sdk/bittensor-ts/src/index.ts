@@ -12,11 +12,15 @@ export * from './modules'
 export * from './runtime'
 export * from './timelock'
 export {
+  Executor,
   IntentCall,
+  NativeChainClient,
   Policy,
+  RustWallet,
   SignerRole,
   isIntentCall,
   rawCall,
+  signerRoleValue,
 } from './transaction'
 export type {
   PolicyOptions,
