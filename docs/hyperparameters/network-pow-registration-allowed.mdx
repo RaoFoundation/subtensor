@@ -28,10 +28,9 @@ concrete:
 Independently, the PoW `register` extrinsic
 (`pallets/subtensor/src/macros/dispatches.rs`) ignores its work arguments
 and routes to the burned-registration path, so the flag has nothing left to
-gate. The playground shows the difficulty mechanics this toggle used to
-switch off:
+gate. Both ends of the wire are cut:
 
-<HyperparamPowDifficulty focus="network_pow_registration_allowed" />
+<HyperparamPowToggleDeadEnd />
 
 ## Reading and setting
 

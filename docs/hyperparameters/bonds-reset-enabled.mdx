@@ -11,6 +11,10 @@ When a hotkey commits metadata (the commitments pallet's `OnMetadataCommitment` 
 
 Bonds then rebuild through the normal EMA at the rate set by [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) (or the liquid-alpha rate), so validators who re-endorse the refreshed miner regain dividends over subsequent epochs.
 
+Here is what that looks like for a validator's bond on a miner that commits metadata mid-way — toggle the flag to compare:
+
+<HyperparamBondsResetChart />
+
 The flag is off by default and toggling it emits a `BondsResetToggled` event (`sudo_set_bonds_reset_enabled` in `pallets/admin-utils/src/lib.rs`).
 
 ## Reading and setting

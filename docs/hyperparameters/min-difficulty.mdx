@@ -29,8 +29,9 @@ floor to 10,000,000 on every subnet, matching the runtime default
 Note that on the current runtime PoW registration is deprecated: the
 `register` extrinsic routes to burned registration and no controller
 adjusts `difficulty` between intervals, so this floor is dormant. The
-playground below shows the controller behavior it bounds — drag the floor
-to its top stop to see the `u64::MAX` disabled state:
+playground below opens on a quiet-demand scenario where difficulty decays
+until it sits on the bold floor line — drag the floor to its top stop (or
+use the button) to see the `u64::MAX` disabled state:
 
 <HyperparamPowDifficulty focus="min_difficulty" />
 

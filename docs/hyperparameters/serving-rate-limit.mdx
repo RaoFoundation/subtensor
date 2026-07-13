@@ -11,6 +11,10 @@ When a neuron posts its axon endpoint, `do_serve_axon` (`pallets/subtensor/src/s
 
 The default is 50 blocks — about 10 minutes at 12-second blocks. Unlike the pruning family of parameters, this one does not affect who keeps a UID, only how frequently a UID's published endpoint can change; a miner that misses the window just retries after the cooldown.
 
+Drag the slider to see which of a miner's serve attempts survive the cooldown:
+
+<HyperparamServingRateLimitChart />
+
 ## Reading and setting
 
 ```

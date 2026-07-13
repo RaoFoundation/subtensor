@@ -31,7 +31,10 @@ The legacy EMA adjustment that used this value as a setpoint (together with
 [`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha)) no longer exists
 in the runtime.
 
-<HyperparamBurnController />
+The chart below shows the cap in action: attempts pile up over an interval, and
+admission stops once the count reaches 3× the target.
+
+<HyperparamRegsCapChart />
 
 ## Reading and setting
 

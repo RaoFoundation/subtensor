@@ -93,6 +93,19 @@ function pruneTarget(
   return bestImmune !== null ? (bestImmune as Candidate).uid : null;
 }
 
+function focusCaption(focus: string | undefined): string {
+  switch (focus) {
+    case 'immunity_period':
+      return ' Focused on immunity_period: each immune slot shows how many registrations remain before its protection expires and it joins the prunable pool.';
+    case 'max_allowed_uids':
+      return ' Focused on max_allowed_uids: the grid itself is the capacity — empty slots (+) absorb registrations for free, and once the boundary is hit every entrant must evict someone.';
+    case 'owner_immune_neuron_limit':
+      return ' Focused on owner_immune_neuron_limit: O marks the owner hotkeys inside the limit (never pruned, oldest registrations first); o marks owner hotkeys beyond it, which compete like everyone else.';
+    default:
+      return '';
+  }
+}
+
 function eventMessage(event: SimEvent | null): string {
   if (event === null) return 'Press a register button to add a neuron.';
   switch (event.kind) {
@@ -209,18 +222,50 @@ export function HyperparamUidLifecycle({ focus }: { focus?: string }) {
   return (
     <ExplainerPanel
       title="UID lifecycle playground"
-      caption={`A subnet's slot grid, shaded by emission. When it is full, registering prunes the lowest-emission prunable uid. I = inside immunity_period, O = owner-immune, dashed outline = next prune target. Pruning falls back onto immune uids when ${MIN_NON_IMMUNE} or fewer non-immune uids remain (chain default: 10).`}
+      caption={`A subnet's slot grid, shaded by emission. When it is full, registering prunes the lowest-emission prunable uid. I = inside immunity_period, O = owner-immune, dashed outline = next prune target. Pruning falls back onto immune uids when ${MIN_NON_IMMUNE} or fewer non-immune uids remain (chain default: 10).${focusCaption(focus)}`}
     >
-      <div className="grid grid-cols-8 gap-1">
+      <div
+        className={
+          'grid grid-cols-8 gap-1' +
+          (focus === 'max_allowed_uids' && sim.slots.length >= maxUids
+            ? ' outline outline-1 outline-offset-2 outline-[var(--bt-fg)]'
+            : '')
+        }
+      >
         {Array.from({ length: maxUids }, (_, uid) => {
           const slot = sim.slots[uid];
           if (!slot) {
-            return <div key={uid} className="h-9 border border-dashed border-line" />;
+            return (
+              <div
+                key={uid}
+                className="flex h-9 items-center justify-center border border-dashed border-line font-mono text-[0.625rem] text-mute"
+              >
+                {focus === 'max_allowed_uids' ? '+' : ''}
+              </div>
+            );
           }
           const isOwnerImmune = ownerImmune.has(uid);
           const isNewImmune = !isOwnerImmune && sim.tick - slot.registeredAt < immunityPeriod;
+          const immunityLeft = isNewImmune ? immunityPeriod - (sim.tick - slot.registeredAt) : 0;
+          const isOwnerBeyondLimit = slot.isOwner && !isOwnerImmune;
           const shade = slot.emission / maxEmission;
-          const status = isOwnerImmune ? ', owner-immune' : isNewImmune ? ', immune' : '';
+          const status = isOwnerImmune
+            ? ', owner-immune'
+            : isNewImmune
+              ? `, immune (${immunityLeft} reg${immunityLeft === 1 ? '' : 's'} left)`
+              : '';
+          // Focus-specific badge: immunity focus counts down the remaining
+          // protection; owner focus also marks owner hotkeys beyond the limit.
+          const badge =
+            focus === 'owner_immune_neuron_limit' && isOwnerBeyondLimit
+              ? 'o'
+              : isOwnerImmune
+                ? 'O'
+                : isNewImmune
+                  ? focus === 'immunity_period'
+                    ? `I${immunityLeft}`
+                    : 'I'
+                  : null;
           return (
             <div
               key={uid}
@@ -233,13 +278,13 @@ export function HyperparamUidLifecycle({ focus }: { focus?: string }) {
               title={`uid ${uid} — emission ${slot.emission.toFixed(1)}${status}`}
             >
               <span className={shade > 0.55 ? 'text-white' : ''}>{uid}</span>
-              {(isOwnerImmune || isNewImmune) && (
+              {badge !== null && (
                 <span
                   className={
                     'absolute right-0.5 top-0 text-[0.5rem] ' + (shade > 0.55 ? 'text-white' : '')
                   }
                 >
-                  {isOwnerImmune ? 'O' : 'I'}
+                  {badge}
                 </span>
               )}
             </div>

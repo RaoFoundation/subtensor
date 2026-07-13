@@ -34,11 +34,45 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.min(Math.max(value, lo), hi);
 }
 
+// Per-focus starting scenario: which bound the simulated difficulty walk rides,
+// and what the panel caption should emphasize.
+const SCENARIOS: Record<
+  string,
+  { floorLog: number; ceilLog: number; regs: number; target: number; caption: string }
+> = {
+  difficulty: {
+    floorLog: 7,
+    ceilLog: 16,
+    regs: 6,
+    target: 2,
+    caption:
+      'difficulty is a direct price in compute: hash_meets_difficulty passes with probability about 1 in difficulty, so a nonce costs ~difficulty hash attempts on average. The classic controller rescaled it by (regs + target) / (2 \u00d7 target) each adjustment interval, clamped to [min_difficulty, max_difficulty]. On the current runtime the register extrinsic routes to burned registration, so this controller no longer runs.',
+  },
+  min_difficulty: {
+    floorLog: 7,
+    ceilLog: 16,
+    regs: 0,
+    target: 2,
+    caption:
+      'This scenario starts with quiet demand (0 registrations vs a target of 2), so the controller decays difficulty every interval \u2014 until it lands on the bold min_difficulty floor and sits there. The floor is the one price the controller could never undercut. Drag the floor to its top stop (or use the button) for the u64::MAX disabled state.',
+  },
+  max_difficulty: {
+    floorLog: 5,
+    ceilLog: 10,
+    regs: 12,
+    target: 2,
+    caption:
+      'This scenario starts with a registration rush (12 registrations vs a target of 2), so the controller ratchets difficulty up every interval \u2014 until it hits the bold max_difficulty ceiling and pins there. The ceiling capped how expensive a PoW slot could get during a rush. The mainnet default is u64::MAX / 4.',
+  },
+};
+
 export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
-  const [floorLog, setFloorLog] = useState(7); // min_difficulty = 1e7 (chain default)
-  const [ceilLog, setCeilLog] = useState(16);
-  const [regsPerInterval, setRegsPerInterval] = useState(6);
-  const [targetRegs, setTargetRegs] = useState(2);
+  const scenario = (focus && SCENARIOS[focus]) || SCENARIOS['difficulty'];
+
+  const [floorLog, setFloorLog] = useState(scenario.floorLog);
+  const [ceilLog, setCeilLog] = useState(scenario.ceilLog);
+  const [regsPerInterval, setRegsPerInterval] = useState(scenario.regs);
+  const [targetRegs, setTargetRegs] = useState(scenario.target);
 
   const floor = fromLog(floorLog);
   const ceiling = Math.max(fromLog(ceilLog), floor);
@@ -73,6 +107,9 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
           : 'falling toward floor'
         : 'steady at target';
 
+  const floorFocused = focus === 'min_difficulty';
+  const ceilFocused = focus === 'max_difficulty';
+
   const data = useMemo(
     () => ({
       labels: series.map((_, i) => `${i}`),
@@ -88,26 +125,26 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
           borderWidth: 1.5,
         },
         {
-          label: 'min_difficulty (floor)',
+          label: floorFocused ? 'min_difficulty (floor) \u2190 this page' : 'min_difficulty (floor)',
           data: series.map(() => floor),
-          borderColor: 'rgba(41, 41, 41, 0.35)',
-          borderDash: [4, 4],
+          borderColor: floorFocused ? 'rgb(41, 41, 41)' : 'rgba(41, 41, 41, 0.35)',
+          borderDash: floorFocused ? [6, 3] : [4, 4],
           fill: false,
           pointRadius: 0,
-          borderWidth: 1,
+          borderWidth: floorFocused ? 2.5 : 1,
         },
         {
-          label: 'max_difficulty (ceiling)',
+          label: ceilFocused ? 'max_difficulty (ceiling) \u2190 this page' : 'max_difficulty (ceiling)',
           data: series.map(() => ceiling),
-          borderColor: 'rgba(41, 41, 41, 0.35)',
-          borderDash: [2, 3],
+          borderColor: ceilFocused ? 'rgb(41, 41, 41)' : 'rgba(41, 41, 41, 0.35)',
+          borderDash: ceilFocused ? [6, 3] : [2, 3],
           fill: false,
           pointRadius: 0,
-          borderWidth: 1,
+          borderWidth: ceilFocused ? 2.5 : 1,
         },
       ],
     }),
-    [series, floor, ceiling],
+    [series, floor, ceiling, floorFocused, ceilFocused],
   );
 
   const options = useMemo(
@@ -146,10 +183,7 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
   );
 
   return (
-    <ExplainerPanel
-      title="PoW difficulty controller"
-      caption="The classic per-interval adjustment: difficulty scales by (regs + target) / (2 x target) each adjustment interval, clamped to [min_difficulty, max_difficulty]. Drag the floor to its top stop to see the u64::MAX state. On the current runtime the register extrinsic routes to burned registration, so this controller no longer runs."
-    >
+    <ExplainerPanel title="PoW difficulty controller" caption={scenario.caption}>
       <div className="h-52">
         <Line data={data} options={options} />
       </div>
@@ -161,9 +195,13 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
           hint={powDisabled ? 'PoW registration effectively disabled' : trend}
         />
         <ExplainerStat
-          label="Expected hashes per registration"
-          value={powDisabled ? '\u221e (no nonce can pass)' : `\u2248 ${formatDifficulty(finalDifficulty)}`}
-          hint="hash_meets_difficulty passes ~1 in difficulty attempts"
+          label={mark('difficulty', 'Odds a single nonce passes')}
+          value={powDisabled ? '0 (no nonce can pass)' : `\u2248 1 in ${formatDifficulty(finalDifficulty)}`}
+          hint={
+            powDisabled
+              ? 'at u64::MAX the seal check rejects everything'
+              : `hash_meets_difficulty \u2192 expect ~${formatDifficulty(finalDifficulty)} hashes per registration`
+          }
         />
         <ExplainerStat
           label="Registration pressure"
@@ -215,6 +253,31 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
           display={`${targetRegs}`}
           onChange={setTargetRegs}
         />
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        {powDisabled ? (
+          <button
+            type="button"
+            onClick={() => setFloorLog(scenario.floorLog)}
+            className="border border-line bg-panel px-3 py-1 font-mono text-[0.75rem] hover:bg-bg"
+          >
+            re-enable PoW (restore floor)
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setFloorLog(DISABLED_LOG)}
+            className="border border-line bg-panel px-3 py-1 font-mono text-[0.75rem] hover:bg-bg"
+          >
+            set floor to u64::MAX (disable PoW)
+          </button>
+        )}
+        <span className="text-[0.7rem] text-mute">
+          {powDisabled
+            ? 'difficulty is pinned at u64::MAX: no nonce can ever pass the seal check.'
+            : 'the sentinel state: a floor of u64::MAX pins difficulty at maximum.'}
+        </span>
       </div>
     </ExplainerPanel>
   );

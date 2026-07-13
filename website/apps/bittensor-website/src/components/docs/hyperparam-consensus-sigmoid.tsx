@@ -18,12 +18,29 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, 
 
 const SAMPLE_POINTS = 100;
 const KAPPA_U16_MAX = 65535;
+const RHO_GHOSTS = [2, 40];
 
 // Matches sigmoid_safe in pallets/subtensor/src/epoch/math.rs:
 // 1 / (1 + exp(-rho * (input - kappa)))
 function trustSigmoid(input: number, rho: number, kappa: number): number {
   return 1 / (1 + Math.exp(-rho * (input - kappa)));
 }
+
+function sigmoidPoints(rho: number, kappa: number): {x: number; y: number}[] {
+  return Array.from({length: SAMPLE_POINTS + 1}, (_, i) => {
+    const x = i / SAMPLE_POINTS;
+    return {x, y: trustSigmoid(x, rho, kappa)};
+  });
+}
+
+const CAPTIONS: Record<string, string> = {
+  rho: 'rho is the temperature of the trust sigmoid, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). The dashed ghost curves fix rho at 2 and 40 — slide rho between them and watch the curve snap from a gentle ramp into a near-step at kappa.',
+  kappa:
+    'kappa is the midpoint of the trust sigmoid, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). The dashed marker is the majority threshold — alignment crossing kappa flips trust through 0.5, from mostly-distrusted to mostly-trusted. Slide kappa to move the crossing.',
+};
+
+const DEFAULT_CAPTION =
+  'The classic Yuma trust curve, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). kappa is the midpoint, rho the steepness. The live epoch computes consensus as a kappa-weighted median; this sigmoid is the formulation rho parameterizes.';
 
 export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
   const [rho, setRho] = useState(10);
@@ -32,50 +49,95 @@ export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
   const label = (name: string, hint: string) =>
     (focus === name ? '▸ ' : '') + `${name} (${hint})`;
 
-  const xs = useMemo(
-    () => Array.from({length: SAMPLE_POINTS + 1}, (_, i) => i / SAMPLE_POINTS),
-    [],
-  );
-  const ys = useMemo(() => xs.map((x) => trustSigmoid(x, rho, kappa)), [xs, rho, kappa]);
+  const datasets = useMemo(() => {
+    const main = {
+      label: 'Trust',
+      data: sigmoidPoints(rho, kappa),
+      borderColor: 'rgb(41, 41, 41)',
+      backgroundColor: 'rgba(41, 41, 41, 0.08)',
+      fill: true,
+      tension: 0,
+      pointRadius: 0,
+      borderWidth: 1.5,
+      order: 0,
+    };
 
-  const data = useMemo(
-    () => ({
-      labels: xs.map((x) => x.toFixed(2)),
-      datasets: [
-        {
-          label: 'Trust',
-          data: ys,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgba(41, 41, 41, 0.08)',
-          fill: true,
-          tension: 0,
-          pointRadius: 0,
-          borderWidth: 1.5,
-        },
-      ],
-    }),
-    [xs, ys],
-  );
+    if (focus === 'rho') {
+      // Ghost curves bracketing the rho range make the steepness sweep visible.
+      const ghosts = RHO_GHOSTS.map((ghostRho) => ({
+        label: `rho = ${ghostRho}`,
+        data: sigmoidPoints(ghostRho, kappa),
+        borderColor: 'rgba(41, 41, 41, 0.25)',
+        borderDash: [4, 4],
+        borderWidth: 1,
+        fill: false,
+        tension: 0,
+        pointRadius: 0,
+        order: 1,
+      }));
+      return [main, ...ghosts];
+    }
+
+    if (focus === 'kappa') {
+      // Vertical marker at the majority threshold plus the 0.5 crossing point.
+      const threshold = {
+        label: 'kappa threshold',
+        data: [
+          {x: kappa, y: 0},
+          {x: kappa, y: 1},
+        ],
+        borderColor: 'rgba(41, 41, 41, 0.45)',
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        fill: false,
+        tension: 0,
+        pointRadius: 0,
+        order: 1,
+      };
+      const crossing = {
+        label: 'majority crossing',
+        data: [{x: kappa, y: 0.5}],
+        borderColor: 'rgb(41, 41, 41)',
+        backgroundColor: 'rgb(41, 41, 41)',
+        showLine: false,
+        pointRadius: 4,
+        pointStyle: 'rectRot' as const,
+        order: 2,
+      };
+      return [main, threshold, crossing];
+    }
+
+    return [main];
+  }, [rho, kappa, focus]);
+
+  const data = useMemo(() => ({datasets}), [datasets]);
 
   const options = useMemo(
     () => ({
       responsive: true,
       maintainAspectRatio: false,
-      interaction: {mode: 'index' as const, intersect: false},
+      interaction: {mode: 'nearest' as const, axis: 'x' as const, intersect: false},
       plugins: {
         legend: {display: false},
         tooltip: {
           callbacks: {
-            title: (items: {dataIndex: number}[]) => {
-              const idx = items[0]?.dataIndex ?? 0;
-              return `Alignment ${(xs[idx] ?? 0).toFixed(2)}`;
+            title: (items: {parsed: {x: number}}[]) =>
+              `Alignment ${(items[0]?.parsed.x ?? 0).toFixed(2)}`,
+            label: (ctx: {parsed: {y: number}; dataset: {label?: string}}) => {
+              const name = ctx.dataset.label ?? 'trust';
+              if (name === 'kappa threshold') return `majority threshold at ${kappa.toFixed(2)}`;
+              if (name === 'majority crossing') return 'trust flips through 0.5 here';
+              const prefix = name.startsWith('rho') ? `${name}: ` : '';
+              return `${prefix}trust ${ctx.parsed.y.toFixed(4)}`;
             },
-            label: (ctx: {parsed: {y: number}}) => `trust ${ctx.parsed.y.toFixed(4)}`,
           },
         },
       },
       scales: {
         x: {
+          type: 'linear' as const,
+          min: 0,
+          max: 1,
           grid: {color: 'rgba(41, 41, 41, 0.06)'},
           ticks: {maxTicksLimit: 11, font: {family: 'FiraCode, monospace', size: 10}},
           title: {display: true, text: 'consensus alignment (stake fraction)', font: {size: 11}},
@@ -89,13 +151,13 @@ export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
         },
       },
     }),
-    [xs],
+    [kappa],
   );
 
   return (
     <ExplainerPanel
       title="rho / kappa trust sigmoid"
-      caption="The classic Yuma trust curve, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). kappa is the midpoint, rho the steepness. The live epoch computes consensus as a kappa-weighted median; this sigmoid is the formulation rho parameterizes."
+      caption={(focus && CAPTIONS[focus]) || DEFAULT_CAPTION}
     >
       <div className="h-52">
         <Line data={data} options={options} />

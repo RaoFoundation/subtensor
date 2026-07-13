@@ -18,6 +18,10 @@ weights_for_bonds = (1 − penalty) × weights + penalty × clipped_weights
 
 Values in between blend the two. The interpolated matrix feeds the bonds EMA on both the classic path and the [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) path, so the penalty applies regardless of which consensus variant is active. See the [Yuma Consensus overview](/docs/concepts/emissions#yuma-consensus) for where this sits in the epoch.
 
+Drag the penalty from 0 to 1 to watch a deviant validator's out-of-consensus weight get clipped away while an in-consensus validator is untouched:
+
+<HyperparamBondsPenaltyChart />
+
 ## Reading and setting
 
 ```

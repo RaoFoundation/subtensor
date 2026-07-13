@@ -28,7 +28,11 @@ only that the subnet exists — but changing it has no effect on registration
 pricing. Even the root subnet's per-interval registration counter resets on
 the root epoch boundary (`tempo`), not on this interval.
 
-<HyperparamBurnController />
+The chart below replays the same registration burst under the old
+once-per-interval controller and the current per-block one — drag the interval
+to see what the cadence used to change.
+
+<HyperparamLegacyAdjustment focus="adjustment_interval" />
 
 ## Reading and setting
 

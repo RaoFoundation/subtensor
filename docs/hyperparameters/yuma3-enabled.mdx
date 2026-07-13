@@ -14,6 +14,10 @@ The epoch function branches on `Yuma3On` (`pallets/subtensor/src/epoch/run_epoch
 
 Practical consequence: liquid alpha and its parameters ([`alpha_low`](/docs/hyperparameters/alpha-low), [`alpha_high`](/docs/hyperparameters/alpha-high), [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness)) only take effect when this flag is on; the classic path never consults them. See the [Yuma Consensus overview](/docs/concepts/emissions#yuma-consensus) for the full epoch pipeline.
 
+The two paths split the same dividend pool differently whenever validators disagree — compare them on a minimal example:
+
+<HyperparamYuma3Chart />
+
 ## Reading and setting
 
 ```

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -28,22 +28,67 @@ function alphaSigmoid(diff: number, low: number, high: number, steepness: number
   return Math.min(Math.max(alpha, low), high);
 }
 
+const BASE_CAPTION =
+  'Matches alpha_sigmoid in the epoch code. Deviation is weight − consensus when buying bond, bond − weight when selling. Higher alpha moves bonds faster. Requires yuma3_enabled; when liquid alpha is off, every pair uses the flat 1 − bonds_moving_avg / 1e6.';
+
+const FOCUS_CAPTIONS: Record<string, string> = {
+  liquid_alpha_enabled: `${BASE_CAPTION} The toggle below flips automatically — watch the sigmoid collapse to the flat line — until you take over.`,
+  bonds_moving_avg:
+    'With liquid alpha off, alpha_sigmoid never runs: every validator–miner pair smooths at the single flat rate 1 − bonds_moving_avg / 1,000,000, the solid line here. Drag the slider to move the line; re-enable liquid alpha to see the flat rate become the dashed fallback under the sigmoid.',
+  alpha_low: `${BASE_CAPTION} The shaded band marks rates below alpha_low — the curve can never enter it, so alpha_low is the guaranteed floor for in-consensus pairs.`,
+  alpha_high: `${BASE_CAPTION} The shaded band marks rates above alpha_high — the curve can never enter it, so alpha_high caps how fast even the most deviant pair's bonds move.`,
+  alpha_sigmoid_steepness: `${BASE_CAPTION} The steepness slider sweeps on its own so you can watch the transition sharpen from a gentle ramp into a near step at deviation 0.5 — grab any control to stop it.`,
+};
+
 export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
-  const [enabled, setEnabled] = useState(true);
+  // For the bonds_moving_avg page, start with liquid alpha off so the flat rate is the chart.
+  const [enabled, setEnabled] = useState(focus !== 'bonds_moving_avg');
   const [alphaLow, setAlphaLow] = useState(0.7);
   const [alphaHigh, setAlphaHigh] = useState(0.9);
-  const [steepness, setSteepness] = useState(1000);
+  const [steepness, setSteepness] = useState(focus === 'alpha_sigmoid_steepness' ? 100 : 1000);
   const [bondsMovingAvg, setBondsMovingAvg] = useState(0.9);
+  const [demoRunning, setDemoRunning] = useState(
+    focus === 'liquid_alpha_enabled' || focus === 'alpha_sigmoid_steepness',
+  );
+  const stopDemo = () => setDemoRunning(false);
+
+  const steepnessDir = useRef(1);
+  useEffect(() => {
+    if (!demoRunning) return;
+    if (focus === 'liquid_alpha_enabled') {
+      const id = setInterval(() => setEnabled((e) => !e), 2600);
+      return () => clearInterval(id);
+    }
+    if (focus === 'alpha_sigmoid_steepness') {
+      const id = setInterval(() => {
+        setSteepness((s) => {
+          let next = s + steepnessDir.current * 100;
+          if (next >= 3000) {
+            steepnessDir.current = -1;
+            next = 3000;
+          } else if (next <= 100) {
+            steepnessDir.current = 1;
+            next = 100;
+          }
+          return next;
+        });
+      }, 100);
+      return () => clearInterval(id);
+    }
+    return undefined;
+  }, [demoRunning, focus]);
 
   // Flat EMA rate used when liquid alpha is off: 1 - bonds_moving_avg / 1e6.
   const flatAlpha = 1 - bondsMovingAvg;
 
   // The chain forbids alpha_low > alpha_high, so the sliders drag each other.
   const changeLow = (v: number) => {
+    stopDemo();
     setAlphaLow(v);
     if (v > alphaHigh) setAlphaHigh(v);
   };
   const changeHigh = (v: number) => {
+    stopDemo();
     setAlphaHigh(v);
     if (v < alphaLow) setAlphaLow(v);
   };
@@ -54,38 +99,67 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
     return { xs, ys };
   }, [enabled, alphaLow, alphaHigh, steepness, flatAlpha]);
 
-  const data = useMemo(
-    () => ({
-      labels: curve.xs.map((x) => x.toFixed(2)),
-      datasets: [
-        {
-          label: enabled ? 'per-pair EMA rate (liquid alpha)' : 'flat EMA rate (bonds_moving_avg)',
-          data: curve.ys,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgba(41, 41, 41, 0.08)',
-          fill: true,
-          tension: 0,
-          pointRadius: 0,
-          borderWidth: 1.5,
-        },
-        ...(enabled
-          ? [
-              {
-                label: 'flat rate if disabled',
-                data: curve.xs.map(() => flatAlpha),
-                borderColor: 'rgba(41, 41, 41, 0.35)',
-                borderDash: [4, 4],
-                fill: false,
-                tension: 0,
-                pointRadius: 0,
-                borderWidth: 1,
-              },
-            ]
-          : []),
-      ],
-    }),
-    [curve, enabled, flatAlpha],
-  );
+  const data = useMemo(() => {
+    const emphasizeFlat = focus === 'bonds_moving_avg';
+    const datasets = [
+      {
+        label: enabled ? 'per-pair EMA rate (liquid alpha)' : 'flat EMA rate (bonds_moving_avg)',
+        data: curve.ys,
+        borderColor: 'rgb(41, 41, 41)',
+        backgroundColor: 'rgba(41, 41, 41, 0.08)',
+        fill: true,
+        tension: 0,
+        pointRadius: 0,
+        borderWidth: !enabled && emphasizeFlat ? 2.5 : 1.5,
+      },
+      ...(enabled
+        ? [
+            {
+              label: 'flat rate if disabled',
+              data: curve.xs.map(() => flatAlpha),
+              borderColor: emphasizeFlat ? 'rgba(41, 41, 41, 0.7)' : 'rgba(41, 41, 41, 0.35)',
+              borderDash: [4, 4],
+              fill: false,
+              tension: 0,
+              pointRadius: 0,
+              borderWidth: emphasizeFlat ? 2 : 1,
+            },
+          ]
+        : []),
+      // Shade the region the curve can never enter on the bound pages.
+      ...(enabled && focus === 'alpha_low'
+        ? [
+            {
+              label: 'below alpha_low (unreachable)',
+              data: curve.xs.map(() => alphaLow),
+              borderColor: 'rgba(41, 41, 41, 0.5)',
+              borderDash: [2, 3],
+              backgroundColor: 'rgba(41, 41, 41, 0.14)',
+              fill: 'start' as const,
+              tension: 0,
+              pointRadius: 0,
+              borderWidth: 1,
+            },
+          ]
+        : []),
+      ...(enabled && focus === 'alpha_high'
+        ? [
+            {
+              label: 'above alpha_high (unreachable)',
+              data: curve.xs.map(() => alphaHigh),
+              borderColor: 'rgba(41, 41, 41, 0.5)',
+              borderDash: [2, 3],
+              backgroundColor: 'rgba(41, 41, 41, 0.14)',
+              fill: 'end' as const,
+              tension: 0,
+              pointRadius: 0,
+              borderWidth: 1,
+            },
+          ]
+        : []),
+    ];
+    return { labels: curve.xs.map((x) => x.toFixed(2)), datasets };
+  }, [curve, enabled, flatAlpha, focus, alphaLow, alphaHigh]);
 
   const options = useMemo(
     () => ({
@@ -124,31 +198,62 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
 
   const focusClass = (name: string) => (focus === name ? 'border border-line bg-bg p-3' : '');
 
+  const stats: { label: string; value: string; hint: string }[] =
+    focus === 'bonds_moving_avg'
+      ? [
+          {
+            label: 'Flat EMA rate',
+            value: flatAlpha.toFixed(3),
+            hint: `1 − ${Math.round(bondsMovingAvg * 1_000_000).toLocaleString()} / 1,000,000`,
+          },
+          {
+            label: 'Bond kept per epoch',
+            value: bondsMovingAvg.toFixed(3),
+            hint: 'share of last epoch’s bond that survives',
+          },
+          {
+            label: 'Epochs to close ~90% of a gap',
+            value: flatAlpha > 0 ? Math.ceil(Math.log(0.1) / Math.log(1 - flatAlpha)).toString() : '∞',
+            hint: 'how long conviction takes to pay off',
+          },
+        ]
+      : [
+          {
+            label: 'In consensus (diff = 0)',
+            value: curve.ys[0]?.toFixed(3) ?? '—',
+            hint:
+              focus === 'alpha_low'
+                ? 'sits at the alpha_low floor'
+                : 'EMA rate for weights matching consensus',
+          },
+          {
+            label: 'Max deviation (diff = 1)',
+            value: curve.ys[SAMPLE_POINTS]?.toFixed(3) ?? '—',
+            hint:
+              focus === 'alpha_high'
+                ? 'approaches the alpha_high ceiling'
+                : 'EMA rate at full deviation',
+          },
+          {
+            label: 'Flat rate when disabled',
+            value: flatAlpha.toFixed(3),
+            hint: `1 − ${Math.round(bondsMovingAvg * 1_000_000).toLocaleString()} / 1,000,000`,
+          },
+        ];
+
   return (
     <ExplainerPanel
       title="Liquid alpha: per-weight bonds EMA rate"
-      caption="Matches alpha_sigmoid in the epoch code. Deviation is weight − consensus when buying bond, bond − weight when selling. Higher alpha moves bonds faster. Requires yuma3_enabled; when liquid alpha is off, every pair uses the flat 1 − bonds_moving_avg / 1e6."
+      caption={(focus && FOCUS_CAPTIONS[focus]) || BASE_CAPTION}
     >
       <div className="h-52">
         <Line data={data} options={options} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
-        <ExplainerStat
-          label="In consensus (diff = 0)"
-          value={curve.ys[0]?.toFixed(3) ?? '—'}
-          hint="EMA rate for weights matching consensus"
-        />
-        <ExplainerStat
-          label="Max deviation (diff = 1)"
-          value={curve.ys[SAMPLE_POINTS]?.toFixed(3) ?? '—'}
-          hint="EMA rate at full deviation"
-        />
-        <ExplainerStat
-          label="Flat rate when disabled"
-          value={flatAlpha.toFixed(3)}
-          hint={`1 − ${Math.round(bondsMovingAvg * 1_000_000).toLocaleString()} / 1,000,000`}
-        />
+        {stats.map((s) => (
+          <ExplainerStat key={s.label} label={s.label} value={s.value} hint={s.hint} />
+        ))}
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -157,11 +262,17 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
             <input
               type="checkbox"
               checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
+              onChange={(e) => {
+                stopDemo();
+                setEnabled(e.target.checked);
+              }}
               className="accent-[var(--bt-fg)]"
             />
             <span className="bt-label text-mute">liquid_alpha_enabled</span>
             <span className="font-mono text-xs">{enabled ? 'true' : 'false'}</span>
+            {focus === 'liquid_alpha_enabled' && demoRunning && (
+              <span className="text-[0.7rem] text-mute">(auto-toggling — click to take over)</span>
+            )}
           </label>
         </div>
         <div className={focusClass('bonds_moving_avg')}>
@@ -172,7 +283,10 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
             max={0.995}
             step={0.005}
             display={`${Math.round(bondsMovingAvg * 1_000_000).toLocaleString()} (${bondsMovingAvg.toFixed(3)})`}
-            onChange={setBondsMovingAvg}
+            onChange={(v) => {
+              stopDemo();
+              setBondsMovingAvg(v);
+            }}
           />
         </div>
         <div className={focusClass('alpha_low')}>
@@ -204,8 +318,13 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
             min={-3000}
             max={3000}
             step={50}
-            display={`${steepness} (slope ${(steepness / 100).toFixed(1)}; negative is root-only)`}
-            onChange={setSteepness}
+            display={`${steepness} (slope ${(steepness / 100).toFixed(1)}; negative is root-only)${
+              focus === 'alpha_sigmoid_steepness' && demoRunning ? ' — sweeping' : ''
+            }`}
+            onChange={(v) => {
+              stopDemo();
+              setSteepness(v);
+            }}
           />
         </div>
       </div>

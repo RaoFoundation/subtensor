@@ -42,6 +42,16 @@ function clipToLimit(weights: number[], limit: number): number[] {
   return clipped.map((w) => w / clippedTotal);
 }
 
+const CLIPPING_CAPTIONS: Record<string, string> = {
+  min_allowed_weights:
+    'Drag the raw weights: only nonzero entries count toward the length check, so zeroing a miner can push a submission below min_allowed_weights and get it rejected with WeightVecLengthIsLow.',
+  max_weights_limit:
+    'Drag the raw weights and the limit. The stored max_weights_limit caps the largest normalized share; the SDK clips and renormalizes to fit it, redistributing the excess (the on-chain check is currently pinned open at u16::MAX).',
+};
+
+const DEFAULT_CLIPPING_CAPTION =
+  'Drag the raw weights and the limit. The chain rejects submissions whose largest normalized share exceeds max_weights_limit; the SDK instead clips and renormalizes, redistributing the excess.';
+
 function ClippingPlayground({ focus }: { focus?: string }) {
   const [weights, setWeights] = useState([80, 35, 20, 10, 0]);
   const [limitRaw, setLimitRaw] = useState(19661); // ~0.3
@@ -115,12 +125,14 @@ function ClippingPlayground({ focus }: { focus?: string }) {
   );
 
   const highlight = (name: string) =>
-    focus === name ? 'border border-line bg-bg p-3' : undefined;
+    focus === name ? 'border border-[rgb(41,41,41)] bg-bg p-3' : undefined;
+  const highlightStat = (name: string) =>
+    focus === name ? 'border border-[rgb(41,41,41)]' : undefined;
 
   return (
     <ExplainerPanel
       title="Weight clipping playground"
-      caption="Drag the raw weights and the limit. The chain rejects submissions whose largest normalized share exceeds max_weights_limit; the SDK instead clips and renormalizes, redistributing the excess."
+      caption={(focus && CLIPPING_CAPTIONS[focus]) || DEFAULT_CLIPPING_CAPTION}
     >
       <div className="h-52">
         <Bar data={data} options={options} />
@@ -132,16 +144,20 @@ function ClippingPlayground({ focus }: { focus?: string }) {
           value={`${(Math.max(...before) * 100).toFixed(1)}% → ${(Math.max(...after) * 100).toFixed(1)}%`}
           hint={wouldClip ? 'exceeds limit — clipped' : 'within limit — unchanged'}
         />
-        <ExplainerStat
-          label="max_weights_limit"
-          value={`${limitRaw} / 65535 ≈ ${(limit * 100).toFixed(1)}%`}
-          hint="u16 fraction; 65535 = no cap"
-        />
-        <ExplainerStat
-          label="min_allowed_weights"
-          value={`${nonzero} nonzero / ${minAllowed} required`}
-          hint={meetsMin ? 'passes length check' : 'rejected: WeightVecLengthIsLow'}
-        />
+        <div className={highlightStat('max_weights_limit')}>
+          <ExplainerStat
+            label="max_weights_limit"
+            value={`${limitRaw} / 65535 ≈ ${(limit * 100).toFixed(1)}%`}
+            hint="u16 fraction; 65535 = no cap"
+          />
+        </div>
+        <div className={highlightStat('min_allowed_weights')}>
+          <ExplainerStat
+            label="min_allowed_weights"
+            value={`${nonzero} nonzero / ${minAllowed} required`}
+            hint={meetsMin ? 'passes length check' : 'rejected: WeightVecLengthIsLow'}
+          />
+        </div>
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -213,7 +229,14 @@ const EPOCH_LABEL: Record<ReturnType<typeof epochState>, string> = {
   expired: 'expired',
 };
 
-function CommitRevealTimeline() {
+const TIMELINE_CAPTIONS: Record<string, string> = {
+  commit_reveal_period:
+    'Slide the period: the reveal is valid in exactly one epoch — commit epoch + commit_reveal_period. Earlier fails with RevealTooEarly; later, the commit is expired and dropped.',
+  commit_reveal_weights_enabled:
+    'With the flag on, this is the only path weights can take: commit hidden, wait, reveal. Plain set_weights is rejected with CommitRevealEnabled; turn the flag off and commits are rejected instead.',
+};
+
+function CommitRevealTimeline({ focus }: { focus?: string }) {
   const [period, setPeriod] = useState(1);
 
   const delayBlocks = period * TEMPO_BLOCKS;
@@ -222,7 +245,10 @@ function CommitRevealTimeline() {
   return (
     <ExplainerPanel
       title="Commit-reveal timeline"
-      caption="A commit is tagged with its epoch. The reveal is valid in exactly one epoch — commit epoch + commit_reveal_period. Earlier fails with RevealTooEarly; later, the commit is expired and dropped."
+      caption={
+        (focus && TIMELINE_CAPTIONS[focus]) ||
+        'A commit is tagged with its epoch. The reveal is valid in exactly one epoch — commit epoch + commit_reveal_period. Earlier fails with RevealTooEarly; later, the commit is expired and dropped.'
+      }
     >
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
         {Array.from({length: TIMELINE_EPOCHS}, (_, epoch) => {
@@ -257,7 +283,13 @@ function CommitRevealTimeline() {
         />
       </div>
 
-      <div className="mt-5">
+      <div
+        className={`mt-5 ${
+          focus === 'commit_reveal_period'
+            ? 'border border-[rgb(41,41,41)] bg-bg p-3'
+            : ''
+        }`}
+      >
         <ExplainerSlider
           label="commit_reveal_period"
           value={period}
@@ -274,7 +306,7 @@ function CommitRevealTimeline() {
 
 export function HyperparamWeightsRules({ focus }: { focus?: string }) {
   if (focus === 'commit_reveal_period' || focus === 'commit_reveal_weights_enabled') {
-    return <CommitRevealTimeline />;
+    return <CommitRevealTimeline focus={focus} />;
   }
   return <ClippingPlayground focus={focus} />;
 }

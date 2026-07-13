@@ -30,7 +30,11 @@ callable by the subnet owner, subject only to the owner rate limit and admin
 freeze window — but setting it changes nothing about how registrations are
 priced.
 
-<HyperparamBurnController />
+The chart below replays the same registration burst under the old interval-EMA
+controller (where alpha mattered) and the current continuous one (where it
+does not).
+
+<HyperparamLegacyAdjustment focus="adjustment_alpha" />
 
 ## Reading and setting
 
