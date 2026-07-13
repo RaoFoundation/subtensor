@@ -58,7 +58,15 @@ jobs:
       sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
       snapshot_ci: ${{ steps.filter.outputs.snapshot_ci }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout trusted path classifier
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: .github/scripts/classify-runtime-changes.sh
+          sparse-checkout-cone-mode: false
+          path: .trusted-runtime-filter
+          persist-credentials: false
 
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
@@ -68,11 +76,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
-            --paginate --jq '.[].filename' \
-            | .github/scripts/classify-runtime-changes.sh "$GITHUB_OUTPUT"
+          enable_all() {
+            {
+              echo "runtime=true"
+              echo "docs=true"
+              echo "python_sdk=true"
+              echo "sdk_drift=true"
+              echo "snapshot_ci=true"
+            } >> "$GITHUB_OUTPUT"
+          }
+          classifier=.trusted-runtime-filter/.github/scripts/classify-runtime-changes.sh
+          if [[ ! -f "$classifier" ]]; then
+            echo "::warning::Trusted base predates the path classifier; enabling every check."
+            enable_all
+            exit 0
+          fi
+          pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp)
+          fetched_files=$(jq '[.[][]] | length' <<< "$pages")
+          if [[ "$fetched_files" -ne "$CHANGED_FILES" ]]; then
+            echo "::warning::PR file listing was incomplete ($fetched_files/$CHANGED_FILES); enabling every check."
+            enable_all
+            exit 0
+          fi
+          # A rename can move a runtime file outside a matched directory, so
+          # classify both the current and previous paths.
+          jq -r '.[][] | .filename, (.previous_filename // empty)' <<< "$pages" \
+            | bash "$classifier" "$GITHUB_OUTPUT"
 
   snapshot-artifact-tests:
     name: snapshot artifact contract tests
