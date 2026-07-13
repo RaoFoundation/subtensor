@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 const tsTestsDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const config = JSON.parse(readFileSync(join(tsTestsDir, "moonwall.config.json"), "utf8"));
@@ -65,6 +66,13 @@ if (shieldNodes.length !== 6 || shieldValidators.length !== 3) {
     );
 }
 
+const canonicalShieldEnvironment = environments.get("zombienet_shield");
+if (!canonicalShieldEnvironment) {
+    throw new Error("Missing Moonwall environment: zombienet_shield");
+}
+const sharedShieldSettings = ({ name: _name, include: _include, ...settings }) => settings;
+const canonicalShieldSettings = sharedShieldSettings(canonicalShieldEnvironment);
+
 for (const name of ["zombienet_shield", ...shieldShardNames]) {
     const environment = environments.get(name);
     const configPath = environment?.foundation?.zombieSpec?.configPath;
@@ -74,6 +82,11 @@ for (const name of ["zombienet_shield", ...shieldShardNames]) {
     }
     if (!connectionNames.has("Node") || !connectionNames.has("NodeFull")) {
         throw new Error(`${name} must expose authority and full-node connections`);
+    }
+    if (name !== "zombienet_shield") {
+        if (!isDeepStrictEqual(sharedShieldSettings(environment), canonicalShieldSettings)) {
+            throw new Error(`${name} settings must match zombienet_shield except for name and include`);
+        }
     }
 }
 
