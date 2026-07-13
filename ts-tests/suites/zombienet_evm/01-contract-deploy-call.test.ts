@@ -309,12 +309,13 @@ describeSuite({
 
                 const depositAlphaTx = await contractForCall.depositAlpha(netuid, tao(10).toString(), hotkey.publicKey);
                 const depositReceipt = await depositAlphaTx.wait();
-                expect(depositReceipt?.status).toEqual(1);
+                if (!depositReceipt) throw new Error("Missing depositAlpha receipt");
+                expect(depositReceipt.status).toEqual(1);
                 // Wait for the deposit's own block to finalize rather than a
                 // fixed block count: when GRANDPA lags best by more than 2
                 // blocks, the finalized-state stake reads below see the
                 // pre-deposit stake and the toBeLessThan assertion flakes.
-                await waitUntilBlockFinalized(api, depositReceipt!.blockNumber);
+                await waitUntilBlockFinalized(api, depositReceipt.blockNumber);
 
                 const stakeAfterDeposit = await getStake(api, hotkeySs58, walletSs58, netuid);
                 expect(stakeAfterDeposit).toBeLessThan(stakeBeforeDeposit);
@@ -433,7 +434,11 @@ describeSuite({
             test: async () => {
                 await ensureProxyWalletsReady();
 
-                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner2);
+                // Use a throwaway manager for this expected rejection. NonceManager
+                // increments before submission, so a preflight rejection would
+                // otherwise leave the persistent signer used by T10 one nonce ahead.
+                const rejectingSigner = new ethers.NonceManager(proxyWallet2);
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, rejectingSigner);
                 const amount = 1_000_000_000;
                 const wrongReceiver = generateKeyringPair("sr25519");
                 const callCode = await getTransferCallCode(api, wrongReceiver, amount);

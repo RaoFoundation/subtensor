@@ -45,7 +45,7 @@ jobs:
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
           # SDK-only lockfile movement is covered by SDK checks; do not run
           # zombienet unless chain/runtime or ts-tests inputs changed.
-          pattern='^(ts-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^\.github/workflows/typescript-e2e\.yml$'
+          pattern='^(ts-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^\.github/(workflows/typescript-e2e\.yml|actions/run-typescript-e2e/)'
           if grep -qE "$pattern" <<< "$files"; then
             echo "e2e=true" >> "$GITHUB_OUTPUT"
           else
@@ -68,6 +68,9 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: ts-tests/.nvmrc
+
+      - name: Validate E2E configuration
+        run: node ts-tests/scripts/validate-e2e-config.mjs
 
       - name: Install e2e dependencies
         working-directory: ts-tests
@@ -134,6 +137,10 @@ jobs:
           path: target/release/node-subtensor
           if-no-files-found: error
 
+  # State-focused suites do not exercise multi-validator consensus. They use a
+  # single immediately-finalized node; Shield retains the production-like
+  # multi-node topology below. Two workers here plus two Shield workers cap the
+  # E2E phase at four self-hosted runners without extending its critical path.
   run-e2e-tests:
     needs: [trusted-pr, build]
     runs-on: [self-hosted, fireactions-turbo-8]
@@ -141,14 +148,19 @@ jobs:
 
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         include:
-          - test: zombienet_evm_single
+          - test: zombienet_evm
             binary: fast
-          - test: zombienet_shield_a
+          - test: zombienet_staking
+            binary: fast
+          - test: zombienet_coldkey_swap
+            binary: fast
+          - test: dev
             binary: release
-          - test: zombienet_shield_b
-            binary: release
+          - test: zombienet_subnets
+            binary: fast
 
     name: "typescript-e2e-${{ matrix.test }}"
 
@@ -156,36 +168,47 @@ jobs:
       - name: Check-out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Download binary
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Run E2E suite
+        uses: ./.github/actions/run-typescript-e2e
         with:
-          name: node-subtensor-${{ matrix.binary }}
-          path: target/release
+          binary: ${{ matrix.binary }}
+          test: ${{ matrix.test }}
 
-      - name: Make binary executable
-        run: chmod +x target/release/node-subtensor
+  # Shield validates consensus, key rotation, timing, and transaction
+  # mortality, so preserve its six-node release topology and parallelize only
+  # by running balanced file groups on independent networks.
+  run-shield-tests:
+    needs: [trusted-pr, build]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [zombienet_shield_a, zombienet_shield_b]
+    name: "typescript-e2e-${{ matrix.test }}"
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Run Shield shard
+        uses: ./.github/actions/run-typescript-e2e
         with:
-          node-version-file: ts-tests/.nvmrc
+          binary: release
+          test: ${{ matrix.test }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10
-
-      - name: Install e2e dependencies
-        working-directory: ts-tests
-        run: pnpm install --frozen-lockfile
-
-      - name: Install lsof (dev foundation RPC port discovery)
-        if: matrix.test == 'dev'
+  shield-result:
+    name: typescript-e2e-zombienet_shield
+    if: always()
+    needs: [build, run-shield-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Shield shard results
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          SHIELD_RESULT: ${{ needs.run-shield-tests.result }}
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
-
-      - name: Run tests
-        run: |
-          cd ts-tests
-          pnpm moonwall test ${{ matrix.test }}
+          if [[ "$BUILD_RESULT" == "failure" || "$BUILD_RESULT" == "cancelled" || \
+                "$SHIELD_RESULT" == "failure" || "$SHIELD_RESULT" == "cancelled" ]]; then
+            echo "Shield E2E prerequisites failed: build=$BUILD_RESULT shards=$SHIELD_RESULT" >&2
+            exit 1
+          fi
