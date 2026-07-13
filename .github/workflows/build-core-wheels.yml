@@ -62,6 +62,30 @@ jobs:
           print(f"bittensor-core version stamped to {version}")
           EOF
 
+      # The sdist is the fallback for platforms without a wheel; build it
+      # once, alongside the x86_64 wheel. Not via maturin-action: its native
+      # (non-docker) path pip-installs helpers into the system Python, which
+      # the runner's PEP 668 (externally-managed) Python refuses. uv runs
+      # maturin's PEP 517 sdist hook in an isolated env instead. maturin's
+      # sdist hook still shells out to `cargo metadata` (no compilation), so
+      # the pinned toolchain from rust-toolchain.toml is installed first.
+      #
+      # This step runs BEFORE the docker wheel build: the docker build runs
+      # as root, and if it creates dist/ first, this host-side step cannot
+      # write into it (the wheel written into a runner-owned dist/ is fine).
+      - name: Build sdist
+        if: matrix.target == 'x86_64'
+        working-directory: sdk/bittensor-core-py
+        run: |
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            export PATH="$HOME/.cargo/bin:$PATH"
+            rustup toolchain install
+          fi
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv build --sdist --out-dir ../../dist
+
       # Default features include "ledger". On Linux hidapi uses its pure-Rust
       # hidraw backend (linux-native-basic-udev), which links no libudev and
       # no C, so the wheel stays manylinux-compliant with Ledger support in.
@@ -88,26 +112,6 @@ jobs:
             if command -v yum >/dev/null && ! perl -MIPC::Cmd -e 1 2>/dev/null; then
               yum install -y perl-core
             fi
-
-      # The sdist is the fallback for platforms without a wheel; build it
-      # once, alongside the x86_64 wheel. Not via maturin-action: its native
-      # (non-docker) path pip-installs helpers into the system Python, which
-      # the runner's PEP 668 (externally-managed) Python refuses. uv runs
-      # maturin's PEP 517 sdist hook in an isolated env instead. maturin's
-      # sdist hook still shells out to `cargo metadata` (no compilation), so
-      # the pinned toolchain from rust-toolchain.toml is installed first.
-      - name: Build sdist
-        if: matrix.target == 'x86_64'
-        working-directory: sdk/bittensor-core-py
-        run: |
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
-            export PATH="$HOME/.cargo/bin:$PATH"
-            rustup toolchain install
-          fi
-          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
-          export PATH="$HOME/.local/bin:$PATH"
-          uv build --sdist --out-dir ../../dist
 
       - uses: actions/upload-artifact@v4
         with:
