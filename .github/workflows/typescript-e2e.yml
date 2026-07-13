@@ -148,11 +148,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - test: zombienet_staking
-            binary: fast
           - test: zombienet_staking_single
-            binary: fast
-          - test: zombienet_evm
             binary: fast
           - test: zombienet_evm_single
             binary: fast

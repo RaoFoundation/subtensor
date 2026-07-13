@@ -226,6 +226,11 @@ describeSuite({
 
                 await waitForTransactionWithRetry(api, tx, signer, "evm_call");
 
+                // Frontier updates its latest-state view asynchronously after the
+                // Substrate transaction finalizes. Wait for the next finalized block
+                // instead of relying on GRANDPA lag to hide that indexing boundary.
+                await waitForFinalizedBlocks(api, 1);
+
                 const receiverBalanceAfterCall = await getEthBalance(provider, ethWallet.address);
                 expect(receiverBalanceAfterCall).toEqual(receiverBalance + raoToEth(tao(1)));
             },
