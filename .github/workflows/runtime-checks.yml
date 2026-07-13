@@ -425,12 +425,14 @@ jobs:
   # label is set). Auto-skips (via the `build-node-release` need) when the PR touches
   # nothing runtime-relevant.
   #
-  # The regression tests are wall-clock-bound (they wait on 12-second blocks)
-  # and mutate chain state, so they can't share one node concurrently.
-  # Instead each shard boots its own clone from the snapshot and runs a
-  # subset, preserving the suite's original relative order within each shard.
+  # Interval sealing advances runtime time by one 12-second slot every 250ms,
+  # so the block-driven regressions can run sequentially on one runner. The
+  # issuance-invariant test gets a pristine clone; the already-downloaded
+  # checkpoint is then restored locally for the remaining tests, before
+  # forceSetBalance-based fixtures make the issuance mirrors diverge. This
+  # avoids four runners and four downloads without sharing destructive state.
   clone-upgrade:
-    name: clone-upgrade (${{ matrix.shard.name }})
+    name: clone-upgrade
     needs: [trusted-pr, changes, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
@@ -439,35 +441,6 @@ jobs:
       contents: read
       # Cross-run artifact download (the nightly mainnet snapshot).
       actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - name: balancer
-            tests: >-
-              test-balancer-operation.ts
-              test-balancer-edge-emission-issuance.ts
-            sdk: false
-          - name: locks
-            tests: >-
-              test-locks-conviction.ts
-              test-lock-dust-cleanup.ts
-              test-proxy-filter-security-regressions.ts
-            sdk: false
-          - name: stake-sdk
-            tests: >-
-              test-hotkey-swap-and-proxy-stake.ts
-              test-alpha-deprecated-stake-histogram.ts
-            sdk: true
-          # test-total-issuance-trackers legitimately waits ~6 min on chain
-          # state (see CLONE_REGRESSION_TIMEOUT_MS below), so the two
-          # emission/issuance tests get their own shard instead of
-          # serializing behind the stake-sdk pair.
-          - name: issuance
-            tests: >-
-              test-net-tao-flow-emission-allocation.ts
-              test-total-issuance-trackers.ts
-            sdk: false
     steps:
       - uses: actions/checkout@v4
 
@@ -520,11 +493,12 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf /tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
-          rm -rf /tmp/mainnet-snapshot
           echo "Restored artifact ${{ steps.clone-snapshot.outputs.artifact-id }} from run ${{ steps.clone-snapshot.outputs.run-id }}."
           # Tells start-local-clone.sh to keep the pre-initialized database
           # instead of wiping it and re-running genesis init.
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT=/tmp/mainnet-snapshot/mainnet-snapshot.tar.gz" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT_GZIP=1" >> "$GITHUB_ENV"
 
       - name: Fall back after an unusable clone snapshot
         if: >-
@@ -560,65 +534,119 @@ jobs:
           done
           exit 1
 
-      - name: Start local clone
+      - name: Prepare a reusable checkpoint after live fallback
+        if: steps.restore-clone-snapshot.outcome != 'success'
         run: |
-          nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
-          # Genesis init from the ~2 GB mainnet-clone chainspec takes several
-          # minutes before the RPC server comes up, so allow up to 15 minutes.
-          # (With a restored snapshot the db is pre-initialized and this is
-          # nearly instant.)
-          for i in $(seq 1 450); do
+          set -euo pipefail
+          nohup ./clones/scripts/start-local-clone.sh --sealing manual > clone-node.log 2>&1 &
+          for _ in $(seq 1 450); do
             if curl -sf -H "Content-Type: application/json" \
               -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
               http://127.0.0.1:9944 > /dev/null; then
-              echo "Clone node is up."
-              exit 0
+              break
             fi
             sleep 2
           done
-          echo "Clone node failed to start:"
-          cat clone-node.log
-          exit 1
+          if ! curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
+            http://127.0.0.1:9944 > /dev/null; then
+            cat clone-node.log
+            exit 1
+          fi
+          ./clones/scripts/stop-local-clone.sh
+          for _ in $(seq 1 60); do
+            pgrep -f 'node-subtensor.*--base-path clones/mainnet-clone' > /dev/null || break
+            sleep 1
+          done
+          if pgrep -f 'node-subtensor.*--base-path clones/mainnet-clone' > /dev/null; then
+            echo "Clone did not stop before checkpointing."
+            exit 1
+          fi
+          tar -cf /tmp/mainnet-clone-pristine.tar \
+            clones/mainnet-clone-chainspec.json \
+            clones/mainnet-clone
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT=/tmp/mainnet-clone-pristine.tar" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT_GZIP=0" >> "$GITHUB_ENV"
 
-      - name: Sudo-upgrade clone with proposed runtime
+      - name: Start isolated issuance clone
+        run: .github/scripts/start-accelerated-clone.sh
+
+      - name: Sudo-upgrade issuance clone with proposed runtime
         working-directory: clones/js-tests
         run: |
           npm ci
           # Right after genesis the node occasionally rejects the first
-          # extrinsic with "bad signature" (observed: 1 of 3 shards failed at
-          # +8s while the identical tx succeeded on the others seconds later).
+          # extrinsic with "bad signature" (observed in the former sharded
+          # workflow while identical transactions succeeded seconds later).
           # Setting the same runtime code twice is idempotent, so retry once.
           npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
+
+      - name: Run isolated issuance regression
+        working-directory: clones/js-tests
+        env:
+          CLONE_REGRESSION_TESTS: test-total-issuance-trackers.ts
+          CLONE_REGRESSION_TIMEOUT_MS: 1800000
+        run: npm run test:clone-regressions
+
+      - name: Stop isolated issuance clone
+        run: |
+          ./clones/scripts/stop-local-clone.sh
+          for _ in $(seq 1 60); do
+            pgrep -f 'node-subtensor.*--base-path clones/mainnet-clone' > /dev/null || exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Restore pristine clone for remaining regressions
+        run: |
+          set -euo pipefail
+          rm -rf clones/mainnet-clone clones/mainnet-clone-chainspec.json
+          if [ "$CLONE_CHECKPOINT_GZIP" = "1" ]; then
+            tar -xzf "$CLONE_CHECKPOINT"
+          else
+            tar -xf "$CLONE_CHECKPOINT"
+          fi
+
+      - name: Start regression clone
+        run: .github/scripts/start-accelerated-clone.sh
+
+      - name: Sudo-upgrade regression clone with proposed runtime
+        working-directory: clones/js-tests
+        run: npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
 
       - name: Run clone smoke tests
         working-directory: clones/js-tests
         run: npm test
 
-      - name: Run clone regression tests (shard subset)
+      - name: Run remaining clone regression tests
         working-directory: clones/js-tests
         env:
-          CLONE_REGRESSION_TESTS: ${{ matrix.shard.tests }}
-          # test-total-issuance-trackers legitimately waits minutes for the
-          # queued replacement registration: register_network at the subnet
-          # limit prunes a subnet and only emits NetworkAdded from on_idle
-          # after the pruned subnet's chunked storage cleanup finishes
-          # (~6 min on mainnet-scale state).
-          CLONE_REGRESSION_TIMEOUT_MS: ${{ matrix.shard.name == 'issuance' && '1800000' || '900000' }}
+          CLONE_REGRESSION_TESTS: >-
+            test-balancer-operation.ts
+            test-balancer-edge-emission-issuance.ts
+            test-locks-conviction.ts
+            test-lock-dust-cleanup.ts
+            test-proxy-filter-security-regressions.ts
+            test-hotkey-swap-and-proxy-stake.ts
+            test-net-tao-flow-emission-allocation.ts
+            test-alpha-deprecated-stake-histogram.ts
+          CLONE_REGRESSION_TIMEOUT_MS: 1800000
         run: npm run test:clone-regressions
 
       - name: Install uv
-        if: ${{ matrix.shard.sdk }}
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
         run: |
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Sync SDK environment
-        if: ${{ matrix.shard.sdk }}
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
         working-directory: sdk/python
         run: uv sync --locked --all-extras --dev
 
       - name: Metadata drift gate (committed _generated vs upgraded clone)
-        if: ${{ matrix.shard.sdk && (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true') }}
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
 
@@ -638,34 +666,33 @@ jobs:
         run: ./clones/scripts/stop-local-clone.sh
 
   # Branch protection requires a check named exactly "Sudo-upgrade mainnet
-  # clone and test"; the shard matrix above produces differently-named jobs,
-  # so this fan-in preserves the required-check name. Passes when every shard
-  # succeeded, or when the whole suite legitimately skipped (docs-only PR or
-  # the skip-clone-upgrade label). Anything else — including a build failure
-  # cascading into skipped shards — fails.
+  # clone and test"; this fan-in preserves the required-check name. It passes
+  # when the clone job succeeded, or when the whole suite legitimately skipped
+  # (docs-only PR or the skip-clone-upgrade label). Anything else — including
+  # a build failure cascading into a skipped clone job — fails.
   clone-upgrade-gate:
     name: Sudo-upgrade mainnet clone and test
     needs: [changes, build-node-release, clone-upgrade]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Evaluate shard results
+      - name: Evaluate clone result
         env:
           CHANGES: ${{ needs.changes.result }}
-          SHARDS: ${{ needs.clone-upgrade.result }}
+          CLONE: ${{ needs.clone-upgrade.result }}
           BUILD: ${{ needs.build-node-release.result }}
           LABEL_SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
         run: |
-          echo "changes=$CHANGES shards=$SHARDS build=$BUILD label-skip=$LABEL_SKIP"
+          echo "changes=$CHANGES clone=$CLONE build=$BUILD label-skip=$LABEL_SKIP"
           # A failed path-filter job must not read as "nothing runtime-related
-          # changed" — that would let build+shards skip and the gate pass.
+          # changed" — that would let build+clone skip and the gate pass.
           if [ "$CHANGES" != "success" ]; then
             exit 1
           fi
-          if [ "$SHARDS" = "success" ]; then
+          if [ "$CLONE" = "success" ]; then
             exit 0
           fi
-          if [ "$SHARDS" = "skipped" ] && { [ "$LABEL_SKIP" = "true" ] || [ "$BUILD" = "skipped" ]; }; then
+          if [ "$CLONE" = "skipped" ] && { [ "$LABEL_SKIP" = "true" ] || [ "$BUILD" = "skipped" ]; }; then
             exit 0
           fi
           exit 1
