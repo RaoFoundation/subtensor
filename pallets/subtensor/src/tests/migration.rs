@@ -1255,6 +1255,7 @@ fn test_per_u16_encodes_identically_to_u16() {
 
 #[allow(deprecated)]
 #[test]
+#[allow(deprecated)]
 fn test_migrate_last_tx_block_delegate_take() {
     new_test_ext(1).execute_with(|| {
         // ------------------------------
