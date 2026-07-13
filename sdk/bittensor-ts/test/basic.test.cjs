@@ -2447,7 +2447,7 @@ test('Client callData composes trusted Rust intent calls', async () => {
   assert.equal(captures.composeCall.block, 99)
 })
 
-test('Client enables metadata hash by default for software signers when supported', async () => {
+test('Client does not enable metadata hash by default for software signers', async () => {
   const callData = Buffer.from([5, 6, 7])
   const metadataBytes = goldenMetadataBytes()
   const { runtime, captures } = fakeSigningRuntime({
@@ -2471,20 +2471,14 @@ test('Client enables metadata hash by default for software signers when supporte
 
   await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true })
 
-  const expectedMetadataHash = core.metadataDigest(metadataBytes, {
-    specVersion: runtime.specVersion,
-    specName: 'node-subtensor',
-    base58Prefix: 42,
-    decimals: 9,
-    tokenSymbol: 'TAO',
-  })
-  assert.equal(captures.encoded.params.metadataHashEnabled, true)
-  assert.deepEqual(captures.payloadParams.metadataHash, expectedMetadataHash)
-  assert.equal(request.metadataHash, `0x${expectedMetadataHash.toString('hex')}`)
-  await assert.rejects(
-    () => client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: null }),
-    /metadataHash cannot be disabled/,
-  )
+  assert.equal(captures.encoded.params.metadataHashEnabled, false)
+  assert.equal(captures.payloadParams.metadataHash, null)
+  assert.equal(request.metadataHash, undefined)
+
+  await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: null })
+  assert.equal(captures.encoded.params.metadataHashEnabled, false)
+  assert.equal(captures.payloadParams.metadataHash, null)
+  assert.equal(request.metadataHash, undefined)
 
   const explicitMetadataHash = Buffer.alloc(32, 3)
   await client.signExtrinsic(callData, signer, { period: null, nonce: 12, allowRawCall: true, metadataHash: explicitMetadataHash })
