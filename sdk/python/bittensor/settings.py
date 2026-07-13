@@ -100,6 +100,10 @@ def resolve_endpoint(network: str) -> tuple[str, str]:
 
 _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
 
+# The published SDK/CLI documentation site (docs pages referenced from CLI
+# output link here).
+DOCS_URL = "https://www.bittensor.com/docs"
+
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``
 # is the on-chain extrinsic identifier "block_number-index" (index zero-padded
 # to 4 digits), the format both taostats and taomarketcap use. taomarketcap is

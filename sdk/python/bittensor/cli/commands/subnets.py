@@ -15,7 +15,7 @@ from ...settings import BLOCKTIME
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import chain_identity_names, local_address_names
-from ..hyperparams_view import show_hyperparameters
+from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
 from ..metagraph_view import show_metagraph
 
 app = typer.Typer(no_args_is_help=True, help="Inspect subnets.")
@@ -120,7 +120,7 @@ def hyperparameters(
 ):
     """Show subnet hyperparameters."""
     app_ctx: AppContext = ctx_of(ctx)
-    params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+    params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
     show_hyperparameters(app_ctx, netuid, params, name)
 
 

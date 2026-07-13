@@ -60,18 +60,39 @@ def ratio_fraction(type_ident: Optional[str], raw: int) -> Optional[float]:
 #   blocks       block count (12s blocks; annotated with wall-clock time)
 #   epochs       tempo count
 #   difficulty   raw u64 PoW difficulty (u64::MAX = effectively disabled)
+#   fixed128     U64F64 fixed-point multiplier (bits / 2^64 = the real value)
 #   int          plain integer
 #   bool         flag
-KINDS = ("u16", "u64", "per_million", "rao", "blocks", "epochs", "difficulty", "int", "bool")
+KINDS = (
+    "u16",
+    "u64",
+    "per_million",
+    "rao",
+    "blocks",
+    "epochs",
+    "difficulty",
+    "fixed128",
+    "int",
+    "bool",
+)
+
+# Scale of the U64F64 fixed-point kind (bits value / 2^64 = the real number).
+FIXED128_ONE = 2**64
 
 # Denominator for each fraction kind (raw / denominator = normalized 0..1).
 _FRACTION_DENOMINATOR = {"u16": U16_MAX, "u64": U64_MAX, "per_million": PER_MILLION}
+
+
+# Ceiling for `Hyperparam.short`, so the listing's description column stays
+# one glanceable line (enforced by `codegen.check --units`).
+SHORT_MAX = 38
 
 
 @dataclass(frozen=True)
 class Hyperparam:
     kind: str
     doc: str
+    short: str = ""
 
 
 HYPERPARAMS: dict[str, Hyperparam] = {
@@ -79,161 +100,221 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "int",
         "Temperature of the sigmoid that maps a validator's consensus alignment to "
         "trust; higher values make the trust curve steeper.",
+        short="trust curve steepness",
     ),
     "kappa": Hyperparam(
         "u16",
         "Majority-stake threshold of Yuma consensus: the stake fraction at which a "
         "weight counts as consensus-supported. Stored as u16 (65535 = 1.0), so "
         "32767 means 0.5 — a simple stake majority.",
+        short="consensus majority-stake threshold",
     ),
     "immunity_period": Hyperparam(
         "blocks",
         "Blocks a newly registered neuron is immune from being pruned as the "
         "lowest-scoring UID when the subnet is full.",
+        short="prune-immunity window for new neurons",
     ),
     "min_allowed_weights": Hyperparam(
         "int",
         "Minimum number of distinct weights a validator must submit in one set_weights call.",
+        short="minimum weights per submission",
     ),
     "max_weights_limit": Hyperparam(
         "u16",
         "Cap on any single normalized weight a validator can assign to one miner. "
         "Stored as u16 (65535 = 1.0 — no cap).",
+        short="cap on a single miner's weight",
     ),
     "tempo": Hyperparam(
         "blocks",
         "Blocks per epoch: how often the subnet runs consensus and distributes emissions.",
+        short="blocks per consensus epoch",
     ),
     "min_difficulty": Hyperparam(
         "difficulty",
         "Lower bound for the PoW registration difficulty controller. u64::MAX "
         "pins difficulty at maximum, effectively disabling PoW registration.",
+        short="PoW registration difficulty floor",
     ),
     "max_difficulty": Hyperparam(
         "difficulty",
         "Upper bound for the PoW registration difficulty controller. u64::MAX "
         "leaves the difficulty unbounded above.",
+        short="PoW registration difficulty ceiling",
     ),
     "difficulty": Hyperparam(
         "difficulty",
         "Current PoW registration difficulty. u64::MAX means PoW registration is "
         "effectively disabled (burned registration only).",
+        short="current PoW registration difficulty",
     ),
     "weights_version": Hyperparam(
         "int",
         "Minimum version key validators must send with set_weights; raising it "
         "forces validators to upgrade before their weights are accepted.",
+        short="minimum version key for set_weights",
     ),
     "weights_rate_limit": Hyperparam(
         "blocks",
         "Minimum blocks a validator must wait between weight submissions.",
+        short="wait between weight submissions",
     ),
     "adjustment_interval": Hyperparam(
         "blocks",
         "Blocks between adjustments of the registration difficulty and burn cost.",
+        short="difficulty/burn adjustment cadence",
     ),
     "activity_cutoff": Hyperparam(
         "blocks",
         "Blocks without setting weights after which a validator is considered "
         "inactive and excluded from consensus.",
+        short="no-weights window before inactive",
     ),
     "registration_allowed": Hyperparam(
         "bool",
         "Whether new neuron registrations are currently accepted on this subnet.",
+        short="new neuron registrations allowed",
     ),
     "network_pow_registration_allowed": Hyperparam(
         "bool",
         "Whether proof-of-work registration is allowed (as opposed to burned registration only).",
+        short="PoW registration toggle",
     ),
     "target_regs_per_interval": Hyperparam(
         "int",
         "Registrations per adjustment interval the difficulty/burn controller steers toward.",
+        short="registration-rate controller target",
     ),
     "min_burn": Hyperparam(
         "rao",
         "Floor for the burned-registration cost, in rao (1 TAO = 1e9 rao).",
+        short="burned-registration cost floor",
     ),
     "max_burn": Hyperparam(
         "rao",
         "Ceiling for the burned-registration cost, in rao (1 TAO = 1e9 rao).",
+        short="burned-registration cost ceiling",
     ),
     "bonds_moving_avg": Hyperparam(
         "per_million",
         "Bonds EMA smoothing factor, stored over 1,000,000 (900000 = 0.9): higher "
         "retains more of a validator's past bonds each epoch.",
+        short="bonds EMA smoothing factor",
     ),
     "max_regs_per_block": Hyperparam(
         "int",
         "Maximum registrations accepted in a single block.",
+        short="per-block registration cap",
     ),
     "serving_rate_limit": Hyperparam(
         "blocks",
         "Minimum blocks between axon serve calls for one neuron.",
+        short="cooldown between axon serve calls",
     ),
     "max_validators": Hyperparam(
         "int",
         "Maximum validator permits: only the top-stake neurons up to this count may validate.",
+        short="top-stake validator permit cap",
     ),
     "adjustment_alpha": Hyperparam(
         "u64",
         "Smoothing factor for the difficulty/burn adjustment, stored as u64 "
         "(u64::MAX = 1.0): higher values adjust more slowly.",
+        short="difficulty/burn adjust smoothing",
     ),
     "commit_reveal_period": Hyperparam(
         "epochs",
         "Epochs (tempos) between committing a weights hash and revealing the actual weights.",
+        short="weight commit-to-reveal delay",
     ),
     "commit_reveal_weights_enabled": Hyperparam(
         "bool",
         "Whether validators must use commit-reveal for weights, hiding them from "
         "copiers until the reveal.",
+        short="commit-reveal weights toggle",
     ),
     "alpha_high": Hyperparam(
         "u16",
         "Upper bound of the liquid-alpha bonds smoothing range. Stored as u16 (65535 = 1.0).",
+        short="liquid-alpha smoothing upper bound",
     ),
     "alpha_low": Hyperparam(
         "u16",
         "Lower bound of the liquid-alpha bonds smoothing range. Stored as u16 (65535 = 1.0).",
+        short="liquid-alpha smoothing lower bound",
     ),
     "liquid_alpha_enabled": Hyperparam(
         "bool",
         "Whether liquid alpha is on: the bonds EMA factor then varies per-weight "
         "between alpha_low and alpha_high instead of using bonds_moving_avg.",
+        short="per-weight bonds EMA (liquid alpha)",
+    ),
+    "bonds_penalty": Hyperparam(
+        "u16",
+        "Penalty applied to bonds for out-of-consensus weights. Stored as u16 "
+        "(65535 = 1.0 — full penalty).",
+        short="penalty on out-of-consensus bonds",
+    ),
+    "alpha_sigmoid_steepness": Hyperparam(
+        "int",
+        "Steepness of the liquid-alpha sigmoid mapping consensus alignment to the "
+        "bonds EMA factor; negative values (root only) invert the curve.",
+        short="liquid-alpha sigmoid steepness",
+    ),
+    "min_childkey_take": Hyperparam(
+        "u16",
+        "Minimum childkey take allowed on this subnet. Stored as u16 (65535 = 1.0).",
+        short="floor for childkey take",
+    ),
+    "owner_immune_neuron_limit": Hyperparam(
+        "int",
+        "Number of subnet-owner-designated neurons that are immune from pruning.",
+        short="owner-designated prune-immune UIDs",
     ),
     # Owner-settable parameters that the hyperparameters read does not list.
     "max_allowed_uids": Hyperparam(
         "int",
         "Maximum neuron slots (UIDs) on the subnet; registrations beyond this "
         "prune the lowest-scoring neuron.",
+        short="neuron slot capacity before pruning",
     ),
     "burn_increase_mult": Hyperparam(
-        "int",
-        "Multiplier applied to the burn cost after each registration within an adjustment window.",
+        "fixed128",
+        "Multiplier applied to the burn cost after each registration within an "
+        "adjustment window. U64F64 fixed-point: the raw bits divided by 2^64 "
+        "give the real multiplier.",
+        short="burn cost bump per registration",
     ),
     "burn_half_life": Hyperparam(
         "blocks",
         "Blocks for the burn cost to decay halfway back toward min_burn.",
+        short="burn cost decay half-life",
     ),
     "yuma3_enabled": Hyperparam(
         "bool",
         "Whether the Yuma3 consensus variant is enabled for this subnet.",
+        short="yuma3 consensus variant toggle",
     ),
     "bonds_reset_enabled": Hyperparam(
         "bool",
         "Whether validator bonds are reset on certain subnet events.",
+        short="bonds reset on metadata commit",
     ),
     "transfers_enabled": Hyperparam(
         "bool",
         "Whether stake transfers between coldkeys are enabled on this subnet.",
+        short="stake transfers between coldkeys",
     ),
     "owner_cut_enabled": Hyperparam(
         "bool",
         "Whether the subnet owner takes their emission cut.",
+        short="owner emission cut toggle",
     ),
     "owner_cut_auto_lock_enabled": Hyperparam(
         "bool",
         "Whether the owner's emission cut is automatically locked.",
+        short="auto-lock the owner's emission cut",
     ),
 }
 
@@ -270,6 +351,10 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "commit_reveal_period": st.SubtensorModule.RevealPeriodEpochs,
     "commit_reveal_weights_enabled": st.SubtensorModule.CommitRevealWeightsEnabled,
     "liquid_alpha_enabled": st.SubtensorModule.LiquidAlphaOn,
+    "bonds_penalty": st.SubtensorModule.BondsPenalty,
+    "alpha_sigmoid_steepness": st.SubtensorModule.AlphaSigmoidSteepness,
+    "min_childkey_take": st.SubtensorModule.MinChildkeyTakePerSubnet,
+    "owner_immune_neuron_limit": st.SubtensorModule.ImmuneOwnerUidsLimit,
     "max_allowed_uids": st.SubtensorModule.MaxAllowedUids,
     "burn_increase_mult": st.SubtensorModule.BurnIncreaseMult,
     "burn_half_life": st.SubtensorModule.BurnHalfLife,
@@ -324,6 +409,12 @@ def doc_of(name: str) -> Optional[str]:
     return meta.doc if meta else None
 
 
+def short_of(name: str) -> Optional[str]:
+    """The one-line blurb shown next to a value in the listing, or None."""
+    meta = HYPERPARAMS.get(name)
+    return meta.short or None if meta else None
+
+
 def normalized(name: str, raw: int) -> Optional[float]:
     """The 0..1 fraction a raw fixed-point value encodes, or None for other kinds."""
     denominator = _FRACTION_DENOMINATOR.get(kind_of(name))
@@ -363,6 +454,8 @@ def annotate(name: str, raw) -> Optional[str]:
         return f"≈ {duration}" if duration else None
     if kind == "difficulty" and raw == U64_MAX:
         return "= u64::MAX"
+    if kind == "fixed128":
+        return f"≈ {raw / FIXED128_ONE:.4g}"
     return None
 
 
@@ -374,6 +467,8 @@ def value_forms(name: str) -> str:
         return f"a 0..1 fraction (e.g. 0.5) or the raw integer (0..{denominator})"
     if kind == "rao":
         return "a TAO amount with a decimal point (e.g. 0.7) or the raw rao integer"
+    if kind == "fixed128":
+        return "a multiplier with a decimal point (e.g. 1.5) or the raw U64F64 bits"
     if kind == "bool":
         return "true/false (or 1/0)"
     if kind == "blocks":
@@ -465,6 +560,8 @@ def to_raw(name: str, value: Union[int, float, str, bool]) -> int:
         return round(value * denominator)
     if kind == "rao":
         return round(value * RAO_PER_TAO)
+    if kind == "fixed128":
+        return round(value * FIXED128_ONE)
     if value.is_integer():
         return int(value)
     raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")

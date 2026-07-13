@@ -23,7 +23,7 @@ from ...intents.hyperparameters import OWNER_HYPERPARAMETERS
 from ...settings import U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..hyperparams_view import show_hyperparameters
+from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
 from ..prompt import PromptSpec, fill_missing, interactive
 from ..tx import _parse_money
 
@@ -61,7 +61,7 @@ def _prompt_set_args(
     specs: list[PromptSpec] = []
     if name is None:
         if interactive(app_ctx):
-            params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+            params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
             show_hyperparameters(
                 app_ctx,
                 netuid,
@@ -139,7 +139,7 @@ def sudo_get(
 ):
     """Show subnet hyperparameters."""
     app_ctx: AppContext = ctx_of(ctx)
-    params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+    params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
     show_hyperparameters(app_ctx, netuid, params, name)
 
 

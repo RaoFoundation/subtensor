@@ -215,12 +215,8 @@ RAW_ONLY: dict[str, set[str]] = {
         # Enumerated explicitly (not computed) so a newly added unwrapped call is
         # flagged as missing and requires a deliberate wrap-or-raw-only decision.
         "schedule_grandpa_change",
-        "sudo_set_adjustment_alpha",
         "sudo_set_adjustment_interval",
         "sudo_set_admin_freeze_window",
-        "sudo_set_alpha_sigmoid_steepness",
-        "sudo_set_alpha_values",
-        "sudo_set_bonds_penalty",
         "sudo_set_ck_burn",
         "sudo_set_coldkey_swap_announcement_delay",
         "sudo_set_coldkey_swap_reannouncement_delay",
@@ -233,13 +229,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_kappa",
         "sudo_set_lock_reduction_interval",
         "sudo_set_max_allowed_validators",
-        "sudo_set_max_burn",
-        "sudo_set_max_difficulty",
         "sudo_set_max_epochs_per_block",
         "sudo_set_max_mechanism_count",
         "sudo_set_max_registrations_per_block",
         "sudo_set_min_allowed_uids",
-        "sudo_set_min_childkey_take_per_subnet",
         "sudo_set_min_delegate_take",
         "sudo_set_min_difficulty",
         "sudo_set_min_non_immune_uids",
@@ -250,10 +243,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_network_registration_allowed",
         "sudo_set_nominator_min_required_stake",
         "sudo_set_owner_hparam_rate_limit",
-        "sudo_set_owner_immune_neuron_limit",
         "sudo_set_rao_recycled",
         "sudo_set_recycle_or_burn",
-        "sudo_set_rho",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
@@ -384,6 +375,13 @@ def check_units() -> int:
     problems: list[str] = []
     derived = 0
     for name, meta in hyperparams.HYPERPARAMS.items():
+        if not meta.short:
+            problems.append(f"{name}: no short description (the listing's blurb column)")
+        elif len(meta.short) > hyperparams.SHORT_MAX:
+            problems.append(
+                f"{name}: short description is {len(meta.short)} chars "
+                f"(max {hyperparams.SHORT_MAX}): {meta.short!r}"
+            )
         metadata_kind = hyperparams.metadata_kind(name)
         if metadata_kind is None:
             # No dedicated storage value, or the (pre-newtype) metadata
@@ -403,7 +401,8 @@ def check_units() -> int:
         return 1
     print(
         f"units ok: {derived} metadata-derived hyperparameter kinds agree with the hand "
-        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity)"
+        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity), "
+        f"and all {len(hyperparams.HYPERPARAMS)} carry a short description"
     )
     return 0
 

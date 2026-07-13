@@ -448,12 +448,16 @@ class Output:
     def hyperparameters(
         self,
         title: str,
-        rows: list[tuple[str, str, Optional[str]]],
+        rows: list[tuple[str, str, Optional[str], Optional[str]]],
         json_fields: dict[str, Any],
         hint: Optional[str] = None,
+        docs: Optional[str] = None,
     ) -> None:
-        """Aligned hyperparameter listing: raw value plus its dim human reading
-        (``kappa  32767  ≈ 0.5``). JSON carries the raw record untouched."""
+        """Aligned hyperparameter listing: raw value, its dim human reading, and
+        a one-line description (``kappa  32767  ≈ 0.5  consensus majority-stake
+        threshold``). ``docs`` links each name (OSC-8) to its explainer page
+        under that URL and prints as a ``see:`` footer. JSON carries the raw
+        record untouched."""
         if self.json_mode:
             self._json(json_fields)
             return
@@ -461,19 +465,28 @@ class Output:
         if not rows:
             self._out.print("  [dim]none[/dim]")
             return
-        name_width = max(len(name) for name, _, _ in rows)
-        value_width = max(len(value) for _, value, _ in rows)
-        for name, value, note in rows:
+        name_width = max(len(name) for name, _, _, _ in rows)
+        value_width = max(len(value) for _, value, _, _ in rows)
+        note_width = max((len(note) for _, _, note, _ in rows if note), default=0)
+        for name, value, note, short in rows:
             line = Text("  ", overflow="ignore", no_wrap=True)
-            line.append(name.rjust(name_width), style=STYLE_KEY)
+            name_style = f"{STYLE_KEY} link {docs}/{name.replace('_', '-')}" if docs else STYLE_KEY
+            line.append(name.rjust(name_width), style=name_style)
             line.append("  ")
             line.append(value.rjust(value_width))
-            if note:
+            if short:
+                # The reading column is padded so descriptions align.
+                line.append(f"  {(note or '').ljust(note_width)}", style=STYLE_HINT)
+                line.append(f"  {short}", style=STYLE_INCIDENTAL)
+            elif note:
                 line.append(f"  {note}", style=STYLE_HINT)
             self._out.print(line, soft_wrap=True)
-        if hint:
+        if hint or docs:
             self._out.print()
+        if hint:
             self._sub_diag("help", hint, console=self._out)
+        if docs:
+            self._sub_diag("see", docs, console=self._out)
 
     def hyperparameter(
         self,
@@ -484,6 +497,7 @@ class Output:
         *,
         help: Optional[str] = None,
         note: Optional[str] = None,
+        see: Optional[str] = None,
     ) -> None:
         """One hyperparameter in full: value fields, the explanation paragraph,
         and the how-to-set diagnostics."""
@@ -495,12 +509,14 @@ class Output:
         if doc:
             self._out.print()
             self._out.print(Padding(_prose(doc), (0, 0, 0, 2)))
-        if help or note:
+        if help or note or see:
             self._out.print()
         if help:
             self._sub_diag("help", help, console=self._out)
         if note:
             self._sub_diag("note", note, console=self._out)
+        if see:
+            self._sub_diag("see", see, console=self._out)
 
     def table(
         self,
