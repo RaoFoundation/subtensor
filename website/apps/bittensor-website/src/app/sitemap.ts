@@ -10,6 +10,7 @@ const staticRoutes = [
   '/dtao-whitepaper',
   '/explore',
   '/intro',
+  '/releases',
   '/releases/v430-upgrade',
   '/wallet',
   '/whitepaper',
