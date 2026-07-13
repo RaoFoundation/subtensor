@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use crate::client::{
     as_u128, Client, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan, TxOutcome,
-    DEFAULT_ERA_PERIOD,
+    TxWait, DEFAULT_ERA_PERIOD, DEFAULT_RECEIPT_TIMEOUT,
 };
 use crate::codec::Value;
 use crate::error::CoreError;
@@ -62,6 +62,7 @@ struct SecuritySemantics {
     spend: Spend,
     netuids: Vec<u16>,
     affects_all_subnets: bool,
+    global: bool,
     raw: bool,
 }
 
@@ -74,6 +75,7 @@ impl SecuritySemantics {
             // scope as unknown/all rather than letting an empty list bypass an
             // allowlist.
             affects_all_subnets: true,
+            global: false,
             raw: true,
         }
     }
@@ -90,8 +92,14 @@ impl SecuritySemantics {
             spend,
             netuids,
             affects_all_subnets,
+            global: false,
             raw: false,
         }
+    }
+
+    fn global(mut self) -> Self {
+        self.global = true;
+        self
     }
 }
 
@@ -168,6 +176,27 @@ impl IntentCall {
             function,
             params,
             SecuritySemantics::trusted(spend, netuids, affects_all_subnets),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn trusted_global(
+        op: impl Into<String>,
+        signer: SignerRole,
+        pallet: impl Into<String>,
+        function: impl Into<String>,
+        params: Value,
+        spend: Spend,
+        netuids: impl IntoIterator<Item = u16>,
+        affects_all_subnets: bool,
+    ) -> Self {
+        Self::from_parts(
+            op,
+            signer,
+            pallet,
+            function,
+            params,
+            SecuritySemantics::trusted(spend, netuids, affects_all_subnets).global(),
         )
     }
 
@@ -253,7 +282,7 @@ impl IntentCall {
 
     /// A bounded keep-alive TAO transfer.
     pub fn transfer(dest: impl Into<String>, amount_rao: u128) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "transfer",
             SignerRole::Coldkey,
             "Balances",
@@ -270,7 +299,7 @@ impl IntentCall {
 
     /// Fund the native mirror of an EVM address with a bounded TAO amount.
     pub fn fund_evm_key(mirror: impl Into<String>, amount_rao: u128) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "fund_evm_key",
             SignerRole::Coldkey,
             "Balances",
@@ -287,7 +316,7 @@ impl IntentCall {
 
     /// A bounded TAO transfer that may reap the sender.
     pub fn transfer_allow_death(dest: impl Into<String>, amount_rao: u128) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "transfer",
             SignerRole::Coldkey,
             "Balances",
@@ -304,7 +333,7 @@ impl IntentCall {
 
     /// Transfer the account's full transferable balance.
     pub fn transfer_all(dest: impl Into<String>, keep_alive: bool) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "transfer_all",
             SignerRole::Coldkey,
             "Balances",
@@ -410,7 +439,7 @@ impl IntentCall {
 
     /// Register a subnet. The live registration cost is not known locally.
     pub fn register_subnet(hotkey: impl Into<String>) -> Self {
-        Self::trusted(
+        Self::trusted_global(
             "register_subnet",
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -755,16 +784,31 @@ impl IntentCall {
             Value::Dict(_) => subnets_from_root_claim(&value),
             _ => Vec::new(),
         };
-        Ok(Self::trusted(
-            "set_root_claim_type",
-            SignerRole::Coldkey,
-            "SubtensorModule",
-            "set_root_claim_type",
-            Value::record(vec![("new_root_claim_type".into(), value)]),
-            Spend::None,
-            netuids,
-            false,
-        ))
+        let params = Value::record(vec![("new_root_claim_type".into(), value)]);
+        let intent = if netuids.is_empty() {
+            Self::trusted_global(
+                "set_root_claim_type",
+                SignerRole::Coldkey,
+                "SubtensorModule",
+                "set_root_claim_type",
+                params,
+                Spend::None,
+                [],
+                false,
+            )
+        } else {
+            Self::trusted(
+                "set_root_claim_type",
+                SignerRole::Coldkey,
+                "SubtensorModule",
+                "set_root_claim_type",
+                params,
+                Spend::None,
+                netuids,
+                false,
+            )
+        };
+        Ok(intent)
     }
 
     /// Set a delegate take to an absolute value, selecting the runtime's
@@ -801,7 +845,7 @@ impl IntentCall {
         } else {
             "increase_take"
         };
-        Ok(Self::trusted(
+        Ok(Self::trusted_global(
             "set_take",
             SignerRole::Coldkey,
             "SubtensorModule",
@@ -844,6 +888,7 @@ impl IntentCall {
         let mut spend = Spend::None;
         let mut netuids = BTreeSet::new();
         let mut affects_all_subnets = false;
+        let mut global = false;
         let mut summaries = Vec::with_capacity(children.len());
         let mut raw = false;
         for child in &children {
@@ -851,6 +896,7 @@ impl IntentCall {
             spend = aggregate_spend(spend, child.security.spend);
             netuids.extend(child.security.netuids.iter().copied());
             affects_all_subnets |= child.security.affects_all_subnets;
+            global |= child.security.global;
             raw |= child.security.raw;
             summaries.push(child.summary.clone());
         }
@@ -869,6 +915,7 @@ impl IntentCall {
                 spend,
                 netuids: netuids.into_iter().collect(),
                 affects_all_subnets,
+                global,
                 raw,
             },
         })
@@ -936,6 +983,7 @@ pub struct Policy {
     pub max_spend_rao: Option<u128>,
     pub allowed_netuids: Option<BTreeSet<u16>>,
     pub allow_raw_calls: bool,
+    pub allow_global: bool,
 }
 
 impl Policy {
@@ -965,6 +1013,12 @@ impl Policy {
             }
         }
         if let Some(allowed) = &self.allowed_netuids {
+            if intent.security.global && !self.allow_global {
+                violations.push(
+                    "intent has global/account-wide scope but policy only allows explicit subnets"
+                        .into(),
+                );
+            }
             if intent.security.affects_all_subnets {
                 violations.push(
                     "intent affects every subnet but policy only allows an explicit subset".into(),
@@ -1120,7 +1174,12 @@ impl<'a> Executor<'a> {
             wallet.signer(intent.signer),
             None,
             Some(DEFAULT_ERA_PERIOD),
-            wait_for_finalization,
+            if wait_for_finalization {
+                TxWait::Finalized
+            } else {
+                TxWait::Included
+            },
+            DEFAULT_RECEIPT_TIMEOUT,
         )
     }
 
@@ -1291,8 +1350,54 @@ mod tests {
             policy.check(&intent, Some(0)),
             vec![
                 String::from("spend 10 rao exceeds max_spend_rao 9"),
+                String::from(
+                    "intent has global/account-wide scope but policy only allows explicit subnets",
+                ),
                 String::from("netuid 2 is not allowed by policy"),
             ]
+        );
+    }
+
+    #[test]
+    fn global_root_claim_modes_do_not_bypass_subnet_allowlists() {
+        let intent = IntentCall::set_root_claim_type("Swap", None).expect("valid root claim");
+        let subnet_only = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+
+        assert_eq!(
+            subnet_only.check(&intent, Some(0)),
+            vec![String::from(
+                "intent has global/account-wide scope but policy only allows explicit subnets",
+            )]
+        );
+
+        let allow_global = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            allow_global: true,
+            ..Policy::default()
+        };
+        assert!(allow_global.check(&intent, Some(0)).is_empty());
+    }
+
+    #[test]
+    fn keep_subnets_root_claim_remains_subnet_scoped() {
+        let intent = IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1]))
+            .expect("valid root claim");
+        let allowed = Policy {
+            allowed_netuids: Some(BTreeSet::from([1])),
+            ..Policy::default()
+        };
+        assert!(allowed.check(&intent, Some(0)).is_empty());
+
+        let denied = Policy {
+            allowed_netuids: Some(BTreeSet::from([2])),
+            ..Policy::default()
+        };
+        assert_eq!(
+            denied.check(&intent, Some(0)),
+            vec![String::from("netuid 1 is not allowed by policy")]
         );
     }
 }

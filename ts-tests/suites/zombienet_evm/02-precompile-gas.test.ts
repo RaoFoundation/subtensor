@@ -33,12 +33,15 @@ async function assertPrecompileGasScaling(
         // block count: when GRANDPA lags best by more than 2 blocks, a fixed
         // wait ends before the fee deduction is in finalized state and the
         // balanceAfter < balanceBefore assertion sees identical balances.
-        await waitUntilBlockFinalized(api, receipt!.blockNumber);
+        if (receipt == null) {
+            throw new Error("precompile gas transaction did not produce a receipt");
+        }
+        await waitUntilBlockFinalized(api, receipt.blockNumber);
 
         const balanceAfter = await getBalance(api, convertH160ToSS58(wallet.address));
         expect(balanceAfter).toBeLessThan(balanceBefore);
 
-        const gasUsed = receipt!.gasUsed;
+        const gasUsed = receipt.gasUsed;
         if (iterations === 1) {
             oneIterationGas = gasUsed;
             continue;

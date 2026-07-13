@@ -1058,13 +1058,10 @@ test('chain client surface is exported without Polkadot.js glue', () => {
 })
 
 test('Node Client keeps the Rust native backend authoritative', async () => {
-  assert.throws(
-    () => new core.Client('local', {
-      endpoint: 'http://primary',
-      fallbackEndpoints: ['http://fallback'],
-    }),
-    /fallbackEndpoints/,
-  )
+  assert.doesNotThrow(() => new core.Client('local', {
+    endpoint: 'http://primary',
+    fallbackEndpoints: ['http://fallback'],
+  }))
   assert.doesNotThrow(() => new core.Client('local', {
     endpoint: 'ws://node-a',
     requestTimeoutMs: 10,
@@ -1089,8 +1086,8 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
       calls.push({ method: 'queryMap', pallet, storage, params, block })
       return [[1, true]]
     },
-    submitEncoded(bytes, expectedHash, waitForFinalization) {
-      calls.push({ method: 'submitEncoded', bytes, expectedHash, waitForFinalization })
+    submitEncoded(bytes, expectedHash, options) {
+      calls.push({ method: 'submitEncoded', bytes, expectedHash, options })
       return {
         success: true,
         extrinsicHash: expectedHash,
@@ -1129,7 +1126,7 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
     method: 'submitEncoded',
     bytes: Buffer.from([1, 2, 3]),
     expectedHash: watcher.extrinsicHash,
-    waitForFinalization: true,
+    options: { waitForFinalization: true },
   })
 })
 
@@ -2668,6 +2665,7 @@ test('Client submit delegates automatic Keypair nonces to the Rust client', asyn
     includedInSignedData: Buffer.alloc(0),
     metadataHash: null,
     metadataProof: null,
+    runtime,
     txParams: {
       era: '00',
       nonce: 77n,
@@ -2687,26 +2685,26 @@ test('Client submit delegates automatic Keypair nonces to the Rust client', asyn
       calls.push({ stage: 'plan', submittedCallData, signerAddress, publicKey, cryptoType, requiresMetadataProof, options })
       return plan
     },
-    submitExternal(submittedPlan, signature, waitForFinalization, cryptoType) {
-      calls.push({ stage: 'submit', submittedPlan, signature, waitForFinalization, cryptoType })
+    submitExternal(submittedPlan, signature, options, cryptoType) {
+      calls.push({ stage: 'submit', submittedPlan, signature, options, cryptoType })
       return {
         success: true,
         extrinsicHash: `0x${'11'.repeat(32)}`,
-        blockHash: `0x${'22'.repeat(32)}`,
-        blockNumber: 7n,
-        extrinsicIndex: 2,
+        blockHash: null,
+        blockNumber: null,
+        extrinsicIndex: null,
         feeRao: null,
         events: [],
         error: null,
-        message: 'Success',
+        message: 'Submitted',
       }
     },
   })
 
   const result = await client.submit(callData, signer, { allowRawCall: true })
 
-  assert.equal(result.status, 'inBlock')
-  assert.equal(result.extrinsicId, '7-0002')
+  assert.equal(result.status, 'submitted')
+  assert.equal(result.extrinsicId, undefined)
   assert.equal(calls.length, 2)
   assert.equal(calls[0].stage, 'plan')
   assert.deepEqual(calls[0].submittedCallData, callData)
@@ -2718,7 +2716,7 @@ test('Client submit delegates automatic Keypair nonces to the Rust client', asyn
   assert.equal(calls[1].stage, 'submit')
   assert.equal(calls[1].submittedPlan, plan)
   assert.equal(calls[1].signature.length, 64)
-  assert.equal(calls[1].waitForFinalization, false)
+  assert.deepEqual(calls[1].options, {})
   assert.equal(calls[1].cryptoType, signer.cryptoType)
 })
 
@@ -2757,6 +2755,7 @@ test('Client submit uses the Rust signing plan for external signers', async () =
     includedInSignedData: Buffer.from([2]),
     metadataHash: null,
     metadataProof: null,
+    runtime,
     txParams: {
       era: '00',
       nonce: 44n,
@@ -2777,8 +2776,8 @@ test('Client submit uses the Rust signing plan for external signers', async () =
       calls.push({ stage: 'plan', submittedCallData, signerAddress, submittedPublicKey, cryptoType, requiresMetadataProof, options })
       return plan
     },
-    submitExternal(submittedPlan, signature, waitForFinalization, cryptoType) {
-      calls.push({ stage: 'submit', submittedPlan, signature, waitForFinalization, cryptoType })
+    submitExternal(submittedPlan, signature, options, cryptoType) {
+      calls.push({ stage: 'submit', submittedPlan, signature, options, cryptoType })
       return {
         success: true,
         extrinsicHash: `0x${'33'.repeat(32)}`,
@@ -2801,7 +2800,7 @@ test('Client submit uses the Rust signing plan for external signers', async () =
     },
   }
 
-  const result = await client.submit(callData, signer, { allowRawCall: true })
+  const result = await client.submit(callData, signer, { allowRawCall: true, waitForInclusion: true })
 
   assert.equal(result.status, 'inBlock')
   assert.equal(result.fee.rao, 125n)
@@ -2815,6 +2814,7 @@ test('Client submit uses the Rust signing plan for external signers', async () =
   assert.equal(calls[2].stage, 'submit')
   assert.equal(calls[2].submittedPlan, plan)
   assert.deepEqual(calls[2].signature, Buffer.alloc(64, 6))
+  assert.deepEqual(calls[2].options, { waitForInclusion: true })
   assert.equal(calls[2].cryptoType, core.CRYPTO_SR25519)
 })
 

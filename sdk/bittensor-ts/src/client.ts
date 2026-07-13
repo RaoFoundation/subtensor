@@ -2,9 +2,9 @@ import { blake2_256, generateExtrinsicProof, hexToBytes, metadataDigest } from '
 import { CRYPTO_ED25519, CRYPTO_SR25519, Keypair, publicKeyFromSs58 } from './keys'
 import { LedgerDevice } from './ledger'
 import { Runtime, decodeOptionalOpaqueMetadata, eraBirth, type RuntimeSignerPayload } from './runtime'
-import { IntentCall, NativeChainClient, Policy, isIntentCall, rawCall, type PolicyOptions, type SignerRoleLike } from './transaction'
+import { IntentCall, NativeChainClient, Policy, createNativeCancellationToken, isIntentCall, rawCall, type NativeCancellationToken, type PolicyOptions, type SignerRoleLike } from './transaction'
 import { WIRE_TAG, fromWire, toBigInt, toBuffer } from './wire'
-import type { NativeChainInfo, NativeExternalSigningOptions, NativeExternalSigningPlanHandle, NativeTxOutcome } from './native'
+import type { NativeChainInfo, NativeExternalSigningOptions, NativeExternalSigningPlanHandle, NativeSubmitOptions, NativeTxOutcome } from './native'
 import {
   Balance,
   UnitMismatchError,
@@ -2236,12 +2236,14 @@ export class BrowserChainClient {
 
 export class Client extends BrowserChainClient {
   private readonly nodeExpectedGenesisHash?: string
+  private readonly nodeEndpoints: string[]
   private nodeNativeClient?: NativeChainClient
   private nodeNativeClientPromise?: Promise<NativeChainClient>
 
   constructor(network: string = 'finney', options: ClientOptions = {}) {
-    assertNodeClientOptions(options)
-    super(network, { ...options, autoConnect: false })
+    const fallbackEndpoints = options.fallbackEndpoints ?? []
+    super(network, { ...options, fallbackEndpoints: [], autoConnect: false })
+    this.nodeEndpoints = [this.endpoint, ...fallbackEndpoints.filter((endpoint) => endpoint !== this.endpoint)]
     this.nodeExpectedGenesisHash = normalizeGenesisHash(
       options.expectedGenesisHash ?? trustedGenesisHash(this.network),
     )
@@ -2263,12 +2265,12 @@ export class Client extends BrowserChainClient {
 
   private async requireNativeClient(): Promise<NativeChainClient> {
     if (this.nodeNativeClient != null) return this.nodeNativeClient
-    this.nodeNativeClientPromise ??= NativeChainClient.connect(this.endpoint)
+    this.nodeNativeClientPromise ??= NativeChainClient.connectEndpoints(this.nodeEndpoints)
       .then((client) => {
         const genesis = hex(client.genesisHash)
         if (this.nodeExpectedGenesisHash != null && !sameHex(genesis, this.nodeExpectedGenesisHash)) {
           throw new EndpointValidationError(
-            `endpoint ${this.endpoint} genesis ${genesis} does not match expected genesis ${this.nodeExpectedGenesisHash}`,
+            `endpoint ${client.endpoint} genesis ${genesis} does not match expected genesis ${this.nodeExpectedGenesisHash}`,
           )
         }
         this.nodeNativeClient = client
@@ -2304,7 +2306,9 @@ export class Client extends BrowserChainClient {
     if (block != null) {
       return super.runtimeAt(block)
     }
-    return (await this.requireNativeClient()).runtime()
+    const native = await this.requireNativeClient()
+    await native.refreshRuntime()
+    return native.runtime()
   }
 
   override async query<T extends ScaleValue = ScaleValue>(
@@ -2333,7 +2337,13 @@ export class Client extends BrowserChainClient {
   }
 
   override invalidateRuntimeCache(): void {
+    super.invalidateRuntimeCache()
     void this.nodeNativeClient?.refreshRuntime().catch(() => undefined)
+  }
+
+  async refreshRuntime(): Promise<boolean> {
+    super.invalidateRuntimeCache()
+    return (await this.requireNativeClient()).refreshRuntime()
   }
 
   override async chainInfo(_runtime?: Runtime, _blockHash?: string | null): Promise<ChainInfo> {
@@ -2341,7 +2351,7 @@ export class Client extends BrowserChainClient {
   }
 
   override rpc(method: string, params: unknown[] = []): Promise<unknown> {
-    return super.rpc(method, params)
+    return this.requireNativeClient().then((native) => native.rpcValue(method, params))
   }
 
   override async runtimeCall<T extends ScaleValue = ScaleValue>(
@@ -2429,17 +2439,23 @@ export class Client extends BrowserChainClient {
   }
 
   override async submit(call: CallLike, signer: SignerLike, options: SubmitOptions = {}): Promise<ExtrinsicResult> {
-    assertNativeSubmitOptions(options)
     const native = await this.requireNativeClient()
     const planned = await this.nativeSigningPlan(call, signer, options, native)
     const signature = await this.signRustPlan(planned)
-    return nativeOutcomeToExtrinsicResult(
-      await native.submitExternal(
+    const cancellation = nativeCancellationForSignal(options.signal)
+    const outcome = await abortableNative(
+      native.submitExternal(
         planned.plan,
         signature.signature,
-        options.waitForFinalization === true,
+        nativeSubmitOptions(options),
         signature.cryptoType,
+        cancellation,
       ),
+      options.signal,
+      cancellation,
+    )
+    return nativeOutcomeToExtrinsicResult(
+      outcome,
       options.waitForFinalization === true,
     )
   }
@@ -2462,17 +2478,23 @@ export class Client extends BrowserChainClient {
     options: SubmitOptions = {},
   ): Promise<ExtrinsicResult> {
     void signerAddress
-    assertNativeSubmitOptions(options)
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    return nativeOutcomeToExtrinsicResult(
-      await (await this.requireNativeClient()).submitEncoded(
+    const cancellation = nativeCancellationForSignal(options.signal)
+    const outcome = await abortableNative(
+      (await this.requireNativeClient()).submitEncoded(
         bytes,
         extrinsicHash,
-        options.waitForFinalization === true,
+        nativeSubmitOptions(options),
+        cancellation,
       ),
+      options.signal,
+      cancellation,
+    )
+    return nativeOutcomeToExtrinsicResult(
+      outcome,
       options.waitForFinalization === true,
     )
   }
@@ -2481,27 +2503,32 @@ export class Client extends BrowserChainClient {
     extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
     options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
   ): Promise<ExtrinsicWatcher> {
-    assertNativeWatchOptions(options)
     const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
       ? toBuffer(extrinsic, 'extrinsic')
       : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
     const extrinsicHash = hex(blake2_256(bytes))
-    const result = this.requireNativeClient()
+    const unsubscribeController = new AbortController()
+    const signal = joinedAbortSignal(options.signal, unsubscribeController.signal)
+    const cancellation = nativeCancellationForSignal(signal)
+    const result = abortableNative(this.requireNativeClient()
       .then((native) => native.submitEncoded(
         bytes,
         extrinsicHash,
-        options.waitForFinalization === true,
+        nativeSubmitOptions({
+          ...options,
+          waitForInclusion: options.waitForFinalization === true ? undefined : true,
+        }),
+        cancellation,
       ))
       .then((outcome) => nativeOutcomeToExtrinsicResult(
         outcome,
         options.waitForFinalization === true,
-      ))
+      )), signal, cancellation)
     return Promise.resolve({
       extrinsicHash,
       result,
       unsubscribe: async () => {
-        // Native receipt tracking is a bounded blocking task rather than a
-        // JSON-RPC subscription, so there is no remote subscription to cancel.
+        unsubscribeController.abort()
       },
     })
   }
@@ -2531,7 +2558,7 @@ export class Client extends BrowserChainClient {
     if (block != null) {
       return super.validateDescriptorSchema(block)
     }
-    return validateDescriptorSchema((await this.requireNativeClient()).runtime())
+    return validateDescriptorSchema(await this.runtimeAt())
   }
 
   private async nativeSigningPlan(
@@ -2585,7 +2612,7 @@ export class Client extends BrowserChainClient {
         planOptions,
       )
     }
-    return { native, runtime, resolved, plan }
+    return { native, runtime: Runtime.fromNativeHandle(plan.runtime), resolved, plan }
   }
 
   private async signRustPlan(planned: NativeSigningPlan): Promise<NormalizedSignature> {
@@ -3468,20 +3495,6 @@ function normalizeQueryMapOptions(value: number | QueryMapOptions): Required<Pic
   }
 }
 
-function assertNodeClientOptions(options: ClientOptions): void {
-  const unsupported = unsupportedNodeClientOptions(options)
-  if (unsupported.length === 0) return
-  throw new ChainError(
-    `Node Client is backed by one Rust NativeChainClient endpoint; unsupported options: ${unsupported.join(', ')}`,
-  )
-}
-
-function unsupportedNodeClientOptions(options: ClientOptions): string[] {
-  const unsupported: string[] = []
-  if ((options.fallbackEndpoints?.length ?? 0) > 0) unsupported.push('fallbackEndpoints')
-  return unsupported
-}
-
 function positiveInteger(value: unknown, name: string): number {
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new RangeError(`${name} must be a positive safe integer`)
@@ -3785,6 +3798,72 @@ function nativeExternalSigningOptions(options: SubmitOptions): NativeExternalSig
   return out
 }
 
+function nativeSubmitOptions(
+  options: Pick<SubmitOptions, 'waitForInclusion' | 'waitForFinalization' | 'timeoutMs'>,
+): NativeSubmitOptions {
+  const out: NativeSubmitOptions = {}
+  if (options.waitForFinalization === true) out.waitForFinalization = true
+  else if (options.waitForInclusion === true) out.waitForInclusion = true
+  if (options.timeoutMs != null) out.timeoutMs = BigInt(nonNegativeSafeInteger(options.timeoutMs, 'timeoutMs'))
+  return out
+}
+
+function nonNegativeSafeInteger(value: unknown, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer`)
+  }
+  return parsed
+}
+
+function nativeCancellationForSignal(signal?: AbortSignal): NativeCancellationToken | undefined {
+  return signal == null ? undefined : createNativeCancellationToken()
+}
+
+function abortableNative<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+  cancellation?: NativeCancellationToken,
+): Promise<T> {
+  if (signal?.aborted) {
+    cancellation?.cancel()
+    throw new RequestAbortedError()
+  }
+  if (signal == null) return promise
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      cleanup()
+      cancellation?.cancel()
+      reject(new RequestAbortedError())
+    }
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    signal.addEventListener('abort', abort, { once: true })
+    promise.then(
+      (value) => {
+        cleanup()
+        resolve(value)
+      },
+      (error) => {
+        cleanup()
+        reject(error)
+      },
+    )
+  })
+}
+
+function joinedAbortSignal(left?: AbortSignal, right?: AbortSignal): AbortSignal | undefined {
+  if (left == null) return right
+  if (right == null) return left
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  if (left.aborted || right.aborted) abort()
+  else {
+    left.addEventListener('abort', abort, { once: true })
+    right.addEventListener('abort', abort, { once: true })
+  }
+  return controller.signal
+}
+
 function nativePlanSignerContext(
   client: ChainClient,
   runtime: Runtime,
@@ -3833,22 +3912,6 @@ function nativeChainInfoToChainInfo(info: NativeChainInfo): ChainInfo {
     base58Prefix: info.base58Prefix,
     decimals: info.decimals,
     tokenSymbol: info.tokenSymbol,
-  }
-}
-
-function assertNativeSubmitOptions(options: SubmitOptions): void {
-  if (options.signal != null || options.timeoutMs != null) {
-    throw new ChainError(
-      'native Rust transaction execution does not support signal or timeoutMs; use submitSigned()/watchSigned() for custom transport cancellation',
-    )
-  }
-}
-
-function assertNativeWatchOptions(options: Pick<SubmitOptions, 'signal' | 'timeoutMs'>): void {
-  if (options.signal != null || options.timeoutMs != null) {
-    throw new ChainError(
-      'native Rust submit-and-watch does not support signal or timeoutMs; use BrowserChainClient for custom transport cancellation',
-    )
   }
 }
 

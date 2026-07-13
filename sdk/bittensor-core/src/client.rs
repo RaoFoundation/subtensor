@@ -10,8 +10,8 @@
 #![allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,10 +29,18 @@ use crate::runtime::type_string::TypeSpec;
 use crate::runtime::{Runtime, RuntimeApiMethodInfo, StorageInfo};
 
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
+pub const DEFAULT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
 pub const DEFAULT_ERA_PERIOD: u64 = 64;
 const STORAGE_PAGE_SIZE: u64 = 1_000;
 const RAO_PER_TAO: u128 = 1_000_000_000;
+const NONCE_RETRY_LIMIT: usize = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxWait {
+    Submitted,
+    Included,
+    Finalized,
+}
 
 /// A decoded block header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,12 +147,16 @@ impl Default for ExternalSigningOptions {
 }
 
 /// Fully specified transaction signing plan for external signers.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExternalSigningPlan {
     pub call_data: Vec<u8>,
     pub signer_address: String,
     pub public_key: [u8; 32],
     pub crypto_type: u8,
+    pub runtime: Arc<Runtime>,
+    pub runtime_spec_version: u32,
+    pub runtime_transaction_version: u32,
+    pub reserved_nonce: bool,
     pub params: TxParams,
     pub payload: Vec<u8>,
     pub included_in_extrinsic: Vec<u8>,
@@ -197,10 +209,12 @@ fn classify_inclusion_finalization(
 
 /// The native Bittensor chain client.
 pub struct Client {
-    endpoint: String,
+    endpoints: Vec<String>,
+    active_endpoint: RwLock<usize>,
     http: HttpClient,
     next_id: AtomicU64,
     runtime: RwLock<Arc<Runtime>>,
+    nonce_reservations: Mutex<HashMap<String, u64>>,
     genesis_hash: [u8; 32],
     ss58_format: u16,
 }
@@ -209,20 +223,51 @@ impl Client {
     /// Connect to a Substrate JSON-RPC endpoint. Websocket URLs are accepted for
     /// compatibility and are mapped to HTTP on the same host/port.
     pub fn connect(endpoint: impl Into<String>) -> Result<Self, CoreError> {
-        let endpoint = http_endpoint(&endpoint.into());
+        Self::connect_many([endpoint.into()])
+    }
+
+    /// Connect to the first healthy endpoint, retaining the full ordered list
+    /// for later failover. Websocket URLs are accepted for compatibility and
+    /// are mapped to HTTP on the same host/port.
+    pub fn connect_many<I, S>(endpoints: I) -> Result<Self, CoreError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let endpoints = normalized_endpoints(endpoints)?;
         let http = HttpClient::builder()
             .timeout(DEFAULT_RPC_TIMEOUT)
             .build()
             .map_err(|error| CoreError::Rpc(format!("cannot build HTTP client: {error}")))?;
-        let bootstrap = RpcBootstrap {
-            endpoint: endpoint.clone(),
-            http: http.clone(),
-            next_id: AtomicU64::new(1),
+        let mut last_error = None;
+        let mut bootstrap_result = None;
+        for (index, endpoint) in endpoints.iter().enumerate() {
+            let bootstrap = RpcBootstrap {
+                endpoint: endpoint.clone(),
+                http: http.clone(),
+                next_id: AtomicU64::new(1),
+            };
+            let result = (|| {
+                let ss58_format = bootstrap.ss58_format()?;
+                let version = bootstrap.runtime_version()?;
+                let metadata = bootstrap.metadata()?;
+                let genesis_hash = parse_h256(&bootstrap.block_hash(Some(0))?)?;
+                Ok((index, ss58_format, version, metadata, genesis_hash))
+            })();
+            match result {
+                Ok(result) => {
+                    bootstrap_result = Some(result);
+                    break;
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        let Some((active_index, ss58_format, version, metadata, genesis_hash)) = bootstrap_result
+        else {
+            return Err(
+                last_error.unwrap_or_else(|| CoreError::Rpc("no endpoints supplied".into()))
+            );
         };
-        let ss58_format = bootstrap.ss58_format()?;
-        let version = bootstrap.runtime_version()?;
-        let metadata = bootstrap.metadata()?;
-        let genesis_hash = parse_h256(&bootstrap.block_hash(Some(0))?)?;
         let runtime = Runtime::parse(
             &metadata,
             version.spec_version,
@@ -230,17 +275,19 @@ impl Client {
             ss58_format,
         )?;
         Ok(Self {
-            endpoint,
+            endpoints,
+            active_endpoint: RwLock::new(active_index),
             http,
             next_id: AtomicU64::new(100),
             runtime: RwLock::new(Arc::new(runtime)),
+            nonce_reservations: Mutex::new(HashMap::new()),
             genesis_hash,
             ss58_format,
         })
     }
 
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
+    pub fn endpoint(&self) -> String {
+        self.active_endpoint()
     }
 
     /// Stable names of the typed read helpers supplied by the native SDK.
@@ -287,13 +334,49 @@ impl Client {
             .map(|runtime| Arc::clone(&runtime))
     }
 
+    fn active_endpoint(&self) -> String {
+        let index = self.active_endpoint.read().map(|guard| *guard).unwrap_or(0);
+        self.endpoints
+            .get(index)
+            .cloned()
+            .or_else(|| self.endpoints.first().cloned())
+            .unwrap_or_default()
+    }
+
+    fn set_active_endpoint(&self, index: usize) -> Result<(), CoreError> {
+        let mut guard = self
+            .active_endpoint
+            .write()
+            .map_err(|_| CoreError::Rpc("endpoint lock is poisoned".into()))?;
+        *guard = index;
+        Ok(())
+    }
+
+    fn endpoint_order(&self) -> Vec<(usize, String)> {
+        let active = self.active_endpoint.read().map(|guard| *guard).unwrap_or(0);
+        (0..self.endpoints.len())
+            .map(|offset| {
+                let index = (active + offset) % self.endpoints.len();
+                (index, self.endpoints[index].clone())
+            })
+            .collect()
+    }
+
+    pub fn current_runtime(&self) -> Result<Arc<Runtime>, CoreError> {
+        self.ensure_runtime_current()?;
+        self.runtime()
+    }
+
     /// Refresh metadata after a runtime upgrade. Returns true when the cached
     /// runtime changed.
     pub fn refresh_runtime(&self) -> Result<bool, CoreError> {
         let version = self.runtime_version()?;
-        let current = self.runtime()?;
-        if current.spec_version == version.spec_version
-            && current.transaction_version == version.transaction_version
+        let mut guard = self
+            .runtime
+            .write()
+            .map_err(|_| CoreError::Rpc("runtime metadata lock is poisoned".into()))?;
+        if guard.spec_version == version.spec_version
+            && guard.transaction_version == version.transaction_version
         {
             return Ok(false);
         }
@@ -304,23 +387,43 @@ impl Client {
             version.transaction_version,
             self.ss58_format,
         )?;
-        let mut guard = self
-            .runtime
-            .write()
-            .map_err(|_| CoreError::Rpc("runtime metadata lock is poisoned".into()))?;
         *guard = Arc::new(next);
         Ok(true)
     }
 
+    fn ensure_runtime_current(&self) -> Result<bool, CoreError> {
+        let version = self.runtime_version()?;
+        let current = self.runtime()?;
+        if current.spec_version == version.spec_version
+            && current.transaction_version == version.transaction_version
+        {
+            return Ok(false);
+        }
+        self.refresh_runtime()
+    }
+
     /// Escape hatch for node RPCs not yet wrapped by the SDK.
     pub fn rpc_value(&self, method: &str, params: JsonValue) -> Result<JsonValue, CoreError> {
-        rpc_request(
-            &self.http,
-            &self.endpoint,
-            self.next_id.fetch_add(1, Ordering::Relaxed),
-            method,
-            params,
-        )
+        let mut last_error = None;
+        for (index, endpoint) in self.endpoint_order() {
+            match rpc_request(
+                &self.http,
+                &endpoint,
+                self.next_id.fetch_add(1, Ordering::Relaxed),
+                method,
+                params.clone(),
+            ) {
+                Ok(value) => {
+                    self.set_active_endpoint(index)?;
+                    return Ok(value);
+                }
+                Err(error) if is_transport_rpc_error(&error) => {
+                    last_error = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| CoreError::Rpc("all endpoints failed".into())))
     }
 
     fn runtime_version(&self) -> Result<RuntimeVersion, CoreError> {
@@ -431,15 +534,17 @@ impl Client {
         function: &str,
         params: &Value,
     ) -> Result<Vec<u8>, CoreError> {
-        self.runtime()?.compose_call(pallet, function, params)
+        self.current_runtime()?
+            .compose_call(pallet, function, params)
     }
 
     pub fn decode_call(&self, data: &[u8]) -> Result<Value, CoreError> {
-        self.runtime()?.decode_spec(&TypeSpec::Call, data, true)
+        self.current_runtime()?
+            .decode_spec(&TypeSpec::Call, data, true)
     }
 
     pub fn decode_scale(&self, type_name: &str, data: &[u8]) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         if type_name == "Call" {
             return runtime.decode_spec(&TypeSpec::Call, data, true);
         }
@@ -450,7 +555,7 @@ impl Client {
     }
 
     pub fn constant(&self, pallet: &str, name: &str) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         let info = runtime
             .constant(pallet, name)
             .cloned()
@@ -465,7 +570,11 @@ impl Client {
         params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = if block_hash.is_some() {
+            self.runtime()?
+        } else {
+            self.current_runtime()?
+        };
         let info = storage_info(&runtime, pallet, storage)?;
         let key = runtime.storage_key(&info, params)?;
         let raw = self.storage_raw(&key, block_hash)?;
@@ -482,7 +591,11 @@ impl Client {
         if param_sets.is_empty() {
             return Ok(Vec::new());
         }
-        let runtime = self.runtime()?;
+        let runtime = if block_hash.is_some() {
+            self.runtime()?
+        } else {
+            self.current_runtime()?
+        };
         let info = storage_info(&runtime, pallet, storage)?;
         let mut keys = Vec::with_capacity(param_sets.len());
         for params in param_sets {
@@ -502,7 +615,11 @@ impl Client {
         fixed_params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Vec<(Value, Value)>, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = if block_hash.is_some() {
+            self.runtime()?
+        } else {
+            self.current_runtime()?
+        };
         let info = storage_info(&runtime, pallet, storage)?;
         if fixed_params.len() > info.key_types.len() {
             return Err(CoreError::Codec(format!(
@@ -534,7 +651,11 @@ impl Client {
         params: &[Value],
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = if block_hash.is_some() {
+            self.runtime()?
+        } else {
+            self.current_runtime()?
+        };
         let method_info = runtime_api_method(&runtime, api, method)?.clone();
         if method_info.inputs.len() != params.len() {
             return Err(CoreError::Codec(format!(
@@ -560,13 +681,55 @@ impl Client {
     }
 
     pub fn account_next_index(&self, address: &str) -> Result<u64, CoreError> {
+        self.account_next_index_remote(address)
+    }
+
+    fn account_next_index_remote(&self, address: &str) -> Result<u64, CoreError> {
         let value = self.rpc_value("system_accountNextIndex", json!([address]))?;
         json_u64(&value)
     }
 
+    fn reserve_nonce(&self, address: &str) -> Result<u64, CoreError> {
+        let chain_next = self.account_next_index_remote(address)?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        let nonce = reservations
+            .get(address)
+            .copied()
+            .unwrap_or(chain_next)
+            .max(chain_next);
+        reservations.insert(address.to_owned(), nonce.saturating_add(1));
+        Ok(nonce)
+    }
+
+    fn commit_nonce(&self, address: &str, nonce: u64) -> Result<(), CoreError> {
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        let next = nonce.saturating_add(1);
+        reservations
+            .entry(address.to_owned())
+            .and_modify(|reserved| *reserved = (*reserved).max(next))
+            .or_insert(next);
+        Ok(())
+    }
+
+    fn invalidate_nonce(&self, address: &str) -> Result<(), CoreError> {
+        let chain_next = self.account_next_index_remote(address)?;
+        let mut reservations = self
+            .nonce_reservations
+            .lock()
+            .map_err(|_| CoreError::Rpc("nonce reservation lock is poisoned".into()))?;
+        reservations.insert(address.to_owned(), chain_next);
+        Ok(())
+    }
+
     /// Chain constants used for RFC-0078 metadata hashes and Ledger proofs.
     pub fn chain_info(&self) -> Result<ChainInfo, CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         self.chain_info_for_runtime(&runtime)
     }
 
@@ -607,7 +770,7 @@ impl Client {
     ) -> Result<(TxParams, Option<ChainInfo>), CoreError> {
         let nonce = match options.nonce {
             Some(nonce) => nonce,
-            None => self.account_next_index(&signer.ss58_address)?,
+            None => self.reserve_nonce(&signer.ss58_address)?,
         };
         let current = self.block_number()?;
         let (era, era_block_hash) = match options.period {
@@ -684,7 +847,8 @@ impl Client {
                 "signer public key does not match signer address".into(),
             ));
         }
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
+        let reserved_nonce = options.nonce.is_none();
         let (params, chain_info) = self.tx_params_for_external(&runtime, &signer, options)?;
         let (included_in_extrinsic, included_in_signed_data) =
             runtime.signature_payload_parts(&params)?;
@@ -723,6 +887,10 @@ impl Client {
             signer_address: signer.ss58_address,
             public_key: signer.public_key,
             crypto_type: signer.crypto_type,
+            runtime: Arc::clone(&runtime),
+            runtime_spec_version: runtime.spec_version,
+            runtime_transaction_version: runtime.transaction_version,
+            reserved_nonce,
             params,
             payload,
             included_in_extrinsic,
@@ -739,9 +907,8 @@ impl Client {
         &self,
         plan: &ExternalSigningPlan,
     ) -> Result<u128, CoreError> {
-        let runtime = self.runtime()?;
         self.estimate_fee_for_plan(
-            &runtime,
+            &plan.runtime,
             &plan.call_data,
             plan.public_key,
             plan.crypto_type,
@@ -791,8 +958,7 @@ impl Client {
                 "external signature does not verify against the Rust signing plan".into(),
             ));
         }
-        let runtime = self.runtime()?;
-        let (extrinsic, hash) = runtime.encode_signed_extrinsic(
+        let (extrinsic, hash) = plan.runtime.encode_signed_extrinsic(
             &plan.call_data,
             plan.public_key,
             signature,
@@ -807,10 +973,46 @@ impl Client {
         plan: &ExternalSigningPlan,
         signature: &[u8],
         crypto_type: Option<u8>,
-        wait_for_finalization: bool,
+        wait: TxWait,
+        timeout: Duration,
     ) -> Result<TxOutcome, CoreError> {
+        self.submit_external_with_cancel(plan, signature, crypto_type, wait, timeout, None)
+    }
+
+    pub fn submit_external_with_cancel(
+        &self,
+        plan: &ExternalSigningPlan,
+        signature: &[u8],
+        crypto_type: Option<u8>,
+        wait: TxWait,
+        timeout: Duration,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<TxOutcome, CoreError> {
+        if let Err(error) = check_cancelled_before_submission(cancelled) {
+            if plan.reserved_nonce {
+                self.invalidate_nonce(&plan.signer_address)?;
+            }
+            return Err(error);
+        }
         let (extrinsic, hash) = self.assemble_external_extrinsic(plan, signature, crypto_type)?;
-        self.submit_encoded(&extrinsic, hash, wait_for_finalization)
+        let outcome = match self
+            .submit_encoded_with_wait_cancelled(&extrinsic, hash, wait, timeout, cancelled)
+        {
+            Ok(outcome) => outcome,
+            Err(error) if plan.reserved_nonce && is_cancelled_before_submission_error(&error) => {
+                self.invalidate_nonce(&plan.signer_address)?;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        if plan.reserved_nonce {
+            if is_nonce_pool_rejection(&outcome) {
+                self.invalidate_nonce(&plan.signer_address)?;
+            } else if outcome.block_hash.is_some() {
+                self.commit_nonce(&plan.signer_address, plan.params.nonce)?;
+            }
+        }
+        Ok(outcome)
     }
 
     /// Sign without submitting. Returns `(encoded extrinsic, 0x hash)`.
@@ -821,7 +1023,7 @@ impl Client {
         nonce: u64,
         period: Option<u64>,
     ) -> Result<(Vec<u8>, String), CoreError> {
-        let runtime = self.runtime()?;
+        let runtime = self.current_runtime()?;
         let current = self.block_number()?;
         let (era, era_block_hash) = match period {
             Some(period) if period > 0 => {
@@ -895,14 +1097,58 @@ impl Client {
         signer: &Keypair,
         nonce: Option<u64>,
         period: Option<u64>,
-        wait_for_finalization: bool,
+        wait: TxWait,
+        timeout: Duration,
     ) -> Result<TxOutcome, CoreError> {
-        let nonce = match nonce {
-            Some(nonce) => nonce,
-            None => self.account_next_index(&signer.ss58_address())?,
-        };
-        let (extrinsic, hash) = self.sign_extrinsic(call_data, signer, nonce, period)?;
-        self.submit_encoded(&extrinsic, hash, wait_for_finalization)
+        self.submit_with_cancel(call_data, signer, nonce, period, wait, timeout, None)
+    }
+
+    pub fn submit_with_cancel(
+        &self,
+        call_data: &[u8],
+        signer: &Keypair,
+        nonce: Option<u64>,
+        period: Option<u64>,
+        wait: TxWait,
+        timeout: Duration,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<TxOutcome, CoreError> {
+        let address = signer.ss58_address();
+        let explicit_nonce = nonce.is_some();
+        let mut last = None;
+        for _ in 0..NONCE_RETRY_LIMIT {
+            check_cancelled(cancelled)?;
+            let nonce = match nonce {
+                Some(nonce) => nonce,
+                None => self.reserve_nonce(&address)?,
+            };
+            let (extrinsic, hash) = self.sign_extrinsic(call_data, signer, nonce, period)?;
+            let outcome = match self
+                .submit_encoded_with_wait_cancelled(&extrinsic, hash, wait, timeout, cancelled)
+            {
+                Ok(outcome) => outcome,
+                Err(error) if !explicit_nonce && is_cancelled_before_submission_error(&error) => {
+                    self.invalidate_nonce(&address)?;
+                    return Err(error);
+                }
+                Err(error) => return Err(error),
+            };
+            if is_nonce_pool_rejection(&outcome) && !explicit_nonce {
+                self.invalidate_nonce(&address)?;
+                last = Some(outcome);
+                continue;
+            }
+            if !is_nonce_pool_rejection(&outcome) && outcome.block_hash.is_some() {
+                self.commit_nonce(&address, nonce)?;
+            }
+            return Ok(outcome);
+        }
+        Ok(last.unwrap_or_else(|| {
+            TxOutcome::pool_rejection(
+                String::new(),
+                "transaction rejected after nonce retries".into(),
+            )
+        }))
     }
 
     pub fn submit_encoded(
@@ -911,8 +1157,44 @@ impl Client {
         expected_hash: String,
         wait_for_finalization: bool,
     ) -> Result<TxOutcome, CoreError> {
-        let start_block = self.block_number()?;
+        self.submit_encoded_with_wait(
+            extrinsic,
+            expected_hash,
+            if wait_for_finalization {
+                TxWait::Finalized
+            } else {
+                TxWait::Included
+            },
+            DEFAULT_RECEIPT_TIMEOUT,
+        )
+    }
+
+    pub fn submit_encoded_with_wait(
+        &self,
+        extrinsic: &[u8],
+        expected_hash: String,
+        wait: TxWait,
+        timeout: Duration,
+    ) -> Result<TxOutcome, CoreError> {
+        self.submit_encoded_with_wait_cancelled(extrinsic, expected_hash, wait, timeout, None)
+    }
+
+    pub fn submit_encoded_with_wait_cancelled(
+        &self,
+        extrinsic: &[u8],
+        expected_hash: String,
+        wait: TxWait,
+        timeout: Duration,
+        cancelled: Option<&AtomicBool>,
+    ) -> Result<TxOutcome, CoreError> {
+        check_cancelled_before_submission(cancelled)?;
+        let start_block = if wait == TxWait::Submitted {
+            0
+        } else {
+            self.block_number()?
+        };
         let xt_hex = hex_prefixed(extrinsic);
+        check_cancelled_before_submission(cancelled)?;
         let submitted = match self.rpc_value("author_submitExtrinsic", json!([xt_hex])) {
             Ok(value) => value,
             Err(error) => {
@@ -922,12 +1204,27 @@ impl Client {
         let submitted_hash = submitted
             .as_str()
             .map_or(expected_hash, ToString::to_string);
+        if wait == TxWait::Submitted {
+            return Ok(TxOutcome {
+                success: true,
+                extrinsic_hash: submitted_hash,
+                block_hash: None,
+                block_number: None,
+                extrinsic_index: None,
+                fee_rao: None,
+                events: Vec::new(),
+                error: None,
+                message: "Submitted".into(),
+                data: BTreeMap::new(),
+            });
+        }
         self.wait_for_inclusion(
             extrinsic,
             submitted_hash,
             start_block,
-            wait_for_finalization,
-            DEFAULT_RECEIPT_TIMEOUT,
+            wait == TxWait::Finalized,
+            timeout,
+            cancelled,
         )
     }
 
@@ -956,7 +1253,12 @@ impl Client {
             signer,
             Some(nonce),
             Some(DEFAULT_ERA_PERIOD),
-            wait_for_finalization,
+            if wait_for_finalization {
+                TxWait::Finalized
+            } else {
+                TxWait::Included
+            },
+            DEFAULT_RECEIPT_TIMEOUT,
         )?;
         if result.success {
             result.data.insert("shielded".into(), Value::Bool(true));
@@ -1214,6 +1516,7 @@ impl Client {
         start_block: u64,
         wait_for_finalization: bool,
         timeout: Duration,
+        cancelled: Option<&AtomicBool>,
     ) -> Result<TxOutcome, CoreError> {
         let deadline = Instant::now() + timeout;
         let xt_hex = hex_prefixed(extrinsic).to_ascii_lowercase();
@@ -1223,13 +1526,21 @@ impl Client {
             .unwrap_or_else(|_| Duration::from_millis(250))
             .min(Duration::from_secs(1));
         'track_inclusion: while Instant::now() < deadline {
+            check_cancelled(cancelled)?;
             let head = self.block_number()?;
             while next_block <= head {
+                check_cancelled(cancelled)?;
                 let included_at = next_block;
                 let block_hash = self.block_hash(Some(included_at))?;
                 if let Some(index) = self.find_extrinsic(&block_hash, &xt_hex)? {
                     if wait_for_finalization {
-                        match self.wait_until_finalized(&block_hash, included_at, deadline, poll)? {
+                        match self.wait_until_finalized(
+                            &block_hash,
+                            included_at,
+                            deadline,
+                            poll,
+                            cancelled,
+                        )? {
                             InclusionFinalization::Finalized => {}
                             InclusionFinalization::Reorged => {
                                 // The old inclusion block is no longer canonical.
@@ -1244,7 +1555,7 @@ impl Client {
                 }
                 next_block = next_block.saturating_add(1);
             }
-            thread::sleep(poll);
+            sleep_or_cancel(poll, cancelled)?;
         }
         Ok(TxOutcome::pool_rejection(
             hash,
@@ -1280,8 +1591,10 @@ impl Client {
         included_at: u64,
         deadline: Instant,
         poll: Duration,
+        cancelled: Option<&AtomicBool>,
     ) -> Result<InclusionFinalization, CoreError> {
         while Instant::now() < deadline {
+            check_cancelled(cancelled)?;
             // Fetch finality first, then the canonical hash at the inclusion
             // height. Once finality has reached that height, the best chain must
             // contain the same finalized ancestor at that height.
@@ -1296,7 +1609,7 @@ impl Client {
             ) {
                 return Ok(status);
             }
-            thread::sleep(poll);
+            sleep_or_cancel(poll, cancelled)?;
         }
         Err(CoreError::Rpc(format!(
             "block {included_at} ({inclusion_hash}) was included but not finalized before the receipt timeout"
@@ -1624,6 +1937,89 @@ fn http_endpoint(endpoint: &str) -> String {
         return format!("https://{rest}");
     }
     endpoint.to_string()
+}
+
+fn normalized_endpoints<I, S>(endpoints: I) -> Result<Vec<String>, CoreError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut out = Vec::new();
+    for endpoint in endpoints {
+        let endpoint = endpoint.into();
+        let endpoint = http_endpoint(endpoint.trim());
+        if endpoint.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|candidate| candidate == &endpoint) {
+            out.push(endpoint);
+        }
+    }
+    if out.is_empty() {
+        return Err(CoreError::Rpc("no endpoints supplied".into()));
+    }
+    Ok(out)
+}
+
+fn is_transport_rpc_error(error: &CoreError) -> bool {
+    let CoreError::Rpc(message) = error else {
+        return false;
+    };
+    message.contains(" request failed:")
+        || message.contains(" HTTP error:")
+        || message.contains(" returned invalid JSON:")
+        || message.contains(" response omitted result")
+}
+
+fn is_nonce_pool_rejection(outcome: &TxOutcome) -> bool {
+    !outcome.success
+        && outcome.block_hash.is_none()
+        && is_nonce_pool_error_message(&outcome.message)
+}
+
+fn is_nonce_pool_error_message(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("stale")
+        || normalized.contains("future")
+        || normalized.contains("priority is too low")
+        || normalized.contains("priority too low")
+        || normalized.contains("invalid transaction")
+            && normalized.contains("payment")
+            && normalized.contains("nonce")
+}
+
+fn check_cancelled(cancelled: Option<&AtomicBool>) -> Result<(), CoreError> {
+    if cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Relaxed)) {
+        Err(CoreError::Rpc("operation cancelled".into()))
+    } else {
+        Ok(())
+    }
+}
+
+fn check_cancelled_before_submission(cancelled: Option<&AtomicBool>) -> Result<(), CoreError> {
+    if cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Relaxed)) {
+        Err(CoreError::Rpc(
+            "operation cancelled before submission".into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn is_cancelled_before_submission_error(error: &CoreError) -> bool {
+    matches!(error, CoreError::Rpc(message) if message == "operation cancelled before submission")
+}
+
+fn sleep_or_cancel(duration: Duration, cancelled: Option<&AtomicBool>) -> Result<(), CoreError> {
+    let deadline = Instant::now() + duration;
+    loop {
+        check_cancelled(cancelled)?;
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(());
+        }
+        thread::sleep((deadline - now).min(Duration::from_millis(50)));
+    }
 }
 
 fn parse_header_fields(value: &JsonValue) -> Result<(u64, String), CoreError> {

@@ -2,6 +2,7 @@ import native, {
   type NativeBlockHeader,
   type NativeChainInfo,
   type NativeClientHandle,
+  type NativeCancellationTokenHandle,
   type NativeExecutorHandle,
   type NativeExternalSigner,
   type NativeExternalSigningOptions,
@@ -12,6 +13,7 @@ import native, {
   type NativePolicyHandle,
   type NativePolicyOptions,
   type NativeSignedExtrinsic,
+  type NativeSubmitOptions,
   type NativeSubnetInfo,
   type NativeSwapQuote,
   type NativeTxOutcome,
@@ -26,6 +28,8 @@ import { Runtime } from './runtime'
 export type SignerRoleName = 'coldkey' | 'hotkey'
 export type SignerRoleLike = SignerRoleName | number
 
+export type NativeCancellationToken = NativeCancellationTokenHandle
+
 export const SignerRole = Object.freeze({
   Coldkey: native.NativeSignerRole.Coldkey,
   Hotkey: native.NativeSignerRole.Hotkey,
@@ -33,11 +37,16 @@ export const SignerRole = Object.freeze({
   hotkey: native.NativeSignerRole.Hotkey,
 })
 
+export function createNativeCancellationToken(): NativeCancellationToken {
+  return nativeCall(() => new native.NativeCancellationToken())
+}
+
 export interface PolicyOptions {
   maxFeeRao?: bigint | number | string | null
   maxSpendRao?: bigint | number | string | null
   allowedNetuids?: number[] | null
   allowRawCalls?: boolean | null
+  allowGlobal?: boolean | null
 }
 
 export interface RawCallOptions {
@@ -62,8 +71,16 @@ export class Policy {
     return this.native.allowRawCalls
   }
 
+  get allowGlobal(): boolean {
+    return this.native.allowGlobal
+  }
+
   withRawCalls(): Policy {
     return this.allowRawCalls ? this : new Policy({ ...this.options, allowRawCalls: true })
+  }
+
+  withGlobal(): Policy {
+    return this.allowGlobal ? this : new Policy({ ...this.options, allowGlobal: true })
   }
 
   hasOpaqueByteRestrictions(): boolean {
@@ -338,6 +355,10 @@ export class NativeChainClient {
     return new NativeChainClient(await nativeAsync(() => native.NativeClient.connect(endpoint)))
   }
 
+  static async connectEndpoints(endpoints: string[]): Promise<NativeChainClient> {
+    return new NativeChainClient(await nativeAsync(() => native.NativeClient.connectEndpoints(endpoints)))
+  }
+
   get endpoint(): string {
     return this.native.endpoint
   }
@@ -360,6 +381,10 @@ export class NativeChainClient {
 
   runtime(): Runtime {
     return Runtime.fromNativeHandle(nativeCall(() => this.native.runtime()))
+  }
+
+  rpcValue(method: string, params: unknown[] = []): Promise<unknown> {
+    return nativeAsync(() => this.native.rpcValue(method, params))
   }
 
   chainInfo(): Promise<NativeChainInfo> {
@@ -457,7 +482,8 @@ export class NativeChainClient {
     signer: Keypair,
     nonce?: bigint | number | null,
     period?: bigint | number | null,
-    waitForFinalization = false,
+    options?: NativeSubmitOptions | null,
+    cancellation?: NativeCancellationToken | null,
   ): Promise<NativeTxOutcome> {
     return nativeAsync(() =>
       this.native.submit(
@@ -465,13 +491,21 @@ export class NativeChainClient {
         nativeKeypairHandle(signer),
         nonce == null ? undefined : bigintValue(nonce, 'nonce'),
         period == null ? undefined : bigintValue(period, 'period'),
-        waitForFinalization,
+        options ?? undefined,
+        cancellation ?? undefined,
       ),
     )
   }
 
-  submitEncoded(extrinsic: Buffer, expectedHash: string, waitForFinalization = false): Promise<NativeTxOutcome> {
-    return nativeAsync(() => this.native.submitEncoded(extrinsic, expectedHash, waitForFinalization))
+  submitEncoded(
+    extrinsic: Buffer,
+    expectedHash: string,
+    options?: NativeSubmitOptions | null,
+    cancellation?: NativeCancellationToken | null,
+  ): Promise<NativeTxOutcome> {
+    return nativeAsync(() =>
+      this.native.submitEncoded(extrinsic, expectedHash, options ?? undefined, cancellation ?? undefined),
+    )
   }
 
   externalSigningPlan(
@@ -537,11 +571,18 @@ export class NativeChainClient {
   submitExternal(
     plan: NativeExternalSigningPlanHandle,
     signature: Buffer,
-    waitForFinalization = false,
+    options?: NativeSubmitOptions | null,
     cryptoType?: number | null,
+    cancellation?: NativeCancellationToken | null,
   ): Promise<NativeTxOutcome> {
     return nativeAsync(() =>
-      this.native.submitExternal(plan, signature, waitForFinalization, cryptoType ?? undefined),
+      this.native.submitExternal(
+        plan,
+        signature,
+        options ?? undefined,
+        cryptoType ?? undefined,
+        cancellation ?? undefined,
+      ),
     )
   }
 
@@ -652,6 +693,7 @@ function policyOptionsToNative(options: PolicyOptions): NativePolicyOptions {
     maxSpendRao: options.maxSpendRao == null ? undefined : bigintValue(options.maxSpendRao, 'maxSpendRao'),
     allowedNetuids: options.allowedNetuids ?? undefined,
     allowRawCalls: options.allowRawCalls ?? undefined,
+    allowGlobal: options.allowGlobal ?? undefined,
   }
 }
 
@@ -661,6 +703,7 @@ function normalizePolicyOptions(options: PolicyOptions): PolicyOptions {
     maxSpendRao: options.maxSpendRao ?? undefined,
     allowedNetuids: options.allowedNetuids == null ? undefined : [...options.allowedNetuids],
     allowRawCalls: options.allowRawCalls ?? undefined,
+    allowGlobal: options.allowGlobal ?? undefined,
   }
 }
 

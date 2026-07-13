@@ -1,19 +1,22 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use bittensor_core::client::{
     BlockHeader, DispatchError, ExternalSigner, ExternalSigningOptions, ExternalSigningPlan,
-    MetadataHashMode, SubnetInfo, SwapQuote, TxOutcome,
+    MetadataHashMode, SubnetInfo, SwapQuote, TxOutcome, TxWait, DEFAULT_RECEIPT_TIMEOUT,
 };
 use bittensor_core::codec::Value;
 use bittensor_core::digest::ChainInfo;
 use bittensor_core::transaction::{Executor, IntentCall, Plan, Policy, SignerRole, Spend, Wallet};
 use bittensor_core::{Client, CoreError};
-use napi::bindgen_prelude::{AsyncTask, BigInt, Buffer, Unknown};
-use napi::{Env, ScopedTask, Task};
+use napi::bindgen_prelude::{AsyncTask, BigInt, Buffer, PromiseRaw, Unknown};
+use napi::{Env, JsValue, ScopedTask, Task};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 
-use crate::errors::{invalid_arg, CoreResultExt, NapiResult};
+use crate::errors::{into_napi, invalid_arg, CoreResultExt, NapiResult};
 use crate::keys::NativeKeypair;
 use crate::runtime::{NativeRuntime, NativeSignerPayload, NativeTxParams};
 use crate::values::{from_wire, to_wire};
@@ -24,6 +27,14 @@ pub struct NativePolicyOptions {
     pub max_spend_rao: Option<BigInt>,
     pub allowed_netuids: Option<Vec<u16>>,
     pub allow_raw_calls: Option<bool>,
+    pub allow_global: Option<bool>,
+}
+
+#[napi(object)]
+pub struct NativeSubmitOptions {
+    pub wait_for_inclusion: Option<bool>,
+    pub wait_for_finalization: Option<bool>,
+    pub timeout_ms: Option<BigInt>,
 }
 
 #[napi(object)]
@@ -125,6 +136,31 @@ pub struct NativeExternalSigningPlan {
     pub(crate) inner: Arc<ExternalSigningPlan>,
 }
 
+#[napi]
+pub struct NativeCancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+#[napi]
+impl NativeCancellationToken {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[napi]
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    #[napi(getter)]
+    pub fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
 type ClientJob<T> = Box<dyn FnOnce(&Client) -> Result<T, CoreError> + Send + 'static>;
 
 fn task_already_completed() -> napi::Error {
@@ -167,7 +203,7 @@ macro_rules! client_task {
 }
 
 pub struct ClientConnectTask {
-    endpoint: String,
+    endpoints: Vec<String>,
 }
 
 impl Task for ClientConnectTask {
@@ -175,7 +211,7 @@ impl Task for ClientConnectTask {
     type JsValue = NativeClient;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
-        Client::connect(self.endpoint.clone()).napi()
+        Client::connect_many(self.endpoints.clone()).napi()
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
@@ -194,12 +230,6 @@ client_task!(ClientHeaderTask, BlockHeader, NativeBlockHeader, |value| {
 client_task!(ClientBytesTask, Vec<u8>, Buffer, |value: Vec<u8>| {
     Ok(value.into())
 });
-client_task!(
-    ClientTxOutcomeTask,
-    TxOutcome,
-    NativeTxOutcome,
-    outcome_to_native
-);
 client_task!(
     ClientSignedExtrinsicTask,
     (Vec<u8>, String),
@@ -229,6 +259,59 @@ client_task!(ClientSwapQuoteTask, SwapQuote, NativeSwapQuote, |value| {
 client_task!(ClientChainInfoTask, ChainInfo, NativeChainInfo, |value| {
     Ok(chain_info_to_native(value))
 });
+
+fn spawn_tx_outcome<F>(
+    env: &Env,
+    client: Arc<Client>,
+    cancellation: Option<&NativeCancellationToken>,
+    job: F,
+) -> NapiResult<PromiseRaw<'static, NativeTxOutcome>>
+where
+    F: FnOnce(&Client, Option<&AtomicBool>) -> Result<TxOutcome, CoreError> + Send + 'static,
+{
+    let cancelled = cancellation.map(|token| Arc::clone(&token.cancelled));
+    let (deferred, promise) = env.create_deferred::<NativeTxOutcome, _>()?;
+    let promise = PromiseRaw::new(env.raw(), promise.raw());
+    thread::spawn(move || {
+        let result = job(&client, cancelled.as_deref());
+        match result {
+            Ok(outcome) => deferred.resolve(move |_env| outcome_to_native(outcome)),
+            Err(error) => deferred.reject(into_napi(error)),
+        }
+    });
+    Ok(promise)
+}
+
+pub struct ClientJsonTask {
+    client: Arc<Client>,
+    job: Option<ClientJob<JsonValue>>,
+}
+
+impl ClientJsonTask {
+    fn new<F>(client: Arc<Client>, job: F) -> Self
+    where
+        F: FnOnce(&Client) -> Result<JsonValue, CoreError> + Send + 'static,
+    {
+        Self {
+            client,
+            job: Some(Box::new(job)),
+        }
+    }
+}
+
+impl<'task> ScopedTask<'task> for ClientJsonTask {
+    type Output = JsonValue;
+    type JsValue = Unknown<'task>;
+
+    fn compute(&mut self) -> napi::Result<Self::Output> {
+        let job = self.job.take().ok_or_else(task_already_completed)?;
+        job(&self.client).napi()
+    }
+
+    fn resolve(&mut self, env: &'task Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+        env.to_js_value(&output)
+    }
+}
 
 pub struct ClientWireValueTask {
     client: Arc<Client>,
@@ -379,6 +462,7 @@ impl NativePolicy {
                     .allowed_netuids
                     .map(|items| items.into_iter().collect()),
                 allow_raw_calls: options.allow_raw_calls.unwrap_or(false),
+                allow_global: options.allow_global.unwrap_or(false),
             },
         })
     }
@@ -386,6 +470,11 @@ impl NativePolicy {
     #[napi(getter)]
     pub fn allow_raw_calls(&self) -> bool {
         self.inner.allow_raw_calls
+    }
+
+    #[napi(getter, js_name = "allowGlobal")]
+    pub fn allow_global(&self) -> bool {
+        self.inner.allow_global
     }
 
     #[napi(js_name = "check")]
@@ -787,6 +876,11 @@ impl NativeExternalSigningPlan {
         self.inner.signer_payload.clone().into()
     }
 
+    #[napi(getter)]
+    pub fn runtime(&self) -> NativeRuntime {
+        NativeRuntime::from_arc(Arc::clone(&self.inner.runtime))
+    }
+
     #[napi(getter, js_name = "chainInfo")]
     pub fn chain_info(&self) -> Option<NativeChainInfo> {
         self.inner.chain_info.clone().map(chain_info_to_native)
@@ -795,6 +889,16 @@ impl NativeExternalSigningPlan {
     #[napi(getter, js_name = "feeRao")]
     pub fn fee_rao(&self) -> Option<String> {
         self.inner.fee_rao.map(|value| value.to_string())
+    }
+
+    #[napi(getter, js_name = "runtimeSpecVersion")]
+    pub fn runtime_spec_version(&self) -> u32 {
+        self.inner.runtime_spec_version
+    }
+
+    #[napi(getter, js_name = "runtimeTransactionVersion")]
+    pub fn runtime_transaction_version(&self) -> u32 {
+        self.inner.runtime_transaction_version
     }
 
     #[napi(getter)]
@@ -812,7 +916,14 @@ pub struct NativeClient {
 impl NativeClient {
     #[napi]
     pub fn connect(endpoint: String) -> AsyncTask<ClientConnectTask> {
-        AsyncTask::new(ClientConnectTask { endpoint })
+        AsyncTask::new(ClientConnectTask {
+            endpoints: vec![endpoint],
+        })
+    }
+
+    #[napi(js_name = "connectEndpoints")]
+    pub fn connect_endpoints(endpoints: Vec<String>) -> AsyncTask<ClientConnectTask> {
+        AsyncTask::new(ClientConnectTask { endpoints })
     }
 
     #[napi(getter)]
@@ -887,6 +998,18 @@ impl NativeClient {
     #[napi(js_name = "runtime")]
     pub fn runtime(&self) -> NapiResult<NativeRuntime> {
         self.inner.runtime().napi().map(NativeRuntime::from_arc)
+    }
+
+    #[napi(js_name = "rpcValue")]
+    pub fn rpc_value(
+        &self,
+        method: String,
+        params: JsonValue,
+    ) -> NapiResult<AsyncTask<ClientJsonTask>> {
+        Ok(AsyncTask::new(ClientJsonTask::new(
+            Arc::clone(&self.inner),
+            move |client| client.rpc_value(&method, params),
+        )))
     }
 
     #[napi(js_name = "chainInfo")]
@@ -1036,12 +1159,14 @@ impl NativeClient {
     #[napi(js_name = "submit")]
     pub fn submit(
         &self,
+        env: Env,
         call_data: Buffer,
         signer: &NativeKeypair,
         nonce: Option<BigInt>,
         period: Option<BigInt>,
-        wait_for_finalization: Option<bool>,
-    ) -> NapiResult<AsyncTask<ClientTxOutcomeTask>> {
+        options: Option<NativeSubmitOptions>,
+        cancellation: Option<&NativeCancellationToken>,
+    ) -> NapiResult<PromiseRaw<'static, NativeTxOutcome>> {
         let nonce = nonce
             .as_ref()
             .map(|value| bigint_u64("nonce", value))
@@ -1052,26 +1177,44 @@ impl NativeClient {
             .transpose()?;
         let call_data = call_data.to_vec();
         let signer = signer.inner.clone();
-        let wait_for_finalization = wait_for_finalization.unwrap_or(false);
-        Ok(AsyncTask::new(ClientTxOutcomeTask::new(
+        let (wait, timeout) = submit_options(options)?;
+        spawn_tx_outcome(
+            &env,
             Arc::clone(&self.inner),
-            move |client| client.submit(&call_data, &signer, nonce, period, wait_for_finalization),
-        )))
+            cancellation,
+            move |client, cancelled| {
+                client.submit_with_cancel(
+                    &call_data, &signer, nonce, period, wait, timeout, cancelled,
+                )
+            },
+        )
     }
 
     #[napi(js_name = "submitEncoded")]
     pub fn submit_encoded(
         &self,
+        env: Env,
         extrinsic: Buffer,
         expected_hash: String,
-        wait_for_finalization: Option<bool>,
-    ) -> AsyncTask<ClientTxOutcomeTask> {
+        options: Option<NativeSubmitOptions>,
+        cancellation: Option<&NativeCancellationToken>,
+    ) -> NapiResult<PromiseRaw<'static, NativeTxOutcome>> {
         let extrinsic = extrinsic.to_vec();
-        let wait_for_finalization = wait_for_finalization.unwrap_or(false);
-        AsyncTask::new(ClientTxOutcomeTask::new(
+        let (wait, timeout) = submit_options(options)?;
+        spawn_tx_outcome(
+            &env,
             Arc::clone(&self.inner),
-            move |client| client.submit_encoded(&extrinsic, expected_hash, wait_for_finalization),
-        ))
+            cancellation,
+            move |client, cancelled| {
+                client.submit_encoded_with_wait_cancelled(
+                    &extrinsic,
+                    expected_hash,
+                    wait,
+                    timeout,
+                    cancelled,
+                )
+            },
+        )
     }
 
     #[napi(js_name = "externalSigningPlan")]
@@ -1147,23 +1290,34 @@ impl NativeClient {
     #[napi(js_name = "submitExternal")]
     pub fn submit_external(
         &self,
+        env: Env,
         plan: &NativeExternalSigningPlan,
         signature: Buffer,
-        wait_for_finalization: Option<bool>,
+        options: Option<NativeSubmitOptions>,
         crypto_type: Option<u32>,
-    ) -> NapiResult<AsyncTask<ClientTxOutcomeTask>> {
+        cancellation: Option<&NativeCancellationToken>,
+    ) -> NapiResult<PromiseRaw<'static, NativeTxOutcome>> {
         let plan = Arc::clone(&plan.inner);
         let signature = signature.to_vec();
         let crypto_type = crypto_type
             .map(|value| u8::try_from(value).map_err(|_| invalid_arg("cryptoType must fit u8")))
             .transpose()?;
-        let wait_for_finalization = wait_for_finalization.unwrap_or(false);
-        Ok(AsyncTask::new(ClientTxOutcomeTask::new(
+        let (wait, timeout) = submit_options(options)?;
+        spawn_tx_outcome(
+            &env,
             Arc::clone(&self.inner),
-            move |client| {
-                client.submit_external(&plan, &signature, crypto_type, wait_for_finalization)
+            cancellation,
+            move |client, cancelled| {
+                client.submit_external_with_cancel(
+                    &plan,
+                    &signature,
+                    crypto_type,
+                    wait,
+                    timeout,
+                    cancelled,
+                )
             },
-        )))
+        )
     }
 
     #[napi(js_name = "balanceRao")]
@@ -1572,6 +1726,26 @@ fn external_signer(signer: NativeExternalSigner) -> NapiResult<ExternalSigner> {
         crypto_type,
         requires_metadata_proof: signer.requires_metadata_proof,
     })
+}
+
+fn submit_options(options: Option<NativeSubmitOptions>) -> NapiResult<(TxWait, Duration)> {
+    let Some(options) = options else {
+        return Ok((TxWait::Submitted, DEFAULT_RECEIPT_TIMEOUT));
+    };
+    let wait = if options.wait_for_finalization.unwrap_or(false) {
+        TxWait::Finalized
+    } else if options.wait_for_inclusion.unwrap_or(false) {
+        TxWait::Included
+    } else {
+        TxWait::Submitted
+    };
+    let timeout = options
+        .timeout_ms
+        .as_ref()
+        .map(|value| bigint_u64("timeoutMs", value).map(Duration::from_millis))
+        .transpose()?
+        .unwrap_or(DEFAULT_RECEIPT_TIMEOUT);
+    Ok((wait, timeout))
 }
 
 fn external_signing_options(

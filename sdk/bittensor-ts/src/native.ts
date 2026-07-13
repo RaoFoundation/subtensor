@@ -271,6 +271,7 @@ export interface NativePolicyOptions {
   maxSpendRao?: bigint | null
   allowedNetuids?: number[] | null
   allowRawCalls?: boolean | null
+  allowGlobal?: boolean | null
 }
 
 export interface NativePlan {
@@ -293,6 +294,21 @@ export interface NativeExternalSigningOptions {
   tipAssetId?: bigint | null
   metadataHashMode?: 'auto' | 'disabled' | 'explicit' | string | null
   metadataHash?: Buffer | null
+}
+
+export interface NativeSubmitOptions {
+  waitForInclusion?: boolean | null
+  waitForFinalization?: boolean | null
+  timeoutMs?: bigint | null
+}
+
+export interface NativeCancellationTokenHandle {
+  readonly cancelled: boolean
+  cancel(): void
+}
+
+export interface NativeCancellationTokenConstructor {
+  new(): NativeCancellationTokenHandle
 }
 
 export interface NativeExternalSigner {
@@ -321,10 +337,13 @@ export interface NativeExternalSigningPlanHandle {
   readonly includedInSignedData: Buffer
   readonly metadataHash?: Buffer | null
   readonly metadataProof?: Buffer | null
+  readonly runtime: NativeRuntimeHandle
   readonly txParams: NativeTxParams
   readonly signerPayload: NativeSignerPayload
   readonly chainInfo?: NativeChainInfo | null
   readonly feeRao?: string | null
+  readonly runtimeSpecVersion: number
+  readonly runtimeTransactionVersion: number
   readonly warnings: string[]
 }
 
@@ -350,6 +369,7 @@ export interface NativeTxOutcome {
 
 export interface NativePolicyHandle {
   readonly allowRawCalls: boolean
+  readonly allowGlobal: boolean
   check(intent: NativeIntentCallHandle, feeRao?: bigint | null): string[]
 }
 
@@ -452,6 +472,7 @@ export interface NativeClientHandle {
   readCatalog(): string[]
   refreshRuntime(): Promise<boolean>
   runtime(): NativeRuntimeHandle
+  rpcValue(method: string, params: unknown): Promise<unknown>
   chainInfo(): Promise<NativeChainInfo>
   composeCall(pallet: string, callFunction: string, params: unknown): Promise<Buffer>
   decodeScale(typeName: string, data: Buffer): unknown
@@ -473,12 +494,14 @@ export interface NativeClientHandle {
     signer: NativeKeypairHandle,
     nonce?: bigint | null,
     period?: bigint | null,
-    waitForFinalization?: boolean | null,
+    options?: NativeSubmitOptions | null,
+    cancellation?: NativeCancellationTokenHandle | null,
   ): Promise<NativeTxOutcome>
   submitEncoded(
     extrinsic: Buffer,
     expectedHash: string,
-    waitForFinalization?: boolean | null,
+    options?: NativeSubmitOptions | null,
+    cancellation?: NativeCancellationTokenHandle | null,
   ): Promise<NativeTxOutcome>
   externalSigningPlan(
     callData: Buffer,
@@ -500,8 +523,9 @@ export interface NativeClientHandle {
   submitExternal(
     plan: NativeExternalSigningPlanHandle,
     signature: Buffer,
-    waitForFinalization?: boolean | null,
+    options?: NativeSubmitOptions | null,
     cryptoType?: number | null,
+    cancellation?: NativeCancellationTokenHandle | null,
   ): Promise<NativeTxOutcome>
   balanceRao(address: string): Promise<string>
   existentialDepositRao(): Promise<string>
@@ -516,6 +540,7 @@ export interface NativeClientHandle {
 
 export interface NativeClientConstructor {
   connect(endpoint: string): Promise<NativeClientHandle>
+  connectEndpoints(endpoints: string[]): Promise<NativeClientHandle>
 }
 
 export interface NativeWalletHandle {}
@@ -555,6 +580,7 @@ export interface NativeBinding {
   NativePolicy: NativePolicyConstructor
   NativeIntentCall: NativeIntentCallConstructor
   NativeExternalSigningPlan: { readonly prototype: NativeExternalSigningPlanHandle }
+  NativeCancellationToken: NativeCancellationTokenConstructor
   NativeClient: NativeClientConstructor
   NativeWallet: NativeWalletConstructor
   NativeExecutor: NativeExecutorConstructor

@@ -885,6 +885,7 @@ const nativeClassInterfaces = {
   NativePolicy: { instance: 'NativePolicyHandle', statics: 'NativePolicyConstructor' },
   NativeIntentCall: { instance: 'NativeIntentCallHandle', statics: 'NativeIntentCallConstructor' },
   NativeExternalSigningPlan: { instance: 'NativeExternalSigningPlanHandle' },
+  NativeCancellationToken: { instance: 'NativeCancellationTokenHandle', statics: 'NativeCancellationTokenConstructor' },
   NativeClient: { instance: 'NativeClientHandle', statics: 'NativeClientConstructor' },
   NativeWallet: { instance: 'NativeWalletHandle', statics: 'NativeWalletConstructor' },
   NativeExecutor: { instance: 'NativeExecutorHandle', statics: 'NativeExecutorConstructor' },

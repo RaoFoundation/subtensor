@@ -4,7 +4,6 @@ import type { subtensor } from "@polkadot-api/descriptors";
 import { blake2_256, bytesToHex } from "@bittensor/sdk";
 import { keyringPairFromUri } from "./account.ts";
 import { waitForTransactionWithRetry } from "./transactions.js";
-import { MultiAddress } from "@polkadot-api/descriptors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -241,12 +240,11 @@ export async function computeNetAmount(
         //   alpha_to_tao ≈ floor(price * sell_alpha / 1e9)
         const sellTaoEquiv = (price * sellSideAlpha) / SCALE;
         return buySideTao - sellTaoEquiv;
-    } else {
-        // net_amount (alpha) = sell_alpha - tao_to_alpha(buy_tao, price)
-        //   tao_to_alpha ≈ floor(buy_tao * 1e9 / price)
-        const buyAlphaEquiv = (buySideTao * SCALE) / price;
-        return sellSideAlpha - buyAlphaEquiv;
     }
+    // net_amount (alpha) = sell_alpha - tao_to_alpha(buy_tao, price)
+    //   tao_to_alpha ≈ floor(buy_tao * 1e9 / price)
+    const buyAlphaEquiv = (buySideTao * SCALE) / price;
+    return sellSideAlpha - buyAlphaEquiv;
 }
 
 export async function executeBatchedOrders(
