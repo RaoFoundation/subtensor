@@ -137,6 +137,11 @@ describeSuite({
                 });
                 await waitForTransactionWithRetry(api, tx, signer, "substrate_to_evm");
 
+                // Frontier updates its latest-state view asynchronously after the
+                // Substrate transaction finalizes. Wait for the next finalized
+                // block before reading the mapped EVM balance.
+                await waitForFinalizedBlocks(api, 1);
+
                 const receiverBalanceAfter = await getEthBalance(provider, ethWallet.address);
                 expect(receiverBalanceAfter).toEqual(receiverBalance + raoToEth(transferBalance));
             },
