@@ -371,15 +371,29 @@ btcli tx transfer --dest 5F...dest --amount-tao 1.5 -w my_coldkey`}
             Every transaction can now be signed on a <strong>Ledger hardware wallet</strong>{' '}
             using clear signing. Through merkleized metadata, the device decodes the
             transaction on its own screen, and the chain verifies the same metadata digest that
-            was signed; the device rejects any transaction it cannot decode and verify. Setup
-            and usage are documented in{' '}
+            was signed; the device rejects any transaction it cannot decode and verify. Any
+            command that signs accepts the --ledger flag:
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli tx transfer --dest 5F...dest --amount-tao 1 --ledger
+btcli tx transfer --dest 5F...dest --amount-tao 1 --ledger --ledger-account 1`}
+          </pre>
+          <p>
+            Setup and usage are documented in{' '}
             <DocLink href='/docs/guides/ledger'>signing with a Ledger</DocLink>.
           </p>
           <p>
             Transactions can also be signed with a <strong>browser extension</strong> —
             Talisman, Polkadot.js, or SubWallet. The CLI relays the transaction to the
             extension through a local bridge, and only the signature is returned; no keyfile,
-            password, or mnemonic is present on the machine running btcli. See{' '}
+            password, or mnemonic is present on the machine running btcli:
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli extension accounts    # list accounts the extensions expose
+btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
+          </pre>
+          <p>
+            The full flow is documented in{' '}
             <DocLink href='/docs/guides/extension-signing'>
               signing with a browser extension
             </DocLink>
