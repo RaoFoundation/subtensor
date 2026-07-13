@@ -32,7 +32,7 @@ const page = () => {
         <section className={styles.title_section}>
           <p className={styles.paper_title}>The V430 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Written by Const, core dev @ Rao Foundation
+            Rao Foundation
           </p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             July 2026
@@ -42,52 +42,47 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>Introduction</p>
           <p>
-            Bittensor has just completed the largest upgrade in its history. I do not say that
-            lightly, and I do not mean it in the way every project means it when they ship a
-            version bump. I mean that more of the network&apos;s foundation moved in this single
-            release than in any release before it. The chain now runs
-            <strong> spec version 430</strong>. Subnet ownership is no longer a historical
-            accident — it is earned, on-chain, by whoever commits the most for the longest.
-            Emissions between subnets now follow one thing only: <i>what the market believes
-            each subnet is worth</i>. And the software that carries all of it — the chain, the
-            SDK, the command line, the documentation, this very website — now lives in one
-            repository, ships as one release, and installs as one package.
+            Bittensor has completed a major network upgrade. The chain now runs
+            <strong> spec version 430</strong>, and the release changes both the network&apos;s
+            economics and the software used to interact with it. Subnet ownership is now
+            contestable through a time-weighted commitment mechanism called{' '}
+            <DocLink href='/docs/guides/conviction'>conviction</DocLink>. Emission between
+            subnets is now allocated purely in proportion to each subnet&apos;s moving-average
+            price. The Python SDK and the btcli command line now ship together as{' '}
+            <strong>bittensor v11</strong>, built on a new Rust core. The documentation has
+            been rebuilt at <DocLink href='/docs'>bittensor.com/docs</DocLink>. And the chain,
+            SDK, CLI, documentation, and website are now developed and released together from a
+            single repository.
           </p>
           <p>
-            This page is my account of what changed and why it matters, and what — if anything —
-            you need to do about it. Every section links into the{' '}
-            <DocLink href='/docs'>new documentation</DocLink>, where the full detail lives.
+            This page explains each change, the reasoning behind it, and the actions required
+            of network participants. Each section links to the relevant documentation.
           </p>
         </section>
 
         <section className={styles.section}>
           <p className={styles.subtitle}>Ownership by conviction</p>
           <p>
-            When you lock alpha on a subnet, the locked amount accrues
-            <strong> conviction </strong>— a time-weighted measure of commitment, credited to
-            the hotkey of your choosing. Until this upgrade, conviction was a number the chain
-            recorded and did nothing with. As of v430 it has teeth:
+            Locking alpha on a subnet accrues <strong>conviction</strong>: a time-weighted
+            commitment score credited to a hotkey chosen by the locker. Prior to this upgrade,
+            conviction was recorded on-chain but had no effect. As of spec 430, it governs
+            subnet ownership:
           </p>
           <p>
             <strong>
-              If a subnet is more than a year old, and the total conviction across its lockers
-              exceeds ten percent of its outstanding alpha, the hotkey with the highest
-              conviction becomes the subnet&apos;s owner
+              If a subnet is more than one year old, and the total conviction across its
+              lockers exceeds ten percent of its outstanding alpha, ownership of the subnet —
+              including the owner&apos;s share of emissions — transfers to the hotkey with the
+              highest conviction.
             </strong>
-            {' '}— emissions cut and all.
           </p>
           <p>
-            Think about what this means. Owning a subnet is no longer a fact about the past —
-            it is a position that must be <i>defended</i>. The person most committed to a
-            subnet&apos;s future can now take stewardship of it, openly, through rules everyone
-            can read. Perpetual locks mature toward their full mass in roughly six weeks;
-            decaying locks — the default — rise and then unwind over roughly four months. This
-            is the network rewarding exactly the thing it has always wanted from its
-            participants: <strong>long-horizon alignment</strong>. Skin in the game, verifiable
-            on-chain.
-          </p>
-          <p>
-            The mechanics, the lock modes, and a worked example live in the{' '}
+            Subnet ownership is therefore no longer fixed at registration; it is contestable
+            through open, on-chain rules. Two lock modes are available. Perpetual locks mature
+            toward their full conviction mass in approximately six weeks. Decaying locks — the
+            default — accrue and then unwind over approximately four months. The mechanism is
+            designed to reward long-horizon commitment to a subnet&apos;s success. The lock
+            modes, the conviction formula, and a worked example are documented in the{' '}
             <DocLink href='/docs/guides/conviction'>conviction guide</DocLink>.
           </p>
         </section>
@@ -95,35 +90,35 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>Emissions, simplified</p>
           <p>
-            Every block, the chain divides its TAO emission between subnets. That split is now
-            driven purely by each subnet&apos;s <strong>moving average price</strong>, weighted
-            by a miner-burn penalty. The root-proportion term — which structurally squeezed
-            mature subnets as their alpha issuance grew, punishing them for the crime of
-            getting older — has been removed from the cross-subnet split. Root proportion still
-            does its job <i>within </i>each subnet, capping liquidity injection and reserving
-            the root stakers&apos; share of dividends. But between subnets, the market decides.
-            Full stop.
+            Each block, the chain divides TAO emission between subnets. As of this upgrade,
+            that division is determined solely by each subnet&apos;s
+            <strong> moving-average price</strong>, weighted by a miner-burn penalty. The
+            root-proportion term has been removed from the cross-subnet calculation.
+            Previously, this term reduced a subnet&apos;s emission share as its alpha issuance
+            grew, which structurally disadvantaged older subnets. Root proportion continues to
+            operate <i>within </i>each subnet — capping liquidity injection and reserving the
+            root stakers&apos; share of dividends — but it no longer affects how emission is
+            divided between subnets.
           </p>
           <p>
-            A subnet&apos;s emission is now a direct function of what people believe it is
-            worth. That is how it always should have been, and the formula is documented in{' '}
-            <DocLink href='/docs/concepts/emissions'>emissions</DocLink> for anyone who wants
-            to check my math.
+            The result is that a subnet&apos;s emission share is a direct function of its
+            market price. The full formula and its parameters are documented in{' '}
+            <DocLink href='/docs/concepts/emissions'>emissions</DocLink>.
           </p>
         </section>
 
         <section className={styles.section}>
           <p className={styles.subtitle}>One package: bittensor v11</p>
           <p>
-            <strong>pip install bittensor</strong>. That is the entire instruction now. The SDK
-            and the <strong>btcli </strong>command line ship in a single package, powered by a
-            new Rust core for keys, keyfiles, encoding, and timelock encryption. The separate
-            bittensor-cli and bittensor-wallet packages are superseded entirely. Your wallet
-            keyfiles are unchanged and fully compatible — we do not break wallets.
+            <strong>bittensor v11</strong> consolidates the SDK and the btcli command line into
+            a single package, installed with <strong>pip install bittensor</strong>. It
+            replaces the separate bittensor-cli and bittensor-wallet packages. Existing wallet
+            keyfiles are unchanged and fully compatible.
           </p>
           <p>
-            The Rust core was not a rewrite for its own sake, and we did not guess at the
-            benefit. We measured it, against the live network, before and after:
+            The package is built on a new Rust core covering keys, keyfiles, encoding, and
+            timelock encryption. The following measurements were taken against the live
+            network, before and after the change:
           </p>
           <table className={styles.metrics_table}>
             <thead>
@@ -157,32 +152,31 @@ const page = () => {
             </tbody>
           </table>
           <p>
-            I will be honest about what did not change: submission and inclusion are still bound
-            by the chain itself — twelve-second blocks do not care how fast your codec is. But
-            everything you actually <i>feel</i> — startup, metagraph pulls, batch construction —
-            got dramatically faster. v11 is also a major revision of the API: the old Subtensor
-            class gives way to a client-and-intent model with planning, policy gates, and typed
-            results. The <DocLink href='/docs/migration'>migration guide</DocLink> maps every
-            v9/v10 call to its v11 form, and the{' '}
-            <DocLink href='/docs/quickstart'>quickstart</DocLink> covers a fresh start.
+            Transaction submission and inclusion remain bound by chain block time; the
+            improvements are concentrated in startup, decoding, and construction. v11 is also a
+            major revision of the API: the Subtensor class is replaced by a client-and-intent
+            model with planning, policy gates, and typed results. The{' '}
+            <DocLink href='/docs/migration'>migration guide</DocLink> maps every v9/v10 call to
+            its v11 equivalent, and the{' '}
+            <DocLink href='/docs/quickstart'>quickstart</DocLink> covers new installations.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Sign with anything</p>
+          <p className={styles.subtitle}>Hardware and extension signing</p>
           <p>
-            Every transaction can now be signed on a <strong>Ledger hardware wallet</strong>.
-            And this is <i>clear signing</i>, not blind signing: through merkleized metadata,
-            the device decodes the actual transaction on its own screen, and the chain verifies
-            the same metadata digest that was signed. Nothing can show you &quot;transfer 1
-            TAO&quot; while signing something else — the device refuses anything it cannot
-            prove. See <DocLink href='/docs/guides/ledger'>signing with a Ledger</DocLink>.
+            Every transaction can now be signed on a <strong>Ledger hardware wallet</strong>{' '}
+            using clear signing. Through merkleized metadata, the device decodes the
+            transaction on its own screen, and the chain verifies the same metadata digest that
+            was signed; the device rejects any transaction it cannot decode and verify. Setup
+            and usage are documented in{' '}
+            <DocLink href='/docs/guides/ledger'>signing with a Ledger</DocLink>.
           </p>
           <p>
-            Prefer a <strong>browser extension</strong>? Talisman, Polkadot.js, and SubWallet
-            all work. The CLI relays the transaction to the extension through a local bridge;
-            only signatures flow back, so no keyfile, no password, and no mnemonic ever touches
-            the machine running btcli. See{' '}
+            Transactions can also be signed with a <strong>browser extension</strong> —
+            Talisman, Polkadot.js, or SubWallet. The CLI relays the transaction to the
+            extension through a local bridge, and only the signature is returned; no keyfile,
+            password, or mnemonic is present on the machine running btcli. See{' '}
             <DocLink href='/docs/guides/extension-signing'>
               signing with a browser extension
             </DocLink>
@@ -193,72 +187,67 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>Documentation, rebuilt</p>
           <p>
-            The documentation you are one click away from is new, and it holds itself to a
-            standard I have wanted for years: the reference for <strong>all 74
-            transactions </strong>and <strong>all 82 queries </strong>is generated from the SDK
-            itself, so it <i>cannot</i> drift from the software. It is written for humans and
-            for machines — agent catalogs and plain-text endpoints mean an AI coding assistant
-            can drive Bittensor natively. That last part matters more than most people realize
-            yet. Start at <DocLink href='/docs'>the documentation home</DocLink>, or point your
-            agent at <DocLink href='/docs/agents'>the agents page</DocLink>.
+            The documentation has been rebuilt and now lives at{' '}
+            <DocLink href='/docs'>bittensor.com/docs</DocLink>. The reference pages for{' '}
+            <strong>all 74 transactions </strong>and <strong>all 82 queries </strong>are
+            generated directly from the SDK, so the reference cannot drift from the released
+            software. The site also publishes agent catalogs and plain-text endpoints, allowing
+            AI coding assistants to consume the documentation directly. Start at the{' '}
+            <DocLink href='/docs'>documentation home</DocLink>, or point an agent at the{' '}
+            <DocLink href='/docs/agents'>agents page</DocLink>.
           </p>
         </section>
 
         <section className={styles.section}>
           <p className={styles.subtitle}>One repository, releases on rails</p>
           <p>
-            The chain, the SDK, the CLI, the documentation, and this website now live together
-            in{' '}
+            The chain, SDK, CLI, documentation, and this website are now developed in a single
+            repository:{' '}
             <span className={styles.paper_link}>
               <Link href='https://github.com/RaoFoundation/subtensor' isExternal={true}>
                 github.com/RaoFoundation/subtensor
               </Link>
             </span>
-            . One repository, one release train, one version. And this release rode those rails
-            all the way to mainnet: every runtime change was tested against a <i>live clone of
-            mainnet state</i> before it merged; a single deterministic build was promoted
-            through devnet and testnet with automated checks at each stage; and the upgrade the
-            keyholders signed was cryptographically verified against the exact bytes the
-            pipeline built. A new public devnet, documented in{' '}
+            . Releases are produced by an automated pipeline. Every runtime change is tested
+            against a <i>live clone of mainnet state</i> before it merges; a single
+            deterministic build is promoted through devnet and testnet with automated checks at
+            each stage; and the upgrade signed by the keyholders is cryptographically verified
+            against the exact bytes the pipeline produced. A new public devnet, documented in{' '}
             <DocLink href='/docs/concepts/network'>the network overview</DocLink>, joins finney
-            and testnet as a first-class environment.
+            and testnet as a supported environment.
           </p>
           <p>
-            The runtime itself was hardened in kind: proxy permissions are now deny-by-default,
-            a crowdloan reentrancy flaw is closed, and the randomness pipeline securing
-            commit-reveal can no longer be wedged.
+            The runtime was also hardened in this release: proxy permissions are now
+            deny-by-default, a crowdloan reentrancy flaw was closed, and the randomness
+            pipeline that secures commit-reveal can no longer be stalled.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Sign and verify — trust, but check</p>
+          <p className={styles.subtitle}>Sign and verify</p>
           <p>
-            This upgrade also changed how upgrades themselves are approved — and v430 was the
-            first to ship the new way. The release pipeline publishes a
-            <strong> proposal release </strong>— tagged at the exact commit deployed, carrying
-            the runtime, its deterministic build digest, and the exact call data that was
-            signed. The keyholders approved it with a single command, and that same tooling
-            verified everything before anything was signed: that the call data was precisely a
-            runtime upgrade and nothing else, that the embedded runtime matched the published
-            digest, and that the on-chain proposal carried the same hash.
+            This release also changes how runtime upgrades are approved, and v430 was the first
+            upgrade shipped this way. The release pipeline publishes a
+            <strong> proposal release</strong>: a GitHub release tagged at the exact commit
+            deployed, carrying the runtime, its deterministic build digest, and the exact call
+            data to be signed. Keyholders approve with a single command, and the tooling
+            verifies — before anything is signed — that the call data is precisely a runtime
+            upgrade and nothing else, that the embedded runtime matches the published digest,
+            and that the on-chain proposal carries the same hash.
           </p>
           <p>
-            Here is the part I care about most: <strong>verification is not reserved for
-            keyholders</strong>. Runtime builds are deterministic — identical source produces a
-            byte-identical runtime — so <i>anyone</i> can check what was deployed against the
-            code it claims to be:
+            Verification is not limited to keyholders. Runtime builds are deterministic —
+            identical source produces a byte-identical runtime — so any participant can verify
+            a deployed upgrade against its published source:
           </p>
           <p className={styles.code_block}>
             btcli upgrade check --url
             https://github.com/RaoFoundation/subtensor/releases/tag/v430
           </p>
           <p>
-            Or go further: build the runtime from source with the pinned toolchain and pass
-            your own bytes with <strong>--wasm </strong>— a passing check proves the chain runs
-            exactly the code you compiled yourself. A URL anyone can fetch, call data anyone
-            can re-derive, an on-chain hash anyone can compare. Do not trust me;{' '}
-            <i>check</i>. This is the template for verifiable governance, and the full flow is
-            documented in{' '}
+            Alternatively, build the runtime from source with the pinned toolchain and pass the
+            resulting bytes with <strong>--wasm</strong>; a passing check proves the chain is
+            running exactly the code that was compiled. The complete flow is documented in{' '}
             <DocLink href='/docs/internals/release-process'>the release process</DocLink>.
           </p>
         </section>
@@ -266,32 +255,32 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>What you need to do</p>
           <p style={{textAlign: 'left', width: '100%'}}>
-            Most of you need to do very little. In order of urgency:
+            Most participants require little or no action. In order of urgency:
           </p>
           <ol className={styles.list}>
             <li>
               <strong>Python users</strong> — uninstall bittensor-cli and bittensor-wallet,
               then install the new bittensor package. Follow the{' '}
-              <DocLink href='/docs/migration'>migration guide</DocLink>; your keyfiles are
+              <DocLink href='/docs/migration'>migration guide</DocLink>; keyfiles are
               unchanged.
             </li>
             <li>
-              <strong>Proxy users</strong> — permissions are now deny-by-default. Review every
-              proxy configuration you have.
+              <strong>Proxy users</strong> — proxy permissions are now deny-by-default. Review
+              every existing proxy configuration.
             </li>
             <li>
-              <strong>Node operators</strong> — if you are not yet running the spec 430 binary,
-              you have already noticed. Upgrade.
+              <strong>Node operators</strong> — nodes not yet running the spec 430 binary must
+              upgrade to continue syncing.
             </li>
             <li>
               <strong>Indexers and SDK authors</strong> — chain metadata now carries typed
-              currency units; verify your decoders against the new{' '}
+              currency units; verify decoders against the new{' '}
               <DocLink href='/docs/query'>query reference</DocLink>.
             </li>
             <li>
-              <strong>Subnet owners and stakers</strong> — understand{' '}
-              <DocLink href='/docs/guides/conviction'>conviction</DocLink>. Ownership of
-              subnets older than one year is now contestable. That includes yours.
+              <strong>Subnet owners and stakers</strong> — review the{' '}
+              <DocLink href='/docs/guides/conviction'>conviction guide</DocLink>. Ownership of
+              subnets older than one year is now contestable.
             </li>
           </ol>
         </section>
