@@ -63,6 +63,17 @@ jobs:
             npx --yes vercel build --token "$VERCEL_TOKEN"
             url=$(npx --yes vercel deploy --prebuilt --token "$VERCEL_TOKEN")
             echo "Deployed: $url"
-            npx --yes vercel alias set "$url" "staging.$DOCS_DOMAIN" --token "$VERCEL_TOKEN"
+            # `vercel alias set` only accepts domains in the team-level domain
+            # registry; staging.$DOCS_DOMAIN is attached (and verified) at the
+            # project level, so the CLI rejects it with "you don't have access
+            # to the domain". The deployments API honors project domains.
+            dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v13/deployments/${url#https://}?teamId=$VERCEL_ORG_ID" \
+              | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).id')
+            curl -sf -X POST \
+              -H "Authorization: Bearer $VERCEL_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"alias\":\"staging.$DOCS_DOMAIN\"}" \
+              "https://api.vercel.com/v2/deployments/$dep_id/aliases?teamId=$VERCEL_ORG_ID" > /dev/null
             echo "Aliased to https://staging.$DOCS_DOMAIN" >> $GITHUB_STEP_SUMMARY
           fi
