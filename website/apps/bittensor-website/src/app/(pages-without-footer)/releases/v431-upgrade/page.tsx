@@ -234,11 +234,14 @@ const page = () => {
           </p>
           <p>
             Subnet ownership is therefore no longer fixed at registration; it is contestable
-            through open, on-chain rules. Two lock modes are available. Perpetual locks mature
-            toward their full conviction mass in approximately six weeks. Decaying locks — the
-            default — accrue and then unwind over approximately four months. The mechanism is
-            designed to reward long-horizon commitment to a subnet&apos;s success. The lock
-            modes, the conviction formula, and a worked example are documented in the{' '}
+            through open, on-chain rules. Two lock modes are available, and both are
+            exponential processes rather than fixed terms. A perpetual lock&apos;s conviction
+            climbs toward its full locked mass, reaching half of it in roughly 43 days. A
+            decaying lock — the default — frees its locked mass with a half-life of roughly
+            130 days, so its conviction peaks and then unwinds. Both rates are governance-set
+            parameters. The mechanism is designed to reward long-horizon commitment to a
+            subnet&apos;s success. The lock modes, the conviction formula, and a worked example
+            are documented in the{' '}
             <DocLink href='/docs/guides/conviction'>conviction guide</DocLink>.
           </p>
         </section>
