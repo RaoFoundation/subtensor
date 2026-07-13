@@ -346,5 +346,7 @@ mod errors {
         /// with miner collateral on the subnet
         /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
         ColdkeyCollateralPositionsFull,
+        /// Trading is not open yet: the post-start trading delay (MinTradeDelay) has not elapsed.
+        TradingNotOpenYet,
     }
 }

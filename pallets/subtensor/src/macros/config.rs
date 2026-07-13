@@ -267,6 +267,9 @@ mod config {
         /// Delay after which a new subnet can dispatch start call extrinsic.
         #[pallet::constant]
         type InitialStartCallDelay: Get<u64>;
+        /// Initial blocks after subnet-start during which staking is blocked (#2844).
+        #[pallet::constant]
+        type InitialMinTradeDelay: Get<u64>;
         /// Cost of swapping a hotkey in a subnet.
         #[pallet::constant]
         type KeySwapOnSubnetCost: Get<TaoBalance>;

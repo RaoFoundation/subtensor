@@ -1296,15 +1296,12 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        ensure!(
-            SubtokenEnabled::<T>::get(origin_netuid),
-            Error::<T>::SubtokenDisabled
-        );
-
-        ensure!(
-            SubtokenEnabled::<T>::get(destination_netuid),
-            Error::<T>::SubtokenDisabled
-        );
+        // Route through ensure_subtoken_enabled so the post-start trading delay (#2844) also
+        // gates swap/move/transfer. Otherwise an owner could pre-stake into an always-open
+        // subnet (e.g. root) and bundle batch_all[start_call, swap_stake(root -> new)] to
+        // acquire alpha in the new subnet at launch, bypassing the add_stake gate.
+        Self::ensure_subtoken_enabled(origin_netuid)?;
+        Self::ensure_subtoken_enabled(destination_netuid)?;
 
         // Ensure that the origin hotkey account exists
         ensure!(

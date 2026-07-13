@@ -154,6 +154,8 @@ mod events {
         NetworkImmunityPeriodSet(u64),
         /// the start call delay is set.
         StartCallDelaySet(u64),
+        /// the minimum post-start trading delay is set.
+        MinTradeDelaySet(u64),
         /// the network minimum locking cost is set.
         NetworkMinLockCostSet(TaoBalance),
         /// the maximum number of subnets is set

@@ -989,3 +989,81 @@ fn test_register_network_gives_owner_no_initial_alpha_distribution() {
         );
     });
 }
+
+/***************************
+  #2844 — post-start trading delay (MinTradeDelay)
+*****************************/
+
+// A non-zero MinTradeDelay must block staking (including an owner's same-block bundle) until
+// `start_call_block + MinTradeDelay`, then open it. This is the fix for the SN99 self-snipe.
+#[test]
+fn test_min_trade_delay_blocks_stake_until_window_elapses() {
+    new_test_ext(0).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 13;
+        let coldkey = U256::from(0); // default subnet owner
+        let hotkey = U256::from(1);
+        let delay: u64 = 10;
+
+        add_network_without_emission_block(netuid, tempo, 0);
+        mock::setup_reserves(netuid, 1_000_000_000.into(), 1_000_000_000.into());
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+        add_balance_to_coldkey_account(&coldkey, 10_000.into());
+
+        SubtensorModule::set_min_trade_delay(delay);
+        assert_eq!(MinTradeDelay::<Test>::get(), delay);
+
+        // Owner starts the subnet at block B: FirstEmissionBlockNumber = B+1, start block = B.
+        let start_block = System::block_number();
+        assert_ok!(SubtensorModule::start_call(
+            RuntimeOrigin::signed(coldkey),
+            netuid
+        ));
+        assert!(SubtokenEnabled::<Test>::get(netuid));
+
+        // Same block as start: the owner's bundled add_stake is rejected.
+        assert_noop!(
+            SubtensorModule::add_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                netuid,
+                1_000_000.into()
+            ),
+            Error::<Test>::TradingNotOpenYet
+        );
+
+        // The gate stays closed for the whole window and opens exactly at start + delay.
+        assert!(matches!(
+            SubtensorModule::ensure_subtoken_enabled(netuid),
+            Err(Error::<Test>::TradingNotOpenYet)
+        ));
+        System::set_block_number(start_block + delay - 1);
+        assert!(matches!(
+            SubtensorModule::ensure_subtoken_enabled(netuid),
+            Err(Error::<Test>::TradingNotOpenYet)
+        ));
+        System::set_block_number(start_block + delay);
+        assert!(SubtensorModule::ensure_subtoken_enabled(netuid).is_ok());
+    });
+}
+
+// A zero MinTradeDelay preserves today's behaviour: trading is open in the start block.
+#[test]
+fn test_min_trade_delay_zero_preserves_immediate_trading() {
+    new_test_ext(0).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 13;
+        let coldkey = U256::from(0);
+
+        add_network_without_emission_block(netuid, tempo, 0);
+        mock::setup_reserves(netuid, 1_000_000_000.into(), 1_000_000_000.into());
+
+        SubtensorModule::set_min_trade_delay(0);
+        assert_ok!(SubtensorModule::start_call(
+            RuntimeOrigin::signed(coldkey),
+            netuid
+        ));
+        // delay = 0 -> trading is open in the start block, exactly as today.
+        assert!(SubtensorModule::ensure_subtoken_enabled(netuid).is_ok());
+    });
+}

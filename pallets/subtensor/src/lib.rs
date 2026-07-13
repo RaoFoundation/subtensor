@@ -1881,6 +1881,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type StartCallDelay<T: Config> = StorageValue<_, u64, ValueQuery, T::InitialStartCallDelay>;
 
+    /// ITEM( min_trade_delay )
+    /// Blocks after subnet-start (`start_call`) during which staking in/out is blocked, so a
+    /// subnet owner cannot bundle `add_stake` into the `start_call` block and self-snipe the
+    /// launch. See opentensor/subtensor#2844.
+    #[pallet::storage]
+    pub type MinTradeDelay<T: Config> = StorageValue<_, u64, ValueQuery, T::InitialMinTradeDelay>;
+
     /// ITEM( min_network_lock_cost )
     #[pallet::storage]
     pub type NetworkMinLockCost<T> =
@@ -3014,12 +3021,27 @@ pub mod pallet {
             true
         }
 
-        /// Ensure subtoken enalbed
+        /// Ensure the subtoken is enabled AND the post-start trading delay has elapsed.
+        ///
+        /// Staking (in or out) is blocked until `MinTradeDelay` blocks after the subnet-start
+        /// block, so a subnet owner cannot bundle `add_stake` into the same block as `start_call`
+        /// and self-snipe the launch (opentensor/subtensor#2844). The subnet-start block is
+        /// `FirstEmissionBlockNumber - 1` (both set atomically by `do_start_call`). Subnets whose
+        /// subtoken was enabled without a start block (e.g. root / genesis paths where
+        /// `FirstEmissionBlockNumber` is unset) are unaffected.
         pub fn ensure_subtoken_enabled(subnet: NetUid) -> Result<(), Error<T>> {
             ensure!(
                 SubtokenEnabled::<T>::get(subnet),
                 Error::<T>::SubtokenDisabled
             );
+            if let Some(first_emission_block) = FirstEmissionBlockNumber::<T>::get(subnet) {
+                let start_call_block = first_emission_block.saturating_sub(1);
+                let trading_open_block = start_call_block.saturating_add(MinTradeDelay::<T>::get());
+                ensure!(
+                    Self::get_current_block_as_u64() >= trading_open_block,
+                    Error::<T>::TradingNotOpenYet
+                );
+            }
             Ok(())
         }
     }

@@ -349,6 +349,7 @@ parameter_types! {
     pub const InitialTaoWeight: u64 = 0; // 0% TAO weight.
     pub const InitialEmaPriceHalvingPeriod: u64 = 201_600_u64; // 4 weeks
     pub const InitialStartCallDelay: u64 =  7 * 24 * 60 * 60 / 12; // Default as 7 days
+    pub const InitialMinTradeDelay: u64 = 0; // #2844: 0 in mocks
     pub const InitialKeySwapOnSubnetCost: TaoBalance = TaoBalance::new(10_000_000);
     pub const HotkeySwapOnSubnetInterval: u64 = 15; // 15 block, should be bigger than subnet number, then trigger clean up for all subnets
     pub const MaxContributorsPerLeaseToRemove: u32 = 3;
@@ -430,6 +431,7 @@ impl pallet_subtensor::Config for Test {
     type InitialTaoWeight = InitialTaoWeight;
     type InitialEmaPriceHalvingPeriod = InitialEmaPriceHalvingPeriod;
     type InitialStartCallDelay = InitialStartCallDelay;
+    type InitialMinTradeDelay = InitialMinTradeDelay;
     type SwapInterface = pallet_subtensor_swap::Pallet<Self>;
     type KeySwapOnSubnetCost = InitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;

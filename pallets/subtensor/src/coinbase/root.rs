@@ -249,6 +249,13 @@ impl<T: Config> Pallet<T> {
         StartCallDelay::<T>::set(delay);
         Self::deposit_event(Event::StartCallDelaySet(delay));
     }
+    pub fn get_min_trade_delay() -> u64 {
+        MinTradeDelay::<T>::get()
+    }
+    pub fn set_min_trade_delay(delay: u64) {
+        MinTradeDelay::<T>::set(delay);
+        Self::deposit_event(Event::MinTradeDelaySet(delay));
+    }
     pub fn set_network_min_lock(net_min_lock: TaoBalance) {
         NetworkMinLockCost::<T>::set(net_min_lock);
         Self::deposit_event(Event::NetworkMinLockCostSet(net_min_lock));

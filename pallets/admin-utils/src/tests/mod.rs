@@ -3383,3 +3383,33 @@ fn test_sudo_set_start_call_delay_permissions_and_zero_delay() {
         );
     });
 }
+
+// #2844 — sudo can set the post-start trading delay; non-root cannot.
+#[test]
+fn test_sudo_set_min_trade_delay() {
+    new_test_ext().execute_with(|| {
+        let non_root = U256::from(1);
+
+        // Mock default is 0.
+        assert_eq!(pallet_subtensor::MinTradeDelay::<Test>::get(), 0);
+
+        // Non-root is rejected.
+        assert_noop!(
+            AdminUtils::sudo_set_min_trade_delay(
+                <<Test as Config>::RuntimeOrigin>::signed(non_root),
+                360
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Root sets it, storage updates, event is emitted.
+        assert_ok!(AdminUtils::sudo_set_min_trade_delay(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            360
+        ));
+        assert_eq!(pallet_subtensor::MinTradeDelay::<Test>::get(), 360);
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::SubtensorModule(
+            pallet_subtensor::Event::MinTradeDelaySet(360),
+        ));
+    });
+}

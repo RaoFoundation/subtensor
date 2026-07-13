@@ -585,6 +585,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_net_tao_flow_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_mechanism_count),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_start_call_delay),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_min_trade_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_coldkey_swap_announcement_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_coldkey_swap_reannouncement_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
