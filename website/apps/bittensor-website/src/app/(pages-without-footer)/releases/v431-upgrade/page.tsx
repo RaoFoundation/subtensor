@@ -242,10 +242,10 @@ const page = () => {
             the locked mass, after two about 86%, and so on. A decaying lock — the default —
             frees its locked mass on the chain&apos;s <i>unlock rate</i>, a time constant of
             roughly 130 days, after which about 37% of the mass remains locked; its conviction
-            peaks and then unwinds. Both rates are governance-set storage values
-            that can change, and there is one exception: locks credited to the subnet
-            owner&apos;s own hotkey mature instantly, so their conviction always equals their
-            locked mass. The mechanism is designed to reward long-horizon commitment to a
+            peaks and then unwinds. Both rates are governance-set storage values — read them
+            from chain state before planning a lock rather than relying on the figures here —
+            and there is one exception: locks credited to the subnet owner&apos;s own hotkey
+            mature instantly, so their conviction always equals their locked mass. The mechanism is designed to reward long-horizon commitment to a
             subnet&apos;s success. The lock modes, the conviction formula, and a worked example
             are documented in the{' '}
             <DocLink href='/docs/guides/conviction'>conviction guide</DocLink>.
