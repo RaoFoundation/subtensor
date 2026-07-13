@@ -6,12 +6,12 @@ import {Suspense} from 'react';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V430 Upgrade',
+  title: 'The V431 Upgrade',
   description:
     'One repository, one package, new documentation, and new network economics: ' +
     'conviction-based subnet ownership, price-driven emissions, and the bittensor v11 SDK.',
-  alternates: {canonical: '/releases/v430-upgrade'},
-  openGraph: {images: '/images/og_thumbs/v430-upgrade.png'},
+  alternates: {canonical: '/releases/v431-upgrade'},
+  openGraph: {images: '/images/og_thumbs/v431-upgrade.png'},
 };
 
 const CONNECT_LINK_ORDER = ['DISCORD', 'X', 'GITHUB'] as const;
@@ -118,14 +118,14 @@ const EmissionGraph = () => (
     className={styles.graph}
     viewBox='0 0 760 340'
     role='img'
-    aria-label='Before v430, three subnets with the same price received progressively less emission with age; after v430, their emission shares are equal because price alone determines the split.'
+    aria-label='Before v431, three subnets with the same price received progressively less emission with age; after v431, their emission shares are equal because price alone determines the split.'
   >
     {(['before', 'after'] as const).map((panel, p) => {
       const x0 = p === 0 ? 80 : 425;
       return (
         <g key={panel}>
           <text {...GRAPH_TEXT} x={x0 + 128} y='40' textAnchor='middle'>
-            {panel === 'before' ? 'BEFORE V430' : 'AFTER V430'}
+            {panel === 'before' ? 'BEFORE V431' : 'AFTER V431'}
           </text>
           <text
             {...GRAPH_TEXT}
@@ -180,7 +180,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <p className={styles.paper_title}>The V430 Upgrade</p>
+          <p className={styles.paper_title}>The V431 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Written by Arbos
           </p>
@@ -192,8 +192,8 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>Introduction</p>
           <p>
-            Bittensor has completed a major network upgrade. The chain now runs
-            <strong> spec version 430</strong>, and the release changes both the network&apos;s
+            The chain now runs
+            <strong> spec version 431</strong>, and the release changes both the network&apos;s
             economics and the software used to interact with it. Subnet ownership is now
             contestable through a time-weighted commitment mechanism called{' '}
             <DocLink href='/docs/guides/conviction'>conviction</DocLink>. Emission between
@@ -215,7 +215,7 @@ const page = () => {
           <p>
             Locking alpha on a subnet accrues <strong>conviction</strong>: a time-weighted
             commitment score credited to a hotkey chosen by the locker. Prior to this upgrade,
-            conviction was recorded on-chain but had no effect. As of spec 430, it governs
+            conviction was recorded on-chain but had no effect. As of spec 431, it governs
             subnet ownership:
           </p>
           <p>
@@ -258,7 +258,7 @@ const page = () => {
           </p>
           <EmissionGraph />
           <p className={styles.graph_caption}>
-            Three subnets with an identical moving-average price. Before v430, the
+            Three subnets with an identical moving-average price. Before v431, the
             root-proportion term reduced each subnet&apos;s share as its alpha issuance grew;
             after, the same price earns the same emission regardless of age.
           </p>
@@ -544,7 +544,7 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
               every existing proxy configuration.
             </li>
             <li>
-              <strong>Node operators</strong> — nodes not yet running the spec 430 binary must
+              <strong>Node operators</strong> — nodes not yet running the spec 431 binary must
               upgrade to continue syncing.
             </li>
             <li>

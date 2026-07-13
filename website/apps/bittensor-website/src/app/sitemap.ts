@@ -11,7 +11,7 @@ const staticRoutes = [
   '/explore',
   '/intro',
   '/releases',
-  '/releases/v430-upgrade',
+  '/releases/v431-upgrade',
   '/wallet',
   '/whitepaper',
 ];

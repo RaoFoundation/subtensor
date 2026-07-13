@@ -23,14 +23,14 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v430',
+    tag: 'v431',
     date: 'July 2026',
-    title: 'The V430 Upgrade',
+    title: 'The V431 Upgrade',
     summary:
       'Conviction-based subnet ownership, price-driven emissions, the bittensor v11 SDK ' +
       'with a Rust core, Ledger and browser-extension signing, and a verifiable upgrade ' +
       'pipeline — the monorepo era.',
-    href: '/releases/v430-upgrade',
+    href: '/releases/v431-upgrade',
   },
 ];
 
