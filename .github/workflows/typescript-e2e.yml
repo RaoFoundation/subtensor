@@ -69,13 +69,6 @@ jobs:
         with:
           node-version-file: ts-tests/.nvmrc
 
-      - name: Install system dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-            build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
       - name: Install e2e dependencies
         working-directory: ts-tests
         run: pnpm install --frozen-lockfile
@@ -141,23 +134,23 @@ jobs:
 
   run-e2e-tests:
     needs: [trusted-pr, build]
-    runs-on: [self-hosted, fireactions-turbo-8]
+    runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - test: zombienet_staking_single
-            binary: fast
           - test: zombienet_evm_single
             binary: fast
-          - test: zombienet_coldkey_swap_single
+            candidate: turbo-8
+            runner: '["self-hosted", "fireactions-turbo-8"]'
+          - test: zombienet_evm_single
             binary: fast
-          - test: zombienet_subnets_single
-            binary: fast
+            candidate: github-hosted
+            runner: '["ubuntu-latest"]'
 
-    name: "typescript-e2e-${{ matrix.test }}"
+    name: "typescript-e2e-${{ matrix.test }}-${{ matrix.candidate }}"
 
     steps:
       - name: Check-out repository

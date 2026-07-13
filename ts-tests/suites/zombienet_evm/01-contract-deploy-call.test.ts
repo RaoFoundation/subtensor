@@ -71,6 +71,11 @@ describeSuite({
         let proxyWallet2: ethers.Wallet;
         let proxyWallet3: ethers.Wallet;
         let proxyWallet4: ethers.Wallet;
+        let stakeSigner: ethers.NonceManager;
+        let proxySigner1: ethers.NonceManager;
+        let proxySigner2: ethers.NonceManager;
+        let proxySigner3: ethers.NonceManager;
+        let proxySigner4: ethers.NonceManager;
         let pureProxyReceiver: KeyringPair;
         let delegateProxyReceiver: KeyringPair;
         let hotkey: KeyringPair;
@@ -117,6 +122,11 @@ describeSuite({
             proxyWallet2 = createEthersWallet(provider);
             proxyWallet3 = createEthersWallet(provider);
             proxyWallet4 = createEthersWallet(provider);
+            stakeSigner = new ethers.NonceManager(stakeWallet);
+            proxySigner1 = new ethers.NonceManager(proxyWallet1);
+            proxySigner2 = new ethers.NonceManager(proxyWallet2);
+            proxySigner3 = new ethers.NonceManager(proxyWallet3);
+            proxySigner4 = new ethers.NonceManager(proxyWallet4);
             pureProxyReceiver = generateKeyringPair("sr25519");
             delegateProxyReceiver = generateKeyringPair("sr25519");
 
@@ -127,7 +137,7 @@ describeSuite({
             proxyWalletsReady = true;
         }
 
-        async function deployAndFundStakeWrap(wallet: ethers.Wallet): Promise<ethers.Contract> {
+        async function deployAndFundStakeWrap(wallet: ethers.NonceManager): Promise<ethers.Contract> {
             const contractFactory = new ethers.ContractFactory(STAKE_WRAP_ABI, STAKE_WRAP_BYTECODE, wallet);
             const contract = await contractFactory.deploy();
             await contract.waitForDeployment();
@@ -327,7 +337,7 @@ describeSuite({
                 await ensureSubnetReady();
                 await ensureProxyWalletsReady();
 
-                const deployedContract = await deployAndFundStakeWrap(stakeWallet);
+                const deployedContract = await deployAndFundStakeWrap(stakeSigner);
 
                 const stakeTx = await deployedContract.stake(hotkey.publicKey, netuid, tao(2));
                 const stakeReceipt = await stakeTx.wait();
@@ -347,7 +357,7 @@ describeSuite({
                 await ensureSubnetReady();
                 await ensureProxyWalletsReady();
 
-                const deployedContract = await deployAndFundStakeWrap(stakeWallet);
+                const deployedContract = await deployAndFundStakeWrap(stakeSigner);
 
                 const tx = await deployedContract.stakeLimit(hotkey.publicKey, netuid, tao(2000), tao(1000), true);
                 const receipt = await tx.wait();
@@ -363,7 +373,7 @@ describeSuite({
                 await ensureProxyWalletsReady();
 
                 const proxies = await getProxies(api, convertH160ToSS58(proxyWallet1.address));
-                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxyWallet1);
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner1);
 
                 const type = 0;
                 const delay = 0;
@@ -399,7 +409,7 @@ describeSuite({
             test: async () => {
                 await ensureProxyWalletsReady();
 
-                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxyWallet1);
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner1);
                 const type = 0;
                 const delay = 0;
                 const index = 0;
@@ -421,7 +431,7 @@ describeSuite({
             test: async () => {
                 await ensureProxyWalletsReady();
 
-                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxyWallet2);
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner2);
                 const amount = 1_000_000_000;
                 const wrongReceiver = generateKeyringPair("sr25519");
                 const callCode = await getTransferCallCode(api, wrongReceiver, amount);
@@ -440,7 +450,7 @@ describeSuite({
                 await ensureProxyWalletsReady();
 
                 const proxies = await api.query.Proxy.Proxies.getValue(convertH160ToSS58(proxyWallet2.address));
-                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxyWallet2);
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner2);
 
                 const proxiesFromContract = await contract.getProxies(convertH160ToPublicKey(proxyWallet2.address));
                 expect(proxiesFromContract.length).toEqual(proxies[0].length);
@@ -479,7 +489,7 @@ describeSuite({
                 const balance = await getBalance(api, receiverSs58);
                 const amount = 1_000_000_000;
 
-                const contract2 = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxyWallet3);
+                const contract2 = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner3);
                 const callCode = await getTransferCallCode(api, delegateProxyReceiver, amount);
                 const tx2 = await contract2.proxyCall(convertH160ToPublicKey(proxyWallet2.address), [type], callCode);
                 await tx2.wait();
@@ -495,7 +505,7 @@ describeSuite({
                 await ensureProxyWalletsReady();
 
                 const proxies = await api.query.Proxy.Proxies.getValue(convertH160ToSS58(proxyWallet4.address));
-                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxyWallet4);
+                const contract = new ethers.Contract(IPROXY_ADDRESS, IProxyABI, proxySigner4);
                 expect(proxies[0].length).toEqual(0);
 
                 const proxiesFromContract = await contract.getProxies(convertH160ToPublicKey(proxyWallet4.address));
