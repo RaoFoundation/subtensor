@@ -83,7 +83,12 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "\n"
         "unlike insufficient_balance this is not about your account — it is about "
         "the subnet's liquidity. reduce the amount, split it into smaller steps "
-        "across blocks, or trade on a subnet with deeper reserves."
+        "across blocks, or trade on a subnet with deeper reserves.\n"
+        "\n"
+        "stake trades are slippage-protected by default with a 5% tolerance "
+        "(SlippageTooHigh): raise it with `--rate-tolerance`, or disable the "
+        "protection with `--no-slippage-protection` (slippage_protection=False "
+        "in the SDK) to trade through the price move."
     ),
     ErrorCode.RATE_LIMITED: (
         "the chain enforces per-key rate limits on certain calls (registration, weight "
@@ -242,6 +247,17 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
     ("invalid transaction", ErrorCode.INVALID_ARGUMENT),
 )
 
+# Remediation overrides keyed by the exact chain error name; more specific
+# than the per-code defaults above.
+_NAME_HELP_OVERRIDES: dict[str, str] = {
+    "SlippageTooHigh": (
+        "the price moved past the slippage-protection limit (stake trades are "
+        "protected by default with a 5% tolerance); retry, raise the tolerance "
+        "(`--rate-tolerance 0.1` / rate_tolerance=0.1), or disable protection "
+        "entirely (`--no-slippage-protection` / slippage_protection=False)"
+    ),
+}
+
 _HELP_OVERRIDES: tuple[tuple[str, str], ...] = (
     (
         "bad signature",
@@ -287,6 +303,8 @@ class ChainError(BittensorError):
 
     @property
     def remediation(self) -> str:
+        if self.name in _NAME_HELP_OVERRIDES:
+            return _NAME_HELP_OVERRIDES[self.name]
         haystack = self.message.lower()
         for needle, help_text in _HELP_OVERRIDES:
             if needle in haystack:
