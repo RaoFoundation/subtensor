@@ -56,7 +56,7 @@ jobs:
           fi
 
   typescript-formatting:
-    name: TypeScript formatting and static checks
+    name: typescript-formatting
     runs-on: ubuntu-latest
     steps:
       - name: Check-out repository
@@ -265,7 +265,9 @@ jobs:
           node -e "if (typeof globalThis.WebSocket !== 'function') throw new Error('globalThis.WebSocket is required by the default WSS client path')"
           node --test sdk/bittensor-ts/test/*.test.cjs
 
-  # Build the node binary in both variants and share as artifacts for Moonwall.
+  # Build the node binary variants and share them as artifacts for Moonwall.
+  # The standard variants preserve the previous runtime feature coverage, while
+  # the metadata-hash variants exercise the SDK signing path.
   build:
     name: Build node-subtensor (${{ matrix.variant }})
     runs-on: [self-hosted, fireactions-turbo-8]
@@ -279,8 +281,12 @@ jobs:
       matrix:
         include:
           - variant: release
-            flags: "--features metadata-hash"
+            flags: ""
           - variant: fast
+            flags: "--features fast-runtime"
+          - variant: release-metadata-hash
+            flags: "--features metadata-hash"
+          - variant: fast-metadata-hash
             flags: "--features fast-runtime,metadata-hash"
     env:
       RUST_BACKTRACE: full
@@ -333,18 +339,42 @@ jobs:
         include:
           - test: dev
             binary: release
+            name_suffix: ""
           - test: zombienet_shield
             binary: release
+            name_suffix: ""
           - test: zombienet_staking
             binary: fast
+            name_suffix: ""
           - test: zombienet_coldkey_swap
             binary: fast
+            name_suffix: ""
           - test: zombienet_subnets
             binary: fast
+            name_suffix: ""
           - test: zombienet_evm
             binary: fast
+            name_suffix: ""
+          - test: dev
+            binary: release-metadata-hash
+            name_suffix: "-metadata-hash"
+          - test: zombienet_shield
+            binary: release-metadata-hash
+            name_suffix: "-metadata-hash"
+          - test: zombienet_staking
+            binary: fast-metadata-hash
+            name_suffix: "-metadata-hash"
+          - test: zombienet_coldkey_swap
+            binary: fast-metadata-hash
+            name_suffix: "-metadata-hash"
+          - test: zombienet_subnets
+            binary: fast-metadata-hash
+            name_suffix: "-metadata-hash"
+          - test: zombienet_evm
+            binary: fast-metadata-hash
+            name_suffix: "-metadata-hash"
 
-    name: "bittensor-ts-e2e-${{ matrix.test }}"
+    name: "bittensor-ts-e2e-${{ matrix.test }}${{ matrix.name_suffix }}"
 
     steps:
       - name: Check-out repository
