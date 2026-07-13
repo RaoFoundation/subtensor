@@ -61,6 +61,18 @@
   line-height: 1.6;
 }
 
+.graph {
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+}
+
+.graph_caption {
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center !important;
+}
+
 .metrics_table {
   width: 100%;
   border-collapse: collapse;

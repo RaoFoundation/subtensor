@@ -25,6 +25,88 @@ const DocLink = ({href, children}: {href: string; children: React.ReactNode}) =>
   </Link>
 );
 
+const GRAPH_TEXT = {
+  fontFamily: 'FiraCode',
+  fontSize: 10,
+  fill: 'rgb(41, 41, 41)',
+} as const;
+
+const ConvictionGraph = () => (
+  <svg
+    className={styles.graph}
+    viewBox='0 0 760 340'
+    role='img'
+    aria-label='Total conviction rising over time; once the subnet is older than one year and conviction exceeds ten percent of outstanding alpha, ownership is contestable.'
+  >
+    {/* Region where both conditions hold */}
+    <rect x='508' y='40' width='222' height='250' fill='rgba(209, 81, 104, 0.07)' />
+    <text {...GRAPH_TEXT} x='619' y='60' textAnchor='middle' fill='#d15168'>
+      OWNERSHIP
+    </text>
+    <text {...GRAPH_TEXT} x='619' y='74' textAnchor='middle' fill='#d15168'>
+      CONTESTABLE
+    </text>
+
+    {/* Axes */}
+    <line x1='70' y1='30' x2='70' y2='290' stroke='rgb(41, 41, 41)' strokeWidth='1' />
+    <line x1='70' y1='290' x2='730' y2='290' stroke='rgb(41, 41, 41)' strokeWidth='1' />
+    <text {...GRAPH_TEXT} x='730' y='310' textAnchor='end'>
+      TIME
+    </text>
+    <text {...GRAPH_TEXT} x='62' y='293' textAnchor='end'>
+      0%
+    </text>
+    <text {...GRAPH_TEXT} x='62' y='173' textAnchor='end'>
+      10%
+    </text>
+    <text {...GRAPH_TEXT} x='62' y='53' textAnchor='end'>
+      20%
+    </text>
+
+    {/* 10% threshold */}
+    <line
+      x1='70'
+      y1='170'
+      x2='730'
+      y2='170'
+      stroke='rgba(41, 41, 41, 0.5)'
+      strokeWidth='1'
+      strokeDasharray='4 4'
+    />
+    <text {...GRAPH_TEXT} x='76' y='162'>
+      CONVICTION THRESHOLD: 10% OF OUTSTANDING ALPHA
+    </text>
+
+    {/* Subnet age = 1 year */}
+    <line
+      x1='430'
+      y1='40'
+      x2='430'
+      y2='290'
+      stroke='rgba(41, 41, 41, 0.5)'
+      strokeWidth='1'
+      strokeDasharray='4 4'
+    />
+    <text {...GRAPH_TEXT} x='430' y='28' textAnchor='middle'>
+      SUBNET AGE = 1 YEAR
+    </text>
+
+    {/* Total conviction accrued by lockers */}
+    <path
+      d='M 70 288 C 250 280, 360 245, 460 195 C 560 145, 640 105, 730 85'
+      fill='none'
+      stroke='rgb(41, 41, 41)'
+      strokeWidth='1.5'
+    />
+    <text {...GRAPH_TEXT} x='100' y='268'>
+      TOTAL CONVICTION
+    </text>
+
+    {/* Point where the threshold is crossed past one year of age */}
+    <circle cx='508' cy='170' r='4' fill='#d15168' />
+  </svg>
+);
+
 const page = () => {
   return (
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
@@ -75,6 +157,12 @@ const page = () => {
               including the owner&apos;s share of emissions — transfers to the hotkey with the
               highest conviction.
             </strong>
+          </p>
+          <ConvictionGraph />
+          <p className={styles.graph_caption}>
+            Ownership becomes contestable once both conditions hold: the subnet is older than
+            one year, and total conviction exceeds ten percent of its outstanding alpha. At
+            that point the hotkey with the highest conviction takes ownership.
           </p>
           <p>
             Subnet ownership is therefore no longer fixed at registration; it is contestable
