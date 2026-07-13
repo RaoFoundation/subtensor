@@ -666,7 +666,7 @@ impl<T: Config> Pallet<T> {
 
         let mut hotkeys_in_subnet: Vec<T::AccountId> = Vec::new();
         let mut coldkeys = BTreeSet::<T::AccountId>::new();
-        let mut last_hot = None;
+        let mut last_completed_key = last_key.clone();
 
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
@@ -725,7 +725,8 @@ impl<T: Config> Pallet<T> {
                     // reserve the weight for the add_balance_to_coldkey_account function call later
                     if !weight_meter.can_consume(need_to_consume_weight) {
                         inner_read_all = false;
-                        last_hot = Some(hot.clone());
+                        // This hotkey has not been fully processed or queued for payout yet.
+                        // Keep the cursor on the last completed hotkey so the next pass retries it.
                         break;
                     }
                     weight_meter.consume(need_to_consume_weight);
@@ -741,7 +742,7 @@ impl<T: Config> Pallet<T> {
                 for (cold, value) in coldkey_value_vec {
                     stakers.push((hot.clone(), cold, value));
                 }
-                last_hot = Some(hot.clone());
+                last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
             }
         }
 
@@ -825,10 +826,7 @@ impl<T: Config> Pallet<T> {
         // ignore the weight for handling the final operation, we must set the correct status for the next run
         status.subnet_distributed_tao = Some(distributed_tao_value_u128);
 
-        (
-            read_all,
-            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
-        )
+        (read_all, last_completed_key)
     }
 
     pub fn destroy_alpha_in_out_stakes_clean_alpha(
