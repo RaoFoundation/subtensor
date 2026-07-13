@@ -268,6 +268,28 @@ function launchChrome(chrome, url) {
   return { child, devtools }
 }
 
+function stopChrome(child) {
+  if (child == null || child.exitCode != null) return Promise.resolve()
+  return new Promise((resolve) => {
+    let settled = false
+    let force
+    let giveUp
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(force)
+      clearTimeout(giveUp)
+      resolve()
+    }
+    child.once('exit', finish)
+    force = setTimeout(() => {
+      if (child.exitCode == null) child.kill('SIGKILL')
+    }, 2_000)
+    giveUp = setTimeout(finish, 5_000)
+    child.kill()
+  })
+}
+
 function cdp(wsUrl) {
   const socket = new WebSocket(wsUrl)
   let nextId = 1
@@ -358,7 +380,7 @@ async function runBrowserPage(chromePath, url, mode) {
     assert.ok(result.extrinsicLength > result.callLength)
   } finally {
     client?.close()
-    if (chrome?.child.exitCode == null) chrome?.child.kill()
+    await stopChrome(chrome?.child)
   }
 }
 
@@ -377,7 +399,7 @@ async function main() {
     await runBrowserPage(chromePath, new URL('/default.html', served.url).href, 'default')
   } finally {
     server?.close()
-    fs.rmSync(tmp, { recursive: true, force: true })
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 }
 
