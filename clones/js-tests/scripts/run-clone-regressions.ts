@@ -15,6 +15,9 @@ const testsDir = path.join(__dirname, "..", "tests");
 const TEST_TIMEOUT_MS = Number(process.env.CLONE_REGRESSION_TIMEOUT_MS ?? 15 * 60 * 1000);
 
 const CLONE_REGRESSIONS = [
+  // This test asserts the global issuance mirrors before and after each
+  // scenario, so run it before forceSetBalance-based tests mutate the clone.
+  "test-total-issuance-trackers.ts",
   "test-balancer-operation.ts",
   "test-balancer-edge-emission-issuance.ts",
   "test-locks-conviction.ts",
@@ -22,7 +25,6 @@ const CLONE_REGRESSIONS = [
   "test-proxy-filter-security-regressions.ts",
   "test-hotkey-swap-and-proxy-stake.ts",
   "test-net-tao-flow-emission-allocation.ts",
-  "test-total-issuance-trackers.ts",
   "test-alpha-deprecated-stake-histogram.ts",
 ];
 
@@ -40,8 +42,6 @@ const selected =
     ? CLONE_REGRESSIONS.filter((name) => requested.includes(name))
     : CLONE_REGRESSIONS;
 
-let failed = false;
-
 for (const name of selected) {
   const script = path.join(testsDir, name);
   console.log(`\n=== clone regression: ${name} (timeout ${TEST_TIMEOUT_MS}ms) ===`);
@@ -51,14 +51,11 @@ for (const name of selected) {
     timeout: TEST_TIMEOUT_MS,
   });
   if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
-    failed = true;
     console.error(`TIMEOUT: ${name} exceeded ${TEST_TIMEOUT_MS}ms`);
-    continue;
+    process.exit(1);
   }
   if (result.status !== 0) {
-    failed = true;
     console.error(`FAILED: ${name}`);
+    process.exit(1);
   }
 }
-
-process.exit(failed ? 1 : 0);

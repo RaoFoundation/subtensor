@@ -25,6 +25,7 @@ assert_classification .github/actions/rust-setup/action.yml "$runtime_only"
 assert_classification .github/actions/sccache-setup/action.yml "$runtime_only"
 assert_classification .github/scripts/classify-runtime-changes.sh "$runtime_and_snapshot_only"
 assert_classification .github/scripts/test-runtime-change-filter.sh "$runtime_and_snapshot_only"
+assert_classification .github/scripts/start-accelerated-clone.sh "$runtime_only"
 assert_classification .github/workflows/runtime-checks.yml "$runtime_and_snapshot"
 assert_classification $'README.md\nsdk/python/example.py' "$docs_and_python"
 

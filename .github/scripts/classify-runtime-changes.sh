@@ -11,7 +11,7 @@ output_file="$1"
 
 # SDK-only changes are covered by sdk-checks and the Rust SDK e2e workflow;
 # they should not force clone-upgrade or SDK drift.
-runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/.*|scripts/(classify-runtime-changes|test-runtime-change-filter|sccache-configure|snapshot-artifact|test-snapshot-artifact)\.sh)$'
+runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/.*|scripts/(classify-runtime-changes|test-runtime-change-filter|sccache-configure|snapshot-artifact|start-accelerated-clone|test-snapshot-artifact)\.sh)$'
 docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
 python_sdk_pattern='^sdk/(python|bittensor-core|bittensor-core-py|bittensor-core-wasm)/|^Cargo\.lock$|^\.github/workflows/runtime-checks\.yml$'
 sdk_drift_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$'
