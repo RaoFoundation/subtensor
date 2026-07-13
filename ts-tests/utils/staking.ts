@@ -315,7 +315,7 @@ export async function waitForBlocks(api: TypedApi<typeof subtensor>, numBlocks: 
         if (currentBlock >= targetBlock) {
             break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 100));
     }
 }
 

@@ -7,6 +7,7 @@ import { connectApi } from "../lib/api.js";
 import { createTempLogger } from "../lib/file-log.js";
 
 const WS_ENDPOINT = process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944";
+const BLOCK_PRODUCTION_POLL_MS = 1_000;
 const RUN_ID = process.env.HOTKEY_PROXY_RUN_ID ?? `run${Date.now()}p${process.pid}`;
 const FUND_SOURCE_URI = process.env.HOTKEY_PROXY_FUND_SOURCE_URI ?? "//Alice";
 const FUND_AMOUNT = BigInt(process.env.HOTKEY_PROXY_FUND_AMOUNT ?? "5000000000000");
@@ -104,7 +105,7 @@ async function waitForBlockProduction() {
   const deadline = Date.now() + 180_000;
 
   while (Date.now() < deadline && observed.length < 2) {
-    await sleep(6_000);
+    await sleep(BLOCK_PRODUCTION_POLL_MS);
     const current = (await api.rpc.chain.getHeader()).number.toBigInt();
     if (current > previous) {
       observed.push(current);

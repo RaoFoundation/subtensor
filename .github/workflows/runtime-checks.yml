@@ -16,19 +16,10 @@ on:
         description: "Bypass cached try-runtime snapshots and scrape all networks live"
         type: boolean
         default: false
-      snapshot_source_branch:
-        description: "Trusted snapshot artifact branch (manual measurement only)"
-        type: string
-        default: main
       try_runtime_only:
         description: "Run only the try-runtime build and cached network checks"
         type: boolean
         default: false
-      skip_devnet:
-        description: "Skip devnet when measuring a partially completed producer run"
-        type: boolean
-        default: false
-
 concurrency:
   group: runtime-checks-${{ github.ref }}
   cancel-in-progress: true
@@ -58,6 +49,7 @@ jobs:
     name: detect relevant changes
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       runtime: ${{ steps.filter.outputs.runtime }}
@@ -66,6 +58,16 @@ jobs:
       sdk_drift: ${{ steps.filter.outputs.sdk_drift }}
       snapshot_ci: ${{ steps.filter.outputs.snapshot_ci }}
     steps:
+      - name: Checkout trusted path classifier
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: .github/scripts/classify-runtime-changes.sh
+          sparse-checkout-cone-mode: false
+          path: .trusted-runtime-filter
+          persist-credentials: false
+
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
       - name: Filter changed paths
@@ -74,30 +76,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
-          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          # SDK-only changes are covered by sdk-checks and the Rust SDK e2e
-          # workflow; they should not force clone-upgrade or SDK drift.
-          runtime_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor|clones)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^website/apps/bittensor-website/scripts/|^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|actions/(rust-setup|sccache-setup)/|scripts/(sccache-configure|snapshot-artifact|test-snapshot-artifact)\.sh$)'
-          docs_pattern='^website/|^sdk/python/|^\.github/workflows/runtime-checks\.yml$'
-          python_sdk_pattern='^sdk/(python|bittensor-core|bittensor-core-py|bittensor-core-wasm)/|^Cargo.lock$|^\.github/workflows/runtime-checks\.yml$'
-          sdk_drift_pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$'
-          snapshot_pattern='^\.github/(workflows/(runtime-checks|refresh-mainnet-snapshot)\.yml|scripts/(snapshot-artifact|test-snapshot-artifact)\.sh)$'
-          runtime=false; docs=false; python_sdk=false; sdk_drift=false; snapshot_ci=false
-          grep -qE "$runtime_pattern" <<< "$files" && runtime=true
-          grep -qE "$docs_pattern" <<< "$files" && docs=true
-          grep -qE "$python_sdk_pattern" <<< "$files" && python_sdk=true
-          grep -qE "$sdk_drift_pattern" <<< "$files" && sdk_drift=true
-          grep -qE "$snapshot_pattern" <<< "$files" && snapshot_ci=true
-          echo "runtime=$runtime, docs=$docs, python_sdk=$python_sdk, sdk_drift=$sdk_drift, snapshot_ci=$snapshot_ci"
-          {
-            echo "runtime=$runtime"
-            echo "docs=$docs"
-            echo "python_sdk=$python_sdk"
-            echo "sdk_drift=$sdk_drift"
-            echo "snapshot_ci=$snapshot_ci"
-          } >> "$GITHUB_OUTPUT"
+          enable_all() {
+            {
+              echo "runtime=true"
+              echo "docs=true"
+              echo "python_sdk=true"
+              echo "sdk_drift=true"
+              echo "snapshot_ci=true"
+            } >> "$GITHUB_OUTPUT"
+          }
+          classifier=.trusted-runtime-filter/.github/scripts/classify-runtime-changes.sh
+          if [[ ! -f "$classifier" ]]; then
+            echo "::warning::Trusted base predates the path classifier; enabling every check."
+            enable_all
+            exit 0
+          fi
+          pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp)
+          fetched_files=$(jq '[.[][]] | length' <<< "$pages")
+          if [[ "$fetched_files" -ne "$CHANGED_FILES" ]]; then
+            echo "::warning::PR file listing was incomplete ($fetched_files/$CHANGED_FILES); enabling every check."
+            enable_all
+            exit 0
+          fi
+          # A rename can move a runtime file outside a matched directory, so
+          # classify both the current and previous paths.
+          jq -r '.[][] | .filename, (.previous_filename // empty)' <<< "$pages" \
+            | bash "$classifier" "$GITHUB_OUTPUT"
 
   snapshot-artifact-tests:
     name: snapshot artifact contract tests
@@ -107,6 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: .github/scripts/test-snapshot-artifact.sh
+      - run: .github/scripts/test-runtime-change-filter.sh
 
   # Build the try-runtime wasm independently so its consumers do not wait for
   # the unrelated release node build. The source check also makes the
@@ -217,7 +225,8 @@ jobs:
   try-runtime:
     name: try-runtime ${{ matrix.network.name }}
     needs: build-try-runtime
-    runs-on: [self-hosted, fireactions-tryruntime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: read
       # Cross-run artifact download (the nightly try-runtime state snapshot).
@@ -225,33 +234,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        selected: [devnet, testnet, mainnet]
-        exclude:
-          - selected: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_devnet && 'devnet' || '__none__' }}
-        include:
+        network:
           # NOTE: the hostnames are misleading — archive.dev.opentensor.ai
           # serves the TESTNET archive on :8443 and the MAINNET archive on
           # :443 (verified by genesis hash; try-runtime wants archive nodes,
           # which is why we don't use the entrypoint hostnames). The
           # "Verify endpoint" step below enforces each URI's identity.
-          - selected: devnet
-            network:
-              name: devnet
-              uri: wss://dev.chain.opentensor.ai:443
-              genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
-          - selected: testnet
-            network:
-              name: testnet
-              uri: wss://archive.dev.opentensor.ai:8443
-              genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
-          - selected: mainnet
-            network:
-              name: mainnet
-              uri: wss://archive.dev.opentensor.ai:443
-              genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
-          # Keep endpoint-heavy checks near the archive RPCs. Measurements
-          # from BHS showed materially higher per-request latency, which
-          # compounds during try-runtime's state traversal.
+          - name: devnet
+            uri: wss://dev.chain.opentensor.ai:443
+            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+          - name: testnet
+            uri: wss://archive.dev.opentensor.ai:8443
+            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+          - name: mainnet
+            uri: wss://archive.dev.opentensor.ai:443
+            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
     steps:
       - uses: actions/checkout@v4
 
@@ -309,8 +306,9 @@ jobs:
           set -euo pipefail
           .github/scripts/snapshot-artifact.sh select \
             "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network.name }}" \
-            "${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_source_branch || github.event.repository.default_branch }}" \
+            "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml \
             72 "$GITHUB_OUTPUT" required
 
       - name: Mark snapshot restore start
@@ -319,13 +317,14 @@ jobs:
 
       - name: Download selected try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          .github/scripts/snapshot-artifact.sh download \
-            "${{ steps.snapshot.outputs.artifact-id }}" \
-            "${{ steps.snapshot.outputs.digest }}" \
-            snap
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.snapshot.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.snapshot.outputs.run-id }}
+          path: snap
+          merge-multiple: true
 
       - name: Validate try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
@@ -336,7 +335,7 @@ jobs:
           .github/scripts/snapshot-artifact.sh validate \
             "$manifest" "$snapshot" \
             "${{ matrix.network.name }}" "${{ matrix.network.genesis }}" \
-            "$TRY_RUNTIME_VERSION"
+            "$TRY_RUNTIME_VERSION" "${{ steps.snapshot.outputs.producer-sha }}"
           echo "TRY_RUNTIME_SNAP=$snapshot" >> "$GITHUB_ENV"
           restore_seconds=$(($(date -u +%s) - SNAPSHOT_RESTORE_STARTED))
           block=$(jq -er '.finalized_block_number' "$manifest")
@@ -458,12 +457,14 @@ jobs:
   # label is set). Auto-skips (via the `build-node-release` need) when the PR touches
   # nothing runtime-relevant.
   #
-  # The regression tests are wall-clock-bound (they wait on 12-second blocks)
-  # and mutate chain state, so they can't share one node concurrently.
-  # Instead each shard boots its own clone from the snapshot and runs a
-  # subset, preserving the suite's original relative order within each shard.
+  # Interval sealing advances runtime time by one 12-second slot every 250ms,
+  # so the block-driven regressions can run sequentially on one runner. The
+  # issuance-invariant test gets a pristine clone; the already-downloaded
+  # checkpoint is then restored locally for the remaining tests, before
+  # forceSetBalance-based fixtures make the issuance mirrors diverge. This
+  # avoids four runners and four downloads without sharing destructive state.
   clone-upgrade:
-    name: clone-upgrade (${{ matrix.shard.name }})
+    name: clone-upgrade
     needs: [trusted-pr, changes, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
@@ -472,35 +473,6 @@ jobs:
       contents: read
       # Cross-run artifact download (the nightly mainnet snapshot).
       actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - name: balancer
-            tests: >-
-              test-balancer-operation.ts
-              test-balancer-edge-emission-issuance.ts
-            sdk: false
-          - name: locks
-            tests: >-
-              test-locks-conviction.ts
-              test-lock-dust-cleanup.ts
-              test-proxy-filter-security-regressions.ts
-            sdk: false
-          - name: stake-sdk
-            tests: >-
-              test-hotkey-swap-and-proxy-stake.ts
-              test-alpha-deprecated-stake-histogram.ts
-            sdk: true
-          # test-total-issuance-trackers legitimately waits ~6 min on chain
-          # state (see CLONE_REGRESSION_TIMEOUT_MS below), so the two
-          # emission/issuance tests get their own shard instead of
-          # serializing behind the stake-sdk pair.
-          - name: issuance
-            tests: >-
-              test-net-tao-flow-emission-allocation.ts
-              test-total-issuance-trackers.ts
-            sdk: false
     steps:
       - uses: actions/checkout@v4
 
@@ -528,21 +500,23 @@ jobs:
           set -euo pipefail
           .github/scripts/snapshot-artifact.sh select \
             mainnet-snapshot \
-            "${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_source_branch || github.event.repository.default_branch }}" \
+            "${{ github.event.repository.default_branch }}" \
             "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml \
             168 "$GITHUB_OUTPUT" optional
 
       - name: Download selected mainnet clone snapshot
         id: download-clone-snapshot
         if: steps.clone-snapshot.outputs.found == 'true'
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          .github/scripts/snapshot-artifact.sh download \
-            "${{ steps.clone-snapshot.outputs.artifact-id }}" \
-            "${{ steps.clone-snapshot.outputs.digest }}" \
-            /tmp/mainnet-snapshot
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.clone-snapshot.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.clone-snapshot.outputs.run-id }}
+          path: /tmp/mainnet-snapshot
+          merge-multiple: true
 
       - name: Restore mainnet clone snapshot
         id: restore-clone-snapshot
@@ -550,12 +524,13 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          tar -xzf /tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
-          rm -rf /tmp/mainnet-snapshot
+          checkpoint=/tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
+          ./clones/scripts/local-clone-checkpoint.sh restore "$checkpoint"
           echo "Restored artifact ${{ steps.clone-snapshot.outputs.artifact-id }} from run ${{ steps.clone-snapshot.outputs.run-id }}."
           # Tells start-local-clone.sh to keep the pre-initialized database
           # instead of wiping it and re-running genesis init.
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
 
       - name: Fall back after an unusable clone snapshot
         if: >-
@@ -564,7 +539,8 @@ jobs:
            steps.restore-clone-snapshot.outcome != 'success')
         run: |
           echo "::warning::selected clone snapshot was unusable; falling back to a live mainnet scrape"
-          rm -rf /tmp/mainnet-snapshot clones/mainnet-clone clones/mainnet-clone-chainspec.json
+          ./clones/scripts/local-clone-checkpoint.sh clear
+          rm -rf /tmp/mainnet-snapshot
 
       - name: Fall back after clone snapshot lookup failure
         if: steps.clone-snapshot.outcome == 'failure'
@@ -591,65 +567,76 @@ jobs:
           done
           exit 1
 
-      - name: Start local clone
+      - name: Prepare a reusable checkpoint after live fallback
+        if: steps.restore-clone-snapshot.outcome != 'success'
         run: |
-          nohup ./clones/scripts/start-local-clone.sh > clone-node.log 2>&1 &
-          # Genesis init from the ~2 GB mainnet-clone chainspec takes several
-          # minutes before the RPC server comes up, so allow up to 15 minutes.
-          # (With a restored snapshot the db is pre-initialized and this is
-          # nearly instant.)
-          for i in $(seq 1 450); do
-            if curl -sf -H "Content-Type: application/json" \
-              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
-              http://127.0.0.1:9944 > /dev/null; then
-              echo "Clone node is up."
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Clone node failed to start:"
-          cat clone-node.log
-          exit 1
+          set -euo pipefail
+          ./clones/scripts/start-local-clone-and-wait.sh manual
+          checkpoint=/tmp/mainnet-clone-pristine.tar
+          ./clones/scripts/local-clone-checkpoint.sh create "$checkpoint"
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          echo "CLONE_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
 
-      - name: Sudo-upgrade clone with proposed runtime
+      - name: Install clone test dependencies
+        working-directory: clones/js-tests
+        run: npm ci
+
+      - name: Start isolated issuance clone
+        run: ./clones/scripts/start-local-clone-and-wait.sh accelerated
+
+      - name: Sudo-upgrade issuance clone with proposed runtime
         working-directory: clones/js-tests
         run: |
-          npm ci
           # Right after genesis the node occasionally rejects the first
-          # extrinsic with "bad signature" (observed: 1 of 3 shards failed at
-          # +8s while the identical tx succeeded on the others seconds later).
+          # extrinsic with "bad signature" (observed in the former sharded
+          # workflow while identical transactions succeeded seconds later).
           # Setting the same runtime code twice is idempotent, so retry once.
           npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
+
+      - name: Run isolated issuance regression
+        working-directory: clones/js-tests
+        env:
+          CLONE_REGRESSION_PHASE: pristine
+          CLONE_REGRESSION_TIMEOUT_MS: 1800000
+        run: npm run test:clone-regressions
+
+      - name: Stop isolated issuance clone
+        run: ./clones/scripts/stop-local-clone.sh
+
+      - name: Restore pristine clone for remaining regressions
+        run: ./clones/scripts/local-clone-checkpoint.sh restore "$CLONE_CHECKPOINT"
+
+      - name: Start regression clone
+        run: ./clones/scripts/start-local-clone-and-wait.sh accelerated
+
+      - name: Sudo-upgrade regression clone with proposed runtime
+        working-directory: clones/js-tests
+        run: npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
 
       - name: Run clone smoke tests
         working-directory: clones/js-tests
         run: npm test
 
-      - name: Run clone regression tests (shard subset)
+      - name: Run remaining clone regression tests
         working-directory: clones/js-tests
         env:
-          CLONE_REGRESSION_TESTS: ${{ matrix.shard.tests }}
-          # test-total-issuance-trackers legitimately waits minutes for the
-          # queued replacement registration: register_network at the subnet
-          # limit prunes a subnet and only emits NetworkAdded from on_idle
-          # after the pruned subnet's chunked storage cleanup finishes
-          # (~6 min on mainnet-scale state).
-          CLONE_REGRESSION_TIMEOUT_MS: ${{ matrix.shard.name == 'issuance' && '1800000' || '900000' }}
+          CLONE_REGRESSION_PHASE: remaining
+          CLONE_REGRESSION_TIMEOUT_MS: 1800000
         run: npm run test:clone-regressions
 
       - name: Install uv
-        if: ${{ matrix.shard.sdk }}
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
         run: |
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Sync SDK environment
-        if: ${{ matrix.shard.sdk }}
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
         working-directory: sdk/python
         run: uv sync --locked --all-extras --dev
 
       - name: Metadata drift gate (committed _generated vs upgraded clone)
-        if: ${{ matrix.shard.sdk && (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true') }}
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
 
@@ -669,34 +656,33 @@ jobs:
         run: ./clones/scripts/stop-local-clone.sh
 
   # Branch protection requires a check named exactly "Sudo-upgrade mainnet
-  # clone and test"; the shard matrix above produces differently-named jobs,
-  # so this fan-in preserves the required-check name. Passes when every shard
-  # succeeded, or when the whole suite legitimately skipped (docs-only PR or
-  # the skip-clone-upgrade label). Anything else — including a build failure
-  # cascading into skipped shards — fails.
+  # clone and test"; this fan-in preserves the required-check name. It passes
+  # when the clone job succeeded, or when the whole suite legitimately skipped
+  # (docs-only PR or the skip-clone-upgrade label). Anything else — including
+  # a build failure cascading into a skipped clone job — fails.
   clone-upgrade-gate:
     name: Sudo-upgrade mainnet clone and test
     needs: [changes, build-node-release, clone-upgrade]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Evaluate shard results
+      - name: Evaluate clone result
         env:
           CHANGES: ${{ needs.changes.result }}
-          SHARDS: ${{ needs.clone-upgrade.result }}
+          CLONE: ${{ needs.clone-upgrade.result }}
           BUILD: ${{ needs.build-node-release.result }}
           LABEL_SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
         run: |
-          echo "changes=$CHANGES shards=$SHARDS build=$BUILD label-skip=$LABEL_SKIP"
+          echo "changes=$CHANGES clone=$CLONE build=$BUILD label-skip=$LABEL_SKIP"
           # A failed path-filter job must not read as "nothing runtime-related
-          # changed" — that would let build+shards skip and the gate pass.
+          # changed" — that would let build+clone skip and the gate pass.
           if [ "$CHANGES" != "success" ]; then
             exit 1
           fi
-          if [ "$SHARDS" = "success" ]; then
+          if [ "$CLONE" = "success" ]; then
             exit 0
           fi
-          if [ "$SHARDS" = "skipped" ] && { [ "$LABEL_SKIP" = "true" ] || [ "$BUILD" = "skipped" ]; }; then
+          if [ "$CLONE" = "skipped" ] && { [ "$LABEL_SKIP" = "true" ] || [ "$BUILD" = "skipped" ]; }; then
             exit 0
           fi
           exit 1
