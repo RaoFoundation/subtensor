@@ -83,360 +83,360 @@ Inspect the message for details
 
 ## Chain error classification
 
-The exact chain error name (from the extrinsic receipt) maps to a code:
+The exact chain error name (from the extrinsic receipt) maps to a code; the description says what triggered it and where to check:
 
-| Chain error | Code |
-| --- | --- |
-| `AccountNotAllowedCommit` | `not_authorized` |
-| `AccountRejectsLockedAlpha` | `invalid_argument` |
-| `ActiveLockExists` | `already_exists` |
-| `ActivityCutoffFactorMilliOutOfBounds` | `invalid_argument` |
-| `ActivityCutoffTooLow` | `invalid_argument` |
-| `AddStakeBurnRateLimitExceeded` | `rate_limited` |
-| `AdminActionProhibitedDuringWeightsWindow` | `too_early` |
-| `AllNetworksInImmunity` | `too_early` |
-| `AlphaHighTooLow` | `invalid_argument` |
-| `AlphaLowOutOfRange` | `invalid_argument` |
-| `AlreadyApproved` | `already_exists` |
-| `AlreadyDeposited` | `already_exists` |
-| `AlreadyFinalized` | `already_exists` |
-| `AlreadyFinalizing` | `already_exists` |
-| `AlreadyNoted` | `already_exists` |
-| `AlreadyStored` | `already_exists` |
-| `AmountTooLow` | `invalid_argument` |
-| `AnnouncedColdkeyHashDoesNotMatch` | `invalid_argument` |
-| `AnnouncementDepositInvariantViolated` | `internal` |
-| `ArithmeticOverflow` | `internal` |
-| `AutoEpochAlreadyImminent` | `already_exists` |
-| `BadEncKeyLen` | `invalid_argument` |
-| `BalanceLow` | `insufficient_balance` |
-| `BalanceWithdrawalError` | `insufficient_balance` |
-| `BeneficiaryDoesNotOwnHotkey` | `not_authorized` |
-| `BlockDurationTooLong` | `invalid_argument` |
-| `BlockDurationTooShort` | `invalid_argument` |
-| `BondsMovingAverageMaxReached` | `limit_exceeded` |
-| `CallDisabled` | `disabled` |
-| `CallFiltered` | `not_authorized` |
-| `CallUnavailable` | `not_found` |
-| `CanNotSetRootNetworkWeights` | `invalid_argument` |
-| `CannotAddSelfAsDelegateDependency` | `invalid_argument` |
-| `CannotAffordLockCost` | `insufficient_balance` |
-| `CannotBurnOrRecycleOnRootSubnet` | `invalid_argument` |
-| `CannotEndInPast` | `invalid_argument` |
-| `CannotReleaseYet` | `too_early` |
-| `CannotUseSystemAccount` | `not_authorized` |
-| `CapNotRaised` | `too_early` |
-| `CapRaised` | `limit_exceeded` |
-| `CapTooLow` | `invalid_argument` |
-| `ChainIdMismatch` | `invalid_argument` |
-| `ChangePending` | `already_exists` |
-| `ChildParentInconsistency` | `invalid_argument` |
-| `CodeInUse` | `invalid_argument` |
-| `CodeInfoNotFound` | `not_found` |
-| `CodeNotFound` | `not_found` |
-| `CodeRejected` | `invalid_argument` |
-| `CodeTooLarge` | `limit_exceeded` |
-| `ColdKeyAlreadyAssociated` | `already_exists` |
-| `ColdkeySwapAlreadyDisputed` | `already_exists` |
-| `ColdkeySwapAnnounced` | `already_exists` |
-| `ColdkeySwapAnnouncementNotFound` | `not_found` |
-| `ColdkeySwapClearTooEarly` | `too_early` |
-| `ColdkeySwapDisputed` | `not_authorized` |
-| `ColdkeySwapReannouncedTooEarly` | `too_early` |
-| `ColdkeySwapTooEarly` | `too_early` |
-| `CommitRevealDisabled` | `disabled` |
-| `CommitRevealEnabled` | `disabled` |
-| `CommittingWeightsTooFast` | `rate_limited` |
-| `ContractNotFound` | `not_found` |
-| `ContractReverted` | `internal` |
-| `ContractTrapped` | `internal` |
-| `ContributionPeriodEnded` | `expired` |
-| `ContributionPeriodNotEnded` | `too_early` |
-| `ContributionTooLow` | `invalid_argument` |
-| `CreateOriginNotAllowed` | `not_authorized` |
-| `CurrencyError` | `internal` |
-| `DeadAccount` | `not_found` |
-| `DecodingFailed` | `invalid_argument` |
-| `DelegateDependencyAlreadyExists` | `already_exists` |
-| `DelegateDependencyNotFound` | `not_found` |
-| `DelegateTakeTooHigh` | `invalid_argument` |
-| `DelegateTakeTooLow` | `invalid_argument` |
-| `DelegateTxRateLimitExceeded` | `rate_limited` |
-| `DeltaZero` | `invalid_argument` |
-| `DepositCannotBeWithdrawn` | `invalid_argument` |
-| `DepositTooLow` | `invalid_argument` |
-| `Deprecated` | `disabled` |
-| `DisabledTemporarily` | `disabled` |
-| `DrandConnectionFailure` | `internal` |
-| `Duplicate` | `already_exists` |
-| `DuplicateChild` | `invalid_argument` |
-| `DuplicateContract` | `already_exists` |
-| `DuplicateOffenceReport` | `already_exists` |
-| `DuplicateOrderInBatch` | `invalid_argument` |
-| `DuplicateUids` | `invalid_argument` |
-| `DynamicTempoBlockedByCommitReveal` | `disabled` |
-| `Entered` | `already_exists` |
-| `EpochTriggerAlreadyPending` | `already_exists` |
-| `EvmKeyAssociateRateLimitExceeded` | `rate_limited` |
-| `EvmKeyAssociationLimitExceeded` | `limit_exceeded` |
-| `ExistentialDeposit` | `insufficient_balance` |
-| `ExistingVestingSchedule` | `already_exists` |
-| `Exited` | `already_exists` |
-| `ExpectedBeneficiaryOrigin` | `not_authorized` |
-| `Expendability` | `insufficient_balance` |
-| `ExpiredWeightCommit` | `expired` |
-| `FailedToExtractRuntimeVersion` | `invalid_argument` |
-| `FailedToSchedule` | `internal` |
-| `FaucetDisabled` | `disabled` |
-| `FeeOverflow` | `internal` |
-| `FeeRateTooHigh` | `invalid_argument` |
-| `FirstEmissionBlockNumberAlreadySet` | `already_exists` |
-| `GasLimitTooHigh` | `invalid_argument` |
-| `GasLimitTooLow` | `invalid_argument` |
-| `GasPriceTooLow` | `invalid_argument` |
-| `HotKeyAccountNotExists` | `not_registered` |
-| `HotKeyAlreadyDelegate` | `already_exists` |
-| `HotKeyAlreadyRegisteredInSubNet` | `already_exists` |
-| `HotKeyNotRegisteredInNetwork` | `not_registered` |
-| `HotKeyNotRegisteredInSubNet` | `not_registered` |
-| `HotKeySetTxRateLimitExceeded` | `rate_limited` |
-| `HotKeySwapOnSubnetIntervalNotPassed` | `rate_limited` |
-| `IncorrectCommitRevealVersion` | `invalid_argument` |
-| `IncorrectPartialFillAmount` | `invalid_argument` |
-| `IncorrectWeightVersionKey` | `invalid_argument` |
-| `Indeterministic` | `invalid_argument` |
-| `InputForwarded` | `invalid_argument` |
-| `InputLengthsUnequal` | `invalid_argument` |
-| `InsufficientBalance` | `insufficient_balance` |
-| `InsufficientInputAmount` | `invalid_argument` |
-| `InsufficientLiquidity` | `insufficient_liquidity` |
-| `InsufficientStakeForLock` | `insufficient_balance` |
-| `InvalidCallFlags` | `invalid_argument` |
-| `InvalidChainId` | `invalid_argument` |
-| `InvalidChild` | `invalid_argument` |
-| `InvalidChildkeyTake` | `invalid_argument` |
-| `InvalidCrowdloanId` | `not_found` |
-| `InvalidDerivedAccount` | `invalid_argument` |
-| `InvalidDerivedAccountId` | `invalid_argument` |
-| `InvalidDifficulty` | `invalid_argument` |
-| `InvalidEquivocationProof` | `invalid_argument` |
-| `InvalidFinalizationConfig` | `invalid_argument` |
-| `InvalidIdentity` | `invalid_argument` |
-| `InvalidIpAddress` | `invalid_argument` |
-| `InvalidIpType` | `invalid_argument` |
-| `InvalidKeyOwnershipProof` | `invalid_argument` |
-| `InvalidLeaseBeneficiary` | `invalid_argument` |
-| `InvalidLiquidityValue` | `invalid_argument` |
-| `InvalidNonce` | `invalid_argument` |
-| `InvalidNumRootClaim` | `invalid_argument` |
-| `InvalidOrigin` | `not_authorized` |
-| `InvalidPort` | `invalid_argument` |
-| `InvalidRecoveredPublicKey` | `invalid_argument` |
-| `InvalidRevealCommitHashNotMatch` | `invalid_argument` |
-| `InvalidRevealRound` | `expired` |
-| `InvalidRootClaimThreshold` | `invalid_argument` |
-| `InvalidRoundNumber` | `invalid_argument` |
-| `InvalidSchedule` | `invalid_argument` |
-| `InvalidSeal` | `invalid_argument` |
-| `InvalidSignature` | `invalid_argument` |
-| `InvalidSpecName` | `invalid_argument` |
-| `InvalidSubnetNumber` | `invalid_argument` |
-| `InvalidTickRange` | `invalid_argument` |
-| `InvalidValue` | `invalid_argument` |
-| `InvalidVotingPowerEmaAlpha` | `invalid_argument` |
-| `InvalidWorkBlock` | `invalid_argument` |
-| `IssuanceDeactivated` | `disabled` |
-| `LeaseCannotEndInThePast` | `invalid_argument` |
-| `LeaseDoesNotExist` | `not_found` |
-| `LeaseHasNoEndBlock` | `invalid_argument` |
-| `LeaseHasNotEnded` | `too_early` |
-| `LeaseNetuidNotFound` | `not_found` |
-| `LimitOrdersDisabled` | `disabled` |
-| `LiquidAlphaDisabled` | `disabled` |
-| `LiquidityRestrictions` | `insufficient_balance` |
-| `LockHotkeyMismatch` | `invalid_argument` |
-| `LockIdOverFlow` | `limit_exceeded` |
-| `MaxAllowedUIdsLessThanCurrentUIds` | `invalid_argument` |
-| `MaxAllowedUidsGreaterThanDefaultMaxAllowedUids` | `invalid_argument` |
-| `MaxAllowedUidsLessThanMinAllowedUids` | `invalid_argument` |
-| `MaxCallDepthReached` | `limit_exceeded` |
-| `MaxContributionReached` | `limit_exceeded` |
-| `MaxContributorsReached` | `limit_exceeded` |
-| `MaxDelegateDependenciesReached` | `limit_exceeded` |
-| `MaxValidatorsLargerThanMaxUIds` | `invalid_argument` |
-| `MaxWeightExceeded` | `limit_exceeded` |
-| `MaxWeightTooLow` | `invalid_argument` |
-| `MaximumContributionTooLow` | `invalid_argument` |
-| `MechanismDoesNotExist` | `subnet_not_exists` |
-| `MigrationInProgress` | `too_early` |
-| `MinAllowedUidsGreaterThanCurrentUids` | `invalid_argument` |
-| `MinAllowedUidsGreaterThanMaxAllowedUids` | `invalid_argument` |
-| `MinimumContributionTooHigh` | `invalid_argument` |
-| `MinimumContributionTooLow` | `invalid_argument` |
-| `MinimumThreshold` | `invalid_argument` |
-| `MultiBlockMigrationsOngoing` | `too_early` |
-| `Named` | `invalid_argument` |
-| `NeedWaitingMoreBlocksToStarCall` | `too_early` |
-| `NegativeSigmoidSteepness` | `invalid_argument` |
-| `NetworkDissolveAlreadyQueued` | `already_exists` |
-| `NetworkTxRateLimitExceeded` | `rate_limited` |
-| `NeuronNoValidatorPermit` | `not_authorized` |
-| `NewColdKeyIsHotkey` | `invalid_argument` |
-| `NewHotKeyIsSameWithOld` | `invalid_argument` |
-| `NewHotKeyNotCleanForRootSwap` | `invalid_argument` |
-| `NoApprovalsNeeded` | `invalid_argument` |
-| `NoChainExtension` | `disabled` |
-| `NoContribution` | `not_found` |
-| `NoDeposit` | `not_found` |
-| `NoExistingLock` | `not_found` |
-| `NoMigrationPerformed` | `invalid_argument` |
-| `NoNeuronIdAvailable` | `limit_exceeded` |
-| `NoPermission` | `not_authorized` |
-| `NoSelfProxy` | `invalid_argument` |
-| `NoTimepoint` | `invalid_argument` |
-| `NoWeightsCommitFound` | `not_found` |
-| `NonAssociatedColdKey` | `not_authorized` |
-| `NonDefaultComposite` | `invalid_argument` |
-| `NonZeroRefCount` | `invalid_argument` |
-| `NoneValue` | `not_found` |
-| `NotAllowed` | `not_authorized` |
-| `NotAuthorized` | `not_authorized` |
-| `NotConfigured` | `disabled` |
-| `NotEnoughAlphaOutToRecycle` | `insufficient_liquidity` |
-| `NotEnoughBalanceToPaySwapColdKey` | `insufficient_balance` |
-| `NotEnoughBalanceToPaySwapHotKey` | `insufficient_balance` |
-| `NotEnoughBalanceToStake` | `insufficient_balance` |
-| `NotEnoughStake` | `insufficient_balance` |
-| `NotEnoughStakeToSetChildkeys` | `insufficient_balance` |
-| `NotEnoughStakeToSetWeights` | `insufficient_balance` |
-| `NotEnoughStakeToWithdraw` | `insufficient_balance` |
-| `NotFound` | `not_found` |
-| `NotNoted` | `not_found` |
-| `NotOwner` | `not_authorized` |
-| `NotPermittedOnRootSubnet` | `invalid_argument` |
-| `NotProxy` | `not_authorized` |
-| `NotReadyToDissolve` | `too_early` |
-| `NotRequested` | `not_found` |
-| `NotRootSubnet` | `invalid_argument` |
-| `NotSubnetOwner` | `not_authorized` |
-| `NothingAuthorized` | `not_found` |
-| `OrderAlreadyProcessed` | `already_exists` |
-| `OrderCancelled` | `expired` |
-| `OrderExpired` | `expired` |
-| `OrderNetUidMismatch` | `invalid_argument` |
-| `OutOfBounds` | `invalid_argument` |
-| `OutOfGas` | `limit_exceeded` |
-| `OutOfTransientStorage` | `limit_exceeded` |
-| `OutputBufferTooSmall` | `invalid_argument` |
-| `Overflow` | `internal` |
-| `POWRegistrationDisabled` | `disabled` |
-| `PalletHotkeyNotRegistered` | `not_registered` |
-| `PartialFillsNotEnabled` | `disabled` |
-| `PauseFailed` | `invalid_argument` |
-| `PaymentOverflow` | `internal` |
-| `PreLogExists` | `invalid_argument` |
-| `PriceConditionNotMet` | `too_early` |
-| `PriceLimitExceeded` | `insufficient_liquidity` |
-| `ProportionOverflow` | `invalid_argument` |
-| `PulseVerificationError` | `invalid_argument` |
-| `RandomSubjectTooLong` | `limit_exceeded` |
-| `ReentranceDenied` | `invalid_argument` |
-| `Reentrancy` | `internal` |
-| `RegistrationNotPermittedOnRootSubnet` | `invalid_argument` |
-| `RegistrationPriceLimitExceeded` | `limit_exceeded` |
-| `RelayerMissMatch` | `invalid_argument` |
-| `RelayerRequiredForPartialFill` | `invalid_argument` |
-| `Requested` | `invalid_argument` |
-| `RequireSudo` | `not_authorized` |
-| `RescheduleNoChange` | `invalid_argument` |
-| `ReservesOutOfBalance` | `insufficient_liquidity` |
-| `ReservesTooLow` | `insufficient_liquidity` |
-| `ResumeFailed` | `invalid_argument` |
-| `RevealPeriodTooLarge` | `invalid_argument` |
-| `RevealPeriodTooSmall` | `invalid_argument` |
-| `RevealTooEarly` | `too_early` |
-| `RootNetUidNotAllowed` | `invalid_argument` |
-| `RootNetworkDoesNotExist` | `subnet_not_exists` |
-| `SameAutoStakeHotkeyAlreadySet` | `already_exists` |
-| `SameNetuid` | `invalid_argument` |
-| `SenderInSignatories` | `invalid_argument` |
-| `ServingRateLimitExceeded` | `rate_limited` |
-| `SettingWeightsTooFast` | `rate_limited` |
-| `SignatoriesOutOfOrder` | `invalid_argument` |
-| `SlippageTooHigh` | `insufficient_liquidity` |
-| `SpaceLimitExceeded` | `rate_limited` |
-| `SpecVersionNeedsToIncrease` | `invalid_argument` |
-| `StakeTooLowForRoot` | `insufficient_balance` |
-| `StakeUnavailable` | `insufficient_balance` |
-| `StakingRateLimitExceeded` | `rate_limited` |
-| `StartCallNotReady` | `too_early` |
-| `StateChangeDenied` | `not_authorized` |
-| `StorageDepositLimitExhausted` | `limit_exceeded` |
-| `StorageDepositNotEnoughFunds` | `insufficient_balance` |
-| `StorageOverflow` | `internal` |
-| `SubNetRegistrationDisabled` | `disabled` |
-| `SubnetBuybackRateLimitExceeded` | `rate_limited` |
-| `SubnetDoesNotExist` | `subnet_not_exists` |
-| `SubnetLimitReached` | `limit_exceeded` |
-| `SubnetNotExists` | `subnet_not_exists` |
-| `SubtokenDisabled` | `subtoken_disabled` |
-| `SwapInputTooLarge` | `insufficient_liquidity` |
-| `SwapReturnedZero` | `insufficient_liquidity` |
-| `SymbolAlreadyInUse` | `already_exists` |
-| `SymbolDoesNotExist` | `not_found` |
-| `TargetBlockNumberInPast` | `invalid_argument` |
-| `TempoOutOfBounds` | `invalid_argument` |
-| `TerminatedInConstructor` | `internal` |
-| `TerminatedWhileReentrant` | `invalid_argument` |
-| `TooBig` | `limit_exceeded` |
-| `TooFew` | `invalid_argument` |
-| `TooFewSignatories` | `invalid_argument` |
-| `TooMany` | `limit_exceeded` |
-| `TooManyCalls` | `limit_exceeded` |
-| `TooManyChildren` | `limit_exceeded` |
-| `TooManyFieldsInCommitmentInfo` | `limit_exceeded` |
-| `TooManyFreezes` | `limit_exceeded` |
-| `TooManyHolds` | `limit_exceeded` |
-| `TooManyPendingExtrinsics` | `limit_exceeded` |
-| `TooManyRegistrationsThisBlock` | `rate_limited` |
-| `TooManyRegistrationsThisInterval` | `rate_limited` |
-| `TooManyReserves` | `limit_exceeded` |
-| `TooManySignatories` | `limit_exceeded` |
-| `TooManyTopics` | `limit_exceeded` |
-| `TooManyUIDsPerMechanism` | `limit_exceeded` |
-| `TooManyUnrevealedCommits` | `limit_exceeded` |
-| `TooSoon` | `rate_limited` |
-| `TransactionMustComeFromEOA` | `not_authorized` |
-| `TransactorAccountShouldBeHotKey` | `not_authorized` |
-| `TransferDisallowed` | `disabled` |
-| `TransferFailed` | `insufficient_balance` |
-| `TrimmingWouldExceedMaxImmunePercentage` | `limit_exceeded` |
-| `TxChildkeyTakeRateLimitExceeded` | `rate_limited` |
-| `TxRateLimitExceeded` | `rate_limited` |
-| `UidMapCouldNotBeCleared` | `internal` |
-| `UidVecContainInvalidOne` | `invalid_argument` |
-| `UidsLengthExceedUidsInSubNet` | `limit_exceeded` |
-| `UnableToRecoverPublicKey` | `invalid_argument` |
-| `Unannounced` | `too_early` |
-| `Unauthorized` | `not_authorized` |
-| `Undefined` | `internal` |
-| `Underflow` | `internal` |
-| `UnexpectedTimepoint` | `invalid_argument` |
-| `UnexpectedUnreserveLeftover` | `internal` |
-| `UnlockAmountTooHigh` | `insufficient_balance` |
-| `Unproxyable` | `not_authorized` |
-| `Unreachable` | `internal` |
-| `UnverifiedPulse` | `invalid_argument` |
-| `ValueNotInBounds` | `invalid_argument` |
-| `ValueTooLarge` | `limit_exceeded` |
-| `VestingBalance` | `insufficient_balance` |
-| `VotingPowerTrackingNotEnabled` | `disabled` |
-| `WaitingForDissolvedSubnetCleanup` | `too_early` |
-| `WeightExceedsAbsoluteMax` | `limit_exceeded` |
-| `WeightVecLengthIsLow` | `invalid_argument` |
-| `WeightVecNotEqualSize` | `invalid_argument` |
-| `WithdrawFailed` | `insufficient_balance` |
-| `WrongTimepoint` | `invalid_argument` |
-| `XCMDecodeFailed` | `invalid_argument` |
-| `ZeroBalanceAfterWithdrawn` | `insufficient_balance` |
-| `ZeroShareInBatch` | `invalid_argument` |
+| Chain error | Code | Description |
+| --- | --- | --- |
+| `AccountNotAllowedCommit` | `not_authorized` | Raised by `set_commitment` when the runtime commit check fails: the subnet must exist and the signing hotkey must be registered on it. Verify the `netuid` and that the hotkey has a UID on that subnet. |
+| `AccountRejectsLockedAlpha` | `invalid_argument` | Locked alpha was being transferred to a coldkey whose `AccountFlags` do not have the accept-locked-alpha bit set, e.g. during a lock transfer or coldkey swap of locks. Check the destination coldkey's `AccountFlags` storage and have the recipient opt in to receiving locked alpha before retrying. |
+| `ActiveLockExists` | `already_exists` | The destination coldkey already holds a lock with nonzero locked mass on that subnet, so a new or transferred lock cannot be created there. Inspect the `Lock` storage for the (coldkey, netuid, hotkey) triple and wait for the existing lock to unlock or remove it first. |
+| `ActivityCutoffFactorMilliOutOfBounds` | `invalid_argument` | The `factor_milli` argument to set the activity-cutoff factor was outside the allowed 1000-50000 per-mille range (1 to 50 tempos). Adjust the argument to fall within those bounds before resubmitting. |
+| `ActivityCutoffTooLow` | `invalid_argument` | An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli sudo get --netuid <n>`. |
+| `AddStakeBurnRateLimitExceeded` | `rate_limited` | The add-stake-and-burn operation was submitted again before its per-key rate-limit window elapsed. Wait some blocks and retry; no active raise site exists in current code, so this mainly appears on older runtimes. |
+| `AdminActionProhibitedDuringWeightsWindow` | `too_early` | An owner or admin hyperparameter change was attempted inside the protected freeze window just before the subnet's epoch runs. Check `AdminFreezeWindow` and the blocks remaining until the next epoch (subnet tempo), then retry after the epoch fires. |
+| `AllNetworksInImmunity` | `too_early` | Creating a new subnet required pruning an existing one, but every candidate subnet is still inside its network immunity period so none can be dissolved. Check `NetworkImmunityPeriod` and each subnet's `NetworkRegisteredAt`, and retry once a subnet leaves immunity. |
+| `AlphaHighTooLow` | `invalid_argument` | The `alpha_high` argument to set liquid-alpha values was below the minimum of roughly 0.025 (1638/65535 in u16 units). Raise `alpha_high` in the `sudo_set_alpha_values` call; current values are in the `AlphaValues` storage per netuid. |
+| `AlphaLowOutOfRange` | `invalid_argument` | The `alpha_low` argument to set liquid-alpha values was below the ~0.025 minimum (1638/65535) or greater than `alpha_high`. Choose alpha_low within that range and not exceeding alpha_high; current settings are in the `AlphaValues` storage for the netuid. |
+| `AlreadyApproved` | `already_exists` | The sender has already approved this multisig call, so a repeat approval is redundant. Check the `Multisigs` entry for the call hash: the sender's account already appears in its `approvals` list. |
+| `AlreadyDeposited` | `already_exists` | The account calling safe-mode `enter` or `extend` already has a safe-mode deposit on hold, so another cannot be placed. Check the account's `Deposits` entries and its balance held under the `EnterOrExtend` hold reason. |
+| `AlreadyFinalized` | `already_exists` | The crowdloan's `finalized` flag is already true, so withdraw, finalize, refund, dissolve, and the update calls are all rejected. Check the `finalized` field of the `Crowdloans` entry for the given `crowdloan_id`. |
+| `AlreadyFinalizing` | `already_exists` | A `finalize` call was made while another finalization is still in progress, i.e. the dispatched call from a previous finalize has not cleared. Check that the `CurrentCrowdloanId` storage value is empty before retrying. |
+| `AlreadyNoted` | `already_exists` | The preimage for this hash has already been noted on-chain, so `note_preimage` has nothing to add. Check `RequestStatusFor` (or legacy `StatusFor`) for the hash before submitting the bytes again. |
+| `AlreadyStored` | `already_exists` | The call data supplied for storage is already stored on-chain for this multisig operation. Check whether the call bytes were previously stored for this call hash before submitting them again. |
+| `AmountTooLow` | `invalid_argument` | A stake, unstake, move or swap amount was zero or its TAO equivalent fell below the minimum stake threshold after fees and slippage. Compare the amount against the `DefaultMinStake` storage item and the subnet's alpha price before retrying with a larger amount. |
+| `AnnouncedColdkeyHashDoesNotMatch` | `invalid_argument` | The `new_coldkey` passed to `coldkey_swap` hashes to a different value than the hash committed in the earlier `announce_coldkey_swap`. Verify the announced hash in the `ColdkeySwapAnnouncements` storage matches the BlakeTwo256 hash of the coldkey you are swapping to. |
+| `AnnouncementDepositInvariantViolated` | `internal` | Internal invariant failure in `announce`: recomputing the announcement deposit returned nothing after the pending announcements were updated. Inspect the caller's `Announcements` entry and the announcement deposit constants; this indicates a pallet bug rather than bad input. |
+| `ArithmeticOverflow` | `internal` | Converting a TAO amount to alpha during batched order execution overflowed the fixed-point range, typically when the pool price is tiny relative to the batch's total buy TAO. Check the subnet's current alpha price against the batch's aggregate buy amounts. |
+| `AutoEpochAlreadyImminent` | `already_exists` | `trigger_epoch` was called when the next automatic epoch is closer than the `AdminFreezeWindow`, so a manual trigger would have no effect. Check the subnet's tempo and blocks until the next epoch, and simply wait for it to fire. |
+| `BadEncKeyLen` | `invalid_argument` | The `enc_key` passed to `announce_next_key` is not the exact ML-KEM-768 encapsulation key length (1184 bytes). Check the byte length of the `enc_key` argument before announcing. |
+| `BalanceLow` | `insufficient_balance` | The sender's mapped account cannot cover the transaction's value plus maximum gas fee, detected during validation or when withdrawing the fee. Check the account balance against `value` plus `gas_limit` times the effective gas price. |
+| `BalanceWithdrawalError` | `insufficient_balance` | The requested TAO could not be withdrawn from the coldkey's free balance, typically due to insufficient funds, the existential deposit, or frozen/reserved balance. Check the coldkey's balance with `btcli wallet balance` and reduce the amount or top up. |
+| `BeneficiaryDoesNotOwnHotkey` | `not_authorized` | When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns. |
+| `BlockDurationTooLong` | `invalid_argument` | The requested `end` block is more than `MaximumBlockDuration` blocks after the current block. Compare `end` minus the current block number against the `MaximumBlockDuration` pallet constant when calling `create` or `update_end`. |
+| `BlockDurationTooShort` | `invalid_argument` | The requested `end` block is fewer than `MinimumBlockDuration` blocks after the current block. Compare `end` minus the current block number against the `MinimumBlockDuration` pallet constant when calling `create` or `update_end`. |
+| `BondsMovingAverageMaxReached` | `limit_exceeded` | A subnet owner called `sudo_set_bonds_moving_average` with a value above 975000, the cap for owner-set values; root is exempt. Lower the `bonds_moving_average` argument or submit the call as root. |
+| `CallDisabled` | `disabled` | The extrinsic has been switched off in the current runtime and cannot be dispatched. There is no active raise site in current code; if seen, check release notes for whether the call was re-enabled in a newer runtime version. |
+| `CallFiltered` | `not_authorized` | The runtime's origin call filter (e.g. `BaseCallFilter` or a restricted origin) rejected this call before dispatch. Check whether the specific call is permitted for the origin you used, including any proxy or safe-mode filtering in effect. |
+| `CallUnavailable` | `not_found` | During `finalize` the crowdloan's stored call could not be fetched from preimage storage, so nothing was dispatched. Check that the preimage referenced by the `call` field of the `Crowdloans` entry still exists in the preimage pallet. |
+| `CanNotSetRootNetworkWeights` | `invalid_argument` | `set_weights` was called with netuid 0, the root network, where normal weight setting is not allowed. Use a non-root `netuid` argument; root weights are handled by a separate mechanism. |
+| `CannotAddSelfAsDelegateDependency` | `invalid_argument` | A contract called `lock_delegate_dependency` with its own code hash, which is not permitted. Check the code hash argument passed to the delegate dependency API against the contract's own code hash. |
+| `CannotAffordLockCost` | `insufficient_balance` | The coldkey's free balance cannot cover the current dynamic subnet-creation lock cost. Compare `btcli subnets lock-cost` (or `get_network_lock_cost`) against the coldkey balance from `btcli wallet balance` before registering a subnet. |
+| `CannotBurnOrRecycleOnRootSubnet` | `invalid_argument` | `recycle_alpha` or `burn_alpha` was called with netuid 0, and TAO on the root subnet cannot be burned or recycled. Pass a non-root `netuid` argument for the subnet whose alpha you want to recycle or burn. |
+| `CannotEndInPast` | `invalid_argument` | The `end` block passed to `create` or `update_end` is not after the current block. Compare the `end` argument against the current block number; it must be strictly greater. |
+| `CannotReleaseYet` | `too_early` | `release_deposit` was called too early: the current block must exceed the deposit's block plus `ReleaseDelay`, and safe-mode must be exited. Check the block key of the entry in `Deposits` against the `ReleaseDelay` config. |
+| `CannotUseSystemAccount` | `not_authorized` | The hotkey supplied for registration, hotkey swap, or subnet-owner-hotkey assignment is a reserved subnet system account. Use a regular user-generated hotkey instead; system accounts are derived per-subnet and rejected by `is_subnet_account_id`. |
+| `CapNotRaised` | `too_early` | `finalize` was called before the crowdloan's `raised` amount equals its `cap`. Compare the `raised` and `cap` fields of the `Crowdloans` entry; contribute the remainder or lower the cap with `update_cap` before finalizing. |
+| `CapRaised` | `limit_exceeded` | A contribution was attempted on a crowdloan whose `raised` amount has already reached its `cap`, so no further contributions are accepted. Compare the `raised` and `cap` fields of the `Crowdloans` entry for the `crowdloan_id`. |
+| `CapTooLow` | `invalid_argument` | On `create` the `cap` is not strictly greater than the initial `deposit`, or on `update_cap` the new cap is below the amount already raised. Compare the cap argument against the `deposit` or the `raised` field of the `Crowdloans` entry. |
+| `ChainIdMismatch` | `invalid_argument` | The order payload's `chain_id` field differs from this chain's configured EVM chain id, e.g. an order signed for testnet was submitted to mainnet. Compare the order's `chain_id` with the runtime's `pallet_evm_chain_id` value and re-sign if needed. |
+| `ChangePending` | `already_exists` | A GRANDPA authority-set change has already been signalled and is still pending, so a new change cannot be scheduled. Check the Grandpa `PendingChange` and `State` storage and wait for the pending change to be applied first. |
+| `ChildParentInconsistency` | `invalid_argument` | A `set_children` or parent-delegation call would make the same hotkey appear as both a child and a parent, or referenced a child missing from the proposed mapping. Inspect the `ChildKeys` and `ParentKeys` storage for the hotkeys involved and remove the overlap. |
+| `CodeInUse` | `invalid_argument` | `remove_code` was refused because at least one contract instance still references the code hash. Check the code's reference count and terminate or `set_code` the contracts using it before removal. |
+| `CodeInfoNotFound` | `not_found` | No `CodeInfoOf` entry exists for the supplied code hash, so its owner and deposit metadata cannot be read. Verify the code hash argument and that the code was uploaded and not since removed. |
+| `CodeNotFound` | `not_found` | No uploaded WASM binary exists under the supplied code hash. Verify the `code_hash` argument used in instantiation, `set_code`, or a delegate call, and that the code was uploaded via `upload_code` and not removed. |
+| `CodeRejected` | `invalid_argument` | The uploaded WASM failed validation, most often because it imports a host API the node does not support, e.g. newer ink! against an older node. Rerun the node with `-lruntime::contracts=debug` to see the detailed rejection reason. |
+| `CodeTooLarge` | `limit_exceeded` | The code blob passed to `instantiate_with_code` or `upload_code` exceeds the maximum code length in the pallet's schedule. Compare the WASM binary size against the schedule's code length limit and shrink the contract. |
+| `ColdKeyAlreadyAssociated` | `already_exists` | The destination coldkey of a coldkey swap already has staking hotkeys associated with it, so it cannot receive the swapped identity. Check the `StakingHotkeys` storage for the new coldkey and swap to a fresh, unused coldkey instead. |
+| `ColdkeySwapAlreadyDisputed` | `already_exists` | `dispute_coldkey_swap` was called for a coldkey whose pending swap announcement is already under dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; no further dispute action is needed. |
+| `ColdkeySwapAnnounced` | `already_exists` | The coldkey has a pending swap announcement, so all but a small allow-list of extrinsics are blocked until the swap completes or is cleared. Check the `ColdkeySwapAnnouncements` storage for the coldkey and either finish the swap with `coldkey_swap` or clear the announcement. |
+| `ColdkeySwapAnnouncementNotFound` | `not_found` | `coldkey_swap`, `dispute_coldkey_swap`, or `clear_coldkey_swap_announcement` was called for a coldkey with no pending announcement. Check the `ColdkeySwapAnnouncements` storage; you must call `announce_coldkey_swap` first. |
+| `ColdkeySwapClearTooEarly` | `too_early` | The swap announcement cannot be cleared until the reannouncement delay after the announcement's execution block has passed. Compare the current block with the `when` stored in `ColdkeySwapAnnouncements` plus `ColdkeySwapReannouncementDelay` and retry later. |
+| `ColdkeySwapDisputed` | `not_authorized` | All extrinsics from this coldkey are blocked because its pending coldkey swap is under dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; the dispute must be resolved by root before the account can transact. |
+| `ColdkeySwapReannouncedTooEarly` | `too_early` | `announce_coldkey_swap` was called again before the reannouncement delay after the previous announcement's execution block elapsed. Compare the current block with the stored announcement time plus `ColdkeySwapReannouncementDelay` and retry later. |
+| `ColdkeySwapTooEarly` | `too_early` | `coldkey_swap` was executed before the announcement delay had elapsed since `announce_coldkey_swap`. Check the execution block stored in `ColdkeySwapAnnouncements` (announcement time plus `ColdkeySwapAnnouncementDelay`) and wait until then. |
+| `CommitRevealDisabled` | `disabled` | A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get`); use plain `set_weights` instead when it is disabled. |
+| `CommitRevealEnabled` | `disabled` | Plain `set_weights` was called on a subnet where commit-reveal is enabled, which requires the commit/reveal flow instead. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid and switch to `commit_weights`/`reveal_weights`. |
+| `CommittingWeightsTooFast` | `rate_limited` | The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli sudo get --netuid <n>`) and wait. |
+| `ContractNotFound` | `not_found` | No contract instance exists at the destination address; the account has no `ContractInfoOf` entry. Verify the `dest` address and that the contract was instantiated and has not been terminated. |
+| `ContractReverted` | `internal` | The contract ran to completion but returned with the REVERT flag set, rolling back its state changes; only extrinsics surface this as an error. Dry-run the call via RPC and decode the returned output data for the contract's error value. |
+| `ContractTrapped` | `internal` | The contract aborted with a WASM trap, e.g. a panic, unreachable instruction, or memory violation, instead of returning normally. Dry-run the call with debug messages enabled and check the input data against the contract's expectations. |
+| `ContributionPeriodEnded` | `expired` | A contribution was made at or after the crowdloan's `end` block. Compare the `end` field of the `Crowdloans` entry with the current block number; the creator can extend it with `update_end` while the crowdloan is not finalized. |
+| `ContributionPeriodNotEnded` | `too_early` | The operation requires the crowdloan's contribution period to be over, but the current block is still before the crowdloan's `end` block. Compare the `end` field of the `Crowdloans` entry for the `crowdloan_id` with the current block number. |
+| `ContributionTooLow` | `invalid_argument` | The `amount` passed to `contribute` is below the crowdloan's configured minimum contribution. Check the `min_contribution` field of the `Crowdloans` entry for the `crowdloan_id` and contribute at least that amount. |
+| `CreateOriginNotAllowed` | `not_authorized` | A CREATE, or a CALL that performs a nested CREATE, was attempted from an EVM address not permitted to deploy contracts. Check whether the deploying address is in the chain's allowed-deployers list. |
+| `CurrencyError` | `internal` | A balance hold, release, or burn inside pallet-safe-mode failed while managing an enter/extend deposit. Check the account's free balance and existing holds under the safe-mode `EnterOrExtend` hold reason. |
+| `DeadAccount` | `not_found` | The beneficiary account does not exist and this operation is not allowed to create it. Check `System.Account` for the destination: it must already hold at least the existential deposit before the operation runs. |
+| `DecodingFailed` | `invalid_argument` | Input bytes passed to a contract API host function could not be SCALE-decoded into the expected type. Check the encoding of the call's input data or the argument bytes the contract passes to the runtime API. |
+| `DelegateDependencyAlreadyExists` | `already_exists` | The contract called `lock_delegate_dependency` for a code hash it has already locked. Check the contract's recorded delegate dependencies before adding, and unlock the old entry first if replacing it. |
+| `DelegateDependencyNotFound` | `not_found` | `unlock_delegate_dependency` was called for a code hash that is not among the contract's locked delegate dependencies. Check the code hash argument against the dependencies recorded in the contract's info. |
+| `DelegateTakeTooHigh` | `invalid_argument` | The `take` argument exceeds the maximum delegate take allowed by the chain (18% by default). Compare the requested value against the `MaxDelegateTake` storage item and lower it. |
+| `DelegateTakeTooLow` | `invalid_argument` | The `take` argument was below the `MinDelegateTake` minimum, or `increase_take`/`decrease_take` was not strictly increasing/decreasing relative to the current take. Check the hotkey's current take in the `Delegates` storage and the `MinDelegateTake` storage item. |
+| `DelegateTxRateLimitExceeded` | `rate_limited` | The delegate changed its take again before the per-hotkey take-change rate limit elapsed. Compare blocks since the hotkey's last take transaction against the `TxDelegateTakeRateLimit` storage item and retry later. |
+| `DeltaZero` | `invalid_argument` | The issuance adjustment was called with a delta of zero, which is meaningless. Check the `delta` argument to `force_adjust_total_issuance` and pass a strictly positive amount. |
+| `DepositCannotBeWithdrawn` | `invalid_argument` | The creator called `withdraw` but holds nothing above the initial deposit, which stays locked until the crowdloan is dissolved. Compare the creator's `Contributions` entry with the `deposit` field of the `Crowdloans` entry. |
+| `DepositTooLow` | `invalid_argument` | The `deposit` argument to `create` is below the pallet's required minimum. Check the `MinimumDeposit` pallet constant and create the crowdloan with at least that initial deposit. |
+| `Deprecated` | `disabled` | The extrinsic has been removed and always fails, e.g. `schedule_swap_coldkey`, the swap pallet's user-liquidity calls, or `sudo_set_total_issuance`. Migrate to the replacement call noted in the deprecation (for coldkey swaps, `announce_coldkey_swap` plus `coldkey_swap`). |
+| `DisabledTemporarily` | `disabled` | The operation has been temporarily switched off in the runtime, usually as a hotfix measure. There is no active raise site in current code; if encountered, check the runtime version and release notes for when the feature is re-enabled. |
+| `DrandConnectionFailure` | `internal` | Declared for failures reaching the drand HTTP API, but pulse fetching happens in the offchain worker, which logs errors instead of raising this. Check the node's offchain worker logs and outbound connectivity to the drand endpoints. |
+| `Duplicate` | `already_exists` | This delegate is already registered as a proxy for the delegator with the same proxy type and delay. Check the delegator's `Proxies` entry before calling `add_proxy` with the same (delegate, proxy type, delay) tuple. |
+| `DuplicateChild` | `invalid_argument` | The children list passed to `set_children` contains the same child hotkey more than once. Deduplicate the `children` argument; current relations are visible in the `ChildKeys` storage for the parent hotkey and netuid. |
+| `DuplicateContract` | `already_exists` | Instantiation would create a contract at an address already occupied by an existing contract. Check the derived contract address and vary the `salt` argument to obtain a fresh address. |
+| `DuplicateOffenceReport` | `already_exists` | The equivocation proof is valid but this offence has already been reported and recorded. Check whether an equivocation report for the same offender, session, and round was previously submitted before reporting again. |
+| `DuplicateOrderInBatch` | `invalid_argument` | Two entries in one `execute_batched_orders` call hash to the same order id, meaning the identical signed payload was included twice, which hard-fails the batch. Deduplicate by the blake2-256 hash of each SCALE-encoded `VersionedOrder`. |
+| `DuplicateUids` | `invalid_argument` | The `uids` vector passed to `set_weights` (or a reveal) contains the same UID more than once. Deduplicate the uids/values pairs before submitting; each target neuron may appear only once per weight vector. |
+| `DynamicTempoBlockedByCommitReveal` | `disabled` | `trigger_epoch` is refused while commit-reveal is enabled on the subnet, because an out-of-band epoch would desync the CRv3 reveal window from the Drand schedule and drop committed weights. Check the `commit_reveal_weights_enabled` hyperparameter; disable it before manually triggering epochs. |
+| `Entered` | `already_exists` | Safe-mode is currently active, so `enter` or `force_enter` cannot activate it again and `release_deposit` is blocked until it exits. Check `EnteredUntil` for the block at which safe-mode disengages. |
+| `EpochTriggerAlreadyPending` | `already_exists` | `trigger_epoch` was called while a previously triggered epoch is still queued for this subnet. Check the `PendingEpochAt` storage for the netuid and wait for the pending epoch to fire before triggering again. |
+| `EvmKeyAssociateRateLimitExceeded` | `rate_limited` | `associate_evm_key` was called again before the per-UID rate limit since the last association elapsed. Compare blocks since the association recorded in the `AssociatedEvmAddress` storage against the `EvmKeyAssociateRateLimit` runtime constant and retry later. |
+| `EvmKeyAssociationLimitExceeded` | `limit_exceeded` | The EVM address is already associated with the maximum number of UIDs allowed on this subnet. Inspect the `AssociatedUidsByEvmAddress` storage for the (netuid, evm_key) pair and free a slot or use a different EVM address. |
+| `ExistentialDeposit` | `insufficient_balance` | The amount is too small to create the destination account: its resulting balance would sit below the existential deposit. Compare the transfer value plus the destination's current free balance against the `ExistentialDeposit` constant. |
+| `ExistingVestingSchedule` | `already_exists` | A vesting schedule already exists for the target account and this call cannot add another. Check the account's `Vesting` storage entry before attempting to set a new vested transfer or schedule. |
+| `Exited` | `already_exists` | Safe-mode is not currently active, so `extend`, `force_extend`, or `force_exit` have nothing to act on. Check that `EnteredUntil` contains a value before extending or exiting. |
+| `ExpectedBeneficiaryOrigin` | `not_authorized` | A lease operation such as terminating a subnet lease was signed by an account other than the lease's beneficiary coldkey. Check the beneficiary recorded in the `SubnetLeases` storage for the lease id and sign with that coldkey. |
+| `Expendability` | `insufficient_balance` | The transfer or payment would drop the sender below the existential deposit and kill the account while keep-alive semantics are required. Compare the sender's free balance minus the amount and fees against `ExistentialDeposit`, or use `transfer_allow_death` if reaping is acceptable. |
+| `ExpiredWeightCommit` | `expired` | The hash supplied to `reveal_weights` matches a commit whose reveal window has already passed, so it can no longer be revealed. Check the `commit_reveal_period` hyperparameter and reveal within the allowed epochs after committing; re-commit and reveal on time. |
+| `FailedToExtractRuntimeVersion` | `invalid_argument` | The new runtime code passed to `set_code` did not yield a readable version: calling `Core_version` or decoding `RuntimeVersion` failed. Check that the submitted blob is a valid, complete runtime wasm and not truncated or compressed incorrectly. |
+| `FailedToSchedule` | `internal` | The scheduler could not place the call into the agenda, typically because the target block's agenda is full or the schedule parameters are unusable. Check `Agenda` at the target block against `MaxScheduledPerBlock` and pick a different block if it is saturated. |
+| `FaucetDisabled` | `disabled` | The `faucet` extrinsic was called on a runtime built without the pow-faucet feature, i.e. any real network. The faucet only works on local test chains compiled with that feature; use a funded wallet or testnet TAO instead. |
+| `FeeOverflow` | `internal` | Fee arithmetic overflowed, either multiplying the fee per gas by `gas_limit` or converting the EVM fee into Substrate balance decimals. Check for absurdly large `gas_limit` or fee-per-gas values in the transaction. |
+| `FeeRateTooHigh` | `invalid_argument` | `set_fee_rate` was called with a rate above the swap pallet's `MaxFeeRate` config constant. Compare the `rate` argument (u16-scaled fraction) against `MaxFeeRate` before submitting. |
+| `FirstEmissionBlockNumberAlreadySet` | `already_exists` | `start_call` was issued for a subnet whose emissions have already been started. Check the `FirstEmissionBlockNumber` storage for the netuid; a non-empty value means the subnet is already emitting and no action is needed. |
+| `GasLimitTooHigh` | `invalid_argument` | The transaction's `gas_limit` exceeds the block gas limit configured for the EVM. Compare the `gas_limit` argument against the chain's block gas limit and lower it. |
+| `GasLimitTooLow` | `invalid_argument` | The transaction's `gas_limit` is below the intrinsic gas required, or too small to cover the weight and proof-size base cost. Raise the `gas_limit` argument, comparing against an `eth_estimateGas` result. |
+| `GasPriceTooLow` | `invalid_argument` | The offered fee cannot satisfy the current base fee: `max_fee_per_gas` is below the block base fee, the priority fee exceeds the max fee, or the fee inputs are inconsistent. Check `max_fee_per_gas` and `max_priority_fee_per_gas` against the chain's base fee. |
+| `HotKeyAccountNotExists` | `not_registered` | The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet overview`; register the hotkey on a subnet first. |
+| `HotKeyAlreadyDelegate` | `already_exists` | `become_delegate` was called for a hotkey that is already a delegate. Check the `Delegates` storage for the hotkey; if it has a take entry it is already delegating and no action is needed. |
+| `HotKeyAlreadyRegisteredInSubNet` | `already_exists` | A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet overview`; use a different hotkey or netuid. |
+| `HotKeyNotRegisteredInNetwork` | `not_registered` | The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli subnets show --netuid <n>` and register via `btcli subnets register` first. |
+| `HotKeyNotRegisteredInSubNet` | `not_registered` | The hotkey holds no UID on the given netuid, so weight setting, commits, or UID lookups fail there. Check the `Uids` storage for the (netuid, hotkey) pair or `btcli subnets show --netuid <n>`; confirm the netuid argument and register the hotkey if needed. |
+| `HotKeySetTxRateLimitExceeded` | `rate_limited` | The coldkey attempted a hotkey set/swap before `TxRateLimit` blocks had passed since its last such transaction. Check the coldkey's last transaction block against the `TxRateLimit` storage value and wait the remaining blocks. |
+| `HotKeySwapOnSubnetIntervalNotPassed` | `rate_limited` | A hotkey swap on a subnet was attempted before `HotkeySwapOnSubnetInterval` blocks passed since the coldkey's last swap on that netuid. Compare `LastHotkeySwapOnNetuid` for the coldkey with the current block and retry after the interval. |
+| `IncorrectCommitRevealVersion` | `invalid_argument` | The `commit_reveal_version` argument does not match the chain's current commit-reveal weights version. Query the `CommitRevealWeightsVersion` storage item and upgrade or configure the client to commit with that version. |
+| `IncorrectPartialFillAmount` | `invalid_argument` | The `partial_fill` amount is zero or exceeds the order's remaining unfilled amount, or a full execution was submitted against an order already partially filled. Compare `partial_fill` with `order.amount` minus the filled amount recorded in `Orders`. |
+| `IncorrectWeightVersionKey` | `invalid_argument` | The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli subnets hyperparameters`) and update the validator software or the key. |
+| `Indeterministic` | `invalid_argument` | Code flagged as non-deterministic (e.g. using floating point) was used where determinism is enforced, such as on-chain instantiation or calls. Check the determinism mode the code was uploaded with and rebuild the contract deterministically. |
+| `InputForwarded` | `invalid_argument` | The contract forwarded its input to a callee via `seal_call` with the FORWARD_INPUT flag and then tried to read or forward it again. Check the call flags used; use CLONE_INPUT when the input is still needed afterwards. |
+| `InputLengthsUnequal` | `invalid_argument` | A batch weights call passed vectors of different lengths, e.g. netuids vs commit hashes, or uids vs values, salts and version_keys in batch reveal. Check that every parallel vector argument in the batch extrinsic has the same length. |
+| `InsufficientBalance` | `insufficient_balance` | The caller's spendable balance is below what the operation needs, whether a plain transfer, a stake operation, a crowdloan deposit or contribution, or a swap. Compare the account's free balance in `System.Account` (net of holds, freezes, and fees) against the amount being moved. |
+| `InsufficientInputAmount` | `invalid_argument` | Declared for swap inputs too small to execute, but no current code path raises it since the user-liquidity code was removed. If seen on an older runtime, check that the swap input amount is nonzero and large enough to produce output. |
+| `InsufficientLiquidity` | `insufficient_liquidity` | The pool cannot absorb the operation: the swap simulation failed, reserves are smaller than the payout, or the amount exceeds the pool's supported input. Check the subnet pool reserves `SubnetTAO`, `SubnetAlphaIn` and `SubnetAlphaOut` against the amount. |
+| `InsufficientStakeForLock` | `insufficient_balance` | The requested lock amount exceeds the coldkey's total alpha stake on that subnet (existing locked mass included). Compare the amount against the coldkey's stake on the netuid, e.g. via `btcli stake list`, and lock less or add stake first. |
+| `InvalidCallFlags` | `invalid_argument` | The flags bitmask given to `seal_call` or `seal_delegate_call` contains an unknown or disallowed combination; delegate calls accept only a restricted flag set. Check the flags argument against the supported `CallFlags` bit values. |
+| `InvalidChainId` | `invalid_argument` | The EIP-155 chain id encoded in the signed transaction does not match this chain's configured chain id. Compare the transaction's chain id with the value returned by `eth_chainId` and re-sign the transaction. |
+| `InvalidChild` | `invalid_argument` | The children or parents list includes the pivot hotkey itself (a self-loop), including during a hotkey swap when the new hotkey is already a child or parent of the old one. Check the `children` argument and `ChildKeys`/`ParentKeys` for the hotkeys involved. |
+| `InvalidChildkeyTake` | `invalid_argument` | The childkey take is outside the allowed range for the subnet: below the effective minimum or above `MaxChildkeyTake`. Query `MinChildkeyTake` and `MaxChildkeyTake` and pick a `take` value within those bounds. |
+| `InvalidCrowdloanId` | `not_found` | No crowdloan exists in the `Crowdloans` storage map for the given `crowdloan_id`; it was never created or has been dissolved. Check `Crowdloans` for the id and `NextCrowdloanId` for the range of ids ever issued. |
+| `InvalidDerivedAccount` | `invalid_argument` | Deriving the sub-account for `as_derivative` failed to decode into a valid account id from the (caller, index) entropy. Check the `index` argument and the caller account used for derivation. |
+| `InvalidDerivedAccountId` | `invalid_argument` | Deriving the pure proxy account id from the provided entropy failed to decode into a valid account. Check the spawner, `proxy_type`, and `index` arguments used with `create_pure` (or the equivalent lookup when destroying one). |
+| `InvalidDifficulty` | `invalid_argument` | The submitted proof-of-work hash does not meet the required difficulty (the faucet uses a fixed 1,000,000; PoW registration uses the subnet's difficulty). Check the `Difficulty` storage for the netuid and regenerate work against the current block. |
+| `InvalidEquivocationProof` | `invalid_argument` | The submitted GRANDPA equivocation proof does not demonstrate a real double-vote: the two votes may be identical, from different rounds or set ids, or badly signed. Verify the proof contains two distinct votes by the same authority in the same round and authority set. |
+| `InvalidFinalizationConfig` | `invalid_argument` | Exactly one of `call` or `target_address` must be set, but both or neither were provided to `create`, or the stored crowdloan holds an inconsistent pair at `finalize` time. Check those two fields on the `create` arguments or the `Crowdloans` entry. |
+| `InvalidIdentity` | `invalid_argument` | The submitted coldkey or subnet identity failed validation, typically a field exceeding its allowed byte length or malformed data. Check each identity field's length against the limits enforced by the chain before calling set_identity or set_subnet_identity. |
+| `InvalidIpAddress` | `invalid_argument` | The `ip` argument to serve_axon or serve_prometheus is not a valid address for the declared `ip_type` (prometheus additionally rejects the zero address). Verify the IP encodes correctly as IPv4 or IPv6 and matches the `ip_type` passed. |
+| `InvalidIpType` | `invalid_argument` | The `ip_type` argument to serve_axon or serve_prometheus is not 4 or 6. Check the value being sent by the miner or client; only IPv4 (4) and IPv6 (6) are accepted. |
+| `InvalidKeyOwnershipProof` | `invalid_argument` | The key ownership proof does not establish that the offending GRANDPA key belonged to the claimed validator at that session. Regenerate the proof via the `generate_key_ownership_proof` runtime API for the exact set id and authority id in the report. |
+| `InvalidLeaseBeneficiary` | `invalid_argument` | The account registering a leased network is not the creator of the crowdloan currently being finalized. Check the crowdloan's `creator` field in the crowdloan pallet storage and submit the call from that coldkey. |
+| `InvalidLiquidityValue` | `invalid_argument` | Legacy error from the removed V3 user-liquidity code, raised when an added or removed liquidity amount was below the pallet's `MinimumLiquidity`. Not raised on current runtimes; on older ones compare the `liquidity` argument to `MinimumLiquidity`. |
+| `InvalidNonce` | `invalid_argument` | The transaction nonce does not match the sender's current account nonce, being either too low (already used) or too high. Compare the transaction's `nonce` with the sender's on-chain nonce from `eth_getTransactionCount`. |
+| `InvalidNumRootClaim` | `invalid_argument` | The value passed to sudo_set_num_root_claims exceeds the compile-time maximum number of root claims. Check the `new_value` argument against the chain's `MAX_NUM_ROOT_CLAIMS` constant and pass a smaller number. |
+| `InvalidOrigin` | `not_authorized` | The caller is not the crowdloan's creator, which is required for `finalize`, `refund`, `dissolve`, and the update calls. Compare the signing account with the `creator` field of the `Crowdloans` entry for the `crowdloan_id`. |
+| `InvalidPort` | `invalid_argument` | The `port` argument to serve_axon or serve_prometheus is 0, which is rejected. Check the miner or client axon configuration and serve on a non-zero port. |
+| `InvalidRecoveredPublicKey` | `invalid_argument` | The EVM key association signature recovered to a public key whose keccak hash does not equal the supplied `evm_key`. Verify the signature was produced by the claimed EVM key over the hotkey plus block hash message (EIP-191 format). |
+| `InvalidRevealCommitHashNotMatch` | `invalid_argument` | The revealed uids, values, salt and version_key hash to a value that matches none of the hotkey's pending non-expired commits. Check that the reveal parameters and salt exactly match what was committed, and inspect `WeightCommits` for the hotkey and netuid. |
+| `InvalidRevealRound` | `expired` | A timelocked weights commit specified a `reveal_round` older than the latest stored DRAND round, so it could be decrypted immediately. Query the drand pallet's `LastStoredRound` and commit with a future round number. |
+| `InvalidRootClaimThreshold` | `invalid_argument` | The value passed to set the root claim threshold exceeds the chain's maximum allowed threshold. Check the `new_value` argument against the `MAX_ROOT_CLAIM_THRESHOLD` constant and the current `RootClaimableThreshold` for the netuid. |
+| `InvalidRoundNumber` | `invalid_argument` | A submitted drand pulse has an unacceptable round: the first pulse ever stored must have a round greater than zero, and each later pulse must be exactly `LastStoredRound` plus one. Compare the pulse round against `LastStoredRound`. |
+| `InvalidSchedule` | `invalid_argument` | The pallet's schedule is misconfigured, e.g. a zero weight or zero `ref_time_by_fuel` for a basic operation, making gas conversion impossible. This is a runtime configuration issue; inspect the `Schedule` constant rather than call arguments. |
+| `InvalidSeal` | `invalid_argument` | The seal hash recomputed from the supplied `block_number`, `nonce` and key does not equal the submitted `work`. Verify the PoW solver built the seal for the same key and block it submits, and that the work bytes were not corrupted in transit. |
+| `InvalidSignature` | `invalid_argument` | Signature verification failed: the sender of an Ethereum or EVM transaction could not be recovered from its signature, or a limit order's Sr25519 signature does not match the order payload and signer. Check the signing key, chain id, and the exact payload bytes that were signed. |
+| `InvalidSpecName` | `invalid_argument` | The new runtime's `spec_name` does not match the current runtime, so `set_code` refuses the upgrade. Check the `RuntimeVersion` embedded in the new wasm and ensure the spec name is identical to the chain's current one. |
+| `InvalidSubnetNumber` | `invalid_argument` | A root-claim call passed an empty subnet set or more subnets than the per-call maximum (claim_root, or KeepSubnets in set_root_claim_type). Check the `subnets` argument is non-empty and within the `MAX_SUBNET_CLAIMS` limit. |
+| `InvalidTickRange` | `invalid_argument` | Legacy error from the removed V3 user-liquidity code, raised when `tick_low` was not below `tick_high` or a tick failed to convert to a sqrt price. Not raised on current runtimes; check the tick range arguments on older ones. |
+| `InvalidValue` | `invalid_argument` | A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, emission splits summing away from 65535, max UIDs or take bounds. Check the specific argument against the min/max storage items the extrinsic validates (e.g. `MinAllowedUids`, `MaxMechanismCount`). |
+| `InvalidVotingPowerEmaAlpha` | `invalid_argument` | The alpha passed to set the voting power EMA exceeds 10^18, which represents 1.0. Check the `alpha` argument to sudo_set_voting_power_ema_alpha; it must be at most 10^18, and the current value is in `VotingPowerEmaAlpha` per netuid. |
+| `InvalidWorkBlock` | `invalid_argument` | The `block_number` in the proof-of-work submission is in the future or more than 3 blocks old, so the work is stale. Compare the submitted block number with the current chain height and regenerate the PoW against a fresh block. |
+| `IssuanceDeactivated` | `disabled` | Total issuance cannot be adjusted because issuance has already been deactivated. Check the Balances `InactiveIssuance` state before calling `force_adjust_total_issuance` again. |
+| `LeaseCannotEndInThePast` | `invalid_argument` | The `end_block` supplied when registering a leased network is not after the current block. Check the current chain height and pass an `end_block` in the future, or omit it for a perpetual lease. |
+| `LeaseDoesNotExist` | `not_found` | The `lease_id` argument does not correspond to any stored lease. Query the `SubnetLeases` storage map to confirm the lease id and whether it was already terminated. |
+| `LeaseHasNoEndBlock` | `invalid_argument` | The lease being terminated is perpetual (its `end_block` is None), so it can never be ended this way. Check the lease's `end_block` field in `SubnetLeases` for the given lease id. |
+| `LeaseHasNotEnded` | `too_early` | The lease termination was attempted before the lease's `end_block` was reached. Compare the current block height with the `end_block` stored in `SubnetLeases` for the lease id and retry after it passes. |
+| `LeaseNetuidNotFound` | `not_found` | After registering the leased network, no subnet owned by the lease's derived coldkey could be found, so the netuid lookup failed. Inspect `SubnetOwner` entries for the lease coldkey; this usually indicates the registration did not complete. |
+| `LimitOrdersDisabled` | `disabled` | Order execution was attempted while the pallet's global switch is off. Check the `LimitOrdersEnabled` storage value; root must call `set_pallet_status` with true to enable the pallet. |
+| `LiquidAlphaDisabled` | `disabled` | Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli subnets hyperparameters`) and have the subnet owner enable liquid alpha first. |
+| `LiquidityRestrictions` | `insufficient_balance` | The withdrawal is blocked by locks or freezes on the account even though the raw balance looks sufficient. Check the account's `Locks` and `Freezes` entries and compare the frozen amount against what would remain after the withdrawal. |
+| `LockHotkeyMismatch` | `invalid_argument` | The coldkey already has a conviction lock on this subnet bound to a different hotkey, and locks for one coldkey per subnet must target a single hotkey. Check the existing lock's hotkey in the lock storage for the coldkey and netuid, or move the lock first. |
+| `LockIdOverFlow` | `limit_exceeded` | The global network-registration lock id counter reached its u32 maximum while queueing a subnet registration, so no new lock could be created. Check the `NetworkRegistrationLockId` storage value; this indicates lock id exhaustion, not a balance problem. |
+| `MaxAllowedUIdsLessThanCurrentUIds` | `invalid_argument` | `sudo_set_max_allowed_uids` was given a value below the number of neurons already registered on the subnet. Compare the `max_allowed_uids` argument against `SubnetworkN` for that netuid. |
+| `MaxAllowedUidsGreaterThanDefaultMaxAllowedUids` | `invalid_argument` | `sudo_set_max_allowed_uids` was given a value above the chain-wide ceiling. Compare the `max_allowed_uids` argument against the `DefaultMaxAllowedUids` storage value. |
+| `MaxAllowedUidsLessThanMinAllowedUids` | `invalid_argument` | `sudo_set_max_allowed_uids` was given a value below the subnet's configured minimum. Compare the `max_allowed_uids` argument against `MinAllowedUids` for that netuid. |
+| `MaxCallDepthReached` | `limit_exceeded` | A nested contract call would exceed the maximum call stack depth defined in the pallet schedule. Inspect the cross-contract call chain for deep or unbounded recursion and flatten it or raise the configured depth. |
+| `MaxContributionReached` | `limit_exceeded` | The contributor's cumulative contribution already equals the crowdloan's per-contributor cap, so further contributions are rejected. Compare their `Contributions` entry with the `MaxContributions` value for the `crowdloan_id`. |
+| `MaxContributorsReached` | `limit_exceeded` | The crowdloan already has the maximum number of distinct contributors, so accounts without an existing contribution are rejected. Compare the `contributors_count` field of the `Crowdloans` entry with the `MaxContributors` pallet constant. |
+| `MaxDelegateDependenciesReached` | `limit_exceeded` | `lock_delegate_dependency` failed because the contract already holds the maximum number of delegate dependencies allowed by the runtime. Check the `MaxDelegateDependencies` config value and unlock unused dependencies first. |
+| `MaxValidatorsLargerThanMaxUIds` | `invalid_argument` | `sudo_set_max_allowed_validators` was given a value exceeding the subnet's UID capacity. Compare the `max_allowed_validators` argument against `MaxAllowedUids` for that netuid. |
+| `MaxWeightExceeded` | `limit_exceeded` | After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli subnets hyperparameters`) and flatten the weight vector before setting. |
+| `MaxWeightTooLow` | `invalid_argument` | The `max_weight` argument supplied with the final multisig approval is lower than the actual weight of the call being dispatched. Compute the call's real dispatch weight and pass a `max_weight` at least that large to `as_multi`. |
+| `MaximumContributionTooLow` | `invalid_argument` | The `new_max_contribution` passed to `set_max_contribution` is below the crowdloan's `min_contribution` or below the creator's existing contribution. Check both against the `Crowdloans` entry and the creator's `Contributions` entry. |
+| `MechanismDoesNotExist` | `subnet_not_exists` | The target subnet or its sub-mechanism does not exist: the netuid is unknown, the mechanism index is at or above `MechanismCountCurrent`, or a non-dynamic `mechid` was requested. Check the netuid with `btcli subnets list` and the mechanism count for that subnet. |
+| `MigrationInProgress` | `too_early` | A multi-block storage migration of the contracts pallet is still running, so other extrinsics of the pallet are rejected until it completes. Check the migration status in storage and retry once done, or submit `migrate` calls to advance it. |
+| `MinAllowedUidsGreaterThanCurrentUids` | `invalid_argument` | `sudo_set_min_allowed_uids` was given a value not strictly below the number of neurons currently registered on the subnet. Compare the `min_allowed_uids` argument against `SubnetworkN` for that netuid. |
+| `MinAllowedUidsGreaterThanMaxAllowedUids` | `invalid_argument` | `sudo_set_min_allowed_uids` was given a value not strictly below the subnet's maximum UID capacity. Compare the `min_allowed_uids` argument against `MaxAllowedUids` for that netuid. |
+| `MinimumContributionTooHigh` | `invalid_argument` | The `new_min_contribution` passed to `update_min_contribution` exceeds the crowdloan's configured per-contributor maximum. Compare it with the `MaxContributions` entry for the `crowdloan_id`. |
+| `MinimumContributionTooLow` | `invalid_argument` | The minimum contribution given to `create` or `update_min_contribution` is below the chain-wide floor. Check the `AbsoluteMinimumContribution` pallet constant and raise the `min_contribution` argument to at least that value. |
+| `MinimumThreshold` | `invalid_argument` | The multisig `threshold` argument was below 2, which these calls do not accept. Pass a threshold of 2 or more, or use `as_multi_threshold_1` for the single-approval case. |
+| `MultiBlockMigrationsOngoing` | `too_early` | Runtime code replacement is blocked while a multi-block migration is still executing. Wait for the ongoing migrations to complete (check the multi-block migrations cursor) before retrying `set_code` or the authorized upgrade. |
+| `Named` | `invalid_argument` | An unnamed scheduler function was used on a task that was scheduled with a name. Use the named variants (`cancel_named`, `schedule_named`) with the task's id, which you can find via the `Lookup` storage map. |
+| `NeedWaitingMoreBlocksToStarCall` | `too_early` | The subnet owner called start_call before enough blocks had passed since the subnet was registered. Compare the current block with `NetworkRegisteredAt` for the netuid plus the start-call delay and retry once the window opens. |
+| `NegativeSigmoidSteepness` | `invalid_argument` | A non-root caller (subnet owner) passed a negative value to `sudo_set_alpha_sigmoid_steepness`; negative steepness values are reserved for the root origin. Use a non-negative `steepness` or submit the call as root. |
+| `NetworkDissolveAlreadyQueued` | `already_exists` | The subnet is already in the dissolve cleanup queue, so it cannot be queued for dissolution again. Check the `DissolveCleanupQueue` storage value for the netuid before submitting another dissolve request. |
+| `NetworkTxRateLimitExceeded` | `rate_limited` | The coldkey attempted register_network again before the network registration rate limit elapsed since its previous registration. Check the coldkey's last register-network block against the `NetworkRateLimit` storage value and wait the remaining blocks. |
+| `NeuronNoValidatorPermit` | `not_authorized` | The hotkey tried to set weights on other neurons without holding a validator permit on that subnet. Check `ValidatorPermit` for the neuron's uid (e.g. via the metagraph or `btcli subnets metagraph`) and whether its stake ranks it as a validator. |
+| `NewColdKeyIsHotkey` | `invalid_argument` | The proposed new coldkey in a coldkey swap is already an existing hotkey account, which is not allowed. Check the `Owner` storage for the candidate key to confirm it is not registered as a hotkey, and pick a fresh coldkey. |
+| `NewHotKeyIsSameWithOld` | `invalid_argument` | swap_hotkey was called with `new_hotkey` equal to the current hotkey, so there is nothing to swap. Check the extrinsic arguments and supply a different destination hotkey. |
+| `NewHotKeyNotCleanForRootSwap` | `invalid_argument` | The destination hotkey has pending root claimable dividends, non-zero root stake, or root-claimed history, so root accounting cannot merge safely. Check `RootClaimable` and root-subnet stake for the new hotkey; claim or clear them, or use a fresh hotkey. |
+| `NoApprovalsNeeded` | `invalid_argument` | The multisig call does not need any more approvals; it is only waiting for final execution with the full call data. Instead of another `approve_as_multi`, submit `as_multi` with the complete call to dispatch it. |
+| `NoChainExtension` | `disabled` | The contract invoked `call_chain_extension` but this runtime registers no chain extension; such code is normally rejected at upload. Check that the target chain provides the chain extension the contract was built against. |
+| `NoContribution` | `not_found` | The account has no contribution recorded for this crowdloan, so `withdraw` has nothing to pay out (or `dissolve` finds no creator contribution). Check the `Contributions` double map under the `crowdloan_id` for the account in question. |
+| `NoDeposit` | `not_found` | No safe-mode deposit exists for the given account and block combination, so nothing can be released or slashed. Check the `Deposits` storage map for an entry under that account and deposit block. |
+| `NoExistingLock` | `not_found` | move_lock was called but no conviction lock exists for the signing coldkey on that subnet. Check the lock storage for the coldkey and netuid, and create a lock before attempting to move it to another hotkey. |
+| `NoMigrationPerformed` | `invalid_argument` | A `migrate` call ran but no migration step executed, either because no migration is pending or the supplied `weight_limit` is too small for one step. Check the in-progress migration status and increase the weight limit argument. |
+| `NoNeuronIdAvailable` | `limit_exceeded` | Registration could not obtain a uid: the subnet's `MaxAllowedUids` is 0, or the subnet is full and every neuron is immune from pruning. Check `SubnetworkN` versus `MaxAllowedUids` for the netuid and retry after immunity periods expire. |
+| `NoPermission` | `not_authorized` | The proxy pallet refused the action: the proxied call could escalate privileges, or the caller lacks authority over the pure proxy (e.g. `kill_pure` by a non-spawner). Check the proxy type's call filter and the original `create_pure` arguments. |
+| `NoSelfProxy` | `invalid_argument` | An account attempted to register itself as its own proxy, which is not allowed. Check the `delegate` argument to `add_proxy` and ensure it differs from the calling (delegator) account. |
+| `NoTimepoint` | `invalid_argument` | No timepoint was supplied but this multisig operation is already underway, so the approval cannot be matched to it. Read the operation's `when` field from the `Multisigs` entry for the call hash and pass that height and index as `maybe_timepoint`. |
+| `NoWeightsCommitFound` | `not_found` | A weights reveal was submitted but no pending (non-expired) commit exists for the hotkey and netuid, possibly because it already expired. Query the `WeightCommits` storage map for the hotkey and check the commit hasn't passed the reveal window. |
+| `NonAssociatedColdKey` | `not_authorized` | The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet overview`, and sign with the coldkey that registered it. |
+| `NonDefaultComposite` | `invalid_argument` | The account cannot be killed because its composite account data is not in the default state. Check the account's `System.Account` entry; all balance and data fields must be default before the account can be removed this way. |
+| `NonZeroRefCount` | `invalid_argument` | The account cannot be purged because other pallets still reference it. Check the `consumers`, `providers`, and `sufficients` counters in the account's `System.Account` record; all references must be released first. |
+| `NoneValue` | `not_found` | Template leftover in the drand pallet meaning a storage value was read before ever being set; no current code path raises it. If seen, inspect the drand pallet's storage items for missing initialization. |
+| `NotAllowed` | `not_authorized` | Contract deployment was blocked because the source address is not in the `WhitelistedCreators` list while the whitelist check is enabled. Check the deployer address against `WhitelistedCreators` and the `DisableWhitelistCheck` storage value. |
+| `NotAuthorized` | `not_authorized` | The caller is not permitted to manage this preimage; unnoting or unrequesting requires the pallet's manager origin or the account that originally deposited it. Check which origin noted or requested the preimage and use that origin or the configured `ManagerOrigin`. |
+| `NotConfigured` | `disabled` | The permissionless safe-mode operation is disabled because its config option is `None`: `EnterDepositAmount` for `enter`, `ExtendDepositAmount` for `extend`, or `ReleaseDelay` for `release_deposit`. Check the runtime config or use the root-only force variants. |
+| `NotEnoughAlphaOutToRecycle` | `insufficient_liquidity` | A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. Compare the amount against the `SubnetAlphaOut` storage value for the netuid and reduce the recycle amount. |
+| `NotEnoughBalanceToPaySwapColdKey` | `insufficient_balance` | The coldkey's free TAO balance cannot cover the coldkey swap cost, which is recycled when the swap executes. Check the balance with `btcli wallet balance` against the swap cost and top up before scheduling the swap. |
+| `NotEnoughBalanceToPaySwapHotKey` | `insufficient_balance` | The coldkey's free TAO balance is below the hotkey swap cost (a per-subnet cost applies when swapping on a single netuid). Check `btcli wallet balance` against the key swap cost and fund the coldkey before retrying. |
+| `NotEnoughBalanceToStake` | `insufficient_balance` | The coldkey's free balance is less than the TAO required, either the stake amount in add_stake or the burn cost of a registration. Check `btcli wallet balance` against the amount or the current registration burn (`Burn` storage for the netuid). |
+| `NotEnoughStake` | `insufficient_balance` | The caller's hotkey holds less stake than the action requires; a generic insufficient-stake failure on staking-related calls. Check the hotkey's stake on the relevant subnet, e.g. `btcli stake list`, against the amount the extrinsic needs. |
+| `NotEnoughStakeToSetChildkeys` | `insufficient_balance` | Raised by `set_children` when the parent hotkey's total stake is below `StakeThreshold` and it is not the subnet owner hotkey. Compare the hotkey's total stake (`btcli stake list`) against the `StakeThreshold` storage value. |
+| `NotEnoughStakeToSetWeights` | `insufficient_balance` | Setting or committing weights failed because the hotkey's stake weight on the subnet is below `StakeThreshold` (the weights-min-stake floor); the subnet owner hotkey is exempt. Check the hotkey's stake on that netuid against `StakeThreshold`. |
+| `NotEnoughStakeToWithdraw` | `insufficient_balance` | An unstake, stake move, swap, or transfer requested more alpha than the hotkey-coldkey pair holds on that subnet. Compare the requested amount against the pair's current stake on the netuid (`btcli stake list` or the `Alpha` storage). |
+| `NotFound` | `not_found` | The referenced item does not exist in storage: no multisig operation for that call hash in `Multisigs`, no scheduled task at that slot or name in `Agenda`/`Lookup`, or no matching proxy registration in `Proxies`. Verify the identifier against current chain state. |
+| `NotNoted` | `not_found` | The preimage cannot be unnoted because no preimage was ever noted for this hash. Check `RequestStatusFor` (or legacy `StatusFor`) for the hash to confirm what, if anything, is stored. |
+| `NotOwner` | `not_authorized` | Only the account that opened the multisig operation (its depositor) may cancel it or adjust its deposit. Compare the sender against the `depositor` field stored in the `Multisigs` entry for this call hash. |
+| `NotPermittedOnRootSubnet` | `invalid_argument` | An admin-utils call that only applies to regular subnets (burn half-life, burn increase multiplier, owner-cut flags, or the subnet emission toggle) was targeted at the root network. Check that the `netuid` argument is not the root netuid 0. |
+| `NotProxy` | `not_authorized` | The sender is not registered as a proxy for the account it tried to act for. Check the `Proxies` entry of the `real` account and confirm the sender appears there with a proxy type and delay compatible with the call. |
+| `NotReadyToDissolve` | `too_early` | `dissolve` was called while outside contributions remain: the crowdloan's `raised` amount still exceeds the creator's own contribution. Call `refund` until only the creator's `Contributions` entry remains and equals `raised` in the `Crowdloans` record. |
+| `NotRequested` | `not_found` | The preimage request cannot be removed because there are no outstanding requests for this hash. Check the request status for the hash in `RequestStatusFor` before calling `unrequest_preimage`. |
+| `NotRootSubnet` | `invalid_argument` | A call that only operates on the root network, such as setting root network weights, was given a non-root netuid. Check the netuid argument; root operations must target netuid 0. |
+| `NotSubnetOwner` | `not_authorized` | The signing coldkey is not the recorded owner of the subnet it tried to administer (e.g. setting subnet identity or owner-only hyperparameters). Compare the caller against `SubnetOwner` for that netuid (`btcli subnets show`). |
+| `NothingAuthorized` | `not_found` | No code upgrade has been authorized, so `apply_authorized_upgrade` has nothing to apply. Check the `AuthorizedUpgrade` storage item in System; an authorization must be recorded before applying the new code. |
+| `OrderAlreadyProcessed` | `already_exists` | The order id already has a terminal status: execution found it fulfilled, or `cancel_order` found any existing status for it. Check the `Orders` storage map under the blake2-256 hash of the SCALE-encoded `VersionedOrder`. |
+| `OrderCancelled` | `expired` | The order was previously cancelled via `cancel_order` and can never be executed. Check the `Orders` storage entry for the order id; a `Cancelled` status is terminal, so the signer must sign and submit a fresh order. |
+| `OrderExpired` | `expired` | The current chain time is past the order's `expiry` field, which is a unix timestamp in milliseconds, so the order can no longer execute. Compare the `expiry` in the signed order payload with the chain's current `Timestamp` value. |
+| `OrderNetUidMismatch` | `invalid_argument` | An order inside an `execute_batched_orders` call has a `netuid` field different from the batch's `netuid` parameter, which hard-fails the entire batch. Check each order payload's `netuid` against the batch argument and split mismatched orders out. |
+| `OutOfBounds` | `invalid_argument` | A pointer and length pair passed to a contract API host function references memory outside the contract's sandbox. Check the buffer pointers and lengths the contract passes to seal functions; this usually indicates a low-level contract bug. |
+| `OutOfGas` | `limit_exceeded` | The contract exhausted the gas limit supplied for this execution before completing. Increase the `gas_limit` argument on `call` or `instantiate`; dry-run the call via RPC to estimate the required weight. |
+| `OutOfTransientStorage` | `limit_exceeded` | A write would exceed the per-execution byte limit for transient storage. Check how much data the contract places in transient storage during the call against the runtime's transient storage limit. |
+| `OutputBufferTooSmall` | `invalid_argument` | The output buffer the contract supplied to an API call is smaller than the data the runtime needs to write back. Check the output length pointer the contract passes and enlarge the buffer; usually a contract-side bug. |
+| `Overflow` | `internal` | A checked arithmetic operation overflowed, e.g. incrementing `NextSubnetLeaseId` when registering a leased network, or adding to a crowdloan's `raised` amount or contributor count. Internal guard; inspect the amounts involved as this should not occur with realistic values. |
+| `POWRegistrationDisabled` | `disabled` | `sudo_set_network_pow_registration_allowed` unconditionally fails because proof-of-work registration is deprecated and its toggle can no longer be changed. Nothing to check; the call is permanently disabled. |
+| `PalletHotkeyNotRegistered` | `not_registered` | Root tried to enable the pallet via `set_pallet_status` before its hotkey was registered to the pallet's intermediary account. Check that the `PalletHotkey` constant is registered for the pallet account, which genesis or the `on_runtime_upgrade` migration performs. |
+| `PartialFillsNotEnabled` | `disabled` | A `partial_fill` amount was supplied for an order whose signed payload has `partial_fills_enabled` set to false. Check that field in the order payload; partial execution requires the signer to have opted in when signing. |
+| `PauseFailed` | `invalid_argument` | A GRANDPA pause was signalled while the authority set is not live, i.e. it is already paused or a pause is already pending. Check the Grandpa `State` storage before signalling a pause. |
+| `PaymentOverflow` | `internal` | Arithmetic overflowed while computing the total payment or refund for an EVM transaction, such as refunding remaining gas at the effective gas price. Check for extreme gas price or gas limit values in the transaction. |
+| `PreLogExists` | `invalid_argument` | An `ethereum.transact` extrinsic was submitted in a block that already carries a pre-log digest, meaning an Ethereum transaction is being injected by other means. Check the block's digest for a pre-runtime Ethereum log; transact is not allowed alongside it. |
+| `PriceConditionNotMet` | `too_early` | The subnet's current alpha price does not satisfy the order's trigger: buys and stop-losses require price at or below `limit_price`, take-profits at or above it. Compare `current_alpha_price` for the order's `netuid`, scaled by 1e9, with the `limit_price` field. |
+| `PriceLimitExceeded` | `insufficient_liquidity` | The `limit_price` given to a swap is not beyond the current pool price in the trade's direction, so the swap would immediately breach it. Compare the limit price argument against the subnet's current alpha price before submitting. |
+| `ProportionOverflow` | `invalid_argument` | The child proportions passed to `set_children` sum to more than u64::MAX. Reduce the per-child proportion values so their total fits in a u64; each proportion is a fraction of u64::MAX. |
+| `PulseVerificationError` | `invalid_argument` | BLS signature verification of a submitted drand pulse against the stored beacon configuration failed. Check the pulse's signature and round against the `BeaconConfig` storage (drand quicknet public key). |
+| `RandomSubjectTooLong` | `limit_exceeded` | The subject buffer given to the deprecated `seal_random` API exceeds the schedule's `subject_len` limit. Shorten the randomness subject the contract passes or check the schedule's limits section. |
+| `ReentranceDenied` | `invalid_argument` | A call tried to re-enter a contract already on the call stack without reentrancy being allowed, or contract code called back into the contracts pallet through the runtime. Check the callee address against the current call stack and the ALLOW_REENTRY call flag. |
+| `Reentrancy` | `internal` | EVM execution re-entered the pallet while another EVM execution was already in progress on the same thread, e.g. a precompile or runtime call dispatching back into the EVM. Inspect precompiles and runtime code that invoke the EVM from within an EVM call. |
+| `RegistrationNotPermittedOnRootSubnet` | `invalid_argument` | A neuron registration or child-hotkey operation (`register`, `burned_register`, `set_children`) was called with the root netuid, where these calls are invalid. Check the netuid argument; use a regular subnet, or `root_register` for root membership. |
+| `RegistrationPriceLimitExceeded` | `limit_exceeded` | `burned_register` with a price limit failed because the subnet's current registration burn cost exceeds the supplied `limit_price`. Check the current burn via `Burn` storage or `btcli subnets list` and raise the limit or wait for the cost to decay. |
+| `RelayerMissMatch` | `invalid_argument` | The order's `relayer` allowlist is set but the account that submitted the execution transaction is not in it. Compare the extrinsic's signing account against the `relayer` list in the signed order payload. |
+| `RelayerRequiredForPartialFill` | `invalid_argument` | A `partial_fill` was requested for an order whose `relayer` field is empty; partial fills are only permitted on orders that restrict who may execute them. Check the order payload and either set a relayer list or execute the full amount. |
+| `Requested` | `invalid_argument` | The preimage cannot be unnoted while there are still outstanding requests for it. Check the request count in the hash's request status; all requests must be cleared before the preimage can be removed. |
+| `RequireSudo` | `not_authorized` | The call requires the sudo key but was signed by a different account. Compare the sender against the account stored in the Sudo pallet's `Key` storage item. |
+| `RescheduleNoChange` | `invalid_argument` | The reschedule was rejected because the new dispatch time equals the task's currently scheduled time. Check the task's existing slot in `Agenda` and pass a genuinely different `when` block. |
+| `ReservesOutOfBalance` | `insufficient_liquidity` | Swap balancer initialization failed because the subnet's TAO and alpha reserves produce an invalid ratio, for example both reserves are zero when an initial price is supplied. Inspect the subnet's TAO and alpha reserves and the `SwapBalancer` entry. |
+| `ReservesTooLow` | `insufficient_liquidity` | The output-side reserve is below the swap pallet's `MinimumReserve`, or a swap step produced zero output for a nonzero input. Check the subnet's TAO and alpha reserves against `MinimumReserve` and reduce the trade size. |
+| `ResumeFailed` | `invalid_argument` | A GRANDPA resume was signalled while the authority set is not paused, i.e. it is live or already pending a resume. Check the Grandpa `State` storage before signalling a resume. |
+| `RevealPeriodTooLarge` | `invalid_argument` | `set_reveal_period` was given a commit-reveal period above the compiled-in maximum number of epochs. Lower the `reveal_period` argument; the current setting is readable from `RevealPeriodEpochs` for the netuid. |
+| `RevealPeriodTooSmall` | `invalid_argument` | `set_reveal_period` was given a commit-reveal period below the compiled-in minimum number of epochs. Raise the `reveal_period` argument; the current setting is readable from `RevealPeriodEpochs` for the netuid. |
+| `RevealTooEarly` | `too_early` | A weight reveal was submitted before the commit's reveal window: the current epoch must equal the commit epoch plus the reveal period. Check the commit in `WeightCommits` and the subnet's `RevealPeriodEpochs`, then wait for the reveal epoch. |
+| `RootNetUidNotAllowed` | `invalid_argument` | The order or batch targets the root subnet, netuid 0, which the limit orders pallet does not serve. Check the `netuid` field of the order payload or the `netuid` parameter of the batch call and target a non-root subnet. |
+| `RootNetworkDoesNotExist` | `subnet_not_exists` | Root registration or root stake claiming found no root network in chain state, which only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists in `NetworksAdded`. |
+| `SameAutoStakeHotkeyAlreadySet` | `already_exists` | The coldkey tried to set its auto-stake destination on a subnet to the hotkey that is already configured. Read `AutoStakeDestination` for the coldkey and netuid before calling; only a different hotkey is accepted. |
+| `SameNetuid` | `invalid_argument` | A stake swap or move where coldkey, hotkey, and subnet are all unchanged, so `origin_netuid` equals `destination_netuid` with nothing to transition. Check the call arguments; at least the subnet or one of the keys must differ. |
+| `SenderInSignatories` | `invalid_argument` | The multisig sender was included in the `other_signatories` list, but that list must contain only the remaining signatories. Remove the sender's own account from `other_signatories` before resubmitting. |
+| `ServingRateLimitExceeded` | `rate_limited` | `serve_axon` or `serve_prometheus` was called again before enough blocks passed since the neuron's last serving update. Check the axon's last update block in `Axons` against the `ServingRateLimit` (serving_rate_limit hyperparameter) and wait. |
+| `SettingWeightsTooFast` | `rate_limited` | The neuron set weights again before `WeightsSetRateLimit` blocks elapsed since its last weight update on that subnet. Check the weights_rate_limit hyperparameter and the neuron's `LastUpdate` entry, then wait the remaining blocks. |
+| `SignatoriesOutOfOrder` | `invalid_argument` | The `other_signatories` list is not sorted in strictly ascending account order, which the multisig pallet requires for a canonical account derivation. Sort the list and remove duplicates before resubmitting. |
+| `SlippageTooHigh` | `insufficient_liquidity` | A stake, unstake, or move with a price limit would execute at a worse rate than the limit allows and `allow_partial` was false. Compare the `limit_price` argument with the subnet's current alpha price (`btcli subnets price`) or permit partial execution. |
+| `SpaceLimitExceeded` | `rate_limited` | The commitment would push the account's byte quota for the current epoch over the cap; each `set_commitment` consumes at least 100 bytes. Check `UsedSpaceOf` for the netuid and account against `MaxSpace`, or wait for the next epoch to reset usage. |
+| `SpecVersionNeedsToIncrease` | `invalid_argument` | The new runtime's `spec_version` is not greater than the current one, so the upgrade is rejected. Check the `RuntimeVersion` in the new wasm and bump `spec_version` above the version currently on chain. |
+| `StakeTooLowForRoot` | `insufficient_balance` | `root_register` when the root network is full and the hotkey's stake on netuid 0 does not exceed the lowest-staked current root member. Compare your hotkey's root stake against existing root validators (`btcli root list`). |
+| `StakeUnavailable` | `insufficient_balance` | An unstake would dip into stake that is still locked: the requested alpha exceeds the coldkey's unlocked balance on that subnet. Check the `Lock` entry for the coldkey and netuid; only total stake minus the decaying locked mass can be unstaked. |
+| `StakingRateLimitExceeded` | `rate_limited` | Staking operations (add_stake, remove_stake, and similar) were submitted faster than the per-block staking rate limit allows for the hotkey-coldkey pair. Space the transactions out and retry in a later block. |
+| `StartCallNotReady` | `too_early` | `start_call` was made before `StartCallDelay` blocks elapsed since the subnet was registered. Compare the current block against `NetworkRegisteredAt` for the netuid plus `StartCallDelay`, and wait for the remainder. |
+| `StateChangeDenied` | `not_authorized` | The contract invoked a state-modifying host function, such as a storage write, transfer, or value-bearing call, while executing in read-only mode. Check whether the enclosing call was made with the read-only flag or from a static context. |
+| `StorageDepositLimitExhausted` | `limit_exceeded` | The execution created more storage than the caller's `storage_deposit_limit` allows to be charged. Raise the `storage_deposit_limit` argument or reduce storage usage; a dry-run reports the required `storage_deposit`. |
+| `StorageDepositNotEnoughFunds` | `insufficient_balance` | The origin's free balance cannot cover the storage deposit limit specified or required for this call. Check the caller's withdrawable balance against the `storage_deposit_limit` argument and the dry-run's reported deposit. |
+| `StorageOverflow` | `internal` | Template leftover in the drand pallet for a counter increment overflowing `u32::MAX`; no current code path raises it. If seen, inspect the drand pallet's stored counters for values near the u32 limit. |
+| `SubNetRegistrationDisabled` | `disabled` | Neuron registration is switched off: either the subnet's `NetworkRegistrationAllowed` flag is false, or network creation has not opened yet (`NetworkRegistrationStartBlock` is in the future). Check the network_registration_allowed hyperparameter for the netuid. |
+| `SubnetBuybackRateLimitExceeded` | `rate_limited` | A subnet buyback operation (staking TAO and immediately burning the acquired alpha, e.g. via `add_stake_burn`) was repeated within its rate-limit window. Wait for the window to pass before retrying the buyback. |
+| `SubnetDoesNotExist` | `subnet_not_exists` | The admin-utils call targets a netuid with no registered subnet. Verify the `netuid` argument against `NetworksAdded` (the set of existing subnets) before setting hyperparameters. |
+| `SubnetLimitReached` | `limit_exceeded` | `register_network` failed because the subnet count is at the network limit and no existing subnet is eligible to be pruned. Check the number of registered subnets (`btcli subnets list`) against the subnet limit and retry once a subnet becomes prunable. |
+| `SubnetNotExists` | `subnet_not_exists` | The netuid passed to the call does not correspond to a registered subnet. Verify the netuid argument against `NetworksAdded` or `btcli subnets list`; the subnet may also have been dissolved. |
+| `SubtokenDisabled` | `subtoken_disabled` | The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked; `SubtokenEnabled` is false until the owner makes the `start_call` after registration. Check `SubtokenEnabled` for the netuid involved. |
+| `SwapInputTooLarge` | `insufficient_liquidity` | The swap's net input after fees exceeds 1000 times the input-side reserve, the pallet's hard per-trade cap. Compare the input amount against the subnet's input-side reserve (TAO or alpha) and split the trade if needed. |
+| `SwapReturnedZero` | `insufficient_liquidity` | The netted pool swap in `execute_batched_orders` produced zero output for a non-zero input, meaning the pool lacks liquidity or the derived price limit clamped the swap entirely. Check the subnet pool's reserves and the batch's tightest slippage-derived price limit. |
+| `SymbolAlreadyInUse` | `already_exists` | The token symbol requested for the subnet is already assigned to another subnet. Scan `TokenSymbol` across netuids and pick a symbol that is not taken. |
+| `SymbolDoesNotExist` | `not_found` | The requested token symbol is not in the chain's predefined symbol table, so it cannot be assigned to a subnet. Check the symbol argument against the chain's built-in `SYMBOLS` list and choose a valid entry. |
+| `TargetBlockNumberInPast` | `invalid_argument` | The scheduler was given a dispatch block that is not in the future. Compare the `when` argument against the current block number and choose a strictly later block. |
+| `TempoOutOfBounds` | `invalid_argument` | `set_tempo` was given a tempo outside the allowed MIN_TEMPO to MAX_TEMPO range. Check the tempo argument against those chain constants and pick a value inside the bounds. |
+| `TerminatedInConstructor` | `internal` | The contract called `seal_terminate` inside its constructor, self-destructing during instantiation, which is forbidden. Inspect the constructor logic; termination is only allowed in regular message calls. |
+| `TerminatedWhileReentrant` | `invalid_argument` | `seal_terminate` was called on a contract that appears more than once on the call stack, so termination was refused. Check the call chain for reentrant calls into the contract being terminated. |
+| `TooBig` | `limit_exceeded` | The preimage exceeds the maximum size the pallet will store on-chain (4 MiB). Check the byte length of the preimage against the pallet's `MAX_SIZE` limit before noting it. |
+| `TooFew` | `invalid_argument` | The bulk preimage upgrade was requested with zero hashes, so there is nothing to do. Pass at least one hash to `ensure_updated`. |
+| `TooFewSignatories` | `invalid_argument` | The multisig signatory list is too short: `other_signatories` must contain at least one account besides the sender. Check the length of `other_signatories` against the threshold you are using. |
+| `TooMany` | `limit_exceeded` | A limit was exceeded: more preimage hashes than `MAX_HASH_UPGRADE_BULK_COUNT` were passed to `ensure_updated`, or the account has hit its proxy or announcement cap. Check the account's `Proxies` and `Announcements` entries against `MaxProxies` and `MaxPending`. |
+| `TooManyCalls` | `limit_exceeded` | The batch submitted to the utility pallet contains more calls than the batched-calls limit allows. Check the length of the `calls` vector and split the work across multiple smaller `batch`, `batch_all`, or `force_batch` submissions. |
+| `TooManyChildren` | `limit_exceeded` | `set_children` was called with more than 5 child hotkeys for a parent on the subnet. Trim the children list to at most 5 entries. |
+| `TooManyFieldsInCommitmentInfo` | `limit_exceeded` | The `CommitmentInfo` passed to `set_commitment` contains more entries in `fields` than the pallet's `MaxFields` config allows. Count the fields in the `info` argument and trim to the `MaxFields` limit. |
+| `TooManyFreezes` | `limit_exceeded` | The account already has the maximum number of balance freezes, so a new freeze cannot be added. Check the account's `Freezes` entry against the `MaxFreezes` constant; an existing freeze must be thawed first. |
+| `TooManyHolds` | `limit_exceeded` | The account already carries the maximum number of balance holds, one per hold reason variant. Check the account's `Holds` entry; an existing hold must be released before a new reason can place another. |
+| `TooManyPendingExtrinsics` | `limit_exceeded` | `store_encrypted` was rejected because the shield pallet's queue of encrypted extrinsics is already at capacity. Compare the `PendingExtrinsics` count against `MaxPendingExtrinsicsLimit` and wait for queued items to be processed or expire. |
+| `TooManyRegistrationsThisBlock` | `rate_limited` | Registrations in the current block already reached the subnet's per-block cap (`MaxRegistrationsPerBlock`, the max_regs_per_block hyperparameter); root registration enforces the same cap on netuid 0. Retry in the next block. |
+| `TooManyRegistrationsThisInterval` | `rate_limited` | Registrations in the current interval reached the cap of three times `TargetRegistrationsPerInterval` for the subnet. Compare `RegistrationsThisInterval` against that hyperparameter and wait for the next interval to start. |
+| `TooManyReserves` | `limit_exceeded` | The account already has the maximum number of named reserves. Check the account's `Reserves` entry against the `MaxReserves` constant; a named reserve must be unreserved before adding another. |
+| `TooManySignatories` | `limit_exceeded` | The multisig signatory list exceeds the maximum allowed. Compare the length of `other_signatories` plus the sender against the pallet's `MaxSignatories` constant. |
+| `TooManyTopics` | `limit_exceeded` | The number of topics passed to `seal_deposit_event` exceeds the schedule's `event_topics` limit. Reduce the number of indexed topics in the contract's event definition or compare against the schedule limit. |
+| `TooManyUIDsPerMechanism` | `limit_exceeded` | Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed the chain default of 256 UIDs per subnet. Check `MaxAllowedUids` and the subnet's mechanism count so their product stays within the limit. |
+| `TooManyUnrevealedCommits` | `limit_exceeded` | `commit_weights` (or a CRv3 commit) failed because the hotkey already has 10 unrevealed commits queued on the subnet. Inspect `WeightCommits` for the hotkey and reveal or let old commits expire before committing again. |
+| `TooSoon` | `rate_limited` | A forced GRANDPA authority change was signalled too soon after the previous one. Check the Grandpa `NextForced` storage and wait until the current block passes it before signalling another forced change. |
+| `TransactionMustComeFromEOA` | `not_authorized` | Rejected per EIP-3607: the sender address has contract code deployed, and transactions must originate from externally owned accounts. Check `eth_getCode` for the `source` address and sign with a plain EOA key instead. |
+| `TransactorAccountShouldBeHotKey` | `not_authorized` | The extrinsic must be signed by the hotkey itself, but a different account (typically the coldkey) was the origin. Check which key signs the transaction; calls like axon serving expect the hotkey as origin. |
+| `TransferDisallowed` | `disabled` | A stake transfer or cross-subnet move was attempted while the origin or destination subnet has stake transfers switched off. Check the `TransferToggle` storage for both netuids involved; the subnet owner must enable transfers first. |
+| `TransferFailed` | `insufficient_balance` | A balance transfer performed during the contract call failed, most likely because the sender lacks enough free balance. Check the transferring account's free balance against the `value` being sent, accounting for the existential deposit. |
+| `TrimmingWouldExceedMaxImmunePercentage` | `limit_exceeded` | Trimming the subnet's UIDs cannot proceed because immune neurons would make up at least the maximum immune share (80%) of the reduced slot count. Check neurons still in `ImmunityPeriod` and retry after their immunity lapses or with a higher max UID target. |
+| `TxChildkeyTakeRateLimitExceeded` | `rate_limited` | `set_childkey_take` was called again for the hotkey on this subnet before its rate-limit window elapsed. Check the block of the last childkey-take change against `TxChildkeyTakeRateLimit` and wait out the remainder. |
+| `TxRateLimitExceeded` | `rate_limited` | An owner or admin transaction (e.g. `set_children`, tempo or hyperparameter updates, setting the owner hotkey) was repeated within its rate-limit window for that key and subnet. Check when the same transaction type last succeeded and wait for the limit to pass. |
+| `UidMapCouldNotBeCleared` | `internal` | During a UID reshuffle or trim, clearing the subnet's `Uids` map left residual entries (the storage clear returned a cursor). Internal state inconsistency rather than a caller error; inspect the `Uids` storage for the netuid and report it. |
+| `UidVecContainInvalidOne` | `invalid_argument` | The weight submission includes a UID that is not registered on the subnet, i.e. at least one entry is not below `SubnetworkN`. Check the `uids` argument against the subnet's neuron count in the metagraph (`btcli subnets metagraph`). |
+| `UidsLengthExceedUidsInSubNet` | `limit_exceeded` | The weight submission contains more UID entries than there are neurons registered on the subnet. Compare the length of the `uids` argument against `SubnetworkN` for the netuid and trim the vector. |
+| `UnableToRecoverPublicKey` | `invalid_argument` | While associating an EVM key, the secp256k1 public key recovered from the supplied signature could not be parsed. Check that the signature was produced by signing the expected EIP-191 message (hotkey plus block hash) with the EVM private key. |
+| `Unannounced` | `too_early` | The proxied call was executed before its announcement matured, or no matching announcement exists at all. Check the proxy's `Announcements` entry for the call hash and the `delay` on the proxy registration; enough blocks must elapse between `announce` and `proxy_announced`. |
+| `Unauthorized` | `not_authorized` | In System, the code passed to `apply_authorized_upgrade` does not hash to the value in `AuthorizedUpgrade`. In LimitOrders, the caller is not the order's signer, who alone may cancel it. Check the code hash against the authorization, or the sender against the order's `signer`. |
+| `Undefined` | `internal` | Catch-all EVM validation error for cases without a dedicated variant, such as a malformed EIP-7702 authorization list or an unknown validation failure. Inspect the raw transaction for unsupported fields and check the node logs. |
+| `Underflow` | `internal` | A checked subtraction underflowed in crowdloan accounting, e.g. `raised` exceeding `cap` when computing remaining room, or a contributor count decrement, indicating inconsistent state. Inspect the `Crowdloans` and `Contributions` entries for the `crowdloan_id`. |
+| `UnexpectedTimepoint` | `invalid_argument` | A timepoint was supplied but no multisig operation is underway for this call hash; the first approval must open the operation with no timepoint. Pass `maybe_timepoint: None` on the opening call, or verify the call hash matches an existing `Multisigs` entry. |
+| `UnexpectedUnreserveLeftover` | `internal` | While lowering a commitment deposit, `Currency::unreserve` failed to return the full difference, leaving a leftover, which signals an internal inconsistency. Check the account's reserved balance against the deposit recorded in `CommitmentOf`. |
+| `UnlockAmountTooHigh` | `insufficient_balance` | An unlock requested more alpha than remains locked for the coldkey on that subnet. Check the lock's remaining decaying locked mass in the `Lock` storage entry and request at most that amount. |
+| `Unproxyable` | `not_authorized` | The attempted call is not permitted by the registered proxy type's call filter. Check which `proxy_type` the sender holds in the real account's `Proxies` entry and whether that type's `InstanceFilter` allows this specific call. |
+| `Unreachable` | `internal` | `announce_next_key` could not identify the current block author via the `FindAuthors` lookup, which should be impossible in a normally authored block. Check the block's author digest and the shield pallet's authorship wiring. |
+| `UnverifiedPulse` | `invalid_argument` | Declared for drand pulses that fail validity checks, but current code raises `PulseVerificationError` for verification failures and silently skips unverified pulses. If seen on an older runtime, check the pulse signature against `BeaconConfig`. |
+| `ValueNotInBounds` | `invalid_argument` | An admin-utils argument fell outside its allowed range: `min_burn` must be below `MinBurnUpperBound` and the subnet's max burn, `max_burn` above `MaxBurnLowerBound` and the min burn, and `max_epochs_per_block` at least 1. Check the argument against those bounds. |
+| `ValueTooLarge` | `limit_exceeded` | A value written to contract storage or emitted as event data exceeds the `MaxValueSize` limit. Compare the size of the stored value or event payload against the runtime's maximum value size constant. |
+| `VestingBalance` | `insufficient_balance` | The account's balance is locked under a vesting schedule, leaving too little usable balance to send the requested value. Check the account's `Vesting` schedules and its lock in `Locks`, and compare the unvested (still locked) amount against what the transfer needs. |
+| `VotingPowerTrackingNotEnabled` | `disabled` | Disabling voting power tracking was requested on a subnet where tracking is not currently active. Check the `VotingPowerTrackingEnabled` storage flag for the netuid before calling the disable extrinsic. |
+| `WaitingForDissolvedSubnetCleanup` | `too_early` | The operation is blocked while a dissolved subnet's storage is still being torn down in the background. Check the `DissolveCleanupQueue` and retry after the on-idle cleanup for that netuid completes. |
+| `WeightExceedsAbsoluteMax` | `limit_exceeded` | `set_on_initialize_weight` or `set_max_extrinsic_weight` was given a value above the shield pallet's hard cap of half the total block weight. Compare the `value` argument against the `MAX_ON_INITIALIZE_WEIGHT` constant. |
+| `WeightVecLengthIsLow` | `invalid_argument` | The weight submission has fewer entries than the subnet's minimum (setting only a self-weight is the one exception). Compare the vector length against the `MinAllowedWeights` (min_allowed_weights hyperparameter) for the netuid. |
+| `WeightVecNotEqualSize` | `invalid_argument` | The `uids` and `values` vectors passed to a weight-setting call have different lengths, so they cannot be paired. Check the call arguments; both vectors must have exactly one value per UID. |
+| `WithdrawFailed` | `insufficient_balance` | Withdrawing the transaction fee from the sender's mapped account failed even though the balance check passed, e.g. due to locks, holds, or existential deposit constraints. Check the account's locks and its free versus withdrawable balance. |
+| `WrongTimepoint` | `invalid_argument` | The timepoint supplied does not match the one recorded when this multisig operation was opened. Read the correct `when` height and index from the `Multisigs` entry for the call hash and resubmit with that exact timepoint. |
+| `XCMDecodeFailed` | `invalid_argument` | The bytes the contract passed to `xcm_execute` or `xcm_send` could not be decoded as a versioned XCM message. Check the XCM encoding and version the contract produces against what the runtime supports. |
+| `ZeroBalanceAfterWithdrawn` | `insufficient_balance` | Withdrawing TAO from the coldkey (e.g. paying a registration burn or adding stake) would leave the account at zero, below what keeps it alive. Check the coldkey's free balance and leave at least the existential deposit after the amount withdrawn. |
+| `ZeroShareInBatch` | `invalid_argument` | An order's pro-rata share of the batch output floored to zero, so the whole batch was rejected rather than consuming that order's input for no payout. Check the order's `amount` relative to the batch totals and retry it in a differently composed batch. |

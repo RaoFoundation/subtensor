@@ -22,6 +22,7 @@ from typer.core import TyperGroup
 from .. import __version__, wallets
 from .._generated.errors import ERRORS
 from ..config import get as config_default
+from ..error_descriptions import DESCRIPTIONS
 from ..intents import list_tools
 from ..result import EXPLANATIONS, REMEDIATION, ErrorCode, classify_error
 from ..settings import DEFAULT_NETWORK
@@ -326,6 +327,7 @@ def _chain_error_matches(query: str) -> list[dict[str, str]]:
                 "name": info.name,
                 "code": code.value,
                 "docs": info.docs,
+                "description": DESCRIPTIONS.get(info.name, ""),
                 "help": REMEDIATION[code],
             }
         )

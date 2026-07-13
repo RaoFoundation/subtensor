@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ._generated.errors import ERRORS
+from .error_descriptions import DESCRIPTIONS as _DESCRIPTIONS
 from .error_map import NAME_TO_CODE as _NAME_TO_CODE
 from .error_map import ErrorCode
 
@@ -311,13 +312,23 @@ class ChainError(BittensorError):
                 return help_text
         return REMEDIATION[self.code]
 
+    @property
+    def description(self) -> Optional[str]:
+        """What triggered this exact chain error and where to check, from the
+        per-name table in :mod:`bittensor.error_descriptions`. ``None`` when the
+        failure carried no module error name (e.g. a pool rejection)."""
+        return _DESCRIPTIONS.get(self.name) if self.name else None
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "message": self.message,
             "name": self.name,
             "code": self.code.value,
             "remediation": self.remediation,
         }
+        if self.description:
+            payload["description"] = self.description
+        return payload
 
 
 def chain_error_from_substrate_request(error: Exception) -> ChainError:

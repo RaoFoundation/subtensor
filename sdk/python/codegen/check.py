@@ -329,12 +329,15 @@ def check_coverage() -> int:
 
 def check_names() -> int:
     from bittensor._generated.errors import ERRORS
+    from bittensor.error_descriptions import DESCRIPTIONS
     from bittensor.error_map import NAME_TO_CODE, ErrorCode
     from bittensor.result import classify_error
 
     catalog = {info.name for info in ERRORS.values()}
     stale = sorted(name for name in NAME_TO_CODE if name not in catalog)
     unclassified = sorted(name for name in catalog if classify_error("", name) is ErrorCode.UNKNOWN)
+    undescribed = sorted(name for name in NAME_TO_CODE if name not in DESCRIPTIONS)
+    orphan_descriptions = sorted(name for name in DESCRIPTIONS if name not in NAME_TO_CODE)
     if stale:
         print(f"STALE: error names classified by the SDK but absent from chain: {stale}")
     if unclassified:
@@ -342,11 +345,21 @@ def check_names() -> int:
             "UNCLASSIFIED: chain error names with no semantic code "
             f"(add them to bittensor/error_map.py): {unclassified}"
         )
-    if stale or unclassified:
+    if undescribed:
+        print(
+            "UNDESCRIBED: classified error names with no description "
+            f"(add them to bittensor/error_descriptions.py): {undescribed}"
+        )
+    if orphan_descriptions:
+        print(
+            "ORPHANED: described error names no longer classified "
+            f"(remove them from bittensor/error_descriptions.py): {orphan_descriptions}"
+        )
+    if stale or unclassified or undescribed or orphan_descriptions:
         return 1
     print(
-        f"names ok: all {len(catalog)} chain error names classify to a semantic code "
-        "and no mapped name is stale"
+        f"names ok: all {len(catalog)} chain error names classify to a semantic code, "
+        "every classified name is described, and no mapped name is stale"
     )
     return 0
 

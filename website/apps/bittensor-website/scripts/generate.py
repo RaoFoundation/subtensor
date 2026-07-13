@@ -24,7 +24,7 @@ import tempfile
 from dataclasses import MISSING, fields
 from pathlib import Path
 
-from bittensor import error_map, result
+from bittensor import error_descriptions, error_map, result
 from bittensor.intents import REGISTRY as INTENTS
 from bittensor.intents.registry import list_tools
 from bittensor.namespaces import NAMESPACES
@@ -466,12 +466,14 @@ def errors_page() -> str:
 
     parts.append("## Chain error classification\n")
     parts.append(
-        "The exact chain error name (from the extrinsic receipt) maps to a code:\n"
+        "The exact chain error name (from the extrinsic receipt) maps to a code; "
+        "the description says what triggered it and where to check:\n"
     )
-    parts.append("| Chain error | Code |")
-    parts.append("| --- | --- |")
+    parts.append("| Chain error | Code | Description |")
+    parts.append("| --- | --- | --- |")
     for name, code in sorted(error_map.NAME_TO_CODE.items()):
-        parts.append(f"| `{name}` | `{code.value}` |")
+        description = error_descriptions.DESCRIPTIONS[name]
+        parts.append(f"| `{name}` | `{code.value}` | {cell(description)} |")
     parts.append("")
     return "\n".join(parts)
 
@@ -504,7 +506,10 @@ def write_catalogs(catalog_root: Path) -> None:
             r["python"] = f"client.{namespace_attr(spec)}.{spec.name}(...)"
     errors = {
         "codes": {code.value: result.REMEDIATION[code] for code in error_map.ErrorCode},
-        "chain_errors": {n: c.value for n, c in sorted(error_map.NAME_TO_CODE.items())},
+        "chain_errors": {
+            n: {"code": c.value, "description": error_descriptions.DESCRIPTIONS[n]}
+            for n, c in sorted(error_map.NAME_TO_CODE.items())
+        },
     }
     (catalog_root / "intents.json").write_text(json.dumps(tools, indent=2) + "\n")
     (catalog_root / "reads.json").write_text(json.dumps(reads, indent=2) + "\n")

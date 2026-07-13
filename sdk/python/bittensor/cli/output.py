@@ -1496,6 +1496,8 @@ class Output:
             return
         if error.name:
             self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
+        if error.description:
+            self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
         if result.explorer_url:
             self._sub_diag("see", result.explorer_url)
@@ -1554,8 +1556,10 @@ class Output:
         self._out.print(f"[dim]{len(records)} {suffix}[/dim]")
 
     def explain_chain(self, matches: list[dict[str, str]]) -> None:
-        """Explain exact chain error names: the on-chain docs plus the semantic
-        code each classifies to. One block per pallet when a name collides."""
+        """Explain exact chain error names: the researched description (trigger
+        plus where to check) with the on-chain docs as fallback, and the
+        semantic code each classifies to. One block per pallet when a name
+        collides."""
         if self.json_mode:
             self._json(matches[0] if len(matches) == 1 else matches)
             return
@@ -1568,7 +1572,8 @@ class Output:
             header.append(f"{match['pallet']}.{match['name']}")
             self._out.print(header)
             self._out.print()
-            self._out.print(_prose(_diagnostic(match["docs"] or match["name"])))
+            body = match.get("description") or match["docs"] or match["name"]
+            self._out.print(_prose(_diagnostic(body)))
             self._out.print()
             self._sub_diag("help", match["help"], console=self._out)
         for code in dict.fromkeys(match["code"] for match in matches):
