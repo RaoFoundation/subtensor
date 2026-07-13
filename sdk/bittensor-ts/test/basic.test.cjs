@@ -1072,6 +1072,20 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
       calls.push({ method: 'query', pallet, storage, params, block })
       return 42
     },
+    submitEncoded(bytes, expectedHash, waitForFinalization) {
+      calls.push({ method: 'submitEncoded', bytes, expectedHash, waitForFinalization })
+      return {
+        success: true,
+        extrinsicHash: expectedHash,
+        blockHash: `0x${'66'.repeat(32)}`,
+        blockNumber: 12n,
+        extrinsicIndex: 3,
+        feeRao: '7',
+        events: [],
+        error: null,
+        message: 'Success',
+      }
+    },
   })
   client.rpc = async () => {
     throw new Error('raw RPC should not be used by Node Client query')
@@ -1086,6 +1100,16 @@ test('Node Client keeps the Rust native backend authoritative', async () => {
     () => client.queryMap('Example', 'Map', [], null, { pageSize: 1 }),
     /delegates map pagination to Rust/,
   )
+  const watcher = await client.watchSigned(Buffer.from([1, 2, 3]), { waitForFinalization: true })
+  const watched = await watcher.result
+  assert.equal(watched.status, 'finalized')
+  assert.equal(watched.extrinsicIndex, 3)
+  assert.deepEqual(calls.at(-1), {
+    method: 'submitEncoded',
+    bytes: Buffer.from([1, 2, 3]),
+    expectedHash: watcher.extrinsicHash,
+    waitForFinalization: true,
+  })
 })
 
 test('declared Node runtime supports the default WebSocket client path', () => {

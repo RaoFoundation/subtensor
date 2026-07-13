@@ -2487,10 +2487,32 @@ export class Client extends BrowserChainClient {
   }
 
   override watchSigned(
-    _extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
-    _options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
+    extrinsic: SignedExtrinsicResult | SignedExtrinsic | ByteLike,
+    options: Pick<SubmitOptions, 'waitForFinalization' | 'timeoutMs' | 'signal'> & { signerAddress?: string } = {},
   ): Promise<ExtrinsicWatcher> {
-    return Promise.reject(new ChainError('submit-and-watch subscriptions are only available on BrowserChainClient'))
+    assertNativeWatchOptions(options)
+    const bytes = Buffer.isBuffer(extrinsic) || extrinsic instanceof Uint8Array
+      ? toBuffer(extrinsic, 'extrinsic')
+      : toBuffer(extrinsic.bytes, 'extrinsic.bytes')
+    const extrinsicHash = hex(blake2_256(bytes))
+    const result = this.requireNativeClient()
+      .then((native) => native.submitEncoded(
+        bytes,
+        extrinsicHash,
+        options.waitForFinalization === true,
+      ))
+      .then((outcome) => nativeOutcomeToExtrinsicResult(
+        outcome,
+        options.waitForFinalization === true,
+      ))
+    return Promise.resolve({
+      extrinsicHash,
+      result,
+      unsubscribe: async () => {
+        // Native receipt tracking is a bounded blocking task rather than a
+        // JSON-RPC subscription, so there is no remote subscription to cancel.
+      },
+    })
   }
 
   override async estimateFee(
@@ -3834,6 +3856,14 @@ function assertNativeSubmitOptions(options: SubmitOptions): void {
   if (options.signal != null || options.timeoutMs != null) {
     throw new ChainError(
       'native Rust transaction execution does not support signal or timeoutMs; use submitSigned()/watchSigned() for custom transport cancellation',
+    )
+  }
+}
+
+function assertNativeWatchOptions(options: Pick<SubmitOptions, 'signal' | 'timeoutMs'>): void {
+  if (options.signal != null || options.timeoutMs != null) {
+    throw new ChainError(
+      'native Rust submit-and-watch does not support signal or timeoutMs; use BrowserChainClient for custom transport cancellation',
     )
   }
 }

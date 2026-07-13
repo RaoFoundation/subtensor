@@ -11,6 +11,8 @@
       "**/html/**",
       "**/build/**",
       "**/target/**",
+      "**/.papi/**",
+      "**/specs/**",
       "**/scripts/tmp/**",
       "**/node_modules/**",
       "**/.yarn/**",

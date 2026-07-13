@@ -152,9 +152,9 @@ TAO/alpha amounts with more than nine fractional digits are rejected.
 `client.submit()` delegates automatic nonce selection to the Rust client when
 submitting with a native `Keypair`. Low-level manual signing APIs such as
 `signExtrinsic()` require an explicit `nonce`, and detached flows using
-`submitSigned()` delegate encoded submission to Rust. `watchSigned()` is only
-available on `BrowserChainClient`, where the TypeScript WebSocket transport owns
-the subscription.
+`submitSigned()` and `watchSigned()` delegate encoded submission and receipt
+tracking to Rust. On `BrowserChainClient`, `watchSigned()` uses the TypeScript
+WebSocket transport for custom/browser subscription handling.
 
 High-level transaction helpers such as `transfer()`, `staking.addStake()`,
 `setWeights()`, registration, and serving route through Rust trusted
