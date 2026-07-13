@@ -51,12 +51,14 @@
   font-size: 12px;
   font-weight: 200;
   width: 100%;
+  margin: 0;
   padding: 16px 20px;
   border: 1px solid rgba(41, 41, 41, 0.2);
   box-sizing: border-box;
   text-align: left;
   overflow-x: auto;
-  white-space: nowrap;
+  white-space: pre;
+  line-height: 1.6;
 }
 
 .metrics_table {

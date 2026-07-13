@@ -160,6 +160,47 @@ const page = () => {
             its v11 equivalent, and the{' '}
             <DocLink href='/docs/quickstart'>quickstart</DocLink> covers new installations.
           </p>
+          <p style={{textAlign: 'left', width: '100%'}}>
+            To upgrade an existing environment, uninstall the old packages first — both own the
+            btcli command, so order matters:
+          </p>
+          <pre className={styles.code_block}>
+            {`pip uninstall -y bittensor-cli bittensor-wallet
+pip install -U bittensor`}
+          </pre>
+          <p style={{textAlign: 'left', width: '100%'}}>
+            In the new SDK, chain state is read through a typed client, and every transaction
+            is an intent that can be planned before it is executed:
+          </p>
+          <pre className={styles.code_block}>
+            {`import asyncio
+import bittensor as sub
+from bittensor.wallet import Wallet
+
+async def main():
+    wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
+    async with sub.Client("finney") as client:
+        balance = await client.balances.get("5F...coldkey")
+
+        intent = sub.Transfer(dest_ss58="5F...dest", amount_tao=1.5)
+        plan = await client.plan(intent, wallet)      # fee and effects; nothing submitted
+        result = await client.execute(intent, wallet)
+        if not result.success:
+            print(result.error.code, result.error.remediation)
+
+asyncio.run(main())`}
+          </pre>
+          <p style={{textAlign: 'left', width: '100%'}}>
+            The CLI follows the same model — every mutation supports --dry-run, which shows the
+            fee, the predicted effects, and any policy verdict without submitting:
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli config set network finney
+btcli wallet balance my_coldkey
+btcli query metagraph --netuid 1
+btcli tx transfer --dest 5F...dest --amount-tao 1.5 --dry-run
+btcli tx transfer --dest 5F...dest --amount-tao 1.5 -w my_coldkey`}
+          </pre>
         </section>
 
         <section className={styles.section}>
