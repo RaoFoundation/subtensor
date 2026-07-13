@@ -66,6 +66,7 @@ describeSuite({
         let api: TypedApi<typeof subtensor>;
         let provider: ethers.JsonRpcProvider;
         let ethWallet: ethers.Wallet;
+        let ethSigner: ethers.NonceManager;
         let stakeWallet: ethers.Wallet;
         let proxyWallet1: ethers.Wallet;
         let proxyWallet2: ethers.Wallet;
@@ -88,6 +89,7 @@ describeSuite({
             api = context.papi("Node").getTypedApi(subtensor);
             provider = context.ethers("EVM").provider as ethers.JsonRpcProvider;
             ethWallet = createEthersWallet(provider);
+            ethSigner = new ethers.NonceManager(ethWallet);
             await forceSetBalance(api, convertH160ToSS58(ethWallet.address));
             await disableWhiteListCheck(api, true);
             await waitForFinalizedBlocks(api, 1);
@@ -208,7 +210,7 @@ describeSuite({
                 const contractFactory = new ethers.ContractFactory(
                     BRIDGE_TOKEN_CONTRACT_ABI,
                     BRIDGE_TOKEN_CONTRACT_BYTECODE,
-                    ethWallet
+                    ethSigner
                 );
                 const contract = await contractFactory.deploy("name", "symbol", ethWallet.address);
                 await contract.waitForDeployment();
@@ -226,7 +228,7 @@ describeSuite({
                 const contractFactory = new ethers.ContractFactory(
                     BRIDGE_TOKEN_CONTRACT_ABI,
                     BRIDGE_TOKEN_CONTRACT_BYTECODE,
-                    ethWallet
+                    ethSigner
                 );
                 const contract = await contractFactory.deploy("name", "symbol", ethWallet.address, {
                     gasLimit: 12_345_678,
@@ -249,7 +251,7 @@ describeSuite({
                 const stakeBalance = tao(20);
 
                 const stakeBefore = await getStake(api, hotkeySs58, walletSs58, netuid);
-                const stakingPrecompile = new ethers.Contract(ISTAKING_V2_ADDRESS, IStakingV2ABI, ethWallet);
+                const stakingPrecompile = new ethers.Contract(ISTAKING_V2_ADDRESS, IStakingV2ABI, ethSigner);
                 const tx = await stakingPrecompile.addStake(hotkey.publicKey, stakeBalance.toString(), netuid);
                 const receipt = await tx.wait();
                 expect(receipt?.status).toEqual(1);
@@ -276,14 +278,14 @@ describeSuite({
                 await ensureSubnetReady();
                 const hotkeySs58 = convertPublicKeyToSs58(hotkey.publicKey);
                 const walletSs58 = convertH160ToSS58(ethWallet.address);
-                const stakingPrecompile = new ethers.Contract(ISTAKING_V2_ADDRESS, IStakingV2ABI, ethWallet);
+                const stakingPrecompile = new ethers.Contract(ISTAKING_V2_ADDRESS, IStakingV2ABI, ethSigner);
 
                 const stakeBeforeDeposit = await getStake(api, hotkeySs58, walletSs58, netuid);
 
                 const contractFactory = new ethers.ContractFactory(
                     ALPHA_POOL_CONTRACT_ABI,
                     ALPHA_POOL_CONTRACT_BYTECODE,
-                    ethWallet
+                    ethSigner
                 );
                 const contract = await contractFactory.deploy(hotkey.publicKey);
                 await contract.waitForDeployment();
@@ -294,7 +296,7 @@ describeSuite({
                 await forceSetBalance(api, convertPublicKeyToSs58(contractPublicKey));
                 await expectDeployedContract(provider, contractAddress);
 
-                const contractForCall = new ethers.Contract(contractAddress, ALPHA_POOL_CONTRACT_ABI, ethWallet);
+                const contractForCall = new ethers.Contract(contractAddress, ALPHA_POOL_CONTRACT_ABI, ethSigner);
                 const setContractColdkeyTx = await contractForCall.setContractColdkey(contractPublicKey);
                 const setColdkeyReceipt = await setContractColdkeyTx.wait();
                 expect(setColdkeyReceipt?.status).toEqual(1);

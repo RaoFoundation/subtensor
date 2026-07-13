@@ -90,6 +90,8 @@ jobs:
     strategy:
       matrix:
         include:
+          - variant: release
+            flags: ""
           - variant: fast
             flags: "--features fast-runtime"
     env:
@@ -134,7 +136,7 @@ jobs:
 
   run-e2e-tests:
     needs: [trusted-pr, build]
-    runs-on: ${{ fromJSON(matrix.runner) }}
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
 
     strategy:
@@ -143,14 +145,12 @@ jobs:
         include:
           - test: zombienet_evm_single
             binary: fast
-            candidate: turbo-8
-            runner: '["self-hosted", "fireactions-turbo-8"]'
-          - test: zombienet_evm_single
-            binary: fast
-            candidate: github-hosted
-            runner: '["ubuntu-latest"]'
+          - test: zombienet_shield_a
+            binary: release
+          - test: zombienet_shield_b
+            binary: release
 
-    name: "typescript-e2e-${{ matrix.test }}-${{ matrix.candidate }}"
+    name: "typescript-e2e-${{ matrix.test }}"
 
     steps:
       - name: Check-out repository
