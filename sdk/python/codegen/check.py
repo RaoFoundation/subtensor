@@ -118,6 +118,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "set_pending_childkey_cooldown",
         "enable_voting_power_tracking",
         "disable_voting_power_tracking",
+        # Deprecated no-op compatibility stubs (call indices 139/140). Functional
+        # updates go through AdminUtils.sudo_set_tempo / sudo_set_activity_cutoff_factor.
+        "set_tempo",
+        "set_activity_cutoff_factor",
     },
     "Balances": {
         # force_* are root-origin; burn/upgrade are niche
