@@ -486,13 +486,20 @@ def upgrade_sign(
         if signer_address in approvals:
             return None, sudo_layer
         others = uh.sorted_other_signatories(sudo_signatories, signer_address)
+        # The outer max_weight must cover the finalizing call's *declared*
+        # dispatch weight, which already includes the pinned FINALIZE_WEIGHT
+        # it carries as its own as_multi argument plus the pallet's base
+        # overhead — so the pinned constant itself is always too low here.
+        # Only the finalizing call's encoding must be byte-identical across
+        # signers; this outer argument is free to be estimated per submission.
+        max_weight = await uh.finalizing_max_weight(client, finalizing, signer_address)
         if sudo_layer is None:
             call = calls.Multisig.approve_as_multi(
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=None,
                 call_hash=finalizing.call_hash,
-                max_weight=uh.FINALIZE_WEIGHT,
+                max_weight=max_weight,
             )
         elif len(approvals) < sudo_threshold - 1:
             call = calls.Multisig.approve_as_multi(
@@ -500,7 +507,7 @@ def upgrade_sign(
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
                 call_hash=finalizing.call_hash,
-                max_weight=uh.FINALIZE_WEIGHT,
+                max_weight=max_weight,
             )
         else:
             call = calls.Multisig.as_multi(
@@ -508,7 +515,7 @@ def upgrade_sign(
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
                 call=finalizing,
-                max_weight=uh.FINALIZE_WEIGHT,
+                max_weight=max_weight,
             )
         result = await client.submit_call(
             call, signing, signer="coldkey", wait_for_finalization=False
