@@ -471,7 +471,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_min_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_max_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::terminate_lease),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
         RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::SubtensorModule(SubtensorCall::trigger_epoch),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_num_root_claims),
@@ -489,6 +488,7 @@ call_filter_group!(
     SubnetManagementCalls,
     [
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_serving_rate_limit),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tempo),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_difficulty),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_weights_version_key),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_adjustment_alpha),
@@ -545,7 +545,6 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_registrations_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_owner_cut),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_rate_limit),
-        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tempo),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_total_issuance),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_immunity_period),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_min_lock_cost),

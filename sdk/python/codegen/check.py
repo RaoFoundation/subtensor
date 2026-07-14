@@ -80,7 +80,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
-        "set_tempo",
         "trigger_epoch",
         "dissolve_network",
         "root_dissolve_network",

@@ -414,9 +414,9 @@ mod tests {
         // Owner-settable subnet params + subnet identity.
         assert!(owner.contains("AdminUtils::sudo_set_serving_rate_limit"));
         assert!(owner.contains("AdminUtils::sudo_set_max_difficulty"));
+        assert!(owner.contains("AdminUtils::sudo_set_tempo"));
         assert!(owner.contains("SubtensorModule::set_subnet_identity"));
         // Root-only admin is not owner-settable (gated by `ensure_root`).
-        assert!(!owner.contains("AdminUtils::sudo_set_tempo"));
         assert!(!owner.contains("AdminUtils::sudo_set_kappa"));
         assert!(!owner.contains("AdminUtils::sudo_set_total_issuance"));
         assert!(!owner.contains("AdminUtils::swap_authorities"));

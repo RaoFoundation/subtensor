@@ -8,31 +8,6 @@ use crate::system::pallet_prelude::OriginFor;
 use crate::utils::rate_limiting::{Hyperparameter, TransactionType};
 
 impl<T: Config> Pallet<T> {
-    /// Owner-side `set_tempo` implementation.
-    pub fn do_set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
-        let who = Self::ensure_subnet_owner(origin, netuid)?;
-
-        ensure!(
-            (MIN_TEMPO..=MAX_TEMPO).contains(&tempo),
-            Error::<T>::TempoOutOfBounds
-        );
-
-        Self::ensure_admin_window_open(netuid)?;
-
-        let tx = TransactionType::TempoUpdate;
-        ensure!(
-            tx.passes_rate_limit_on_subnet::<T>(&who, netuid),
-            Error::<T>::TxRateLimitExceeded
-        );
-
-        let now = Self::get_current_block_as_u64();
-
-        Self::apply_tempo_with_cycle_reset(netuid, tempo);
-
-        tx.set_last_block_on_subnet::<T>(&who, netuid, now);
-        Ok(())
-    }
-
     /// `set_activity_cutoff_factor` implementation. Callable by the subnet owner
     /// (subject to admin freeze window + rate limit) or by root (bypasses both).
     pub fn do_set_activity_cutoff_factor(

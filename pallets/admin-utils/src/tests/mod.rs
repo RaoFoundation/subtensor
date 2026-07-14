@@ -68,6 +68,93 @@ fn test_sudo_set_serving_rate_limit() {
 }
 
 #[test]
+fn test_sudo_set_tempo() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let initial_tempo = 10;
+        let owner = U256::from(7);
+        let new_tempo = pallet_subtensor::MIN_TEMPO * 2;
+        add_network(netuid, initial_tempo);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+        System::set_block_number(42);
+
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(RuntimeOrigin::signed(U256::from(1)), netuid, new_tempo),
+            DispatchError::BadOrigin
+        );
+        assert_eq!(Tempo::<Test>::get(netuid), initial_tempo);
+
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(RuntimeOrigin::root(), netuid.next(), new_tempo),
+            Error::<Test>::SubnetDoesNotExist
+        );
+
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            new_tempo
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), new_tempo);
+        assert_eq!(LastEpochBlock::<Test>::get(netuid), 42);
+
+        // Root bypasses owner bounds and the owner cooldown.
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            RuntimeOrigin::root(),
+            netuid,
+            initial_tempo
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), initial_tempo);
+        assert_eq!(LastEpochBlock::<Test>::get(netuid), 42);
+    });
+}
+
+#[test]
+fn test_owner_set_tempo_enforces_bounds_and_fixed_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(7);
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+        System::set_block_number(42);
+
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                pallet_subtensor::MIN_TEMPO - 1,
+            ),
+            SubtensorError::<Test>::TempoOutOfBounds
+        );
+
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            pallet_subtensor::MIN_TEMPO
+        ));
+
+        System::set_block_number(42 + pallet_subtensor::MIN_TEMPO as u64 - 1);
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                RuntimeOrigin::signed(owner),
+                netuid,
+                pallet_subtensor::MIN_TEMPO + 1,
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+
+        System::set_block_number(42 + pallet_subtensor::MIN_TEMPO as u64);
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            RuntimeOrigin::signed(owner),
+            netuid,
+            pallet_subtensor::MIN_TEMPO + 1,
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), pallet_subtensor::MIN_TEMPO + 1);
+    });
+}
+
+#[test]
 fn test_sudo_set_min_difficulty() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);

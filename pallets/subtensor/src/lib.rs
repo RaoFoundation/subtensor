@@ -1830,9 +1830,9 @@ pub mod pallet {
     #[pallet::storage]
     pub type Tempo<T> = StorageMap<_, Identity, NetUid, u16, ValueQuery, DefaultTempo<T>>;
 
-    /// Lower bound for owner-set tempo. Also the fixed cooldown for `set_tempo`.
+    /// Lower bound for owner-set tempo. Also the fixed cooldown for tempo updates.
     pub const MIN_TEMPO: u16 = 360;
-    /// Upper bound for owner-set tempo (≈ 7 days at 12 s/block).
+    /// Upper bound for owner-set tempo and safety threshold for stalled subnet epochs.
     pub const MAX_TEMPO: u16 = 50_400;
     /// Lower bound for activity-cutoff factor (per-mille). 1_000 = one full tempo.
     pub const MIN_ACTIVITY_CUTOFF_FACTOR_MILLI: u32 = 1_000;
@@ -1851,7 +1851,7 @@ pub mod pallet {
     /// MAP ( netuid ) --> last epoch attempt block (consumed slot).
     /// Drives normal-cadence scheduling and the admin freeze window.
     /// Advances on every `should_run_epoch == true` slot — including consistency-skipped slots —
-    /// and on a successful `set_tempo` (cycle reset).
+    /// and when an administrative tempo update resets the cycle.
     #[pallet::storage]
     pub type LastEpochBlock<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultZeroU64<T>>;

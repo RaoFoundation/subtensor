@@ -481,11 +481,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_subnet_identity', {'netuid': netuid, 'subnet_name': subnet_name, 'github_repo': github_repo, 'subnet_contact': subnet_contact, 'subnet_url': subnet_url, 'discord': discord, 'description': description, 'logo_url': logo_url, 'additional': additional})
 
     @staticmethod
-    def set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'Owner-side `set_tempo`. Validates `[MinTempo, MaxTempo]`, applies a fixed `MinTempo`-block cooldown via `TransactionType::TempoUpdate`, respects the admin freeze window, and resets the cycle (`LastEpochBlock = current_block`) on success.'
-        return Call('SubtensorModule', 'set_tempo', {'netuid': netuid, 'tempo': tempo})
-
-    @staticmethod
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored as u16s they represent rational values in the range [0,1] which sum to 1 and can be interpreted as probabilities. The specific weights determine how inflation propagates outward from this peer.  # Note The 16 bit integers weights should represent 1.0 as the max u16. However, the function normalizes all integers to u16_max anyway. This means that if the sum of all elements is larger or smaller than the amount of elements * u16_max, all elements will be corrected for this deviation.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: The u16 integer encoded weights. Interpreted as rational values in the range [0,1]. They must sum to in32::MAX.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
@@ -1209,7 +1204,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'The extrinsic sets the tempo for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the tempo.'
+        'Sets the tempo for a subnet.  Callable by root or the subnet owner. Subnet owners are constrained to `[MinTempo, MaxTempo]` and a fixed `MinTempo`-block cooldown. Root bypasses those owner restrictions. Both origins respect the admin freeze window.'
         return Call('AdminUtils', 'sudo_set_tempo', {'netuid': netuid, 'tempo': tempo})
 
     @staticmethod
@@ -1582,5 +1577,3 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
-

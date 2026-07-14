@@ -974,19 +974,43 @@ pub mod pallet {
             Ok(())
         }
 
-        /// The extrinsic sets the tempo for a subnet.
-        /// It is only callable by the root account.
-        /// The extrinsic will call the Subtensor pallet to set the tempo.
+        /// Sets the tempo for a subnet.
+        ///
+        /// Callable by root or the subnet owner. Subnet owners are constrained to
+        /// `[MinTempo, MaxTempo]` and a fixed `MinTempo`-block cooldown. Root bypasses
+        /// those owner restrictions. Both origins respect the admin freeze window.
         #[pallet::call_index(30)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_tempo())]
+        #[pallet::weight(
+            <T as pallet::Config>::WeightInfo::sudo_set_tempo().max(
+                // Conservative floor from the retired owner-call benchmark, plus
+                // the additional subnet-existence read performed by this call.
+                Weight::from_parts(44_877_000, 4_498)
+                    .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(7_u64))
+                    .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(3_u64))
+            )
+        )]
         pub fn sudo_set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
-            ensure_root(origin)?;
+            let tx = TransactionType::TempoUpdate;
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[tx],
+            )?;
+
+            if maybe_owner.is_some() {
+                ensure!(
+                    (pallet_subtensor::MIN_TEMPO..=pallet_subtensor::MAX_TEMPO).contains(&tempo),
+                    pallet_subtensor::Error::<T>::TempoOutOfBounds
+                );
+            }
+
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
             ensure!(
                 pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
                 Error::<T>::SubnetDoesNotExist
             );
             pallet_subtensor::Pallet::<T>::apply_tempo_with_cycle_reset(netuid, tempo);
+            pallet_subtensor::Pallet::<T>::record_owner_rl(maybe_owner, netuid, &[tx]);
             log::debug!("TempoSet( netuid: {netuid:?} tempo: {tempo:?} ) ");
             Ok(())
         }

@@ -11,7 +11,6 @@ use crate::{
 };
 
 const DEFAULT_TEMPO: u16 = 360;
-const NEW_TEMPO: u16 = 720;
 
 fn setup_subnet(owner: U256) -> NetUid {
     let netuid = NetUid::from(1);
@@ -20,26 +19,6 @@ fn setup_subnet(owner: U256) -> NetUid {
     SubtokenEnabled::<Test>::insert(netuid, true);
     crate::Pallet::<Test>::set_admin_freeze_window(0);
     netuid
-}
-
-#[test]
-fn do_set_tempo_works_with_commit_reveal_enabled() {
-    new_test_ext(1).execute_with(|| {
-        let owner = U256::from(1);
-        let netuid = setup_subnet(owner);
-
-        // CR is enabled by default; `set_tempo` is no longer blocked for CR
-        // subnets — CR timing keys off the stateful `SubnetEpochIndex` counter.
-        assert!(CommitRevealWeightsEnabled::<Test>::get(netuid));
-
-        assert_ok!(crate::Pallet::<Test>::do_set_tempo(
-            <<Test as Config>::RuntimeOrigin>::signed(owner),
-            netuid,
-            NEW_TEMPO,
-        ));
-
-        assert_eq!(Tempo::<Test>::get(netuid), NEW_TEMPO);
-    });
 }
 
 #[test]
@@ -215,31 +194,6 @@ fn get_next_epoch_start_block_ignores_pending_when_auto_is_earlier() {
         assert_eq!(
             crate::Pallet::<Test>::get_next_epoch_start_block(netuid),
             Some(150)
-        );
-    });
-}
-
-#[test]
-fn get_next_epoch_start_block_reflects_set_tempo_cycle_reset() {
-    new_test_ext(1).execute_with(|| {
-        let owner = U256::from(1);
-        let netuid = setup_subnet(owner);
-
-        run_to_block(10);
-        let new_tempo: u16 = 720;
-
-        assert_ok!(crate::Pallet::<Test>::do_set_tempo(
-            <<Test as Config>::RuntimeOrigin>::signed(owner),
-            netuid,
-            new_tempo,
-        ));
-
-        let now = crate::Pallet::<Test>::get_current_block_as_u64();
-        // apply_tempo_with_cycle_reset sets LastEpochBlock = now;
-        // next fire is now + tempo.
-        assert_eq!(
-            crate::Pallet::<Test>::get_next_epoch_start_block(netuid),
-            Some(now + new_tempo as u64)
         );
     });
 }

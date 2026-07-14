@@ -12,10 +12,10 @@ use sp_std::collections::vec_deque::VecDeque;
 ///    `(block + netuid + 1) % (tempo + 1) == 0`. The new scheduler period is
 ///    `tempo` (next firing at `LastEpochBlock + tempo`).
 ///    Existing `Tempo[netuid]` values are preserved as-is regardless of whether
-///    they fall inside `[MIN_TEMPO, MAX_TEMPO]`. Owner-side `set_tempo` enforces
-///    the bounds for new updates; root-side `sudo_set_tempo` can still write any
-///    `u16`. Subnets with `Tempo == 0` are left as-is — the legacy short-circuit
-///    keeps them dormant and matches their pre-upgrade behaviour.
+///    they fall inside `[MIN_TEMPO, MAX_TEMPO]`. Owner-origin `AdminUtils::sudo_set_tempo`
+///    enforces the bounds for new updates; root can still write any `u16`. Subnets with
+///    `Tempo == 0` are left as-is — the legacy short-circuit keeps them dormant and matches
+///    their pre-upgrade behaviour.
 /// 2. Converts each subnet's existing `ActivityCutoff[netuid]` (absolute block count)
 ///    into `ActivityCutoffFactorMilli[netuid]` (per-mille of `tempo`) so that
 ///    `factor * tempo / 1000 ≈ old_cutoff` post-upgrade. Production defaults

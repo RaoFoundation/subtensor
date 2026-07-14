@@ -2337,15 +2337,6 @@ mod dispatches {
             Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
         }
 
-        /// Owner-side `set_tempo`. Validates `[MinTempo, MaxTempo]`, applies a fixed
-        /// `MinTempo`-block cooldown via `TransactionType::TempoUpdate`, respects the admin
-        /// freeze window, and resets the cycle (`LastEpochBlock = current_block`) on success.
-        #[pallet::call_index(139)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_tempo())]
-        pub fn set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
-            Self::do_set_tempo(origin, netuid, tempo)
-        }
-
         /// `set_activity_cutoff_factor`. Per-mille (1/1000) units; `cutoff_blocks
         /// = (factor × tempo) / 1000`. Validates `[MinActivityCutoffFactorMilli,
         /// MaxActivityCutoffFactorMilli]`. Callable by the subnet owner (rate-limited

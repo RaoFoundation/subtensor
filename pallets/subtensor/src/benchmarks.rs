@@ -2303,21 +2303,6 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn set_tempo() {
-        let netuid = NetUid::from(1);
-        let coldkey: T::AccountId = account("Owner", 0, 1);
-
-        Subtensor::<T>::init_new_network(netuid, 1u16);
-        SubnetOwner::<T>::insert(netuid, coldkey.clone());
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, false);
-        Subtensor::<T>::set_admin_freeze_window(0);
-
-        #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey.clone()), netuid, MIN_TEMPO);
-    }
-
-    #[benchmark]
     fn set_activity_cutoff_factor() {
         let netuid = NetUid::from(1);
         let coldkey: T::AccountId = account("Owner", 0, 1);
