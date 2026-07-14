@@ -8,13 +8,17 @@ description: "Swap stake on one hotkey between two subnets."
 Moves part of a position from the origin subnet to the destination subnet
 while staying on the same hotkey: the alpha is swapped to TAO in the
 origin pool and then to alpha in the destination pool, so both legs can
-incur slippage. The two netuids must differ (`SameNetuid`). Use
-`move_stake` when the hotkey should change too, and `remove_stake`
-plus `add_stake` only if you want to control each leg separately.
+incur slippage. By default the call is slippage-protected: it fails
+(`SlippageTooHigh`) instead of filling once the origin/destination price
+ratio falls more than `rate_tolerance` (5%) below the ratio at submission
+— raise the tolerance or set `slippage_protection` to False to execute at
+any price. The two netuids must differ (`SameNetuid`). Use `move_stake`
+when the hotkey should change too, and `remove_stake` plus `add_stake`
+only if you want to control each leg separately.
 
 | Signer | Pallet | Wraps |
 | --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.swap_stake` |
+| `coldkey` | SubtensorModule | `SubtensorModule.swap_stake`, `SubtensorModule.swap_stake_limit` |
 
 ## Parameters
 
@@ -24,6 +28,8 @@ plus `add_stake` only if you want to control each leg separately.
 | `origin_netuid` | integer | yes | Subnet the stake currently sits on. |
 | `dest_netuid` | integer | yes | Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg. |
 | `amount_alpha` | number \| `"all"` | yes | How much of the origin position to swap across (an explicit amount; ``all`` is not accepted). |
+| `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
+| `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

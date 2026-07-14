@@ -9,7 +9,11 @@ Swaps the alpha position back to TAO at the current pool price and credits
 it to the signing coldkey's free balance. Pass `all` to exit the entire
 position on that hotkey and subnet (the build fails if nothing is staked
 there). Like staking, the swap moves the pool, so large amounts incur
-slippage — use `remove_stake_limit` to bound the price. The hotkey and
+slippage. By default the call is slippage-protected: it fails
+(`SlippageTooHigh`) instead of filling once the price falls more than
+`rate_tolerance` (5%) below the price at submission — raise the tolerance
+or set `slippage_protection` to False to execute at any price, or use
+`remove_stake_limit` to set an explicit limit price. The hotkey and
 netuid must match where the stake is actually held, and the subnet must
 have subtoken trading enabled. The requested amount is capped to the
 stake currently available. A partial unstake must leave a remainder
@@ -18,7 +22,7 @@ position instead of leaving dust (`AmountTooLow`).
 
 | Signer | Pallet | Wraps |
 | --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.remove_stake` |
+| `coldkey` | SubtensorModule | `SubtensorModule.remove_stake`, `SubtensorModule.remove_stake_limit` |
 
 ## Parameters
 
@@ -27,6 +31,8 @@ position instead of leaving dust (`AmountTooLow`).
 | `hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `netuid` | integer | yes | Subnet the stake lives on (netuid 0 is the root network). |
 | `amount_alpha` | number \| `"all"` | yes | How much to unstake from this position, or ``all``. |
+| `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
+| `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

@@ -347,7 +347,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull Docker Image
-        run: docker pull "$LOCALNET_IMAGE_CI"
+        # GHCR intermittently returns permission_denied/timeouts under the
+        # ~120-job pull fan-out, so retry with backoff instead of failing the shard.
+        run: |
+          for i in 1 2 3; do
+            docker pull "$LOCALNET_IMAGE_CI" && exit 0
+            echo "docker pull failed (attempt $i), retrying in $((i * 15))s..."
+            sleep $((i * 15))
+          done
+          docker pull "$LOCALNET_IMAGE_CI"
 
       - name: Retag Docker Image
         run: docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"

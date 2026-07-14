@@ -34,6 +34,7 @@ NETWORKS = {
     "finney": "wss://entrypoint-finney.opentensor.ai:443",
     "test": "wss://test.finney.opentensor.ai:443",
     "archive": "wss://archive.chain.opentensor.ai:443",
+    "devnet": "wss://dev.chain.opentensor.ai:443",
     "local": os.getenv("BT_CHAIN_ENDPOINT") or "ws://127.0.0.1:9944",
 }
 

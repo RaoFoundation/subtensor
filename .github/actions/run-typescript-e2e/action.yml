@@ -1,0 +1,52 @@
+name: Run TypeScript E2E suite
+description: Download a prebuilt node and run one Moonwall environment.
+
+inputs:
+  binary:
+    description: Node artifact variant to download.
+    required: true
+  test:
+    description: Moonwall environment to run.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download binary
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: node-subtensor-${{ inputs.binary }}
+        path: target/release
+
+    - name: Make binary executable
+      shell: bash
+      run: chmod +x target/release/node-subtensor
+
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version-file: ts-tests/.nvmrc
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      with:
+        version: 10
+
+    - name: Install e2e dependencies
+      shell: bash
+      working-directory: ts-tests
+      run: pnpm install --frozen-lockfile
+
+    - name: Install lsof (dev foundation RPC port discovery)
+      if: inputs.test == 'dev'
+      shell: bash
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+
+    - name: Run tests
+      shell: bash
+      working-directory: ts-tests
+      env:
+        MOONWALL_TEST: ${{ inputs.test }}
+      run: pnpm moonwall test "$MOONWALL_TEST"
