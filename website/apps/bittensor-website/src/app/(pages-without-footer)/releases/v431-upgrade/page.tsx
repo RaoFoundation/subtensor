@@ -553,8 +553,9 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
               every existing proxy configuration.
             </li>
             <li>
-              <strong>Node operators</strong> — nodes not yet running the spec 431 binary must
-              upgrade to continue syncing.
+              <strong>Node operators</strong> — no binary upgrade is required to continue
+              syncing. Nodes execute the upgraded on-chain Wasm runtime automatically; install
+              the latest node image when it is published to receive node-software updates.
             </li>
             <li>
               <strong>Indexers and SDK authors</strong> — chain metadata now carries typed
