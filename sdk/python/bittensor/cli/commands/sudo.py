@@ -115,7 +115,7 @@ def sudo_set(
         name, value = _prompt_set_args(app_ctx, netuid, name, value)
     try:
         intent = SetHyperparameter(netuid=netuid, name=name, value=value)
-    except ValueError as error:
+    except (ValueError, OverflowError) as error:
         app_ctx.output.error(
             str(error),
             help=f"`btcli sudo get --netuid {netuid} --name {name}` explains "

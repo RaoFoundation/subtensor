@@ -90,9 +90,21 @@ SHORT_MAX = 38
 
 @dataclass(frozen=True)
 class Hyperparam:
+    """Unit kind plus the codec/semantic bounds used by :func:`to_raw`.
+
+    ``signed`` / ``bits`` override inference from the parameter's storage type
+    identity (or the kind default). ``minimum`` / ``maximum`` tighten the raw
+    integer range further when the chain enforces a semantic window inside the
+    codec type (tempo, activity cutoff factor, burn multiplier, …).
+    """
+
     kind: str
     doc: str
     short: str = ""
+    signed: Optional[bool] = None
+    bits: Optional[int] = None
+    minimum: Optional[int] = None
+    maximum: Optional[int] = None
 
 
 HYPERPARAMS: dict[str, Hyperparam] = {
@@ -132,6 +144,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "emissions. Owner changes are bounded to 360-50,400 blocks, rate-limited "
         "to one per 360 blocks, and reset the epoch cycle.",
         short="blocks per consensus epoch",
+        minimum=360,
+        maximum=50_400,
     ),
     "min_difficulty": Hyperparam(
         "difficulty",
@@ -180,6 +194,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "1,000-50,000): the effective cutoff is factor x tempo / 1000 blocks. "
         "Supersedes the absolute-blocks activity_cutoff.",
         short="activity cutoff, per-mille of tempo",
+        minimum=1_000,
+        maximum=50_000,
     ),
     "registration_allowed": Hyperparam(
         "bool",
@@ -271,6 +287,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "Steepness of the liquid-alpha sigmoid mapping consensus alignment to the "
         "bonds EMA factor; negative values (root only) invert the curve.",
         short="liquid-alpha sigmoid steepness",
+        signed=True,
+        bits=16,
+        minimum=0,  # owner path; root sets negatives via the raw-call escape hatch
     ),
     "min_childkey_take": Hyperparam(
         "u16",
@@ -295,6 +314,8 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "adjustment window. U64F64 fixed-point: the raw bits divided by 2^64 "
         "give the real multiplier.",
         short="burn cost bump per registration",
+        minimum=FIXED128_ONE,
+        maximum=3 * FIXED128_ONE,
     ),
     "burn_half_life": Hyperparam(
         "blocks",
@@ -496,16 +517,21 @@ def value_forms(name: str) -> str:
     if denominator is not None:
         return f"a 0..1 fraction (e.g. 0.5) or the raw integer (0..{denominator})"
     if kind == "rao":
-        return "a TAO amount with a decimal point (e.g. 0.7) or the raw rao integer"
+        return "a non-negative TAO amount with a decimal point (e.g. 0.7) or the raw rao integer"
     if kind == "fixed128":
-        return "a multiplier with a decimal point (e.g. 1.5) or the raw U64F64 bits"
+        lo, hi = raw_bounds(name)
+        if lo == FIXED128_ONE and hi == 3 * FIXED128_ONE:
+            return "a multiplier with a decimal point in 1..3 (e.g. 1.5) or the raw U64F64 bits"
+        return "a non-negative multiplier with a decimal point (e.g. 1.5) or the raw U64F64 bits"
     if kind == "bool":
         return "true/false (or 1/0)"
     if kind == "blocks":
-        return "a block count (12s blocks)"
+        lo, hi = raw_bounds(name)
+        return f"a block count in {lo}..{hi} (12s blocks)"
     if kind == "epochs":
         return "an epoch (tempo) count"
-    return "an integer"
+    lo, hi = raw_bounds(name)
+    return f"an integer in {lo}..{hi}"
 
 
 def proportion_to_raw(
@@ -531,6 +557,8 @@ def proportion_to_raw(
                 f"{label} takes a 0..1 fraction (e.g. 0.18) or the raw integer "
                 f"(0..{denominator}); got {value!r}"
             ) from None
+        except OverflowError:
+            raise ValueError(f"{label} value is out of range") from None
     if isinstance(value, int):
         if not 0 <= value <= denominator:
             raise ValueError(
@@ -543,43 +571,141 @@ def proportion_to_raw(
             f"a fractional {label} must be within 0..1 (e.g. 0.18); got {value}. "
             f"Pass a plain integer for the raw 0..{denominator} form."
         )
-    return round(value * denominator)
+    try:
+        return round(value * denominator)
+    except OverflowError:
+        raise ValueError(f"{label} value is out of range") from None
 
 
-_TRUE = {"true", "yes", "y", "on", "1"}
-_FALSE = {"false", "no", "n", "off", "0"}
+# Codec width inferred from the storage value's type identity when the hand
+# table does not set `signed`/`bits` explicitly.
+_IDENT_CODEC: dict[str, tuple[bool, int]] = {
+    "u8": (False, 8),
+    "u16": (False, 16),
+    "u32": (False, 32),
+    "u64": (False, 64),
+    "u128": (False, 128),
+    "i8": (True, 8),
+    "i16": (True, 16),
+    "i32": (True, 32),
+    "i64": (True, 64),
+    "bool": (False, 1),
+    "PerU16": (False, 16),
+    "Percent": (False, 8),
+    "Permill": (False, 32),
+    "Perbill": (False, 32),
+    "TaoBalance": (False, 64),
+    "FixedU128": (False, 128),
+}
+
+# Fallback when neither the hand table nor storage metadata supplies a codec.
+_KIND_CODEC: dict[str, tuple[bool, int]] = {
+    "u16": (False, 16),
+    "u64": (False, 64),
+    "per_million": (False, 64),
+    "rao": (False, 64),
+    "blocks": (False, 64),
+    "epochs": (False, 64),
+    "difficulty": (False, 64),
+    "fixed128": (False, 128),
+    "int": (False, 64),
+    "bool": (False, 1),
+}
+
+_TRUE = frozenset({"true", "1"})
+_FALSE = frozenset({"false", "0"})
+
+
+def codec_of(name: str) -> tuple[bool, int]:
+    """``(signed, bits)`` for the raw on-chain integer of ``name``.
+
+    Precedence: explicit ``Hyperparam.signed``/``bits``, then the storage value
+    type identity, then the kind default.
+    """
+    meta = HYPERPARAMS.get(name)
+    if meta is not None and meta.bits is not None:
+        signed = bool(meta.signed) if meta.signed is not None else False
+        return signed, meta.bits
+    item = STORAGE_ITEMS.get(name)
+    if item is not None:
+        ident = getattr(item, "value_type_ident", "") or ""
+        if ident in _IDENT_CODEC:
+            return _IDENT_CODEC[ident]
+    kind = kind_of(name)
+    return _KIND_CODEC.get(kind, (False, 64))
+
+
+def raw_bounds(name: str) -> tuple[int, int]:
+    """Inclusive ``(minimum, maximum)`` raw integer accepted by :func:`to_raw`."""
+    signed, bits = codec_of(name)
+    if bits <= 1:
+        lo, hi = 0, 1
+    elif signed:
+        lo, hi = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+    else:
+        lo, hi = 0, (1 << bits) - 1
+    meta = HYPERPARAMS.get(name)
+    if meta is not None:
+        if meta.minimum is not None:
+            lo = max(lo, meta.minimum)
+        if meta.maximum is not None:
+            hi = min(hi, meta.maximum)
+    denominator = _FRACTION_DENOMINATOR.get(kind_of(name))
+    if denominator is not None:
+        lo = max(lo, 0)
+        hi = min(hi, denominator)
+    return lo, hi
+
+
+def _check_raw(name: str, raw: int) -> int:
+    lo, hi = raw_bounds(name)
+    if not lo <= raw <= hi:
+        raise ValueError(
+            f"{name} must be within {lo}..{hi} (raw on-chain range); got {raw}"
+        )
+    return raw
 
 
 def to_raw(name: str, value: Union[int, float, str, bool]) -> int:
     """Convert a user-supplied value into the raw on-chain integer.
 
-    Integers pass through as the raw value. Floats (and strings containing a
-    decimal point) are the human form: a 0..1 fraction for normalized kinds, a
-    TAO amount for rao kinds. Booleans and true/false strings work for flags.
+    Integers pass through as the raw value (checked against the parameter's
+    codec and semantic bounds). Floats (and strings containing a decimal point
+    or exponent) are the human form: a 0..1 fraction for normalized kinds, a
+    non-negative TAO amount for rao kinds, a non-negative multiplier for
+    fixed128. Booleans accept only true/false or 0/1.
     """
     kind = kind_of(name)
+    try:
+        return _to_raw_unchecked(name, kind, value)
+    except OverflowError:
+        raise ValueError(f"{name} value is out of range") from None
+
+
+def _to_raw_unchecked(name: str, kind: str, value: Union[int, float, str, bool]) -> int:
     if isinstance(value, bool):
-        value = int(value)
+        if kind != "bool":
+            raise ValueError(f"{name} takes {value_forms(name)}; got a boolean")
+        return int(value)
     if isinstance(value, str):
         text = value.strip().lower().removeprefix("+")
-        if kind == "bool" and text in _TRUE | _FALSE:
-            return int(text in _TRUE)
+        if kind == "bool":
+            if text in _TRUE:
+                return 1
+            if text in _FALSE:
+                return 0
+            raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
         try:
             value = float(text) if ("." in text or "e" in text) else int(text)
         except ValueError:
-            raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
+            raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}") from None
+    if kind == "bool":
+        if isinstance(value, int) and value in (0, 1):
+            return value
+        raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")
     denominator = _FRACTION_DENOMINATOR.get(kind)
     if isinstance(value, int):
-        if value < 0:
-            raise ValueError(f"{name} cannot be negative")
-        # A raw fixed-point fraction can never exceed its denominator (= 1.0);
-        # a larger integer is almost certainly a unit mistake.
-        if denominator is not None and value > denominator:
-            raise ValueError(
-                f"{name} takes {value_forms(name)}; {value} exceeds the raw maximum "
-                f"{denominator} (= 1.0)"
-            )
-        return value
+        return _check_raw(name, value)
     # A float is the human form.
     if denominator is not None:
         if not 0.0 <= value <= 1.0:
@@ -587,11 +713,15 @@ def to_raw(name: str, value: Union[int, float, str, bool]) -> int:
                 f"{name} is a normalized fraction: pass 0..1 (e.g. 0.5), or the "
                 f"raw integer 0..{denominator} without a decimal point"
             )
-        return round(value * denominator)
+        return _check_raw(name, round(value * denominator))
     if kind == "rao":
-        return round(value * RAO_PER_TAO)
+        if value < 0:
+            raise ValueError(f"{name} cannot be negative")
+        return _check_raw(name, round(value * RAO_PER_TAO))
     if kind == "fixed128":
-        return round(value * FIXED128_ONE)
+        if value < 0:
+            raise ValueError(f"{name} cannot be negative")
+        return _check_raw(name, round(value * FIXED128_ONE))
     if value.is_integer():
-        return int(value)
+        return _check_raw(name, int(value))
     raise ValueError(f"{name} takes {value_forms(name)}; got {value!r}")

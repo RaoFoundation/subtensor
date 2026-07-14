@@ -69,9 +69,10 @@ HYPERPARAMETER_NAME_HELP = (
 )
 
 HYPERPARAMETER_VALUE_HELP = (
-    "New value. Give the raw on-chain integer, or the human form as a float or a string "
-    "with a decimal point (a 0..1 fraction for normalized parameters, a TAO amount for "
-    "rao parameters). Boolean parameters take true/false or 0/1."
+    "New value. Give the raw on-chain integer (within the parameter's codec bounds), "
+    "or the human form as a float or a string with a decimal point (a 0..1 fraction for "
+    "normalized parameters, a non-negative TAO amount for rao parameters). Boolean "
+    "parameters take true/false or 0/1 only."
 )
 
 
