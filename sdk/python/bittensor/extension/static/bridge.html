@@ -313,10 +313,26 @@
       document.body.dataset.bridgeState = state;
     }
 
+    function showCopy(headline, detail) {
+      headlineEl.textContent = headline;
+      detailEl.textContent = detail;
+    }
+
+    function showError(headline, detail) {
+      setBridgeState("error");
+      showCopy(headline, detail);
+    }
+
+    function showWaiting() {
+      showCopy("Keep this page open", "Switch back to btcli.");
+    }
+
     function showTransactionResult(success) {
       setBridgeState(success ? "complete" : "failed");
-      headlineEl.textContent = success ? "Transaction complete" : "Transaction failed";
-      detailEl.textContent = success ? "You can close this page." : "Switch back to btcli.";
+      showCopy(
+        success ? "Transaction complete" : "Transaction failed",
+        success ? "You can close this page." : "Switch back to btcli."
+      );
     }
 
     async function ensureExtensions() {
@@ -393,20 +409,28 @@
       ws.onopen = () => {
         ws.send(JSON.stringify({ role: "bridge", session: bridgeSession }));
         setBridgeState("authorizing");
+        showWaiting();
         listAccounts().catch((error) => {
-          setBridgeState("error");
+          showError(
+            "Authorization failed",
+            error.message || String(error)
+          );
         });
       };
       ws.onclose = (event) => {
         if (event.code === 1008) {
-          setBridgeState("error");
+          showError(
+            "Stale session",
+            "This bridge tab is stale — close it and run btcli again so a fresh tab opens."
+          );
           return;
         }
         setBridgeState("connecting");
+        showCopy("Reconnecting", "Bridge disconnected. Reconnecting…");
         setTimeout(connect, 1500);
       };
       ws.onerror = () => {
-        setBridgeState("error");
+        showError("Connection error", "WebSocket error. Check that btcli is still running.");
       };
       ws.onmessage = async (event) => {
         let request;
