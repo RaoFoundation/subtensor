@@ -116,6 +116,7 @@ def chain_error_docs_url(name: str) -> str:
     The docs keep the on-chain CamelCase name in the URL, so no mangling."""
     return f"{DOCS_URL}/errors/chain/{name}"
 
+
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``
 # is the on-chain extrinsic identifier "block_number-index" (index zero-padded
 # to 4 digits), the format both taostats and taomarketcap use. taomarketcap is

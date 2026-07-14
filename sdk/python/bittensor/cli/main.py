@@ -358,9 +358,7 @@ def _chain_error_catalog(out: Output, pallet: Optional[str]) -> None:
             "name": info.name,
             "code": classify_error(info.docs, info.name).value,
             "description": info.docs,
-            "docs_url": (
-                chain_error_docs_url(info.name) if info.name in DESCRIPTIONS else None
-            ),
+            "docs_url": (chain_error_docs_url(info.name) if info.name in DESCRIPTIONS else None),
         }
         for info in ERRORS.values()
         if pallet is None or info.pallet.lower() == pallet.lower()

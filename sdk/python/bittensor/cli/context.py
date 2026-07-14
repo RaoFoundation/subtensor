@@ -477,9 +477,7 @@ class AppContext:
                     await self._attach_multisig_followup(client, intent, result)
                 return result
             finally:
-                if self.uses_extension_signer() and hasattr(
-                    signer, "report_transaction_result"
-                ):
+                if self.uses_extension_signer() and hasattr(signer, "report_transaction_result"):
                     with contextlib.suppress(Exception):
                         await signer.report_transaction_result(
                             bool(result is not None and result.success)
