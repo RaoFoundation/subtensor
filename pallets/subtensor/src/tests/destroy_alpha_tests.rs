@@ -510,7 +510,7 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_finishes_hotkey_past_weight() 
         assert!(!done);
         assert_eq!(
             new_key,
-            Some(TotalHotkeyAlpha::<Test>::hashed_key_for(&first_hot, netuid)),
+            Some(TotalHotkeyAlpha::<Test>::hashed_key_for(first_hot, netuid)),
             "cursor must advance past the hotkey that was finished over budget"
         );
         assert!(
