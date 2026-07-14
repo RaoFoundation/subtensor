@@ -98,17 +98,14 @@ Match each key to the least-trusted machine that needs it:
 3. **Coldkey workstation** — a dedicated, clean machine for coldkey-signed
    operations, ideally holding only a scoped proxy key rather than the real
    coldkey.
-4. **Primary coldkey in a hardware wallet** — Ledger works through
-   Talisman, Nova Wallet, or SubWallet; Polkadot Vault turns a permanently
-   offline phone into an air-gapped signer that can sign any extrinsic via QR
-   codes (Ledger apps cover a narrower operation set).
+4. **Primary coldkey on a hardware or air-gapped signer** — a
+   [Ledger](/docs/guides/ledger) can sign CLI and SDK transactions through the
+   Polkadot generic app; Polkadot Vault signs by QR code from a permanently
+   offline phone.
 
-This CLI and SDK cannot sign with hardware wallets. That is what the proxy
-pattern is for: the hardware-held primary coldkey creates a single delayed
-`NonTransfer` [proxy](/docs/concepts/advanced), and that proxy creates and
-revokes narrower scoped proxies (`Staking`, `Registration`, ...) for daily
-work. Only two operations ever strictly require the primary coldkey: the first
-add-proxy, and coldkey rotation.
+Keep the hardware-held key for recovery and high-impact operations. Use it to
+create a delayed `NonTransfer` [proxy](/docs/concepts/advanced), which can create
+and revoke narrower proxies (`Staking`, `Registration`, ...) for routine work.
 
 ### Supply-chain risk
 
@@ -189,10 +186,14 @@ swap is a two-step, delayed process:
    window the wallet is locked — no transfers or staking; the coldkey can only
    execute or dispute.
 2. [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) executes after
-   the delay, moving everything — balance, stake, conviction locks (including
-   accrued conviction), hotkeys, registrations, and subnet ownership — to the
-   destination. The destination must be an unused coldkey with no existing
-   stake, registrations, child hotkeys, or active locked mass.
+   the delay, moving the coldkey's Subtensor-managed state — transferable TAO,
+   stake, conviction locks (including accrued conviction), hotkeys,
+   registrations, and subnet ownership — to the destination. Proxy grants and
+   reserved balances do not move. Before announcing, remove proxies whose
+   deposits you need to recover and leave enough transferable TAO to recreate
+   the proxies you still need. Use a verified destination that is not a hotkey
+   and has no stake or active locked mass; recreate required proxies after the
+   swap.
 
 Check a pending announcement with the
 [`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) read. An

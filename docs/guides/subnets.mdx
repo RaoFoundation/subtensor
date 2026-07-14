@@ -50,16 +50,18 @@ keep that authority in a single coldkey on an operational machine.
 address as the owner from registration and separate high-impact control from
 routine operations:
 
-1. Make the owner a [**multisig**](/docs/concepts/advanced#multisig) whose
-   signatory keys are stored separately (ideally on hardware or air-gapped
-   signers). This is the recovery and high-impact control layer.
+1. Make the owner a [**multisig**](/docs/concepts/advanced#multisig) and keep
+   its signatory keys on separate devices and in separate locations. A
+   [Ledger](/docs/guides/ledger) can keep a signatory key off the computer while
+   displaying each approval on-device; keep an independent seed backup for every
+   signer. This is the recovery and high-impact control layer.
 2. From the multisig, grant a dedicated operations key the narrow **Owner**
    [proxy type](/docs/concepts/advanced#proxy-types). It can manage subnet
    identity and owner-settable hyperparameters, but cannot transfer funds or
    rotate the owner.
-3. Use the proxy for routine changes and the multisig only to replace or revoke
-   that proxy. Add an announcement delay when the operational cadence permits,
-   and monitor announcements more frequently than the delay.
+3. Use the proxy for routine changes. Use the multisig to manage the proxy, veto
+   delayed calls, and perform actions outside the **Owner** scope. If you add an
+   announcement delay, monitor announcements more frequently than the delay.
 
 For a new crowd-funded subnet, a
 [crowdloan lease](#financing-leases-and-crowdloans) provides a different secure
@@ -76,15 +78,14 @@ matches what you intend:
 | --- | --- | --- |
 | [`transfer`](/docs/tx/transfer) | Transferable TAO only | None; stake, locks, conviction, and subnet ownership remain on the source coldkey. |
 | [`transfer-stake`](/docs/tx/transfer-stake) | A stake position to another coldkey | If the transfer reaches locked stake, the corresponding locked mass and conviction move proportionally; a conflicting destination lock rejects the call. It does not transfer subnet ownership. |
-| [Announced coldkey swap](/docs/tx/announce-coldkey-swap) | The complete coldkey state, including balance, stake, hotkeys, registrations, and subnet ownership | Locks and accrued conviction are preserved under the destination coldkey. Use this to migrate an existing owner to a multisig. |
+| [Announced coldkey swap](/docs/tx/announce-coldkey-swap) | Subtensor-managed coldkey state, including subnet ownership; see [what moves](/docs/concepts/wallets#key-rotation-and-recovery). | Locks and accrued conviction are preserved. Use this to migrate an existing owner to a multisig. |
 
-Before a coldkey swap, derive and verify the multisig address from the complete
-signatory set and threshold. The destination must be a clean account: in
-particular, it cannot already have stake, hotkey associations, or active locked
-mass. The swap is delayed and irreversible; after it executes, all owner actions
-must originate from the multisig (normally through its `Owner` proxy). See
+Before the swap, derive and verify the multisig address, remove old proxy grants,
+and ensure the destination is not a hotkey and has no stake or active locks. The
+source is frozen during the delay. After execution, verify the migrated state and
+use the multisig to recreate the **Owner** proxy. See
 [Wallet key rotation](/docs/concepts/wallets#key-rotation-and-recovery) for the
-full safety procedure.
+full procedure and balance requirements.
 
 ## Activate
 
