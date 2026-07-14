@@ -17,8 +17,8 @@ use crate::{PrecompileExt, PrecompileHandleExt};
 /// signed runtime call on behalf of the EVM caller (its mapped Substrate account),
 /// so the caller pays the underlying extrinsic weight and is subject to the same
 /// authorization rules (e.g. the caller coldkey must own the addressed hotkey).
-/// All methods are `payable` so attached EVM value is forwarded as the dispatch
-/// origin's deposit.
+/// All methods are marked `payable` so calls carrying EVM value do not revert,
+/// but none of these methods consume the attached value.
 pub struct NeuronPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for NeuronPrecompile<R>
@@ -80,8 +80,8 @@ where
     /// * `netuid` - The subnet identifier (uint16)
     /// * `dests` - Destination UIDs the weights apply to (uint16[])
     /// * `weights` - Weight values, one per destination UID (uint16[])
-    /// * `version_key` - Neuron version key; rejected if it does not match the
-    ///   neuron's current version (uint64)
+    /// * `version_key` - Weights version key; rejected if it is lower than the
+    ///   subnet's configured weights version key (uint64)
     ///
     /// # Returns
     /// * `()` on success, or an EVM error reverts the call
@@ -183,8 +183,9 @@ where
     ///
     /// Dispatches `burned_register`. The EVM caller is used as the owning coldkey;
     /// `hotkey` is the neuron hotkey to register. The subnet's current registration
-    /// burn is charged to the caller; on success the hotkey is assigned the next UID
-    /// on the subnet and the coldkey becomes its owner.
+    /// burn is charged to the caller; on success the hotkey is assigned a UID on
+    /// the subnet (pruning the lowest-scoring neuron if the subnet is full) and the
+    /// coldkey becomes its owner.
     ///
     /// # Arguments
     /// * `netuid` - The subnet identifier (uint16)
@@ -192,7 +193,7 @@ where
     ///
     /// # Returns
     /// * `()` on success, or an EVM error reverts the call (e.g. insufficient
-    ///   balance to cover the burn, registration disabled, or subnet full)
+    ///   balance to cover the burn, registration disabled, or no UID available)
     #[precompile::public("burnedRegister(uint16,bytes32)")]
     #[precompile::payable]
     fn burned_register(
