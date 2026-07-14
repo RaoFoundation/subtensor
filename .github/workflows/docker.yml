@@ -1,13 +1,16 @@
 name: Publish Docker Image
 
-# Node images publish on runtime releases and on demand. Releases cut by
-# watch-mainnet-release.yml use the default GITHUB_TOKEN, which never emits
-# `release: published`; the watcher therefore dispatches this workflow
-# directly with the release tag. Release-version tags (vN) move :latest.
+# Node images publish when a network mirror moves, on runtime releases, and on
+# demand. Releases cut by watch-mainnet-release.yml use the default
+# GITHUB_TOKEN, which never emits `release: published`; the watcher therefore
+# dispatches this workflow directly with the release tag. Release-version tags
+# (vN) move :latest; network mirror tags do not.
 
 on:
   release:
     types: [published]
+  push:
+    branches: [devnet, testnet]
   workflow_dispatch:
     inputs:
       tag:
@@ -31,7 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          # Push/release events carry the immutable promoted commit. Manual
+          # dispatches may override it with a branch or tag.
+          ref: ${{ github.event.inputs.tag || github.sha }}
 
       - name: Resolve immutable source revision
         id: ref
@@ -116,18 +121,15 @@ jobs:
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
-      - name: Determine tag, ref, and image name
+      - name: Determine tag and image name
         env:
           INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          ref="$INPUT_TAG"
-          # `ref` is what we check out (a real branch/tag, may contain '/').
           # Docker tags cannot contain '/', so derive the tag by replacing any
           # disallowed characters — otherwise a ref like `feat/x` fails tag
           # validation at push time.
-          tag="${ref//[^a-zA-Z0-9._-]/-}"
+          tag="${INPUT_TAG//[^a-zA-Z0-9._-]/-}"
           echo "tag=$tag" >> $GITHUB_ENV
-          echo "ref=$ref" >> $GITHUB_ENV
           # Move :latest for release events and for dispatched release-version
           # tags (the watcher dispatches with tag=vN because its GITHUB_TOKEN
           # release cannot fire the `release` trigger).
