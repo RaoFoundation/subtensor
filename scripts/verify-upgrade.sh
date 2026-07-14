@@ -87,10 +87,15 @@ release_sha=$(shasum -a 256 "$work/release.wasm" | cut -d' ' -f1)
 ok "release wasm matches manifest sha256"
 
 # ----------------------------------------------------------------- source ---
-git fetch --quiet origin "refs/tags/${tag}:refs/tags/${tag}" 2>/dev/null \
-  || note "could not fetch tag ${tag}; assuming the proposal commit is already local"
-git cat-file -e "${commit}^{commit}" 2>/dev/null \
-  || die "proposal commit $commit not found after fetching origin — do not sign"
+git fetch --quiet --force origin "refs/tags/${tag}:refs/tags/${tag}" \
+  || die "could not fetch tag ${tag} from origin — do not sign"
+tag_commit=$(git rev-parse "refs/tags/${tag}^{commit}" 2>/dev/null) \
+  || die "tag ${tag} does not resolve to a commit — do not sign"
+# Bind the tag to the manifest: without this, a manifest could point the
+# build at any commit in the repository and still get a green verdict.
+[ "$tag_commit" = "$commit" ] \
+  || die "tag ${tag} points at $tag_commit but the manifest claims $commit — do not sign"
+ok "tag ${tag} resolves to the manifest commit"
 
 # Build from a pristine clone of the proposal commit, never the working
 # tree: local modifications, untracked files, and ignored inputs such as a
