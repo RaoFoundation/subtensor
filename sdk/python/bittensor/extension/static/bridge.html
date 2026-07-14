@@ -14,69 +14,327 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bittensor Extension Bridge</title>
   <style>
-    body {
-      font-family: system-ui, sans-serif;
-      margin: 2rem auto;
-      max-width: 42rem;
-      line-height: 1.5;
-      color: #111;
+    :root {
+      color-scheme: dark;
+      --ink: #0e1013;
+      --paper: #f8f9fa;
+      --muted: #9ba1aa;
+      --line: #34383f;
+      --rose: #d15168;
+      --cyan: #68d7ee;
+      --mint: #83e6bd;
     }
-    code { background: #f4f4f5; padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
-    .ok { color: #166534; }
-    .warn { color: #92400e; }
-    .err { color: #991b1b; }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      overflow: hidden;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(17rem, 34rem) minmax(16rem, 30rem);
+      align-items: center;
+      justify-content: center;
+      gap: clamp(2rem, 8vw, 8rem);
+      min-height: 100vh;
+      padding: clamp(2rem, 6vw, 6rem);
+      position: relative;
+      isolation: isolate;
+    }
+
+    .shell::before,
+    .shell::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      background: var(--line);
+      opacity: 0.34;
+    }
+
+    .shell::before {
+      width: 1px;
+      height: 100vh;
+      left: 11vw;
+      top: 0;
+    }
+
+    .shell::after {
+      width: 100vw;
+      height: 1px;
+      left: 0;
+      bottom: 13vh;
+    }
+
+    .visual {
+      aspect-ratio: 1;
+      position: relative;
+      width: min(100%, 34rem);
+    }
+
+    .ring {
+      position: absolute;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      inset: 12%;
+    }
+
+    .ring:nth-child(2) {
+      inset: 25%;
+      border-color: var(--rose);
+      opacity: 0.45;
+    }
+
+    .axis {
+      position: absolute;
+      background: var(--line);
+    }
+
+    .axis-x {
+      width: 76%;
+      height: 1px;
+      left: 12%;
+      top: 50%;
+    }
+
+    .axis-y {
+      width: 1px;
+      height: 76%;
+      left: 50%;
+      top: 12%;
+    }
+
+    .terminal {
+      position: absolute;
+      inset: 31% 18%;
+      border: 1px solid #454a52;
+      background: #16191e;
+      box-shadow: 14px 14px 0 #08090b;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      height: 2.3rem;
+      padding: 0 0.8rem;
+      border-bottom: 1px solid #454a52;
+    }
+
+    .terminal-bar span {
+      width: 0.48rem;
+      height: 0.48rem;
+      border-radius: 50%;
+      background: #454a52;
+    }
+
+    .terminal-bar span:first-child {
+      background: var(--rose);
+    }
+
+    .terminal-lines {
+      display: grid;
+      gap: 0.72rem;
+      padding: 1.4rem;
+    }
+
+    .terminal-lines span {
+      display: block;
+      height: 0.42rem;
+      background: #3a3f47;
+    }
+
+    .terminal-lines span:nth-child(1) {
+      width: 48%;
+      background: var(--mint);
+    }
+
+    .terminal-lines span:nth-child(2) {
+      width: 79%;
+    }
+
+    .terminal-lines span:nth-child(3) {
+      width: 61%;
+      background: var(--cyan);
+    }
+
+    .node {
+      position: absolute;
+      width: 0.8rem;
+      height: 0.8rem;
+      border: 2px solid var(--ink);
+      border-radius: 50%;
+      background: var(--rose);
+      box-shadow: 0 0 0 1px var(--rose);
+    }
+
+    .node-a { left: 10%; top: 48.5%; }
+    .node-b { right: 10%; top: 48.5%; background: var(--cyan); box-shadow: 0 0 0 1px var(--cyan); }
+    .node-c { left: 48.5%; top: 10%; background: var(--mint); box-shadow: 0 0 0 1px var(--mint); }
+    .node-d { left: 48.5%; bottom: 10%; }
+
+    .pulse {
+      position: absolute;
+      width: 0.55rem;
+      height: 0.55rem;
+      left: calc(50% - 0.275rem);
+      top: calc(50% - 0.275rem);
+      border-radius: 50%;
+      background: var(--rose);
+      animation: pulse 2.4s ease-out infinite;
+    }
+
+    .copy {
+      max-width: 28rem;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 9ch;
+      font-size: clamp(3rem, 7vw, 6.5rem);
+      font-weight: 560;
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 1.7rem 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.6vw, 1.25rem);
+      letter-spacing: 0;
+    }
+
+    body[data-bridge-state="ready"] .pulse {
+      background: var(--mint);
+    }
+
+    body[data-bridge-state="complete"] .pulse {
+      background: var(--mint);
+      animation: none;
+      box-shadow: 0 0 0 0.75rem rgba(131, 230, 189, 0.16);
+    }
+
+    body[data-bridge-state="complete"] .terminal {
+      border-color: var(--mint);
+    }
+
+    body[data-bridge-state="error"] .pulse,
+    body[data-bridge-state="failed"] .pulse {
+      background: var(--rose);
+      animation-duration: 0.8s;
+    }
+
+    body[data-bridge-state="failed"] .terminal {
+      border-color: var(--rose);
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(209, 81, 104, 0.56); }
+      70%, 100% { box-shadow: 0 0 0 2.2rem rgba(209, 81, 104, 0); }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(14rem, 52vh) auto;
+        align-content: center;
+        gap: 1.5rem;
+        padding: 1.5rem 2rem 3rem;
+      }
+
+      .visual {
+        width: min(78vw, 25rem);
+        justify-self: center;
+      }
+
+      .copy {
+        justify-self: center;
+        width: min(78vw, 25rem);
+      }
+
+      h1 {
+        font-size: clamp(2.8rem, 13vw, 5rem);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pulse {
+        animation: none;
+        box-shadow: 0 0 0 0.75rem rgba(209, 81, 104, 0.16);
+      }
+    }
   </style>
 </head>
-<body>
-  <h1>Bittensor Extension Bridge</h1>
-  <p id="status" class="warn">Starting…</p>
-  <p>
-    Keep this tab open while using <code>btcli --signer extension</code>.
-    Authorize Talisman, Polkadot.js, or another compatible wallet when prompted.
-  </p>
-  <ul id="accounts"></ul>
+<body data-bridge-state="connecting">
+  <main class="shell">
+    <div class="visual" aria-hidden="true">
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="axis axis-x"></div>
+      <div class="axis axis-y"></div>
+      <div class="terminal">
+        <div class="terminal-bar"><span></span><span></span><span></span></div>
+        <div class="terminal-lines"><span></span><span></span><span></span></div>
+      </div>
+      <div class="node node-a"></div>
+      <div class="node node-b"></div>
+      <div class="node node-c"></div>
+      <div class="node node-d"></div>
+      <div class="pulse"></div>
+    </div>
+    <div class="copy">
+      <h1 id="headline">Keep this page open</h1>
+      <p id="detail">Switch back to btcli.</p>
+    </div>
+  </main>
   <script type="module">
     import { web3Accounts, web3Enable, web3FromAddress } from "https://esm.sh/@polkadot/extension-dapp@0.46.9";
 
     const APP_NAME = "Bittensor SDK";
-    const statusEl = document.getElementById("status");
-    const accountsEl = document.getElementById("accounts");
+    const headlineEl = document.getElementById("headline");
+    const detailEl = document.getElementById("detail");
     const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
     const bridgeSession = new URLSearchParams(location.search).get("session") || "";
     let ws;
     let extensionsEnabled = false;
 
-    function setStatus(text, cls = "warn") {
-      statusEl.textContent = text;
-      statusEl.className = cls;
+    function setBridgeState(state) {
+      document.body.dataset.bridgeState = state;
     }
 
-    function renderAccounts(accounts) {
-      accountsEl.replaceChildren();
-      for (const account of accounts) {
-        const item = document.createElement("li");
-        item.textContent = `${account.meta?.name || account.address} (${account.meta?.source || "unknown"}) — ${account.address}`;
-        accountsEl.appendChild(item);
-      }
+    function showTransactionResult(success) {
+      setBridgeState(success ? "complete" : "failed");
+      headlineEl.textContent = success ? "Transaction complete" : "Transaction failed";
+      detailEl.textContent = success ? "You can close this page." : "Switch back to btcli.";
     }
 
     async function ensureExtensions() {
       if (extensionsEnabled) {
         return;
       }
-      setStatus("Approve “Bittensor SDK” in your extension popup…", "warn");
+      setBridgeState("authorizing");
       const extensions = await web3Enable(APP_NAME);
       if (!extensions.length) {
         throw new Error("No compatible wallet extension found. Install Talisman or Polkadot.js in this browser.");
       }
       extensionsEnabled = true;
-      setStatus(`Connected to ${extensions.map((ext) => ext.name).join(", ")}`, "ok");
+      setBridgeState("ready");
     }
 
     async function listAccounts() {
       await ensureExtensions();
       const accounts = await web3Accounts();
-      renderAccounts(accounts);
       return accounts.map((account) => ({
         address: account.address,
         name: account.meta?.name || account.address,
@@ -122,6 +380,9 @@
           return await signExtrinsic(request.params || {});
         case "bytes.sign":
           return await signBytes(request.params || {});
+        case "transaction.result":
+          showTransactionResult(request.params?.success === true);
+          return { acknowledged: true };
         default:
           throw new Error(`unsupported method ${request.method}`);
       }
@@ -131,24 +392,21 @@
       ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         ws.send(JSON.stringify({ role: "bridge", session: bridgeSession }));
-        setStatus("Bridge connected. Waiting for extension authorization…", "warn");
+        setBridgeState("authorizing");
         listAccounts().catch((error) => {
-          setStatus(error.message, "err");
+          setBridgeState("error");
         });
       };
       ws.onclose = (event) => {
         if (event.code === 1008) {
-          setStatus(
-            "This bridge tab is stale — close it and run btcli again so a fresh tab opens.",
-            "err"
-          );
+          setBridgeState("error");
           return;
         }
-        setStatus("Bridge disconnected. Reconnecting…", "warn");
+        setBridgeState("connecting");
         setTimeout(connect, 1500);
       };
       ws.onerror = () => {
-        setStatus("WebSocket error", "err");
+        setBridgeState("error");
       };
       ws.onmessage = async (event) => {
         let request;
