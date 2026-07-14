@@ -35,7 +35,7 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Install cargo-audit
-        run: cargo install --force cargo-audit
+        run: cargo install --force --locked cargo-audit
 
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping
