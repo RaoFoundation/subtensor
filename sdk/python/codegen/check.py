@@ -112,7 +112,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "burn_alpha",
         "recycle_alpha",
         "remove_stake_full_limit",
-        "swap_stake_limit",
         "register_limit",
         # identity / metadata / misc (set_identity / set_subnet_identity /
         # update_symbol are wrapped)

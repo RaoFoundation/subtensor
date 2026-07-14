@@ -8,17 +8,21 @@ description: "Stake TAO from the coldkey onto a hotkey."
 Swaps TAO from the coldkey's free balance into the subnet's alpha at the
 current pool price and credits the result to your stake on the hotkey; on
 netuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,
-so large amounts incur slippage — use `add_stake_limit` to bound the
-price. The position's value then follows the pool price and the validator's
-performance, and can be exited later with `remove_stake`. Fails if the
-coldkey's free balance cannot cover the amount plus the transaction fee,
-and with `AmountTooLow` when the amount is below the chain minimum of
-0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap
-larger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).
+so large amounts incur slippage. By default the call is slippage-protected:
+it fails (`SlippageTooHigh`) instead of filling once the price rises more
+than `rate_tolerance` (5%) above the price at submission — raise the
+tolerance or set `slippage_protection` to False to execute at any price,
+or use `add_stake_limit` to set an explicit limit price. The position's
+value then follows the pool price and the validator's performance, and can
+be exited later with `remove_stake`. Fails if the coldkey's free balance
+cannot cover the amount plus the transaction fee, and with `AmountTooLow`
+when the amount is below the chain minimum of 0.002 TAO plus the swap fee.
+Dynamic subnets also reject a single swap larger than 1000x the pool's TAO
+reserve (`InsufficientLiquidity`).
 
 | Signer | Pallet | Wraps |
 | --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.add_stake` |
+| `coldkey` | SubtensorModule | `SubtensorModule.add_stake`, `SubtensorModule.add_stake_limit` |
 
 ## Parameters
 
@@ -27,6 +31,8 @@ larger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).
 | `hotkey_ss58` | string | yes | Hotkey the stake is added to (the validator you are backing). |
 | `netuid` | integer | yes | Subnet the stake lives on (netuid 0 is the root network). |
 | `amount_tao` | number \| `"all"` | yes | How much of the coldkey's free balance to stake. |
+| `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
+| `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
