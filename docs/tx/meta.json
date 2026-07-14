@@ -5,7 +5,6 @@
     "---AdminUtils---",
     "set-hyperparameter",
     "set-mechanism-count",
-    "set-mechanism-emission-split",
     "trim-subnet",
     "---Balances---",
     "fund-evm-key",

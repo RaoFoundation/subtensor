@@ -323,7 +323,7 @@ mg.neuron(5), mg.by_hotkey("5F...")
 | `bt.Metagraph(netuid, network=...)` | always fetched through a client |
 
 The metagraph record returned by the `metagraph` read (`client.read("metagraph", netuid=...)`,
-`btcli query metagraph --json`) carries `name` and `symbol` decoded to text; on
+`btcli query metagraph --netuid N --json`) carries `name` and `symbol` decoded to text; on
 the wire they are compact-u16 vectors of utf-8 bytes, unlike every other text
 field on the record. If you need the undecoded wire record, call the runtime
 API directly:
@@ -682,7 +682,7 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `liquidity add/list/modify/remove` | **removed** (chain feature retired) |
 | `view dashboard` | **removed** |
 | `utils convert` / `latency` | same names |
-| `deriv quote/positions/market/open/topup/close` | same names |
+| `deriv quote/positions/market/open/topup/close` | **removed** — chain feature not available on current runtime |
 | any other chain read | `btcli query <name>` — `btcli query --help` lists all of them |
 | any other mutation | `btcli tx <name>` — `btcli tx --help`, or `btcli call Pallet.function --args '{...}'` for raw extrinsics |
 

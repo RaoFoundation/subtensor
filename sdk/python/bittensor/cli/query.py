@@ -130,11 +130,16 @@ def _make_command(name: str, spec):
         else:
             option_default = ...
         annotations[pname] = Optional[base_type] if wallet_defaulted else base_type
+        # Bool options get a negated twin (--flag/--no-flag) so default-True
+        # fields (e.g. lite) can be turned off — same pattern as `tx.py`.
+        flag_name = (
+            f"{cli_name}/--no-{cli_name[2:]}" if ptype == "boolean" else cli_name
+        )
         params.append(
             inspect.Parameter(
                 pname,
                 inspect.Parameter.KEYWORD_ONLY,
-                default=typer.Option(option_default, cli_name, help=help_text),
+                default=typer.Option(option_default, flag_name, help=help_text),
                 annotation=annotations[pname],
             )
         )

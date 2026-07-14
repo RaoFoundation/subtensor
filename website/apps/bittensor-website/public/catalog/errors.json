@@ -241,7 +241,7 @@
     },
     "CannotAffordLockCost": {
       "code": "insufficient_balance",
-      "description": "The coldkey's free balance cannot cover the current dynamic subnet-creation lock cost. Compare `btcli subnets lock-cost` (or `get_network_lock_cost`) against the coldkey balance from `btcli wallet balance` before registering a subnet.",
+      "description": "The coldkey's free balance cannot cover the current dynamic subnet-creation lock cost. Compare `btcli subnets create-cost` (or `btcli query subnet-registration-cost`) against the coldkey balance from `btcli wallet balance` before registering a subnet.",
       "docs_url": "/docs/errors/chain/CannotAffordLockCost"
     },
     "CannotBurnOrRecycleOnRootSubnet": {
@@ -361,7 +361,7 @@
     },
     "CommitRevealDisabled": {
       "code": "disabled",
-      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get`); use plain `set_weights` instead when it is disabled.",
+      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
       "docs_url": "/docs/errors/chain/CommitRevealDisabled"
     },
     "CommitRevealEnabled": {
@@ -626,12 +626,12 @@
     },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
-      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli subnets show --netuid <n>` and register via `btcli subnets register` first.",
+      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli query uid --netuid <n>` (or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInNetwork"
     },
     "HotKeyNotRegisteredInSubNet": {
       "code": "not_registered",
-      "description": "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID lookups fail there. Check the `Uids` storage for the (netuid, hotkey) pair or `btcli subnets show --netuid <n>`; confirm the netuid argument and register the hotkey if needed.",
+      "description": "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID lookups fail there. Check the `Uids` storage for the (netuid, hotkey) pair or `btcli query uid --netuid <n>`; confirm the netuid argument and register the hotkey if needed.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInSubNet"
     },
     "HotKeySetTxRateLimitExceeded": {
@@ -656,7 +656,7 @@
     },
     "IncorrectWeightVersionKey": {
       "code": "invalid_argument",
-      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli subnets hyperparameters`) and update the validator software or the key.",
+      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli sudo get --netuid <n>`) and update the validator software or the key.",
       "docs_url": "/docs/errors/chain/IncorrectWeightVersionKey"
     },
     "Indeterministic": {
@@ -911,7 +911,7 @@
     },
     "LiquidAlphaDisabled": {
       "code": "disabled",
-      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli subnets hyperparameters`) and have the subnet owner enable liquid alpha first.",
+      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli sudo get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
       "docs_url": "/docs/errors/chain/LiquidAlphaDisabled"
     },
     "LiquidityRestrictions": {
@@ -971,7 +971,7 @@
     },
     "MaxWeightExceeded": {
       "code": "limit_exceeded",
-      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli subnets hyperparameters`) and flatten the weight vector before setting.",
+      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli sudo get --netuid <n>`) and flatten the weight vector before setting.",
       "docs_url": "/docs/errors/chain/MaxWeightExceeded"
     },
     "MaxWeightTooLow": {
@@ -1241,7 +1241,7 @@
     },
     "NotSubnetOwner": {
       "code": "not_authorized",
-      "description": "The signing coldkey is not the recorded owner of the subnet it tried to administer (e.g. setting subnet identity or owner-only hyperparameters). Compare the caller against `SubnetOwner` for that netuid (`btcli subnets show`).",
+      "description": "The signing coldkey is not the recorded owner of the subnet it tried to administer (e.g. setting subnet identity or owner-only hyperparameters). Compare the caller against the `SubnetOwner` storage entry for that netuid.",
       "docs_url": "/docs/errors/chain/NotSubnetOwner"
     },
     "NothingAuthorized": {
@@ -1481,7 +1481,7 @@
     },
     "StakeTooLowForRoot": {
       "code": "insufficient_balance",
-      "description": "`root_register` when the root network is full and the hotkey's stake on netuid 0 does not exceed the lowest-staked current root member. Compare your hotkey's root stake against existing root validators (`btcli root list`).",
+      "description": "`root_register` when the root network is full and the hotkey's stake on netuid 0 does not exceed the lowest-staked current root member. Compare your hotkey's root stake against existing root validators (`btcli subnets metagraph 0` or `btcli query neurons --netuid 0`).",
       "docs_url": "/docs/errors/chain/StakeTooLowForRoot"
     },
     "StakeUnavailable": {

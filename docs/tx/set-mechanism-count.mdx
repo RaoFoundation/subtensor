@@ -11,9 +11,8 @@ the subnet runs. The count must be greater than zero, and the chain caps
 how many mechanisms a subnet may have. Increasing the count opens new
 mechanisms; decreasing it removes the highest-numbered ones and the
 miner state in them. Any change to the count clears the emission split
-back to an even division — reapply `set_mechanism_emission_split`
-afterwards if you want an uneven split. Rate-limited and blocked during
-the end-of-epoch admin freeze window.
+back to an even division. Rate-limited and blocked during the
+end-of-epoch admin freeze window.
 
 | Signer | Pallet | Wraps |
 | --- | --- | --- |

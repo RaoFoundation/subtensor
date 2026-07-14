@@ -108,7 +108,7 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "many calls (serving an axon, setting weights, some stake operations) require the "
         "hotkey to hold a UID on the target subnet. register it first with "
         "`btcli subnets register --netuid N`, or check where it is registered with "
-        "`btcli view` commands."
+        "`btcli query netuids-for-hotkey` / `btcli query uid --netuid N`."
     ),
     ErrorCode.NOT_AUTHORIZED: (
         "the signing key is not allowed to perform this call: the coldkey is not "
@@ -316,7 +316,8 @@ class ChainError(BittensorError):
     @property
     def description(self) -> Optional[str]:
         """What triggered this exact chain error and where to check, from the
-        per-name table in :mod:`bittensor.error_descriptions`. ``None`` when the
+        per-name table in :mod:`bittensor.error_descriptions` (split by pallet).
+        ``None`` when the
         failure carried no module error name (e.g. a pool rejection)."""
         return _DESCRIPTIONS.get(self.name) if self.name else None
 

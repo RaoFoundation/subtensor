@@ -94,15 +94,27 @@ async def commit_reveal_enabled(view, netuid: int) -> bool:
     return bool(value)
 
 
+# I32F32 has 32 fractional bits. The hyperparams RPC returns
+# ``alpha_sigmoid_steepness`` as I32F32(saturating_from_num(i16)), but storage
+# and ``sudo_set_alpha_sigmoid_steepness`` take the plain i16 — so peel the
+# scale at the read boundary so display / copy-paste match the setter.
+_I32F32_ONE = 2**32
+
+
 def _hyperparam_value(tagged: dict) -> object:
     """Flatten one v3 ``{type_tag: payload}`` value to its raw payload.
 
-    Fixed-point newtypes (U64F64/I32F32) decode as ``{'bits': raw}``; the raw
-    bits are the value `sudo set` writes and `hyperparams.annotate` reads.
+    U64F64 decodes as ``{'bits': raw}``; those bits are what ``sudo set``
+    writes for ``burn_increase_mult``. I32F32 is only used for
+    ``alpha_sigmoid_steepness``, whose setter takes the integer part of the
+    fixed-point value (bits / 2^32), not the raw bits.
     """
-    ((_tag, payload),) = tagged.items()
+    ((tag, payload),) = tagged.items()
     if isinstance(payload, dict) and set(payload) == {"bits"}:
-        return payload["bits"]
+        bits = payload["bits"]
+        if tag == "I32F32":
+            return int(bits) // _I32F32_ONE
+        return bits
     return payload
 
 

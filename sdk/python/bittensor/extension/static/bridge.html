@@ -324,7 +324,20 @@
     }
 
     function showWaiting() {
+      setBridgeState("ready");
       showCopy("Keep this page open", "Switch back to btcli.");
+    }
+
+    function showSigning() {
+      setBridgeState("authorizing");
+      showCopy("Approve in your wallet", "Confirm or reject the signature request.");
+    }
+
+    function showSignError(error) {
+      showError(
+        "Signing failed",
+        error?.message || String(error) || "Switch back to btcli for details."
+      );
     }
 
     function showTransactionResult(success) {
@@ -368,9 +381,12 @@
       if (!payload?.address) {
         throw new Error("missing payload.address");
       }
+      showSigning();
       await ensureExtensions();
       const injector = await web3FromAddress(payload.address);
-      return injector.signer.signPayload(payload);
+      const signature = await injector.signer.signPayload(payload);
+      showWaiting();
+      return signature;
     }
 
     async function signBytes(params) {
@@ -379,13 +395,16 @@
       if (!address || !data) {
         throw new Error("missing address or data");
       }
+      showSigning();
       await ensureExtensions();
       const injector = await web3FromAddress(address);
-      return injector.signer.signRaw({
+      const signature = await injector.signer.signRaw({
         address,
         data,
         type: params?.type || "bytes",
       });
+      showWaiting();
+      return signature;
     }
 
     async function handleRequest(request) {
@@ -446,6 +465,13 @@
           const result = await handleRequest(request);
           ws.send(JSON.stringify({ id: request.id, result }));
         } catch (error) {
+          // Always return the error to btcli; also surface sign/account failures
+          // on this page so a wallet rejection doesn't leave "Keep this page open".
+          if (request.method === "extrinsic.sign" || request.method === "bytes.sign") {
+            showSignError(error);
+          } else if (request.method === "accounts.list") {
+            showError("Authorization failed", error.message || String(error));
+          }
           ws.send(JSON.stringify({ id: request.id, error: { message: error.message || String(error) } }));
         }
       };

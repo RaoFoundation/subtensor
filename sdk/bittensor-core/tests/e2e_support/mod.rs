@@ -824,16 +824,6 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
             record([("netuid", u(netuid)), ("mechanism_count", u16v(2))]),
         )
         .touches([netuid]),
-        "set_mechanism_emission_split" => make(
-            SignerRole::Coldkey,
-            "AdminUtils",
-            "sudo_set_mechanism_emission_split",
-            record([
-                ("netuid", u(netuid)),
-                ("maybe_split", list([u16v(32_768), u16v(32_767)])),
-            ]),
-        )
-        .touches([netuid]),
         "set_perpetual_lock" => make(
             SignerRole::Coldkey,
             "SubtensorModule",

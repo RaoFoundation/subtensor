@@ -362,11 +362,10 @@ class TestStakingMoneyUnits:
 
 
 class TestProportionInputs:
-    """Normalized-proportion ergonomics on takes, child proportions, and the
-    mechanism emission split: a value with a decimal point is the human 0..1
-    form (converted to the raw fixed-point integer at construction), a plain
-    integer is the raw wire value (bound-checked), matching the hyperparameter
-    value rules."""
+    """Normalized-proportion ergonomics on takes and child proportions: a
+    value with a decimal point is the human 0..1 form (converted to the raw
+    fixed-point integer at construction), a plain integer is the raw wire
+    value (bound-checked), matching the hyperparameter value rules."""
 
     U16_MAX = 65535
     U64_MAX = 2**64 - 1
@@ -403,22 +402,6 @@ class TestProportionInputs:
         encoded = intent.to_dict()
         rebuilt = build("set_children", {k: v for k, v in encoded.items() if k != "op"})
         assert rebuilt.to_dict() == encoded
-
-    def test_split_normalizes_relative_floats(self):
-        intent = build("set_mechanism_emission_split", {"netuid": 1, "split": [0.5, 0.5]})
-        assert sum(intent.split) == self.U16_MAX
-        assert abs(intent.split[0] - intent.split[1]) <= 1
-
-    def test_split_normalizes_uneven_weights(self):
-        intent = build("set_mechanism_emission_split", {"netuid": 1, "split": [3.0, 1.0]})
-        assert sum(intent.split) == self.U16_MAX
-        assert intent.split[0] == round(3 / 4 * self.U16_MAX)
-
-    def test_split_raw_ints_must_sum_exactly(self):
-        exact = build("set_mechanism_emission_split", {"netuid": 1, "split": [32768, 32767]})
-        assert exact.split == [32768, 32767]
-        with pytest.raises(ValueError, match="sum to exactly"):
-            build("set_mechanism_emission_split", {"netuid": 1, "split": [1, 1]})
 
 
 def test_tools_catalog_matches_registry():

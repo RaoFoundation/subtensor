@@ -34,7 +34,6 @@ from .commands import (
     axon,
     config,
     crowd,
-    deriv,
     evm,
     extension,
     lock,
@@ -96,7 +95,6 @@ app.add_typer(config.app, name="config")
 app.add_typer(utils.app, name="utils")
 
 app.add_typer(lock.app, name="lock", rich_help_panel=PANEL_STAKING)
-app.add_typer(deriv.app, name="deriv", rich_help_panel=PANEL_STAKING)
 app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
 
 app.add_typer(weights.app, name="weights", rich_help_panel=PANEL_OPERATORS)
@@ -120,7 +118,6 @@ for _sub_app, _aliases in (
     (config.app, ("c", "conf")),
     (weights.app, ("wt", "weight")),
     (crowd.app, ("cr", "crowdloan")),
-    (deriv.app, ("d",)),
 ):
     for _alias in _aliases:
         app.add_typer(_sub_app, name=_alias, hidden=True)

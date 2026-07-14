@@ -22,11 +22,16 @@ from .context import AppContext
 HYPERPARAMS_DOCS_URL = f"{DOCS_URL}/hyperparameters"
 
 
-async def fetch_hyperparameters(client, netuid: int) -> dict[str, Any]:
+async def fetch_hyperparameters(client, netuid: int) -> Optional[dict[str, Any]]:
     """The ``subnet_hyperparameters`` read plus the owner-settable values it
     omits (queried from their storage items), so the listing shows everything
-    ``sudo set`` can change."""
+    ``sudo set`` can change.
+
+    Returns ``None`` when the subnet does not exist.
+    """
     params = await client.read("subnet_hyperparameters", netuid=netuid)
+    if params is None:
+        return None
     extras = sorted(
         name for name in OWNER_HYPERPARAMETERS if name not in params and name in hp.STORAGE_ITEMS
     )
@@ -46,7 +51,7 @@ async def fetch_hyperparameters(client, netuid: int) -> dict[str, Any]:
 def show_hyperparameters(
     app_ctx: AppContext,
     netuid: int,
-    params: dict[str, Any],
+    params: Optional[dict[str, Any]],
     name: Optional[str],
     hint: Optional[str] = None,
 ) -> None:
@@ -55,6 +60,9 @@ def show_hyperparameters(
     ``hint`` overrides the listing's default help line (the `sudo set` prompt
     flow reuses the listing with its own guidance).
     """
+    if params is None:
+        app_ctx.output.error(f"subnet {netuid} does not exist")
+        raise typer.Exit(1)
     if name is None:
         _listing(app_ctx, netuid, params, hint)
         return

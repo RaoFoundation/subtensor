@@ -340,18 +340,24 @@ def check_names() -> int:
     if undescribed:
         print(
             "UNDESCRIBED: classified error names with no description "
-            f"(add them to bittensor/error_descriptions.py): {undescribed}"
+            f"(add them under bittensor/error_descriptions/<pallet>.py): {undescribed}"
         )
     if orphan_descriptions:
         print(
             "ORPHANED: described error names no longer classified "
-            f"(remove them from bittensor/error_descriptions.py): {orphan_descriptions}"
+            f"(remove them from bittensor/error_descriptions/<pallet>.py): {orphan_descriptions}"
         )
-    if stale or unclassified or undescribed or orphan_descriptions:
+    empty = sorted(name for name, text in DESCRIPTIONS.items() if not text.strip())
+    if empty:
+        print(
+            "EMPTY: described error names with blank prose "
+            f"(fill them in bittensor/error_descriptions/<pallet>.py): {empty}"
+        )
+    if stale or unclassified or undescribed or orphan_descriptions or empty:
         return 1
     print(
         f"names ok: all {len(catalog)} chain error names classify to a semantic code, "
-        "every classified name is described, and no mapped name is stale"
+        "every classified name is described (non-empty), and no mapped name is stale"
     )
     return 0
 

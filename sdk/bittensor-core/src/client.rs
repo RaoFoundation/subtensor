@@ -720,12 +720,13 @@ impl Client {
         netuid: u16,
         block_hash: Option<&str>,
     ) -> Result<Value, CoreError> {
-        self.runtime_call(
+        let entries = self.runtime_call(
             "SubnetInfoRuntimeApi",
-            "get_subnet_hyperparams",
+            "get_subnet_hyperparams_v3",
             &[Value::Uint(u128::from(netuid))],
             block_hash,
-        )
+        )?;
+        flatten_subnet_hyperparams_v3(entries)
     }
 
     pub fn stake_rao(
@@ -1440,6 +1441,75 @@ fn event_is(record: &Value, module: &str, name: &str) -> bool {
 fn event_attributes(record: &Value) -> Option<&Value> {
     field(record, "attributes")
         .or_else(|| field(record, "event").and_then(|event| field(event, "attributes")))
+}
+
+/// Flatten `get_subnet_hyperparams_v3`'s `[{name, value}, ...]` list into a
+/// `{name: raw}` map, matching the Python `subnet_hyperparameters` read.
+fn flatten_subnet_hyperparams_v3(raw: Value) -> Result<Value, CoreError> {
+    if matches!(raw, Value::Null) {
+        return Ok(Value::Null);
+    }
+    let Value::List(entries) = raw else {
+        return Err(CoreError::Codec(
+            "SubnetInfoRuntimeApi.get_subnet_hyperparams_v3 returned a non-list".into(),
+        ));
+    };
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let name = field(&entry, "name")
+            .and_then(as_str)
+            .ok_or_else(|| {
+                CoreError::Codec(
+                    "SubnetInfoRuntimeApi.get_subnet_hyperparams_v3 entry omitted name".into(),
+                )
+            })?
+            .to_owned();
+        let tagged = field(&entry, "value").ok_or_else(|| {
+            CoreError::Codec(
+                "SubnetInfoRuntimeApi.get_subnet_hyperparams_v3 entry omitted value".into(),
+            )
+        })?;
+        out.push((Value::Str(name), flatten_hyperparam_value(tagged.clone())));
+    }
+    Ok(Value::Dict(out))
+}
+
+/// Peel one v3 `{TypeTag: payload}` value down to the raw payload.
+///
+/// `U64F64` keeps the raw `bits` (what `sudo set` writes for
+/// `burn_increase_mult`). `I32F32` is only used for
+/// `alpha_sigmoid_steepness`, whose setter takes the integer part
+/// (`bits / 2^32`), not the raw bits.
+fn flatten_hyperparam_value(tagged: Value) -> Value {
+    const I32F32_ONE: i128 = 1 << 32;
+    let Value::Dict(entries) = &tagged else {
+        return tagged;
+    };
+    let [(tag, payload)] = entries.as_slice() else {
+        return tagged;
+    };
+    let Some(tag) = as_str(tag) else {
+        return tagged;
+    };
+    if let Value::Dict(inner) = payload {
+        if let [(Value::Str(key), bits)] = inner.as_slice() {
+            if key == "bits" {
+                if tag == "I32F32" {
+                    let bits = match bits {
+                        Value::Int(v) => *v,
+                        Value::Uint(v) => match i128::try_from(*v) {
+                            Ok(v) => v,
+                            Err(_) => return tagged,
+                        },
+                        _ => return tagged,
+                    };
+                    return Value::Int(bits.div_euclid(I32F32_ONE));
+                }
+                return bits.clone();
+            }
+        }
+    }
+    payload.clone()
 }
 
 pub fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {

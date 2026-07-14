@@ -122,7 +122,6 @@ INTENT_SAMPLES: dict[str, dict] = {
     "trim_subnet": {"netuid": 1, "max_n": 64},
     "update_symbol": {"netuid": 1, "symbol": "β"},
     "set_mechanism_count": {"netuid": 1, "mechanism_count": 2},
-    "set_mechanism_emission_split": {"netuid": 1, "split": [32768, 32767]},
     "register_leased_network": {"emissions_share": 20, "end_block": 10**9},
     "terminate_lease": {"lease_id": 0},
     "set_auto_stake": {"netuid": 1, "hotkey_ss58": BOB_HOT},

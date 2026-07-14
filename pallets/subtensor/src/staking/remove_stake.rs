@@ -585,7 +585,11 @@ impl<T: Config> Pallet<T> {
             None => TotalHotkeyAlpha::<T>::iter(),
         };
 
-        let mut last_hot = None;
+        // Preserve the inbound cursor so a pass that only skips other-netuid rows (or
+        // exhausts weight before finishing another matching hotkey) cannot return None
+        // and restart from the beginning — that would double-count into
+        // status.subnet_total_alpha_value.
+        let mut last_completed_key = last_key.clone();
         // Once a hotkey's Alpha/AlphaV2 prefix scan is started, finish it even if the
         // remaining on_idle budget is exhausted. A single hotkey can have more prefix
         // entries across all subnets than one block's leftover weight; aborting mid-hotkey
@@ -631,7 +635,7 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            last_hot = Some(hot);
+            last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
             if exhausted {
                 read_all = false;
                 break;
@@ -640,10 +644,7 @@ impl<T: Config> Pallet<T> {
 
         status.subnet_total_alpha_value = Some(total_alpha_value_u128);
 
-        (
-            read_all,
-            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
-        )
+        (read_all, last_completed_key)
     }
 
     pub fn destroy_alpha_in_out_stakes_settle_stakes(
@@ -844,7 +845,9 @@ impl<T: Config> Pallet<T> {
             None => TotalHotkeyAlpha::<T>::iter(),
         };
 
-        let mut last_hot = None;
+        // Same cursor preserve as settle/get_total: do not wipe last_key when a pass
+        // only skips non-matching rows or runs out of weight before the next hotkey.
+        let mut last_completed_key = last_key.clone();
         // Finish the current hotkey's Alpha/AlphaV2 cleanup even if weight is exhausted.
         let mut exhausted = false;
 
@@ -879,7 +882,7 @@ impl<T: Config> Pallet<T> {
                 exhausted = true;
             }
 
-            last_hot = Some(hot.clone());
+            last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
 
             for cold in coldkeys {
                 Alpha::<T>::remove((&hot, &cold, netuid));
@@ -892,10 +895,7 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        (
-            read_all,
-            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
-        )
+        (read_all, last_completed_key)
     }
 
     pub fn destroy_alpha_in_out_stakes_clear_hotkey_totals(

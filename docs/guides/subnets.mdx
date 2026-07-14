@@ -196,11 +196,11 @@ excess neurons. Rules:
 ## Mechanisms
 
 A subnet can run multiple scoring mechanisms, each with its own weights.
-[`set-mechanism-count`](/docs/tx/set-mechanism-count) and
-[`set-mechanism-emission-split`](/docs/tx/set-mechanism-emission-split)
-configure them; validators target one via the `mechid` field on
-[`set-weights`](/docs/tx/set-weights). Read the current count with
-[`mechanism-count`](/docs/query/mechanism-count).
+[`set-mechanism-count`](/docs/tx/set-mechanism-count) configures how many;
+validators target one via the `mechid` field on
+[`set-weights`](/docs/tx/set-weights). Read the current count and split with
+[`mechanism-count`](/docs/query/mechanism-count) and
+[`mechanism-emission-split`](/docs/query/mechanism-emission-split).
 
 - The chain currently caps subnets at **2** mechanisms.
 - Each mechanism runs Yuma Consensus independently, with its own weight matrix
@@ -216,8 +216,7 @@ configure them; validators target one via the `mechid` field on
 - The emission split is a vector of u16 weights summing to 65,535 (e.g.
   `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
   mechanism count resets the split to even.
-- Count and split changes are each rate-limited to once per 7,200 blocks
-  (~24 hours).
+- Count changes are rate-limited to once per 7,200 blocks (~24 hours).
 
 ## Deregistration
 

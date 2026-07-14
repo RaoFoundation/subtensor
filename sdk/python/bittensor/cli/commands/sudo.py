@@ -10,7 +10,6 @@ from ...hyperparams import to_raw
 from ...intents import (
     SetHyperparameter,
     SetMechanismCount,
-    SetMechanismEmissionSplit,
     SetSubnetIdentity,
     SetTake,
     StakeBurn,
@@ -420,30 +419,3 @@ def mechanism_emissions(
     app_ctx: AppContext = ctx_of(ctx)
     split = app_ctx.run(lambda c: c.read("mechanism_emission_split", netuid=netuid))
     app_ctx.output.detail(None, {"netuid": netuid, "split": split})
-
-
-@mechanisms_app.command("split-emissions")
-@with_tx_globals
-def set_mechanism_emissions(
-    ctx: typer.Context,
-    netuid: int = typer.Option(
-        ..., "--netuid", help=SetMechanismEmissionSplit.field_help("netuid")
-    ),
-    split: str = typer.Option(
-        ...,
-        "--split",
-        help="Comma-separated integer weights, one per mechanism; the subnet's "
-        "emission is divided between mechanisms in proportion to them.",
-    ),
-):
-    """Set mechanism emission split.
-
-    Only the subnet owner can call this. It changes how the subnet's
-    emission is divided between its mechanisms from the next epoch on.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    values = [int(part.strip()) for part in split.split(",") if part.strip()]
-    app_ctx.submit(SetMechanismEmissionSplit(netuid=netuid, split=values))
-
-
-mechanisms_app.command("emissions-split", hidden=True)(set_mechanism_emissions)

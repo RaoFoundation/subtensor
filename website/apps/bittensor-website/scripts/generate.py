@@ -118,13 +118,20 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
         return "<int>"
     if t == "number":
         return "<number>"
-    if t == "boolean":
-        return "<true|false>"
     if t == "array":
         return "<a,b,c>"
     if t == "object":
         return "'<json>'"
     return "<value>"
+
+
+def cli_arg(field_name: str, fragment: dict) -> str:
+    """Full CLI arg for a field. Typer bools are ``--flag/--no-flag``."""
+    if fragment.get("type") == "boolean":
+        # Match the Typer bool pattern in cli (same as query --lite/--no-lite).
+        flag = cli_flag(field_name)
+        return f"{flag}/--no-{flag.removeprefix('--')}"
+    return f"{cli_flag(field_name)} {cli_placeholder(field_name, fragment)}"
 
 
 def py_placeholder(field_name: str, fragment: dict) -> str:
@@ -189,7 +196,7 @@ def intent_page(op: str, cls) -> str:
 
     cli_parts = [f"btcli tx {kebab(op)}"]
     for name in required:
-        cli_parts.append(f"{cli_flag(name)} {cli_placeholder(name, props[name])}")
+        cli_parts.append(cli_arg(name, props[name]))
     cli_cmd = " \\\n  ".join(cli_parts)
 
     py_args = ", ".join(f"{n}={py_placeholder(n, props[n])}" for n in required)
@@ -335,9 +342,17 @@ def read_page(spec) -> str:
     cli_parts = [f"btcli query {kebab(spec.name)}"]
     py_kwargs = []
     for name, jtype in spec.params.items():
-        if name.endswith("_ss58"):
-            cli_parts.append(f"{cli_flag(name)} <ss58|name>")
-            py_value = '"5F..."'
+        # Match cli/query.py: any param with `_ss58` (singular or plural
+        # `*_ss58s`) uses address_cli_name / cli_flag, not raw kebab.
+        if "_ss58" in name:
+            placeholder = "<array>" if jtype == "array" else "<ss58|name>"
+            cli_parts.append(f"{cli_flag(name)} {placeholder}")
+            py_value = "[...]" if jtype == "array" else '"5F..."'
+        elif jtype == "boolean":
+            # Match the Typer bool pattern in cli/query.py (--flag/--no-flag).
+            flag = f"--{kebab(name)}"
+            cli_parts.append(f"{flag}/--no-{kebab(name)}")
+            py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
         else:
             cli_parts.append(f"--{kebab(name)} <{jtype}>")
             py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
@@ -672,7 +687,7 @@ def intent_examples(op: str, cls) -> dict:
     props = schema.get("properties", {})
     required = [n for n in schema.get("required", []) if n in props]
     cli = f"btcli tx {kebab(op)} " + " ".join(
-        f"{cli_flag(n)} {cli_placeholder(n, props[n])}" for n in required
+        cli_arg(n, props[n]) for n in required
     )
     return {"cli": cli.strip(), "python_class": cls.__name__}
 
