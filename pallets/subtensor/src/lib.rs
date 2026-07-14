@@ -469,7 +469,7 @@ pub mod pallet {
         false
     }
 
-    /// Default value for false.
+    /// Default value for true.
     #[pallet::type_value]
     pub fn DefaultTrue<T: Config>() -> bool {
         true
@@ -1122,7 +1122,7 @@ pub mod pallet {
         2
     }
 
-    /// Default value for ck burn, 18%.
+    /// Default value for ck burn, 0%.
     #[pallet::type_value]
     pub fn DefaultCKBurn<T: Config>() -> u64 {
         0
@@ -1632,7 +1632,7 @@ pub mod pallet {
     }
 
     /// MAP ( netuid ) --> bool | Whether subnet owner cut should be auto-locked.
-    /// Missing entries default to true, so auto-locking is enabled unless explicitly disabled.
+    /// Missing entries default to false, so auto-locking is disabled unless explicitly enabled.
     #[pallet::storage]
     pub type OwnerCutAutoLockEnabled<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultOwnerCutAutoLockEnabled<T>>;

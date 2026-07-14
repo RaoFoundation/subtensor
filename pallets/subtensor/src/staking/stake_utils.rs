@@ -143,10 +143,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Retrieves the global global weight as a normalized value between 0 and 1.
+    /// Retrieves the TAO weight as a normalized value between 0 and 1.
     ///
     /// This function performs the following steps:
-    /// 1. Fetches the global weight from storage using the TaoWeight storage item.
+    /// 1. Fetches the TAO weight from storage using the TaoWeight storage item.
     /// 2. Converts the retrieved u64 value to a fixed-point number (U96F32).
     /// 3. Normalizes the weight by dividing it by the maximum possible u64 value.
     /// 4. Returns the normalized weight as an U96F32 fixed-point number.
@@ -155,12 +155,12 @@ impl<T: Config> Pallet<T> {
     /// regardless of the actual stored weight value.
     ///
     /// # Returns
-    /// * `U96F32`: The normalized global global weight as a fixed-point number between 0 and 1.
+    /// * `U96F32`: The normalized TAO weight as a fixed-point number between 0 and 1.
     ///
     /// # Note
     /// This function uses saturating division to prevent potential overflow errors.
     pub fn get_tao_weight() -> U96F32 {
-        // Step 1: Fetch the global weight from storage
+        // Step 1: Fetch the TAO weight from storage
         let stored_weight = TaoWeight::<T>::get();
 
         // Step 2: Convert the u64 weight to U96F32
@@ -176,14 +176,14 @@ impl<T: Config> Pallet<T> {
         weight_fixed.safe_div(U96F32::saturating_from_num(u64::MAX))
     }
 
-    /// Sets the global global weight in storage.
+    /// Sets the TAO weight in storage.
     ///
     /// This function performs the following steps:
     /// 1. Takes the provided weight value as a u64.
     /// 2. Updates the TaoWeight storage item with the new value.
     ///
     /// # Arguments
-    /// * `weight`: The new global weight value to be set, as a u64.
+    /// * `weight`: The new TAO weight value to be set, as a u64.
     ///
     /// # Effects
     /// This function modifies the following storage item:
@@ -202,13 +202,13 @@ impl<T: Config> Pallet<T> {
         CKBurn::<T>::set(weight);
     }
 
-    /// Calculates the weighted combination of alpha and global tao for a single hotkey onet a subnet.
+    /// Calculates the weighted combination of alpha and TAO stake for a single hotkey on a subnet.
     ///
     pub fn get_stake_weights_for_hotkey_on_subnet(
         hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> (I64F64, I64F64, I64F64) {
-        // Retrieve the global tao weight.
+        // Retrieve the TAO weight.
         let tao_weight = I64F64::saturating_from_num(Self::get_tao_weight());
         log::debug!("tao_weight: {tao_weight:?}");
 
@@ -217,7 +217,7 @@ impl<T: Config> Pallet<T> {
             I64F64::saturating_from_num(Self::get_inherited_for_hotkey_on_subnet(hotkey, netuid));
         log::debug!("alpha_stake: {alpha_stake:?}");
 
-        // Step 2: Get the global tao stake for the hotkey
+        // Step 2: Get the TAO stake for the hotkey
         let tao_stake = I64F64::saturating_from_num(Self::get_tao_inherited_for_hotkey_on_subnet(
             hotkey, netuid,
         ));
@@ -230,12 +230,12 @@ impl<T: Config> Pallet<T> {
         (total_stake, alpha_stake, tao_stake)
     }
 
-    /// Calculates the weighted combination of alpha and global tao for hotkeys on a subnet.
+    /// Calculates the weighted combination of alpha and TAO stake for hotkeys on a subnet.
     ///
     pub fn get_stake_weights_for_network(
         netuid: NetUid,
     ) -> (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) {
-        // Retrieve the global tao weight.
+        // Retrieve the TAO weight.
         let tao_weight: I64F64 = I64F64::saturating_from_num(Self::get_tao_weight());
         log::debug!("tao_weight: {tao_weight:?}");
 
@@ -257,8 +257,8 @@ impl<T: Config> Pallet<T> {
             .collect();
         log::debug!("alpha_stake: {alpha_stake:?}");
 
-        // Step 3: Calculate the global tao stake vector.
-        // Initialize a vector to store global tao stakes for each neuron.
+        // Step 3: Calculate the TAO stake vector.
+        // Initialize a vector to store TAO stakes for each neuron.
         let tao_stake: Vec<I64F64> = (0..n)
             .map(|uid| {
                 if Keys::<T>::contains_key(netuid, uid) {
@@ -273,8 +273,8 @@ impl<T: Config> Pallet<T> {
             .collect();
         log::trace!("tao_stake: {tao_stake:?}");
 
-        // Step 4: Combine alpha and root tao stakes.
-        // Calculate the weighted average of alpha and global tao stakes for each neuron.
+        // Step 4: Combine alpha and TAO stakes.
+        // Calculate the weighted average of alpha and TAO stakes for each neuron.
         let total_stake: Vec<I64F64> = alpha_stake
             .iter()
             .zip(tao_stake.iter())
