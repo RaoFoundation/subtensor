@@ -43,49 +43,33 @@ A new subnet is a two-step commitment: register, then activate with
 
 ## Secure the owner account
 
-A subnet owner controls its identity and owner-settable hyperparameters. Do not
-keep that authority in a single coldkey on an operational machine.
-
-**Recommended setup.** For a conventionally funded subnet, use a multisig
-address as the owner from registration and separate high-impact control from
-routine operations:
-
-1. Make the owner a [**multisig**](/docs/concepts/advanced#multisig) and keep
-   its signatory keys on separate devices and in separate locations. A
-   [Ledger](/docs/guides/ledger) can keep a signatory key off the computer while
-   displaying each approval on-device; keep an independent seed backup for every
-   signer. This is the recovery and high-impact control layer.
-2. From the multisig, grant a dedicated operations key the narrow **Owner**
-   [proxy type](/docs/concepts/advanced#proxy-types). It can manage subnet
-   identity and owner-settable hyperparameters, but cannot transfer funds or
-   rotate the owner.
-3. Use the proxy for routine changes. Use the multisig to manage the proxy, veto
-   delayed calls, and perform actions outside the **Owner** scope. If you add an
-   announcement delay, monitor announcements more frequently than the delay.
+A subnet owner's coldkey controls the subnet's identity and owner-settable
+hyperparameters — authority that should never live in a single coldkey on an
+operational machine. The standard layering: make the owner account a
+[**multisig**](/docs/guides/multisig) from registration, and from it grant a
+dedicated operations key the narrow **Owner**
+[proxy type](/docs/guides/proxies#proxy-types) for routine changes. The ops
+key can manage subnet identity and hyperparameters but cannot transfer funds
+or rotate the owner; the multisig convenes only to manage that proxy, veto
+delayed calls, and act outside the **Owner** scope. Both guides walk through
+the setup — see
+[Subnet owners specifically](/docs/guides/proxies#subnet-owners-specifically)
+in the proxy guide for this exact pattern.
 
 For a new crowd-funded subnet, a
 [crowdloan lease](#financing-leases-and-crowdloans) provides a different secure
 ownership model: the chain creates the lease owner account and grants the
 beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
 
-**Migrating an existing owner.** If a subnet is already owned by a single
-coldkey, adopting the setup above requires a one-time ownership migration.
-Sending TAO to a multisig address is not enough: balance, stake, conviction,
-and subnet ownership are separate on-chain state. Choose the transaction that
-matches what you intend:
-
-| Operation | What moves | Effect on conviction locks |
-| --- | --- | --- |
-| [`transfer`](/docs/tx/transfer) | Transferable TAO only | None; stake, locks, conviction, and subnet ownership remain on the source coldkey. |
-| [`transfer-stake`](/docs/tx/transfer-stake) | A stake position to another coldkey | If the transfer reaches locked stake, the corresponding locked mass and conviction move proportionally; a conflicting destination lock rejects the call. It does not transfer subnet ownership. |
-| [Announced coldkey swap](/docs/tx/announce-coldkey-swap) | Subtensor-managed coldkey state, including subnet ownership; see [what moves](/docs/concepts/wallets#key-rotation-and-recovery). | Locks and accrued conviction are preserved. Use this to migrate an existing owner to a multisig. |
-
-Before the swap, derive and verify the multisig address, remove old proxy grants,
-and ensure the destination is not a hotkey and has no stake or active locks. The
-source is frozen during the delay. After execution, verify the migrated state and
-use the multisig to recreate the **Owner** proxy. See
-[Wallet key rotation](/docs/concepts/wallets#key-rotation-and-recovery) for the
-full procedure and balance requirements.
+If the subnet is already owned by a single coldkey, adopting this setup is a
+one-time ownership migration via the announced **coldkey swap**. Sending TAO to
+the multisig address is not enough: balance, stake, conviction locks, and
+subnet ownership are separate on-chain state, and a plain
+[`transfer`](/docs/tx/transfer) moves only the first. The full procedure —
+verifying the derived address, what the swap moves, and the delay — is in
+[Migrate an existing account to a multisig](/docs/guides/multisig#migrate-an-existing-account-to-a-multisig);
+[Wallet key rotation](/docs/concepts/wallets#key-rotation-and-recovery) covers
+what a coldkey swap does and doesn't move.
 
 ## Activate
 
