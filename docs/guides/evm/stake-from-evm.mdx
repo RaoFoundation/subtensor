@@ -1,0 +1,164 @@
+---
+title: Stake from the EVM
+description: The staking-v2 precompile — CLI sugar, raw calls, and a contract that stakes what it receives.
+---
+
+The `staking-v2` precompile (address `0x…0805`) lets EVM accounts — including
+contracts — hold real stake positions: add, remove, move, and transfer stake
+with the same semantics as the native
+[`add-stake`](/docs/tx/add-stake) family. This walkthrough goes from the
+one-line CLI version down to a contract that stakes TAO sent to it.
+
+**How the coldkey works here:** the precompile dispatches the staking call
+with the **caller's ss58 mirror** as the coldkey. For an externally-owned
+account that's your EVM key's mirror (`btcli evm key list` shows it). When a
+*contract* calls the precompile, the *contract address's* mirror is the
+coldkey — the position belongs to the contract, and the TAO being staked must
+sit in the contract's balance.
+
+## CLI: the three-command version
+
+`btcli evm stake` wraps the precompile with unit conversion (the precompile
+speaks rao; you type TAO/alpha):
+
+```bash
+# stake 2 TAO from the EVM key's balance to a validator on subnet 1
+btcli evm stake add --netuid 1 --hotkey 5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3 --amount-tao 2
+
+# the position (free view call; the EVM key's mirror is the coldkey)
+btcli evm stake show --netuid 1 --hotkey 5F4tQyWr…
+
+# unstake — note the unit is alpha, the subnet's own currency
+btcli evm stake remove --netuid 1 --hotkey 5F4tQyWr… --amount-alpha 10
+```
+
+Like all btcli transactions, `--dry-run` previews (here: the exact EVM
+transaction — calldata, gas, fee) and `--json` gives machine-readable output.
+
+Staking TAO buys the subnet's **alpha** at the pool price, exactly as on the
+native side — the [staking guide](/docs/guides/staking) explains positions,
+slippage, and how to pick a validator; all of it applies unchanged.
+
+## Raw calls: any staking-v2 function
+
+The sugar covers add/remove/show. Everything else on the precompile goes
+through `btcli evm call` — same argument conveniences (ss58 accepted for
+`bytes32`, amounts in rao):
+
+```bash
+btcli evm call staking-v2                       # list all functions
+btcli evm call staking-v2 getTotalHotkeyStake 5F4tQyWr…       # view, free
+btcli evm call staking-v2 moveStake 5Forigin… 5Fdest… 1 4 1000000000 --evm-key default
+btcli evm call staking-v2 addStakeLimit 5F4tQyWr… 1000000000 250000000 true 1 --evm-key default
+```
+
+`addStakeLimit`/`removeStakeLimit` are the price-protected variants
+(`limit_price` in rao per alpha, `allow_partial` for partial fills) — the
+EVM mirror of [`add-stake`'s](/docs/tx/add-stake) limit options.
+
+## From Python
+
+```python
+from bittensor.evm import (
+    EvmRpc, encode_call, get_precompile, evm_network,
+    prepare_transaction, send_transaction,
+)
+from bittensor.evm.keys import unlock_evm_key
+
+rpc = EvmRpc(evm_network("test").rpc_url)
+staking = get_precompile("staking-v2")
+account = unlock_evm_key("default", "my_coldkey")  # prompts for keystore password
+
+data = encode_call(
+    staking.function("addStake"),
+    ["5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3", 2 * 10**9, 1],  # 2 TAO in rao
+)
+preview = prepare_transaction(rpc, account.address, staking.address, data=data)
+print(f"gas {preview.gas}, max fee {preview.max_fee}")
+result = send_transaction(rpc, account, preview)
+print(result)  # {"tx_hash": …, "block_number": …, "success": True}
+```
+
+## A contract that stakes what it receives
+
+The composable version: TAO deposited into this contract is staked to a fixed
+validator hotkey, and the *contract* owns the position (its mirror is the
+coldkey). This is the primitive under liquid-staking tokens.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface IStaking {
+    function addStake(bytes32 hotkey, uint256 amount, uint256 netuid) external payable;
+    function removeStake(bytes32 hotkey, uint256 amount, uint256 netuid) external payable;
+    function getStake(bytes32 hotkey, bytes32 coldkey, uint256 netuid)
+        external view returns (uint256);
+}
+
+contract AutoStaker {
+    IStaking constant STAKING = IStaking(0x0000000000000000000000000000000000000805);
+    address public immutable owner;
+    bytes32 public immutable hotkey;   // validator hotkey as bytes32 pubkey
+    uint16 public immutable netuid;
+
+    constructor(bytes32 _hotkey, uint16 _netuid) {
+        owner = msg.sender;
+        hotkey = _hotkey;
+        netuid = _netuid;
+    }
+
+    receive() external payable {
+        // msg.value is wei (1e18/TAO); the precompile amount is rao (1e9/TAO)
+        STAKING.addStake(hotkey, msg.value / 1e9, netuid);
+    }
+
+    function unstake(uint256 amountAlphaRao) external {
+        require(msg.sender == owner, "not owner");
+        // unstaked TAO lands on the contract's balance
+        STAKING.removeStake(hotkey, amountAlphaRao, netuid);
+        (bool ok, ) = owner.call{value: address(this).balance}("");
+        require(ok, "transfer failed");
+    }
+}
+```
+
+Two details to notice:
+
+- **The rao conversion.** `msg.value / 1e9` is the single most important
+  line: passing a wei-scale number as the precompile's rao-scale amount would
+  try to stake a billion times too much and revert.
+- **The constructor's `bytes32` hotkey.** Get it from
+  `btcli evm pubkey <hotkey-ss58>`.
+
+Deploy with [Hardhat](/docs/guides/evm/deploy-a-contract), passing the
+constructor arguments, then verify from the terminal:
+
+```bash
+# deposit 1 TAO into the contract (it stakes automatically)
+btcli evm send --to 0xCONTRACT… --amount-tao 1 -w my_coldkey
+
+# the contract's position: its coldkey is its own mirror
+btcli evm call staking-v2 getStake 5F4tQyWr… $(btcli evm mirror 0xCONTRACT… --json | jq -r .ss58_mirror) 1
+```
+
+## Allowances: the ERC-20-shaped layer
+
+`staking-v2` also carries `approve` / `allowance` / `increaseAllowance` /
+`decreaseAllowance` / `transferStakeFrom`, mirroring ERC-20 semantics over
+stake: an account approves a spender (typically a contract) for a subnet's
+alpha, and the spender can later `transferStakeFrom` source to destination.
+This is what lets escrow- and DEX-shaped contracts move stake with
+permission instead of custody:
+
+```bash
+btcli evm call staking-v2 approve 0xSPENDER… 1 1000000000 --evm-key default
+btcli evm call staking-v2 allowance 0xME… 0xSPENDER… 1
+```
+
+## See also
+
+- [Staking guide](/docs/guides/staking) — validators, slippage, positions;
+  all semantics shared with the native side.
+- [Read chain state](/docs/guides/evm/read-chain-state) — the alpha
+  precompile for prices and swap quotes before you stake.

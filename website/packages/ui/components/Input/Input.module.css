@@ -1,0 +1,25 @@
+/* Button.tsx style */
+.container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  font-size: 12px;
+}
+
+/* input.tsx style */
+.input {
+  border-width: 0.25px;
+  border-color: var(--text-primary);
+  max-height: 50px;
+  max-width: 300px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-radius: 5px;
+  display: flex;
+  flex: 1;
+  text-align: center;
+  color: var(--text-primary);
+  background-color: transparent;
+  font-family: 'FiraCode';
+  font-weight: 400;
+}

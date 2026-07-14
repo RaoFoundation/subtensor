@@ -1,0 +1,113 @@
+---
+title: Python SDK tests
+description: The SDK test layers, the fake-substrate harness, and how to regenerate codegen bindings and golden fixtures after a runtime change.
+---
+
+The Python SDK lives in `sdk/python/` and is tested on every PR by the
+[Runtime Checks](/docs/internals/testing): offline gates first, then a metadata
+drift gate against a sudo-upgraded mainnet clone. A runtime change can fail
+your PR through these gates even if you never touched Python - this page
+explains how to run them and what to regenerate when metadata changes.
+
+Everything runs through [uv](https://docs.astral.sh/uv/) against the locked
+environment, orchestrated by the `justfile` in `sdk/python/`:
+
+```bash
+cd sdk/python
+just sync     # uv sync --locked --all-extras --dev
+just check    # all offline gates, same as CI: lint, typecheck, unit tests, codegen-static
+```
+
+The SDK's native module (`bittensor_core` — crypto, SCALE codec, extrinsic
+assembly) is the `sdk/bittensor-core-py` crate. In the monorepo it resolves
+as a uv path source, so `just sync` builds the wheel from source — you need
+the repo's [Rust toolchain](/docs/internals/rust-setup) for SDK development
+here (PyPI users get prebuilt wheels). After changing the Rust side, rebuild
+the installed module:
+
+```bash
+uv sync --reinstall-package bittensor-core   # or: maturin develop --release -m ../bittensor-core-py/Cargo.toml
+```
+
+## The test layers
+
+| Layer | Needs a chain? | Command |
+|-------|----------------|---------|
+| Unit tests (`tests/unit/`) | No | `just test` (or `uv run pytest`) |
+| Codegen static gates | No | `just codegen-static` |
+| Codegen drift gate | Yes | `just drift [endpoint]` |
+
+The Python test tree is offline-only. Run a single test the usual pytest way:
+
+```bash
+uv run pytest tests/unit/test_codec_golden.py -k storage_keys -x
+```
+
+## How unit tests avoid the network
+
+Two mechanisms make the offline suite possible:
+
+- **`FakeSubstrate`** (`tests/harness/fake_substrate.py`): the SDK's only
+  chain-access seam is the `Substrate` protocol (`bittensor/_substrate.py`);
+  the executor, intents, reads, and namespaces never touch a websocket
+  directly. `FakeSubstrate` implements the whole protocol over plain dicts —
+  `seed(module, item, params, value)` pins storage entries, unseeded items
+  fall back to permissive defaults, and submitted extrinsics are recorded
+  (never applied) so tests assert on the composed call.
+- **Golden fixtures** (`tests/fixtures/golden.json`, ~1.3 MB, committed): a
+  corpus of byte-exact artifacts — storage keys, composed calls, signing
+  payloads, extrinsic encodings — recorded from a live localnet along with the
+  raw metadata they were produced against. The golden tests
+  (`test_codec_golden.py`, `test_storage_golden.py`) replay these through the
+  codec using only the recorded metadata, proving the wire format stays
+  byte-identical without a node.
+- **Shape corpus** (`tests/fixtures/shape_corpus/`, committed): the codec's
+  decoded-*shape* contract — `(type id, SCALE bytes, decoded value)` triples
+  sampled across the whole portable registry. `test_shape_corpus.py` replays
+  it through whatever codec the transport currently uses, and the Rust core
+  runs the same corpus natively (`cargo test -p bittensor-core`), so the
+  Python objects a decode produces can never silently change shape.
+  Re-record with `scripts/record_shape_corpus.py` only when the contract
+  itself is meant to change.
+
+## Chain-facing SDK coverage
+
+The old Python localnet e2e tests were migrated to Rust and live in
+`sdk/bittensor-core/tests/e2e.rs`. To run them against an existing node:
+
+```bash
+E2E_ENDPOINT=ws://127.0.0.1:9944 cargo test -p bittensor-core --test e2e -- --nocapture
+```
+
+Without `E2E_ENDPOINT`, the Rust harness starts a disposable localnet Docker
+container from `LOCALNET_IMAGE`.
+
+## After a runtime change: what to regenerate
+
+The SDK's call/query/error bindings (`bittensor/_generated/`) are **generated
+from chain metadata** and committed. CI enforces two things:
+
+- **Static gates** (offline, every PR): every call is wrapped or explicitly
+  raw-only (`codegen.check --coverage`), and every classified error name still
+  exists (`codegen.check --names`).
+- **Drift gate**: the committed `_generated/` must match the node's actual
+  metadata (`codegen.check --drift <endpoint>`).
+
+If your runtime change adds/removes/modifies extrinsics, storage, events, or
+errors, regenerate against a node running your runtime and commit the result:
+
+```bash
+cd sdk/python
+just regen              # ws://127.0.0.1:9944 by default
+```
+
+`just regen` does two things: `python -m codegen <endpoint>` rewrites
+`bittensor/_generated/`, and `scripts/record_golden.py` re-records
+`tests/fixtures/golden.json`. Re-record the golden fixture **deliberately** —
+it is the byte-exactness baseline, so eyeball the diff before committing.
+Never hand-edit `_generated/` (ruff excludes it from formatting for the same
+reason).
+
+A convenient node to regen against is the sudo-upgraded
+[mainnet clone](/docs/internals/mainnet-clone), since that's exactly what CI
+tests you with.

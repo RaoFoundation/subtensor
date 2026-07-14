@@ -1,0 +1,264 @@
+"""Sample arguments for every registered intent and read.
+
+The single source of truth for the offline registry table tests against
+FakeSubstrate. A meta-test asserts every entry in
+``bittensor.intents.REGISTRY`` / ``bittensor.reads.REGISTRY`` has a sample
+here, so adding an operation without wiring it into the test tables fails CI.
+
+Addresses are the standard dev keys, derived (not hardcoded) so they stay
+correct if the ss58 format ever changes.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from bittensor.keyfiles import Keypair
+
+ALICE = Keypair.create_from_uri("//Alice").ss58_address
+ALICE_HOT = Keypair.create_from_uri("//Alice//hot").ss58_address
+BOB = Keypair.create_from_uri("//Bob").ss58_address
+BOB_HOT = Keypair.create_from_uri("//Bob//hot").ss58_address
+
+
+def dev_wallet(cold: str = "//Alice", hot: str = "//Alice//hot") -> SimpleNamespace:
+    """A KeyedWallet-shaped object carrying dev keypairs (no keyfiles)."""
+    return SimpleNamespace(
+        coldkey=Keypair.create_from_uri(cold),
+        coldkeypub=Keypair(ss58_address=Keypair.create_from_uri(cold).ss58_address),
+        hotkey=Keypair.create_from_uri(hot),
+    )
+
+
+# Args that compose+plan every registered intent. Values are chosen to pass
+# client-side validation; they are not meaningful amounts.
+INTENT_SAMPLES: dict[str, dict] = {
+    "add_stake": {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_tao": 1.0},
+    "add_stake_limit": {
+        "hotkey_ss58": BOB_HOT,
+        "netuid": 1,
+        "amount_tao": 1.0,
+        "limit_price_rao": 10**9,
+    },
+    "remove_stake": {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_alpha": 1.0},
+    "remove_stake_limit": {
+        "hotkey_ss58": BOB_HOT,
+        "netuid": 1,
+        "amount_alpha": 1.0,
+        "limit_price_rao": 10**9,
+    },
+    "move_stake": {
+        "origin_hotkey_ss58": BOB_HOT,
+        "origin_netuid": 1,
+        "dest_hotkey_ss58": BOB_HOT,
+        "dest_netuid": 1,
+        "amount_alpha": 1.0,
+    },
+    "swap_stake": {
+        "hotkey_ss58": BOB_HOT,
+        "origin_netuid": 1,
+        "dest_netuid": 1,
+        "amount_alpha": 1.0,
+    },
+    "transfer_stake": {
+        "dest_coldkey_ss58": BOB,
+        "hotkey_ss58": BOB_HOT,
+        "origin_netuid": 1,
+        "dest_netuid": 1,
+        "amount_alpha": 1.0,
+    },
+    "unstake_all": {"hotkey_ss58": BOB_HOT},
+    "unstake_all_alpha": {"hotkey_ss58": BOB_HOT},
+    "stake_burn": {"netuid": 1, "amount_tao": 1.0, "limit_price": 10**9},
+    "transfer": {"dest_ss58": BOB, "amount_tao": 1.0},
+    "transfer_all": {"dest_ss58": BOB},
+    "burned_register": {"netuid": 1},
+    "root_register": {},
+    "register_subnet": {},
+    "start_call": {"netuid": 1},
+    "claim_root": {"subnets": [1]},
+    "swap_hotkey": {"new_hotkey_ss58": BOB_HOT},
+    "set_children": {"netuid": 1, "children": [[2**63, BOB_HOT]]},
+    "set_childkey_take": {"netuid": 1, "take": 1000},
+    "increase_take": {"take": 1000},
+    "decrease_take": {"take": 500},
+    "set_take": {"take": 1000},
+    "serve_axon": {"netuid": 1, "ip": "203.0.113.5", "port": 8091},
+    "serve_axon_tls": {
+        "netuid": 1,
+        "ip": "203.0.113.5",
+        "port": 8091,
+        "certificate": "0x" + "ab" * 32,
+    },
+    "serve_prometheus": {"netuid": 1, "ip": "203.0.113.5", "port": 9090},
+    "reset_axon": {"netuid": 1},
+    "set_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
+    "commit_weights": {"netuid": 1, "uids": [0], "weights": [1.0]},
+    "reveal_weights": {"netuid": 1, "uids": [0], "weights": [1.0], "salt": [1, 2, 3]},
+    "add_proxy": {"delegate_ss58": BOB, "proxy_type": "Transfer"},
+    "remove_proxy": {"delegate_ss58": BOB, "proxy_type": "Transfer"},
+    "remove_proxies": {},
+    "create_pure_proxy": {},
+    "kill_pure_proxy": {"spawner_ss58": BOB},
+    "execute_proxy_announced": {
+        "delegate_ss58": BOB,
+        "real_ss58": ALICE,
+        "inner_op": "transfer",
+        "inner_args": {"dest_ss58": BOB, "amount_tao": 0.1},
+    },
+    "batch": {
+        "intents": [
+            {"op": "transfer", "dest_ss58": BOB, "amount_tao": 0.5},
+            {"op": "add_stake", "hotkey_ss58": BOB_HOT, "netuid": 1, "amount_tao": 1.0},
+        ]
+    },
+    "announce_coldkey_swap": {"new_coldkey_ss58": BOB},
+    "swap_coldkey_announced": {"new_coldkey_ss58": BOB},
+    "clear_coldkey_swap_announcement": {},
+    "dispute_coldkey_swap": {},
+    "set_hyperparameter": {"netuid": 1, "name": "immunity_period", "value": 42},
+    "set_identity": {"name": "verify"},
+    "set_subnet_identity": {"netuid": 1, "subnet_name": "verify"},
+    "trim_subnet": {"netuid": 1, "max_n": 64},
+    "update_symbol": {"netuid": 1, "symbol": "β"},
+    "set_mechanism_count": {"netuid": 1, "mechanism_count": 2},
+    "set_mechanism_emission_split": {"netuid": 1, "split": [32768, 32767]},
+    "register_leased_network": {"emissions_share": 20, "end_block": 10**9},
+    "terminate_lease": {"lease_id": 0},
+    "set_auto_stake": {"netuid": 1, "hotkey_ss58": BOB_HOT},
+    "set_root_claim_type": {"claim_type": "KeepSubnets", "subnets": [1]},
+    "lock_stake": {"netuid": 1, "amount_alpha": 1.0},
+    "move_lock": {"netuid": 1, "destination_hotkey_ss58": BOB_HOT},
+    "set_perpetual_lock": {"netuid": 1, "enabled": True},
+    "create_crowdloan": {
+        "deposit_tao": 100,
+        "min_contribution_tao": 1,
+        "cap_tao": 1000,
+        "end": 10**9,
+        "target_ss58": BOB,
+    },
+    "contribute_crowdloan": {"crowdloan_id": 0, "amount_tao": 1.0},
+    "finalize_crowdloan": {"crowdloan_id": 0},
+    "refund_crowdloan": {"crowdloan_id": 0},
+    "dissolve_crowdloan": {"crowdloan_id": 0},
+    "withdraw_crowdloan": {"crowdloan_id": 0},
+    "update_crowdloan_cap": {"crowdloan_id": 0, "new_cap_tao": 2000},
+    "update_crowdloan_end": {"crowdloan_id": 0, "new_end": 10**9},
+    "update_crowdloan_min_contribution": {"crowdloan_id": 0, "new_min_contribution_tao": 2},
+    "set_crowdloan_max_contribution": {"crowdloan_id": 0, "new_max_contribution_tao": 50},
+    "multisig_threshold_1": {
+        "other_signatories": [BOB],
+        "call": {"op": "transfer", "dest_ss58": BOB, "amount_tao": 0.1},
+    },
+    "multisig_execute": {
+        "threshold": 2,
+        "other_signatories": [BOB],
+        "call": {"op": "transfer", "dest_ss58": BOB, "amount_tao": 0.1},
+    },
+    "multisig_approve": {
+        "threshold": 2,
+        "other_signatories": [BOB],
+        "call": {"op": "transfer", "dest_ss58": BOB, "amount_tao": 0.1},
+    },
+    "multisig_cancel": {
+        "threshold": 2,
+        "other_signatories": [BOB],
+        "call": {"op": "transfer", "dest_ss58": BOB, "amount_tao": 0.1},
+        "timepoint": {"height": 1, "index": 0},
+    },
+    "fund_evm_key": {"evm_address": "0x" + "11" * 20, "amount_tao": 1.0},
+    "evm_withdraw": {"amount_tao": 1.0},
+    "associate_hotkey": {"hotkey_ss58": BOB_HOT},
+    "associate_evm_key": {
+        "netuid": 1,
+        "evm_key": "0x" + "11" * 20,
+        "block_number": 1,
+        "signature": "0x" + "22" * 65,
+    },
+}
+
+
+# Params to dispatch every registered read against the FakeSubstrate.
+READ_SAMPLES: dict[str, dict] = {
+    "alpha_price": {"netuid": 1},
+    "alpha_prices": {},
+    "associated_evm_key": {"netuid": 1, "uid": 0},
+    "auto_stake": {"coldkey_ss58": ALICE, "netuid": 1},
+    "auto_stake_all": {"coldkey_ss58": ALICE},
+    "balance": {"coldkey_ss58": ALICE},
+    "balances": {"coldkey_ss58s": [ALICE, BOB]},
+    "block_info": {"block": 100},
+    "block_time": {},
+    "blocks_since_last_step": {"netuid": 1},
+    "blocks_since_last_update": {"netuid": 1, "uid": 0},
+    "blocks_until_next_epoch": {"netuid": 1},
+    "bonds": {"netuid": 1},
+    "burn": {"netuid": 1},
+    "children": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "coldkey_lock": {"coldkey_ss58": ALICE, "netuid": 1},
+    "coldkey_swap_announcement": {"coldkey_ss58": ALICE},
+    "commit_reveal_enabled": {"netuid": 1},
+    "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
+    "commitments": {"netuid": 1},
+    "crowdloan": {"crowdloan_id": 0},
+    "crowdloan_contributors": {"crowdloan_id": 0},
+    "crowdloans": {},
+    "delegate": {"hotkey_ss58": ALICE_HOT},
+    "delegate_take": {"hotkey_ss58": ALICE_HOT},
+    "delegated": {"coldkey_ss58": ALICE},
+    "delegates": {},
+    "difficulty": {"netuid": 1},
+    "epoch_status": {"netuid": 1},
+    "existential_deposit": {},
+    "hotkey_conviction": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "hotkey_identities": {"hotkey_ss58s": [ALICE_HOT]},
+    "hotkey_owner": {"hotkey_ss58": ALICE_HOT},
+    "identity": {"coldkey_ss58": ALICE},
+    "immunity_period": {"netuid": 1},
+    "is_delegate": {"hotkey_ss58": ALICE_HOT},
+    "is_fast_blocks": {},
+    "lease": {"lease_id": 0},
+    "leases": {},
+    "locks_for_coldkey": {"coldkey_ss58": ALICE},
+    "max_weight_limit": {"netuid": 1},
+    "mechanism_count": {"netuid": 1},
+    "mechanism_emission_split": {"netuid": 1},
+    "metagraph": {"netuid": 1},
+    "mev_shield_next_key": {},
+    "min_allowed_weights": {"netuid": 1},
+    "most_convicted_hotkey": {"netuid": 1},
+    "multisig": {"account_ss58": ALICE, "call_hash": "0x" + "ab" * 32},
+    "netuids_for_hotkey": {"hotkey_ss58": ALICE_HOT},
+    "neurons": {"netuid": 1},
+    "next_epoch_start_block": {"netuid": 1},
+    "owned_hotkeys": {"coldkey_ss58": ALICE},
+    "parents": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "pending_children": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "proxies": {"coldkey_ss58": ALICE},
+    "quote_stake": {"netuid": 1, "amount_tao": 1.0},
+    "quote_unstake": {"netuid": 1, "amount_alpha": 1.0},
+    "reveal_period": {"netuid": 1},
+    "revealed_commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
+    "root_claim_type": {"coldkey_ss58": ALICE},
+    "stake": {"coldkey_ss58": ALICE, "hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "stake_for_coldkey": {"coldkey_ss58": ALICE},
+    "stake_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
+    "stake_value_for_coldkey": {"coldkey_ss58": ALICE},
+    "stake_value_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
+    "staking_hotkeys": {"coldkey_ss58": ALICE},
+    "subnet": {"netuid": 1},
+    "subnet_convictions": {"netuid": 1},
+    "subnet_hyperparameters": {"netuid": 1},
+    "subnet_identity": {"netuid": 1},
+    "subnet_names": {},
+    "subnet_registration_cost": {},
+    "subnet_start_schedule": {"netuid": 1},
+    "subnets": {},
+    "timelocked_weight_commits": {"netuid": 1},
+    "timestamp": {},
+    "token_symbols": {},
+    "tx_rate_limit": {},
+    "uid": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "weights": {"netuid": 1},
+    "weights_rate_limit": {"netuid": 1},
+}

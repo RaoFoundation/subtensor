@@ -265,6 +265,8 @@ pub mod pallet {
         InvalidOrigin,
         /// The crowdloan has already been finalized.
         AlreadyFinalized,
+        /// A crowdloan finalization is already in progress.
+        AlreadyFinalizing,
         /// The crowdloan contribution period has not ended yet.
         ContributionPeriodNotEnded,
         /// The contributor has no contribution for this crowdloan.
@@ -619,6 +621,13 @@ pub mod pallet {
             ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
             ensure!(crowdloan.raised == crowdloan.cap, Error::<T>::CapNotRaised);
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+            ensure!(
+                CurrentCrowdloanId::<T>::get().is_none(),
+                Error::<T>::AlreadyFinalizing
+            );
+
+            crowdloan.finalized = true;
+            Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
 
             match (&crowdloan.call, &crowdloan.target_address) {
                 (Some(call), None) => {
@@ -658,9 +667,6 @@ pub mod pallet {
                     return Err(Error::<T>::InvalidFinalizationConfig)?;
                 }
             }
-
-            crowdloan.finalized = true;
-            Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
 
             Self::deposit_event(Event::<T>::Finalized { crowdloan_id });
 

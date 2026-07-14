@@ -1,0 +1,21 @@
+@define-mixin dashed_border {
+  position: relative;
+  &:after {
+    content: '';
+    background-position: 0 0;
+    background-image: linear-gradient(
+      to right,
+      var(--border-dashed-primary-kh),
+      1px,
+      transparent 1px
+    );
+    background-repeat: repeat-x;
+    background-size: 6px;
+    display: block;
+    width: 100%;
+    height: 1px;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+  }
+}

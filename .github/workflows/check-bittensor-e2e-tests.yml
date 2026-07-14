@@ -1,17 +1,44 @@
-name: Bittensor Bittensor E2E Test
+name: Bittensor E2E Test
 
 permissions:
   pull-requests: write
   contents: read
+  # Push/pull the per-PR localnet image on GHCR. Fork PRs never reach the
+  # image jobs (they need the trusted-pr gate), so this is non-fork only.
+  packages: write
 
 concurrency:
   group: e2e-cli-${{ github.ref }}
   cancel-in-progress: true
 
+# Path-filtered: none of this workflow's checks are required for merge, so a
+# workflow-level `paths:` filter is safe. If any check here is ever made
+# required, this filter MUST move to job-level `if:` gating (a required check
+# whose workflow never triggers is stuck "Expected" and blocks the merge).
 on:
   pull_request:
     branches: ["*"]
     types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      # Anything that changes the node/runtime the e2e suites run against.
+      - "common/**"
+      - "node/**"
+      - "pallets/**"
+      - "precompiles/**"
+      - "primitives/**"
+      - "runtime/**"
+      - "support/**"
+      - "chain-extensions/**"
+      - "src/**"
+      - "vendor/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "build.rs"
+      - "rust-toolchain.toml"
+      - "Dockerfile-localnet"
+      # The SDK/CLI code under test.
+      - "sdk/**"
+      - ".github/workflows/check-bittensor-e2e-tests.yml"
 
   workflow_dispatch:
     inputs:
@@ -23,8 +50,21 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
+  # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment.
+  LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
+  # Per-commit tag on GHCR: built once, pulled by every test job. Registry
+  # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
+  # because layers download compressed and in parallel.
+  LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet:ci-${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   check-label:
     runs-on: ubuntu-latest
     outputs:
@@ -36,7 +76,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" gh jq
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -61,145 +101,112 @@ jobs:
         run: |
           echo "skip-bittensor-e2e-tests=false" >> $GITHUB_OUTPUT
 
-  find-btcli-e2e-tests:
+  find-e2e-tests:
     needs: check-label
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     runs-on: ubuntu-latest
     outputs:
-      test-files: ${{ steps.get-btcli-tests.outputs.test-files }}
+      test-files: ${{ steps.get-tests.outputs.test-files }}
     steps:
       - name: Install dependencies
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" jq
 
-      - name: Research preparation
-        working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
-
-      - name: Checkout
-        working-directory: ${{ github.workspace }}/btcli
-        run: git checkout staging
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          python-version: '3.10'
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: "false"
-
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}/btcli
-        run: uv venv --seed
-
-      - name: Install dependencies
-        working-directory: ${{ github.workspace }}/btcli
-        run: |
-          source .venv/bin/activate
-          uv run --active pip install --upgrade pip
-          uv run --active pip install '.[dev]'
-          uv run --active pip install pytest
-
-      - name: Find e2e test files
-        id: get-btcli-tests
-        working-directory: ${{ github.workspace }}/btcli
+      - name: Verify the Rust e2e migration manifest
+        id: get-tests
+        shell: bash
         run: |
           set -euo pipefail
-          test_matrix=$(
-            uv run pytest -q --collect-only tests/e2e_tests \
-            | sed -n '/^tests\//p' \
-            | jq -R -s -c '
-                split("\n")
-                | map(select(. != ""))
-                | map({nodeid: ., label: (sub("^tests/e2e_tests/"; ""))})
-              '
-          )
-          echo "Found tests: $test_matrix"
+          manifest=sdk/bittensor-core/tests/e2e-manifest.json
+          jq -e 'length == 113' "$manifest" >/dev/null
+          jq -e 'map(.test) | length == (unique | length)' "$manifest" >/dev/null
+          jq -e 'all(.[]; (.test | startswith("intent_")) or (.test | startswith("test_")))' "$manifest" >/dev/null
+          test_matrix=$(jq -c . "$manifest")
+          echo "Found $(jq length "$manifest") migrated Rust e2e tests"
           echo "test-files=$test_matrix" >> "$GITHUB_OUTPUT"
-        shell: bash
 
-  find-sdk-e2e-tests:
-    needs: check-label
+  build-rust-e2e-test-binary:
+    needs: [check-label, find-e2e-tests]
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     runs-on: ubuntu-latest
-    outputs:
-      test-files: ${{ steps.get-sdk-tests.outputs.test-files }}
+    timeout-minutes: 60
     steps:
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" jq
-
-      - name: Research preparation
-        working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/bittensor.git
-
-      - name: Checkout
-        working-directory: ${{ github.workspace }}/bittensor
-        run: git checkout staging
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          python-version: '3.10'
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: "false"
-
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}/bittensor
-        run: uv venv --seed
-
-      - name: Install dependencies
-        working-directory: ${{ github.workspace }}/bittensor
+      - name: Install Rust + build dependencies
         run: |
-          source .venv/bin/activate
-          uv run --active pip install --upgrade pip
-          uv run --active pip install '.[dev]'
-          uv run --active pip install pytest
+          chmod +x ./scripts/install_build_env.sh
+          ./scripts/install_build_env.sh
 
-      - name: Find e2e test files
-        id: get-sdk-tests
-        working-directory: ${{ github.workspace }}/bittensor
+      - name: Compile once and prove manifest completeness
+        shell: bash
         run: |
           set -euo pipefail
-          test_matrix=$(
-            uv run pytest -q --collect-only tests/e2e_tests \
-            | sed -n '/^e2e_tests\//p' \
-            | sed 's|^|tests/|' \
-            | jq -R -s -c '
-                split("\n")
-                | map(select(. != ""))
-                | map({nodeid: ., label: (sub("^tests/e2e_tests/"; ""))})
-              '
+          source "$HOME/.cargo/env"
+          mkdir -p build/rust-e2e
+          # The workspace/localnet build also compiles the Python binding. Keep
+          # CoreError/API compatibility in this faster job so failures surface
+          # before the expensive node builds.
+          cargo check -p bittensor-core-py
+          cargo test -p bittensor-core --test e2e --no-run --message-format=json \
+            > build/rust-e2e/cargo-messages.json
+          executable=$(
+            jq -r '
+              select(.reason == "compiler-artifact")
+              | select(.target.name == "e2e")
+              | select(.target.kind | index("test"))
+              | .executable // empty
+            ' build/rust-e2e/cargo-messages.json | tail -n 1
           )
-          echo "Found tests: $test_matrix"
-          echo "test-files=$test_matrix" >> "$GITHUB_OUTPUT"
-        shell: bash
+          test -n "$executable"
+          cp "$executable" build/rust-e2e/bittensor-core-e2e
+          chmod +x build/rust-e2e/bittensor-core-e2e
 
-  # build artifacts for fast-runtime and non-fast-runtime
+          jq -r '.[].test' sdk/bittensor-core/tests/e2e-manifest.json \
+            | sort > build/rust-e2e/expected-tests.txt
+          build/rust-e2e/bittensor-core-e2e --list --format terse \
+            | sed -n 's/: test$//p' \
+            | sort > build/rust-e2e/compiled-tests.txt
+          diff -u build/rust-e2e/expected-tests.txt build/rust-e2e/compiled-tests.txt
+
+      - name: Upload compiled Rust e2e binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bittensor-core-e2e
+          path: build/rust-e2e/bittensor-core-e2e
+          if-no-files-found: error
+
   artifacts:
-    name: Node • ${{ matrix.runtime }} • ${{ matrix.platform.arch }}
-    needs: check-label
+    name: Node • fast-runtime • ${{ matrix.platform.arch }}
+    needs: [check-label, trusted-pr]
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     strategy:
+      fail-fast: false
       matrix:
         platform:
-          - runner: [self-hosted, fireactions-heavy]
+          - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
-        runtime: ["fast-runtime", "non-fast-runtime"]
 
     runs-on: ${{ matrix.platform.runner }}
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -214,6 +221,13 @@ jobs:
           source "$HOME/.cargo/env"
           rustup target add ${{ matrix.platform.triple }}
 
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
       - name: Patch limits for local run
         run: |
           chmod +x ./scripts/localnet_patch.sh
@@ -224,29 +238,25 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_BUILD_TARGET="${{ matrix.platform.triple }}"
 
-          if [ "${{ matrix.runtime }}" = "fast-runtime" ]; then
-            ./scripts/localnet.sh --build-only
-          else
-            ./scripts/localnet.sh False --build-only
-          fi
+          # The SDK e2e suite validates the fast-runtime localnet image used
+          # by developer and CI localnet runs.
+          ./scripts/localnet.sh --build-only
 
-      # use `ci_target` name bc .dockerignore excludes `target`
       - name: Prepare artifacts for upload
         run: |
-          RUNTIME="${{ matrix.runtime }}"
+          RUNTIME="fast-runtime"
           TRIPLE="${{ matrix.platform.triple }}"
 
-          # Verify binaries exist before copying
           BINARY_PATH="target/${RUNTIME}/${TRIPLE}/release/node-subtensor"
           WASM_PATH="target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm"
 
           if [[ ! -f "$BINARY_PATH" ]]; then
-            echo "❌ Error: Binary not found at $BINARY_PATH"
+            echo "Error: Binary not found at $BINARY_PATH"
             exit 1
           fi
 
           if [[ ! -f "$WASM_PATH" ]]; then
-            echo "❌ Error: WASM file not found at $WASM_PATH"
+            echo "Error: WASM file not found at $WASM_PATH"
             exit 1
           fi
 
@@ -259,26 +269,25 @@ jobs:
             build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: binaries-${{ matrix.platform.triple }}-${{ matrix.runtime }}
+          name: binaries-${{ matrix.platform.triple }}-fast-runtime
           path: build/
           if-no-files-found: error
 
-  # Collect all artifacts and build a Docker image
   build-image-with-current-branch:
     needs: [check-label, artifacts]
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: binaries-*
           path: build/
@@ -295,22 +304,23 @@ jobs:
           docker info | grep "Docker Root Dir"
 
       - name: Build Docker Image
-        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t localnet .
+        run: docker build -f sdk/bittensor-core/tests/Dockerfile.localnet-fast -t "$LOCALNET_IMAGE_CI" .
 
-      - name: Save Docker Image as Tar
-        run: docker save -o /mnt/data/subtensor-localnet.tar localnet
-
-      - name: Upload Docker Image as Artifact
-        uses: actions/upload-artifact@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          name: subtensor-localnet
-          path: /mnt/data/subtensor-localnet.tar
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-  # main btcli job
-  run-btcli-e2e-tests:
+      - name: Push Docker Image to GHCR
+        run: docker push "$LOCALNET_IMAGE_CI"
+
+  run-rust-e2e-tests:
     needs:
       - check-label
-      - find-btcli-e2e-tests
+      - find-e2e-tests
+      - build-rust-e2e-test-binary
       - build-image-with-current-branch
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     runs-on: ubuntu-latest
@@ -318,152 +328,64 @@ jobs:
       fail-fast: false
       max-parallel: 32
       matrix:
-        include: ${{ fromJson(needs.find-btcli-e2e-tests.outputs.test-files) }}
+        include: ${{ fromJson(needs.find-e2e-tests.outputs.test-files) }}
 
     timeout-minutes: 60
-    name: "cli: ${{ matrix.label }}"
+    name: "rust-e2e: ${{ matrix.test }}"
     steps:
-      - name: Check-out repository
-        uses: actions/checkout@v4
+      - name: Download compiled Rust e2e binary
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          name: bittensor-core-e2e
+          path: rust-e2e
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          enable-cache: "false"
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}
-        run: uv venv --seed ${{ github.workspace }}/venv
-
-      - name: Clone Bittensor CLI repo
-        working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/btcli.git
-
-      - name: Setup Bittensor-cli from cloned repo
-        working-directory: ${{ github.workspace }}/btcli
+      - name: Pull Docker Image
+        # GHCR intermittently returns permission_denied/timeouts under the
+        # ~120-job pull fan-out, so retry with backoff instead of failing the shard.
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          git checkout staging
-          git fetch origin staging
-          uv run --active pip install --upgrade pip
-          uv run --active pip install '.[dev]'
-          uv run --active pip install pytest
-
-      - name: Download Cached Docker Image
-        uses: actions/download-artifact@v4
-        with:
-          name: subtensor-localnet
-
-      - name: Load Docker Image
-        run: docker load -i subtensor-localnet.tar
-
-      - name: Retag Docker Image
-        run: docker tag localnet ghcr.io/opentensor/subtensor-localnet:devnet-ready
-
-      - name: Run with retry
-        working-directory: ${{ github.workspace }}/btcli
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          export SKIP_PULL=1
-          set +e
-          for i in 1 2; do
-            echo "🔁 Attempt $i: Running tests"
-            uv run pytest "${{ matrix.nodeid }}" -s
-            status=$?
-            if [ $status -eq 0 ]; then
-              echo "✅ Tests passed on attempt $i"
-              break
-            else
-              echo "❌ Tests failed on attempt $i"
-              if [ $i -eq 2 ]; then
-                echo "🔥 Tests failed after 2 attempts"
-                exit 1
-              fi
-              echo "🕒 Retrying..."
-              sleep 5
-            fi
+          for i in 1 2 3; do
+            docker pull "$LOCALNET_IMAGE_CI" && exit 0
+            echo "docker pull failed (attempt $i), retrying in $((i * 15))s..."
+            sleep $((i * 15))
           done
-
-  # main sdk job
-  run-sdk-e2e-tests:
-    needs:
-      - check-label
-      - find-sdk-e2e-tests
-      - build-image-with-current-branch
-    if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      max-parallel: 64
-      matrix:
-        include: ${{ fromJson(needs.find-sdk-e2e-tests.outputs.test-files) }}
-
-    timeout-minutes: 60
-    name: "sdk: ${{ matrix.label }}"
-    steps:
-      - name: Check-out repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: "false"
-
-      - name: Create Python virtual environment
-        working-directory: ${{ github.workspace }}
-        run: uv venv --seed ${{ github.workspace }}/venv
-
-      - name: Clone Bittensor SDK repo
-        working-directory: ${{ github.workspace }}
-        run: git clone https://github.com/opentensor/bittensor.git
-
-      - name: Setup Bittensor SDK from cloned repo
-        working-directory: ${{ github.workspace }}/bittensor
-        run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          git checkout staging
-          git fetch origin staging
-          uv run --active pip install --upgrade pip
-          uv run --active pip install '.[dev]'
-          uv run --active pip install pytest
-
-      - name: Download Cached Docker Image
-        uses: actions/download-artifact@v4
-        with:
-          name: subtensor-localnet
-
-      - name: Load Docker Image
-        run: docker load -i subtensor-localnet.tar
+          docker pull "$LOCALNET_IMAGE_CI"
 
       - name: Retag Docker Image
-        run: docker tag localnet ghcr.io/opentensor/subtensor-localnet:devnet-ready
+        run: docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"
 
       - name: Run with retry
-        working-directory: ${{ github.workspace }}/bittensor
+        env:
+          SKIP_PULL: 1
+          RUST_BACKTRACE: 1
+          TEST_NAME: ${{ matrix.test }}
         run: |
-          source ${{ github.workspace }}/venv/bin/activate
-          export SKIP_PULL=1
           set +e
+          chmod +x rust-e2e/bittensor-core-e2e
           for i in 1 2; do
-            echo "🔁 Attempt $i: Running tests"
-            uv run pytest "${{ matrix.nodeid }}" -s
+            echo "Attempt $i: Running $TEST_NAME"
+            rust-e2e/bittensor-core-e2e \
+              "$TEST_NAME" \
+              --exact \
+              --nocapture \
+              --test-threads=1
             status=$?
             if [ $status -eq 0 ]; then
-              echo "✅ Tests passed on attempt $i"
+              echo "Test passed on attempt $i"
               break
             else
-              echo "❌ Tests failed on attempt $i"
+              echo "Test failed on attempt $i"
               if [ $i -eq 2 ]; then
-                echo "🔥 Tests failed after 2 attempts"
+                echo "Test failed after 2 attempts"
                 exit 1
               fi
-              echo "🕒 Retrying..."
+              echo "Retrying..."
               sleep 5
             fi
           done

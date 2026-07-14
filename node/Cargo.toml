@@ -5,9 +5,9 @@ description = "A fresh FRAME-based Substrate node, ready for hacking."
 authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
 homepage = "https://substrate.io/"
 edition.workspace = true
-license = "Unlicense"
+license = "Apache-2.0"
 publish = false
-repository = "https://github.com/opentensor/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 build = "build.rs"
 
 [lints]

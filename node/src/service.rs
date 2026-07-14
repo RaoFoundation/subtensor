@@ -24,9 +24,9 @@ use sp_runtime::key_types;
 use sp_runtime::traits::{Block as BlockT, NumberFor};
 use stc_shield::{self, MemoryShieldKeystore};
 use std::collections::HashSet;
+use std::path::Path;
 use std::str::FromStr;
-use std::sync::atomic::AtomicBool;
-use std::{cell::RefCell, path::Path};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::{sync::Arc, time::Duration};
 use stp_shield::ShieldKeystorePtr;
 use substrate_prometheus_endpoint::Registry;
@@ -758,11 +758,20 @@ fn run_manual_seal_authorship(
         shield_keystore.clone(),
     );
 
-    thread_local!(static TIMESTAMP: RefCell<u64> = const { RefCell::new(0) });
+    let timestamp = Arc::new(AtomicU64::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
+    ));
 
-    /// Provide a mock duration starting at 0 in millisecond for timestamp inherent.
-    /// Each call will increment timestamp by slot_duration making the consensus logic think time has passed.
-    struct MockTimestampInherentDataProvider;
+    /// Provide a synthetic timestamp starting after the current wall-clock slot.
+    /// Each call advances by one slot, allowing interval sealing to run faster
+    /// than real time while remaining ahead of cloned consensus state.
+    struct MockTimestampInherentDataProvider {
+        timestamp: Arc<AtomicU64>,
+    }
 
     #[async_trait::async_trait]
     impl sp_inherents::InherentDataProvider for MockTimestampInherentDataProvider {
@@ -770,11 +779,15 @@ fn run_manual_seal_authorship(
             &self,
             inherent_data: &mut sp_inherents::InherentData,
         ) -> Result<(), sp_inherents::Error> {
-            TIMESTAMP.with(|x| {
-                let mut x_ref = x.borrow_mut();
-                *x_ref = x_ref.saturating_add(subtensor_runtime_common::time::SLOT_DURATION);
-                inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &*x_ref)
-            })
+            let slot_duration = subtensor_runtime_common::time::SLOT_DURATION;
+            let timestamp = self
+                .timestamp
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                    Some(current.saturating_add(slot_duration))
+                })
+                .map(|previous| previous.saturating_add(slot_duration))
+                .unwrap_or(u64::MAX);
+            inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &timestamp)
         }
 
         async fn try_handle_error(
@@ -789,9 +802,10 @@ fn run_manual_seal_authorship(
 
     let create_inherent_data_providers = move |_, ()| {
         let keystore = shield_keystore.clone();
+        let timestamp = timestamp.clone();
         async move {
             Ok((
-                MockTimestampInherentDataProvider,
+                MockTimestampInherentDataProvider { timestamp },
                 stc_shield::InherentDataProvider::new(keystore),
             ))
         }

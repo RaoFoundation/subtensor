@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+set -Eeuo pipefail
+
+TEMP=""
+for file in $(git --no-pager diff --cached --name-only); do
+    case "$file" in
+        *.ts|*.tsx|*.css|*.graphql|*.json)
+            TEMP="$TEMP $file"
+            ;;
+    esac
+done
+
+if [ -z "$TEMP" ]; then
+    echo "No files to format."
+    exit 0
+fi
+
+if ! echo $TEMP | xargs yarn prettier --check --no-error-on-unmatched-pattern; then
+    echo "Formatting the code before adding a commit";
+    echo $TEMP | xargs git restore --staged
+    echo $TEMP | xargs npx prettier --write --no-error-on-unmatched-pattern
+    echo $TEMP | xargs git add
+else
+    echo "Code formatted fine, commiting";
+fi

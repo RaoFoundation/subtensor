@@ -1,0 +1,331 @@
+name: Watch Mainnet Release
+
+# The mainnet upgrade is executed by the triumvirate signing the multisig
+# proposal submitted by the release train (release-train.yml). This watcher
+# polls the chain; once the on-chain spec_version matches main and no
+# release exists for it yet, it cuts the release:
+#   1. GitHub release v<spec_version>, with the srtool wasm + digest and
+#      multisig call data from the release train attached as assets
+#   2. Docker images via explicit dispatch of docker.yml and
+#      docker-localnet.yml (a release created with the default GITHUB_TOKEN
+#      does not emit `release: published`, so their `on: release` triggers
+#      never fire for releases cut by this workflow)
+#   3. Python SDK + bittensor-core wheels to PyPI
+#   4. Publishable Rust crates to crates.io
+#   5. Production website/docs deployment on Vercel
+#   6. The `mainnet` branch is force-updated to the release-train commit,
+#      so it always contains the code running on mainnet (the devnet and
+#      testnet branches are updated by release-train.yml at deploy time)
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: watch-mainnet-release
+  cancel-in-progress: false
+
+env:
+  MAINNET_HTTP: https://entrypoint-finney.opentensor.ai:443
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Compare chain spec_version with main
+    runs-on: [self-hosted, fireactions-turbo-8]
+    permissions:
+      contents: read
+      actions: read # list/download the release-train artifact
+    outputs:
+      ready: ${{ steps.compare.outputs.ready }}
+      spec_version: ${{ steps.compare.outputs.spec_version }}
+      sha: ${{ steps.compare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare spec versions and existing releases
+        id: compare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          local_spec=$(grep -Eo 'spec_version: *[0-9]+' runtime/src/lib.rs | head -n 1 | grep -Eo '[0-9]+')
+          : ${local_spec:?could not parse spec_version from runtime/src/lib.rs}
+
+          chain_spec=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "$MAINNET_HTTP" | jq -r '.result.specVersion')
+          : ${chain_spec:?could not fetch chain spec_version}
+
+          echo "main spec_version:     $local_spec"
+          echo "on-chain spec_version: $chain_spec"
+
+          echo "spec_version=$local_spec" >> $GITHUB_OUTPUT
+
+          if [[ "$chain_spec" != "$local_spec" ]]; then
+            echo "Upgrade not executed yet (or main is ahead); nothing to do."
+            echo "ready=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Match both this workflow's tags (v424) and the legacy scheme
+          # inherited from upstream (v3.4.9-424) so an already-released
+          # runtime is never released twice. Pre-releases don't count: the
+          # release train publishes the proposal as a pre-release v<spec>,
+          # which this workflow promotes to the final release below.
+          if gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
+              --json tagName,isPrerelease \
+              --jq '.[] | select(.isPrerelease | not) | .tagName' \
+              | grep -Eq "^v${local_spec}$|-${local_spec}$"; then
+            echo "A release for spec_version $local_spec already exists; nothing to do."
+            echo "ready=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Use the commit recorded by the release train, not HEAD — main may
+          # have advanced with docs-only merges after the multisig proposal.
+          # Resolve the artifact through the provenance gate: fork PRs can plant
+          # a `mainnet-upgrade-<spec>` artifact in this repo's store, and this
+          # commit is what we later publish to PyPI/crates.io and push to
+          # `mainnet`, so it must come from a push of release-train.yml to main.
+          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$local_spec")
+          : ${artifact_id:?no trustworthy mainnet-upgrade-${local_spec} artifact found — did the release train run?}
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > /tmp/release-artifact.zip
+          unzip -o /tmp/release-artifact.zip -d /tmp/release-artifact
+          release_sha=$(jq -r '.commit' /tmp/release-artifact/pending-release.json)
+          : ${release_sha:?pending-release.json missing commit field}
+          echo "Release train commit: $release_sha"
+          echo "sha=$release_sha" >> $GITHUB_OUTPUT
+
+          echo "Chain is upgraded to $local_spec and no release exists yet."
+          echo "ready=true" >> $GITHUB_OUTPUT
+
+  release:
+    name: Cut GitHub release
+    needs: check
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # MIRROR_DEPLOY_KEY lives in the mainnet environment secrets; one
+    # approval of the run covers this and the publish jobs below.
+    environment: mainnet
+    permissions:
+      contents: write # create the release
+      actions: read # download the release-train artifact
+    steps:
+      # Checked out at the released commit with the mirror deploy key so the
+      # mainnet branch push below passes the network-branch-mirrors ruleset
+      # (the deploy key is its only bypass actor).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          ssh-key: ${{ secrets.MIRROR_DEPLOY_KEY }}
+
+      # The release train uploaded the deterministic srtool build and the
+      # multisig call data as the mainnet-upgrade-<spec> workflow artifact
+      # (90-day retention). Attach it to the release so the deterministic
+      # build evidence outlives the artifact and matches the convention of
+      # the pre-train releases (subtensor.wasm + subtensor-digest.json).
+      - name: Fetch release-train artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          spec="${{ needs.check.outputs.spec_version }}"
+          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$spec")
+          : ${artifact_id:?no trustworthy mainnet-upgrade-${spec} artifact found — did the release train run?}
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > artifact.zip
+          mkdir -p wasm
+          unzip -o artifact.zip -d wasm
+          ls -la wasm
+
+      - name: Create or promote release with runtime assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPEC_VERSION: ${{ needs.check.outputs.spec_version }}
+          RELEASE_SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          tag="v${SPEC_VERSION}"
+          assets=(
+            wasm/subtensor.wasm
+            wasm/subtensor-digest.json
+            wasm/proxy_proxy_blob.hex
+            wasm/pending-release.json
+          )
+          [ -f wasm/upgrade-manifest.json ] && assets+=(wasm/upgrade-manifest.json)
+
+          # The release train published the proposal as a pre-release at this
+          # tag; the upgrade has now executed on chain, so promote it to the
+          # final release. Assets are re-uploaded from the provenance-gated
+          # workflow artifact so the release always carries the trusted bytes.
+          # Fall back to creating the release for trains that predate the
+          # proposal pre-release flow.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' || true)
+            if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_SHA" ]; then
+              echo "tag $tag points at $tag_sha but the released commit is $RELEASE_SHA;"
+              echo "the proposal pre-release does not match the executed upgrade — resolve manually."
+              exit 1
+            fi
+            notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" --jq '.body' || true)
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Runtime ${SPEC_VERSION}" \
+              ${notes:+--notes "$notes"} \
+              --prerelease=false \
+              --latest
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$RELEASE_SHA" \
+              --title "Runtime ${SPEC_VERSION}" \
+              --generate-notes \
+              "${assets[@]}"
+          fi
+
+      # Mirror: the mainnet branch always points at the code now running on
+      # mainnet (the release-train commit, not HEAD of main). Pushed over
+      # SSH with the mirror deploy key configured by the checkout above,
+      # the only actor allowed past the network-branch-mirrors ruleset.
+      - name: Point mainnet branch at released commit
+        run: git push --force origin "${{ needs.check.outputs.sha }}:refs/heads/mainnet"
+
+  publish-docker:
+    name: Dispatch Docker image publishing
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    permissions:
+      actions: write
+    steps:
+      # Dispatch at the release tag so both workflows check out and tag the
+      # exact released sha, even if main has moved on.
+      - name: Dispatch docker workflows at the release tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ needs.check.outputs.spec_version }}"
+          gh workflow run docker.yml \
+            --repo "$GITHUB_REPOSITORY" --ref "$tag" -f tag="$tag"
+          gh workflow run docker-localnet.yml \
+            --repo "$GITHUB_REPOSITORY" --ref "$tag" -f branch-or-tag="$tag"
+
+  # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
+  # sdist) at the released commit; the committed version is published as-is.
+  build-core:
+    name: Build bittensor-core wheels
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    uses: ./.github/workflows/build-core-wheels.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+
+  publish-sdk:
+    name: Publish Python SDK to PyPI
+    needs: [check, release, build-core]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # PyPI trusted publishing (OIDC); publishers for `bittensor` and
+    # bittensor-core are registered against this workflow + mainnet environment.
+    environment: mainnet
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Download bittensor-core wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        run: uv build --out-dir ../../dist
+
+      # --check-url makes a re-run after a partial upload idempotent: files
+      # already on the index are skipped instead of failing with a 400
+      # duplicate (e.g. the SDK wheel landed but bittensor-core didn't).
+      - name: Publish to PyPI
+        run: |
+          ls -la dist
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/ dist/*
+
+  publish-crates:
+    name: Publish Rust crates to crates.io
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: publish-crates
+
+      # Workspace crates are publish = false while they depend on the
+      # patched polkadot-sdk fork. Any crate that flips publish on is
+      # picked up here automatically, in dependency order.
+      - name: Publish publishable crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          publishable=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.publish != []) | .name')
+          if [[ -z "$publishable" ]]; then
+            echo "No publishable crates in the workspace; skipping."
+            exit 0
+          fi
+          for crate in $publishable; do
+            echo "Publishing $crate..."
+            cargo publish -p "$crate" --locked || {
+              echo "Failed to publish $crate"
+              exit 1
+            }
+          done
+
+  promote-website:
+    name: Deploy production website and docs
+    needs: [check, release]
+    if: needs.check.outputs.ready == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Deploy to Vercel (production)
+        # Repo root, not website/: the Vercel root directory is resolved
+        # against the cwd (see deploy-docs.yml).
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx --yes vercel build --prod --token "$VERCEL_TOKEN"
+          npx --yes vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"

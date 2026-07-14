@@ -1,5 +1,6 @@
 use super::*;
 use codec::{Decode, DecodeWithMemTracking, Encode};
+use frame_support::weights::WeightMeter;
 use safe_math::FixedExt;
 use scale_info::TypeInfo;
 use sp_std::collections::btree_map::BTreeMap;
@@ -30,23 +31,30 @@ impl LockState {
     }
 }
 
-/// Unsigned decrease produced by rolling a lock forward.
+/// Change produced by rolling a lock forward. Locked mass only ever
+/// decreases, but conviction can move either way (it matures upward from
+/// locked mass and decays downward once the mass is gone), so its change is
+/// carried as separate unsigned growth/decay components.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RollDelta {
     pub locked_mass_delta: AlphaBalance,
-    pub conviction_delta: U64F64,
+    pub conviction_decay: U64F64,
+    pub conviction_growth: U64F64,
 }
 
 impl RollDelta {
     pub fn zero() -> Self {
         Self {
             locked_mass_delta: AlphaBalance::ZERO,
-            conviction_delta: U64F64::saturating_from_num(0),
+            conviction_decay: U64F64::saturating_from_num(0),
+            conviction_growth: U64F64::saturating_from_num(0),
         }
     }
 
     pub fn is_zero(&self) -> bool {
-        self.locked_mass_delta.is_zero() && self.conviction_delta == U64F64::saturating_from_num(0)
+        self.locked_mass_delta.is_zero()
+            && self.conviction_decay == U64F64::saturating_from_num(0)
+            && self.conviction_growth == U64F64::saturating_from_num(0)
     }
 }
 
@@ -247,8 +255,16 @@ impl ConvictionModel {
         *aggregate = Self::reduce_lock(
             aggregate,
             roll_delta.locked_mass_delta,
-            roll_delta.conviction_delta,
+            roll_delta.conviction_decay,
         );
+        // Conviction matured by the individual lock must be credited to the
+        // aggregate here: bumping last_update below means the aggregate's own
+        // roll-forward will never cover this window, so dropping the growth
+        // (as a saturating decrease-only delta used to) permanently
+        // understates aggregate conviction.
+        aggregate.conviction = aggregate
+            .conviction
+            .saturating_add(roll_delta.conviction_growth);
         aggregate.last_update = now;
         *aggregate_dirty = true;
     }
@@ -447,7 +463,8 @@ impl ConvictionModel {
 
         let roll_delta = RollDelta {
             locked_mass_delta: previous_locked_mass.saturating_sub(rolled.locked_mass),
-            conviction_delta: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_decay: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_growth: rolled.conviction.saturating_sub(previous_conviction),
         };
 
         (rolled, roll_delta)
@@ -640,6 +657,8 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         enabled: bool,
     ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
         let now = Self::get_current_block_as_u64();
         let current_enabled = Self::is_perpetual_lock(coldkey, netuid);
 
@@ -759,6 +778,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         amount: AlphaBalance,
     ) -> dispatch::DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(!amount.is_zero(), Error::<T>::AmountTooLow);
         ensure!(
             Self::hotkey_account_exists(hotkey),
@@ -1715,6 +1735,7 @@ impl<T: Config> Pallet<T> {
         destination_hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             Self::hotkey_account_exists(destination_hotkey),
             Error::<T>::HotKeyAccountNotExists
@@ -1948,39 +1969,57 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Destroys all lock maps for network dissolution
-    pub fn destroy_lock_maps(netuid: NetUid) {
-        // LockingColdkeys: (netuid, hotkey, coldkey)
-        // Lock: (coldkey, netuid, hotkey)
-        {
-            let to_rm: sp_std::vec::Vec<((T::AccountId, T::AccountId), ())> =
-                LockingColdkeys::<T>::iter_prefix((netuid,)).collect();
+    /// Removes `Lock` entries for `netuid`, resuming from `LastKeptRawKey` when weight is limited.
+    pub fn remove_network_lock(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(key) => Lock::<T>::iter_from(key),
+            None => Lock::<T>::iter(),
+        };
 
-            for ((hot, cold), _) in to_rm {
-                Lock::<T>::remove((cold, netuid, hot));
-            }
-            let _ = LockingColdkeys::<T>::clear_prefix((netuid,), u32::MAX, None);
-        }
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |((_, this_netuid, _), _)| *this_netuid == netuid,
+            |((coldkey, _this_netuid, hotkey), _)| (coldkey, hotkey),
+            |(coldkey, hotkey)| Lock::<T>::remove((coldkey.clone(), netuid, hotkey.clone())),
+            1,
+        );
 
-        // HotkeyLock: (netuid, hotkey) → LockState
-        let _ = HotkeyLock::<T>::clear_prefix(netuid, u32::MAX, None);
+        (
+            read_all,
+            last_item.map(|((coldkey, _, hotkey), _)| {
+                Lock::<T>::hashed_key_for((&coldkey, netuid, &hotkey))
+            }),
+        )
+    }
 
-        // DecayingHotkeyLock: (netuid, hotkey)
-        let _ = DecayingHotkeyLock::<T>::clear_prefix(netuid, u32::MAX, None);
+    /// Removes `DecayingLock` entries for `netuid`, resuming from `LastKeptRawKey` when weight is limited.
+    pub fn remove_network_decaying_lock(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(raw_key) => DecayingLock::<T>::iter_from(raw_key),
+            None => DecayingLock::<T>::iter(),
+        };
 
-        // OwnerLock / DecayingOwnerLock: (netuid)
-        OwnerLock::<T>::remove(netuid);
-        DecayingOwnerLock::<T>::remove(netuid);
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, nu, _)| *nu == netuid,
+            |(cold, nu, _)| (cold, nu),
+            |(cold, netuid)| DecayingLock::<T>::remove(cold, netuid),
+            1,
+        );
 
-        // DecayingLock: (coldkey, netuid)
-        {
-            let to_rm: sp_std::vec::Vec<T::AccountId> = DecayingLock::<T>::iter()
-                .filter_map(|(cold, n, _)| if n == netuid { Some(cold) } else { None })
-                .collect();
-
-            for cold in to_rm {
-                DecayingLock::<T>::remove(cold, netuid);
-            }
-        }
+        (
+            read_all,
+            last_item.map(|(cold, nu, _)| DecayingLock::<T>::hashed_key_for(&cold, nu)),
+        )
     }
 }

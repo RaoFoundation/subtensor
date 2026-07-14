@@ -24,6 +24,7 @@ import {
     ss58ToEthAddress,
     ss58ToH160,
     tao,
+    waitForEthBalance,
     waitForFinalizedBlocks,
     waitForTransactionWithRetry,
     WITHDRAW_CONTRACT_ABI,
@@ -48,7 +49,7 @@ function expectWithinTxFee(actual: bigint, expected: bigint): void {
 async function transferAndGetFee(
     wallet: ethers.Wallet,
     wallet2: ethers.Wallet,
-    provider: ethers.Provider,
+    provider: ethers.JsonRpcProvider,
     maxFeePerGas: bigint,
     maxPriorityFeePerGas: bigint
 ): Promise<bigint> {
@@ -137,7 +138,11 @@ describeSuite({
                 });
                 await waitForTransactionWithRetry(api, tx, signer, "substrate_to_evm");
 
-                const receiverBalanceAfter = await getEthBalance(provider, ethWallet.address);
+                const receiverBalanceAfter = await waitForEthBalance(
+                    provider,
+                    ethWallet.address,
+                    receiverBalance + raoToEth(transferBalance)
+                );
                 expect(receiverBalanceAfter).toEqual(receiverBalance + raoToEth(transferBalance));
             },
         });
@@ -224,9 +229,13 @@ describeSuite({
                     authorization_list: [],
                 });
 
-                await waitForTransactionWithRetry(api, tx, signer, "evm_call", 5);
+                await waitForTransactionWithRetry(api, tx, signer, "evm_call");
 
-                const receiverBalanceAfterCall = await getEthBalance(provider, ethWallet.address);
+                const receiverBalanceAfterCall = await waitForEthBalance(
+                    provider,
+                    ethWallet.address,
+                    receiverBalance + raoToEth(tao(1))
+                );
                 expect(receiverBalanceAfterCall).toEqual(receiverBalance + raoToEth(tao(1)));
             },
         });
@@ -242,6 +251,7 @@ describeSuite({
                 );
                 const contract = await contractFactory.deploy();
                 await contract.waitForDeployment();
+                await waitForFinalizedBlocks(api, 1);
 
                 const contractAddress = contract.target.toString();
                 const code = await provider.getCode(contractAddress);
@@ -254,6 +264,7 @@ describeSuite({
                 };
                 const fundReceipt = await (await ethWallet.sendTransaction(ethTransfer)).wait();
                 expect(fundReceipt?.status).toEqual(1);
+                await waitForFinalizedBlocks(api, 1);
 
                 const contractBalance = await getEthBalance(provider, contractAddress);
                 const callerBalance = await getEthBalance(provider, ethWallet.address);

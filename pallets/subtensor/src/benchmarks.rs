@@ -17,7 +17,7 @@ use frame_system::{RawOrigin, pallet_prelude::BlockNumberFor};
 pub use pallet::*;
 use sp_core::{H160, H256, ecdsa};
 use sp_runtime::{
-    BoundedVec, Percent,
+    BoundedVec, PerU16, Percent,
     traits::{BlakeTwo256, Dispatchable, Hash},
 };
 use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
@@ -564,7 +564,7 @@ mod pallet_benchmarks {
         let netuid = NetUid::from(1);
         let coldkey: T::AccountId = account("Cold", 0, 1);
         let hotkey: T::AccountId = account("Hot", 0, 1);
-        let take: u16 = 1000;
+        let take = PerU16::from_parts(1000);
 
         Subtensor::<T>::init_new_network(netuid, 1);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
@@ -1397,8 +1397,8 @@ mod pallet_benchmarks {
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("Alice", 0, 1);
         let min_take = Subtensor::<T>::get_min_delegate_take();
-        let take: u16 = min_take;
-        let current_take = min_take.saturating_add(1);
+        let take = PerU16::from_parts(min_take);
+        let current_take = PerU16::from_parts(min_take.saturating_add(1));
 
         Delegates::<T>::insert(&hotkey, current_take);
         Owner::<T>::insert(&hotkey, &coldkey);
@@ -1411,9 +1411,9 @@ mod pallet_benchmarks {
     fn increase_take() {
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("Alice", 0, 2);
-        let take: u16 = 150;
+        let take = PerU16::from_parts(150);
 
-        Delegates::<T>::insert(&hotkey, 100u16);
+        Delegates::<T>::insert(&hotkey, PerU16::from_parts(100));
         Owner::<T>::insert(&hotkey, &coldkey);
 
         #[extrinsic_call]
@@ -1536,6 +1536,7 @@ mod pallet_benchmarks {
         let logo_url = vec![];
         let add = vec![];
 
+        Subtensor::<T>::init_new_network(netuid, 1);
         SubnetOwner::<T>::insert(netuid, coldkey.clone());
         SubtokenEnabled::<T>::insert(netuid, true);
 
@@ -2093,6 +2094,24 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn dissolve_network() {
+        let netuid = NetUid::from(1);
+        let tempo: u16 = 1;
+        let coldkey: T::AccountId = account("Owner", 0, 1);
+
+        // Initialize network
+        Subtensor::<T>::init_new_network(netuid, tempo);
+
+        // Set network owner
+        SubnetOwner::<T>::insert(netuid, coldkey.clone());
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, coldkey.clone(), netuid);
+
+        assert!(DissolveCleanupQueue::<T>::get().contains(&netuid));
+    }
+
+    #[benchmark]
     fn set_pending_childkey_cooldown() {
         let cooldown: u64 = 7200;
 
@@ -2277,6 +2296,10 @@ mod pallet_benchmarks {
             AssociatedEvmAddress::<T>::get(netuid, uid),
             Some((evm_key, block_number))
         );
+        assert_eq!(
+            AssociatedUidsByEvmAddress::<T>::get(netuid, evm_key).into_inner(),
+            vec![(uid, block_number)]
+        );
     }
 
     #[benchmark]
@@ -2423,7 +2446,7 @@ mod pallet_benchmarks {
         let hotkey: T::AccountId = account("hotkey", 0, 1);
         let call = Call::<T>::increase_take {
             hotkey: hotkey.clone(),
-            take: Subtensor::<T>::get_max_delegate_take(),
+            take: PerU16::from_parts(Subtensor::<T>::get_max_delegate_take()),
         };
 
         Owner::<T>::insert(&hotkey, &coldkey);

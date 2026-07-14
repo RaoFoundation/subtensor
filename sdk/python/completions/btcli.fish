@@ -1,0 +1,1 @@
+complete --command btcli --no-files --arguments "(env _BTCLI_COMPLETE=complete_fish _TYPER_COMPLETE_FISH_ACTION=get-args _TYPER_COMPLETE_ARGS=(commandline -cp) btcli)" --condition "env _BTCLI_COMPLETE=complete_fish _TYPER_COMPLETE_FISH_ACTION=is-args _TYPER_COMPLETE_ARGS=(commandline -cp) btcli"

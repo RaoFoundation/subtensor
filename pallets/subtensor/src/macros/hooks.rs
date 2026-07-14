@@ -177,22 +177,34 @@ mod hooks {
                 // Capture the runtime-upgrade block for TAO-in refund cutover.
                 .saturating_add(migrations::migrate_tao_in_refund_deployment_block::migrate_tao_in_refund_deployment_block::<T>())
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
-                .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>());
+                .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
+                // Populate reverse lookup index for EVM address associations.
+                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>());
             weight
         }
 
         #[cfg(feature = "try-runtime")]
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
-            // Disabled: https://github.com/opentensor/subtensor/pull/1166
+            // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
             Ok(())
+        }
+
+        fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {
+            let mut weight = Self::remove_data_for_dissolved_networks(limit);
+
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(Self::process_network_registration_queue());
+            }
+
+            weight
         }
     }
 
     impl<T: Config> Pallet<T> {
         // This function is to clean up the old hotkey swap records
         // It just clean up for one subnet at a time, according to the block number
-        fn clean_up_hotkey_swap_records(block_number: BlockNumberFor<T>) -> Weight {
+        pub(crate) fn clean_up_hotkey_swap_records(block_number: BlockNumberFor<T>) -> Weight {
             let mut weight = Weight::from_parts(0, 0);
             let hotkey_swap_on_subnet_interval = T::HotkeySwapOnSubnetInterval::get();
             let block_number: u64 = TryInto::try_into(block_number)

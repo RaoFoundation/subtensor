@@ -1,0 +1,132 @@
+.link {
+  font-family: 'Haffer';
+  color: #5ba87e;
+  overflow-wrap: break-word;
+  text-decoration: none;
+}
+.link_wrapper {
+  text-decoration: none;
+}
+
+.image {
+  width: 100%;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.h1,
+.h2,
+.h3,
+.h4 {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  font-family: 'FiraCode';
+  font-weight: 400;
+  width: 100%;
+  font-size: 25px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  scroll-margin: 125px;
+}
+
+.code {
+  font-family: 'FiraCode';
+  font-weight: 400;
+  line-height: 180%;
+  letter-spacing: 3%;
+  padding: 2px;
+  background-color: #ccc;
+}
+
+.h2 {
+  font-size: 20px;
+}
+
+.h3 {
+  font-size: 16px;
+}
+
+.h4 {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'FiraCode';
+}
+
+.li {
+  font-size: 12px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  font-family: 'Haffer';
+  font-weight: 400;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: 10px;
+}
+
+.ul {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  line-height: 180%;
+  letter-spacing: 3%;
+}
+
+.ol {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  padding: 0px;
+  margin: 0px;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  font-family: 'FiraCode';
+  font-weight: 400;
+}
+.text {
+  font-size: 12px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  font-family: 'Haffer';
+  font-weight: 400;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.bold {
+  font-size: 14px;
+  line-height: 180%;
+  letter-spacing: 3%;
+  font-family: 'Haffer';
+  font-weight: 400;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.tables {
+  border: 0.5px solid;
+  text-align: left;
+  border-collapse: collapse;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  & td,
+  th {
+    border: 1px solid;
+    line-break: loose;
+    padding: 1rem;
+  }
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .tables {
+    font-size: 12px;
+    & td,
+    th {
+      padding: 10px 1px;
+    }
+  }
+}

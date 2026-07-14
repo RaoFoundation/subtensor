@@ -55,6 +55,7 @@ if [ "$OS" = "Linux" ]; then
         $SUDO apt-get install -y ca-certificates
         $SUDO apt-get install -y --no-install-recommends \
             curl build-essential protobuf-compiler clang git pkg-config libssl-dev llvm libudev-dev \
+            python3 python3-dev \
             gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
     fi
 
@@ -88,8 +89,9 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y
 # Activate rust in shell
 source "$HOME/.cargo/env" || export PATH="$HOME/.cargo/bin:$PATH"
 
-rustup toolchain install 1.88.0 --profile minimal
-rustup default 1.88.0
+# Keep in sync with rust-toolchain.toml (the repo's canonical pin).
+rustup toolchain install 1.89 --profile minimal
+rustup default 1.89
 
 # Add Rust Targets
 

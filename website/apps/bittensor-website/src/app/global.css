@@ -1,0 +1,26 @@
+.katex {
+  font-size: 2em;
+}
+
+.math.math-display {
+  display: block;
+  text-align: center;
+}
+
+html,
+body {
+  height: 100svh;
+}
+
+/* Visually hidden but exposed to crawlers and screen readers. */
+.sr_only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

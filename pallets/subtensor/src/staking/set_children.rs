@@ -1,5 +1,6 @@
 use super::*;
 
+use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use subtensor_runtime_common::NetUid;
 
@@ -106,8 +107,8 @@ impl<T: Config> PCRelations<T> {
     /// Replace the pivot->children mapping after validating invariants.
     ///
     /// Invariants:
-    /// - No self-loop: child != pivot
-    /// - sum(proportions) fits in u64 (checked as u128 to avoid overflow mid-sum)
+    /// * No self-loop: child != pivot
+    /// * sum(proportions) fits in u64 (checked as u128 to avoid overflow mid-sum)
     pub fn link_children(&mut self, new_children: BTreeMap<T::AccountId, u64>) -> DispatchResult {
         // Check constraints
         Self::ensure_no_self_loop(&self.pivot, &new_children)?;
@@ -254,9 +255,9 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Persist the `relations` around `hotkey` to storage, updating both directions:
-    /// - Writes ChildKeys(hotkey, netuid) = children
+    /// * Writes ChildKeys(hotkey, netuid) = children
     ///   and synchronizes ParentKeys(child, netuid) entries accordingly.
-    /// - Writes ParentKeys(hotkey, netuid) = parents
+    /// * Writes ParentKeys(hotkey, netuid) = parents
     ///   and synchronizes ChildKeys(parent, netuid) entries accordingly.
     ///
     /// This is a **diff-based** update that only touches affected neighbors.
@@ -446,7 +447,7 @@ impl<T: Config> Pallet<T> {
         Self::persist_child_parent_relations(relations, netuid, weight)
     }
 
-    /// ---- The implementation for the extrinsic do_set_child_singular: Sets a single child.
+    /// The implementation for the extrinsic do_set_child_singular: Sets a single child.
     /// This function allows a coldkey to set children keys.
     ///
     /// Adds a childkey vector to the PendingChildKeys map and performs a few checks:
@@ -461,21 +462,15 @@ impl<T: Config> Pallet<T> {
     ///    **Proportion check**: Ensure that the sum of the proportions does not exceed u64::MAX.
     ///    **Duplicate check**: Ensure there are no duplicates in the list of children.
     ///
-    /// # Events:
-    /// * `SetChildrenScheduled`:
-    ///     - If all checks pass and setting the childkeys is scheduled.
+    /// # Events
+    /// * `SetChildrenScheduled`: If all checks pass and setting the childkeys is scheduled.
     ///
-    /// # Errors:
-    /// * `MechanismDoesNotExist`:
-    ///     - Attempting to register to a non-existent network.
-    /// * `RegistrationNotPermittedOnRootSubnet`:
-    ///     - Attempting to register a child on the root network.
-    /// * `NonAssociatedColdKey`:
-    ///     - The coldkey does not own the hotkey or the child is the same as the hotkey.
-    /// * `HotKeyAccountNotExists`:
-    ///     - The hotkey account does not exist.
-    /// * `TooManyChildren`:
-    ///     - Too many children in request
+    /// # Errors
+    /// * `MechanismDoesNotExist`: Attempting to register to a non-existent network.
+    /// * `RegistrationNotPermittedOnRootSubnet`: Attempting to register a child on the root network.
+    /// * `NonAssociatedColdKey`: The coldkey does not own the hotkey or the child is the same as the hotkey.
+    /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
+    /// * `TooManyChildren`: Too many children in request.
     ///
     pub fn do_schedule_children(
         origin: OriginFor<T>,
@@ -591,24 +586,18 @@ impl<T: Config> Pallet<T> {
 
     /// This function executes setting children keys when called during hotkey draining.
     ///
-    /// * `netuid` (u16):
-    ///     - The u16 network identifier where the child keys will exist.
+    /// * `netuid`: The u16 network identifier where the child keys will exist.
     ///
-    /// # Events:
-    /// * `SetChildren`:
-    ///     - On successfully registering children to a hotkey.
+    /// # Events
+    /// * `SetChildren`: On successfully registering children to a hotkey.
     ///
-    /// # Errors:
-    /// * `MechanismDoesNotExist`:
-    ///     - Attempting to register to a non-existent network.
-    /// * `RegistrationNotPermittedOnRootSubnet`:
-    ///     - Attempting to register a child on the root network.
-    /// * `NonAssociatedColdKey`:
-    ///     - The coldkey does not own the hotkey or the child is the same as the hotkey.
-    /// * `HotKeyAccountNotExists`:
-    ///     - The hotkey account does not exist.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: Attempting to register to a non-existent network.
+    /// * `RegistrationNotPermittedOnRootSubnet`: Attempting to register a child on the root network.
+    /// * `NonAssociatedColdKey`: The coldkey does not own the hotkey or the child is the same as the hotkey.
+    /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
     ///
-    /// # Detailed Explanation of actions:
+    /// # Note
     /// 1. **Old Children Cleanup**: Removes the hotkey from the parent list of its old children.
     /// 2. **New Children Assignment**: Assigns the new child to the hotkey and updates the parent list for the new child.
     ///
@@ -663,11 +652,11 @@ impl<T: Config> Pallet<T> {
     /* Retrieves the list of children for a given hotkey and network.
     ///
     /// # Arguments
-    /// * `hotkey` - The hotkey whose children are to be retrieved.
-    /// * `netuid` - The network identifier.
+    /// * `hotkey`: The hotkey whose children are to be retrieved.
+    /// * `netuid`: The network identifier.
     ///
     /// # Returns
-    /// * `Vec<(u64, T::AccountId)>` - A vector of tuples containing the proportion and child account ID.
+    /// * `Vec<(u64, T::AccountId)>`: A vector of tuples containing the proportion and child account ID.
     ///
     /// # Example
     /// ```
@@ -680,11 +669,11 @@ impl<T: Config> Pallet<T> {
     /* Retrieves the list of parents for a given child and network.
     ///
     /// # Arguments
-    /// * `child` - The child whose parents are to be retrieved.
-    /// * `netuid` - The network identifier.
+    /// * `child`: The child whose parents are to be retrieved.
+    /// * `netuid`: The network identifier.
     ///
     /// # Returns
-    /// * `Vec<(u64, T::AccountId)>` - A vector of tuples containing the proportion and parent account ID.
+    /// * `Vec<(u64, T::AccountId)>`: A vector of tuples containing the proportion and parent account ID.
     ///
     /// # Example
     /// ```
@@ -700,32 +689,26 @@ impl<T: Config> Pallet<T> {
     /// The childkey take determines the proportion of stake that the hotkey keeps for itself
     /// when distributing stake to its children.
     ///
-    /// # Arguments:
-    /// * `coldkey` (T::AccountId):
-    ///     - The coldkey that owns the hotkey.
+    /// # Arguments
+    /// * `coldkey`: The coldkey that owns the hotkey.
     ///
-    /// * `hotkey` (T::AccountId):
-    ///     - The hotkey for which the childkey take will be set.
+    /// * `hotkey`: The hotkey for which the childkey take will be set.
     ///
-    /// * `take` (u16):
-    ///     - The new childkey take value. This is a percentage represented as a value between 0 and 10000,
-    ///       where 10000 represents 100%.
+    /// * `take`: The new childkey take value. This is a ratio represented in parts per 65535,
+    ///   where 65535 represents 100%.
     ///
-    /// # Returns:
-    /// * `DispatchResult` - The result of the operation.
+    /// # Returns
+    /// * `DispatchResult`: The result of the operation.
     ///
-    /// # Errors:
-    /// * `NonAssociatedColdKey`:
-    ///     - The coldkey does not own the hotkey.
-    /// * `InvalidChildkeyTake`:
-    ///     - The provided take value is invalid (greater than the maximum allowed take).
-    /// * `TxChildkeyTakeRateLimitExceeded`:
-    ///     - The rate limit for changing childkey take has been exceeded.
+    /// # Errors
+    /// * `NonAssociatedColdKey`: The coldkey does not own the hotkey.
+    /// * `InvalidChildkeyTake`: The provided take value is invalid (greater than the maximum allowed take).
+    /// * `TxChildkeyTakeRateLimitExceeded`: The rate limit for changing childkey take has been exceeded.
     pub fn do_set_childkey_take(
         coldkey: T::AccountId,
         hotkey: T::AccountId,
         netuid: NetUid,
-        take: u16,
+        take: PerU16,
     ) -> DispatchResult {
         // Ensure the coldkey owns the hotkey
         ensure!(
@@ -733,16 +716,18 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NonAssociatedColdKey
         );
 
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
         // Ensure the take value is valid
         ensure!(
-            take >= Self::get_effective_min_childkey_take(netuid)
-                && take <= Self::get_max_childkey_take(),
+            take.deconstruct() >= Self::get_effective_min_childkey_take(netuid)
+                && take.deconstruct() <= Self::get_max_childkey_take(),
             Error::<T>::InvalidChildkeyTake
         );
 
         let current_take = Self::get_childkey_take(&hotkey, netuid);
         // Check the rate limit for increasing childkey take case
-        if take > current_take {
+        if take.deconstruct() > current_take {
             // Ensure the hotkey passes the rate limit.
             ensure!(
                 TransactionType::SetChildkeyTake.passes_rate_limit_on_subnet::<T>(
@@ -782,15 +767,16 @@ impl<T: Config> Pallet<T> {
     /// This function retrieves the current childkey take value for a specified hotkey.
     /// If no specific take value has been set, it returns the default childkey take.
     ///
-    /// # Arguments:
+    /// # Arguments
     /// * `hotkey` (&T::AccountId): The hotkey for which to retrieve the childkey take.
     ///
-    /// # Returns:
-    /// * `u16`
-    ///     - The childkey take value. This is a percentage represented as a value between 0
-    ///       and 10000, where 10000 represents 100%.
+    /// # Returns
+    /// * `u16`: The childkey take value. This is a percentage represented as a value between 0
+    ///   and 10000, where 10000 represents 100%.
     pub fn get_childkey_take(hotkey: &T::AccountId, netuid: NetUid) -> u16 {
-        ChildkeyTake::<T>::get(hotkey, netuid).max(Self::get_effective_min_childkey_take(netuid))
+        ChildkeyTake::<T>::get(hotkey, netuid)
+            .deconstruct()
+            .max(Self::get_effective_min_childkey_take(netuid))
     }
 
     pub fn get_auto_parent_delegation_enabled(root_validator_hotkey: &T::AccountId) -> bool {
@@ -809,10 +795,10 @@ impl<T: Config> Pallet<T> {
     /// of that root validator on the given subnet, with full proportion (u64::MAX).
     ///
     /// # Arguments
-    /// * `netuid` - The subnet on which to establish relationships.
+    /// * `netuid`: The subnet on which to establish relationships.
     ///
     /// # Returns
-    /// * `DispatchResult` - Ok if at least the setup completes; individual
+    /// * `DispatchResult`: Ok if at least the setup completes; individual
     ///   scheduling failures per validator are logged but do not abort the loop.
     pub fn do_set_root_validators_for_subnet(netuid: NetUid) -> DispatchResult {
         // Cannot set children on root network itself.
@@ -1021,10 +1007,10 @@ impl<T: Config> Pallet<T> {
     /// A match means the exact tuple `(p, other_id)` is present on the opposite map.
     ///
     /// Rules:
-    /// - For each (parent, netuid) -> [(p, child)...] in ChildKeys:
+    /// * For each (parent, netuid) -> [(p, child)...] in ChildKeys:
     ///   keep only those (p, child) that appear in ParentKeys(child, netuid) as (p, parent).
     ///   If resulting list is empty, remove the key.
-    /// - For each (child, netuid) -> [(p, parent)...] in ParentKeys:
+    /// * For each (child, netuid) -> [(p, parent)...] in ParentKeys:
     ///   keep only those (p, parent) that appear in ChildKeys(parent, netuid) as (p, child).
     ///   If resulting list is empty, remove the key.
     pub fn repair_child_parent_consistency(weight: &mut Weight) {

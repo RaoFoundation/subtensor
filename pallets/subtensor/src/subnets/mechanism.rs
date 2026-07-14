@@ -158,7 +158,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Update current count for a subnet identified by netuid
-    /// - Cleans up all sub-subnet maps if count is reduced
+    /// * Cleans up all sub-subnet maps if count is reduced
     ///
     pub fn update_mechanism_counts_if_needed(netuid: NetUid, new_count: MechId) {
         let old_count = u8::from(MechanismCountCurrent::<T>::get(netuid));

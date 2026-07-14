@@ -1,0 +1,36 @@
+.hamburger_btn {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+}
+
+.hamburger_menu {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  padding: 0;
+  z-index: 99;
+  height: 100dvh;
+  width: 100dvw;
+  background-color: white;
+  transition: all 0.5s;
+}
+
+.hamburger_menu_close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.close_btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  margin: 16px 30px;
+}

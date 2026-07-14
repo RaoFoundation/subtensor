@@ -43,6 +43,7 @@ impl<T: Config> Pallet<T> {
 
     /// Enable voting power tracking for a subnet.
     pub fn do_enable_voting_power_tracking(netuid: NetUid) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         // Enable tracking
         VotingPowerTrackingEnabled::<T>::insert(netuid, true);
 
@@ -60,6 +61,7 @@ impl<T: Config> Pallet<T> {
     /// Schedule disabling of voting power tracking for a subnet.
     /// Tracking will continue for 14 days, then automatically disable.
     pub fn do_disable_voting_power_tracking(netuid: NetUid) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         // Check if tracking is enabled
         ensure!(
             Self::get_voting_power_tracking_enabled(netuid),
@@ -89,6 +91,7 @@ impl<T: Config> Pallet<T> {
 
     /// Set the EMA alpha value for voting power calculation on a subnet.
     pub fn do_set_voting_power_ema_alpha(netuid: NetUid, alpha: u64) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         // Validate alpha (must be <= 1.0, represented as 10^18)
         ensure!(
             alpha <= MAX_VOTING_POWER_EMA_ALPHA,

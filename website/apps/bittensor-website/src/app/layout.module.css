@@ -1,0 +1,15 @@
+.no_scroll {
+  overflow: hidden;
+}
+
+.html_container {
+  background-color: var(--background-default);
+}
+
+.body_container {
+  background-color: var(--background-default);
+}
+
+.main_container {
+  background-color: var(--background-default);
+}

@@ -1,0 +1,19 @@
+{
+  "title": "Bittensor",
+  "pages": [
+    "index",
+    "quickstart",
+    "agents",
+    "cli",
+    "concepts",
+    "guides",
+    "migration",
+    "[Releases](/releases)",
+    "---Reference---",
+    "tx",
+    "query",
+    "errors",
+    "---Contributing---",
+    "internals"
+  ]
+}

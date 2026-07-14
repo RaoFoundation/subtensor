@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number to (re)review. Runs whichever personas branch routing dictates — no persona override, so dispatch cannot skip a required check.'
+        description: 'PR number to (re)review. Always runs both personas — no persona override, so dispatch cannot skip a required check.'
         required: true
         type: number
 
@@ -65,18 +65,11 @@ jobs:
             IS_FORK=true
           fi
 
-          # Routing is purely branch-based and applies to both auto-trigger and
-          # manual dispatch. Removing a per-dispatch persona override prevents
-          # a maintainer from skipping one persona's required check by hand —
-          # GitHub treats `if: false` skipped jobs as satisfying required checks,
-          # which would otherwise be a bypass of the security gate.
-          #   testnet -> main : skeptic only (final security gate before mainnet)
-          #   anything else   : both
-          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "testnet" ]]; then
-            RUN_SKEPTIC=true; RUN_AUDITOR=false
-          else
-            RUN_SKEPTIC=true; RUN_AUDITOR=true
-          fi
+          # Both personas run on every PR. There is no per-dispatch persona
+          # override: GitHub treats `if: false` skipped jobs as satisfying
+          # required checks, so an override would let a maintainer bypass a
+          # persona's required check by hand.
+          RUN_SKEPTIC=true; RUN_AUDITOR=true
 
           # Fork auto-trigger: persona jobs still RUN (so the required checks
           # exist as failures rather than as `skipped`-satisfied bypasses).
@@ -182,7 +175,10 @@ jobs:
         # and we fall through to the PR copies under nucleus CI approval.
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --depth=1
+          # Full-history fetch: prefetch.sh falls back to `git merge-base` when
+          # the PR diff exceeds the gh API cap, and a shallow base tip has no
+          # ancestry to connect to the head checkout.
+          git fetch origin "$BASE_REF"
           mkdir -p /tmp/ai-review-trusted
           for f in .github/ai-review/common.md \
                    .github/ai-review/skeptic.md \
@@ -252,7 +248,7 @@ jobs:
           output-schema-file: /tmp/ai-review-trusted/codex-output-schema.json
           prompt: |
             You are running as the **Skeptic** persona reviewing PR #${{ needs.decide.outputs.pr_number }}
-            in the opentensor/subtensor repository.
+            in the RaoFoundation/subtensor repository.
 
             Branch: `${{ needs.decide.outputs.head_ref }}` -> `${{ needs.decide.outputs.base_ref }}`
             Author: `${{ needs.decide.outputs.author }}`
@@ -401,7 +397,10 @@ jobs:
         # and we fall through to the PR copies under nucleus CI approval.
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --depth=1
+          # Full-history fetch: prefetch.sh falls back to `git merge-base` when
+          # the PR diff exceeds the gh API cap, and a shallow base tip has no
+          # ancestry to connect to the head checkout.
+          git fetch origin "$BASE_REF"
           mkdir -p /tmp/ai-review-trusted
           for f in .github/ai-review/common.md \
                    .github/ai-review/skeptic.md \
@@ -469,7 +468,7 @@ jobs:
           output-schema-file: /tmp/ai-review-trusted/codex-output-schema.json
           prompt: |
             You are running as the **Auditor** persona reviewing PR #${{ needs.decide.outputs.pr_number }}
-            in the opentensor/subtensor repository.
+            in the RaoFoundation/subtensor repository.
 
             Branch: `${{ needs.decide.outputs.head_ref }}` -> `${{ needs.decide.outputs.base_ref }}`
             Author: `${{ needs.decide.outputs.author }}`

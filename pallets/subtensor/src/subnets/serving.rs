@@ -2,58 +2,42 @@ use super::*;
 use subtensor_runtime_common::NetUid;
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for the extrinsic serve_axon which sets the ip endpoint information for a uid on a network.
+    /// The implementation for the extrinsic serve_axon which sets the ip endpoint information for a uid on a network.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     - The signature of the caller.
+    /// # Arguments
+    /// * `origin`: The signature of the caller.
     ///
-    /// * 'netuid' (u16):
-    ///     - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    /// * 'version' (u64):
-    ///     - The bittensor version identifier.
+    /// * `version`: The bittensor version identifier.
     ///
-    /// * 'ip' (u64):
-    ///     - The endpoint ip information as a u128 encoded integer.
+    /// * `ip`: The endpoint ip information as a u128 encoded integer.
     ///
-    /// * 'port' (u16):
-    ///     - The endpoint port information as a u16 encoded integer.
+    /// * `port`: The endpoint port information as a u16 encoded integer.
     ///
-    /// * 'ip_type' (u8):
-    ///     - The endpoint ip version as a u8, 4 or 6.
+    /// * `ip_type`: The endpoint ip version as a u8, 4 or 6.
     ///
-    /// * 'protocol' (u8):
-    ///     - UDP:1 or TCP:0
+    /// * `protocol`: UDP:1 or TCP:0.
     ///
-    /// * 'placeholder1' (u8):
-    ///     - Placeholder for further extra params.
+    /// * `placeholder1`: Placeholder for further extra params.
     ///
-    /// * 'placeholder2' (u8):
-    ///     - Placeholder for further extra params.
+    /// * `placeholder2`: Placeholder for further extra params.
     ///
-    /// * 'certificate' (Option<Vec<u8>>):
-    ///     - Certificate for mutual Tls connection between neurons
+    /// * `certificate`: Certificate for mutual Tls connection between neurons.
     ///
-    /// # Event:
-    /// * AxonServed;
-    ///     - On successfully serving the axon info.
+    /// # Events
+    /// * `AxonServed`: On successfully serving the axon info.
     ///
-    /// # Raises:
-    /// * 'MechanismDoesNotExist':
-    ///     - Attempting to set weights on a non-existent network.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
     ///
-    /// * 'NotRegistered':
-    ///     - Attempting to set weights from a non registered account.
+    /// * `NotRegistered`: Attempting to set weights from a non registered account.
     ///
-    /// * 'InvalidIpType':
-    ///     - The ip type is not 4 or 6.
+    /// * `InvalidIpType`: The ip type is not 4 or 6.
     ///
-    /// * 'InvalidIpAddress':
-    ///     - The numerically encoded ip address does not resolve to a proper ip.
+    /// * `InvalidIpAddress`: The numerically encoded ip address does not resolve to a proper ip.
     ///
-    /// * 'ServingRateLimitExceeded':
-    ///     - Attempting to set prometheus information withing the rate limit min.
+    /// * `ServingRateLimitExceeded`: Attempting to set prometheus information withing the rate limit min.
     ///
     pub fn do_serve_axon(
         origin: OriginFor<T>,
@@ -69,6 +53,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // We check the callers (hotkey) signature.
         let hotkey_id = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
         // Validate user input
         Self::validate_serve_axon(
@@ -118,46 +103,34 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic serve_prometheus.
+    /// The implementation for the extrinsic serve_prometheus.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     - The signature of the caller.
+    /// # Arguments
+    /// * `origin`: The signature of the caller.
     ///
-    /// * 'netuid' (u16):
-    ///     - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    /// * 'version' (u64):
-    ///     - The bittensor version identifier.
+    /// * `version`: The bittensor version identifier.
     ///
-    /// * 'ip' (u64):
-    ///     - The prometheus ip information as a u128 encoded integer.
+    /// * `ip`: The prometheus ip information as a u128 encoded integer.
     ///
-    /// * 'port' (u16):
-    ///     - The prometheus port information as a u16 encoded integer.
+    /// * `port`: The prometheus port information as a u16 encoded integer.
     ///
-    /// * 'ip_type' (u8):
-    ///     - The prometheus ip version as a u8, 4 or 6.
+    /// * `ip_type`: The prometheus ip version as a u8, 4 or 6.
     ///
-    /// # Event:
-    /// * PrometheusServed;
-    ///     - On successfully serving the axon info.
+    /// # Events
+    /// * `PrometheusServed`: On successfully serving the axon info.
     ///
-    /// # Raises:
-    /// * 'MechanismDoesNotExist':
-    ///     - Attempting to set weights on a non-existent network.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
     ///
-    /// * 'NotRegistered':
-    ///     - Attempting to set weights from a non registered account.
+    /// * `NotRegistered`: Attempting to set weights from a non registered account.
     ///
-    /// * 'InvalidIpType':
-    ///     - The ip type is not 4 or 6.
+    /// * `InvalidIpType`: The ip type is not 4 or 6.
     ///
-    /// * 'InvalidIpAddress':
-    ///     - The numerically encoded ip address does not resolve to a proper ip.
+    /// * `InvalidIpAddress`: The numerically encoded ip address does not resolve to a proper ip.
     ///
-    /// * 'ServingRateLimitExceeded':
-    ///     - Attempting to set prometheus information withing the rate limit min.
+    /// * `ServingRateLimitExceeded`: Attempting to set prometheus information withing the rate limit min.
     ///
     pub fn do_serve_prometheus(
         origin: OriginFor<T>,
@@ -169,6 +142,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // We check the callers (hotkey) signature.
         let hotkey_id = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
         let updated_prometheus =
             Self::validate_serve_prometheus(&hotkey_id, netuid, version, ip, port, ip_type)?;

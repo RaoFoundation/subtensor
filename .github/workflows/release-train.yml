@@ -1,0 +1,616 @@
+name: Release Train
+
+# Build-once promotion pipeline. One deterministic srtool build is promoted
+# through the networks, gated by live smoke checks and environment approvals:
+#
+#   push to main
+#     └─ build wasm once (srtool)
+#          └─ deploy devnet ── smoke-check devnet
+#               └─ deploy testnet ── smoke-check testnet ── publish SDK rc
+#                    └─ propose mainnet upgrade (env gate + triumvirate multisig)
+#
+# Branch mirrors: after each successful deploy the `devnet`/`testnet` branch
+# is force-updated to the deployed commit, so those branches always contain
+# the code running on the respective chain. The `mainnet` branch is updated
+# by watch-mainnet-release.yml once the multisig executes on chain.
+# Those branches are locked by the "network-branch-mirrors (CI only)"
+# repository ruleset; the only bypass actor is the network-branch-mirror-ci
+# deploy key (secret MIRROR_DEPLOY_KEY), so the mirror pushes go over SSH.
+#
+# Properties:
+#   - the runtime is built exactly once per train; promotion is a setCode
+#     extrinsic + a smoke suite, not a rebuild
+#   - the ship lever is the spec_version bump: merges without a bump build
+#     and then no-op at every deploy guard
+#   - human gates live in environment settings, not in this file: `devnet`
+#     has no required reviewers (automatic), `testnet`/`mainnet` gates are
+#     whatever reviewers are configured on those environments
+#   - trains queue (no cancel): a stale train no-ops at each deploy because
+#     of the spec_version guard
+#
+# After the multisig executes on chain, watch-mainnet-release.yml cuts the
+# release (GitHub release, PyPI stable, crates.io, docs promotion).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runtime/**"
+      - "pallets/**"
+      - "node/**"
+      - "primitives/**"
+      - "precompiles/**"
+      - "common/**"
+      - "Cargo.lock"
+  # Restarting a train mid-way = re-run failed jobs on the existing run
+  # (the artifact is still attached); workflow_dispatch starts a fresh train.
+  workflow_dispatch:
+
+concurrency:
+  group: release-train
+  cancel-in-progress: false # trains queue; guards make stale trains no-op
+
+env:
+  DEVNET_WS: wss://dev.chain.opentensor.ai:443
+  TESTNET_WS: wss://test.finney.opentensor.ai:443
+  MAINNET_WS: wss://entrypoint-finney.opentensor.ai:443
+
+jobs:
+  # ------------------------------------------------------------------
+  # Stage 0: build the runtime once, deterministically.
+  # ------------------------------------------------------------------
+  build:
+    name: Srtool build (once per train)
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 120
+    outputs:
+      spec_version: ${{ steps.spec.outputs.spec_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read spec_version
+        id: spec
+        run: |
+          spec=$(grep -Eo 'spec_version: *[0-9]+' runtime/src/lib.rs | head -n 1 | grep -Eo '[0-9]+')
+          : ${spec:?could not parse spec_version}
+          echo "spec_version=$spec" >> $GITHUB_OUTPUT
+
+      - name: Build srtool image
+        run: ./scripts/srtool/build-srtool-image.sh
+
+      - name: Srtool build (deterministic, metadata-hash)
+        run: |
+          cd runtime && [ -L node-subtensor ] || ln -s . node-subtensor && cd ..
+          docker run --rm --user root --platform=linux/amd64 \
+            -e PACKAGE=node-subtensor-runtime \
+            -e BUILD_OPTS="--features=metadata-hash" \
+            -e PROFILE=production \
+            -v "$HOME/.cargo":/cargo-home \
+            -v "$(pwd)":/build \
+            srtool bash -c "git config --global --add safe.directory /build && \
+              /srtool/build --app > /build/runtime/node-subtensor/srtool-output.log; \
+              code=\$?; [ \$code -ne 0 ] && cat /build/runtime/node-subtensor/srtool-output.log && exit \$code; \
+              tail -n 1 /build/runtime/node-subtensor/srtool-output.log > /build/runtime/node-subtensor/subtensor-digest.json"
+
+      - name: Collect artifact
+        run: |
+          mkdir -p wasm
+          wasm_path=$(find runtime -name 'node_subtensor_runtime.compact.compressed.wasm' -path '*srtool*' | head -n 1)
+          : ${wasm_path:?srtool wasm not found}
+          cp -v "$wasm_path" wasm/subtensor.wasm
+          cp -v runtime/subtensor-digest.json wasm/subtensor-digest.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ steps.spec.outputs.spec_version }}
+          path: wasm/
+          if-no-files-found: error
+          retention-days: 90
+
+  # ------------------------------------------------------------------
+  # Stage 1: devnet — automatic.
+  # ------------------------------------------------------------------
+  deploy-devnet:
+    name: Deploy devnet
+    needs: build
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment: devnet # no required reviewers → automatic
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+
+      # Guard: skip (successfully) if the chain already runs >= this spec.
+      # This is what makes queued/stale trains no-op instead of failing.
+      - name: Check whether an upgrade is needed
+        id: guard
+        run: |
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://dev.chain.opentensor.ai" | jq -r '.result.specVersion')
+          : ${chain:?could not fetch devnet spec_version}
+          if [ "${{ needs.build.outputs.spec_version }}" -gt "$chain" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "devnet already on $chain; skipping."
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Node.js
+        if: steps.guard.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Install without the deploy seed in scope and with install scripts
+      # disabled, so a malicious transitive dependency cannot run an install
+      # hook that reads the sudo-capable chain key.
+      - name: Install deploy deps
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        run: npm ci --ignore-scripts
+
+      - name: Deploy
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        env:
+          # Sudo-capable devnet deploy key, stored in the devnet environment.
+          DEPLOY_SEED: ${{ secrets.DEVNET_DEPLOY_SEED }}
+        run: |
+          node deploy-wasm.js ${{ env.DEVNET_WS }} "$GITHUB_WORKSPACE/wasm/subtensor.wasm"
+
+      - name: Verify on-chain spec_version
+        if: steps.guard.outputs.should_deploy == 'true'
+        run: |
+          sleep 30
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://dev.chain.opentensor.ai" | jq -r '.result.specVersion')
+          [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "devnet still on $chain"; exit 1; }
+
+      # Mirror: the devnet branch always points at the code now running on
+      # devnet. The branch is ruleset-locked; only the mirror deploy key may
+      # update it, so the push goes over SSH. Force push because deploys are
+      # not fast-forwards of the previous mirror.
+      - name: Point devnet branch at deployed commit
+        if: steps.guard.outputs.should_deploy == 'true'
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          key_file=$(mktemp)
+          printf '%s\n' "$MIRROR_DEPLOY_KEY" > "$key_file"
+          GIT_SSH_COMMAND="ssh -i $key_file -o StrictHostKeyChecking=accept-new" \
+            git push --force "git@github.com:${GITHUB_REPOSITORY}.git" \
+            "$GITHUB_SHA:refs/heads/devnet"
+          rm -f "$key_file"
+
+  check-devnet:
+    name: Smoke-check devnet
+    needs: deploy-devnet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ts-tests/.nvmrc
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - name: Run devnet smoke suite
+        working-directory: ts-tests
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm moonwall test smoke_devnet
+
+  # ------------------------------------------------------------------
+  # Stage 2: testnet — automatic once devnet is green.
+  # ------------------------------------------------------------------
+  deploy-testnet:
+    name: Deploy testnet
+    needs: [build, check-devnet]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # Gate is configured on the environment: required reviewers = one-click
+    # promotion; no reviewers = automatic after devnet checks.
+    environment: testnet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+      - name: Check whether an upgrade is needed
+        id: guard
+        run: |
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://test.finney.opentensor.ai" | jq -r '.result.specVersion')
+          : ${chain:?could not fetch testnet spec_version}
+          if [ "${{ needs.build.outputs.spec_version }}" -gt "$chain" ]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "testnet already on $chain; skipping."
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Set up Node.js
+        if: steps.guard.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deploy deps
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        run: npm ci --ignore-scripts
+
+      - name: Deploy
+        if: steps.guard.outputs.should_deploy == 'true'
+        working-directory: .github/scripts/deploy
+        env:
+          DEPLOY_SEED: ${{ secrets.TESTNET_DEPLOY_SEED }}
+        run: |
+          node deploy-wasm.js ${{ env.TESTNET_WS }} "$GITHUB_WORKSPACE/wasm/subtensor.wasm"
+      - name: Verify on-chain spec_version
+        if: steps.guard.outputs.should_deploy == 'true'
+        run: |
+          sleep 30
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://test.finney.opentensor.ai" | jq -r '.result.specVersion')
+          [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "testnet still on $chain"; exit 1; }
+
+      - name: Point testnet branch at deployed commit
+        if: steps.guard.outputs.should_deploy == 'true'
+        env:
+          MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+        run: |
+          key_file=$(mktemp)
+          printf '%s\n' "$MIRROR_DEPLOY_KEY" > "$key_file"
+          GIT_SSH_COMMAND="ssh -i $key_file -o StrictHostKeyChecking=accept-new" \
+            git push --force "git@github.com:${GITHUB_REPOSITORY}.git" \
+            "$GITHUB_SHA:refs/heads/testnet"
+          rm -f "$key_file"
+
+  check-testnet:
+    name: Smoke-check testnet
+    needs: deploy-testnet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ts-tests/.nvmrc
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - name: Run testnet smoke suite
+        working-directory: ts-tests
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm moonwall test smoke_testnet
+
+  # SDK rc channel rides the train: publish after testnet is green
+  # (replaces the publish-sdk-rc job in deploy-testnet.yml).
+  #
+  # Both packages get the same rcN suffix, computed once here so the wheel
+  # matrix and the publish job stamp identical versions. The rc SDK pins
+  # bittensor-core exactly (==<rc>): an rc pre-release can never win version
+  # resolution against a published final (0.1.1rcN < 0.1.1), so a floor
+  # constraint would silently resolve to the previous stable build.
+  rc-versions:
+    name: Compute rc versions
+    needs: check-testnet
+    runs-on: [self-hosted, fireactions-turbo-8]
+    outputs:
+      sdk: ${{ steps.versions.outputs.sdk }}
+      core: ${{ steps.versions.outputs.core }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse base versions and append rc suffix
+        id: versions
+        run: |
+          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
+          : ${base:?could not parse base version from sdk/python/pyproject.toml}
+          core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
+          : ${core_base:?could not parse base version from sdk/bittensor-core-py/pyproject.toml}
+          echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+
+  build-core-rc:
+    name: Build bittensor-core rc wheels
+    needs: rc-versions
+    uses: ./.github/workflows/build-core-wheels.yml
+    with:
+      version: ${{ needs.rc-versions.outputs.core }}
+
+  publish-sdk-rc:
+    name: Publish SDK rc to PyPI
+    needs: [rc-versions, build-core-rc]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment: testnet
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Set rc versions and pin native packages
+        run: |
+          sdk_version="${{ needs.rc-versions.outputs.sdk }}"
+          core_version="${{ needs.rc-versions.outputs.core }}"
+          sed -i "0,/^version = \".*\"/s//version = \"${sdk_version}\"/" sdk/python/pyproject.toml
+          sed -i "s/\"bittensor-core>=[^\"]*\"/\"bittensor-core==${core_version}\"/" sdk/python/pyproject.toml
+          grep -q "bittensor-core==${core_version}" sdk/python/pyproject.toml \
+            || { echo "failed to pin bittensor-core in sdk/python/pyproject.toml"; exit 1; }
+          echo "Publishing bittensor-core ${core_version} and bittensor ${sdk_version} to PyPI"
+      - name: Download bittensor-core wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-dist-*
+          path: dist
+          merge-multiple: true
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        run: uv build --out-dir ../../dist
+      # --check-url makes a re-run after a partial upload idempotent: files
+      # already on the index are skipped instead of failing with a 400
+      # duplicate (e.g. the SDK wheel landed but bittensor-core didn't).
+      - name: Publish to PyPI
+        run: |
+          ls -la dist
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/ dist/*
+
+  # ------------------------------------------------------------------
+  # Stage 3: mainnet — the human gate.
+  # Environment `mainnet` required reviewers = the "ok, deploy to mainnet"
+  # click. The job then submits the CI half of the 2-of-2 deployment
+  # multisig; the triumvirate approves out-of-band, and
+  # watch-mainnet-release.yml cuts the release once it executes.
+  # ------------------------------------------------------------------
+  propose-mainnet:
+    name: Propose mainnet upgrade (multisig)
+    needs: [build, check-testnet]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment: mainnet
+    timeout-minutes: 30
+    permissions:
+      contents: write # publish the proposal pre-release + tag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-${{ needs.build.outputs.spec_version }}
+          path: wasm
+      - name: Check whether an upgrade is needed
+        id: guard
+        run: |
+          chain=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
+            "https://entrypoint-finney.opentensor.ai" | jq -r '.result.specVersion')
+          : ${chain:?could not fetch mainnet spec_version}
+          if [ "${{ needs.build.outputs.spec_version }}" -gt "$chain" ]; then
+            echo "should_propose=true" >> $GITHUB_OUTPUT
+          else
+            echo "mainnet already on $chain; skipping."
+            echo "should_propose=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Install uv
+        if: steps.guard.outputs.should_propose == 'true'
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Verify Finney EVM association cap (spec 426 migration)
+        if: steps.guard.outputs.should_propose == 'true'
+        working-directory: sdk/python
+        run: |
+          spec="${{ needs.build.outputs.spec_version }}"
+          if [ "$spec" -lt 426 ]; then
+            echo "spec $spec < 426; skipping EVM association cap verification"
+            exit 0
+          fi
+          uv sync --frozen
+          uv run python scripts/verify_finney_evm_association_cap.py \
+            "${FINNEY_WS:-wss://entrypoint-finney.opentensor.ai:443}" \
+            --max-per-address 32
+      - name: Set up Node.js
+        if: steps.guard.outputs.should_propose == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deploy deps
+        if: steps.guard.outputs.should_propose == 'true'
+        working-directory: .github/scripts/deploy
+        run: npm ci --ignore-scripts
+
+      - name: Submit multisig proposal (CI half of deployment multisig)
+        if: steps.guard.outputs.should_propose == 'true'
+        working-directory: .github/scripts/deploy
+        env:
+          CI_SEED: ${{ secrets.MAINNET_CI_SEED }}
+        run: |
+          node propose-upgrade-multisig.js ${{ env.MAINNET_WS }} \
+            "$GITHUB_WORKSPACE/wasm/subtensor.wasm" \
+            "$GITHUB_WORKSPACE/wasm/proxy_proxy_blob.hex"
+
+      # The triumvirate's first-signer procedure (scripts/deploy/README.md)
+      # downloads this artifact to verify the wasm and sign the call data.
+      - name: Record pending release
+        if: steps.guard.outputs.should_propose == 'true'
+        run: |
+          jq -n \
+            --arg sha "$GITHUB_SHA" \
+            --arg spec "${{ needs.build.outputs.spec_version }}" \
+            --slurpfile proposal .github/scripts/deploy/pending-release.json \
+            '{commit: $sha, expected_spec_version: ($spec | tonumber), proposal: $proposal[0]}' \
+            > wasm/pending-release.json
+          cat wasm/pending-release.json
+
+      # Everything a signer (or btcli) needs to locate, verify, and sign the
+      # proposal, in one machine-readable file. `btcli upgrade check/sign`
+      # consumes it via the release asset URL.
+      - name: Build upgrade manifest
+        if: steps.guard.outputs.should_propose == 'true'
+        run: |
+          spec="${{ needs.build.outputs.spec_version }}"
+          tag="v${spec}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          jq -n \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg tag "$tag" \
+            --arg base "$base" \
+            --arg network "finney" \
+            --slurpfile pending wasm/pending-release.json \
+            --slurpfile digest wasm/subtensor-digest.json \
+            --slurpfile sudo .github/scripts/deploy/sudo-signatories.json \
+            '{
+              kind: "runtime-upgrade-proposal",
+              network: $network,
+              repo: $repo,
+              tag: $tag,
+              spec_version: $pending[0].expected_spec_version,
+              commit: $pending[0].commit,
+              call_hash: $pending[0].proposal.callHash,
+              proposal: $pending[0].proposal,
+              ci_address: $pending[0].proposal.ciAddress,
+              deployment_multisig: $pending[0].proposal.multisigAddress,
+              sudo_key: $pending[0].proposal.sudoKey,
+              sudo: {signatories: $sudo[0].signatories, threshold: $sudo[0].threshold},
+              wasm_sha256: $digest[0].sha256,
+              srtool_rustc: ($digest[0].rustc // null),
+              max_weight: {ref_time: 50000000000, proof_size: 0},
+              assets: {
+                wasm: ($base + "/subtensor.wasm"),
+                digest: ($base + "/subtensor-digest.json"),
+                call_data: ($base + "/proxy_proxy_blob.hex"),
+                pending_release: ($base + "/pending-release.json"),
+                manifest: ($base + "/upgrade-manifest.json")
+              }
+            }' > wasm/upgrade-manifest.json
+          cat wasm/upgrade-manifest.json
+
+      - name: Upload runtime + call data artifacts
+        if: steps.guard.outputs.should_propose == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-upgrade-${{ needs.build.outputs.spec_version }}
+          path: |
+            wasm/subtensor.wasm
+            wasm/subtensor-digest.json
+            wasm/proxy_proxy_blob.hex
+            wasm/pending-release.json
+            wasm/upgrade-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+      # The single URL to share with the other signers. A *pre-release* at the
+      # deployed commit: the release page carries the signer instructions and
+      # the artifacts as stable-URL assets; watch-mainnet-release.yml promotes
+      # it to a final release once the upgrade executes on chain.
+      - name: Publish proposal pre-release
+        if: steps.guard.outputs.should_propose == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          spec="${{ needs.build.outputs.spec_version }}"
+          tag="v${spec}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
+
+          # A published (non-prerelease) v<spec> means this spec already
+          # shipped; never touch it. A pre-release for the same spec is a
+          # respun proposal (e.g. the first train failed mid-way): replace it.
+          if existing=$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease' 2>/dev/null); then
+            if [ "$existing" != "true" ]; then
+              echo "release $tag already published as a final release; refusing to overwrite"
+              exit 1
+            fi
+            echo "replacing existing proposal pre-release $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
+
+          commit=$(jq -r '.commit' wasm/pending-release.json)
+          call_hash=$(jq -r '.proposal.callHash' wasm/pending-release.json)
+          height=$(jq -r '.proposal.blockHeight' wasm/pending-release.json)
+          index=$(jq -r '.proposal.extrinsicIndex' wasm/pending-release.json)
+          ci_address=$(jq -r '.proposal.ciAddress' wasm/pending-release.json)
+          deploy_ms=$(jq -r '.proposal.multisigAddress' wasm/pending-release.json)
+          sha256=$(jq -r '.sha256' wasm/subtensor-digest.json)
+
+          cat > release-body.md <<EOF
+          ## Proposed runtime upgrade to spec ${spec} (awaiting signatures)
+
+          CI has submitted its half of the 2-of-2 deployment multisig for this
+          upgrade on finney. It executes once the sudo multisig (triumvirate)
+          produces the second approval. This tag is the exact code being
+          deployed.
+
+          ### Sign it
+
+          Each triumvirate member runs:
+
+          \`\`\`
+          btcli upgrade sign --url ${url} -w <your-wallet>
+          \`\`\`
+
+          btcli verifies the call data against the chain (structure, sudo key,
+          on-chain call hash) before submitting, and picks the right approval
+          (first / interior / final) from chain state automatically.
+
+          ### Verify it independently (recommended)
+
+          Build the runtime from this tag with srtool and compare byte-for-byte
+          (see \`.github/scripts/deploy/README.md\` for the full recipe):
+
+          \`\`\`
+          git fetch origin && git checkout ${tag}
+          # srtool build, then:
+          btcli upgrade check --url ${url} --wasm <path/to/your-build.wasm>
+          \`\`\`
+
+          Without \`--wasm\`, \`btcli upgrade check --url ${url}\` still verifies
+          the published artifacts against each other and the chain, but trusts
+          the released wasm; a local srtool build closes that gap.
+
+          ### Proposal details
+
+          | | |
+          | --- | --- |
+          | spec_version | \`${spec}\` |
+          | commit | \`${commit}\` |
+          | call hash | \`${call_hash}\` |
+          | deployment timepoint | \`${height}:${index}\` |
+          | CI key | \`${ci_address}\` |
+          | deployment multisig | \`${deploy_ms}\` |
+          | wasm sha256 | \`${sha256}\` |
+          EOF
+
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$commit" \
+            --prerelease \
+            --title "Runtime ${spec} (proposed)" \
+            --notes-file release-body.md \
+            wasm/subtensor.wasm \
+            wasm/subtensor-digest.json \
+            wasm/proxy_proxy_blob.hex \
+            wasm/pending-release.json \
+            wasm/upgrade-manifest.json
+
+          {
+            echo "## Share this with the other signers"
+            echo ""
+            echo "**${url}**"
+            echo ""
+            echo '```'
+            echo "btcli upgrade sign --url ${url} -w <your-wallet>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

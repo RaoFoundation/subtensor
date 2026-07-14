@@ -1,40 +1,36 @@
 use super::*;
+use crate::subnets::dissolution::DissolveCleanupStatus;
+use frame_support::weights::WeightMeter;
+use num_traits::ToPrimitive;
+use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for the extrinsic remove_stake: Removes stake from a hotkey account and adds it onto a coldkey.
+    /// The implementation for the extrinsic remove_stake: Removes stake from a hotkey account and adds it onto a coldkey.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// * 'netuid' (u16):
-    ///     - Subnetwork UID
+    /// * `netuid`: Subnetwork UID.
     ///
-    /// * 'alpha_unstaked' (Alpha):
-    ///     -  The amount of stake to be removed from the staking account.
+    /// * `alpha_unstaked`: The amount of stake to be removed from the staking account.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     -  On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     -  Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     -  Thrown if there is not enough stake on the hotkey to withdwraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_remove_stake(
         origin: OriginFor<T>,
@@ -92,31 +88,24 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+    /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     -  On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     -  Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     -  Thrown if there is not enough stake on the hotkey to withdraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> dispatch::DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
@@ -177,31 +166,24 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+    /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     -  On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     -  Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     -  Thrown if there is not enough stake on the hotkey to withdraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_unstake_all_alpha(
         origin: OriginFor<T>,
@@ -282,46 +264,36 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic remove_stake_limit: Removes stake from
+    /// The implementation for the extrinsic remove_stake_limit: Removes stake from
     /// a hotkey on a subnet with a price limit.
     ///
     /// In case if slippage occurs and the price shall move beyond the limit
     /// price, the staking order may execute only partially or not execute
     /// at all.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>Origin):
-    ///     - The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     - The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// * 'netuid' (u16):
-    ///     - Subnetwork UID
+    /// * `netuid`: Subnetwork UID.
     ///
-    /// * 'amount_unstaked' (u64):
-    ///     - The amount of stake to be added to the hotkey staking account.
+    /// * `amount_unstaked`: The amount of stake to be added to the hotkey staking account.
     ///
-    ///  * 'limit_price' (u64):
-    ///     - The limit price expressed in units of RAO per one Alpha.
+    /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
     ///
-    ///  * 'allow_partial' (bool):
-    ///     - Allows partial execution of the amount. If set to false, this becomes
-    ///       fill or kill type or order.
+    /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
+    ///   fill or kill type of order.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     - On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     - Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     - Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     - Thrown if there is not enough stake on the hotkey to withdwraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
     ///
     pub fn do_remove_stake_limit(
         origin: OriginFor<T>,
@@ -427,6 +399,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         limit_price: Option<TaoBalance>,
     ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         let coldkey = ensure_signed(origin.clone())?;
 
         let alpha_unstaked =
@@ -439,20 +412,44 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn destroy_alpha_in_out_stakes(netuid: NetUid) -> DispatchResult {
-        // 1) Ensure the subnet exists.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+    pub fn destroy_alpha_in_out_stakes(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        status: &mut DissolveCleanupStatus,
+    ) -> bool {
+        let Some(total_alpha_value_u128) = status.subnet_total_alpha_value else {
+            log::warn!("DissolveCleanupStatus.subnet_total_alpha_value not set");
+            return false;
+        };
 
-        // 2) Owner / lock cost.
+        let Some(mut distributed_tao_value_u128) = status.subnet_distributed_tao else {
+            log::warn!("DissolveCleanupStatus.subnet_distributed_tao not set");
+            return false;
+        };
+
+        // Check if there is enought weight to complete all the operations in this function
+        // It is the maximum weight that can be consumed by the function. including all potential reads and writes.
+        let max_weight = T::DbWeight::get().reads_writes(20, 12);
+        if !weight_meter.can_consume(max_weight) {
+            return false;
+        }
+        weight_meter.consume(max_weight);
         let owner_coldkey: T::AccountId = SubnetOwner::<T>::get(netuid);
         let lock_cost: TaoBalance = Self::get_subnet_locked_balance(netuid);
 
         // Determine if this subnet is eligible for a lock refund (legacy).
         let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
+
         let start_block: u64 = NetworkRegistrationStartBlock::<T>::get();
         let should_refund_owner: bool = reg_at < start_block;
 
-        // 3) Compute owner's received emission in TAO at current price (ONLY if we may refund).
+        let protocol_alpha_value_u128: u128 =
+            SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128;
+
+        let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid);
+        let pot_u128: u128 = pot_tao.into();
+
+        // Compute owner's received emission in TAO at current price (ONLY if we may refund).
         // We:
         //      - get the current alpha issuance,
         //      - apply owner fraction to get owner α,
@@ -483,39 +480,135 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // 4) Enumerate all α entries on this subnet to build distribution weights and cleanup lists.
-        //    - collect keys to remove,
-        //    - per (hot,cold) α VALUE (not shares) with fallback to raw share if pool uninitialized,
-        //    - track hotkeys to clear pool totals.
-        let mut keys_to_remove: Vec<(T::AccountId, T::AccountId)> = Vec::new();
-        let mut stakers: Vec<(T::AccountId, T::AccountId, u128)> = Vec::new();
+        let mut protocol_tao_share = TaoBalance::ZERO;
+        if protocol_alpha_value_u128 > 0 {
+            let prod: u128 = pot_u128.saturating_mul(protocol_alpha_value_u128);
+            let share_u128: u128 = prod.checked_div(total_alpha_value_u128).unwrap_or_default();
+            protocol_tao_share = (share_u128.min(u128::from(u64::MAX)) as u64).into();
+        }
 
-        let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
+        // Remove α‑in/α‑out counters (fully destroyed).
+        SubnetAlphaIn::<T>::remove(netuid);
+        SubnetAlphaOut::<T>::remove(netuid);
+        SubnetProtocolAlpha::<T>::remove(netuid);
 
-        // Legacy subnets keep the old dereg behavior: ignore SubnetAlphaIn.
-        // New subnets include SubnetAlphaIn.
-        let protocol_alpha_value_u128: u128 = if reg_at > tao_in_refund_deployment_block {
-            SubnetAlphaIn::<T>::get(netuid)
-                .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
-                .to_u64() as u128
+        // Clear the locked balance on the subnet.
+        Self::set_subnet_locked_balance(netuid, TaoBalance::ZERO);
+
+        // Finalize lock handling:
+        //    - Legacy subnets (registered before NetworkRegistrationStartBlock) receive:
+        //        refund = max(0, lock_cost(τ) − owner_received_emission_in_τ).
+        //    - New subnets: no refund.
+        let mut refund: TaoBalance = if should_refund_owner {
+            lock_cost.saturating_sub(owner_emission_tao)
         } else {
-            SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128
+            TaoBalance::ZERO
         };
 
-        let mut total_alpha_value_u128: u128 = protocol_alpha_value_u128;
-        let mut protocol_tao_share = TaoBalance::ZERO;
+        if !refund.is_zero()
+            && let Some(subnet_account) = Self::get_subnet_account_id(netuid)
+        {
+            // Transfer maximum transferrable up to refund to owner
+            let transferrable =
+                Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
 
-        let hotkeys_in_subnet: Vec<T::AccountId> = TotalHotkeyAlpha::<T>::iter_keys()
-            .filter(|(_, this_netuid)| *this_netuid == netuid)
-            .map(|(hot, _)| hot.clone())
-            .collect::<Vec<_>>();
+            distributed_tao_value_u128 = distributed_tao_value_u128.saturating_add(refund.into());
 
-        for hot in hotkeys_in_subnet.iter() {
-            for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(hot) {
+            if distributed_tao_value_u128 < pot_u128 {
+                let final_leftover: u128 = pot_u128.saturating_sub(distributed_tao_value_u128);
+
+                refund = refund.saturating_add(final_leftover.into());
+            }
+            // We do our best effort to refund owner to as full amount of refund as possible, but
+            // we cannot fail new subnet registration, so the result is ignored.
+            let _ = Self::transfer_tao(&subnet_account, &owner_coldkey, refund.min(transferrable));
+        }
+
+        // 9) Recycle TAO remaining on the subnet account, forgive errors.
+        if let Some(subnet_account) = Self::get_subnet_account_id(netuid) {
+            let remaining_subnet_balance = Self::get_keep_alive_balance(&subnet_account);
+            if Self::recycle_tao(&subnet_account, remaining_subnet_balance).is_ok() {
+                RAORecycledForRegistration::<T>::insert(netuid, remaining_subnet_balance);
+            }
+        }
+
+        status.subnet_total_alpha_value = None;
+        status.subnet_distributed_tao = None;
+        SubnetTAO::<T>::remove(netuid);
+
+        true
+    }
+
+    /// This function calculates the total alpha value for a subnet.
+    /// It iterates through all hotkeys in the subnet and calculates the total alpha value.
+    /// It returns true if all hotkeys are iterated, otherwise false.
+    ///
+    /// # Arguments
+    /// * `netuid`: The subnet to calculate the total alpha value for.
+    ///
+    /// * `weight_meter`: The weight meter to consume the weight for the operation.
+    ///
+    /// # Returns
+    /// * `bool`: True if all hotkeys are iterated, otherwise false.
+    ///
+    pub fn destroy_alpha_in_out_stakes_get_total_alpha_value(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+        status: &mut DissolveCleanupStatus,
+    ) -> (bool, Option<Vec<u8>>) {
+        let r = T::DbWeight::get().reads(1);
+        let mut read_all = true;
+
+        let mut total_alpha_value_u128: u128;
+
+        if let Some(value) = status.subnet_total_alpha_value {
+            total_alpha_value_u128 = value;
+        } else {
+            let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
+            let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
+
+            // Legacy subnets keep the old dereg behavior: ignore SubnetAlphaIn.
+            // New subnets include SubnetAlphaIn.
+            let protocol_alpha_value_u128: u128 = if reg_at > tao_in_refund_deployment_block {
+                SubnetAlphaIn::<T>::get(netuid)
+                    .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
+                    .to_u64() as u128
+            } else {
+                SubnetProtocolAlpha::<T>::get(netuid).to_u64() as u128
+            };
+            total_alpha_value_u128 = protocol_alpha_value_u128;
+        }
+
+        let iter = match last_key {
+            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
+            None => TotalHotkeyAlpha::<T>::iter(),
+        };
+
+        let mut last_hot = None;
+
+        for (hot, this_netuid, _) in iter {
+            if !weight_meter.can_consume(r) {
+                read_all = false;
+                break;
+            }
+            weight_meter.consume(r);
+
+            if this_netuid != netuid {
+                continue;
+            }
+
+            let mut iterate_all = true;
+            for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
+                if !weight_meter.can_consume(r) {
+                    iterate_all = false;
+                    break;
+                }
+                weight_meter.consume(r);
+
                 if this_netuid != netuid {
                     continue;
                 }
-                keys_to_remove.push((hot.clone(), cold.clone()));
 
                 // Primary: actual α value via share pool.
                 let pool = Self::get_alpha_share_pool(hot.clone(), netuid);
@@ -531,35 +624,146 @@ impl<T: Config> Pallet<T> {
                 if val_u64 > 0 {
                     let val_u128 = val_u64 as u128;
                     total_alpha_value_u128 = total_alpha_value_u128.saturating_add(val_u128);
-                    stakers.push((hot.clone(), cold, val_u128));
                 }
+            }
+
+            if !iterate_all {
+                read_all = false;
+                break;
+            } else {
+                last_hot = Some(hot);
             }
         }
 
-        // 5) Determine the TAO pot and pre-adjust accounting to avoid double counting.
+        status.subnet_total_alpha_value = Some(total_alpha_value_u128);
+
+        (
+            read_all,
+            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
+        )
+    }
+
+    pub fn destroy_alpha_in_out_stakes_settle_stakes(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+        status: &mut DissolveCleanupStatus,
+    ) -> (bool, Option<Vec<u8>>) {
+        let r = T::DbWeight::get().reads(1);
+        let w = T::DbWeight::get().writes(1);
+        let weight_for_tansfer_tao = T::DbWeight::get().reads_writes(11, 3);
+        let mut read_all = true;
+
+        let mut stakers: Vec<(T::AccountId, T::AccountId, u128)> = Vec::new();
+        let Some(total_alpha_value_u128) = status.subnet_total_alpha_value else {
+            log::warn!("DissolveCleanupStatus.subnet_total_alpha_value not set");
+            return (false, None);
+        };
+        let Some(mut distributed_tao_value_u128) = status.subnet_distributed_tao else {
+            log::warn!("DissolveCleanupStatus.subnet_distributed_tao not set");
+            return (false, None);
+        };
+
+        let mut hotkeys_in_subnet: Vec<T::AccountId> = Vec::new();
+        let mut coldkeys = BTreeSet::<T::AccountId>::new();
+        let mut last_hot = None;
+
+        let iter = match last_key {
+            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
+            None => TotalHotkeyAlpha::<T>::iter(),
+        };
+
+        for (hot, this_netuid, _) in iter {
+            if !weight_meter.can_consume(r) {
+                read_all = false;
+                break;
+            }
+            weight_meter.consume(r);
+
+            if this_netuid != netuid {
+                continue;
+            }
+            hotkeys_in_subnet.push(hot.clone());
+
+            let mut inner_read_all = true;
+            let mut coldkey_value_vec: Vec<(T::AccountId, u128)> = Vec::new();
+
+            // Handle one hotkey and all its coldkeys or skip the hotkey if the weight is not enough
+            // Then we just need to record the hotkey as checkpoint
+            for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
+                if !weight_meter.can_consume(r.saturating_mul(2_u64)) {
+                    inner_read_all = false;
+                    break;
+                }
+
+                weight_meter.consume(r.saturating_mul(2_u64));
+                if this_netuid != netuid {
+                    continue;
+                }
+
+                // Primary: actual α value via share pool.
+                let pool = Self::get_alpha_share_pool(hot.clone(), netuid);
+                let actual_val_u64 = pool.try_get_value(&cold).unwrap_or(0);
+
+                // Fallback: if pool uninitialized, treat raw Alpha share as value.
+                let val_u64 = if actual_val_u64 == 0 {
+                    u64::from(share_u64f64)
+                } else {
+                    actual_val_u64
+                };
+
+                if val_u64 > 0 {
+                    let mut need_to_consume_weight = w;
+
+                    // if the coldkey is not in the set, we need to consume the weight for the transfer_tao_from_subnet function call
+                    if !coldkeys.contains(&cold) {
+                        need_to_consume_weight =
+                            need_to_consume_weight.saturating_add(weight_for_tansfer_tao);
+                        coldkeys.insert(cold.clone());
+                    }
+
+                    // reserve the weight for the add_balance_to_coldkey_account function call later
+                    if !weight_meter.can_consume(need_to_consume_weight) {
+                        inner_read_all = false;
+                        last_hot = Some(hot.clone());
+                        break;
+                    }
+                    weight_meter.consume(need_to_consume_weight);
+                    let val_u128 = val_u64 as u128;
+                    coldkey_value_vec.push((cold.clone(), val_u128));
+                }
+            }
+
+            if !inner_read_all {
+                read_all = false;
+                break;
+            } else {
+                for (cold, value) in coldkey_value_vec {
+                    stakers.push((hot.clone(), cold, value));
+                }
+                last_hot = Some(hot.clone());
+            }
+        }
+
+        // total TAO in the subnet pool
         let pot_tao: TaoBalance = SubnetTAO::<T>::get(netuid);
         let pot_u64: u64 = pot_tao.into();
 
-        if pot_u64 > 0 {
-            SubnetTAO::<T>::remove(netuid);
-            TotalStake::<T>::mutate(|total| *total = total.saturating_sub(pot_tao));
+        struct Portion<A, C> {
+            _hot: A,
+            cold: C,
+            share: u64, // TAO to credit to coldkey balance
+            rem: u128,  // remainder for largest‑remainder method
         }
+        let mut portions: Vec<Portion<_, _>> = Vec::with_capacity(stakers.len());
 
-        // 6) Pro‑rata distribution of the pot by α value (largest‑remainder),
+        // Pro‑rata distribution of the pot by α value (largest‑remainder),
         //    **credited directly to each staker's COLDKEY free balance**.
-        if pot_u64 > 0 && total_alpha_value_u128 > 0 {
-            struct Portion<A, C> {
-                _hot: A,
-                cold: C,
-                is_protocol: bool,
-                share: u64, // TAO to credit to coldkey balance
-                rem: u128,  // remainder for largest‑remainder method
-            }
-
+        if pot_u64 > 0 && total_alpha_value_u128 > 0 && !stakers.is_empty() {
             let pot_u128: u128 = pot_u64 as u128;
-            let mut portions: Vec<Portion<_, _>> =
-                Vec::with_capacity(stakers.len().saturating_add(1));
+
             let mut distributed: u128 = 0;
+            let mut total_rem: u128 = 0;
 
             for (hot, cold, alpha_val) in &stakers {
                 let prod: u128 = pot_u128.saturating_mul(*alpha_val);
@@ -568,31 +772,18 @@ impl<T: Config> Pallet<T> {
                 distributed = distributed.saturating_add(u128::from(share_u64));
 
                 let rem: u128 = prod.checked_rem(total_alpha_value_u128).unwrap_or_default();
+                total_rem = total_rem.saturating_add(rem);
                 portions.push(Portion {
                     _hot: hot.clone(),
                     cold: cold.clone(),
-                    is_protocol: false,
                     share: share_u64,
                     rem,
                 });
             }
 
-            if protocol_alpha_value_u128 > 0 {
-                let prod: u128 = pot_u128.saturating_mul(protocol_alpha_value_u128);
-                let share_u128: u128 = prod.checked_div(total_alpha_value_u128).unwrap_or_default();
-                let share_u64: u64 = share_u128.min(u128::from(u64::MAX)) as u64;
-                distributed = distributed.saturating_add(u128::from(share_u64));
-                let rem: u128 = prod.checked_rem(total_alpha_value_u128).unwrap_or_default();
-                portions.push(Portion {
-                    _hot: owner_coldkey.clone(),
-                    cold: owner_coldkey.clone(),
-                    is_protocol: true,
-                    share: share_u64,
-                    rem,
-                });
-            }
-
-            let leftover: u128 = pot_u128.saturating_sub(distributed);
+            let leftover: u128 = total_rem
+                .checked_div(total_alpha_value_u128)
+                .unwrap_or_default();
             if leftover > 0 {
                 portions.sort_by(|a, b| b.rem.cmp(&a.rem));
                 let give: usize = core::cmp::min(leftover, portions.len() as u128) as usize;
@@ -601,69 +792,193 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            // Credit each share directly to coldkey free balance.
+            portions = portions
+                .into_iter()
+                .filter(|p| p.share > 0)
+                .collect::<Vec<_>>();
+
+            // Aggregate the transfer amount for each coldkey
+            let mut transfer_map = BTreeMap::<T::AccountId, TaoBalance>::new();
             for p in portions {
-                if p.is_protocol {
-                    protocol_tao_share = protocol_tao_share.saturating_add(p.share.into());
-                } else if p.share > 0 {
-                    // Cannot fail the whole transaction if this transfer fails
-                    let _ = Self::transfer_tao_from_subnet(netuid, &p.cold, p.share.into());
+                if transfer_map.contains_key(&p.cold) {
+                    transfer_map.insert(
+                        p.cold.clone(),
+                        transfer_map
+                            .get(&p.cold)
+                            .unwrap_or(&TaoBalance::ZERO)
+                            .saturating_add(p.share.into()),
+                    );
+                } else {
+                    transfer_map.insert(p.cold.clone(), p.share.into());
                 }
             }
-        }
 
-        // 7) Destroy all α-in/α-out state for this subnet.
-        // 7.a) Remove every (hot, cold, netuid) α entry.
-        for (hot, cold) in keys_to_remove {
-            Alpha::<T>::remove((hot.clone(), cold.clone(), netuid));
-            AlphaV2::<T>::remove((hot, cold, netuid));
-        }
-        // 7.b) Clear share‑pool totals for each hotkey on this subnet.
-        for hot in hotkeys_in_subnet {
-            TotalHotkeyAlpha::<T>::remove(&hot, netuid);
-            TotalHotkeyShares::<T>::remove(&hot, netuid);
-            TotalHotkeySharesV2::<T>::remove(&hot, netuid);
-        }
-        // 7.c) Remove α‑in/α‑out counters (fully destroyed).
-        SubnetAlphaIn::<T>::remove(netuid);
-        SubnetAlphaOut::<T>::remove(netuid);
-        SubnetProtocolAlpha::<T>::remove(netuid);
-
-        // Clear the locked balance on the subnet.
-        Self::set_subnet_locked_balance(netuid, TaoBalance::ZERO);
-
-        // 8) Finalize lock handling:
-        //    - Legacy subnets (registered before NetworkRegistrationStartBlock) receive:
-        //        refund = max(0, lock_cost(τ) − owner_received_emission_in_τ).
-        //    - New subnets: no refund.
-        let refund: TaoBalance = if should_refund_owner {
-            lock_cost.saturating_sub(owner_emission_tao)
-        } else {
-            TaoBalance::ZERO
-        };
-
-        if !refund.is_zero()
-            && let Some(subnet_account) = Self::get_subnet_account_id(netuid)
-        {
-            // Transfer maximum transferrable up to refund to owner
-            let transferrable =
-                Self::get_coldkey_balance(&subnet_account).saturating_sub(protocol_tao_share);
-            // We do our best effort to refund owner to as full amount of refund as possible, but
-            // we cannot fail new subnet registration, so the result is ignored.
-            let _ = Self::transfer_tao(&subnet_account, &owner_coldkey, refund.min(transferrable));
-        }
-
-        // 9) Recycle TAO remaining on the subnet account, forgive errors.
-        if let Some(subnet_account) = Self::get_subnet_account_id(netuid) {
-            let remaining_subnet_balance = Self::get_keep_alive_balance(&subnet_account);
-            if Self::recycle_tao(&subnet_account, remaining_subnet_balance).is_ok() {
-                RAORecycledForRegistration::<T>::insert(netuid, remaining_subnet_balance);
+            // Credit each share directly to coldkey free balance.
+            for transfer in transfer_map.iter() {
+                // Cannot fail the whole transaction if this transfer fails
+                distributed_tao_value_u128 = distributed_tao_value_u128
+                    .saturating_add(transfer.1.to_u128().unwrap_or(0_u128));
+                let _ = Self::transfer_tao_from_subnet(netuid, transfer.0, *transfer.1);
             }
         }
 
-        // 10) Cleanup all subnet stake locks and lock aggregates if any.
-        Self::destroy_lock_maps(netuid);
+        // ignore the weight for handling the final operation, we must set the correct status for the next run
+        status.subnet_distributed_tao = Some(distributed_tao_value_u128);
 
-        Ok(())
+        (
+            read_all,
+            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
+        )
+    }
+
+    pub fn destroy_alpha_in_out_stakes_clean_alpha(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let r = T::DbWeight::get().reads(1);
+        let w = T::DbWeight::get().writes(1);
+        let mut read_all = true;
+
+        let iter = match last_key {
+            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
+            None => TotalHotkeyAlpha::<T>::iter(),
+        };
+
+        let mut last_hot = None;
+
+        for (hot, this_netuid, _) in iter {
+            let mut coldkeys: Vec<T::AccountId> = Vec::new();
+            if !weight_meter.can_consume(r) {
+                read_all = false;
+                break;
+            }
+            weight_meter.consume(r);
+
+            if this_netuid != netuid {
+                continue;
+            }
+
+            let mut iterate_all = true;
+            // handle all coldkeys for the hotkey as transactional, it is overdesigned to record two layers of checkpoints
+            for (cold, this_netuid, _) in Self::alpha_iter_single_prefix(&hot) {
+                if !weight_meter.can_consume(r) {
+                    read_all = false;
+                    iterate_all = false;
+                    break;
+                }
+                weight_meter.consume(r);
+                if this_netuid != netuid {
+                    continue;
+                }
+                coldkeys.push(cold.clone());
+            }
+
+            if !iterate_all {
+                read_all = false;
+                break;
+            }
+
+            let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
+
+            if !weight_meter.can_consume(weight_for_all_remove) {
+                read_all = false;
+                break;
+            }
+            weight_meter.consume(weight_for_all_remove);
+
+            last_hot = Some(hot.clone());
+
+            for cold in coldkeys {
+                Alpha::<T>::remove((&hot, &cold, netuid));
+                AlphaV2::<T>::remove((&hot, &cold, netuid));
+            }
+        }
+
+        (
+            read_all,
+            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
+        )
+    }
+
+    pub fn destroy_alpha_in_out_stakes_clear_hotkey_totals(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
+            None => TotalHotkeyAlpha::<T>::iter(),
+        };
+
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, nu, _)| *nu == netuid,
+            |(hotkey, _, _)| hotkey,
+            |hotkey| {
+                TotalHotkeyAlpha::<T>::remove(hotkey, netuid);
+                TotalHotkeyShares::<T>::remove(hotkey, netuid);
+                TotalHotkeySharesV2::<T>::remove(hotkey, netuid);
+            },
+            3,
+        );
+
+        (
+            read_all,
+            last_item.map(|(hotkey, nu, _)| TotalHotkeyAlpha::<T>::hashed_key_for(&hotkey, nu)),
+        )
+    }
+
+    pub fn destroy_alpha_in_out_stakes_clear_locks(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(key) => Lock::<T>::iter_from(key),
+            None => Lock::<T>::iter(),
+        };
+
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |((_, this_netuid, _), _)| *this_netuid == netuid,
+            |((coldkey, _this_netuid, hotkey), _)| (coldkey, hotkey),
+            |(coldkey, hotkey)| Lock::<T>::remove((coldkey.clone(), netuid, hotkey.clone())),
+            1,
+        );
+
+        (
+            read_all,
+            last_item.map(|((coldkey, _, hotkey), _)| {
+                Lock::<T>::hashed_key_for((&coldkey, netuid, &hotkey))
+            }),
+        )
+    }
+
+    pub fn destroy_alpha_in_out_stakes_clear_decaying_locks(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(key) => DecayingLock::<T>::iter_from(key),
+            None => DecayingLock::<T>::iter(),
+        };
+
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, this_netuid, _)| *this_netuid == netuid,
+            |(coldkey, _, _)| coldkey,
+            |coldkey| DecayingLock::<T>::remove(coldkey, netuid),
+            1,
+        );
+
+        (
+            read_all,
+            last_item.map(|(coldkey, nu, _)| DecayingLock::<T>::hashed_key_for(&coldkey, nu)),
+        )
     }
 }

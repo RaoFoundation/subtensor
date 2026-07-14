@@ -25,7 +25,7 @@ Behaviour:
 
 Usage:
   GH_TOKEN=... python3 post_review.py \
-    --persona skeptic --pr 2668 --repo opentensor/subtensor \
+    --persona skeptic --pr 2668 --repo RaoFoundation/subtensor \
     --commit-sha <sha> --input-file skeptic-output.json
 """
 

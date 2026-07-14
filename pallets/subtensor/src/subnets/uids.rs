@@ -1,6 +1,6 @@
 use super::*;
 use frame_support::storage::IterableStorageDoubleMap;
-use sp_runtime::Percent;
+use sp_runtime::{PerU16, Percent};
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use sp_std::{cmp, vec};
 use subtensor_runtime_common::NetUid;
@@ -23,10 +23,14 @@ impl<T: Config> Pallet<T> {
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
         let neuron_index: usize = neuron_uid.into();
         Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));
-        Consensus::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        Consensus::<T>::mutate(netuid, |v| {
+            Self::set_element_at(v, neuron_index, PerU16::zero())
+        });
         for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
-            Incentive::<T>::mutate(netuid_index, |v| Self::set_element_at(v, neuron_index, 0));
+            Incentive::<T>::mutate(netuid_index, |v| {
+                Self::set_element_at(v, neuron_index, PerU16::zero())
+            });
             Bonds::<T>::remove(netuid_index, neuron_uid); // Remove bonds for Validator.
 
             // Clear weights set BY the neuron_uid
@@ -44,9 +48,13 @@ impl<T: Config> Pallet<T> {
                 });
             }
         }
-        Dividends::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        Dividends::<T>::mutate(netuid, |v| {
+            Self::set_element_at(v, neuron_index, PerU16::zero())
+        });
         StakeWeight::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
-        ValidatorTrust::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        ValidatorTrust::<T>::mutate(netuid, |v| {
+            Self::set_element_at(v, neuron_index, PerU16::zero())
+        });
         ValidatorPermit::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, false));
     }
 
@@ -77,7 +85,7 @@ impl<T: Config> Pallet<T> {
 
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
-        AssociatedEvmAddress::<T>::remove(netuid, uid_to_replace);
+        Self::remove_associated_evm_address(netuid, uid_to_replace);
         IsNetworkMember::<T>::remove(old_hotkey.clone(), netuid);
         #[allow(unknown_lints)]
         Keys::<T>::remove(netuid, uid_to_replace);
@@ -119,14 +127,14 @@ impl<T: Config> Pallet<T> {
         // 3. Expand per-neuron vectors with new position.
         Active::<T>::mutate(netuid, |v| v.push(true));
         Emission::<T>::mutate(netuid, |v| v.push(0.into()));
-        Consensus::<T>::mutate(netuid, |v| v.push(0));
+        Consensus::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
-            Incentive::<T>::mutate(netuid_index, |v| v.push(0));
+            Incentive::<T>::mutate(netuid_index, |v| v.push(PerU16::zero()));
             Self::set_last_update_for_uid(netuid_index, next_uid, block_number);
         }
-        Dividends::<T>::mutate(netuid, |v| v.push(0));
-        ValidatorTrust::<T>::mutate(netuid, |v| v.push(0));
+        Dividends::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
+        ValidatorTrust::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         ValidatorPermit::<T>::mutate(netuid, |v| v.push(false));
 
         // 4. Insert new account information.
@@ -213,7 +221,7 @@ impl<T: Config> Pallet<T> {
                     #[allow(unknown_lints)]
                     Keys::<T>::remove(netuid, neuron_uid);
                     BlockAtRegistration::<T>::remove(netuid, neuron_uid);
-                    AssociatedEvmAddress::<T>::remove(netuid, neuron_uid);
+                    Self::remove_associated_evm_address(netuid, neuron_uid);
                     for mecid in 0..mechanisms_count {
                         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
                         Weights::<T>::remove(netuid_index, neuron_uid);
@@ -345,6 +353,8 @@ impl<T: Config> Pallet<T> {
                     });
                 }
             }
+
+            Self::remap_associated_evm_address_index(netuid, &old_to_new_uid);
 
             // Clear the UID map for the subnet
             let clear_result = Uids::<T>::clear_prefix(netuid, u32::MAX, None);

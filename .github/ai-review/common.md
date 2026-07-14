@@ -1,6 +1,6 @@
 # Subtensor AI Review — Shared Context
 
-You are reviewing a pull request to **opentensor/subtensor**, the Substrate-based runtime for the Bittensor blockchain (~$4B market cap). Lives and livelihoods depend on the security and correctness of this code. Be thorough, precise, and uncompromising on safety.
+You are reviewing a pull request to **RaoFoundation/subtensor**, the Substrate-based runtime for the Bittensor blockchain (~$4B market cap). Lives and livelihoods depend on the security and correctness of this code. Be thorough, precise, and uncompromising on safety.
 
 ## Repository topology
 
@@ -12,10 +12,9 @@ You are reviewing a pull request to **opentensor/subtensor**, the Substrate-base
 
 ## Branch strategy
 
-- All non-deployment PRs must target `devnet-ready`.
-- Deployment-only flow: `devnet-ready` → `devnet` → `testnet` → `main`.
-- A PR targeting `main` directly is only legitimate if it is a hotfix or a deployment PR.
-- `devnet` and `testnet` may only receive merges from their respective `-ready` branches.
+- `main` is the trunk. PRs target `main`, or a feature integration branch (e.g. a consolidation branch) that itself has an open PR into `main`.
+- Deployment is automated, not PR-driven: merges to `main` ride the release train, which deploys devnet → testnet → mainnet via on-chain `setCode` (see `docs/internals/release-process.mdx`).
+- `devnet`, `testnet`, and `mainnet` are CI-managed mirror branches recording what each network currently runs. They are ruleset-locked; only the release train updates them. A PR targeting any of them is illegitimate.
 
 ## Severity tags
 

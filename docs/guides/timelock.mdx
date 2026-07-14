@@ -1,0 +1,109 @@
+---
+title: Timelock
+description: Seal data anyone can open at a known future time — nobody, including you, can open it early.
+---
+
+Timelock encryption binds data to a future round of the drand **quicknet**
+randomness beacon. Once that round's signature is published — every 3 seconds,
+worldwide, no keys or accounts involved — anyone can decrypt. Before then,
+nobody can, including the author. This is the same mechanism the chain uses
+for commit-reveal weights, exposed directly so you can timelock anything.
+
+The reveal moment is wall-clock time, not chain blocks: a round happens every
+3 seconds regardless of block speed, so `reveal_in="1h"` means one hour on any
+network, including fast-blocks local chains. Encryption is pure local
+cryptography — no network, no keys, nothing to keep secret afterwards except
+the plaintext. Only decryption fetches the round signature from the drand
+HTTP API.
+
+## Python
+
+```python
+from bittensor import timelock
+
+sealed = timelock.encrypt("the answer is 42", reveal_in="1h")
+sealed.reveal_at     # datetime of the reveal, UTC
+sealed.remaining     # timedelta until then; zero once passed
+sealed.revealed      # False until the round is published
+sealed.hex()         # portable ciphertext — publish it anywhere
+```
+
+The hex is all anyone needs — the reveal round is embedded in the ciphertext,
+so there is no key or metadata to carry alongside it. Decrypt from the hex, a
+`Timelocked`, or raw bytes:
+
+```python
+timelock.decrypt(sealed_hex)             # raises TimelockNotReady if early
+timelock.decrypt(sealed_hex, wait=True)  # sleeps until the reveal, then opens
+sealed.decrypt(wait=True)                # same, as a method
+```
+
+`TimelockNotReady` carries `.reveal_round`, `.reveal_at`, and `.remaining`,
+so callers can schedule a retry instead of polling. A `timeout=` caps the
+total wait in seconds, and `timelock.decrypt_async` does the same on the
+event loop.
+
+Give the reveal moment exactly one way:
+
+```python
+timelock.encrypt(data, reveal_in="15m")                  # duration: "30s", "1h30m", "2d", seconds, timedelta
+timelock.encrypt(data, reveal_at="2026-07-08T12:00Z")    # absolute: datetime or ISO-8601, no offset = UTC
+timelock.encrypt(data, reveal_round=30212846)            # explicit drand round
+```
+
+Round arithmetic is exact local math from the quicknet genesis (3 seconds per
+round), available directly:
+
+```python
+timelock.current_round()               # latest published round, computed locally
+timelock.round_at("2026-07-08T12:00Z") # first round at or after a moment
+timelock.reveal_time(30212846)         # UTC datetime a round is published
+```
+
+## CLI
+
+```bash
+btcli timelock encrypt "the answer is 42" --in 1h    # prints ciphertext hex
+btcli timelock encrypt --file plan.pdf --in 2d --out plan.sealed
+btcli timelock encrypt "..." --at 2026-07-08T12:00Z  # or --round 30212846
+```
+
+Hex goes to stdout (pipeable); the reveal note goes to stderr. `--out` writes
+raw ciphertext bytes to a file instead of printing hex.
+
+```bash
+btcli timelock decrypt <hex>             # fails with the reveal time if early
+btcli timelock decrypt plan.sealed --wait --timeout 600
+btcli timelock show <hex>                # when it unlocks, without decrypting
+```
+
+`decrypt` and `show` take the hex or a file path as the argument (or
+`--file`); files may hold raw bytes or hex text. `decrypt --out` writes the
+plaintext bytes to a file — useful for binary payloads.
+
+## Use cases
+
+- **Sealed challenge answers** — a subnet mechanism publishes the answer
+  timelocked, so miners provably cannot have seen it early.
+- **Embargoed announcements** — publish now, readable at the embargo time,
+  with no trusted party holding the key.
+- **Sealed-bid auctions** — all bids open simultaneously at the deadline.
+- **Delayed configuration** — ship a config that activates itself at a known
+  moment.
+
+## Relationship to weight commit-reveal
+
+Validator weights use this machinery automatically: the chain timelocks
+committed weights and reveals them on schedule, with no action needed from
+you — see [`commit-weights`](/docs/tx/commit-weights) and the
+[validating guide](/docs/guides/validating). This page is for timelocking
+your own data.
+
+## Mechanics
+
+- The ciphertext carries its reveal round in a trailer, so no separate
+  bookkeeping is needed — parsing the hex recovers everything.
+- Round arithmetic never touches the network: rounds map to timestamps by
+  exact local math from the quicknet genesis.
+- After the reveal time passes, the beacon or HTTP relay may lag by a few
+  seconds; decryption retries within a short grace window before giving up.

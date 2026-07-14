@@ -1,0 +1,213 @@
+---
+title: Wallets and keys
+description: Coldkeys, hotkeys, key material and backups, security tiers, key rotation, and how address arguments resolve.
+---
+
+A Bittensor wallet is a pair of keys stored on disk (default
+`~/.bittensor/wallets/<wallet-name>/`):
+
+- The **coldkey** holds funds and signs financial operations: transfers,
+  staking, registration, subnet ownership. It is encrypted at rest with a
+  password. Keep it offline where possible — [proxies](/docs/concepts/advanced)
+  exist precisely so day-to-day operations don't need it.
+- The **hotkey** is your operational identity on subnets: it gets the UID when
+  you register, signs weights and axon serving, and is safe to keep on a
+  running machine. One wallet can hold many hotkeys.
+
+## Key material
+
+Coldkeys and hotkeys are **sr25519** keypairs, addressed with SS58 network
+prefix 42. Each key is generated from a mnemonic (12 words by default), and
+that mnemonic is the only recovery path: the wallet password merely decrypts
+the keyfile on one machine — it cannot regenerate a lost key, and no password
+is needed to regenerate the key from the mnemonic. Whoever holds the mnemonic
+owns the funds.
+
+On disk, each wallet directory contains:
+
+- `coldkey` — the coldkey secret, password-encrypted (NaCl);
+- `coldkeypub.txt` — the coldkey's public key and ss58 address, unencrypted
+  (no secret material);
+- `hotkeys/<hotkey-name>` — one file per hotkey, **unencrypted**: the SDK's
+  create and regen helpers always write hotkeys in plaintext, private key and
+  mnemonic included. Treat every hotkey file as readable by anything that can
+  read the disk.
+
+## Create, import, inspect
+
+```bash
+btcli wallet create -w my_coldkey        # new coldkey + hotkey (prints mnemonics once — save them)
+btcli wallet new-hotkey -w my_coldkey -H my_hotkey
+btcli wallet regen-coldkey -w my_coldkey # recover from mnemonic (prompted securely)
+btcli wallet regen-hotkey -w my_coldkey
+btcli wallet regen-coldkeypub -w watch_only --ss58 5F... --public-key 0x...  # watch-only, no secrets
+btcli wallet list                        # wallets on disk, multisigs, address book
+btcli wallet show                        # public keys + crypto schemes
+btcli wallet balance my_coldkey          # free TAO + stake marked to TAO
+```
+
+The same flows exist in Python under `sub.wallets` (`create`, `regen_coldkey`,
+`regen_hotkey`, `list_wallets`, `sign_message`, `verify_message`, ...). Key
+material is handled by the SDK's native wallet module (`bittensor.wallet`,
+backed by the in-repo `bittensor-core` extension); this package adds thin
+conveniences.
+
+```python
+from bittensor.wallet import Wallet
+wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
+```
+
+## Back up the seed phrase
+
+A seed phrase fails in two ways: **loss** (the funds are gone permanently —
+nobody, including the Rao Foundation, can recover them) and **leak**
+(anyone who saw it can drain the wallet — respond by rotating keys, see below).
+Backups defend against loss; handling discipline defends against leak.
+
+- Never type a seed phrase into messaging apps, email, cloud documents, or any
+  networked application. Assume keyloggers, screen capture, and cameras exist
+  when generating or restoring keys.
+- The "hex-encoded seed" or "private key hex" is the seed phrase in another
+  encoding — anyone asking for it is asking for the seed phrase. Nobody
+  legitimate asks for either. "Fix your RPC settings" DMs are phishing, and
+  unsolicited DMs offering support are scams; keep help requests in public
+  channels.
+- Keep redundant physical backups in separate locations so one fire, flood, or
+  theft cannot destroy every copy: paper in a tamper-evident envelope inside a
+  safe or deposit box; a stamped metal plate survives what paper doesn't.
+- A digital backup should live on an encrypted offline drive (GPG or
+  VeraCrypt, strong unique passphrase) that is only ever connected to a
+  trusted, offline machine.
+- A hardware wallet is a signing device, not a backup: it will not export the
+  seed phrase, and too many wrong PINs factory-reset it. Use it in addition to
+  seed-phrase backups, never instead of them.
+
+## Security model
+
+Match each key to the least-trusted machine that needs it:
+
+1. **Public keys only** — balances and state are readable without any secret:
+   import just the address with `btcli wallet regen-coldkeypub` and use any
+   [query](/docs/query) from an everyday machine.
+2. **Hotkey machines** — mining and validation servers run subnet code and ML
+   dependencies, which is untrusted code sitting next to your hotkey. Create
+   hotkeys on a trusted workstation and provision them to servers through a
+   secrets manager (Vault, AWS/GCP secret stores) or ephemeral CI injection;
+   never commit key files to a repository. A leaked hotkey can't move TAO, but
+   it can submit garbage weights and burn the reputation of its UID.
+3. **Coldkey workstation** — a dedicated, clean machine for coldkey-signed
+   operations, ideally holding only a scoped proxy key rather than the real
+   coldkey.
+4. **Primary coldkey in a hardware wallet** — Ledger works through
+   Talisman, Nova Wallet, or SubWallet; Polkadot Vault turns a permanently
+   offline phone into an air-gapped signer that can sign any extrinsic via QR
+   codes (Ledger apps cover a narrower operation set).
+
+This CLI and SDK cannot sign with hardware wallets. That is what the proxy
+pattern is for: the hardware-held primary coldkey creates a single delayed
+`NonTransfer` [proxy](/docs/concepts/advanced), and that proxy creates and
+revokes narrower scoped proxies (`Staking`, `Registration`, ...) for daily
+work. Only two operations ever strictly require the primary coldkey: the first
+add-proxy, and coldkey rotation.
+
+### Supply-chain risk
+
+Pin exact package versions in anything unattended, and upgrade only to
+releases announced on official channels. This is not hypothetical: in July
+2024 a compromised PyPI release of the legacy `bittensor` package (6.12.2)
+exfiltrated coldkey material from machines that installed it, and the chain
+ran in safe mode from July 2 to July 12, 2024 while the damage was contained.
+For high-value machines, installing from the source repository at a signed
+tag (`git tag -v`) beats trusting a package index.
+
+## Signing and verification
+
+```bash
+btcli wallet sign --message "hello" -w my_coldkey            # coldkey signature
+btcli wallet sign --message "hello" --use-hotkey -w my_coldkey
+btcli wallet verify --message "hello" --signature 0x... --ss58 5F...
+```
+
+Every transaction declares which key signs it — the `signer` column on each
+[transaction page](/docs/tx). Staking and transfers are coldkey-signed; weights
+and serving are hotkey-signed.
+
+## How address arguments resolve
+
+Any address option in the CLI (`--dest`, `--hotkey`, `--coldkey`, ...) accepts
+three forms:
+
+- a raw **ss58 address**;
+- a **local name** — hotkey options take `HOTKEY` or `WALLET/HOTKEY`, coldkey
+  options take a wallet name (its coldkey is used), and address-book or
+  proxy-book names resolve too;
+- **omitted** — `--hotkey` / `--coldkey` fall back to the configured wallet's
+  own keys. Destination-style options never default.
+
+```bash
+btcli query hotkey-owner --hotkey my_coldkey/my_hotkey
+btcli wallet balance my_coldkey
+```
+
+## Address hygiene
+
+Transfers are irreversible, and **address poisoning** exploits that: attackers
+grind vanity addresses matching the first and last characters of addresses you
+transact with, then send you a dust transfer so the lookalike appears in your
+history — waiting for you to copy the wrong entry. Defenses:
+
+- read the whole address, not just both ends;
+- know the shape: every Bittensor ss58 address starts with "5" (SS58 prefix
+  42) — anything else isn't a Bittensor address;
+- pay from a saved address book (`btcli wallet list` shows yours), never from
+  transaction history;
+- treat unexpected dust transfers as hostile;
+- send a small test transaction before any large transfer.
+
+Always send TAO to a **coldkey** address. Transferring to a hotkey address is
+technically possible but can strand the funds. And there is no undo anywhere
+in this system: no one — the Rao Foundation included — can reverse a
+theft or recover lost keys.
+
+## Key rotation and recovery
+
+**Hotkey swap.** [`swap-hotkey`](/docs/tx/swap-hotkey) replaces a hotkey with
+a new one, moving its registrations and delegated stake. Swapping across all
+subnets recycles 0.1 TAO from the coldkey; swapping on a single subnet
+recycles 0.001 TAO and is limited to once per subnet per 7,200 blocks
+(~1 day).
+
+**Coldkey swap** is the response to a leaked coldkey — but only worth it if
+the coldkey has registrations or owns a subnet. A plain holder or staker
+should simply transfer their TAO and stake to a fresh coldkey instead. The
+swap is a two-step, delayed process:
+
+1. [`announce-coldkey-swap`](/docs/tx/announce-coldkey-swap) declares the
+   destination and starts a 36,000-block (~5-day) waiting period. The first
+   announcement costs 0.1 TAO, which must be in the coldkey at announcement
+   time (reannouncing later is free). During the
+   window the wallet is locked — no transfers or staking; the coldkey can only
+   execute or dispute.
+2. [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) executes after
+   the delay, moving everything — balance, stake, hotkeys, registrations,
+   subnet ownership — to the destination, which must be an unused coldkey with
+   no existing stake, registrations, or child hotkeys.
+
+Check a pending announcement with the
+[`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) read. An
+announcement can be reannounced (overwriting it and restarting the clock) or
+cleared only after a further 7,200 blocks (~1 day). The delay exists so the
+real owner can catch a thief's announcement:
+[`dispute-coldkey-swap`](/docs/tx/dispute-coldkey-swap) freezes the key until
+the dispute is manually resolved.
+
+## Non-interactive unlock
+
+For automation, the coldkey password resolves in this order (first match
+wins): an explicit `password=` argument in Python; the `BT_WALLET_PASSWORD`
+environment variable; the per-wallet variable named after the keyfile path
+(`BT_PW__...`, from the SDK); a password file via
+`--wallet-password-file` or `BT_WALLET_PASSWORD_FILE`; the macOS Keychain
+(`btcli wallet keychain`); then an interactive prompt. A browser-extension
+signer is also available so the coldkey never touches the machine running the
+CLI — see [signing with a browser extension](/docs/guides/extension-signing).

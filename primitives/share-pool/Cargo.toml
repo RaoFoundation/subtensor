@@ -27,7 +27,6 @@ default = ["std"]
 std = [
 	"codec/std",
     "log/std",
-    "rand/std",
 	"scale-info/std",
     "substrate-fixed/std",
     "sp-core/std",

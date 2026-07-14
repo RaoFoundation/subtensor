@@ -1,0 +1,156 @@
+.display1 {
+  font-family: 'Haffer';
+  font-size: 167px;
+  font-weight: 400;
+  letter-spacing: calc(-0.04 * 20px);
+  line-height: 120%;
+}
+
+.display2 {
+  font-family: 'Haffer';
+  font-size: 130px;
+  font-weight: 400;
+  letter-spacing: calc(-0.04 * 20px);
+  line-height: 120%;
+}
+
+.display3 {
+  font-family: 'Haffer';
+  font-size: 105px;
+  font-weight: 400;
+  letter-spacing: calc(-0.04 * 20px);
+  line-height: 120%;
+}
+
+.display4 {
+  font-family: 'Haffer';
+  font-size: 92px;
+  font-weight: 400;
+  letter-spacing: calc(-0.04 * 20px);
+  line-height: 120%;
+}
+
+.display5 {
+  font-family: 'Haffer';
+  font-size: 64px;
+  font-weight: 400;
+  letter-spacing: calc(-0.04 * 20px);
+  line-height: 120%;
+}
+
+.heading1 {
+  font-family: 'Haffer';
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: calc(-0.01 * 20px);
+  line-height: 120%;
+}
+
+.heading2 {
+  font-family: 'Haffer';
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: calc(-0.01 * 20px);
+  line-height: 120%;
+}
+
+.heading3 {
+  font-family: 'Haffer';
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: calc(-0.01 * 20px);
+  line-height: 120%;
+}
+
+.heading4 {
+  font-family: 'Haffer';
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0%;
+  line-height: 140%;
+}
+
+.paragraph_big {
+  font-family: 'Haffer';
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0%;
+  line-height: 140%;
+}
+
+.balance {
+  font-family: 'DM Mono';
+  font-size: 22px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 120%;
+}
+
+.paragraph_big_mono {
+  font-family: 'DM Mono';
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 130%; /* 20.8px */
+  letter-spacing: 0.8px;
+}
+
+.paragraph {
+  font-family: 'Haffer';
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0%;
+  line-height: 160%;
+}
+
+.code {
+  font-family: 'DM Mono';
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 3%;
+  line-height: 140%;
+}
+
+.paragraph_small {
+  font-family: 'DM Mono';
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: calc(0.03 * 12px);
+  line-height: 180%;
+}
+
+.paragraph_haffer_small {
+  font-family: 'Haffer';
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.6px;
+  line-height: 130%;
+}
+
+.paragraph_extra_small {
+  font-family: 'DM Mono';
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: calc(0.03 * 12px);
+  line-height: 150%;
+}
+
+.label {
+  font-family: 'DM Mono';
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: calc(0.05 * 12px);
+  line-height: 130%;
+  text-transform: uppercase;
+}
+
+.tao_amount {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  letter-spacing: calc(-0.02 * 20px);
+  line-height: 72px;
+  text-transform: lowercase;
+  color: var(--text-secondary-kh);
+  padding-right: 16px;
+  font-weight: 400;
+}

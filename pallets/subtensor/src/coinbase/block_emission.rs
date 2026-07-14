@@ -16,7 +16,7 @@ impl<T: Config> Pallet<T> {
     /// following a logarithmic decay.
     ///
     /// # Returns
-    /// * 'Result<u64, &'static str>': The calculated block emission rate or error.
+    /// * `Result<u64, &'static str>`: The calculated block emission rate or error.
     ///
     pub fn get_block_emission() -> CreditOf<T> {
         let maybe_tao_to_mint = Self::calculate_block_emission();
@@ -77,9 +77,6 @@ impl<T: Config> Pallet<T> {
             .saturating_mul(I96F32::saturating_from_num(DefaultBlockEmission::<T>::get()));
         // Convert to u64
         let block_emission_u64: u64 = block_emission.saturating_to_num::<u64>();
-        if BlockEmission::<T>::get() != block_emission_u64 {
-            BlockEmission::<T>::put(block_emission_u64);
-        }
         Ok(block_emission_u64)
     }
 }

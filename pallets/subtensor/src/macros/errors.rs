@@ -24,8 +24,7 @@ mod errors {
         /// Request to stake, unstake or subscribe is made by a coldkey that is not associated with
         /// the hotkey account.
         NonAssociatedColdKey,
-        /// DEPRECATED: Stake amount to withdraw is zero.
-        // StakeToWithdrawIsZero,
+        // StakeToWithdrawIsZero (deprecated, kept commented out for historical reference).
         /// The caller does not have enought stake to perform this action.
         NotEnoughStake,
         /// The caller is requesting removing more stake than there exists in the staking account.
@@ -257,6 +256,8 @@ mod errors {
         CannotAffordLockCost,
         /// exceeded the rate limit for associating an EVM key.
         EvmKeyAssociateRateLimitExceeded,
+        /// The EVM address already has the maximum number of associated UIDs on this subnet.
+        EvmKeyAssociationLimitExceeded,
         /// Same auto stake hotkey already set
         SameAutoStakeHotkeyAlreadySet,
         /// The UID map for the subnet could not be cleared
@@ -279,6 +280,10 @@ mod errors {
         InvalidVotingPowerEmaAlpha,
         /// Deprecated call.
         Deprecated,
+        /// Subnet buyback exceeded the operation rate limit
+        SubnetBuybackRateLimitExceeded,
+        /// Network already in dissolved queue
+        NetworkDissolveAlreadyQueued,
         /// "Add stake and burn" exceeded the operation rate limit
         AddStakeBurnRateLimitExceeded,
         /// A coldkey swap has been announced for this account.
@@ -303,6 +308,8 @@ mod errors {
         CannotUseSystemAccount,
         /// Trying to unlock more than locked
         UnlockAmountTooHigh,
+        /// Waiting for dissolved subnet cleanup.
+        WaitingForDissolvedSubnetCleanup,
         /// The supplied tempo is outside the allowed range.
         TempoOutOfBounds,
         /// The supplied activity-cutoff factor is outside the allowed range.
@@ -319,5 +326,9 @@ mod errors {
         DynamicTempoBlockedByCommitReveal,
         /// The destination coldkey rejects incoming locked alpha.
         AccountRejectsLockedAlpha,
+        /// The coldkey has already registered too many subnets
+        LockIdOverFlow,
+        /// Need to wait more blocks to do the start call.
+        StartCallNotReady,
     }
 }

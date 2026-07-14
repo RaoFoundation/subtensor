@@ -1,0 +1,2428 @@
+[
+  {
+    "name": "add_proxy",
+    "summary": "Authorize a delegate key to sign calls on this account's behalf.",
+    "description": "Authorize a delegate key to sign calls on this account's behalf.\n\nThe foundation of the keep-the-coldkey-offline setup: sign this once from\nthe coldkey, then let the delegate submit day-to-day calls with\n`proxy_for=<this account>`. The chain reserves a small deposit from the\nsigner per delegation (returned on removal). The delegate can act within\n`proxy_type` immediately (or after announcing, if `delay` > 0) \u2014 grant\nonly to keys you control or fully trust.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "delegate_ss58": {
+          "type": "string",
+          "description": "Key that will be allowed to sign for this account."
+        },
+        "proxy_type": {
+          "type": "string",
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+        },
+        "delay": {
+          "type": "integer",
+          "description": "Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately."
+        }
+      },
+      "required": [
+        "delegate_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx add-proxy --delegate <ss58|name>",
+    "python_class": "AddProxy",
+    "docs_url": "/docs/tx/add-proxy"
+  },
+  {
+    "name": "add_stake",
+    "summary": "Stake TAO from the coldkey onto a hotkey.",
+    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage. By default the call is slippage-protected:\nit fails (`SlippageTooHigh`) instead of filling once the price rises more\nthan `rate_tolerance` (5%) above the price at submission \u2014 raise the\ntolerance or set `slippage_protection` to False to execute at any price,\nor use `add_stake_limit` to set an explicit limit price. The position's\nvalue then follows the pool price and the validator's performance, and can\nbe exited later with `remove_stake`. Fails if the coldkey's free balance\ncannot cover the amount plus the transaction fee, and with `AmountTooLow`\nwhen the amount is below the chain minimum of 0.002 TAO plus the swap fee.\nDynamic subnets also reject a single swap larger than 1000x the pool's TAO\nreserve (`InsufficientLiquidity`).",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is added to (the validator you are backing)."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the stake lives on (netuid 0 is the root network)."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the coldkey's free balance to stake."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
+        }
+      },
+      "required": [
+        "hotkey_ss58",
+        "netuid",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx add-stake --hotkey <ss58|name> --netuid <int> --amount-tao <amount|all>",
+    "python_class": "AddStake",
+    "docs_url": "/docs/tx/add-stake"
+  },
+  {
+    "name": "add_stake_limit",
+    "summary": "Stake TAO with a limit price (slippage protection).",
+    "description": "Stake TAO with a limit price (slippage protection).\n\nSame as `add_stake` except the TAO-to-alpha swap only executes while the\npool price stays within the limit. With `allow_partial` the call stakes\nas much as fits under the limit and leaves the rest in the free balance;\nwithout it the whole call fails once the limit would be breached. Like\n`add_stake`, the amount must be at least the chain minimum of 0.002 TAO\nplus the swap fee (`AmountTooLow`). Prefer this over plain `add_stake`\nfor large amounts or thin pools, where the swap itself moves the price.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is added to (the validator you are backing)."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the stake lives on (netuid 0 is the root network)."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the coldkey's free balance to stake."
+        },
+        "limit_price_rao": {
+          "type": "integer",
+          "description": "Worst pool price you will accept for the swap. The call fails (or fills partially when allow-partial is set) instead of executing beyond this price."
+        },
+        "allow_partial": {
+          "type": "boolean",
+          "description": "Execute whatever portion fits within the limit price and drop the remainder, instead of failing the whole call when the limit would be breached."
+        }
+      },
+      "required": [
+        "hotkey_ss58",
+        "netuid",
+        "amount_tao",
+        "limit_price_rao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx add-stake-limit --hotkey <ss58|name> --netuid <int> --amount-tao <amount|all> --limit-price-rao <int>",
+    "python_class": "AddStakeLimit",
+    "docs_url": "/docs/tx/add-stake-limit"
+  },
+  {
+    "name": "announce_coldkey_swap",
+    "summary": "Announce (commit to) a coldkey swap; executable after the chain's delay.",
+    "description": "Announce (commit to) a coldkey swap; executable after the chain's delay.\n\nStep one of the two-step coldkey migration: publishes only the BlakeTwo256\nhash of `new_coldkey_ss58` \u2014 committing to the new key without revealing\nit \u2014 and starts the chain's announcement delay. After the delay, run the\n`swap_coldkey_announced` intent to move EVERYTHING this coldkey owns\n(balance, stake, subnets) to the new key; check timing with the\n`coldkey_swap_announcement` read. The first announcement charges the\nkey-swap cost (0.1 TAO, recycled); re-announcing after the chain's\nreannouncement delay is free. While an announcement is pending, the chain\nblocks every other signed extrinsic from this coldkey \u2014 only the\nswap-related calls and shielded (encrypted) submission go through \u2014 so the\naccount is operationally locked for the full delay. Before announcing, be\ncertain you control the new coldkey and have its mnemonic backed up. A\npending announcement can be cancelled with\n`clear_coldkey_swap_announcement`, and the legitimate holder can freeze\nan unauthorized one with `dispute_coldkey_swap`.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "new_coldkey_ss58": {
+          "type": "string",
+          "description": "Coldkey that will take over everything this coldkey owns once the swap executes; only its hash is published now."
+        }
+      },
+      "required": [
+        "new_coldkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx announce-coldkey-swap --new-coldkey <ss58|name>",
+    "python_class": "AnnounceColdkeySwap",
+    "docs_url": "/docs/tx/announce-coldkey-swap"
+  },
+  {
+    "name": "associate_evm_key",
+    "summary": "Associate an EVM key with a hotkey on a subnet.",
+    "description": "Associate an EVM key with a hotkey on a subnet.\n\nLinks an Ethereum-style (H160) address to the signing hotkey on one subnet,\nletting EVM-side activity be attributed to that neuron. Signed by the\nhotkey, and additionally proven by the EVM key itself: `signature` must\nbe an EIP-191 personal-sign signature by the EVM key over the message\n`hotkey_pubkey (32 bytes) ++ keccak_256(scale(block_number))`, where the\nblock number is SCALE-encoded (u64 little-endian). Use\n`bittensor.evm.transactions.association_proof` to produce it (it needs\nthe EVM private key); a wrong message, block number, or key makes the\nchain reject the call. Prerequisites: the hotkey must be registered on\n`netuid` (else HotKeyNotRegisteredInSubNet) and have an owning coldkey,\nand re-association is rate-limited to once per 7,200 blocks (~1 day) per\nneuron.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet on which the EVM key association is recorded."
+        },
+        "evm_key": {
+          "type": "string",
+          "description": "EVM address to link to the hotkey, as 0x-prefixed H160 hex."
+        },
+        "block_number": {
+          "type": "integer",
+          "description": "Block number the signature was produced for; part of the signed message."
+        },
+        "signature": {
+          "type": "string",
+          "description": "The EVM key's ownership proof, as 0x-prefixed hex: an EIP-191 personal-sign signature over the hotkey public key concatenated with keccak_256 of the SCALE-encoded block number."
+        }
+      },
+      "required": [
+        "netuid",
+        "evm_key",
+        "block_number",
+        "signature"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx associate-evm-key --netuid <int> --evm-key <value> --block-number <int> --signature <value>",
+    "python_class": "AssociateEvmKey",
+    "docs_url": "/docs/tx/associate-evm-key"
+  },
+  {
+    "name": "associate_hotkey",
+    "summary": "Associate a hotkey with the signing coldkey.",
+    "description": "Associate a hotkey with the signing coldkey.\n\nRecords on chain that the signing coldkey owns the hotkey, without\nregistering it on any subnet or staking anything. Useful when the pairing\nshould be visible before the hotkey's first registration (registration and\nstaking establish it as a side effect). The chain only associates hotkeys\nthat are not already owned: if the hotkey already belongs to a coldkey the\ncall succeeds but is silently a no-op \u2014 it does not error, and it does not\ntake over the hotkey.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey to record as owned by the signing coldkey."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx associate-hotkey",
+    "python_class": "AssociateHotkey",
+    "docs_url": "/docs/tx/associate-hotkey"
+  },
+  {
+    "name": "batch",
+    "summary": "Execute several intents atomically in one extrinsic (all-or-nothing).",
+    "description": "Execute several intents atomically in one extrinsic (all-or-nothing).\n\nWraps the child calls in `Utility.batch_all`: they run in order and if\nany one fails the whole extrinsic reverts, so there is never a\npartially-applied result. Use it for multi-step operations that must land\ntogether (e.g. move funds then act on them) instead of submitting the\nsteps separately and risking a half-done state. All children must share\none signer \u2014 an extrinsic has a single signature \u2014 and batches cannot\ncontain other batches. Spend limits and policy checks aggregate across\nevery child, and the transaction plan lists each child's effects.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "intents": {
+          "type": "array",
+          "description": "The calls to execute, in order, as a JSON list of objects {\"op\": <intent name>, ...args}. At least one; all must share a signer; batches cannot nest."
+        }
+      },
+      "required": [
+        "intents"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx batch --intents <a,b,c>",
+    "python_class": "Batch",
+    "docs_url": "/docs/tx/batch"
+  },
+  {
+    "name": "burned_register",
+    "summary": "Register a hotkey on a subnet by recycling TAO.",
+    "description": "Register a hotkey on a subnet by recycling TAO.\n\nBurns the subnet's current registration cost from the signing coldkey and\nassigns the hotkey a UID on that subnet. The burned TAO is recycled, not\nstaked \u2014 it cannot be recovered by deregistering. The cost floats with\nregistration demand and is only known at execution time, so a configured\nspend cap blocks this call until raised. Fails with\n`SubNetRegistrationDisabled` while the subnet's `registration_allowed`\ntoggle is off. On a full subnet, registering evicts the non-immune neuron\nwith the lowest emission (ties broken by older registration block, then\nlower UID), and the new UID can itself be evicted once its immunity\nperiod ends. Use `root_register` instead for the root network\n(netuid 0).",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to register on."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey that receives the UID; defaults to the wallet's hotkey."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx burned-register --netuid <int>",
+    "python_class": "BurnedRegister",
+    "docs_url": "/docs/tx/burned-register"
+  },
+  {
+    "name": "claim_root",
+    "summary": "Claim accumulated root dividends from one or more subnets.",
+    "description": "Claim accumulated root dividends from one or more subnets.\n\nPays out the signing coldkey's accrued root-stake dividends from the listed\nsubnets. What the payout looks like depends on the coldkey's root claim\ntype (see `set_root_claim_type`): swapped to TAO, kept as subnet alpha,\nor a per-subnet mix. At most 5 subnets per call \u2014 an empty or longer list\nfails with `InvalidSubnetNumber`. Subnets whose accrued dividends are\nbelow the per-subnet claim threshold (default 500,000 rao; adjustable by\nthe subnet owner or root) are silently skipped while the transaction\nstill succeeds. Unclaimed dividends simply keep accruing \u2014 there is no\ndeadline \u2014 but each call pays out only the subnets listed.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "subnets": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Netuids to claim accumulated root dividends from; at most 5 per call."
+        }
+      },
+      "required": [
+        "subnets"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx claim-root --subnets <a,b,c>",
+    "python_class": "ClaimRoot",
+    "docs_url": "/docs/tx/claim-root"
+  },
+  {
+    "name": "clear_coldkey_swap_announcement",
+    "summary": "Cancel a pending coldkey swap announcement (after the reannouncement delay).",
+    "description": "Cancel a pending coldkey swap announcement (after the reannouncement delay).\n\nWithdraws this coldkey's own pending swap announcement so the swap can no\nlonger be executed \u2014 use it if you announced to the wrong key or changed\nyour mind. Only clearable once the current block reaches the swap's\nexecute block plus the reannouncement delay \u2014 i.e. roughly the\nannouncement delay (~5 days) PLUS the reannouncement delay (~1 day) after\nannouncing \u2014 so it cannot be used to rapidly cycle announcements. Nothing\nmoves; a fresh `announce_coldkey_swap` can be made afterwards. If the\nannouncement was made by an attacker, `dispute_coldkey_swap` is the\nright call instead.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx clear-coldkey-swap-announcement",
+    "python_class": "ClearColdkeySwapAnnouncement",
+    "docs_url": "/docs/tx/clear-coldkey-swap-announcement"
+  },
+  {
+    "name": "commit_weights",
+    "summary": "Timelock-encrypt and commit weights, forcing the commit-reveal path.",
+    "description": "Timelock-encrypt and commit weights, forcing the commit-reveal path.\n\nEncrypts the weights with drand timelock encryption and submits the\nciphertext; the weights stay hidden until the chain auto-decrypts and\napplies them at the reveal round (no separate reveal call is needed).\nHiding weights until the round closes prevents other validators from\ncopying them. Signed by the hotkey, with the same preflight, conforming,\nand rate-limit behavior as `set_weights`. Use `set_weights` instead\nunless you need to force the commit path regardless of the subnet's\ncommit-reveal setting.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose miners the weights score."
+        },
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Miner UIDs being weighted, as a list parallel to weights. Omit when weights is given as a uid-to-weight mapping."
+        },
+        "weights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Relative weight per miner: either a JSON object mapping uid to weight, or a list parallel to uids. Values are relative, not absolute; they are clipped to the subnet's max-weight limit, normalized, and quantized before submission."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
+        },
+        "version_key": {
+          "type": "integer",
+          "description": "Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value."
+        },
+        "commit_reveal_version": {
+          "type": "integer",
+          "description": "Commit-reveal protocol version to tag the commit with. Keep the default unless the subnet requires an older protocol."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx commit-weights --netuid <int>",
+    "python_class": "CommitWeights",
+    "docs_url": "/docs/tx/commit-weights"
+  },
+  {
+    "name": "contribute_crowdloan",
+    "summary": "Contribute TAO to an active crowdloan.",
+    "description": "Contribute TAO to an active crowdloan.\n\nMoves the amount from the signer into the crowdloan's pot. The contribution\nmust meet the loan's minimum (and per-contributor maximum, if set) and the\nloan must still be open \u2014 contributing after `end` or past the cap fails.\nContributions are not refunded automatically if the loan fails: they come\nback when the creator calls `refund_crowdloan`, or the contributor can\n`withdraw_crowdloan` themselves any time before finalization. On\nsuccess, the funds go to the loan's target or fund its inner call.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Amount to contribute; moved into the crowdloan's pot. Recoverable via refund or withdraw while the loan is not finalized."
+        }
+      },
+      "required": [
+        "crowdloan_id",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx contribute-crowdloan --crowdloan-id <int> --amount-tao <amount|all>",
+    "python_class": "ContributeCrowdloan",
+    "docs_url": "/docs/tx/contribute-crowdloan"
+  },
+  {
+    "name": "create_crowdloan",
+    "summary": "Open a crowdloan raising up to `cap_tao` by `end` block.",
+    "description": "Open a crowdloan raising up to `cap_tao` by `end` block.\n\nLocks `deposit_tao` from the creator (it counts toward the raise and\ncomes back when the loan is dissolved) and opens the loan for\ncontributions until `end`. Provide exactly one of `target_ss58` (the\naddress that receives the raised funds on finalize) or `call` (an inner\nintent, `{\"op\": ..., ...args}`, dispatched with the creator's origin on\nfinalize) \u2014 supplying both or neither is rejected. If the cap is reached\nthe creator finalizes with `finalize_crowdloan`. Passing `end` only\nstops new contributions \u2014 nothing is refunded automatically: the creator\nreturns contributions with `refund_crowdloan` (contributors may also\n`withdraw_crowdloan` themselves) and then `dissolve_crowdloan` to\nrecover the deposit.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "deposit_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Creator's initial deposit, locked when the crowdloan opens. It counts toward the raise and is returned when the crowdloan is dissolved."
+        },
+        "min_contribution_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Smallest contribution the crowdloan will accept from a contributor."
+        },
+        "cap_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Maximum total to raise. Reaching the cap lets the creator finalize."
+        },
+        "end": {
+          "type": "integer",
+          "description": "Block number at which the crowdloan stops accepting contributions. Passing it refunds nothing by itself; refunds happen via explicit refund or withdraw calls."
+        },
+        "target_ss58": {
+          "type": "string",
+          "description": "Account that receives the raised funds on finalize. Provide exactly one of this or call."
+        },
+        "call": {
+          "type": "object",
+          "description": "Inner intent dispatched with the creator's origin on finalize, as a JSON object {\"op\": <name>, ...args}. Provide exactly one of this or target_ss58."
+        }
+      },
+      "required": [
+        "deposit_tao",
+        "min_contribution_tao",
+        "cap_tao",
+        "end"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx create-crowdloan --deposit-tao <amount|all> --min-contribution-tao <amount|all> --cap-tao <amount|all> --end <int>",
+    "python_class": "CreateCrowdloan",
+    "docs_url": "/docs/tx/create-crowdloan"
+  },
+  {
+    "name": "create_pure_proxy",
+    "summary": "Create a pure proxy: a fresh keyless account controlled via delegation.",
+    "description": "Create a pure proxy: a fresh keyless account controlled via delegation.\n\nThe chain derives a new address from the signer, `proxy_type`, `index`,\nand the creation block. Nobody holds its private key \u2014 the spawner controls\nit purely through the proxy relationship, which makes it useful as a\ndisposable or role-scoped account (e.g. a Staking-only treasury). Record the\ncreation block and extrinsic index (shown in the result): `kill_pure_proxy`\nneeds them to close the account later. Losing the spawner key means losing\nthe pure proxy and anything it holds.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "proxy_type": {
+          "type": "string",
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+        },
+        "delay": {
+          "type": "integer",
+          "description": "Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately."
+        },
+        "index": {
+          "type": "integer",
+          "description": "Disambiguator so one signer can create several pure proxies in one block; also part of the derived address. Keep 0 unless batching."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx create-pure-proxy",
+    "python_class": "CreatePureProxy",
+    "docs_url": "/docs/tx/create-pure-proxy"
+  },
+  {
+    "name": "decrease_take",
+    "summary": "Decrease the delegate take of a hotkey.",
+    "description": "Decrease the delegate take of a hotkey.\n\nThe delegate take is the fraction of staking emissions a delegate hotkey\nkeeps for itself before distributing the rest to its nominators. This call\nonly moves the take downward \u2014 the chain rejects values at or above the\ncurrent take \u2014 and unlike increases it is not rate limited, so lowering\nyour take is always available. Signed by the coldkey that owns the hotkey.\nUse `set_take` to land on an absolute value without tracking direction.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "take": {
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the operation applies to."
+        }
+      },
+      "required": [
+        "take"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx decrease-take --take <value>",
+    "python_class": "DecreaseTake",
+    "docs_url": "/docs/tx/decrease-take"
+  },
+  {
+    "name": "dispute_coldkey_swap",
+    "summary": "Freeze this coldkey entirely until root resolves the dispute.",
+    "description": "Freeze this coldkey entirely until root resolves the dispute.\n\nThe recovery path for a compromised coldkey: if a swap was announced on\nyour coldkey that you did not initiate, disputing freezes the account\nentirely \u2014 the chain rejects ALL signed extrinsics from it, including\nexecuting the swap, clearing the announcement, or disputing again \u2014 until\nroot clears the state via `reset_coldkey_swap`. Sign it from the\naffected coldkey itself. It does not cancel the announcement or move\nanything \u2014 it locks the situation so an attacker cannot complete the\ntakeover while governance investigates; only root can unfreeze. Use\n`clear_coldkey_swap_announcement` instead to withdraw an announcement\nyou made yourself.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx dispute-coldkey-swap",
+    "python_class": "DisputeColdkeySwap",
+    "docs_url": "/docs/tx/dispute-coldkey-swap"
+  },
+  {
+    "name": "dissolve_crowdloan",
+    "summary": "Dissolve a fully-refunded crowdloan (creator only).",
+    "description": "Dissolve a fully-refunded crowdloan (creator only).\n\nRemoves a non-finalized crowdloan from chain state once every non-creator\ncontribution has been returned (run `refund_crowdloan` until no other\ncontributors remain). Dissolving automatically transfers the creator's\nremaining contribution \u2014 including the deposit \u2014 back to them. Only the\ncreator may dissolve. Dissolving while other contributions are still\noutstanding fails \u2014 refund first.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        }
+      },
+      "required": [
+        "crowdloan_id"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx dissolve-crowdloan --crowdloan-id <int>",
+    "python_class": "DissolveCrowdloan",
+    "docs_url": "/docs/tx/dissolve-crowdloan"
+  },
+  {
+    "name": "evm_withdraw",
+    "summary": "Claim TAO deposited to the coldkey's truncated EVM mirror.",
+    "description": "Claim TAO deposited to the coldkey's truncated EVM mirror.\n\nEvery native account controls one EVM address: the first 20 bytes of its\npublic key (the *truncated* mapping). TAO sent from MetaMask to that\naddress's mirror can be pulled into the native account with this call \u2014\nthe EVM-to-substrate path that needs no EVM gas. The flow: send TAO from\nthe EVM wallet to the address shown by `btcli evm deposit-address`, then\nclaim it with `btcli evm claim-deposit` (or `btcli tx evm-withdraw`).\nThis is not `btcli evm send-to-ss58`, which spends from a stored EVM key\nvia the balance-transfer precompile. Fails if the mirror holds less than\nthe amount.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much TAO to pull from the mirror."
+        }
+      },
+      "required": [
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx evm-withdraw --amount-tao <amount|all>",
+    "python_class": "EvmWithdraw",
+    "docs_url": "/docs/tx/evm-withdraw"
+  },
+  {
+    "name": "execute_proxy_announced",
+    "summary": "Execute a proxy call that was announced and has passed its delay.",
+    "description": "Execute a proxy call that was announced and has passed its delay.\n\nThe delayed-proxy flow: a delegate added with `delay` > 0 first announces\nthe call's hash, waits out the delay (during which the real account can\nveto), then anyone may dispatch the announced call with this intent. The\ninner call is given as an intent op name plus its arguments and must hash\nto exactly what was announced. Fails if the delay has not elapsed or no\nmatching announcement exists.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "delegate_ss58": {
+          "type": "string",
+          "description": "Delegate that made the announcement."
+        },
+        "real_ss58": {
+          "type": "string",
+          "description": "Account the call executes as (the delegation's grantor)."
+        },
+        "inner_op": {
+          "type": "string",
+          "description": "Intent op name of the announced call (see btcli tools for the catalog)."
+        },
+        "inner_args": {
+          "type": "object",
+          "description": "Arguments of the announced call, as a JSON object."
+        },
+        "force_proxy_type": {
+          "type": "string",
+          "description": "Require the delegation to be exactly this proxy type instead of accepting any type that covers the call."
+        }
+      },
+      "required": [
+        "delegate_ss58",
+        "real_ss58",
+        "inner_op",
+        "inner_args"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx execute-proxy-announced --delegate <ss58|name> --real <ss58|name> --inner-op <value> --inner-args '<json>'",
+    "python_class": "ExecuteProxyAnnounced",
+    "docs_url": "/docs/tx/execute-proxy-announced"
+  },
+  {
+    "name": "finalize_crowdloan",
+    "summary": "Finalize a crowdloan that reached its cap (creator only).",
+    "description": "Finalize a crowdloan that reached its cap (creator only).\n\nSettles a successful raise: the pot is transferred to the loan's target\naddress, or its inner call is dispatched with the creator's origin. Only\nthe creator may finalize, and only once the cap has been reached. After\nfinalization the crowdloan can no longer be updated, refunded, or\ndissolved.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        }
+      },
+      "required": [
+        "crowdloan_id"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx finalize-crowdloan --crowdloan-id <int>",
+    "python_class": "FinalizeCrowdloan",
+    "docs_url": "/docs/tx/finalize-crowdloan"
+  },
+  {
+    "name": "fund_evm_key",
+    "summary": "Fund an EVM (h160) address with TAO from the signing coldkey.",
+    "description": "Fund an EVM (h160) address with TAO from the signing coldkey.\n\nAn EVM account's native balance lives at its ss58 *mirror* address\n(`blake2_256(\"evm:\" ++ h160)`). This intent computes the mirror and\ntransfers TAO to it; the funds then appear as the EVM account's balance\nin MetaMask or any Ethereum tool (displayed with 18 decimals there:\n1 TAO = 1e18). Like any transfer this is irreversible \u2014 and only the\nholder of the EVM private key can move the funds afterwards, so\ndouble-check the address.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "evm_address": {
+          "type": "string",
+          "description": "EVM address to fund, as 0x-prefixed h160 hex."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "How much TAO to send."
+        }
+      },
+      "required": [
+        "evm_address",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx fund-evm-key --evm-address <value> --amount-tao <amount|all>",
+    "python_class": "FundEvmKey",
+    "docs_url": "/docs/tx/fund-evm-key"
+  },
+  {
+    "name": "increase_take",
+    "summary": "Increase the delegate take of a hotkey.",
+    "description": "Increase the delegate take of a hotkey.\n\nThe delegate take is the fraction of staking emissions a delegate hotkey\nkeeps for itself before distributing the rest to its nominators. This call\nonly moves the take upward: the chain rejects values at or below the\ncurrent take, values above the configured maximum, and increases made\nsooner than the take rate limit allows. Signed by the coldkey that owns\nthe hotkey. Use `set_take` if you just want to land on an absolute value\nwithout tracking the direction yourself.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "take": {
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the operation applies to."
+        }
+      },
+      "required": [
+        "take"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx increase-take --take <value>",
+    "python_class": "IncreaseTake",
+    "docs_url": "/docs/tx/increase-take"
+  },
+  {
+    "name": "kill_pure_proxy",
+    "summary": "Close a pure proxy account and return its reserved deposit.",
+    "description": "Close a pure proxy account and return its reserved deposit.\n\nMust be signed *by the pure proxy itself* (i.e. dispatched through it with\n`proxy_for=<pure proxy>`), and the parameters must reproduce the exact\ncreation: spawner, type, index, plus the block height and extrinsic index\nof the `create_pure_proxy` call. Irreversible \u2014 any funds left in the\naccount become permanently inaccessible, so empty it first.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "spawner_ss58": {
+          "type": "string",
+          "description": "Account that originally created the pure proxy."
+        },
+        "proxy_type": {
+          "type": "string",
+          "description": "Type the pure proxy was created with (must match exactly)."
+        },
+        "index": {
+          "type": "integer",
+          "description": "Index the pure proxy was created with (must match exactly)."
+        },
+        "height": {
+          "type": "integer",
+          "description": "Block number of the creating create_pure_proxy call."
+        },
+        "ext_index": {
+          "type": "integer",
+          "description": "Extrinsic index of the creating call within that block."
+        }
+      },
+      "required": [
+        "spawner_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx kill-pure-proxy --spawner <ss58|name>",
+    "python_class": "KillPureProxy",
+    "docs_url": "/docs/tx/kill-pure-proxy"
+  },
+  {
+    "name": "lock_stake",
+    "summary": "Lock alpha stake on a subnet, building conviction toward a hotkey.",
+    "description": "Lock alpha stake on a subnet, building conviction toward a hotkey.\n\nCommits part of the signing coldkey's alpha on the subnet as locked\nstake: the locked amount builds conviction the longer it stays locked.\nThe lock acts as a subnet-wide floor on unstaking, not a hold on a\nspecific position \u2014 the coldkey can freely unstake anything above the\nlocked mass, and the locked amount itself keeps earning normally. The\ncoldkey's total alpha on the subnet, summed across all hotkeys, must\ncover the locked amount; conviction can be pointed at one hotkey while\nthe stake sits on another. If a lock already exists on the subnet, the\nhotkey must match the existing lock's hotkey or the call fails with\n`LockHotkeyMismatch` \u2014 repeat calls only top up the lock; use\n`move_lock` to change hotkeys. Whether the lock decays over time or\npersists is controlled per coldkey per subnet with\n`set_perpetual_lock`.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the locked stake lives on."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the existing stake to lock."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the lock's conviction is credited to. Defaults to the wallet hotkey."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount_alpha"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx lock-stake --netuid <int> --amount-alpha <amount|all>",
+    "python_class": "LockStake",
+    "docs_url": "/docs/tx/lock-stake"
+  },
+  {
+    "name": "move_lock",
+    "summary": "Move an existing lock from one hotkey to another on a subnet.",
+    "description": "Move an existing lock from one hotkey to another on a subnet.\n\nRe-points the signing coldkey's entire stake lock on the subnet at the\ndestination hotkey, carrying the locked mass with it. Accrued conviction\nis preserved only when the origin and destination hotkeys are owned by\nthe same coldkey (e.g. rotating your own validator hotkeys); if the\ndestination hotkey belongs to a different coldkey, conviction resets to\nzero and matures again from scratch. The destination hotkey must exist\non chain (fails with `HotKeyAccountNotExists`). Fails if there is no\nexisting lock on the subnet to move.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the lock lives on."
+        },
+        "destination_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the lock is moved to."
+        }
+      },
+      "required": [
+        "netuid",
+        "destination_hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx move-lock --netuid <int> --destination-hotkey <ss58|name>",
+    "python_class": "MoveLock",
+    "docs_url": "/docs/tx/move-lock"
+  },
+  {
+    "name": "move_stake",
+    "summary": "Move alpha between hotkeys and/or subnets.",
+    "description": "Move alpha between hotkeys and/or subnets.\n\nRe-delegates an existing position without passing through the coldkey's\nfree balance: the stake leaves the origin hotkey on the origin subnet and\nlands on the destination hotkey at the destination subnet. Moving within\none subnet just changes which validator backs the stake; moving across\nsubnets swaps through both pools and can incur slippage on each leg.\nOwnership stays with the signing coldkey \u2014 use `transfer_stake` to hand\nthe position to another coldkey, or `swap_stake` when only the subnet\nchanges.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "origin_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake moves away from."
+        },
+        "origin_netuid": {
+          "type": "integer",
+          "description": "Subnet the stake currently sits on."
+        },
+        "dest_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake moves to."
+        },
+        "dest_netuid": {
+          "type": "integer",
+          "description": "Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the origin position to move (an explicit amount; ``all`` is not accepted)."
+        }
+      },
+      "required": [
+        "origin_hotkey_ss58",
+        "origin_netuid",
+        "dest_hotkey_ss58",
+        "dest_netuid",
+        "amount_alpha"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx move-stake --origin-hotkey <ss58|name> --origin-netuid <int> --dest-hotkey <ss58|name> --dest-netuid <int> --amount-alpha <amount|all>",
+    "python_class": "MoveStake",
+    "docs_url": "/docs/tx/move-stake"
+  },
+  {
+    "name": "multisig_approve",
+    "summary": "Register approval for a multisig call (non-final approvals).",
+    "description": "Register approval for a multisig call (non-final approvals).\n\nRecords the signer's approval for a pending multisig operation without\ndispatching anything. The *opening* approval (omit `timepoint`; reserves\na deposit from the signer) embeds the full call in the extrinsic, so every\nco-signer can recover the call \u2014 and a ready-to-run command \u2014 straight\nfrom `multisig pending`, with no out-of-band call data. Intermediate\napprovals (pass the opening `timepoint`) go up hash-only, which stays\ncheap even for huge calls like a runtime-upgrade blob. It never executes \u2014\nonce `threshold - 1` approvals exist, the last signatory must send\n`multisig_execute` with the full call. Approving twice from the same\nsigner, or with a mismatched timepoint, threshold, or signatory set, fails.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "description": "Number of approvals required to execute, counting the signer. Together with the full signatory set it identifies the multisig account, so it must match on every approval."
+        },
+        "other_signatories": {
+          "type": "array",
+          "description": "The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically)."
+        },
+        "call": {
+          "type": "object",
+          "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "timepoint": {
+          "type": "object",
+          "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        }
+      },
+      "required": [
+        "threshold",
+        "other_signatories",
+        "call"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx multisig-approve --threshold <int> --other-signatories <a,b,c> --call '<json>'",
+    "python_class": "MultisigApprove",
+    "docs_url": "/docs/tx/multisig-approve"
+  },
+  {
+    "name": "multisig_cancel",
+    "summary": "Cancel an ongoing multisig operation (only the original depositor may).",
+    "description": "Cancel an ongoing multisig operation (only the original depositor may).\n\nAbandons a pending operation before it collects enough approvals: the\nstored approvals are discarded and the deposit reserved at opening is\nreturned. Only the signatory who opened the operation (and paid the\ndeposit) may cancel it. The threshold, signatory set, call, and opening\n`timepoint` must all match the pending operation exactly.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "description": "Number of approvals required to execute, counting the signer. Together with the full signatory set it identifies the multisig account, so it must match on every approval."
+        },
+        "other_signatories": {
+          "type": "array",
+          "description": "The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically)."
+        },
+        "call": {
+          "type": "object",
+          "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "timepoint": {
+          "type": "object",
+          "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Required \u2014 it identifies which pending operation to cancel."
+        }
+      },
+      "required": [
+        "threshold",
+        "other_signatories",
+        "call",
+        "timepoint"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx multisig-cancel --threshold <int> --other-signatories <a,b,c> --call '<json>' --timepoint '<json>'",
+    "python_class": "MultisigCancel",
+    "docs_url": "/docs/tx/multisig-cancel"
+  },
+  {
+    "name": "multisig_execute",
+    "summary": "Approve and, if the threshold is met, execute a multisig call (final approval).",
+    "description": "Approve and, if the threshold is met, execute a multisig call (final approval).\n\nSends the full inner call along with an approval. If this is the first\napproval (omit `timepoint`), it opens the operation and reserves a\ndeposit from the signer, returned when the operation completes or is\ncancelled. If it is the final approval \u2014 bringing the count to\n`threshold` \u2014 the inner call executes as the multisig account in the\nsame extrinsic. Intermediate signers can use the cheaper\n`multisig_approve` (hash only), but whoever approves last must use this\nintent so the chain has the call to run. Every approval must repeat the\nsame threshold, signatory set, and call; later approvals must also pass\nthe opening `timepoint` or they will not match the pending operation.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "description": "Number of approvals required to execute, counting the signer. Together with the full signatory set it identifies the multisig account, so it must match on every approval."
+        },
+        "other_signatories": {
+          "type": "array",
+          "description": "The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically)."
+        },
+        "call": {
+          "type": "object",
+          "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        },
+        "timepoint": {
+          "type": "object",
+          "description": "Block height and extrinsic index of the approval that opened the operation, as a JSON object {\"height\": ..., \"index\": ...}. Omit on the first approval; required on every later one (read it with the multisig query)."
+        }
+      },
+      "required": [
+        "threshold",
+        "other_signatories",
+        "call"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx multisig-execute --threshold <int> --other-signatories <a,b,c> --call '<json>'",
+    "python_class": "MultisigExecute",
+    "docs_url": "/docs/tx/multisig-execute"
+  },
+  {
+    "name": "multisig_threshold_1",
+    "summary": "Dispatch a 1-of-N multisig call immediately (single approval).",
+    "description": "Dispatch a 1-of-N multisig call immediately (single approval).\n\nFor multisig accounts with threshold 1, where any single member may act\nalone: the call executes in this same extrinsic, with no approval round,\nno timepoint, and no deposit. The multisig account is derived from the\nsigner plus `other_signatories`, so the full member set must still be\nsupplied even though nobody else signs. For thresholds above 1 use\n`multisig_execute` / `multisig_approve` instead.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "other_signatories": {
+          "type": "array",
+          "description": "The other members of the multisig (every signatory except the signer), as a JSON list of addresses. The same set must be given on every approval; order does not matter (sorted automatically)."
+        },
+        "call": {
+          "type": "object",
+          "description": "The inner call to dispatch from the multisig account, as a JSON object {\"op\": <intent name>, ...args}. All approvals must describe the identical call \u2014 it is matched by hash. Its arguments must be fully explicit, since it runs as the multisig account, not the signer's wallet."
+        }
+      },
+      "required": [
+        "other_signatories",
+        "call"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx multisig-threshold-1 --other-signatories <a,b,c> --call '<json>'",
+    "python_class": "MultisigThreshold1",
+    "docs_url": "/docs/tx/multisig-threshold-1"
+  },
+  {
+    "name": "refund_crowdloan",
+    "summary": "Refund contributors of a non-finalized crowdloan (creator only).",
+    "description": "Refund contributors of a non-finalized crowdloan (creator only).\n\nReturns contributions (excluding the creator's) to their contributors.\nOnly the creator may call it. Each call refunds at most 50 contributors,\nso large loans may need several `refund_crowdloan` calls before\neveryone is paid back. Once all contributors are refunded, the creator\nruns `dissolve_crowdloan`, which returns the creator's remaining\ncontribution (including the deposit) and removes the loan.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        }
+      },
+      "required": [
+        "crowdloan_id"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx refund-crowdloan --crowdloan-id <int>",
+    "python_class": "RefundCrowdloan",
+    "docs_url": "/docs/tx/refund-crowdloan"
+  },
+  {
+    "name": "register_leased_network",
+    "summary": "Register a new crowdloan-funded leased subnet.",
+    "description": "Register a new crowdloan-funded leased subnet.\n\nCreates a subnet paid for by a crowdloan rather than a single coldkey: the\ncrowdloan's funds cover the network registration cost (leftover cap is\nrefunded to contributors pro-rata, with any rounding remainder going to\nthe beneficiary), contributors earn `emissions_share` percent of the\nsubnet owner's emission cut (not of total subnet emissions) as dividends,\nand the beneficiary operates the subnet through a scoped proxy. Must be\ndispatched in a crowdloan context \u2014 it fails as a standalone call. The\ncost is not cheaply boundable up front, so a configured spend cap blocks\nthis until raised. With an `end_block` the beneficiary can later take\nfull ownership via `terminate_lease`; without one the lease is\nperpetual and ownership never transfers.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "emissions_share": {
+          "type": "integer",
+          "description": "Percent (0-100) of the subnet owner's emission cut paid to crowdloan contributors as dividends."
+        },
+        "end_block": {
+          "type": "integer",
+          "description": "Block at which the lease ends and the beneficiary may take ownership; omit for a perpetual lease."
+        }
+      },
+      "required": [
+        "emissions_share"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx register-leased-network --emissions-share <int>",
+    "python_class": "RegisterLeasedNetwork",
+    "docs_url": "/docs/tx/register-leased-network"
+  },
+  {
+    "name": "register_subnet",
+    "summary": "Create a new subnet owned by the signing coldkey.",
+    "description": "Create a new subnet owned by the signing coldkey.\n\nRegisters a brand-new subnet with the signing coldkey as its owner and the\nwallet's hotkey as the subnet-owner hotkey. The network registration cost \u2014\npotentially thousands of TAO \u2014 is taken from the coldkey; it doubles after\neach new subnet registration and decays linearly back over the lock\nreduction interval, and is only known at execution time, so a configured\nspend cap blocks this call until raised. The full cost becomes the new\nsubnet's initial TAO pool reserve \u2014 a sunk cost, not a refundable deposit.\nNetwork registrations are rate-limited per coldkey. If the chain is at\nits subnet limit, registering dissolves the non-immune subnet with the\nlowest EMA price to free the slot (the new subnet reuses its netuid).\nThe new subnet starts inactive: call `start_call` once the chain's\nactivation delay has passed to activate it; the subnet's share of TAO\nemission additionally stays off until root enables the subnet's\nemission-enabled flag. This is a major, expensive commitment \u2014 check the\ncurrent cost before sending.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Subnet-owner hotkey for the new subnet; defaults to the wallet's hotkey."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx register-subnet",
+    "python_class": "RegisterSubnet",
+    "docs_url": "/docs/tx/register-subnet"
+  },
+  {
+    "name": "remove_proxies",
+    "summary": "Revoke every proxy delegation for the signing account at once.",
+    "description": "Revoke every proxy delegation for the signing account at once.\n\nA cleanup/panic switch: all delegates lose access in one call and all proxy\ndeposits are returned. Careful if this account spawned pure proxies \u2014 they\nare controlled *through* delegations, so removing everything can strand them\npermanently (there is no key to recover a pure proxy with).",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-proxies",
+    "python_class": "RemoveProxies",
+    "docs_url": "/docs/tx/remove-proxies"
+  },
+  {
+    "name": "remove_proxy",
+    "summary": "Revoke one proxy delegation.",
+    "description": "Revoke one proxy delegation.\n\nThe (delegate, proxy_type, delay) triple must match the original\n`add_proxy` exactly \u2014 a mismatch fails with NotFound rather than removing\na different delegation. The proxy deposit reserved at add time is returned\nto the signer. Check current delegations with `btcli query proxies`.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "delegate_ss58": {
+          "type": "string",
+          "description": "Delegate whose authorization to revoke."
+        },
+        "proxy_type": {
+          "type": "string",
+          "description": "Type the delegation was granted with (must match exactly)."
+        },
+        "delay": {
+          "type": "integer",
+          "description": "Delay the delegation was granted with (must match exactly)."
+        }
+      },
+      "required": [
+        "delegate_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-proxy --delegate <ss58|name>",
+    "python_class": "RemoveProxy",
+    "docs_url": "/docs/tx/remove-proxy"
+  },
+  {
+    "name": "remove_stake",
+    "summary": "Unstake alpha from a hotkey back to the coldkey.",
+    "description": "Unstake alpha from a hotkey back to the coldkey.\n\nSwaps the alpha position back to TAO at the current pool price and credits\nit to the signing coldkey's free balance. Pass `all` to exit the entire\nposition on that hotkey and subnet (the build fails if nothing is staked\nthere). Like staking, the swap moves the pool, so large amounts incur\nslippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the price falls more than\n`rate_tolerance` (5%) below the price at submission \u2014 raise the tolerance\nor set `slippage_protection` to False to execute at any price, or use\n`remove_stake_limit` to set an explicit limit price. The hotkey and\nnetuid must match where the stake is actually held, and the subnet must\nhave subtoken trading enabled. The requested amount is capped to the\nstake currently available. A partial unstake must leave a remainder\nworth at least 0.002 TAO at the simulated pool price \u2014 exit the full\nposition instead of leaving dust (`AmountTooLow`).",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is held on (the validator backing the position)."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the stake lives on (netuid 0 is the root network)."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "How much to unstake from this position, or ``all``."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
+        }
+      },
+      "required": [
+        "hotkey_ss58",
+        "netuid",
+        "amount_alpha"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-stake --hotkey <ss58|name> --netuid <int> --amount-alpha <amount|all>",
+    "python_class": "RemoveStake",
+    "docs_url": "/docs/tx/remove-stake"
+  },
+  {
+    "name": "remove_stake_limit",
+    "summary": "Unstake alpha with a limit price (slippage protection).",
+    "description": "Unstake alpha with a limit price (slippage protection).\n\nSame as `remove_stake` except the alpha-to-TAO swap only executes while\nthe pool price stays within the limit. With `allow_partial` it unstakes\nwhat it can within the limit and leaves the rest staked; without it the\nwhole call fails once the limit would be breached. Pass `all` to target\nthe entire position (the build fails if nothing is staked there). Like\n`remove_stake`, a partial unstake must leave a remainder worth at\nleast 0.002 TAO at the simulated pool price (`AmountTooLow`). Prefer\nthis over plain `remove_stake` when exiting large positions.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is held on (the validator backing the position)."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the stake lives on (netuid 0 is the root network)."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "How much to unstake from this position, or ``all``."
+        },
+        "limit_price_rao": {
+          "type": "integer",
+          "description": "Worst pool price you will accept for the swap. The call fails (or fills partially when allow-partial is set) instead of executing beyond this price."
+        },
+        "allow_partial": {
+          "type": "boolean",
+          "description": "Execute whatever portion fits within the limit price and drop the remainder, instead of failing the whole call when the limit would be breached."
+        }
+      },
+      "required": [
+        "hotkey_ss58",
+        "netuid",
+        "amount_alpha",
+        "limit_price_rao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-stake-limit --hotkey <ss58|name> --netuid <int> --amount-alpha <amount|all> --limit-price-rao <int>",
+    "python_class": "RemoveStakeLimit",
+    "docs_url": "/docs/tx/remove-stake-limit"
+  },
+  {
+    "name": "reset_axon",
+    "summary": "Reset (stop serving) this hotkey's axon endpoint on a subnet.",
+    "description": "Reset (stop serving) this hotkey's axon endpoint on a subnet.\n\nRepublishes the axon record as a placeholder (ip 0, port 1, protocol 4) so\nvalidators stop routing traffic to the old address; the storage entry is\nnot removed. Signed by the hotkey. Use this when taking a miner offline or\nbefore moving it, then publish the new address with `serve_axon` when it\nis back up.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose published axon endpoint to clear."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx reset-axon --netuid <int>",
+    "python_class": "ResetAxon",
+    "docs_url": "/docs/tx/reset-axon"
+  },
+  {
+    "name": "reveal_weights",
+    "summary": "Reveal previously committed weights (legacy salt-based commit-reveal).",
+    "description": "Reveal previously committed weights (legacy salt-based commit-reveal).\n\nCompletes the old two-step commit-reveal flow: the uids, weights, salt, and\nversion key must hash to exactly what was committed earlier. The reveal is\nvalid on exactly one epoch \u2014 the commit's epoch plus the subnet's reveal\nperiod; revealing earlier fails, and once that epoch has passed the commit\nis expired and dropped. The chain hashes the quantized u16 values, so the\ninputs here must be the same values passed at commit time (`build()`\nre-normalizes floats: identical proportions produce identical u16s).\nSigned by the hotkey that made the commit. Only needed for legacy\nsalt-based commits \u2014 the timelocked path used by `set_weights` and\n`commit_weights` is auto-revealed by the chain and never needs this call.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose miners the weights score."
+        },
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Miner UIDs exactly as committed, as a list parallel to weights."
+        },
+        "weights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Weights exactly as committed, as a list parallel to uids."
+        },
+        "salt": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Salt used when the commit was made; must match to reveal."
+        },
+        "version_key": {
+          "type": "integer",
+          "description": "Version key used when the commit was made."
+        }
+      },
+      "required": [
+        "netuid",
+        "uids",
+        "weights",
+        "salt"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx reveal-weights --netuid <int> --uids <a,b,c> --weights <a,b,c> --salt <a,b,c>",
+    "python_class": "RevealWeights",
+    "docs_url": "/docs/tx/reveal-weights"
+  },
+  {
+    "name": "root_register",
+    "summary": "Register a hotkey on the root network (netuid 0).",
+    "description": "Register a hotkey on the root network (netuid 0).\n\nJoins the hotkey to the root network, the TAO staking pool (netuid 0 has\nno miners and no alpha; validators register here to receive root stake).\nPlacement is stake-based rather than burn-based: root slots are limited, so\njoining a full root network evicts the member with the least stake, and a\nhotkey without enough stake behind it will not hold a seat. Root\nregistrations are also capped per block (`max_registrations_per_block`)\nand per interval (three times `target_registrations_per_interval`);\nhitting either cap fails until the window passes. Use\n`burned_register` for ordinary subnets.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey to register on the root network; defaults to the wallet's hotkey."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx root-register",
+    "python_class": "RootRegister",
+    "docs_url": "/docs/tx/root-register"
+  },
+  {
+    "name": "serve_axon",
+    "summary": "Publish this hotkey's axon endpoint (ip:port) for a subnet.",
+    "description": "Publish this hotkey's axon endpoint (ip:port) for a subnet.\n\nWrites the connection info to chain storage so validators on the subnet\nknow where to reach this miner or validator; it does not start any server \u2014\nrunning the actual axon service is up to the caller. Signed by the hotkey,\nwhich must be registered on the subnet, and subject to the chain's serving\nrate limit (re-publishing too soon fails). Use `serve_axon_tls` if peers\nshould verify a TLS certificate, and `reset_axon` to stop advertising the\nendpoint.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet on which to publish the endpoint."
+        },
+        "ip": {
+          "type": "string",
+          "description": "Public IPv4 or IPv6 address of the endpoint, in standard dotted or colon notation."
+        },
+        "port": {
+          "type": "integer",
+          "description": "TCP port the endpoint listens on."
+        },
+        "protocol": {
+          "type": "integer",
+          "description": "Application protocol tag stored alongside the endpoint; its meaning is subnet-defined."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Version number of the serving neuron's software, stored with the endpoint."
+        }
+      },
+      "required": [
+        "netuid",
+        "ip",
+        "port"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx serve-axon --netuid <int> --ip <value> --port <int>",
+    "python_class": "ServeAxon",
+    "docs_url": "/docs/tx/serve-axon"
+  },
+  {
+    "name": "serve_axon_tls",
+    "summary": "Publish this hotkey's axon endpoint with a neuron certificate.",
+    "description": "Publish this hotkey's axon endpoint with a neuron certificate.\n\nSame as `serve_axon` plus a compact neuron certificate stored on chain:\none algorithm byte followed by up to 64 bytes of public key \u2014 not an X.509\nTLS certificate blob (anything else fails to decode). The chain only\npublishes the key for peers to fetch; there is no chain-side TLS\nhandshake, and running any TLS endpoint is up to the caller. Signed by\nthe hotkey, which must be registered on the subnet. Use plain\n`serve_axon` when peers do not need a published key.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet on which to publish the endpoint."
+        },
+        "ip": {
+          "type": "string",
+          "description": "Public IPv4 or IPv6 address of the endpoint, in standard dotted or colon notation."
+        },
+        "port": {
+          "type": "integer",
+          "description": "TCP port the endpoint listens on."
+        },
+        "certificate": {
+          "type": "string",
+          "description": "Neuron certificate as 0x-prefixed hex: 1 algorithm byte followed by up to 64 bytes of public key. Not an X.509 certificate; other formats fail to decode on chain."
+        },
+        "protocol": {
+          "type": "integer",
+          "description": "Application protocol tag stored alongside the endpoint; its meaning is subnet-defined."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Version number of the serving neuron's software, stored with the endpoint."
+        }
+      },
+      "required": [
+        "netuid",
+        "ip",
+        "port",
+        "certificate"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx serve-axon-tls --netuid <int> --ip <value> --port <int> --certificate <value>",
+    "python_class": "ServeAxonTls",
+    "docs_url": "/docs/tx/serve-axon-tls"
+  },
+  {
+    "name": "serve_prometheus",
+    "summary": "Publish this hotkey's prometheus metrics endpoint (ip:port) for a subnet.",
+    "description": "Publish this hotkey's prometheus metrics endpoint (ip:port) for a subnet.\n\nAdvertises where this neuron's prometheus metrics can be scraped, separate\nfrom the axon endpoint used for inter-neuron traffic. Signed by the hotkey,\nwhich must be registered on the subnet, and subject to the same serving\nrate limit as `serve_axon`. Like the axon calls, this only writes chain\ndata \u2014 running the metrics server is up to the caller.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet on which to publish the endpoint."
+        },
+        "ip": {
+          "type": "string",
+          "description": "Public IPv4 or IPv6 address of the endpoint, in standard dotted or colon notation."
+        },
+        "port": {
+          "type": "integer",
+          "description": "TCP port the endpoint listens on."
+        },
+        "version": {
+          "type": "integer",
+          "description": "Version number of the serving neuron's software, stored with the endpoint."
+        }
+      },
+      "required": [
+        "netuid",
+        "ip",
+        "port"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx serve-prometheus --netuid <int> --ip <value> --port <int>",
+    "python_class": "ServePrometheus",
+    "docs_url": "/docs/tx/serve-prometheus"
+  },
+  {
+    "name": "set_auto_stake",
+    "summary": "Auto-stake future mining rewards on a subnet to a chosen hotkey.",
+    "description": "Auto-stake future mining rewards on a subnet to a chosen hotkey.\n\nSets the coldkey's autostake destination for the subnet: all future\nrewards earned there are automatically staked to the chosen hotkey\n(defaulting to the wallet's own hotkey) instead of accumulating unstaked.\nA configuration change only \u2014 it moves no funds by itself and applies just\nto that subnet. The hotkey must be registered on the subnet\n(`HotKeyNotRegisteredInSubNet`), and setting the hotkey that is\nalready the destination fails (`SameAutoStakeHotkeyAlreadySet`). Call\nit again with a different hotkey to redirect; read the current setting\nback with the `auto_stake` read.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose future rewards are auto-staked."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the rewards are staked to. Defaults to the wallet's own hotkey."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-auto-stake --netuid <int>",
+    "python_class": "SetAutoStake",
+    "docs_url": "/docs/tx/set-auto-stake"
+  },
+  {
+    "name": "set_childkey_take",
+    "summary": "Set the childkey take for a hotkey on a subnet.",
+    "description": "Set the childkey take for a hotkey on a subnet.\n\nThe childkey take is the fraction of emissions a child hotkey keeps from\nthe stake weight its parents delegate to it, before passing the remainder\nthrough. It is set per subnet, unlike the global delegate take. Signed by\nthe coldkey that owns the child hotkey. The chain enforces both its\nminimum and maximum childkey take bounds, and rate-limits only increases\n\u2014 decreases apply immediately, so lowering the take is always available.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the childkey take applies to."
+        },
+        "take": {
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the operation applies to."
+        }
+      },
+      "required": [
+        "netuid",
+        "take"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-childkey-take --netuid <int> --take <value>",
+    "python_class": "SetChildkeyTake",
+    "docs_url": "/docs/tx/set-childkey-take"
+  },
+  {
+    "name": "set_children",
+    "summary": "Assign child hotkeys with stake-weight proportions on a subnet.",
+    "description": "Assign child hotkeys with stake-weight proportions on a subnet.\n\nChildkeys let a parent hotkey delegate a fraction of its stake weight to\nother hotkeys on one subnet \u2014 commonly used to split validation duties or\npoint stake at a separate validating key without moving the stake itself.\nEach entry in `children` is a pair of proportion and hotkey ss58. A\nproportion with a decimal point is the human 0..1 fraction of the parent's\nstake weight (e.g. 0.5); a plain integer is the raw u64 share of u64::MAX.\nThe proportions must not sum past the whole. The call replaces the full\nchild set, so pass an empty list to revoke all children. Signed by the\ncoldkey that owns the parent hotkey, and subject to the chain's childkey\nrate limit.\n\nChain guards: not allowed on the root subnet; at most 5 children per\nhotkey per subnet; duplicate children are rejected; a hotkey that is a\nparent of this hotkey cannot be added as its child (relations stay\nbipartite); and the parent hotkey needs a minimum own stake\n(StakeThreshold) unless it is the subnet-owner hotkey. Changes take\neffect after a chain-defined cooldown, except on subnets whose subtoken\nis not yet enabled, where they apply immediately.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet on which the child relationships apply."
+        },
+        "children": {
+          "type": "array",
+          "description": "JSON list of proportion-and-hotkey pairs; each proportion is a 0..1 fraction (e.g. 0.5) or a raw u64 share of u64::MAX of the parent's stake weight delegated to that child. An empty list revokes all children."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the operation applies to."
+        }
+      },
+      "required": [
+        "netuid",
+        "children"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-children --netuid <int> --children <a,b,c>",
+    "python_class": "SetChildren",
+    "docs_url": "/docs/tx/set-children"
+  },
+  {
+    "name": "set_crowdloan_max_contribution",
+    "summary": "Set or clear the per-contributor max for a non-finalized crowdloan (creator only).",
+    "description": "Set or clear the per-contributor max for a non-finalized crowdloan (creator only).\n\nCaps how much any single contributor can put in, useful to keep a raise\nbroadly distributed. Omitting the amount clears the limit. Only the\ncreator may change it, and only while the loan has not been finalized.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        },
+        "new_max_contribution_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Largest total any single contributor may put in. Omit to clear the limit."
+        }
+      },
+      "required": [
+        "crowdloan_id"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-crowdloan-max-contribution --crowdloan-id <int>",
+    "python_class": "SetCrowdloanMaxContribution",
+    "docs_url": "/docs/tx/set-crowdloan-max-contribution"
+  },
+  {
+    "name": "set_hyperparameter",
+    "summary": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).",
+    "description": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).\n\nDispatches the matching AdminUtils `sudo_set_*` call for the named\nparameter. The signer must be the subnet's owner coldkey; root-only\nparameters are not available here and must go through the raw-call escape\nhatch. Changes take effect on chain immediately and shape subnet economics\nand consensus (registration costs, weight rules, immunity, transfers), so\nverify the raw value before sending \u2014 `value` accepts either the raw\non-chain integer or a human form that is converted for you. Some\nparameters are rate-limited by the chain, so a quick follow-up change can\nfail. Read current values back with the `subnet_hyperparameters` read.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to configure; the signer must be its owner."
+        },
+        "name": {
+          "type": "string",
+          "description": "Hyperparameter to set. One of: activity_cutoff, bonds_moving_avg, bonds_reset_enabled, burn_half_life, burn_increase_mult, commit_reveal_period, commit_reveal_weights_enabled, immunity_period, liquid_alpha_enabled, max_allowed_uids, min_allowed_weights, min_burn, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_cut_enabled, serving_rate_limit, transfers_enabled, weights_version, yuma3_enabled."
+        },
+        "value": {
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New value. Give the raw on-chain integer, or the human form as a float or a string with a decimal point (a 0..1 fraction for normalized parameters, a TAO amount for rao parameters). Boolean parameters take true/false or 0/1."
+        }
+      },
+      "required": [
+        "netuid",
+        "name",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-hyperparameter --netuid <int> --name <value> --value <value>",
+    "python_class": "SetHyperparameter",
+    "docs_url": "/docs/tx/set-hyperparameter"
+  },
+  {
+    "name": "set_identity",
+    "summary": "Publish an on-chain identity (name, links, description) for the coldkey.",
+    "description": "Publish an on-chain identity (name, links, description) for the coldkey.\n\nStores public, human-readable metadata against the signing coldkey so\nexplorers, wallets, and delegators can recognize it \u2014 useful for validator\noperators and subnet owners who want a public face. The signing coldkey\nmust own at least one hotkey registered on some subnet, else the call\nfails with `HotKeyNotRegisteredInNetwork`. Everything submitted is\npublic and permanent history on chain, so include nothing sensitive.\nCalling again overwrites the whole identity (empty fields clear their\nprevious values); the chain enforces length limits on each field. Purely\ncosmetic: no effect on balances, stake, or permissions.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name shown for this coldkey."
+        },
+        "url": {
+          "type": "string",
+          "description": "Website associated with this identity."
+        },
+        "github_repo": {
+          "type": "string",
+          "description": "GitHub repository URL."
+        },
+        "image": {
+          "type": "string",
+          "description": "Avatar or logo image URL."
+        },
+        "discord": {
+          "type": "string",
+          "description": "Discord handle or server invite."
+        },
+        "description": {
+          "type": "string",
+          "description": "Short free-text description of who this key belongs to."
+        },
+        "additional": {
+          "type": "string",
+          "description": "Any extra free-text information to publish."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-identity --name <value>",
+    "python_class": "SetIdentity",
+    "docs_url": "/docs/tx/set-identity"
+  },
+  {
+    "name": "set_mechanism_count",
+    "summary": "Set the number of mechanisms on a subnet.",
+    "description": "Set the number of mechanisms on a subnet.\n\nMechanisms are independent incentive sub-markets within one subnet, each\nrunning its own weights and consensus; this owner-only call sets how many\nthe subnet runs. The count must be greater than zero, and the chain caps\nhow many mechanisms a subnet may have. Increasing the count opens new\nmechanisms; decreasing it removes the highest-numbered ones and the\nminer state in them. Any change to the count clears the emission split\nback to an even division \u2014 reapply `set_mechanism_emission_split`\nafterwards if you want an uneven split. Rate-limited and blocked during\nthe end-of-epoch admin freeze window.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to configure; the signer must be its owner."
+        },
+        "mechanism_count": {
+          "type": "integer",
+          "description": "Number of mechanisms the subnet should run."
+        }
+      },
+      "required": [
+        "netuid",
+        "mechanism_count"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-mechanism-count --netuid <int> --mechanism-count <int>",
+    "python_class": "SetMechanismCount",
+    "docs_url": "/docs/tx/set-mechanism-count"
+  },
+  {
+    "name": "set_mechanism_emission_split",
+    "summary": "Set emission split between mechanisms on a subnet.",
+    "description": "Set emission split between mechanisms on a subnet.\n\nOwner-only: divides the subnet's emission between its mechanisms, one\nentry per mechanism in order. Entries with a decimal point are relative\nweights (e.g. `[0.5, 0.5]` or `[3.0, 1.0]`), normalized to the exact\nu16 split the chain requires; plain integers are raw u16 weights and must\nsum to exactly 65,535 themselves. The list may be at most as long as the\nsubnet's current mechanism count (see `set_mechanism_count`) \u2014 a\nshorter list leaves the trailing mechanisms with zero. Changing the\nsplit reallocates future emission only \u2014 nothing already emitted moves.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to configure; the signer must be its owner."
+        },
+        "split": {
+          "type": "array",
+          "description": "Emission weights in mechanism order, at most one entry per mechanism: relative weights with a decimal point (normalized for you, e.g. [0.5, 0.5]), or raw u16 integers summing to exactly 65,535."
+        }
+      },
+      "required": [
+        "netuid",
+        "split"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-mechanism-emission-split --netuid <int> --split <a,b,c>",
+    "python_class": "SetMechanismEmissionSplit",
+    "docs_url": "/docs/tx/set-mechanism-emission-split"
+  },
+  {
+    "name": "set_perpetual_lock",
+    "summary": "Enable or disable perpetual lock mode for a coldkey on a subnet.",
+    "description": "Enable or disable perpetual lock mode for a coldkey on a subnet.\n\nSwitches how the signing coldkey's stake lock on the subnet behaves over\ntime: perpetual mode keeps the lock (and its conviction) in force\nindefinitely, while decaying mode lets it wind down over time so the\nstake eventually becomes liquid again. A per-coldkey, per-subnet setting\nthat moves no funds by itself \u2014 it changes the behavior of locks created\nwith `lock_stake`. Enabling perpetual mode means the locked stake stays\nilliquid until you switch back to decaying and the lock runs off.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose lock mode is changed."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "True for perpetual mode (lock never decays), false for decaying mode."
+        }
+      },
+      "required": [
+        "netuid",
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-perpetual-lock --netuid <int> --enabled <true|false>",
+    "python_class": "SetPerpetualLock",
+    "docs_url": "/docs/tx/set-perpetual-lock"
+  },
+  {
+    "name": "set_root_claim_type",
+    "summary": "Set how a coldkey's root alpha emission is claimed.",
+    "description": "Set how a coldkey's root alpha emission is claimed.\n\nControls what happens to root dividends when they are claimed (see\n`claim_root`): `Swap` converts all alpha emission to TAO (the chain\ndefault), `Keep` keeps everything as subnet alpha, and `KeepSubnets`\nkeeps alpha on the listed `subnets` while swapping the rest. The setting\nis per-coldkey and persists until changed again; it does not move anything\nalready claimed. Read it back with the `root_claim_type` read.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "claim_type": {
+          "type": "string",
+          "description": "How root alpha emission is claimed. One of: Swap, Keep, KeepSubnets. Swap converts all alpha emission to TAO, Keep keeps everything as alpha, KeepSubnets keeps alpha only on the subnets given via --subnets and swaps the rest."
+        },
+        "subnets": {
+          "type": "array",
+          "description": "Netuids to keep alpha on; required for KeepSubnets, invalid otherwise."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-root-claim-type",
+    "python_class": "SetRootClaimType",
+    "docs_url": "/docs/tx/set-root-claim-type"
+  },
+  {
+    "name": "set_subnet_identity",
+    "summary": "Publish identity metadata for a subnet (signer must be the subnet owner).",
+    "description": "Publish identity metadata for a subnet (signer must be the subnet owner).\n\nStores the subnet's public profile \u2014 name, links, contact, logo \u2014 so\nexplorers and participants can identify it. Owner-only: the signing\ncoldkey must own the subnet. Everything submitted is public and permanent\nhistory on chain. Calling again overwrites the whole record (empty fields\nclear their previous values); the chain enforces length limits on each\nfield. Purely cosmetic \u2014 for the token ticker use `update_symbol`, and\nfor economics use `set_hyperparameter`.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the identity is for; the signer must be its owner."
+        },
+        "subnet_name": {
+          "type": "string",
+          "description": "Display name shown for the subnet."
+        },
+        "github_repo": {
+          "type": "string",
+          "description": "GitHub repository URL for the subnet's code."
+        },
+        "subnet_contact": {
+          "type": "string",
+          "description": "Contact address for the subnet operators."
+        },
+        "subnet_url": {
+          "type": "string",
+          "description": "Website for the subnet."
+        },
+        "discord": {
+          "type": "string",
+          "description": "Discord handle or server invite."
+        },
+        "description": {
+          "type": "string",
+          "description": "Short free-text description of what the subnet does."
+        },
+        "logo_url": {
+          "type": "string",
+          "description": "Logo image URL for the subnet."
+        },
+        "additional": {
+          "type": "string",
+          "description": "Any extra free-text information to publish."
+        }
+      },
+      "required": [
+        "netuid",
+        "subnet_name"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-subnet-identity --netuid <int> --subnet-name <value>",
+    "python_class": "SetSubnetIdentity",
+    "docs_url": "/docs/tx/set-subnet-identity"
+  },
+  {
+    "name": "set_take",
+    "summary": "Set the delegate take to an absolute value.",
+    "description": "Set the delegate take to an absolute value.\n\nThe delegate take is the fraction of staking emissions a delegate hotkey\nkeeps before distributing the rest to its nominators. This is sugar over\nthe chain's directional `increase_take` / `decrease_take`: it reads the\ncurrent take and dispatches whichever call moves it to `take`, so you do\nnot need to know the current value. Signed by the coldkey that owns the\nhotkey. If the move is upward it inherits the increase path's constraints\n(take maximum and rate limit on increases).",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "take": {
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the operation applies to."
+        }
+      },
+      "required": [
+        "take"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-take --take <value>",
+    "python_class": "SetTake",
+    "docs_url": "/docs/tx/set-take"
+  },
+  {
+    "name": "set_weights",
+    "summary": "Set validator weights, auto-selecting plaintext or commit-reveal.",
+    "description": "Set validator weights, auto-selecting plaintext or commit-reveal.\n\nThe one entry point validators need for scoring miners: it conforms the\nweights to the subnet's hyperparameters (max-weight clip, u16 quantization,\nminimum weight count) and submits via whichever path the subnet runs \u2014 a\nplain `set_weights` when commit-reveal is off, or a timelock-encrypted\ncommit (auto-revealed by the chain at the drand reveal round) when it is on.\nSigned by the hotkey, which must be registered on the subnet. Before\nsigning it preflights registration and the rate limit, so those failures\nare caught fast with the same error the chain would return; the rate-limit\nerror says how many blocks to wait. The chain additionally enforces checks\nthat are not preflighted: the hotkey must hold the minimum stake to set\nweights, must hold a validator permit to set non-self weights (the subnet\nowner is exempt), and `version_key` must not be older than the subnet's\nrequired version. Prefer this over `commit_weights`/`reveal_weights`\nunless you specifically need to force one path.",
+    "signer": "hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose miners the weights score."
+        },
+        "uids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Miner UIDs being weighted, as a list parallel to weights. Omit when weights is given as a uid-to-weight mapping."
+        },
+        "weights": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Relative weight per miner: either a JSON object mapping uid to weight, or a list parallel to uids. Values are relative, not absolute; they are clipped to the subnet's max-weight limit, normalized, and quantized before submission."
+        },
+        "mechid": {
+          "type": "integer",
+          "description": "Mechanism index within the subnet. 0 is the default (and for most subnets the only) mechanism."
+        },
+        "version_key": {
+          "type": "integer",
+          "description": "Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-weights --netuid <int>",
+    "python_class": "SetWeights",
+    "docs_url": "/docs/tx/set-weights"
+  },
+  {
+    "name": "stake_burn",
+    "summary": "Buy back / burn stake via the stake-burn extrinsic.",
+    "description": "Buy back / burn stake via the stake-burn extrinsic.\n\nSpends TAO from the signing coldkey to buy the subnet's alpha and burn it,\nreducing alpha supply (a buyback-and-burn) rather than adding to the\nsigner's stake. The TAO is spent permanently \u2014 nothing lands in your stake,\nso this is not an investment call; use a regular add-stake intent to\nacquire a position. Fails on the root subnet\n(`CannotBurnOrRecycleOnRootSubnet`). The chain accepts an optional\nlimit (omitted = market order), but this intent always requires\n`limit_price` and executes all-or-nothing: the swap fails instead of\npartially filling at a worse rate. Counts against a configured spend\ncap.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha is bought and burned."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Spent from the coldkey to buy alpha that is then burned."
+        },
+        "limit_price": {
+          "type": "integer",
+          "description": "Worst acceptable price in rao per alpha; the call fails rather than filling beyond it."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the burn is routed through; defaults to the wallet's hotkey."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount_tao",
+        "limit_price"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount|all> --limit-price <int>",
+    "python_class": "StakeBurn",
+    "docs_url": "/docs/tx/stake-burn"
+  },
+  {
+    "name": "start_call",
+    "summary": "Activate a subnet (subtoken trading, epochs) as its owner.",
+    "description": "Activate a subnet (subtoken trading, epochs) as its owner.\n\nFlips a freshly registered subnet from inactive to active: the subnet\ntoken becomes tradable and alpha emission into the subnet's epochs\nbegins. It does not enable the subnet's share of TAO emission \u2014 that\nadditionally requires the root-gated emission-enabled flag, which only\nroot can set. Owner-only, callable once per subnet, and only after the\nchain's minimum delay since the subnet was registered \u2014 calling too\nearly fails. Until this is called the subnet earns nothing, so run it\nas soon as the delay allows.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to activate; the signer must be its owner."
+        }
+      },
+      "required": [
+        "netuid"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx start-call --netuid <int>",
+    "python_class": "StartCall",
+    "docs_url": "/docs/tx/start-call"
+  },
+  {
+    "name": "swap_coldkey_announced",
+    "summary": "Execute a previously announced coldkey swap (after the delay has passed).",
+    "description": "Execute a previously announced coldkey swap (after the delay has passed).\n\nStep two of the two-step migration: reveals the new coldkey and moves\neverything the signing coldkey owns \u2014 balance, stake, and subnet ownership\n\u2014 to it. Irreversible once included. The revealed key must hash to exactly\nwhat `announce_coldkey_swap` committed to, and the call fails if the\nannouncement delay has not elapsed, no announcement exists, or the swap\nis frozen by a dispute. After it succeeds, the old coldkey is empty; all\nfuture operations sign with the new coldkey.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "new_coldkey_ss58": {
+          "type": "string",
+          "description": "Coldkey receiving everything; must match the previously announced hash exactly."
+        }
+      },
+      "required": [
+        "new_coldkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx swap-coldkey-announced --new-coldkey <ss58|name>",
+    "python_class": "SwapColdkeyAnnounced",
+    "docs_url": "/docs/tx/swap-coldkey-announced"
+  },
+  {
+    "name": "swap_hotkey",
+    "summary": "Swap a hotkey for a new one (all subnets, or one netuid).",
+    "description": "Swap a hotkey for a new one (all subnets, or one netuid).\n\nRe-keys the neuron identity: the old hotkey's registrations, stake, and\nhistory move to `new_hotkey_ss58`, either everywhere (`netuid` omitted)\nor on a single subnet. The all-subnets swap recycles 0.1 TAO from the\ncoldkey; the per-subnet swap recycles 0.001 TAO. Both respect a\n7,200-block (one day) per-(subnet, coldkey) cooldown \u2014 the all-subnets\nswap checks and records it on every subnet the old hotkey participates\nin. The old hotkey stops earning immediately, so update running\nminers/validators to sign with the new key at the same time. The new\nhotkey must not already be registered where the swap applies, so plan\nthe change rather than iterating. This wraps the legacy `swap_hotkey`\nextrinsic, deprecated on chain in favor of `swap_hotkey_v2`;\nbehavior is identical to `swap_hotkey_v2` with `keep_stake=false`\n(stake moves to the new hotkey). This rotates a leaked hotkey without\ntouching the coldkey; a compromised coldkey needs a coldkey swap\ninstead.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "new_hotkey_ss58": {
+          "type": "string",
+          "description": "Replacement hotkey that takes over the old hotkey's registrations and stake."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey being replaced; defaults to the wallet's hotkey."
+        },
+        "netuid": {
+          "type": "integer",
+          "description": "Limit the swap to this subnet; omit to swap across all subnets."
+        }
+      },
+      "required": [
+        "new_hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx swap-hotkey --new-hotkey <ss58|name>",
+    "python_class": "SwapHotkey",
+    "docs_url": "/docs/tx/swap-hotkey"
+  },
+  {
+    "name": "swap_stake",
+    "summary": "Swap stake on one hotkey between two subnets.",
+    "description": "Swap stake on one hotkey between two subnets.\n\nMoves part of a position from the origin subnet to the destination subnet\nwhile staying on the same hotkey: the alpha is swapped to TAO in the\norigin pool and then to alpha in the destination pool, so both legs can\nincur slippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the origin/destination price\nratio falls more than `rate_tolerance` (5%) below the ratio at submission\n\u2014 raise the tolerance or set `slippage_protection` to False to execute at\nany price. The two netuids must differ (`SameNetuid`). Use `move_stake`\nwhen the hotkey should change too, and `remove_stake` plus `add_stake`\nonly if you want to control each leg separately.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is held on (the validator backing the position)."
+        },
+        "origin_netuid": {
+          "type": "integer",
+          "description": "Subnet the stake currently sits on."
+        },
+        "dest_netuid": {
+          "type": "integer",
+          "description": "Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the origin position to swap across (an explicit amount; ``all`` is not accepted)."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
+        }
+      },
+      "required": [
+        "hotkey_ss58",
+        "origin_netuid",
+        "dest_netuid",
+        "amount_alpha"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx swap-stake --hotkey <ss58|name> --origin-netuid <int> --dest-netuid <int> --amount-alpha <amount|all>",
+    "python_class": "SwapStake",
+    "docs_url": "/docs/tx/swap-stake"
+  },
+  {
+    "name": "terminate_lease",
+    "summary": "Terminate an ended lease and take subnet ownership (beneficiary only).",
+    "description": "Terminate an ended lease and take subnet ownership (beneficiary only).\n\nEnds the lease and transfers full subnet ownership to the beneficiary:\ncontributor dividends stop and the subnet becomes an ordinary owned\nsubnet. Only the lease's beneficiary can call it, and only after the\nlease's end block has passed \u2014 earlier attempts fail, and perpetual leases\n(no end block) can never be terminated this way. Check the lease's end\nblock with the `lease` read before calling.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "lease_id": {
+          "type": "integer",
+          "description": "Lease to terminate (see the leases read)."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Beneficiary hotkey recorded as the subnet's owner hotkey; defaults to the wallet's hotkey."
+        }
+      },
+      "required": [
+        "lease_id"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx terminate-lease --lease-id <int>",
+    "python_class": "TerminateLease",
+    "docs_url": "/docs/tx/terminate-lease"
+  },
+  {
+    "name": "transfer",
+    "summary": "Transfer TAO from the coldkey to a destination address.",
+    "description": "Transfer TAO from the coldkey to a destination address.\n\nSends free balance from the signing coldkey to the destination. On-chain\ntransfers are irreversible \u2014 funds sent to a wrong address cannot be\nrecovered, so double-check the destination. A transaction fee is deducted\nfrom the sender on top of the amount, and the call fails if the free\nbalance cannot cover both. Pass `all` to sweep the entire transferable\nbalance. With `keep_alive` (the default) the transfer refuses to drop\nthe sender below the existential deposit; disable it only when\nintentionally emptying the account.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "dest_ss58": {
+          "type": "string",
+          "description": "Account the funds are sent to."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "How much to send."
+        },
+        "keep_alive": {
+          "type": "boolean",
+          "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        }
+      },
+      "required": [
+        "dest_ss58",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx transfer --dest <ss58|name> --amount-tao <amount|all>",
+    "python_class": "Transfer",
+    "docs_url": "/docs/tx/transfer"
+  },
+  {
+    "name": "transfer_all",
+    "summary": "Transfer the entire transferable balance to a destination address.",
+    "description": "Transfer the entire transferable balance to a destination address.\n\nDrains the signing coldkey's transferable balance to the destination in\none irreversible call \u2014 equivalent to `transfer` with `all` as the\namount. Staked or otherwise reserved funds are not included; unstake first\nto move those. A spend-cap policy treats this as an unbounded spend and\nblocks it until the cap is raised. With `keep_alive` (the default) the\nexistential deposit stays behind; disable it to empty and reap the account.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "dest_ss58": {
+          "type": "string",
+          "description": "Account the funds are sent to."
+        },
+        "keep_alive": {
+          "type": "boolean",
+          "description": "Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it."
+        }
+      },
+      "required": [
+        "dest_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx transfer-all --dest <ss58|name>",
+    "python_class": "TransferAll",
+    "docs_url": "/docs/tx/transfer-all"
+  },
+  {
+    "name": "transfer_stake",
+    "summary": "Transfer stake ownership to another coldkey.",
+    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey but can land on a different\nsubnet, swapping through both pools (with slippage) when the netuids\ndiffer. Fails with `TransferDisallowed` when the subnet owner has\ndisabled stake transfers on the origin or destination subnet. A\nspend-cap policy treats this as an unbounded spend and blocks it until\nthe cap is raised. Use `move_stake` to re-delegate without changing\nowners.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "dest_coldkey_ss58": {
+          "type": "string",
+          "description": "Coldkey that becomes the new owner of the stake."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake is held on (the validator backing the position)."
+        },
+        "origin_netuid": {
+          "type": "integer",
+          "description": "Subnet the stake currently sits on."
+        },
+        "dest_netuid": {
+          "type": "integer",
+          "description": "Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg."
+        },
+        "amount_alpha": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "How much of the position to hand over (an explicit amount; ``all`` is not accepted)."
+        }
+      },
+      "required": [
+        "dest_coldkey_ss58",
+        "hotkey_ss58",
+        "origin_netuid",
+        "dest_netuid",
+        "amount_alpha"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx transfer-stake --dest-coldkey <ss58|name> --hotkey <ss58|name> --origin-netuid <int> --dest-netuid <int> --amount-alpha <amount|all>",
+    "python_class": "TransferStake",
+    "docs_url": "/docs/tx/transfer-stake"
+  },
+  {
+    "name": "trim_subnet",
+    "summary": "Trim a subnet to at most `max_n` UIDs (subnet owner).",
+    "description": "Trim a subnet to at most `max_n` UIDs (subnet owner).\n\nLowers the subnet's UID capacity and immediately deregisters the\nlowest-emission neurons above the new limit \u2014 those miners lose their\nslots and would have to re-register (paying the burn cost) to return.\n`max_n` must be between the chain's minimum allowed UIDs (64) and the\nsubnet's current `max_allowed_uids`. Owner-immune and temporally\nimmune UIDs are skipped, and the call fails if immune UIDs would exceed\n80% of `max_n`. Surviving UIDs are renumbered consecutively from\nzero, so UID values change. Rate-limited to once per 216,000 blocks\n(30 days) and blocked during the end-of-epoch admin freeze window.\nOwner-only and disruptive to affected participants, so announce it\nbefore shrinking a live subnet. To simply cap future growth without\nevicting anyone, set the `max_allowed_uids` hyperparameter to a value\nat or above the current UID count instead.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet to trim; the signer must be its owner."
+        },
+        "max_n": {
+          "type": "integer",
+          "description": "New maximum number of UIDs; lowest-emission neurons above this are removed."
+        }
+      },
+      "required": [
+        "netuid",
+        "max_n"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx trim-subnet --netuid <int> --max-n <int>",
+    "python_class": "TrimSubnet",
+    "docs_url": "/docs/tx/trim-subnet"
+  },
+  {
+    "name": "unstake_all",
+    "summary": "Unstake everything from a hotkey across all subnets.",
+    "description": "Unstake everything from a hotkey across all subnets.\n\nSweeps the signing coldkey's entire stake held on this hotkey across every\nsubnet (root included) back to TAO in the coldkey's free balance. Subnets\nwhere subtoken trading is disabled or where the position fails validation\n(e.g. dust below the chain minimum) are silently skipped, so the call can\nsucceed while leaving some positions untouched. Alpha positions are sold\nat each pool's current price with no limit protection, so large positions\ncan incur significant slippage. Use `remove_stake` to exit a single\nsubnet, or `unstake_all_alpha` to consolidate onto root while staying\nstaked.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey whose entire stake is removed."
+        }
+      },
+      "required": [
+        "hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx unstake-all --hotkey <ss58|name>",
+    "python_class": "UnstakeAll",
+    "docs_url": "/docs/tx/unstake-all"
+  },
+  {
+    "name": "unstake_all_alpha",
+    "summary": "Unstake all alpha from a hotkey across subnets (moves it to root).",
+    "description": "Unstake all alpha from a hotkey across subnets (moves it to root).\n\nSells every alpha position the signing coldkey holds on this hotkey and\nrestakes the proceeds as TAO on the root network (netuid 0), instead of\nreleasing them to the free balance. Subnets where subtoken trading is\ndisabled or where the position fails validation are silently skipped.\nUse it to consolidate onto root while keeping funds staked; use\n`unstake_all` to exit to free balance instead. Each pool swap happens\nat the current price with no limit protection, so large positions can\nincur slippage.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey whose alpha stake is moved to root."
+        }
+      },
+      "required": [
+        "hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx unstake-all-alpha --hotkey <ss58|name>",
+    "python_class": "UnstakeAllAlpha",
+    "docs_url": "/docs/tx/unstake-all-alpha"
+  },
+  {
+    "name": "update_crowdloan_cap",
+    "summary": "Update the cap of a non-finalized crowdloan (creator only).",
+    "description": "Update the cap of a non-finalized crowdloan (creator only).\n\nRaises or lowers the total the crowdloan can collect. Only the creator may\nchange it, and only while the loan has not been finalized. Reaching the\n(new) cap is what allows the creator to finalize.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        },
+        "new_cap_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "New maximum total the crowdloan can raise."
+        }
+      },
+      "required": [
+        "crowdloan_id",
+        "new_cap_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx update-crowdloan-cap --crowdloan-id <int> --new-cap-tao <amount|all>",
+    "python_class": "UpdateCrowdloanCap",
+    "docs_url": "/docs/tx/update-crowdloan-cap"
+  },
+  {
+    "name": "update_crowdloan_end",
+    "summary": "Update the end block of a non-finalized crowdloan (creator only).",
+    "description": "Update the end block of a non-finalized crowdloan (creator only).\n\nExtends or shortens the contribution window. The new end is re-validated\nagainst the current block: it must be in the future and fall within the\nchain's minimum/maximum crowdloan duration (roughly 7 to 60 days)\nmeasured from now. Only the creator may change it, and only while the\nloan has not been finalized.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        },
+        "new_end": {
+          "type": "integer",
+          "description": "New block number at which the crowdloan stops accepting contributions. Must be in the future and roughly 7-60 days from the current block."
+        }
+      },
+      "required": [
+        "crowdloan_id",
+        "new_end"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx update-crowdloan-end --crowdloan-id <int> --new-end <int>",
+    "python_class": "UpdateCrowdloanEnd",
+    "docs_url": "/docs/tx/update-crowdloan-end"
+  },
+  {
+    "name": "update_crowdloan_min_contribution",
+    "summary": "Update the minimum contribution of a non-finalized crowdloan (creator only).",
+    "description": "Update the minimum contribution of a non-finalized crowdloan (creator only).\n\nChanges the smallest contribution the crowdloan will accept from that\npoint on; contributions already made are unaffected. Only the creator may\nchange it, and only while the loan has not been finalized.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        },
+        "new_min_contribution_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "New smallest contribution the crowdloan will accept."
+        }
+      },
+      "required": [
+        "crowdloan_id",
+        "new_min_contribution_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx update-crowdloan-min-contribution --crowdloan-id <int> --new-min-contribution-tao <amount|all>",
+    "python_class": "UpdateCrowdloanMinContribution",
+    "docs_url": "/docs/tx/update-crowdloan-min-contribution"
+  },
+  {
+    "name": "update_symbol",
+    "summary": "Update a subnet's symbol (from the chain's fixed catalog).",
+    "description": "Update a subnet's symbol (from the chain's fixed catalog).\n\nCosmetic call for the subnet owner (or root): changes the short ticker\nshown for the subnet's alpha token in wallets, explorers, and CLIs.\nSymbols are not arbitrary strings \u2014 the chain keeps a fixed catalog of\nroughly 439 predefined symbols, and anything outside it is rejected\nwith `SymbolDoesNotExist`. A symbol already taken by another subnet\nis rejected with `SymbolAlreadyInUse`. No economic effect \u2014 balances,\nstake, and emissions are untouched.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose symbol to change; the signer must be its owner."
+        },
+        "symbol": {
+          "type": "string",
+          "description": "New token symbol; must be one of the chain's predefined symbols and not in use by another subnet."
+        }
+      },
+      "required": [
+        "netuid",
+        "symbol"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx update-symbol --netuid <int> --symbol <value>",
+    "python_class": "UpdateSymbol",
+    "docs_url": "/docs/tx/update-symbol"
+  },
+  {
+    "name": "withdraw_crowdloan",
+    "summary": "Withdraw the signer's contribution from a non-finalized crowdloan.",
+    "description": "Withdraw the signer's contribution from a non-finalized crowdloan.\n\nContributors can pull their contribution back out of any crowdloan that\nhas not finalized, including while it is still raising. The creator may\nonly withdraw the part of their contribution above the initial deposit;\nthe deposit itself stays locked until `dissolve_crowdloan` returns it.\nFails once the crowdloan has finalized or if the signer has nothing left\nto withdraw.",
+    "signer": "coldkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "crowdloan_id": {
+          "type": "integer",
+          "description": "Identifier of the crowdloan, assigned when it was created."
+        }
+      },
+      "required": [
+        "crowdloan_id"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx withdraw-crowdloan --crowdloan-id <int>",
+    "python_class": "WithdrawCrowdloan",
+    "docs_url": "/docs/tx/withdraw-crowdloan"
+  }
+]

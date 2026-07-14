@@ -70,7 +70,7 @@ pub type BlockNumber = u64;
 impl pallet_balances::Config for Test {
     type Balance = Balance;
     type RuntimeEvent = RuntimeEvent;
-    type DustRemoval = ();
+    type DustRemoval = crate::SubtensorDustRemoval<Test>;
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
     type MaxLocks = ();
@@ -344,7 +344,12 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 
 pub struct CommitmentsI;
 impl CommitmentsInterface for CommitmentsI {
-    fn purge_netuid(_netuid: NetUid) {}
+    fn purge_netuid(
+        _netuid: NetUid,
+        _weight_meter: &mut frame_support::weights::WeightMeter,
+    ) -> bool {
+        true
+    }
 }
 
 parameter_types! {

@@ -1,0 +1,163 @@
+---
+title: Testing
+description: How to run every test suite in the repo — Rust unit tests, TypeScript integration tests, and migration checks.
+---
+
+The repo has several test layers. CI runs all of them on every PR, so knowing
+how to reproduce each locally saves round-trips:
+
+| Suite | What it covers | Run locally | CI workflow |
+|-------|----------------|-------------|-------------|
+| Rust unit tests | Pallet and runtime logic | `cargo test --workspace` (below) | `check-rust.yml` |
+| TypeScript / Moonwall | End-to-end chain behavior, EVM, zombienet multi-node | `ts-tests/` (below) | `typescript-e2e.yml` |
+| Migration checks | `on_runtime_upgrade` against live state | try-runtime CLI (below) | `try-runtime.yml` |
+| [Mainnet clone](/docs/internals/mainnet-clone) | Runtime upgrade + regression tests on cloned mainnet state | `clones/` scripts | `runtime-checks.yml` |
+| [Python SDK](/docs/internals/sdk-tests) | SDK unit tests and codegen drift gates | `cd sdk/python && just check` | `runtime-checks.yml` |
+| Rust SDK e2e | Chain-facing SDK behavior against localnet | `cargo test -p bittensor-core --test e2e` | `check-bittensor-e2e-tests.yml` |
+| [eco-tests](/docs/internals/eco-tests) | Storage/RPC shapes the TAO.com indexer depends on | `cd eco-tests && cargo test` | `eco-tests.yml` |
+
+## Rust tests
+
+Contributor guide rule: any pallet or runtime change must come with unit tests
+covering its edge cases. This is how you run them.
+
+### All tests
+
+```bash
+SKIP_WASM_BUILD=1 cargo test --workspace
+```
+
+or, equivalently (the justfile exports `SKIP_WASM_BUILD=1` for you):
+
+```bash
+just test
+```
+
+`SKIP_WASM_BUILD=1` skips compiling the wasm runtime blob, which the unit
+tests don't need — without it every test run pays a multi-minute wasm build
+first. CI (`check-rust.yml`) runs the same thing with all features enabled:
+
+```bash
+SKIP_WASM_BUILD=1 cargo test --workspace --all-features
+```
+
+### One pallet
+
+```bash
+SKIP_WASM_BUILD=1 cargo test -p pallet-subtensor
+```
+
+Pallet tests live inside each crate under `src/tests/` (e.g.
+`pallets/subtensor/src/tests/staking.rs`), organized as modules of the library
+target.
+
+### One test (or a group of tests)
+
+Pass a name filter — every test whose full path contains the string runs:
+
+```bash
+# Everything in the staking test module
+SKIP_WASM_BUILD=1 cargo test -p pallet-subtensor tests::staking
+
+# One test, with log output visible
+SKIP_WASM_BUILD=1 cargo test -p pallet-subtensor test_add_stake_ok_no_emission -- --nocapture
+
+# Exact match only (skip other tests whose names contain the same prefix)
+SKIP_WASM_BUILD=1 cargo test -p pallet-subtensor -- --exact tests::staking::test_add_stake_ok_no_emission
+```
+
+Add `RUST_LOG=debug` before the command to see runtime log lines, and
+`--release` if a test is too slow in debug mode (epoch/consensus tests often
+are). `scripts/test_specific.sh` wraps a release-mode single-test run with
+these flags preconfigured.
+
+### Feature-gated tests
+
+Some code only compiles under feature flags. The two you'll hit most:
+
+```bash
+# Benchmark tests (also what `just benchmarks` runs)
+SKIP_WASM_BUILD=1 cargo test --workspace --features runtime-benchmarks
+
+# The faucet extrinsic used by localnet
+SKIP_WASM_BUILD=1 cargo test -p pallet-subtensor --features pow-faucet
+```
+
+When in doubt, mirror CI with `--all-features`.
+
+### Migration tests (try-runtime)
+
+Storage migrations get two kinds of coverage. Unit tests live next to the
+other pallet tests (see `pallets/subtensor/src/tests/migration.rs`). To
+exercise a migration against **real chain state**, use try-runtime — this is
+what `try-runtime.yml` does on every PR against devnet, testnet, and mainnet
+state:
+
+```bash
+cargo install --git https://github.com/paritytech/try-runtime-cli --locked
+```
+
+See [Repository scripts](/docs/internals/scripts#running-try-runtime-locally)
+for the build and invocation commands to replay `on_runtime_upgrade` against a
+live endpoint or snapshot.
+
+## TypeScript integration tests
+
+TypeScript tests are run with [Moonwall](https://github.com/Moonsong-Labs/moonwall).
+You will need Node (see `ts-tests/.nvmrc`) and pnpm:
+
+```bash
+cd ts-tests
+
+# Use the correct Node version
+nvm use
+
+# Install pnpm
+sudo npm i -g pnpm
+
+# Install dependencies
+pnpm i
+
+# Run manual seal dev tests
+pnpm moonwall test dev
+
+# Run zombienet tests (one environment per suite)
+pnpm moonwall test zombienet_staking
+pnpm moonwall test zombienet_shield
+pnpm moonwall test zombienet_coldkey_swap
+pnpm moonwall test zombienet_evm
+pnpm moonwall test zombienet_subnets
+
+# If you have MacOS, you might need to run zombienet tests with sudo, because tmp folder
+sudo pnpm moonwall test zombienet_staking
+
+# Run smoke tests (against devnet, testnet, or mainnet)
+pnpm moonwall test smoke_devnet
+pnpm moonwall test smoke_testnet
+pnpm moonwall test smoke_mainnet
+```
+
+Moonwall lets you also run the testing environment without performing any
+tests on it, as a method for you to manually test certain things:
+
+```bash
+# Dev tests in run mode
+pnpm moonwall run dev
+
+# Zombienet test with run mode
+pnpm moonwall run zombienet_staking
+```
+
+## Other suites
+
+- **Mainnet clone** (`clones/`): clones live mainnet state, sudo-upgrades it to
+  your runtime, and runs JS regression tests against it. Full walkthrough:
+  [Mainnet clone testing](/docs/internals/mainnet-clone).
+- **Python SDK** (`sdk/python/`): `just sync && just check` runs the same
+  offline gates as CI; runtime metadata changes require regenerating the
+  codegen bindings. Full walkthrough:
+  [Python SDK tests](/docs/internals/sdk-tests).
+- **eco-tests** (`eco-tests/`): excluded from the cargo workspace, so run them
+  from their own directory: `cd eco-tests && cargo test`. They pin the storage
+  and RPC shapes the TAO.com ecosystem indexer consumes — see
+  [Eco-tests](/docs/internals/eco-tests) for what to do when one fails.

@@ -44,7 +44,7 @@ where
         evm_address: Address,
         limit: u16,
     ) -> EvmResult<Vec<(u16, u64)>> {
-        handle.record_db_reads::<R>(u64::from(limit))?;
+        handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::Pallet::<R>::uid_lookup(
             netuid.into(),
             evm_address.0,
@@ -59,6 +59,7 @@ mod tests {
 
     use super::*;
     use crate::mock::{Runtime, addr_from_index, new_test_ext, precompiles, selector_u32};
+    use precompile_utils::prelude::RuntimeHelper;
     use precompile_utils::solidity::{codec::Address, encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
     use subtensor_runtime_common::NetUid;
@@ -78,10 +79,11 @@ mod tests {
             let block_associated = 42u64;
             let limit = 1024u16;
 
-            pallet_subtensor::AssociatedEvmAddress::<Runtime>::insert(
+            pallet_subtensor::Pallet::<Runtime>::set_associated_evm_address(
                 netuid,
                 uid,
-                (evm_address, block_associated),
+                evm_address,
+                block_associated,
             );
 
             let expected =
@@ -98,6 +100,7 @@ mod tests {
                     ),
                 )
                 .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
                 .execute_returns_raw(encode_return_value(expected));
         });
     }

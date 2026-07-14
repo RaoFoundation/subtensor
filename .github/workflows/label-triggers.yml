@@ -12,17 +12,25 @@ permissions:
   pull-requests: write
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
   comment_on_breaking_change:
-    runs-on: [self-hosted, fireactions-light]
+    needs: trusted-pr
+    runs-on: [self-hosted, fireactions-turbo-8]
     steps:
       - name: Check if 'breaking change' label is added
         if: github.event.label.name == 'breaking-change'
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '@opentensor/cerebrum / @opentensor/gyrus / @opentensor/cortex breaking change detected! Please prepare accordingly!'
+              body: '@RaoFoundation/arbos breaking change detected! Please prepare accordingly!'
             })

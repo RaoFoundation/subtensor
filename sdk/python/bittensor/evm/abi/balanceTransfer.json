@@ -1,0 +1,15 @@
+[
+    {
+        "inputs": [
+            {
+                "internalType": "bytes32",
+                "name": "data",
+                "type": "bytes32"
+            }
+        ],
+        "name": "transfer",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    }
+]

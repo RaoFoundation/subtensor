@@ -1,6 +1,4 @@
 use super::*;
-use frame_support::traits::fungible::Mutate;
-use frame_support::traits::tokens::Preservation;
 use frame_support::transactional;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
@@ -103,8 +101,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
     }
 
     fn transfer_tao(from: &T::AccountId, to: &T::AccountId, amount: TaoBalance) -> DispatchResult {
-        <T as Config>::Currency::transfer(from, to, amount, Preservation::Expendable)?;
-        Ok(())
+        Pallet::<T>::transfer_tao(from, to, amount)
     }
 
     #[transactional]

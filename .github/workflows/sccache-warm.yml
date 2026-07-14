@@ -1,0 +1,141 @@
+name: Warm R2 sccache
+
+# Normal same-repository PR and main CI writes through while it compiles. This
+# workflow is maintenance only: refresh deployed-state branches when they move,
+# repair expired/missing main entries at 12:00 UTC, or recover manually.
+
+on:
+  push:
+    branches:
+      - devnet
+      - testnet
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Trusted branch to warm"
+        required: true
+        default: main
+        type: choice
+        options:
+          - main
+          - devnet
+          - testnet
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sccache-warm-${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Populate native compiler cache
+    if: >-
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/devnet' || github.ref == 'refs/heads/testnet')) ||
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    environment:
+      name: sccache-writer
+      deployment: false
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 120
+    env:
+      SKIP_WASM_BUILD: 1
+    steps:
+      - name: Check out trusted cache source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
+
+      - name: Install Rust and enable trusted R2 writer
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: sccache-warm-${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref_name }}
+          components: clippy
+          sccache-credential-mode: writer
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Require protected writer activation
+        shell: bash
+        run: |
+          if [[ "${SCCACHE_ENABLED:-}" != true ||
+                "${SCCACHE_BACKEND:-}" != r2 ||
+                "${RUSTC_WRAPPER:-}" != sccache ]]; then
+            echo "::error::protected R2 writer did not activate"
+            exit 1
+          fi
+
+      - name: Warm default workspace check artifacts
+        run: cargo check --workspace --locked
+
+      - name: Warm all-feature workspace check artifacts
+        run: cargo check --workspace --all-features --locked
+
+      - name: Warm default clippy artifacts
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Warm all-feature clippy artifacts
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Warm deny-warnings check artifacts
+        run: RUSTFLAGS="-D warnings" cargo check --locked
+
+      - name: Warm workspace test artifacts
+        run: cargo test --workspace --all-features --locked --no-run
+
+      - name: Warm eco-tests artifacts
+        working-directory: eco-tests
+        run: cargo test --no-run
+
+      - name: Install runtime wasm toolchain components
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Warm try-runtime wasm artifacts
+        run: |
+          unset SKIP_WASM_BUILD
+          cargo build --profile production -p node-subtensor-runtime --features try-runtime -q --locked
+
+      - name: Warm release node artifacts
+        run: |
+          unset SKIP_WASM_BUILD
+          cargo build --release --locked -p node-subtensor
+
+      - name: Warm fast-runtime release node artifacts
+        run: |
+          unset SKIP_WASM_BUILD
+          cargo build --release --locked -p node-subtensor --features fast-runtime
+
+  production-amd64:
+    name: Populate amd64 production cache
+    if: >-
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/devnet' || github.ref == 'refs/heads/testnet')) ||
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    environment:
+      name: sccache-writer
+      deployment: false
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 120
+    steps:
+      - name: Check out trusted cache source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
+
+      - name: Warm amd64 production binary artifacts
+        uses: ./.github/actions/build-production-binary
+        with:
+          arch: amd64
+          target: x86_64-unknown-linux-gnu
+          cache-key: sccache-warm-production-amd64
+          sccache-credential-mode: writer
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}

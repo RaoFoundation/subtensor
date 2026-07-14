@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "bittensor-core"
+# Static (not read from Cargo.toml) so the release train can stamp PEP 440
+# rc/dev suffixes that cargo's semver would reject.
+version = "0.1.0"
+description = "The chain-defined compute core for Bittensor clients: sp-core keys, keyfiles, drand timelock, ML-KEM, SCALE codec, and RFC-0078 metadata digest, built from the bittensor monorepo"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "RaoFoundation" }]
+
+[project.urls]
+Repository = "https://github.com/RaoFoundation/subtensor"
+
+[tool.maturin]
+module-name = "bittensor_core"
+manifest-path = "Cargo.toml"
+# Enable pyo3's extension-module on the dependency directly instead of via a
+# crate feature, so `cargo test --workspace --all-features` doesn't turn it on
+# (it disables libpython linking, which breaks test-binary links).
+features = ["pyo3/extension-module"]

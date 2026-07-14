@@ -1,36 +1,31 @@
+use sp_runtime::PerU16;
+
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for the extrinsic decrease_take
+    /// The implementation for the extrinsic decrease_take
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>::RuntimeOrigin):
-    ///     - The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     - The hotkey we are delegating (must be owned by the coldkey.)
+    /// * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).
     ///
-    /// * 'take' (u16):
-    ///     - The stake proportion that this hotkey takes from delegations for subnet ID.
+    /// * `take`: The stake proportion that this hotkey takes from delegations for subnet ID.
     ///
-    /// # Event:
-    /// * TakeDecreased;
-    ///     - On successfully setting a decreased take for this hotkey.
+    /// # Events
+    /// * `TakeDecreased`: On successfully setting a decreased take for this hotkey.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     - The hotkey we are delegating is not registered on the network.
+    /// # Errors
+    /// * `NotRegistered`: The hotkey we are delegating is not registered on the network.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     - The hotkey we are delegating is not owned by the calling coldket.
+    /// * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldket.
     ///
-    /// * 'DelegateTakeTooLow':
-    ///     - The delegate is setting a take which is not lower than the previous.
+    /// * `DelegateTakeTooLow`: The delegate is setting a take which is not lower than the previous.
     ///
     pub fn do_decrease_take(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
-        take: u16,
+        take: PerU16,
     ) -> dispatch::DispatchResult {
         // --- 1. We check the coldkey signature.
         let coldkey = ensure_signed(origin)?;

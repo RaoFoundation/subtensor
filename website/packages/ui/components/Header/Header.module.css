@@ -1,0 +1,97 @@
+.container {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: stretch;
+  white-space: nowrap;
+  padding: 32px;
+  color: var(--text-primary);
+  font-family: 'FiraCode';
+  font-weight: 400;
+}
+
+.container a,
+.container a:visited {
+  color: var(--text-primary);
+  line-height: 150%;
+  letter-spacing: 3%;
+}
+
+.hamburger_container {
+  display: none;
+}
+
+.menu_list {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  flex-grow: 1;
+  font-size: inherit;
+  li {
+    width: 100px;
+    display: flex;
+    justify-content: center;
+  }
+}
+
+.menu_item {
+  list-style-type: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  font-weight: inherit;
+  text-transform: uppercase;
+  font-size: inherit;
+}
+
+.tao_credit_container {
+  display: flex;
+  width: 105px;
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.tao_logo {
+  width: 105px;
+}
+
+.right_spacer {
+  display: none;
+  width: 105px; /* keep center alignment symmetrical with logo width */
+}
+
+@media (min-width: 701px) {
+  .right_spacer {
+    display: block;
+  }
+}
+
+.active_route {
+  position: absolute;
+  height: 1px;
+  width: stretch;
+  left: 0px;
+  top: 100%;
+  border-top: 1px solid var(--text-primary);
+  display: block;
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .tao_credit_container {
+    display: none;
+  }
+  .container {
+    padding: 24px 22px;
+  }
+  .hamburger_container {
+    display: flex;
+  }
+  .tao_credit_container {
+    display: none;
+  }
+  .menu_list {
+    display: none;
+  }
+}

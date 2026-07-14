@@ -1,5 +1,6 @@
 #![allow(
     unused,
+    clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
     clippy::panic,
     clippy::unwrap_used,
@@ -13,12 +14,10 @@ use alloc::collections::BTreeMap;
 use approx::assert_abs_diff_eq;
 use frame_support::assert_ok;
 use sp_core::U256;
-use substrate_fixed::{
-    transcendental::sqrt,
-    types::{I64F64, I96F32, U64F64, U96F32},
-};
+use sp_runtime::PerU16;
+use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
-use subtensor_swap_interface::{SwapEngine, SwapHandler};
+use subtensor_swap_interface::SwapHandler;
 
 #[allow(clippy::arithmetic_side_effects)]
 fn close(value: u64, target: u64, eps: u64) {
@@ -46,7 +45,7 @@ fn set_full_injection_root_stake() {
 fn test_hotkey_take() {
     new_test_ext(1).execute_with(|| {
         let hotkey = U256::from(1);
-        Delegates::<Test>::insert(hotkey, u16::MAX / 2);
+        Delegates::<Test>::insert(hotkey, PerU16::from_parts(u16::MAX / 2));
         log::info!(
             "expected: {:?}",
             SubtensorModule::get_hotkey_take_float(&hotkey)
@@ -980,7 +979,7 @@ fn test_drain_base_with_subnet_with_single_staker_registered_root_weight() {
         let stake_before = AlphaBalance::from(1_000_000_000);
         // register_ok_neuron(root, hotkey, coldkey, 0);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
-        Delegates::<Test>::insert(hotkey, 0);
+        Delegates::<Test>::insert(hotkey, PerU16::zero());
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -1081,8 +1080,8 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root() {
         let stake_before = AlphaBalance::from(1_000_000_000);
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
-        Delegates::<Test>::insert(hotkey1, 0);
-        Delegates::<Test>::insert(hotkey2, 0);
+        Delegates::<Test>::insert(hotkey1, PerU16::zero());
+        Delegates::<Test>::insert(hotkey2, PerU16::zero());
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey1,
@@ -1155,8 +1154,8 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         let hotkey2 = U256::from(2);
         let coldkey = U256::from(3);
         let stake_before = AlphaBalance::from(1_000_000_000);
-        Delegates::<Test>::insert(hotkey1, 0);
-        Delegates::<Test>::insert(hotkey2, 0);
+        Delegates::<Test>::insert(hotkey1, PerU16::zero());
+        Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
@@ -1236,8 +1235,8 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         let hotkey2 = U256::from(2);
         let coldkey = U256::from(3);
         let stake_before = AlphaBalance::from(1_000_000_000);
-        Delegates::<Test>::insert(hotkey1, 0);
-        Delegates::<Test>::insert(hotkey2, 0);
+        Delegates::<Test>::insert(hotkey1, PerU16::zero());
+        Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
         SubtensorModule::set_tao_weight(u64::MAX / 2); // Set TAO weight to 0.5
@@ -1327,7 +1326,7 @@ fn test_drain_alpha_childkey_parentkey() {
         mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
 
         // Childkey take is 10%
-        ChildkeyTake::<Test>::insert(child, netuid, u16::MAX / 10);
+        ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(u16::MAX / 10));
 
         let pending_alpha = AlphaBalance::from(1_000_000_000);
         SubtensorModule::distribute_emission(
@@ -1540,9 +1539,9 @@ fn test_get_root_children_drain() {
         // Set Bob as 100% child of Alice on root.
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
         // Set Bob childkey take to zero.
-        ChildkeyTake::<Test>::insert(bob, alpha, 0);
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::zero());
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Get Alice stake amounts on subnet alpha.
         let (alice_total, alice_alpha, alice_tao): (I64F64, I64F64, I64F64) =
@@ -1599,7 +1598,7 @@ fn test_get_root_children_drain() {
         );
 
         // Lets change the take value. (Bob is greedy.)
-        ChildkeyTake::<Test>::insert(bob, alpha, u16::MAX);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX));
 
         // Lets drain
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1687,9 +1686,9 @@ fn test_get_root_children_drain_half_proportion() {
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX / 2, bob)]);
 
         // Set Bob childkey take to zero.
-        ChildkeyTake::<Test>::insert(bob, alpha, 0);
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::zero());
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1772,11 +1771,11 @@ fn test_get_root_children_drain_with_take() {
             bob_alpha_stake,
         );
         // Set Bob as 100% child of Alice on root.
-        ChildkeyTake::<Test>::insert(bob, alpha, u16::MAX);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX));
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
         // Set Bob validator take to zero.
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1860,11 +1859,11 @@ fn test_get_root_children_drain_with_half_take() {
             bob_alpha_stake,
         );
         // Set Bob as 100% child of Alice on root.
-        ChildkeyTake::<Test>::insert(bob, alpha, u16::MAX / 2);
+        ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX / 2));
         mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
         // Set Bob childkey take to zero.
-        Delegates::<Test>::insert(alice, 0);
-        Delegates::<Test>::insert(bob, 0);
+        Delegates::<Test>::insert(alice, PerU16::zero());
+        Delegates::<Test>::insert(bob, PerU16::zero());
 
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -2684,10 +2683,17 @@ fn test_distribute_emission_zero_emission() {
         assert!(
             Incentive::<Test>::get(NetUidStorageIndex::from(netuid))
                 .iter()
+                .map(|p| p.deconstruct())
                 .sum::<u16>()
                 > 0
         );
-        assert!(Dividends::<Test>::get(netuid).iter().sum::<u16>() > 0);
+        assert!(
+            Dividends::<Test>::get(netuid)
+                .iter()
+                .map(|p| p.deconstruct())
+                .sum::<u16>()
+                > 0
+        );
     });
 }
 
@@ -2779,10 +2785,17 @@ fn test_run_coinbase_not_started() {
         assert!(
             Incentive::<Test>::get(NetUidStorageIndex::from(netuid))
                 .iter()
+                .map(|p| p.deconstruct())
                 .sum::<u16>()
                 > 0
         );
-        assert!(Dividends::<Test>::get(netuid).iter().sum::<u16>() > 0);
+        assert!(
+            Dividends::<Test>::get(netuid)
+                .iter()
+                .map(|p| p.deconstruct())
+                .sum::<u16>()
+                > 0
+        );
     });
 }
 
@@ -2916,7 +2929,7 @@ fn test_drain_alpha_childkey_parentkey_with_burn() {
         mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX, child)]);
 
         // Childkey take is 10%
-        ChildkeyTake::<Test>::insert(child, netuid, u16::MAX / 10);
+        ChildkeyTake::<Test>::insert(child, netuid, PerU16::from_parts(u16::MAX / 10));
 
         let burn_rate = SubtensorModule::get_ck_burn();
         let parent_stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&parent, netuid);
@@ -3255,7 +3268,7 @@ fn test_mining_emission_distribution_with_no_root_sell() {
 
             assert!(miner_incentive.is_some());
 
-            (miner_incentive.unwrap_or_default() as u64).into()
+            (miner_incentive.unwrap_or_default().deconstruct() as u64).into()
         };
         log::info!("Miner incentive: {miner_incentive:?}");
 
@@ -3271,6 +3284,7 @@ fn test_mining_emission_distribution_with_no_root_sell() {
         assert_abs_diff_eq!(
             Incentive::<Test>::get(NetUidStorageIndex::from(netuid))
                 .iter()
+                .map(|p| p.deconstruct())
                 .sum::<u16>(),
             u16::MAX,
             epsilon = 10
@@ -3433,7 +3447,7 @@ fn test_mining_emission_distribution_with_root_sell() {
 
             assert!(miner_incentive.is_some());
 
-            (miner_incentive.unwrap_or_default() as u64).into()
+            (miner_incentive.unwrap_or_default().deconstruct() as u64).into()
         };
         log::info!("Miner incentive: {miner_incentive:?}");
 
@@ -3698,6 +3712,120 @@ fn test_coinbase_inject_and_maybe_swap_does_not_skew_reserves() {
             price_after.to_num::<f64>(),
             epsilon = 1.0
         );
+    });
+}
+
+#[test]
+fn test_coinbase_failed_tao_materialization_does_not_activate_current_tao() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let initial_reserve = TaoBalance::from(1_000_000_u64);
+        let reservoir_tao = TaoBalance::from(100_u64);
+        let current_tao = TaoBalance::from(200_u64);
+        let current_alpha = AlphaBalance::from(100_u64);
+
+        mock::setup_reserves(netuid, initial_reserve, AlphaBalance::from(1_000_000_u64));
+        Swap::maybe_initialize_palswap(netuid, None);
+        pallet_subtensor_swap::BalancerTaoReservoir::<Test>::insert(netuid, reservoir_tao);
+
+        let tao_in = BTreeMap::from([(netuid, U96F32::saturating_from_num(current_tao))]);
+        let alpha_in = BTreeMap::from([(netuid, U96F32::saturating_from_num(current_alpha))]);
+        let excess_tao = BTreeMap::new();
+        let credit = SubtensorModule::mint_tao(TaoBalance::ZERO);
+
+        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+
+        assert_eq!(
+            SubnetTAO::<Test>::get(netuid),
+            initial_reserve.saturating_add(reservoir_tao)
+        );
+        assert_eq!(SubnetTaoInEmission::<Test>::get(netuid), reservoir_tao);
+        assert_eq!(
+            SubnetProtocolFlow::<Test>::get(netuid),
+            reservoir_tao.to_u64() as i64
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid),
+            TaoBalance::ZERO
+        );
+    });
+}
+
+#[test]
+fn test_alpha_reservoir_counts_toward_subnet_issuance_across_blocks() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let alpha_in = AlphaBalance::from(10_000_u64);
+        let alpha_out = AlphaBalance::from(20_000_u64);
+        let reservoir_alpha = AlphaBalance::from(30_000_u64);
+
+        SubnetAlphaIn::<Test>::insert(netuid, alpha_in);
+        SubnetAlphaOut::<Test>::insert(netuid, alpha_out);
+        pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::insert(netuid, reservoir_alpha);
+
+        let expected = alpha_in
+            .saturating_add(alpha_out)
+            .saturating_add(reservoir_alpha);
+        assert_eq!(SubtensorModule::get_alpha_issuance(netuid), expected);
+
+        System::set_block_number(System::block_number().saturating_add(1));
+
+        assert_eq!(SubnetAlphaIn::<Test>::get(netuid), alpha_in);
+        assert_eq!(
+            pallet_subtensor_swap::BalancerAlphaReservoir::<Test>::get(netuid),
+            reservoir_alpha
+        );
+        assert_eq!(SubtensorModule::get_alpha_issuance(netuid), expected);
+    });
+}
+
+#[test]
+fn test_coinbase_inject_and_maybe_swap_reverts_excess_tao_deposit_on_swap_failure() {
+    new_test_ext(1).execute_with(|| {
+        let zero = U96F32::saturating_from_num(0);
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let tao_to_swap = TaoBalance::from(789_100_u64);
+
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_u64),
+        );
+        Swap::maybe_initialize_palswap(netuid, None);
+
+        // Force the buy swap to fail after the excess TAO credit is deposited.
+        SubnetAlphaIn::<Test>::set(
+            netuid,
+            AlphaBalance::from(u64::from(mock::SwapMinimumReserve::get()) - 1),
+        );
+        assert!(
+            SubtensorModule::swap_tao_for_alpha(
+                netuid,
+                tao_to_swap,
+                <Test as Config>::SwapInterface::max_price(),
+                true,
+            )
+            .is_err()
+        );
+
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        let chain_before = Balances::free_balance(subnet_account);
+        let subnet_tao_before = SubnetTAO::<Test>::get(netuid);
+        let total_issuance_before = TotalIssuance::<Test>::get();
+        let balances_issuance_before = Balances::total_issuance();
+
+        let tao_in = BTreeMap::from([(netuid, zero)]);
+        let alpha_in = BTreeMap::from([(netuid, zero)]);
+        let excess_tao = BTreeMap::from([(netuid, U96F32::saturating_from_num(tao_to_swap))]);
+        let credit = SubtensorModule::mint_tao(tao_to_swap);
+
+        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+
+        assert_eq!(Balances::free_balance(subnet_account), chain_before);
+        assert_eq!(SubnetTAO::<Test>::get(netuid), subnet_tao_before);
+        assert_eq!(SubnetExcessTao::<Test>::get(netuid), TaoBalance::ZERO);
+        assert_eq!(TotalIssuance::<Test>::get(), total_issuance_before);
+        assert_eq!(Balances::total_issuance(), balances_issuance_before);
     });
 }
 

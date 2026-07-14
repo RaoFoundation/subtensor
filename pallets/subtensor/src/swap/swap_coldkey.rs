@@ -41,8 +41,6 @@ impl<T: Config> Pallet<T> {
         // Transfer any remaining balance from old_coldkey to new_coldkey
         Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
 
-        Self::set_last_tx_block(new_coldkey, Self::get_current_block_as_u64());
-
         Self::deposit_event(Event::ColdkeySwapped {
             old_coldkey: old_coldkey.clone(),
             new_coldkey: new_coldkey.clone(),

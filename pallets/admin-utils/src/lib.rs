@@ -33,7 +33,7 @@ pub mod pallet {
         DefaultMaxAllowedUids,
         utils::rate_limiting::{Hyperparameter, TransactionType},
     };
-    use sp_runtime::BoundedVec;
+    use sp_runtime::{BoundedVec, PerU16};
     use substrate_fixed::types::{I64F64, I96F32, U64F64};
     use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
@@ -229,7 +229,7 @@ pub mod pallet {
         /// The extrinsic will call the Subtensor pallet to set the default take.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_default_take())]
-        pub fn sudo_set_default_take(origin: OriginFor<T>, default_take: u16) -> DispatchResult {
+        pub fn sudo_set_default_take(origin: OriginFor<T>, default_take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_max_delegate_take(default_take);
             log::debug!("DefaultTakeSet( default_take: {default_take:?} ) ");
@@ -991,7 +991,7 @@ pub mod pallet {
             Ok(())
         }
 
-        /// DEPRECATED
+        /// Deprecated. This extrinsic is no longer supported and always returns `Error::Deprecated`.
         #[pallet::call_index(33)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_total_issuance())]
         pub fn sudo_set_total_issuance(
@@ -1145,7 +1145,7 @@ pub mod pallet {
         /// The extrinsic will call the Subtensor pallet to set the minimum delegate take.
         #[pallet::call_index(46)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_min_delegate_take())]
-        pub fn sudo_set_min_delegate_take(origin: OriginFor<T>, take: u16) -> DispatchResult {
+        pub fn sudo_set_min_delegate_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_min_delegate_take(take);
             log::debug!("TxMinDelegateTakeSet( tx_min_delegate_take: {take:?} ) ");
@@ -1160,7 +1160,7 @@ pub mod pallet {
         pub fn sudo_set_min_childkey_take_per_subnet(
             origin: OriginFor<T>,
             netuid: NetUid,
-            take: u16,
+            take: PerU16,
         ) -> DispatchResult {
             let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
                 origin,
@@ -1174,8 +1174,8 @@ pub mod pallet {
                 Error::<T>::SubnetDoesNotExist
             );
             ensure!(
-                take >= pallet_subtensor::Pallet::<T>::get_min_childkey_take()
-                    && take <= pallet_subtensor::Pallet::<T>::get_max_childkey_take(),
+                take.deconstruct() >= pallet_subtensor::Pallet::<T>::get_min_childkey_take()
+                    && take.deconstruct() <= pallet_subtensor::Pallet::<T>::get_max_childkey_take(),
                 Error::<T>::InvalidValue
             );
 
@@ -1225,10 +1225,10 @@ pub mod pallet {
 
         /// Enables or disables Liquid Alpha for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Liquid Alpha.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Liquid Alpha.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1289,11 +1289,11 @@ pub mod pallet {
         /// The dissolve network schedule determines how long it takes for a network dissolution operation to complete.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `duration` - The new duration for the dissolve network schedule, in number of blocks.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `duration`: The new duration for the dissolve network schedule, in number of blocks.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1321,13 +1321,13 @@ pub mod pallet {
         /// The commit-reveal mechanism ensures that users commit weights in advance and reveal them only within a specified period.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner or the root account.
-        /// * `netuid` - The unique identifier of the subnet for which the periods are being set.
-        /// * `periods` - The number of epochs that define the commit-reveal period.
+        /// * `origin`: The origin of the call, which must be the subnet owner or the root account.
+        /// * `netuid`: The unique identifier of the subnet for which the periods are being set.
+        /// * `periods`: The number of epochs that define the commit-reveal period.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is neither the subnet owner nor the root account.
-        /// * `SubnetDoesNotExist` - If the specified subnet does not exist.
+        /// * `BadOrigin`: If the caller is neither the subnet owner nor the root account.
+        /// * `SubnetDoesNotExist`: If the specified subnet does not exist.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1365,11 +1365,11 @@ pub mod pallet {
         /// Sets the EVM ChainID.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner or the root account.
-        /// * `chainId` - The u64 chain ID
+        /// * `origin`: The origin of the call, which must be the subnet owner or the root account.
+        /// * `chainId`: The u64 chain ID
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is neither the subnet owner nor the root account.
+        /// * `BadOrigin`: If the caller is neither the subnet owner nor the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1415,10 +1415,10 @@ pub mod pallet {
 
         /// Enable or disable atomic alpha transfers for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Liquid Alpha.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Liquid Alpha.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1450,10 +1450,10 @@ pub mod pallet {
         /// If set to `Burn`, the miner emission sent to the burn UID(s) will be burned.
         /// If set to `Recycle`, the miner emission sent to the burn UID(s) will be recycled.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `recycle_or_burn`: The desired behaviour of the "burn" UID(s) for the subnet.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `recycle_or_burn`: The desired behaviour of the "burn" UID(s) for the subnet.
         ///
         #[pallet::call_index(80)]
         #[pallet::weight(Weight::from_parts(20_000_000, 0)
@@ -1484,12 +1484,12 @@ pub mod pallet {
         /// Toggles the enablement of an EVM precompile.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `precompile_id` - The identifier of the EVM precompile to toggle.
-        /// * `enabled` - The new enablement state of the precompile.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `precompile_id`: The identifier of the EVM precompile to toggle.
+        /// * `enabled`: The new enablement state of the precompile.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1514,11 +1514,11 @@ pub mod pallet {
         ///
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `alpha` - The new moving alpha value for the SubnetMovingAlpha.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `alpha`: The new moving alpha value for the SubnetMovingAlpha.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1532,37 +1532,26 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Change the SubnetOwnerHotkey for a given subnet.
-        ///
-        /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner.
-        /// * `netuid` - The unique identifier for the subnet.
-        /// * `hotkey` - The new hotkey for the subnet owner.
-        ///
-        /// # Errors
-        /// * `BadOrigin` - If the caller is not the subnet owner or root account.
-        ///
-        /// # Weight
-        /// Weight is handled by the `#[pallet::weight]` attribute.
-        #[pallet::call_index(64)]
-        #[pallet::weight(Weight::from_parts(3_918_000, 0) // TODO: add benchmarks
-        .saturating_add(T::DbWeight::get().writes(1_u64)))]
-        pub fn sudo_set_subnet_owner_hotkey(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            hotkey: <T as frame_system::Config>::AccountId,
-        ) -> DispatchResult {
-            pallet_subtensor::Pallet::<T>::do_set_sn_owner_hotkey(origin, netuid, &hotkey)
-        }
+        // Deprecated for sudo_set_sn_owner_hotkey
+        // #[pallet::call_index(64)]
+        // #[pallet::weight(Weight::from_parts(3_918_000, 0) // TODO: add benchmarks
+        // .saturating_add(T::DbWeight::get().writes(1_u64)))]
+        // pub fn sudo_set_subnet_owner_hotkey(
+        //     origin: OriginFor<T>,
+        //     netuid: NetUid,
+        //     hotkey: <T as frame_system::Config>::AccountId,
+        // ) -> DispatchResult {
+        //     pallet_subtensor::Pallet::<T>::do_set_sn_owner_hotkey(origin, netuid, &hotkey)
+        // }
 
         ///
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `ema_alpha_period` - Number of blocks for EMA price to halve
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `ema_alpha_period`: Number of blocks for EMA price to halve
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1585,15 +1574,15 @@ pub mod pallet {
         ///
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `netuid` - The unique identifier for the subnet.
-        /// * `steepness` - The Steepness for the alpha sigmoid function. (range is 0-int16::MAX,
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `steepness`: The Steepness for the alpha sigmoid function. (range is 0-int16::MAX,
         /// negative values are reserved for future use)
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
-        /// * `SubnetDoesNotExist` - If the specified subnet does not exist.
-        /// * `NegativeSigmoidSteepness` - If the steepness is negative and the caller is
+        /// * `BadOrigin`: If the caller is not the root account.
+        /// * `SubnetDoesNotExist`: If the specified subnet does not exist.
+        /// * `NegativeSigmoidSteepness`: If the steepness is negative and the caller is
         /// root.
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1635,10 +1624,10 @@ pub mod pallet {
 
         /// Enables or disables Yuma3 for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Yuma3.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Yuma3.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1669,10 +1658,10 @@ pub mod pallet {
 
         /// Enables or disables Bonds Reset for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Bonds Reset.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Bonds Reset.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1707,27 +1696,27 @@ pub mod pallet {
         /// the hotkey for a given subnet. The subnet must already exist. To prevent abuse, the call is
         /// rate-limited to once per configured interval (default: one week) per subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The dispatch origin of the call. Must be either root or the current owner of the subnet.
-        /// - `netuid`: The unique identifier of the subnet whose owner hotkey is being set.
-        /// - `hotkey`: The new hotkey account to associate with the subnet owner.
+        /// # Arguments
+        /// * `origin`: The dispatch origin of the call. Must be either root or the current owner of the subnet.
+        /// * `netuid`: The unique identifier of the subnet whose owner hotkey is being set.
+        /// * `hotkey`: The new hotkey account to associate with the subnet owner.
         ///
         /// # Returns
-        /// - `DispatchResult`: Returns `Ok(())` if the hotkey was successfully set, or an appropriate error otherwise.
+        /// * `DispatchResult`: Returns `Ok(())` if the hotkey was successfully set, or an appropriate error otherwise.
         ///
         /// # Errors
-        /// - `Error::SubnetNotExists`: If the specified subnet does not exist.
-        /// - `Error::TxRateLimitExceeded`: If the function is called more frequently than the allowed rate limit.
+        /// * `Error::SubnetNotExists`: If the specified subnet does not exist.
+        /// * `Error::TxRateLimitExceeded`: If the function is called more frequently than the allowed rate limit.
         ///
         /// # Access Control
         /// Only callable by:
-        /// - Root origin, or
-        /// - The coldkey account that owns the subnet.
+        /// * Root origin, or
+        /// * The coldkey account that owns the subnet.
         ///
         /// # Storage
-        /// - Updates [`SubnetOwnerHotkey`] for the given `netuid`.
-        /// - Reads and updates [`LastRateLimitedBlock`] for rate-limiting.
-        /// - Reads [`DefaultSetSNOwnerHotkeyRateLimit`] to determine the interval between allowed updates.
+        /// * Updates [`SubnetOwnerHotkey`] for the given `netuid`.
+        /// * Reads and updates [`LastRateLimitedBlock`] for rate-limiting.
+        /// * Reads [`DefaultSetSNOwnerHotkeyRateLimit`] to determine the interval between allowed updates.
         ///
         /// # Rate Limiting
         /// This function is rate-limited to one call per subnet per interval (e.g., one week).
@@ -1744,12 +1733,12 @@ pub mod pallet {
         /// Enables or disables subtoken trading for a given subnet.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `netuid` - The unique identifier of the subnet.
-        /// * `subtoken_enabled` - A boolean indicating whether subtoken trading should be enabled or disabled.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `netuid`: The unique identifier of the subnet.
+        /// * `subtoken_enabled`: A boolean indicating whether subtoken trading should be enabled or disabled.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.

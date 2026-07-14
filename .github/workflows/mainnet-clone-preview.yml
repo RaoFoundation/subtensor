@@ -1,0 +1,214 @@
+name: Mainnet Clone Preview
+
+# Opt-in, label-triggered mainnet rehearsal with a live endpoint.
+#
+# Add the `mainnet-clone` label to a PR into main and CI will:
+#   1. build the PR's node + runtime
+#   2. spin up a local clone of mainnet state (clones/scripts/clone-mainnet.sh)
+#   3. sudo-upgrade the clone with the PR's runtime (//Alice holds sudo)
+#   4. run the clone smoke tests
+#   5. open a public tunnel to the clone's RPC and post the wss:// endpoint
+#      as a sticky PR comment, then keep the clone alive so you can test
+#      against it interactively
+#
+# Lifecycle:
+#   - the clone stays up while the label is on, capped at KEEP_ALIVE_MINUTES
+#   - removing the label, or pushing a new commit, cancels the run (and a
+#     push starts a fresh clone of the new code) via the concurrency group
+#   - the tunnel URL is public but unguessable; the chain behind it is a
+#     throwaway clone whose sudo key is //Alice — treat it as radioactive
+#     test infra, never a place for real keys
+#
+# Fork PRs are excluded: the label is the only gate before PR code runs on
+# a self-hosted runner, and labels on fork PRs can't be trusted as strongly.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [labeled, unlabeled, opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # One clone per PR; label removal or a new push cancels the live one.
+  group: mainnet-clone-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  WS_ENDPOINT: ws://127.0.0.1:9944
+  KEEP_ALIVE_MINUTES: 360
+
+jobs:
+  clone-preview:
+    name: Sudo-upgrade mainnet clone, expose endpoint
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'mainnet-clone') &&
+      github.event.pull_request.head.repo.fork == false
+    timeout-minutes: 480
+    steps:
+      - name: Dependencies
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config jq
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      - name: Check-out repository under $GITHUB_WORKSPACE
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Shared R2 compiler cache
+        uses: ./.github/actions/sccache-setup
+        with:
+          credential-mode: auto
+          writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Cache Cargo registry and git data
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: clone-upgrade
+          cache-on-failure: true
+          cache-targets: false
+
+      - name: Build node and runtime
+        run: cargo build --release -p node-subtensor
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Create mainnet clone
+        run: ./clones/scripts/clone-mainnet.sh
+
+      - name: Start local clone
+        # --rpc-cors=all so browser clients (polkadot.js apps) can connect
+        # through the tunnel; the RPC still binds to localhost only.
+        run: |
+          nohup ./clones/scripts/start-local-clone.sh --rpc-cors=all > clone-node.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -sf -H "Content-Type: application/json" \
+              -d '{"id":1,"jsonrpc":"2.0","method":"system_health","params":[]}' \
+              http://127.0.0.1:9944 > /dev/null; then
+              echo "Clone node is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Clone node failed to start:"
+          cat clone-node.log
+          exit 1
+
+      - name: Install clone test dependencies
+        working-directory: clones/js-tests
+        run: npm ci
+
+      - name: Sudo-upgrade clone with proposed runtime
+        working-directory: clones/js-tests
+        run: npm run runtime:update:alice
+
+      - name: Run clone smoke tests
+        working-directory: clones/js-tests
+        run: npm test
+
+      - name: Open tunnel to the clone RPC
+        id: tunnel
+        env:
+          CLOUDFLARED_VERSION: "2026.7.1"
+          CLOUDFLARED_SHA256: "79a0ade7fc854f62c1aaef48424d9d979e8c2fcd039189d24db82b84cd146be1"
+        run: |
+          curl -fsSL -o /tmp/cloudflared \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          echo "${CLOUDFLARED_SHA256}  /tmp/cloudflared" | sha256sum -c -
+          chmod +x /tmp/cloudflared
+          nohup /tmp/cloudflared tunnel --url http://127.0.0.1:9944 --no-autoupdate > tunnel.log 2>&1 &
+          for i in $(seq 1 30); do
+            url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1 || true)
+            if [ -n "$url" ]; then
+              echo "Tunnel: $url"
+              echo "https_url=$url" >> $GITHUB_OUTPUT
+              echo "wss_url=wss://${url#https://}" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Tunnel failed to come up:"
+          cat tunnel.log
+          exit 1
+
+      - name: Post endpoint as sticky PR comment
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          WSS_URL: ${{ steps.tunnel.outputs.wss_url }}
+          KEEP_ALIVE_MINUTES: ${{ env.KEEP_ALIVE_MINUTES }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const marker = '<!-- mainnet-clone-preview -->';
+            const wss = process.env.WSS_URL;
+            const appsUrl = `https://polkadot.js.org/apps/?rpc=${encodeURIComponent(wss)}#/explorer`;
+            const hours = Math.round(Number(process.env.KEEP_ALIVE_MINUTES) / 60);
+
+            const body = [
+              marker,
+              '### Mainnet clone is live with this PR\'s runtime',
+              '',
+              `**Endpoint:** \`${wss}\``,
+              '',
+              `- [Open in polkadot.js apps](${appsUrl})`,
+              '- Sudo key: `//Alice` (the clone is a throwaway — do not use real keys)',
+              '- SDK drift gate against it: `cd sdk/python && uv run python -m codegen.check --drift ' + wss + '`',
+              '',
+              `Stays up while the \`mainnet-clone\` label is on this PR (max ${hours}h). ` +
+                'Pushing a new commit replaces it with a fresh clone of the new code; ' +
+                'removing the label tears it down.',
+              '',
+              `[Run log](${process.env.RUN_URL})`,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Hold the clone open
+        run: |
+          echo "Clone live at ${{ steps.tunnel.outputs.wss_url }} for up to ${KEEP_ALIVE_MINUTES} minutes."
+          sleep $(( KEEP_ALIVE_MINUTES * 60 ))
+
+      # Best-effort: mark the comment offline on expiry or cancellation
+      # (cancelled runs get a short grace period for cleanup steps).
+      - name: Mark endpoint offline
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const marker = '<!-- mainnet-clone-preview -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              const body = marker + '\n### Mainnet clone preview is offline\n\n' +
+                'Re-add the `mainnet-clone` label (or push a commit while it is on) to start a fresh one.';
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            }
+
+      - name: Stop local clone
+        if: always()
+        run: ./clones/scripts/stop-local-clone.sh

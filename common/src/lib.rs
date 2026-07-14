@@ -12,14 +12,20 @@ use sp_runtime::{
     MultiSignature, Vec,
     traits::{IdentifyAccount, Verify},
 };
+
+pub use sp_io::MultiRemovalResults;
 use subtensor_macros::freeze_struct;
 
 pub use currency::*;
 pub use evm_context::*;
+pub use proxy::*;
 pub use transaction_error::*;
+
+use frame_support::weights::WeightMeter;
 
 mod currency;
 mod evm_context;
+mod proxy;
 mod transaction_error;
 
 /// Balance of an account.
@@ -47,7 +53,7 @@ pub type Nonce = u32;
 pub const SMALL_TRANSFER_LIMIT: Balance = TaoBalance::new(500_000_000); // 0.5 TAO
 pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_000); // 0.5 Alpha
 
-#[freeze_struct("c972489bff40ae48")]
+#[freeze_struct("4184c565055c66a7")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -65,6 +71,7 @@ pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_0
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 #[serde(transparent)]
 pub struct NetUid(u16);
@@ -123,188 +130,6 @@ impl From<u16> for NetUid {
     fn from(value: u16) -> Self {
         Self(value)
     }
-}
-
-impl TypeInfo for NetUid {
-    type Identity = <u16 as TypeInfo>::Identity;
-    fn type_info() -> scale_info::Type {
-        <u16 as TypeInfo>::type_info()
-    }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Encode,
-    Decode,
-    DecodeWithMemTracking,
-    Debug,
-    MaxEncodedLen,
-    TypeInfo,
-)]
-pub enum ProxyType {
-    Any,
-    Owner, // Subnet owner Calls
-    NonCritical,
-    NonTransfer,
-    Senate,
-    NonFungible, // Nothing involving moving TAO
-    Triumvirate,
-    Governance, // Both above governance
-    Staking,
-    Registration,
-    Transfer,
-    SmallTransfer,
-    RootWeights, // deprecated
-    ChildKeys,
-    SudoUncheckedSetCode,
-    SwapHotkey,
-    SubnetLeaseBeneficiary, // Used to operate the leased subnet
-    RootClaim,
-}
-
-impl TryFrom<u8> for ProxyType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Any),
-            1 => Ok(Self::Owner),
-            2 => Ok(Self::NonCritical),
-            3 => Ok(Self::NonTransfer),
-            4 => Ok(Self::Senate),
-            5 => Ok(Self::NonFungible),
-            6 => Ok(Self::Triumvirate),
-            7 => Ok(Self::Governance),
-            8 => Ok(Self::Staking),
-            9 => Ok(Self::Registration),
-            10 => Ok(Self::Transfer),
-            11 => Ok(Self::SmallTransfer),
-            12 => Ok(Self::RootWeights),
-            13 => Ok(Self::ChildKeys),
-            14 => Ok(Self::SudoUncheckedSetCode),
-            15 => Ok(Self::SwapHotkey),
-            16 => Ok(Self::SubnetLeaseBeneficiary),
-            17 => Ok(Self::RootClaim),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<ProxyType> for u8 {
-    fn from(proxy_type: ProxyType) -> Self {
-        match proxy_type {
-            ProxyType::Any => 0,
-            ProxyType::Owner => 1,
-            ProxyType::NonCritical => 2,
-            ProxyType::NonTransfer => 3,
-            ProxyType::Senate => 4,
-            ProxyType::NonFungible => 5,
-            ProxyType::Triumvirate => 6,
-            ProxyType::Governance => 7,
-            ProxyType::Staking => 8,
-            ProxyType::Registration => 9,
-            ProxyType::Transfer => 10,
-            ProxyType::SmallTransfer => 11,
-            ProxyType::RootWeights => 12,
-            ProxyType::ChildKeys => 13,
-            ProxyType::SudoUncheckedSetCode => 14,
-            ProxyType::SwapHotkey => 15,
-            ProxyType::SubnetLeaseBeneficiary => 16,
-            ProxyType::RootClaim => 17,
-        }
-    }
-}
-
-impl ProxyType {
-    pub fn is_deprecated(&self) -> bool {
-        matches!(
-            self,
-            Self::Triumvirate | Self::Senate | Self::Governance | Self::RootWeights
-        )
-    }
-}
-
-impl Default for ProxyType {
-    // allow all Calls; required to be most permissive
-    fn default() -> Self {
-        Self::Any
-    }
-}
-
-/// Conditions that must be met beyond matching the call itself.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub enum CallCondition {
-    /// A numeric parameter must be less than this limit
-    ParamLessThan { param_name: Vec<u8>, limit: u128 },
-    /// The nested call inside must match this pallet/call
-    NestedCallMustBe {
-        pallet_name: Vec<u8>,
-        call_name: Vec<u8>,
-    },
-}
-
-/// Describes which call(s) a proxy filter rule applies to.
-///
-/// When `call_name` and `call_index` are `None`, the rule applies to ALL calls in the pallet.
-/// When they are `Some`, the rule applies to that specific call only.
-#[freeze_struct("57f984617f6084cc")]
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub struct CallInfo {
-    /// Pallet name (always present)
-    pub pallet_name: Vec<u8>,
-    /// Pallet index in runtime (always present)
-    pub pallet_index: u8,
-    /// Call name within pallet. None means ALL calls in this pallet.
-    pub call_name: Option<Vec<u8>>,
-    /// Call index within pallet. None means ALL calls in this pallet.
-    pub call_index: Option<u8>,
-    /// Additional condition that must be met (value limits, nested call requirements)
-    pub condition: Option<CallCondition>,
-}
-
-/// Describes how a ProxyType filters incoming calls.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub enum FilterMode {
-    /// All calls are permitted regardless of the calls list (e.g. ProxyType::Any)
-    AllowAll,
-    /// No calls are permitted (e.g. deprecated proxy types)
-    DenyAll,
-    /// Only calls listed in the `calls` field are permitted
-    Allow,
-    /// All calls are permitted EXCEPT those listed in the `calls` field
-    Deny,
-}
-
-/// Complete filter description for a ProxyType, returned by the Runtime API.
-///
-/// Interpretation:
-/// - `filter_mode: AllowAll` — everything permitted, `calls` is empty
-/// - `filter_mode: DenyAll` — nothing permitted, `calls` is empty
-/// - `filter_mode: Allow` — only `calls` are permitted (minus `exceptions`)
-/// - `filter_mode: Deny` — everything EXCEPT `calls` is permitted
-/// - `call_name: None` in a CallInfo — rule applies to ALL calls in the pallet
-#[freeze_struct("4453d44869f8a188")]
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub struct ProxyFilterInfo {
-    pub proxy_type: u8,
-    pub name: Vec<u8>,
-    pub deprecated: bool,
-    pub filter_mode: FilterMode,
-    pub calls: Vec<CallInfo>,
-    pub exceptions: Vec<CallInfo>,
-}
-
-#[freeze_struct("b0cce66ed9b2451b")]
-#[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
-pub struct ProxyTypeInfo {
-    pub name: Vec<u8>,
-    pub index: u8,
-    pub deprecated: bool,
 }
 
 pub trait SubnetInfo<AccountId> {
@@ -367,7 +192,7 @@ pub mod time {
     pub const DAYS: BlockNumber = HOURS * 24;
 }
 
-#[freeze_struct("7e5202d7f18b39d4")]
+#[freeze_struct("2477c9af9b0c5c26")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -385,6 +210,7 @@ pub mod time {
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 #[serde(transparent)]
 pub struct MechId(u8);
@@ -441,14 +267,7 @@ impl From<Compact<MechId>> for MechId {
     }
 }
 
-impl TypeInfo for MechId {
-    type Identity = <u8 as TypeInfo>::Identity;
-    fn type_info() -> scale_info::Type {
-        <u8 as TypeInfo>::type_info()
-    }
-}
-
-#[freeze_struct("2d995c5478e16d4d")]
+#[freeze_struct("c6bf75ee25c00b9")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -466,6 +285,7 @@ impl TypeInfo for MechId {
     PartialEq,
     PartialOrd,
     RuntimeDebug,
+    TypeInfo,
 )]
 #[serde(transparent)]
 pub struct NetUidStorageIndex(u16);
@@ -516,19 +336,157 @@ impl From<u16> for NetUidStorageIndex {
     }
 }
 
-impl TypeInfo for NetUidStorageIndex {
-    type Identity = <u16 as TypeInfo>::Identity;
-    fn type_info() -> scale_info::Type {
-        <u16 as TypeInfo>::type_info()
+/// Clears as many entries as the weight budget allows via `clear_prefix`, charging
+/// `per_item` for each removed entry. Returns `true` once the prefix is fully cleared.
+pub fn clear_prefix_with_meter(
+    meter: &mut WeightMeter,
+    per_item: Weight,
+    clear_prefix: impl FnOnce(u32) -> MultiRemovalResults,
+) -> bool {
+    let Some(limit) = meter.remaining().checked_div_per_component(&per_item) else {
+        return false;
+    };
+    // Saturate: a budget allowing more than u32::MAX removals is capped, not rejected.
+    let limit = u32::try_from(limit).unwrap_or(u32::MAX);
+
+    if limit == 0 {
+        return false;
     }
+
+    let result = clear_prefix(limit);
+    meter.consume(per_item.saturating_mul(result.unique.max(result.loops).into()));
+
+    result.maybe_cursor.is_none()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frame_support::{
+        Blake2_128Concat, storage::types::StorageDoubleMap, traits::StorageInstance,
+        weights::WeightMeter,
+    };
+    const REF_TIME_WEIGHT: u64 = 100;
+    const PROOF_SIZE_WEIGHT: u64 = 100;
+
+    struct ClearPrefixTestStorage;
+
+    impl StorageInstance for ClearPrefixTestStorage {
+        fn pallet_prefix() -> &'static str {
+            "CommonTests"
+        }
+
+        const STORAGE_PREFIX: &'static str = "ClearPrefixTestStorage";
+    }
+
+    type ClearPrefixTestMap =
+        StorageDoubleMap<ClearPrefixTestStorage, Identity, NetUid, Blake2_128Concat, u16, u32>;
 
     #[test]
     fn netuid_has_u16_bin_repr() {
         assert_eq!(NetUid(5).encode(), 5u16.encode());
+    }
+
+    // The metadata must carry the newtype identities (path segments) so SDKs can
+    // reconstruct NetUid/TaoBalance/AlphaBalance/... instead of seeing bare ints,
+    // while the SCALE encoding stays byte-identical to the inner integer.
+    #[test]
+    fn newtypes_keep_identity_in_metadata_and_bin_repr() {
+        use scale_info::TypeInfo;
+
+        fn assert_path<T: TypeInfo>(expected_ident: &str) {
+            let path = T::type_info().path;
+            assert_eq!(path.ident(), Some(expected_ident));
+        }
+
+        assert_path::<NetUid>("NetUid");
+        assert_path::<MechId>("MechId");
+        assert_path::<NetUidStorageIndex>("NetUidStorageIndex");
+        assert_path::<TaoBalance>("TaoBalance");
+        assert_path::<AlphaBalance>("AlphaBalance");
+
+        assert_eq!(MechId::from(7).encode(), 7u8.encode());
+        assert_eq!(NetUidStorageIndex::from(9).encode(), 9u16.encode());
+        assert_eq!(TaoBalance::new(11).encode(), 11u64.encode());
+        assert_eq!(AlphaBalance::new(13).encode(), 13u64.encode());
+    }
+
+    #[test]
+    fn test_clear_prefix_with_meter_respects_budget() {
+        let netuid = NetUid::from(42);
+        let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
+        let mut ext = sp_io::TestExternalities::default();
+
+        ext.execute_with(|| {
+            for key in 0..3 {
+                ClearPrefixTestMap::insert(netuid, key, key as u32);
+            }
+        });
+
+        let _ = ext.commit_all();
+
+        ext.execute_with(|| {
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 3);
+
+            // Budget for exactly one entry: one entry is removed, not done yet.
+            let mut weight_meter = WeightMeter::with_limit(entry_weight);
+            assert!(!clear_prefix_with_meter(
+                &mut weight_meter,
+                entry_weight,
+                |limit| ClearPrefixTestMap::clear_prefix(netuid, limit, None),
+            ));
+
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 2);
+            assert_eq!(weight_meter.consumed(), entry_weight);
+        });
+    }
+
+    #[test]
+    fn test_clear_prefix_with_meter_zero_budget_is_noop() {
+        let netuid = NetUid::from(43);
+        let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
+        let mut ext = sp_io::TestExternalities::default();
+
+        ext.execute_with(|| {
+            ClearPrefixTestMap::insert(netuid, 0, 0u32);
+
+            let mut weight_meter = WeightMeter::with_limit(Weight::zero());
+            assert!(!clear_prefix_with_meter(
+                &mut weight_meter,
+                entry_weight,
+                |limit| ClearPrefixTestMap::clear_prefix(netuid, limit, None),
+            ));
+
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 1);
+            assert!(weight_meter.consumed().is_zero());
+        });
+    }
+
+    #[test]
+    fn test_clear_prefix_with_meter_completes_with_enough_budget() {
+        let netuid = NetUid::from(44);
+        let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
+        let mut ext = sp_io::TestExternalities::default();
+
+        ext.execute_with(|| {
+            for key in 0..3 {
+                ClearPrefixTestMap::insert(netuid, key, key as u32);
+            }
+        });
+
+        let _ = ext.commit_all();
+
+        ext.execute_with(|| {
+            // Budget for more entries than exist: everything is cleared in one call.
+            let mut weight_meter = WeightMeter::with_limit(entry_weight.saturating_mul(10));
+            assert!(clear_prefix_with_meter(
+                &mut weight_meter,
+                entry_weight,
+                |limit| ClearPrefixTestMap::clear_prefix(netuid, limit, None),
+            ));
+
+            assert_eq!(ClearPrefixTestMap::iter_prefix(netuid).count(), 0);
+            assert_eq!(weight_meter.consumed(), entry_weight.saturating_mul(3));
+        });
     }
 }

@@ -11,7 +11,7 @@ You are running the Auditor persona locally against the user's working tree. The
 
 Same detection as the Skeptic skill:
 1. PR base via `gh pr view --json baseRefName` if a PR exists.
-2. Default to `devnet-ready`.
+2. Default to `devnet`.
 3. Override via skill argument: `/auditor main`.
 
 Compute the diff:

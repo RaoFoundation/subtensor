@@ -13,12 +13,14 @@ impl<T: Config> Pallet<T> {
     /// values from `SubnetAlphaIn` and `SubnetAlphaOut` for the specified subnet.
     ///
     /// # Arguments
-    /// * `netuid` - The unique identifier of the subnet.
+    /// * `netuid`: The unique identifier of the subnet.
     ///
     /// # Returns
-    /// * `u64` - The total alpha issuance for the specified subnet.
+    /// * `u64`: The total alpha issuance for the specified subnet.
     pub fn get_alpha_issuance(netuid: NetUid) -> AlphaBalance {
-        SubnetAlphaIn::<T>::get(netuid).saturating_add(SubnetAlphaOut::<T>::get(netuid))
+        SubnetAlphaIn::<T>::get(netuid)
+            .saturating_add(SubnetAlphaOut::<T>::get(netuid))
+            .saturating_add(T::SwapInterface::protocol_alpha_reservoir(netuid))
     }
 
     pub fn get_moving_alpha_price(netuid: NetUid) -> U64F64 {
@@ -153,7 +155,7 @@ impl<T: Config> Pallet<T> {
     /// regardless of the actual stored weight value.
     ///
     /// # Returns
-    /// * `U96F32` - The normalized global global weight as a fixed-point number between 0 and 1.
+    /// * `U96F32`: The normalized global global weight as a fixed-point number between 0 and 1.
     ///
     /// # Note
     /// This function uses saturating division to prevent potential overflow errors.
@@ -181,11 +183,11 @@ impl<T: Config> Pallet<T> {
     /// 2. Updates the TaoWeight storage item with the new value.
     ///
     /// # Arguments
-    /// * `weight` - The new global weight value to be set, as a u64.
+    /// * `weight`: The new global weight value to be set, as a u64.
     ///
     /// # Effects
     /// This function modifies the following storage item:
-    /// - `TaoWeight`: Updates it with the new weight value.
+    /// * `TaoWeight`: Updates it with the new weight value.
     ///
     /// # Note
     /// The weight is stored as a raw u64 value. To get the normalized weight between 0 and 1,
@@ -301,8 +303,8 @@ impl<T: Config> Pallet<T> {
     /// 6. Returns the final inherited alpha value.
     ///
     /// # Arguments
-    /// * `hotkey` - AccountId of the hotkey whose total inherited stake is to be calculated.
-    /// * `netuid` - Network unique identifier specifying the subnet context.
+    /// * `hotkey`: AccountId of the hotkey whose total inherited stake is to be calculated.
+    /// * `netuid`: Network unique identifier specifying the subnet context.
     ///
     /// # Returns
     /// * `u64`: The total inherited alpha for the hotkey on the subnet after considering the
@@ -458,13 +460,13 @@ impl<T: Config> Pallet<T> {
     /// 2. Compares this stake with the requested decrement amount.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey.
-    /// * `coldkey` - The account ID of the coldkey.
-    /// * `netuid` - The unique identifier of the subnet.
-    /// * `decrement` - The amount of stake to be potentially decremented.
+    /// * `hotkey`: The account ID of the hotkey.
+    /// * `coldkey`: The account ID of the coldkey.
+    /// * `netuid`: The unique identifier of the subnet.
+    /// * `decrement`: The amount of stake to be potentially decremented.
     ///
     /// # Returns
-    /// * `bool` - True if the account has enough stake to fulfill the decrement, false otherwise.
+    /// * `bool`: True if the account has enough stake to fulfill the decrement, false otherwise.
     ///
     /// # Note
     /// This function only checks the stake for the specific hotkey-coldkey pair, not the total stake of the hotkey or coldkey individually.
@@ -495,12 +497,12 @@ impl<T: Config> Pallet<T> {
     /// 3. Returns the retrieved stake value as a u64.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey (neuron).
-    /// * `coldkey` - The account ID of the coldkey (owner).
-    /// * `netuid` - The unique identifier of the subnet.
+    /// * `hotkey`: The account ID of the hotkey (neuron).
+    /// * `coldkey`: The account ID of the coldkey (owner).
+    /// * `netuid`: The unique identifier of the subnet.
     ///
     /// # Returns
-    /// * `u64` - The alpha (stake) value for the specified hotkey-coldkey pair on the given subnet.
+    /// * `u64`: The alpha (stake) value for the specified hotkey-coldkey pair on the given subnet.
     ///
     /// # Note
     /// This function retrieves the stake specific to the hotkey-coldkey pair, not the total stake of the hotkey or coldkey individually.
@@ -519,11 +521,11 @@ impl<T: Config> Pallet<T> {
     /// 1. Retrieves and returns the total alpha value associated with the hotkey on the specified subnet.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey.
-    /// * `netuid` - The unique identifier of the subnet.
+    /// * `hotkey`: The account ID of the hotkey.
+    /// * `netuid`: The unique identifier of the subnet.
     ///
     /// # Returns
-    /// * `u64` - The total alpha value for the hotkey on the specified subnet.
+    /// * `u64`: The total alpha value for the hotkey on the specified subnet.
     ///
     /// # Note
     /// This function returns the cumulative stake across all coldkeys associated with this hotkey on the subnet.
@@ -538,9 +540,9 @@ impl<T: Config> Pallet<T> {
     /// The function updates share totals given current prices.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey.
-    /// * `netuid` - The unique identifier of the subnet.
-    /// * `amount` - The amount of alpha to be added.
+    /// * `hotkey`: The account ID of the hotkey.
+    /// * `netuid`: The unique identifier of the subnet.
+    /// * `amount`: The amount of alpha to be added.
     ///
     pub fn increase_stake_for_hotkey_on_subnet(
         hotkey: &T::AccountId,
@@ -556,9 +558,9 @@ impl<T: Config> Pallet<T> {
     /// The function updates share totals given current prices.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey.
-    /// * `netuid` - The unique identifier of the subnet.
-    /// * `amount` - The amount of alpha to be added.
+    /// * `hotkey`: The account ID of the hotkey.
+    /// * `netuid`: The unique identifier of the subnet.
+    /// * `amount`: The amount of alpha to be added.
     ///
     pub fn decrease_stake_for_hotkey_on_subnet(hotkey: &T::AccountId, netuid: NetUid, amount: u64) {
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
@@ -570,10 +572,10 @@ impl<T: Config> Pallet<T> {
     /// The function updates share totals given current prices.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey.
-    /// * `coldkey` - The account ID of the coldkey (owner).
-    /// * `netuid` - The unique identifier of the subnet.
-    /// * `amount` - The amount of alpha to be added.
+    /// * `hotkey`: The account ID of the hotkey.
+    /// * `coldkey`: The account ID of the coldkey (owner).
+    /// * `netuid`: The unique identifier of the subnet.
+    /// * `amount`: The amount of alpha to be added.
     ///
     pub fn increase_stake_for_hotkey_and_coldkey_on_subnet(
         hotkey: &T::AccountId,
@@ -610,10 +612,10 @@ impl<T: Config> Pallet<T> {
     /// The function updates share totals given current prices.
     ///
     /// # Arguments
-    /// * `hotkey` - The account ID of the hotkey.
-    /// * `coldkey` - The account ID of the coldkey (owner).
-    /// * `netuid` - The unique identifier of the subnet.
-    /// * `amount` - The amount of alpha to be added.
+    /// * `hotkey`: The account ID of the hotkey.
+    /// * `coldkey`: The account ID of the coldkey (owner).
+    /// * `netuid`: The unique identifier of the subnet.
+    /// * `amount`: The amount of alpha to be added.
     ///
     pub fn decrease_stake_for_hotkey_and_coldkey_on_subnet(
         hotkey: &T::AccountId,

@@ -1,0 +1,305 @@
+.card {
+  --overlay-opacity: 0;
+  --logo-bar-height: 36px;
+  box-sizing: border-box;
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 668 / 495;
+  container-type: inline-size;
+  flex-shrink: 0;
+  border: 1px solid var(--grey-300, #dbdde1);
+  overflow: hidden;
+  background: var(--grey-100, #f8f9fa);
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 0.4s ease;
+}
+
+@media (hover: hover) {
+  .card:hover {
+    --overlay-opacity: 0.15;
+    border-color: var(--grey-400, #bdc1c6);
+  }
+
+  .card:hover .leftIcon,
+  .card:hover .rightLogo,
+  .card:hover .leftIconMaskedArt {
+    filter: brightness(0) saturate(100%);
+  }
+}
+
+.card:focus {
+  outline: none;
+}
+
+.card:focus-visible {
+  --overlay-opacity: 0.3;
+  outline: 2px solid var(--grey-900, #0e1013);
+  outline-offset: 2px;
+}
+
+.card:focus-visible .leftIcon,
+.card:focus-visible .rightLogo,
+.card:focus-visible .leftIconMaskedArt {
+  filter: brightness(0) saturate(100%);
+}
+
+.imageFrame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: calc(100% - var(--logo-bar-height));
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.card[data-id='subnetai'] .image {
+  clip-path: inset(1% 0 0 0);
+}
+
+.card[data-id='taostats'] .image {
+  height: auto;
+  object-fit: unset;
+}
+
+.card[data-id='taoswap'] .imageFrame {
+  height: calc((100% - var(--logo-bar-height)) * 1.1);
+}
+
+.card[data-id='backprop'] .image,
+.card[data-id='taoapp'] .image,
+.card[data-id='taoxyz'] .image,
+.card[data-id='bittensorai'] .image {
+  filter: brightness(1.15);
+}
+
+.card[data-id='taoflows'] .image {
+  filter: brightness(1.10);
+}
+
+.card[data-id='learnbittensor'] .imageFrame {
+  height: calc((100% - var(--logo-bar-height)) * 1.25);
+}
+
+.card[data-id='taostatsdocs'] .image {
+  clip-path: inset(1% 1% 0 0);
+}
+
+.gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 23.438%, rgba(255, 255, 255, 0.99) 72.078%);
+  pointer-events: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--grey-300, #dbdde1);
+  opacity: var(--overlay-opacity);
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 3px 8px;
+  font-family: 'FiraCode';
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--grey-100, #f8f9fa);
+  background: var(--grey-900, #0e1013);
+  pointer-events: none;
+}
+
+.logoBar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 10px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.leftIconSpacer {
+  width: 1px;
+  height: 1px;
+}
+
+.leftIcon,
+.rightLogo,
+.leftIconMaskedArt {
+  display: block;
+  width: auto;
+  height: auto;
+  flex-shrink: 0;
+  object-fit: contain;
+  object-position: center center;
+  filter: brightness(0) saturate(100%) invert(43%) sepia(6%) saturate(518%) hue-rotate(182deg)
+    brightness(93%) contrast(86%);
+  transition: filter 0.4s ease;
+}
+
+/* Logo sizes: 320px Figma reference via cqw, scaled +30% */
+.card[data-id='taostats'] .leftIcon {
+  width: 4.865cqw;
+  height: 5.053cqw;
+}
+
+.card[data-id='taostats'] .rightLogo {
+  width: 29.427cqw;
+  height: 5.485cqw;
+}
+
+.card[data-id='taomarketcap'] .rightLogo {
+  width: 58.544cqw;
+  height: 5.282cqw;
+}
+
+.card[data-id='backprop'] .rightLogo {
+  width: 49.969cqw;
+  height: 9.75cqw;
+}
+
+.leftIconMaskedFrame {
+  position: relative;
+  width: 7.212cqw;
+  height: 7.212cqw;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.leftIconMaskedClip {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-size: 7.719cqw 9.75cqw;
+  mask-size: 7.719cqw 9.75cqw;
+  -webkit-mask-position: 0 -1.274cqw;
+  mask-position: 0 -1.274cqw;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.leftIconMaskedArt {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.card[data-id='taobot'] .rightLogo {
+  width: 30.469cqw;
+  height: 5.816cqw;
+}
+
+.card[data-id='taoapp'] .leftIcon {
+  width: 6.587cqw;
+  height: 5.688cqw;
+}
+
+.card[data-id='taoapp'] .rightLogo {
+  width: 29.616cqw;
+  height: 9.872cqw;
+}
+
+.card[data-id='taoxyz'] .leftIcon {
+  width: 9cqw;
+  height: 9.376cqw;
+}
+
+.card[data-id='taoxyz'] .rightLogo {
+  width: 27.625cqw;
+  height: 5.282cqw;
+}
+
+.card[data-id='bittensorai'] .rightLogo {
+  width: 44.241cqw;
+  height: 7.15cqw;
+}
+
+.card[data-id='subnetai'] .leftIcon {
+  width: 7.8cqw;
+  height: 8.45cqw;
+}
+
+.card[data-id='subnetai'] .rightLogo {
+  width: 39.407cqw;
+  height: 5.688cqw;
+}
+
+.card[data-id='subnetradar'] .leftIcon {
+  width: 9.6cqw;
+  height: 9.6cqw;
+}
+
+.card[data-id='subnetradar'] .rightLogo {
+  width: 57.282cqw;
+  height: 5.688cqw;
+}
+
+.card[data-id='taoflows'] .rightLogo {
+  width: 33.719cqw;
+  height: 5.688cqw;
+}
+
+.card[data-id='taoswap'] .leftIcon {
+  width: 10.157cqw;
+  height: 5.688cqw;
+}
+
+.card[data-id='taoswap'] .rightLogo {
+  width: 45.094cqw;
+  height: 8.125cqw;
+}
+
+.card[data-id='taostatsdocs'] .leftIcon {
+  width: 5.011cqw;
+  height: 5.206cqw;
+}
+
+.card[data-id='taostatsdocs'] .rightLogo {
+  width: 44.568cqw;
+  height: 5.725cqw;
+}
+
+.card[data-id='learnbittensor'] .leftIcon {
+  width: 8.75cqw;
+  height: 10cqw;
+}
+
+.card[data-id='learnbittensor'] .rightLogo {
+  width: 55.688cqw;
+  height: 5.5cqw;
+}
+
+.card[data-id='bittensordocs'] .leftIcon {
+  width: 5.938cqw;
+  height: 5.938cqw;
+}
+
+.card[data-id='bittensordocs'] .rightLogo {
+  width: 51.376cqw;
+  height: 6.001cqw;
+}

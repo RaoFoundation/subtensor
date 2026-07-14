@@ -1,0 +1,41 @@
+{
+  "type": "module",
+  "scripts": {
+    "test": "tsx tests/clone-smoke-test.ts",
+    "typecheck": "tsc --noEmit",
+    "test:clone-regressions": "tsx scripts/run-clone-regressions.ts",
+    "runtime:update:alice": "tsx scripts/update-runtime-with-alice.ts",
+    "test:balancer-operation": "tsx tests/test-balancer-operation.ts",
+    "test:balancer-devnet-status": "tsx tests/test-balancer-devnet-status.ts",
+    "test:balancer-devnet-live": "tsx tests/test-balancer-devnet-live.ts",
+    "test:balancer-testnet-price": "tsx tests/test-balancer-testnet-price.ts",
+    "test:balancer-testnet-liquidity-slippage": "tsx tests/test-balancer-testnet-liquidity-slippage.ts",
+    "test:balancer-edge-emission-issuance": "tsx tests/test-balancer-edge-emission-issuance.ts",
+    "test:total-issuance-trackers": "tsx tests/test-total-issuance-trackers.ts",
+    "test:net-tao-flow-emission-allocation": "tsx tests/test-net-tao-flow-emission-allocation.ts",
+    "test:locks-conviction": "tsx tests/test-locks-conviction.ts",
+    "test:lock-dust-cleanup": "tsx tests/test-lock-dust-cleanup.ts",
+    "test:subnet-account-balances": "tsx tests/test-subnet-account-balances.ts",
+    "test:mainnet-lock-conviction": "tsx tests/mainnet-lock-conviction-read.ts",
+    "test:mainnet-hotkey-conviction-increases": "tsx tests/mainnet-hotkey-conviction-increases.ts",
+    "test:alpha-deprecated-stake-histogram": "tsx tests/test-alpha-deprecated-stake-histogram.ts",
+    "test:testnet-lock-conviction": "tsx tests/testnet-lock-conviction-smoke.ts",
+    "test:testnet-swap-hotkey-v2-lock-conviction": "tsx tests/testnet-swap-hotkey-v2-lock-conviction.ts",
+    "test:localnet-subnet-alpha-reserve-drain": "tsx tests/test-localnet-subnet-alpha-reserve-drain.ts",
+    "test:testnet-hotkey-conviction": "tsx tests/testnet-hotkey-conviction-read.ts",
+    "test:testnet-unlock-rate": "tsx tests/testnet-unlock-rate-read.ts",
+    "test:testnet-maturity-rate": "tsx tests/testnet-maturity-rate-read.ts",
+    "test:hotkey-swap-and-proxy-stake": "tsx tests/test-hotkey-swap-and-proxy-stake.ts",
+    "test:proxy-filter-security-regressions": "tsx tests/test-proxy-filter-security-regressions.ts"
+  },
+  "dependencies": {
+    "@polkadot/api": "^16.4.9",
+    "@polkadot/util-crypto": "^14.0.3",
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
+}

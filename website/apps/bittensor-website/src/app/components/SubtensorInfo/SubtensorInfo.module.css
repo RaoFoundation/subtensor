@@ -1,0 +1,36 @@
+.info {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  gap: 85px;
+  color: var(--text-secondary);
+  font-family: 'Haffer';
+  font-size: 20px;
+  font-weight: 400;
+  max-height: 285px;
+
+  &_container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+    width: 100px;
+    height: 100px;
+  }
+  &_text {
+    font-size: 12px;
+    font-family: 'FiraCode';
+    text-transform: uppercase;
+    font-weight: 400;
+  }
+}
+
+/* Mobile*/
+@media (max-width: 700px) {
+  .info {
+    flex-direction: column;
+    height: fit-content;
+    gap: 85px;
+  }
+}

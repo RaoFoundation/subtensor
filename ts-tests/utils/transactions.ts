@@ -112,12 +112,38 @@ export async function sendTransaction(
 }
 
 const SECOND = 1000;
+const LOCAL_BLOCK_POLL_INTERVAL = 100;
+
+/**
+ * Polls until the finalized head reaches `blockNumber` (inclusive). Use this
+ * instead of waitForFinalizedBlocks when you know which block a transaction
+ * landed in: waiting a fixed count of finalized blocks races GRANDPA lag —
+ * if finality is more than that count behind best when the wait starts, the
+ * target height is still below the transaction's block and finalized-state
+ * reads see pre-transaction state.
+ */
+export async function waitUntilBlockFinalized(
+    api: TypedApi<typeof subtensor>,
+    blockNumber: number,
+    pollInterval = LOCAL_BLOCK_POLL_INTERVAL,
+    timeout = 120 * SECOND
+): Promise<void> {
+    const deadline = Date.now() + timeout;
+
+    while (Date.now() < deadline) {
+        const finalized = await api.query.System.Number.getValue({ at: "finalized" });
+        if (finalized >= blockNumber) return;
+        await sleep(pollInterval);
+    }
+
+    throw new Error(`Timed out waiting for block #${blockNumber} to finalize`);
+}
 
 /** Polls the chain until `count` new finalized blocks have been produced. */
 export async function waitForFinalizedBlocks(
     api: TypedApi<typeof subtensor>,
     count: number,
-    pollInterval = 1 * SECOND,
+    pollInterval = LOCAL_BLOCK_POLL_INTERVAL,
     timeout = 120 * SECOND
 ): Promise<void> {
     const startBlock = await api.query.System.Number.getValue({ at: "finalized" });

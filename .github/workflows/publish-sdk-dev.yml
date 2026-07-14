@@ -1,0 +1,60 @@
+name: Publish Dev SDK
+
+# Dev channel: every SDK-affecting push to main publishes a .devN build to
+# TestPyPI — never to the real PyPI index. There is deliberately no publisher
+# for this workflow on the real `bittensor` name; the worst a bad merge can
+# do is pollute TestPyPI.
+#
+# Install a dev build with:
+#   pip install --index-url https://test.pypi.org/simple/ \
+#     --extra-index-url https://pypi.org/simple/ --pre bittensor
+# (the extra index resolves dependencies like bittensor-core from real PyPI)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk/**"
+      - "sdk/bittensor-core/**"
+      - "sdk/bittensor-core-py/**"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-sdk-dev
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish dev build to TestPyPI
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # TestPyPI trusted publisher: this workflow + the `devnet` environment.
+    environment: devnet
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Set dev version
+        working-directory: sdk/python
+        run: |
+          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' pyproject.toml | head -n 1)
+          : ${base:?could not parse base version from pyproject.toml}
+          dev_version="${base}.dev${GITHUB_RUN_NUMBER}"
+          sed -i "0,/^version = \".*\"/s//version = \"${dev_version}\"/" pyproject.toml
+          echo "Publishing bittensor ${dev_version} to TestPyPI"
+
+      - name: Build SDK wheel and sdist
+        working-directory: sdk/python
+        run: uv build --out-dir ../../dist
+
+      - name: Publish to TestPyPI
+        run: |
+          uv publish --trusted-publishing always \
+            --publish-url https://test.pypi.org/legacy/ \
+            dist/*

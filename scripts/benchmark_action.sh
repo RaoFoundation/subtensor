@@ -27,6 +27,26 @@ done < <("$SCRIPT_DIR/discover_pallets.sh")
 
 (( ${#OUTPUTS[@]} > 0 )) || die "no benchmarked pallets found"
 
+# PALLET_DIRS (space-separated directory names under pallets/, set by CI for
+# pallet-only diffs) restricts the run to the changed pallets. Unset/empty
+# means the full suite.
+if [[ -n "${PALLET_DIRS:-}" ]]; then
+  declare -A KEEP
+  for dir in $PALLET_DIRS; do
+    for pallet in "${!OUTPUTS[@]}"; do
+      [[ "${OUTPUTS[$pallet]}" == "pallets/$dir/"* ]] && KEEP[$pallet]="${OUTPUTS[$pallet]}"
+    done
+  done
+  if (( ${#KEEP[@]} == 0 )); then
+    echo "Changed pallets ($PALLET_DIRS) have no registered benchmarks; nothing to validate."
+    exit 0
+  fi
+  echo "Restricting to changed pallets: ${!KEEP[*]}"
+  unset OUTPUTS
+  declare -A OUTPUTS
+  for pallet in "${!KEEP[@]}"; do OUTPUTS[$pallet]="${KEEP[$pallet]}"; done
+fi
+
 mkdir -p "$PATCH_DIR"
 
 # Build if needed
