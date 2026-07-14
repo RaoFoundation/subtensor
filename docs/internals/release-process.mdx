@@ -52,8 +52,11 @@ Human approval lives in GitHub **environment settings**, not workflow code:
 | mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below |
 
 Deploys to devnet and testnet are direct `setCode` transactions via the CI
-deploy key; each is followed by an on-chain `spec_version` verification and a
-smoke suite.
+deploy key. After the on-chain `spec_version` is verified, the train moves the
+corresponding network mirror branch. That branch push builds the exact deployed
+commit and updates `ghcr.io/raofoundation/subtensor:devnet` or `:testnet`; it
+does not move `:latest`. The smoke suite then validates the live network while
+the independent image build runs.
 
 ### The mainnet multisig ceremony
 
@@ -74,27 +77,19 @@ running your runtime with a public endpoint
 yet, it cuts the release train's artifacts:
 
 1. **GitHub release** `v<spec_version>`
-2. **Python SDK + bittensor-core wheels** to PyPI (trusted publishing)
-3. **Publishable Rust crates** to crates.io (auto-discovered; workspace crates
+2. **Production Docker images** tagged `v<spec_version>` and `latest`
+3. **Python SDK + bittensor-core wheels** to PyPI (trusted publishing)
+4. **Publishable Rust crates** to crates.io (auto-discovered; workspace crates
    are `publish = false` while they depend on the patched polkadot-sdk fork)
-4. **Production website/docs** to Vercel
+5. **Production website/docs** to Vercel
 
 This ordering means the release always reflects what is *actually running on
 mainnet*, not what was merged.
 
-### Known gap: Docker images don't publish on release
-
-`docker.yml` and `docker-localnet.yml` trigger on `release: published` and are
-what tag `ghcr.io` images (including `:latest`) for a mainnet release. However,
-the watcher creates the release with the default `GITHUB_TOKEN`, and **GitHub
-does not trigger workflows from events created by the default token** (a
-recursion guard). So the production node image is currently *not* published
-when a release is cut. Until fixed (use a PAT/app token for `gh release
-create`, or have the watcher call `gh workflow run docker.yml -f
-branch-or-tag=v<spec>`), publish manually via `docker.yml`'s
-`workflow_dispatch` with the release tag. Note the release also carries no
-attached artifacts — the srtool wasm/digest live only as 90-day workflow
-artifacts on the train run.
+The watcher explicitly dispatches `docker.yml` and `docker-localnet.yml`
+because releases created with the default `GITHUB_TOKEN` do not emit another
+workflow event. The production build publishes both the immutable release tag
+and `:latest`; the localnet build does the same in its separate package.
 
 ## Hotfixes
 
