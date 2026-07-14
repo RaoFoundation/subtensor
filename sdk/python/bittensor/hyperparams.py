@@ -660,9 +660,7 @@ def raw_bounds(name: str) -> tuple[int, int]:
 def _check_raw(name: str, raw: int) -> int:
     lo, hi = raw_bounds(name)
     if not lo <= raw <= hi:
-        raise ValueError(
-            f"{name} must be within {lo}..{hi} (raw on-chain range); got {raw}"
-        )
+        raise ValueError(f"{name} must be within {lo}..{hi} (raw on-chain range); got {raw}")
     return raw
 
 

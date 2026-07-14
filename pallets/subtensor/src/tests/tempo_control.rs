@@ -30,8 +30,8 @@ fn deprecated_tempo_extrinsics_keep_their_call_indices() {
         factor_milli: 5_000,
     };
 
-    assert_eq!(tempo_call.encode()[0], 139);
-    assert_eq!(activity_call.encode()[0], 140);
+    assert_eq!(tempo_call.encode().first().copied(), Some(139));
+    assert_eq!(activity_call.encode().first().copied(), Some(140));
     assert_eq!(tempo_call.get_dispatch_info().pays_fee, Pays::Yes);
     assert_eq!(activity_call.get_dispatch_info().pays_fee, Pays::Yes);
 }
