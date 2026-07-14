@@ -580,11 +580,6 @@ impl<T: Config> Pallet<T> {
             total_alpha_value_u128 = protocol_alpha_value_u128;
         }
 
-        let iter = match last_key {
-            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
-            None => TotalHotkeyAlpha::<T>::iter(),
-        };
-
         // Preserve the inbound cursor so a pass that only skips other-netuid rows (or
         // exhausts weight before finishing another matching hotkey) cannot return None
         // and restart from the beginning — that would double-count into
@@ -595,6 +590,11 @@ impl<T: Config> Pallet<T> {
         // entries across all subnets than one block's leftover weight; aborting mid-hotkey
         // and retrying forever livelocks dissolution.
         let mut exhausted = false;
+
+        let iter = match last_key {
+            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
+            None => TotalHotkeyAlpha::<T>::iter(),
+        };
 
         for (hot, this_netuid, _) in iter {
             if exhausted || !weight_meter.can_consume(r) {
@@ -840,16 +840,16 @@ impl<T: Config> Pallet<T> {
         let w = T::DbWeight::get().writes(1);
         let mut read_all = true;
 
-        let iter = match last_key {
-            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
-            None => TotalHotkeyAlpha::<T>::iter(),
-        };
-
         // Same cursor preserve as settle/get_total: do not wipe last_key when a pass
         // only skips non-matching rows or runs out of weight before the next hotkey.
         let mut last_completed_key = last_key.clone();
         // Finish the current hotkey's Alpha/AlphaV2 cleanup even if weight is exhausted.
         let mut exhausted = false;
+
+        let iter = match last_key {
+            Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
+            None => TotalHotkeyAlpha::<T>::iter(),
+        };
 
         for (hot, this_netuid, _) in iter {
             let mut coldkeys: Vec<T::AccountId> = Vec::new();

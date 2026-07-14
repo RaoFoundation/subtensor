@@ -125,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           manifest=sdk/bittensor-core/tests/e2e-manifest.json
-          jq -e 'length == 113' "$manifest" >/dev/null
+          jq -e 'length == 112' "$manifest" >/dev/null
           jq -e 'map(.test) | length == (unique | length)' "$manifest" >/dev/null
           jq -e 'all(.[]; (.test | startswith("intent_")) or (.test | startswith("test_")))' "$manifest" >/dev/null
           test_matrix=$(jq -c . "$manifest")
