@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 
 Signer = Literal["coldkey", "hotkey"]
 
+# Who the chain accepts this operation from. "signed" = any funded key;
+# "subnet_owner" = the owner coldkey of the netuid the intent touches;
+# "root" = the chain sudo key (or the sudo multisig) — the call is wrapped
+# in Sudo.sudo at build time.
+Origin = Literal["signed", "subnet_owner", "root"]
+
 # Field annotations are strings here (PEP 563 / `from __future__ import annotations`),
 # so this maps by annotation name.
 _JSON_TYPES: dict[str, str] = {
@@ -108,6 +114,16 @@ class Intent(ABC):
 
     op: ClassVar[str]
     signer: ClassVar[Signer] = "coldkey"
+    # Privilege the chain demands: "signed" (any funded key), "subnet_owner"
+    # (the owner coldkey of the touched netuid), or "root" (the chain sudo
+    # key / sudo multisig). Surfaced in the tool catalog, the CLI help and
+    # pre-sign plan, and the generated docs — so an agent or human knows
+    # whether they *can* run an operation before building it.
+    origin: ClassVar[Origin] = "signed"
+    # The registered read that confirms this intent's effect after inclusion
+    # (e.g. "subnet_emission_enabled"). Optional, but every root intent should
+    # declare one: a privileged write with no paired verify is a docs bug.
+    verify: ClassVar[Optional[str]] = None
     # The chain call(s) this intent wraps, as (pallet, call_function) pairs. Used by
     # the codegen coverage gate to prove every chain call has a deliberate status.
     wraps: ClassVar[tuple[tuple[str, str], ...]] = ()
