@@ -38,11 +38,17 @@ pub fn migrate_clear_orphan_subnet_identities_v3<T: Config>() -> Weight {
     );
 
     // Collect identity netuids that no longer correspond to a registered subnet.
+    // Every scanned key costs an identity-map read plus a NetworksAdded lookup,
+    // even when the identity is kept for a live subnet.
+    let mut scanned = 0u64;
     let orphan_netuids: Vec<NetUid> = SubnetIdentitiesV3::<T>::iter_keys()
-        .filter(|netuid| !NetworksAdded::<T>::get(netuid))
+        .filter(|netuid| {
+            scanned = scanned.saturating_add(1);
+            !NetworksAdded::<T>::get(netuid)
+        })
         .collect();
     let removed = orphan_netuids.len() as u64;
-    weight = weight.saturating_add(T::DbWeight::get().reads(removed));
+    weight = weight.saturating_add(T::DbWeight::get().reads(scanned.saturating_mul(2)));
 
     for netuid in orphan_netuids {
         SubnetIdentitiesV3::<T>::remove(netuid);
@@ -55,8 +61,10 @@ pub fn migrate_clear_orphan_subnet_identities_v3<T: Config>() -> Weight {
 
     log::info!(
         target: "runtime",
-        "Migration '{}' completed.",
+        "Migration '{}' completed. scanned_identities={}, removed_orphans={}",
         String::from_utf8_lossy(&migration_name),
+        scanned,
+        removed,
     );
 
     weight
