@@ -2,6 +2,12 @@ pragma solidity ^0.8.0;
 
 address constant ISTAKING_ADDRESS = 0x0000000000000000000000000000000000000805;
 
+/// A coldkey's stake position: the `hotkey` and the `stake` amount in alpha.
+struct StakeInfo {
+    bytes32 hotkey;
+    uint256 stake;
+}
+
 interface IStaking {
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey`.
@@ -152,6 +158,19 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
+     * @dev Returns the coldkey's non-zero stake positions on `netuid`; zero-stake
+     * hotkeys are omitted.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet to query.
+     * @return The coldkey's (hotkey, stake) positions on `netuid`.
+     */
+    function getStakeInfoForColdkeyAndNetuid(
+        bytes32 coldkey,
+        uint256 netuid
+    ) external view returns (StakeInfo[] memory);
+
+    /**
      * @dev Delegates staking to a proxy account.
      *
      * @param delegate The public key (32 bytes) of the delegate.
@@ -204,6 +223,15 @@ interface IStaking {
      * @return The minimum required stake for a nominator.
      */
     function getNominatorMinRequiredStake() external view returns (uint256);
+
+    /**
+     * @dev Returns the minimum TAO-equivalent value (in rao) a stake operation must
+     * reach to be accepted; operations below this threshold are rejected.
+     * It is a view function, meaning it does not modify the state of the contract and is free to call.
+     *
+     * @return The stake operation threshold in rao.
+     */
+    function getStakeOperationThreshold() external view returns (uint256);
 
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.

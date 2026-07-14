@@ -195,6 +195,42 @@ export const IStakingV2ABI = [
         inputs: [
             {
                 internalType: "bytes32",
+                name: "coldkey",
+                type: "bytes32",
+            },
+            {
+                internalType: "uint256",
+                name: "netuid",
+                type: "uint256",
+            },
+        ],
+        name: "getStakeInfoForColdkeyAndNetuid",
+        outputs: [
+            {
+                components: [
+                    {
+                        internalType: "bytes32",
+                        name: "hotkey",
+                        type: "bytes32",
+                    },
+                    {
+                        internalType: "uint256",
+                        name: "stake",
+                        type: "uint256",
+                    },
+                ],
+                internalType: "struct StakeInfo[]",
+                name: "",
+                type: "tuple[]",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [
+            {
+                internalType: "bytes32",
                 name: "hotkey",
                 type: "bytes32",
             },
@@ -280,6 +316,19 @@ export const IStakingV2ABI = [
     {
         inputs: [],
         name: "getNominatorMinRequiredStake",
+        outputs: [
+            {
+                internalType: "uint256",
+                name: "",
+                type: "uint256",
+            },
+        ],
+        stateMutability: "view",
+        type: "function",
+    },
+    {
+        inputs: [],
+        name: "getStakeOperationThreshold",
         outputs: [
             {
                 internalType: "uint256",

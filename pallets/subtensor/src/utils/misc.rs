@@ -780,6 +780,11 @@ impl<T: Config> Pallet<T> {
         SubnetOwner::<T>::iter_values().any(|owner| *address == owner)
     }
 
+    /// The minimum TAO-equivalent value a stake operation must reach to be accepted.
+    pub fn get_stake_operation_threshold() -> TaoBalance {
+        DefaultMinStake::<T>::get()
+    }
+
     /// The NominatorMinRequiredStake is the factor by which we multiply
     /// the DefaultMinStake to get nominator minimum stake. With DefaulMinStake
     /// of 0.001 TAO and NominatorMinRequiredStake of 100_000_000, the
