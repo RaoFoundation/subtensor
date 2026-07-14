@@ -94,15 +94,36 @@ async def commit_reveal_enabled(view, netuid: int) -> bool:
     return bool(value)
 
 
+def _hyperparam_value(tagged: dict) -> object:
+    """Flatten one v3 ``{type_tag: payload}`` value to its raw payload.
+
+    Fixed-point newtypes (U64F64/I32F32) decode as ``{'bits': raw}``; the raw
+    bits are the value `sudo set` writes and `hyperparams.annotate` reads.
+    """
+    ((_tag, payload),) = tagged.items()
+    if isinstance(payload, dict) and set(payload) == {"bits"}:
+        return payload["bits"]
+    return payload
+
+
 @read(
     "subnet_hyperparameters",
     {"netuid": "integer"},
     category="Subnets",
     param_docs={"netuid": "Subnet to query."},
 )
-async def subnet_hyperparameters(view, netuid: int) -> dict:
-    """All hyperparameters for a subnet (named fields; version-dependent set)."""
-    return await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_hyperparams, [netuid])
+async def subnet_hyperparameters(view, netuid: int) -> Optional[dict]:
+    """All hyperparameters for a subnet, as a flat name -> raw value mapping.
+
+    The set of names is version-dependent; None if the subnet does not exist.
+    Uses the forward-compatible ``get_subnet_hyperparams_v3`` runtime API, so
+    newly added chain hyperparameters (e.g. ``burn_half_life``) show up
+    without a client update.
+    """
+    entries = await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [netuid])
+    if entries is None:
+        return None
+    return {entry["name"]: _hyperparam_value(entry["value"]) for entry in entries}
 
 
 @read(
@@ -112,8 +133,17 @@ async def subnet_hyperparameters(view, netuid: int) -> dict:
     param_docs={"netuid": "Subnet whose metagraph to fetch."},
 )
 async def metagraph(view, netuid: int) -> dict:
-    """The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...)."""
-    return await view.runtime(api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+    """The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).
+
+    `name` and `symbol` are decoded to text (the wire carries them as
+    compact-u16 vectors of utf-8 bytes, unlike every other text field).
+    """
+    graph = await view.runtime(api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+    if isinstance(graph, dict):
+        for key in ("name", "symbol"):
+            if key in graph:
+                graph[key] = utf8_text(graph[key])
+    return graph
 
 
 @read(

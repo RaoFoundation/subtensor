@@ -1,0 +1,25 @@
+{
+  "title": "Errors",
+  "pages": [
+    "index",
+    "insufficient-balance",
+    "insufficient-liquidity",
+    "rate-limited",
+    "not-registered",
+    "not-authorized",
+    "already-exists",
+    "not-found",
+    "subnet-not-exists",
+    "subtoken-disabled",
+    "disabled",
+    "too-early",
+    "expired",
+    "limit-exceeded",
+    "unit-mismatch",
+    "invalid-argument",
+    "policy-violation",
+    "internal",
+    "unknown",
+    "chain"
+  ]
+}

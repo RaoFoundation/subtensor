@@ -24,8 +24,8 @@ from .._generated.errors import ERRORS
 from ..config import get as config_default
 from ..error_descriptions import DESCRIPTIONS
 from ..intents import list_tools
-from ..result import EXPLANATIONS, REMEDIATION, ErrorCode, classify_error
-from ..settings import DEFAULT_NETWORK
+from ..result import EXPLANATIONS, REMEDIATION, ChainError, ErrorCode, classify_error
+from ..settings import DEFAULT_NETWORK, chain_error_docs_url, error_docs_url
 from . import globals as g
 from . import help_theme  # noqa: F401  (restyles typer's --help at import)
 from .call import call as call_command
@@ -328,7 +328,16 @@ def _chain_error_matches(query: str) -> list[dict[str, str]]:
                 "code": code.value,
                 "docs": info.docs,
                 "description": DESCRIPTIONS.get(info.name, ""),
-                "help": REMEDIATION[code],
+                # Same remediation a failure would print (per-name overrides
+                # like SlippageTooHigh's tolerance flags included).
+                "help": ChainError("", name=info.name).remediation,
+                # The exact name's page when it is classified (and thus has
+                # one), the semantic code's page otherwise.
+                "docs_url": (
+                    chain_error_docs_url(info.name)
+                    if info.name in DESCRIPTIONS
+                    else error_docs_url(code.value)
+                ),
             }
         )
     return matches
@@ -349,6 +358,9 @@ def _chain_error_catalog(out: Output, pallet: Optional[str]) -> None:
             "name": info.name,
             "code": classify_error(info.docs, info.name).value,
             "description": info.docs,
+            "docs_url": (
+                chain_error_docs_url(info.name) if info.name in DESCRIPTIONS else None
+            ),
         }
         for info in ERRORS.values()
         if pallet is None or info.pallet.lower() == pallet.lower()

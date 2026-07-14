@@ -8,6 +8,10 @@ two-value ``sudo_set_alpha_values`` call: setting one reads the current pair fro
 chain and keeps the other side. Root-only params, the enum-valued
 ``recycle_or_burn``, and ``sn_owner_hotkey`` are left to the raw-call escape hatch.
 
+``activity_cutoff`` is read-only here: the epoch derives the effective cutoff
+from ``activity_cutoff_factor`` (per-mille of tempo), so the legacy
+absolute-blocks setter is deliberately not exposed.
+
 Read current values back with the ``subnet_hyperparameters`` read.
 """
 
@@ -25,10 +29,11 @@ from .registry import register
 # name -> (AdminUtils setter, value is boolean). Every setter takes (netuid, value),
 # except the alpha pair below, which shares the two-value sudo_set_alpha_values.
 OWNER_HYPERPARAMETERS: dict[str, tuple[str, bool]] = {
+    "tempo": ("sudo_set_tempo", False),
     "immunity_period": ("sudo_set_immunity_period", False),
     "min_allowed_weights": ("sudo_set_min_allowed_weights", False),
     "weights_version": ("sudo_set_weights_version_key", False),
-    "activity_cutoff": ("sudo_set_activity_cutoff", False),
+    "activity_cutoff_factor": ("sudo_set_activity_cutoff_factor", False),
     "min_burn": ("sudo_set_min_burn", False),
     "max_burn": ("sudo_set_max_burn", False),
     "bonds_moving_avg": ("sudo_set_bonds_moving_average", False),

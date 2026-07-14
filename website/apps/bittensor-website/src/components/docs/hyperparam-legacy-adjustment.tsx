@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,10 +10,12 @@ import {
   LineElement,
   Filler,
   Tooltip,
+  type Plugin,
 } from 'chart.js';
 import type { ChartData } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(
   CategoryScale,
@@ -103,13 +105,59 @@ export function HyperparamLegacyAdjustment({ focus }: { focus?: string }) {
     return { xs, thenYs, nowYs };
   }, [alpha, interval]);
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef(sim);
+  drawState.current = sim;
+
+  // Direct uppercase labels on each curve, replacing any legend.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'legacyAdjustmentAnnotations',
+      afterDatasetsDraw(chart) {
+        const { thenYs, nowYs } = drawState.current;
+        const { ctx, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        // Label where the two curves are furthest apart, so the annotations
+        // never collide when they cross.
+        let idx = Math.floor(thenYs.length * 0.55);
+        let bestGap = -1;
+        for (let i = Math.floor(thenYs.length * 0.2); i < Math.floor(thenYs.length * 0.85); i++) {
+          const gap = Math.abs(
+            yScale.getPixelForValue(thenYs[i] ?? 0) - yScale.getPixelForValue(nowYs[i] ?? 0),
+          );
+          if (gap > bestGap) {
+            bestGap = gap;
+            idx = i;
+          }
+        }
+        const xPx = xScale.getPixelForValue(idx);
+        const thenPx = yScale.getPixelForValue(thenYs[idx] ?? 0);
+        const nowPx = yScale.getPixelForValue(nowYs[idx] ?? 0);
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = INK_FAINT;
+        ctx.fillText('THEN: EMA STEPS', xPx + 4, thenPx + (thenPx < nowPx ? -8 : 14));
+        ctx.fillStyle = INK;
+        ctx.fillText('NOW: BUMP + DECAY', xPx + 4, nowPx + (nowPx < thenPx ? -8 : 14));
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(() => {
     const datasets: ChartData<'line', number[]>['datasets'] = [
       {
         label: 'now: continuous bump + decay',
         data: sim.nowYs,
-        borderColor: 'rgb(41, 41, 41)',
-        backgroundColor: 'rgba(41, 41, 41, 0.08)',
+        borderColor: INK,
+        backgroundColor: 'rgba(41, 41, 41, 0.03)',
         fill: true,
         tension: 0,
         pointRadius: 0,
@@ -118,7 +166,7 @@ export function HyperparamLegacyAdjustment({ focus }: { focus?: string }) {
       {
         label: 'then: interval EMA steps',
         data: sim.thenYs,
-        borderColor: 'rgba(41, 41, 41, 0.45)',
+        borderColor: INK_FAINT,
         borderDash: [4, 3],
         stepped: true,
         pointRadius: 0,
@@ -152,18 +200,18 @@ export function HyperparamLegacyAdjustment({ focus }: { focus?: string }) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { maxTicksLimit: 8, font: { family: 'FiraCode, monospace', size: 10 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
         },
         y: {
           type: 'logarithmic' as const,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: {
-            maxTicksLimit: 6,
-            font: { family: 'FiraCode, monospace', size: 10 },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({
             callback: (value: string | number) => formatTao(Number(value)),
-          },
-          title: { display: true, text: 'burn (τ, log)', font: { size: 11 } },
+          }),
+          title: axisTitle('burn (τ, log)'),
         },
       },
     }),
@@ -176,7 +224,7 @@ export function HyperparamLegacyAdjustment({ focus }: { focus?: string }) {
       caption={CAPTIONS[focus ?? ''] ?? CAPTIONS.adjustment_interval}
     >
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

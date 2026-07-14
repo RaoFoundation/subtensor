@@ -10,9 +10,21 @@ import {
   Filler,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import {
+  ACCENT,
+  ACCENT_REGION,
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -81,6 +93,74 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
   // Flat EMA rate used when liquid alpha is off: 1 - bonds_moving_avg / 1e6.
   const flatAlpha = 1 - bondsMovingAvg;
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ enabled, flatAlpha, alphaLow, alphaHigh, focus });
+  drawState.current = { enabled, flatAlpha, alphaLow, alphaHigh, focus };
+
+  // Direct in-plot labels (no legend): uppercase FiraCode annotations for the
+  // curves, plus ACCENT text inside the unreachable region tints.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'liquidAlphaAnnotations',
+      afterDatasetsDraw(chart) {
+        const { enabled, flatAlpha, alphaLow, alphaHigh, focus } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        const mainMeta = chart.getDatasetMeta(0);
+        const labelIdx = Math.round(0.68 * SAMPLE_POINTS);
+        const mainPoint = mainMeta?.data?.[labelIdx];
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+
+        if (mainPoint) {
+          ctx.fillStyle = INK;
+          ctx.textAlign = 'left';
+          ctx.fillText(
+            enabled ? 'PER-PAIR EMA RATE' : 'FLAT EMA RATE',
+            mainPoint.x + 4,
+            mainPoint.y - 8,
+          );
+        }
+
+        if (enabled) {
+          ctx.fillStyle = INK_FAINT;
+          ctx.textAlign = 'left';
+          ctx.fillText(
+            'FLAT RATE IF DISABLED',
+            chartArea.left + 6,
+            yScale.getPixelForValue(flatAlpha) - 6,
+          );
+        }
+
+        const centerX = (chartArea.left + chartArea.right) / 2;
+        if (enabled && focus === 'alpha_low') {
+          ctx.fillStyle = ACCENT;
+          ctx.textAlign = 'center';
+          const midY = yScale.getPixelForValue(alphaLow / 2);
+          ctx.fillText('BELOW ALPHA_LOW', centerX, midY - 3);
+          ctx.fillText('UNREACHABLE', centerX, midY + 11);
+        }
+        if (enabled && focus === 'alpha_high') {
+          ctx.fillStyle = ACCENT;
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            'ABOVE ALPHA_HIGH — UNREACHABLE',
+            centerX,
+            yScale.getPixelForValue((1 + alphaHigh) / 2) + 3,
+          );
+        }
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   // The chain forbids alpha_low > alpha_high, so the sliders drag each other.
   const changeLow = (v: number) => {
     stopDemo();
@@ -105,19 +185,19 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
       {
         label: enabled ? 'per-pair EMA rate (liquid alpha)' : 'flat EMA rate (bonds_moving_avg)',
         data: curve.ys,
-        borderColor: 'rgb(41, 41, 41)',
-        backgroundColor: 'rgba(41, 41, 41, 0.08)',
+        borderColor: INK,
+        backgroundColor: 'rgba(41, 41, 41, 0.03)',
         fill: true,
         tension: 0,
         pointRadius: 0,
-        borderWidth: !enabled && emphasizeFlat ? 2.5 : 1.5,
+        borderWidth: !enabled && emphasizeFlat ? 2.5 : 1.75,
       },
       ...(enabled
         ? [
             {
               label: 'flat rate if disabled',
               data: curve.xs.map(() => flatAlpha),
-              borderColor: emphasizeFlat ? 'rgba(41, 41, 41, 0.7)' : 'rgba(41, 41, 41, 0.35)',
+              borderColor: emphasizeFlat ? 'rgba(41, 41, 41, 0.7)' : INK_FAINT,
               borderDash: [4, 4],
               fill: false,
               tension: 0,
@@ -126,15 +206,15 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
             },
           ]
         : []),
-      // Shade the region the curve can never enter on the bound pages.
+      // Blocked-region tint: the curve can never enter these bands.
       ...(enabled && focus === 'alpha_low'
         ? [
             {
               label: 'below alpha_low (unreachable)',
               data: curve.xs.map(() => alphaLow),
-              borderColor: 'rgba(41, 41, 41, 0.5)',
+              borderColor: INK_FAINT,
               borderDash: [2, 3],
-              backgroundColor: 'rgba(41, 41, 41, 0.14)',
+              backgroundColor: ACCENT_REGION,
               fill: 'start' as const,
               tension: 0,
               pointRadius: 0,
@@ -147,9 +227,9 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
             {
               label: 'above alpha_high (unreachable)',
               data: curve.xs.map(() => alphaHigh),
-              borderColor: 'rgba(41, 41, 41, 0.5)',
+              borderColor: INK_FAINT,
               borderDash: [2, 3],
-              backgroundColor: 'rgba(41, 41, 41, 0.14)',
+              backgroundColor: ACCENT_REGION,
               fill: 'end' as const,
               tension: 0,
               pointRadius: 0,
@@ -180,16 +260,18 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { maxTicksLimit: 11, font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'deviation from consensus (combined_diff)', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
+          title: axisTitle('deviation from consensus (combined_diff)'),
         },
         y: {
           min: 0,
           max: 1,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'bonds EMA rate (alpha)', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({ maxTicksLimit: 5 }),
+          title: axisTitle('bonds EMA rate (alpha)'),
         },
       },
     }),
@@ -246,8 +328,8 @@ export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {
       title="Liquid alpha: per-weight bonds EMA rate"
       caption={(focus && FOCUS_CAPTIONS[focus]) || BASE_CAPTION}
     >
-      <div className="h-52">
-        <Line data={data} options={options} />
+      <div className="h-64">
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

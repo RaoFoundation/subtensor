@@ -219,6 +219,19 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_activity_cutoff_factor() {
+        // disable admin freeze window
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(
+            1u16.into(), /*netuid*/
+            1u16,        /*tempo*/
+        );
+
+        #[extrinsic_call]
+		_(RawOrigin::Root, 1u16.into()/*netuid*/, 5_000u32/*factor_milli*/)/*sudo_set_activity_cutoff_factor*/;
+    }
+
+    #[benchmark]
     fn sudo_set_rho() {
         // disable admin freeze window
         pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
@@ -348,28 +361,23 @@ mod benchmarks {
 		_(RawOrigin::Root, 1u16.into()/*netuid*/, true/*registration_allowed*/)/*sudo_set_network_registration_allowed*/;
     }
 
-    /*
-        benchmark_sudo_set_tempo {
-        let netuid = NetUid::from(1);
-        let tempo_default: u16 = 1; <------- unused?
-        let tempo: u16 = 15;
-        let modality: u16 = 0;
-
-        pallet_subtensor::Pallet::<T>::init_new_network(netuid, tempo);
-
-    }: sudo_set_tempo(RawOrigin::<AccountIdOf<T>>::Root, netuid, tempo)
-    */
     #[benchmark]
     fn sudo_set_tempo() {
-        // disable admin freeze window
+        let netuid = NetUid::from(1);
+        let owner: T::AccountId = account("owner", 0, 0);
+
+        // Benchmark the heavier owner path (bounds check + rate-limit read/write),
+        // not the root path which bypasses both.
         pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
-        pallet_subtensor::Pallet::<T>::init_new_network(
-            1u16.into(), /*netuid*/
-            1u16,        /*tempo*/
-        );
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, pallet_subtensor::MIN_TEMPO);
+        pallet_subtensor::SubnetOwner::<T>::insert(netuid, &owner);
 
         #[extrinsic_call]
-		_(RawOrigin::Root, 1u16.into()/*netuid*/, 1u16/*tempo*/)/*sudo_set_tempo*/;
+        _(
+            RawOrigin::Signed(owner),
+            netuid,
+            pallet_subtensor::MIN_TEMPO + 1,
+        );
     }
 
     #[benchmark]

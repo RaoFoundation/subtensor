@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,12 +9,13 @@ import {
   LineElement,
   Filler,
   Tooltip,
-  Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip);
 
 const BLOCK_SECONDS = 12;
 const BLOCKS_PER_DAY = 86_400 / BLOCK_SECONDS;
@@ -47,14 +48,59 @@ export function HyperparamTempoTimeline() {
     [tempo],
   );
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ tempo });
+  drawState.current = { tempo };
+
+  // Direct uppercase labels replacing the legend: one on the accruing ramp,
+  // one beside the first epoch-boundary diamond.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'tempoAnnotations',
+      afterDatasetsDraw(chart) {
+        const { tempo } = drawState.current;
+        const { ctx, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+
+        // Up-left of the midpoint of the first ramp, in the empty region
+        // above the rising line.
+        ctx.fillStyle = INK;
+        ctx.textAlign = 'right';
+        ctx.fillText(
+          'PENDING EMISSION',
+          xScale.getPixelForValue(tempo * 0.55) - 8,
+          yScale.getPixelForValue(tempo * 0.55) - 6,
+        );
+
+        // Beside the first boundary diamond
+        ctx.fillStyle = INK_FAINT;
+        ctx.textAlign = 'left';
+        ctx.fillText(
+          'EPOCH FIRES',
+          xScale.getPixelForValue(tempo) + 8,
+          yScale.getPixelForValue(tempo) + 4,
+        );
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
       datasets: [
         {
           label: 'Pending emission',
           data: sawtooth,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgba(41, 41, 41, 0.08)',
+          borderColor: INK,
+          backgroundColor: 'rgba(41, 41, 41, 0.03)',
           fill: true,
           tension: 0,
           pointRadius: 0,
@@ -63,8 +109,8 @@ export function HyperparamTempoTimeline() {
         {
           label: 'Epoch fires',
           data: boundaries,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
+          backgroundColor: INK,
           showLine: false,
           pointRadius: 3,
           pointStyle: 'rectRot' as const,
@@ -85,12 +131,12 @@ export function HyperparamTempoTimeline() {
           callbacks: {
             title: (items: {parsed: {x: number}}[]) => {
               const block = items[0]?.parsed.x ?? 0;
-              return `Block ${block} (${formatDuration(block * BLOCK_SECONDS)} in)`;
+              return `Block ${block.toLocaleString()} (${formatDuration(block * BLOCK_SECONDS)} in)`;
             },
             label: (ctx: {parsed: {y: number}; datasetIndex: number}) =>
               ctx.datasetIndex === 1
-                ? `epoch fires: ${ctx.parsed.y} α distributed`
-                : `pending ${ctx.parsed.y.toFixed(0)} α`,
+                ? `epoch fires: ${ctx.parsed.y.toLocaleString()} α distributed`
+                : `pending ${Math.round(ctx.parsed.y).toLocaleString()} α`,
           },
         },
       },
@@ -99,19 +145,19 @@ export function HyperparamTempoTimeline() {
           type: 'linear' as const,
           min: 0,
           max: EPOCHS_SHOWN * tempo,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {
-            maxTicksLimit: 10,
-            font: {family: 'FiraCode, monospace', size: 10},
-            callback: (value: string | number) => String(value),
-          },
-          title: {display: true, text: 'blocks since last epoch reset', font: {size: 11}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            callback: (value: string | number) => Number(value).toLocaleString(),
+          }),
+          title: axisTitle('blocks since last epoch reset'),
         },
         y: {
           min: 0,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {font: {family: 'FiraCode, monospace', size: 10}},
-          title: {display: true, text: 'pending emission (α, at 1 α/block)', font: {size: 11}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({maxTicksLimit: 5}),
+          title: axisTitle('pending emission (α, at 1 α/block)'),
         },
       },
     }),
@@ -124,18 +170,22 @@ export function HyperparamTempoTimeline() {
       caption="Emission accrues every block and pays out when the epoch fires: should_run_epoch (coinbase/run_coinbase.rs) triggers once current_block − LastEpochBlock ≥ tempo. Three epochs shown at an illustrative 1 α/block; each diamond is an epoch boundary where Yuma Consensus runs and the accumulated alpha is distributed."
     >
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ExplainerStat
           label="Epoch length"
           value={formatDuration(tempo * BLOCK_SECONDS)}
-          hint={`${tempo} blocks × 12 s`}
+          hint={`${tempo.toLocaleString()} blocks × 12 s`}
         />
         <ExplainerStat
           label="Epochs per day"
-          value={(BLOCKS_PER_DAY / tempo).toFixed(1)}
+          value={
+            BLOCKS_PER_DAY / tempo >= 1
+              ? (BLOCKS_PER_DAY / tempo).toFixed(1)
+              : (BLOCKS_PER_DAY / tempo).toFixed(2)
+          }
           hint="7,200 blocks per day"
         />
         <ExplainerStat
@@ -143,16 +193,21 @@ export function HyperparamTempoTimeline() {
           value="360 blocks"
           hint="~72 minutes per epoch"
         />
+        <ExplainerStat
+          label="Owner-settable range"
+          value="360 – 50,400"
+          hint="~72 minutes to ~7 days"
+        />
       </div>
 
       <div className="mt-5">
         <ExplainerSlider
           label="tempo (blocks per epoch)"
           value={tempo}
-          min={60}
-          max={1440}
-          step={30}
-          display={`${tempo} blocks`}
+          min={360}
+          max={50_400}
+          step={360}
+          display={`${tempo.toLocaleString()} blocks`}
           onChange={setTempo}
         />
       </div>

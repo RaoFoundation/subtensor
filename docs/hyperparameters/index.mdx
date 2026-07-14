@@ -14,14 +14,15 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`immunity_period`](/docs/hyperparameters/immunity-period) | blocks (12s) | yes | prune-immunity window for new neurons |
 | [`min_allowed_weights`](/docs/hyperparameters/min-allowed-weights) | integer | yes | minimum weights per submission |
 | [`max_weights_limit`](/docs/hyperparameters/max-weights-limit) | fraction (u16, 65535 = 1.0) | root only | cap on a single miner's weight |
-| [`tempo`](/docs/hyperparameters/tempo) | blocks (12s) | root only | blocks per consensus epoch |
+| [`tempo`](/docs/hyperparameters/tempo) | blocks (12s) | yes | blocks per consensus epoch |
 | [`min_difficulty`](/docs/hyperparameters/min-difficulty) | PoW difficulty (u64) | root only | PoW registration difficulty floor |
 | [`max_difficulty`](/docs/hyperparameters/max-difficulty) | PoW difficulty (u64) | yes | PoW registration difficulty ceiling |
 | [`difficulty`](/docs/hyperparameters/difficulty) | PoW difficulty (u64) | root only | current PoW registration difficulty |
 | [`weights_version`](/docs/hyperparameters/weights-version) | integer | yes | minimum version key for set_weights |
 | [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) | blocks (12s) | root only | wait between weight submissions |
 | [`adjustment_interval`](/docs/hyperparameters/adjustment-interval) | blocks (12s) | root only | difficulty/burn adjustment cadence |
-| [`activity_cutoff`](/docs/hyperparameters/activity-cutoff) | blocks (12s) | yes | no-weights window before inactive |
+| [`activity_cutoff`](/docs/hyperparameters/activity-cutoff) | blocks (12s) | root only | no-weights window before inactive |
+| [`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor) | integer | yes | activity cutoff, per-mille of tempo |
 | [`registration_allowed`](/docs/hyperparameters/registration-allowed) | flag | root only | new neuron registrations allowed |
 | [`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) | flag | yes | PoW registration toggle |
 | [`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) | integer | root only | registration-rate controller target |
@@ -45,6 +46,9 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 | [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) | multiplier (U64F64 bits / 2^64) | yes | burn cost bump per registration |
 | [`burn_half_life`](/docs/hyperparameters/burn-half-life) | blocks (12s) | yes | burn cost decay half-life |
 | [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) | flag | yes | yuma3 consensus variant toggle |
+| [`yuma_version`](/docs/hyperparameters/yuma-version) | integer | root only | epoch consensus variant (2 or 3) |
+| [`subnet_is_active`](/docs/hyperparameters/subnet-is-active) | flag | root only | subnet started (staking + emissions) |
+| [`user_liquidity_enabled`](/docs/hyperparameters/user-liquidity-enabled) | flag | root only | legacy user-LP flag (always false) |
 | [`bonds_reset_enabled`](/docs/hyperparameters/bonds-reset-enabled) | flag | yes | bonds reset on metadata commit |
 | [`transfers_enabled`](/docs/hyperparameters/transfers-enabled) | flag | yes | stake transfers between coldkeys |
 | [`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) | flag | yes | owner emission cut toggle |

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -8,9 +8,11 @@ import {
   PointElement,
   LineElement,
   Tooltip,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { ACCENT, AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LogarithmicScale, PointElement, LineElement, Tooltip);
 
@@ -110,6 +112,38 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
   const floorFocused = focus === 'min_difficulty';
   const ceilFocused = focus === 'max_difficulty';
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ floor, ceiling, floorFocused, ceilFocused });
+  drawState.current = { floor, ceiling, floorFocused, ceilFocused };
+
+  // Direct uppercase labels on the clamp lines, replacing any legend.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'powDifficultyAnnotations',
+      afterDatasetsDraw(chart) {
+        const { floor, ceiling, floorFocused, ceilFocused } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const yScale = scales.y;
+        if (!yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        ctx.textAlign = 'right';
+
+        // Floor sits at the bottom of the log axis, ceiling at the top, so
+        // labels go inside the plot: above the floor, below the ceiling.
+        ctx.fillStyle = floorFocused ? ACCENT : INK_FAINT;
+        ctx.fillText('MIN_DIFFICULTY FLOOR', chartArea.right - 6, yScale.getPixelForValue(floor) - 5);
+        ctx.fillStyle = ceilFocused ? ACCENT : INK_FAINT;
+        ctx.fillText('MAX_DIFFICULTY CEILING', chartArea.right - 6, yScale.getPixelForValue(ceiling) + 14);
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
       labels: series.map((_, i) => `${i}`),
@@ -117,8 +151,8 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
         {
           label: 'difficulty',
           data: series,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgba(41, 41, 41, 0.08)',
+          borderColor: INK,
+          backgroundColor: 'rgba(41, 41, 41, 0.03)',
           fill: false,
           tension: 0,
           pointRadius: 0,
@@ -127,20 +161,20 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
         {
           label: floorFocused ? 'min_difficulty (floor) \u2190 this page' : 'min_difficulty (floor)',
           data: series.map(() => floor),
-          borderColor: floorFocused ? 'rgb(41, 41, 41)' : 'rgba(41, 41, 41, 0.35)',
+          borderColor: floorFocused ? ACCENT : 'rgba(41, 41, 41, 0.35)',
           borderDash: floorFocused ? [6, 3] : [4, 4],
           fill: false,
           pointRadius: 0,
-          borderWidth: floorFocused ? 2.5 : 1,
+          borderWidth: floorFocused ? 1.5 : 1,
         },
         {
           label: ceilFocused ? 'max_difficulty (ceiling) \u2190 this page' : 'max_difficulty (ceiling)',
           data: series.map(() => ceiling),
-          borderColor: ceilFocused ? 'rgb(41, 41, 41)' : 'rgba(41, 41, 41, 0.35)',
+          borderColor: ceilFocused ? ACCENT : 'rgba(41, 41, 41, 0.35)',
           borderDash: ceilFocused ? [6, 3] : [2, 3],
           fill: false,
           pointRadius: 0,
-          borderWidth: ceilFocused ? 2.5 : 1,
+          borderWidth: ceilFocused ? 1.5 : 1,
         },
       ],
     }),
@@ -164,18 +198,18 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { maxTicksLimit: 8, font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'adjustment intervals', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
+          title: axisTitle('adjustment intervals'),
         },
         y: {
           type: 'logarithmic' as const,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: {
-            font: { family: 'FiraCode, monospace', size: 10 },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({
             callback: (value: string | number) => formatDifficulty(Number(value)),
-            maxTicksLimit: 6,
-          },
+          }),
         },
       },
     }),
@@ -185,7 +219,7 @@ export function HyperparamPowDifficulty({ focus }: { focus?: string }) {
   return (
     <ExplainerPanel title="PoW difficulty controller" caption={scenario.caption}>
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

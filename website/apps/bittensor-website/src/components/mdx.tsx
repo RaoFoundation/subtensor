@@ -32,8 +32,12 @@ import { HyperparamWeightsRateLimitChart } from './docs/hyperparam-weights-rate-
 import { HyperparamWeightsRules } from './docs/hyperparam-weights-rules';
 import { HyperparamWeightsVersionGate } from './docs/hyperparam-weights-version-gate';
 import { HyperparamYuma3Chart } from './docs/hyperparam-yuma3-chart';
+import { MevShieldTimeline } from './docs/mev-shield-timeline';
 import { RegistrationBurnTimeline } from './docs/registration-burn-timeline';
 import { RootProportionExplainer } from './docs/root-proportion-explainer';
+import { StakingFlowDiagram } from './docs/staking-flow-diagram';
+import { StakingPoolSwapDemo } from './docs/staking-pool-swap-demo';
+import { StakingSlippageLimit } from './docs/staking-slippage-limit';
 import { SubnetEmissionShareChart } from './docs/subnet-emission-share-chart';
 import { TaoHalvingChart } from './docs/tao-halving-chart';
 import { YumaConsensusDemo } from './docs/yuma-consensus-demo';
@@ -129,6 +133,10 @@ export function getMDXComponents(components?: MDXComponents) {
     EmissionNetworkSnapshot,
     EmissionFlowDiagram,
     RootProportionExplainer,
+    StakingFlowDiagram,
+    StakingPoolSwapDemo,
+    StakingSlippageLimit,
+    MevShieldTimeline,
     RegistrationBurnTimeline,
     ConvictionLockChart,
     ConvictionSubnetScenario,

@@ -1,6 +1,6 @@
 """Generate the docs reference section from the SDK's own registries.
 
-Everything under docs/tx, docs/query, docs/errors.mdx, and the hyperparameters
+Everything under docs/tx, docs/query, docs/errors, and the hyperparameters
 index/meta (in the repo-root docs folder) plus public/catalog/ is emitted by
 this script — never hand-edited (the per-hyperparameter explainer pages in
 docs/hyperparameters/ are hand-written; --check verifies one exists per
@@ -28,6 +28,7 @@ from dataclasses import MISSING, fields
 from pathlib import Path
 
 from bittensor import error_descriptions, error_map, hyperparams, result
+from bittensor._generated.errors import ERRORS as CHAIN_ERROR_CATALOG
 from bittensor.intents import REGISTRY as INTENTS
 from bittensor.intents.hyperparameters import OWNER_HYPERPARAMETERS
 from bittensor.intents.registry import list_tools
@@ -432,7 +433,7 @@ def query_meta() -> dict:
     return {"title": "Queries", "pages": pages}
 
 
-# --- Errors page -----------------------------------------------------------
+# --- Error pages -----------------------------------------------------------
 
 
 def sentence_case(text: str) -> str:
@@ -449,7 +450,66 @@ def sentence_case(text: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def errors_page() -> str:
+def chain_errors_for(code) -> list[str]:
+    """Chain error names classifying to a code, sorted."""
+    return sorted(n for n, c in error_map.NAME_TO_CODE.items() if c is code)
+
+
+# Chain error name -> the pallets that declare it (a name can exist in several).
+CHAIN_ERROR_PALLETS: dict[str, list[str]] = {}
+for _info in CHAIN_ERROR_CATALOG.values():
+    _pallets = CHAIN_ERROR_PALLETS.setdefault(_info.name, [])
+    if _info.pallet not in _pallets:
+        _pallets.append(_info.pallet)
+
+
+def chain_error_remediation(name: str) -> str:
+    """The remediation the CLI would print for this exact chain error (includes
+    the per-name overrides, e.g. SlippageTooHigh's tolerance flags)."""
+    return result.ChainError("", name=name).remediation
+
+
+def error_page(code) -> str:
+    """One explainer page per semantic error code (the hyperparameters layout:
+    an index table linking to a page per entry). The page carries the long-form
+    explanation (`btcli explain <code>`), the remediation hint, and the chain
+    errors that classify to this code."""
+    remediation = sentence_case(result.REMEDIATION[code])
+    explanation = sentence_case(result.EXPLANATIONS[code])
+    header = frontmatter(code.value, remediation)
+    parts = [header, mdx_escape(explanation) + "\n"]
+
+    parts.append("## Remediation\n")
+    parts.append(mdx_escape(remediation) + "\n")
+
+    names = chain_errors_for(code)
+    parts.append("## Chain errors\n")
+    if names:
+        parts.append(
+            f"The exact chain error names (from the extrinsic receipt) that "
+            f"classify to `{code.value}`; the description says what triggered "
+            "the failure and where to check. Each name has its own page:\n"
+        )
+        parts.append("| Chain error | Description |")
+        parts.append("| --- | --- |")
+        for name in names:
+            description = error_descriptions.DESCRIPTIONS[name]
+            parts.append(f"| [`{name}`](/docs/errors/chain/{name}) | {cell(description)} |")
+        parts.append("")
+    else:
+        parts.append(
+            "No chain error classifies to this code — it is raised client-side "
+            "by the SDK before or after the call reaches the chain.\n"
+        )
+    parts.append(
+        "The same explanation is available in the terminal: "
+        f"`btcli explain {code.value}` (or `btcli explain <ChainErrorName>` "
+        "for one exact chain error).\n"
+    )
+    return "\n".join(parts)
+
+
+def errors_index() -> str:
     header = frontmatter(
         "Errors",
         "Every failure carries a machine-readable code and a remediation hint.",
@@ -459,27 +519,95 @@ def errors_page() -> str:
         "A failed `execute` returns an `ExtrinsicResult` whose `error` has a "
         "semantic `code` (branch on it) and a `remediation` hint (what to try "
         "next). Every chain error name is deliberately classified — a CI gate "
-        "keeps the mapping complete in both directions. The machine-readable "
-        "version is at [`/catalog/errors.json`](/catalog/errors.json).\n",
-        "## Error codes\n",
+        "keeps the mapping complete in both directions. Each code has its own "
+        "explainer page listing the chain errors that map to it, and every "
+        "exact chain error name has its own page under "
+        "[chain errors](/docs/errors/chain). The machine-readable version is "
+        "at [`/catalog/errors.json`](/catalog/errors.json).\n",
+        "| Code | Chain errors | Remediation |",
+        "| --- | --- | --- |",
     ]
     for code in error_map.ErrorCode:
         remediation = sentence_case(result.REMEDIATION[code])
-        parts.append(f"### `{code.value}`\n")
-        parts.append(mdx_escape(remediation) + "\n")
-
-    parts.append("## Chain error classification\n")
-    parts.append(
-        "The exact chain error name (from the extrinsic receipt) maps to a code; "
-        "the description says what triggered it and where to check:\n"
-    )
-    parts.append("| Chain error | Code | Description |")
-    parts.append("| --- | --- | --- |")
-    for name, code in sorted(error_map.NAME_TO_CODE.items()):
-        description = error_descriptions.DESCRIPTIONS[name]
-        parts.append(f"| `{name}` | `{code.value}` | {cell(description)} |")
+        count = len(chain_errors_for(code))
+        parts.append(
+            f"| [`{code.value}`](/docs/errors/{kebab(code.value)}) | "
+            f"{count if count else '—'} | {cell(remediation)} |"
+        )
     parts.append("")
     return "\n".join(parts)
+
+
+def errors_meta() -> dict:
+    return {
+        "title": "Errors",
+        "pages": [
+            "index",
+            *(kebab(code.value) for code in error_map.ErrorCode),
+            "chain",
+        ],
+    }
+
+
+def chain_error_page(name: str, code) -> str:
+    """One page per exact chain error name, at /docs/errors/chain/<Name> (the
+    URL keeps the on-chain CamelCase name so CLI links never need mangling)."""
+    description = sentence_case(error_descriptions.DESCRIPTIONS[name])
+    remediation = sentence_case(chain_error_remediation(name))
+    pallets = CHAIN_ERROR_PALLETS.get(name, [])
+    header = frontmatter(name, remediation)
+    parts = [header, mdx_escape(description) + "\n"]
+
+    pallet_list = ", ".join(f"`{p}`" for p in pallets)
+    origin = (
+        f"Declared by the {pallet_list} pallet{'s' if len(pallets) > 1 else ''}; it"
+        if pallets
+        else "It"
+    )
+    parts.append(
+        f"{origin} classifies to the semantic code "
+        f"[`{code.value}`](/docs/errors/{kebab(code.value)}).\n"
+    )
+
+    parts.append("## Remediation\n")
+    parts.append(mdx_escape(remediation) + "\n")
+
+    parts.append(
+        "The same explanation is available in the terminal: "
+        f"`btcli explain {name}`.\n"
+    )
+    return "\n".join(parts)
+
+
+def chain_errors_index() -> str:
+    header = frontmatter(
+        "Chain errors",
+        "Every exact chain error name, classified to a semantic code.",
+    )
+    parts = [
+        header,
+        "The exact chain error name (from the extrinsic receipt) maps to a "
+        "semantic [code](/docs/errors); the description says what triggered "
+        "the failure and where to check. Each name has its own page:\n",
+        "| Chain error | Code | Description |",
+        "| --- | --- | --- |",
+    ]
+    for name, code in sorted(error_map.NAME_TO_CODE.items()):
+        description = error_descriptions.DESCRIPTIONS[name]
+        parts.append(
+            f"| [`{name}`](/docs/errors/chain/{name}) | "
+            f"[`{code.value}`](/docs/errors/{kebab(code.value)}) | "
+            f"{cell(description)} |"
+        )
+    parts.append("")
+    return "\n".join(parts)
+
+
+def chain_errors_meta() -> dict:
+    return {
+        "title": "Chain errors",
+        "pages": ["index", *sorted(error_map.NAME_TO_CODE)],
+    }
 
 
 # --- Hyperparameters page ---------------------------------------------------
@@ -563,9 +691,19 @@ def write_catalogs(catalog_root: Path) -> None:
         if not namespace_shadowed(spec):
             r["python"] = f"client.{namespace_attr(spec)}.{spec.name}(...)"
     errors = {
-        "codes": {code.value: result.REMEDIATION[code] for code in error_map.ErrorCode},
+        "codes": {
+            code.value: {
+                "remediation": result.REMEDIATION[code],
+                "docs_url": f"/docs/errors/{kebab(code.value)}",
+            }
+            for code in error_map.ErrorCode
+        },
         "chain_errors": {
-            n: {"code": c.value, "description": error_descriptions.DESCRIPTIONS[n]}
+            n: {
+                "code": c.value,
+                "description": error_descriptions.DESCRIPTIONS[n],
+                "docs_url": f"/docs/errors/chain/{n}",
+            }
             for n, c in sorted(error_map.NAME_TO_CODE.items())
         },
     }
@@ -584,8 +722,10 @@ def generate(content_root: Path) -> None:
     with tempfile.TemporaryDirectory(dir=content_root) as tmp:
         tx_dir = Path(tmp) / "tx"
         query_dir = Path(tmp) / "query"
+        errors_dir = Path(tmp) / "errors"
         tx_dir.mkdir()
         query_dir.mkdir()
+        errors_dir.mkdir()
 
         for op, cls in sorted(INTENTS.items()):
             (tx_dir / f"{kebab(op)}.mdx").write_text(intent_page(op, cls))
@@ -597,13 +737,29 @@ def generate(content_root: Path) -> None:
         (query_dir / "index.mdx").write_text(read_index())
         (query_dir / "meta.json").write_text(json.dumps(query_meta(), indent=2) + "\n")
 
-        errors = errors_page()
+        for code in error_map.ErrorCode:
+            (errors_dir / f"{kebab(code.value)}.mdx").write_text(error_page(code))
+        (errors_dir / "index.mdx").write_text(errors_index())
+        (errors_dir / "meta.json").write_text(json.dumps(errors_meta(), indent=2) + "\n")
 
-        for src, dest in ((tx_dir, content_root / "tx"), (query_dir, content_root / "query")):
+        chain_dir = errors_dir / "chain"
+        chain_dir.mkdir()
+        for name, code in sorted(error_map.NAME_TO_CODE.items()):
+            (chain_dir / f"{name}.mdx").write_text(chain_error_page(name, code))
+        (chain_dir / "index.mdx").write_text(chain_errors_index())
+        (chain_dir / "meta.json").write_text(json.dumps(chain_errors_meta(), indent=2) + "\n")
+
+        for src, dest in (
+            (tx_dir, content_root / "tx"),
+            (query_dir, content_root / "query"),
+            (errors_dir, content_root / "errors"),
+        ):
             if dest.exists():
                 shutil.rmtree(dest)
             src.rename(dest)
-        (content_root / "errors.mdx").write_text(errors)
+        # The errors section used to be a single generated errors.mdx page;
+        # drop the leftover so it does not shadow the errors/ folder.
+        (content_root / "errors.mdx").unlink(missing_ok=True)
         # Only the index and meta are generated: the per-parameter explainer
         # pages in this folder are hand-written and left untouched.
         hyperparams_dir = content_root / "hyperparameters"
@@ -635,13 +791,16 @@ def check() -> int:
                 if not committed.exists() or not filecmp.cmp(fresh, committed, shallow=False):
                     stale.append(str(committed))
         # Files that were generated once but no longer are (e.g. a removed intent).
-        for sub in ("tx", "query"):
+        for sub in ("tx", "query", "errors"):
             committed_dir = CONTENT / sub
             if not committed_dir.exists():
                 continue
             for committed in sorted(committed_dir.rglob("*")):
                 if committed.is_file() and not (tmp_content / committed.relative_to(CONTENT)).exists():
                     stale.append(str(committed))
+        # The pre-folder single errors page must not linger beside errors/.
+        if (CONTENT / "errors.mdx").exists():
+            stale.append(str(CONTENT / "errors.mdx"))
         # Every hyperparameter must have its hand-written explainer page.
         for name in hyperparams.HYPERPARAMS:
             page = CONTENT / "hyperparameters" / f"{kebab(name)}.mdx"
@@ -665,9 +824,11 @@ def main() -> int:
     generate(CONTENT)
     write_catalogs(CATALOG)
     n_tx, n_q = len(INTENTS), len(READS)
+    n_err = len(list(error_map.ErrorCode))
+    n_chain = len(error_map.NAME_TO_CODE)
     print(
-        f"Generated {n_tx} tx pages, {n_q} query pages, errors.mdx, "
-        "the hyperparameters index, and 3 catalogs."
+        f"Generated {n_tx} tx pages, {n_q} query pages, {n_err} error pages, "
+        f"{n_chain} chain error pages, the hyperparameters index, and 3 catalogs."
     )
     return 0
 

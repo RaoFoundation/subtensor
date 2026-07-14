@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,10 +9,22 @@ import {
   LineElement,
   Filler,
   Tooltip,
+  type Plugin,
 } from 'chart.js';
 import type { ChartData } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import {
+  ACCENT,
+  ACCENT_REGION,
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip);
 
@@ -46,13 +58,73 @@ export function HyperparamRegsCapChart() {
     return { xs, attempted, admitted, capHitBlock, rejected: totalAttempted - totalAdmitted };
   }, [attemptsPerInterval, cap]);
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ cap, sim });
+  drawState.current = { cap, sim };
+
+  // Region tint above the cap, cap-threshold label, and direct curve labels.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'regsCapAnnotations',
+      beforeDatasetsDraw(chart) {
+        const { cap } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const yScale = scales.y;
+        if (!yScale) return;
+
+        const yCap = yScale.getPixelForValue(cap);
+        if (yCap <= chartArea.top) return;
+
+        // Everything above the cap is rejected territory.
+        ctx.save();
+        ctx.fillStyle = ACCENT_REGION;
+        ctx.fillRect(chartArea.left, chartArea.top, chartArea.width, yCap - chartArea.top);
+        ctx.restore();
+      },
+      afterDatasetsDraw(chart) {
+        const { cap, sim } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+
+        // Cap threshold label
+        const yCap = yScale.getPixelForValue(cap);
+        ctx.fillStyle = ACCENT;
+        ctx.textAlign = 'left';
+        ctx.fillText('CAP = 3 × TARGET · REJECTED ABOVE', chartArea.left + 6, yCap - 6);
+
+        // Direct labels near the end of each step curve. Both curves rise
+        // left-to-right, so labels extend leftward into clear space.
+        const idx = Math.floor(sim.xs.length * 0.72);
+        const xPx = xScale.getPixelForValue(idx);
+        const attemptedY = yScale.getPixelForValue(sim.attempted[idx] ?? 0);
+        const admittedY = yScale.getPixelForValue(sim.admitted[idx] ?? 0);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = INK_FAINT;
+        ctx.fillText('ATTEMPTED', xPx - 4, attemptedY - 6);
+        ctx.fillStyle = INK;
+        const admittedLabelY =
+          Math.abs(admittedY - attemptedY) < 18 ? admittedY + 16 : admittedY - 6;
+        ctx.fillText('ADMITTED', xPx - 4, admittedLabelY);
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(() => {
     const datasets: ChartData<'line', number[]>['datasets'] = [
       {
         label: 'admitted',
         data: sim.admitted,
-        borderColor: 'rgb(41, 41, 41)',
-        backgroundColor: 'rgba(41, 41, 41, 0.08)',
+        borderColor: INK,
+        backgroundColor: 'rgba(41, 41, 41, 0.03)',
         fill: true,
         stepped: true,
         pointRadius: 0,
@@ -61,7 +133,7 @@ export function HyperparamRegsCapChart() {
       {
         label: 'attempted',
         data: sim.attempted,
-        borderColor: 'rgba(41, 41, 41, 0.35)',
+        borderColor: INK_FAINT,
         borderDash: [3, 3],
         stepped: true,
         pointRadius: 0,
@@ -71,10 +143,10 @@ export function HyperparamRegsCapChart() {
       {
         label: 'cap (3 × target)',
         data: sim.xs.map(() => cap),
-        borderColor: 'rgb(41, 41, 41)',
+        borderColor: ACCENT,
         borderDash: [6, 4],
         pointRadius: 0,
-        borderWidth: 1.5,
+        borderWidth: 1,
         fill: false,
       },
     ];
@@ -104,19 +176,17 @@ export function HyperparamRegsCapChart() {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { maxTicksLimit: 8, font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'blocks into interval', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
+          title: axisTitle('blocks into interval'),
         },
         y: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
           beginAtZero: true,
-          ticks: {
-            maxTicksLimit: 6,
-            precision: 0,
-            font: { family: 'FiraCode, monospace', size: 10 },
-          },
-          title: { display: true, text: 'registrations', font: { size: 11 } },
+          ticks: baseTicks({ precision: 0 }),
+          title: axisTitle('registrations'),
         },
       },
     }),
@@ -129,7 +199,7 @@ export function HyperparamRegsCapChart() {
       caption="Registrations accumulating over one interval (the root subnet's epoch). Attempts (dotted) arrive evenly; the chain admits them (solid) only until the count reaches 3 × target_regs_per_interval (dashed) — everything after that is rejected with TooManyRegistrationsThisInterval until the counter resets at the epoch boundary."
     >
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

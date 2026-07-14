@@ -29,7 +29,7 @@ from . import (  # noqa: F401  (imported for registration side effects)
     weights,
 )
 from .accounts import balance, balances, existential_deposit
-from .base import REGISTRY, ReadSpec, dispatch, list_reads, read
+from .base import REGISTRY, Grouped, Matrix, ReadSpec, dispatch, list_reads, read
 from .delegation import DelegatedStake, DelegateInfo
 from .identity import Commitment
 from .neurons import Neuron
@@ -42,6 +42,8 @@ __all__ = [
     "Commitment",
     "DelegateInfo",
     "DelegatedStake",
+    "Grouped",
+    "Matrix",
     "Neuron",
     "ReadSpec",
     "StakePosition",

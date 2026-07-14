@@ -8,9 +8,11 @@ import {
   BarElement,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -52,6 +54,35 @@ const CLIPPING_CAPTIONS: Record<string, string> = {
 const DEFAULT_CLIPPING_CAPTION =
   'Drag the raw weights and the limit. The chain rejects submissions whose largest normalized share exceeds max_weights_limit; the SDK instead clips and renormalizes, redistributing the excess.';
 
+// In-plot key drawn as uppercase FiraCode swatch rows (no Chart.js legend).
+// Grouped bars leave no reliable spot for per-bar labels, so the key sits in
+// the top-right corner, which stays clear in all but extreme slider configs.
+const barKeyPlugin: Plugin<'bar'> = {
+  id: 'clippingBarKey',
+  afterDatasetsDraw(chart) {
+    const { ctx, chartArea } = chart;
+    const rows = [
+      { color: 'rgba(41, 41, 41, 0.25)', text: 'SUBMITTED (NORMALIZED)', ink: INK_FAINT },
+      { color: 'rgba(41, 41, 41, 0.75)', text: 'AFTER CLIP + RENORMALIZE', ink: INK },
+    ];
+    const x = chartArea.right - 168;
+    ctx.save();
+    ctx.font = GRAPH_FONT;
+    ctx.textAlign = 'left';
+    rows.forEach((row, i) => {
+      const y = chartArea.top + 10 + i * 15;
+      ctx.fillStyle = row.color;
+      ctx.fillRect(x, y - 7, 8, 8);
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, y - 7, 8, 8);
+      ctx.fillStyle = row.ink;
+      ctx.fillText(row.text, x + 13, y);
+    });
+    ctx.restore();
+  },
+};
+
 function ClippingPlayground({ focus }: { focus?: string }) {
   const [weights, setWeights] = useState([80, 35, 20, 10, 0]);
   const [limitRaw, setLimitRaw] = useState(19661); // ~0.3
@@ -74,14 +105,14 @@ function ClippingPlayground({ focus }: { focus?: string }) {
           label: 'Submitted (normalized)',
           data: before,
           backgroundColor: 'rgba(41, 41, 41, 0.25)',
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
         {
           label: 'After clip + renormalize',
           data: after,
           backgroundColor: 'rgba(41, 41, 41, 0.75)',
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
       ],
@@ -94,9 +125,7 @@ function ClippingPlayground({ focus }: { focus?: string }) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          labels: {font: {family: 'FiraCode, monospace', size: 10}, boxWidth: 12},
-        },
+        legend: {display: false},
         tooltip: {
           callbacks: {
             label: (ctx: {dataset: {label?: string}; parsed: {y: number}}) =>
@@ -106,18 +135,20 @@ function ClippingPlayground({ focus }: { focus?: string }) {
       },
       scales: {
         x: {
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {font: {family: 'FiraCode, monospace', size: 10}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks(),
         },
         y: {
           min: 0,
           max: 1,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {
-            font: {family: 'FiraCode, monospace', size: 10},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            maxTicksLimit: 5,
             callback: (value: string | number) => `${(Number(value) * 100).toFixed(0)}%`,
-          },
-          title: {display: true, text: 'share of total weight', font: {size: 11}},
+          }),
+          title: axisTitle('share of total weight'),
         },
       },
     }),
@@ -135,7 +166,7 @@ function ClippingPlayground({ focus }: { focus?: string }) {
       caption={(focus && CLIPPING_CAPTIONS[focus]) || DEFAULT_CLIPPING_CAPTION}
     >
       <div className="h-52">
-        <Bar data={data} options={options} />
+        <Bar data={data} options={options} plugins={[barKeyPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
@@ -143,6 +174,7 @@ function ClippingPlayground({ focus }: { focus?: string }) {
           label="Largest share"
           value={`${(Math.max(...before) * 100).toFixed(1)}% → ${(Math.max(...after) * 100).toFixed(1)}%`}
           hint={wouldClip ? 'exceeds limit — clipped' : 'within limit — unchanged'}
+          accent={wouldClip}
         />
         <div className={highlightStat('max_weights_limit')}>
           <ExplainerStat
@@ -156,6 +188,7 @@ function ClippingPlayground({ focus }: { focus?: string }) {
             label="min_allowed_weights"
             value={`${nonzero} nonzero / ${minAllowed} required`}
             hint={meetsMin ? 'passes length check' : 'rejected: WeightVecLengthIsLow'}
+            accent={!meetsMin}
           />
         </div>
       </div>

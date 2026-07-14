@@ -15,9 +15,10 @@ from typing import Any, Optional
 import typer
 
 from ..balance import Balance
-from ..reads import REGISTRY
+from ..reads import REGISTRY, Grouped, Matrix
 from . import globals as g
 from .context import address_cli_name, ctx_of, ss58_param_help
+from .output import Output
 
 _TYPES = {"string": str, "integer": int, "number": float, "boolean": bool}
 
@@ -37,6 +38,22 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
+def _records_table(output: Output, name: str, records: list[dict]) -> None:
+    """Render a list of records as a table, hiding opaque columns.
+
+    Columns whose values are themselves dicts/lists (e.g. the neurons read's
+    ``raw`` blob) are unreadable in a table cell, so they are dropped from the
+    human view — ``--json`` carries the full records.
+    """
+    if not records:
+        output.detail(name, {})  # title + the dim `none` convention
+        return
+    cols = [c for c, v in records[0].items() if not isinstance(v, (dict, list))]
+    cols = cols or list(records[0].keys())
+    rows = [[r.get(c) for c in cols] for r in records]
+    output.table(name, cols, rows, records)
+
+
 def _make_command(name: str, spec):
     array_params = [p for p, t in spec.params.items() if t == "array"]
 
@@ -50,16 +67,35 @@ def _make_command(name: str, spec):
                 kwargs[pname] = app_ctx.resolve_address(pname, kwargs.get(pname))
         result = app_ctx.run(lambda client: client.read(name, **kwargs))
         payload = _jsonable(result)
-        if app_ctx.output.json_mode:
-            app_ctx.output.value(payload)
-        elif isinstance(payload, list) and payload and isinstance(payload[0], dict):
-            cols = list(payload[0].keys())
-            rows = [[r.get(c) for c in cols] for r in payload]
-            app_ctx.output.table(name, cols, rows, payload)
+        output = app_ctx.output
+        if output.json_mode:
+            output.value(payload)
+        elif payload is None or (isinstance(payload, (list, dict)) and not payload):
+            output.detail(name, {})  # title + the dim `none` convention
+        elif isinstance(spec.render, Grouped):
+            key = spec.render.key
+            _records_table(
+                output,
+                name,
+                [{key: group, **item} for group, items in payload.items() for item in items or []],
+            )
+        elif isinstance(spec.render, Matrix):
+            hint = spec.render
+            _records_table(
+                output,
+                name,
+                [
+                    {hint.row: row, hint.col: col, hint.value: value}
+                    for row, cells in payload.items()
+                    for col, value in cells.items()
+                ],
+            )
+        elif isinstance(payload, list) and isinstance(payload[0], dict):
+            _records_table(output, name, payload)
         elif isinstance(payload, dict):
-            app_ctx.output.detail(name, payload)
+            output.detail(name, payload)
         else:
-            app_ctx.output.value(payload)
+            output.value(payload)
 
     params = [
         inspect.Parameter("ctx", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=typer.Context)

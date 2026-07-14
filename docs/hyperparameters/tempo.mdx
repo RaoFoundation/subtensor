@@ -26,7 +26,9 @@ re-anchors `LastEpochBlock` to the current block), so the next epoch lands a
 full tempo after the change.
 
 The timeline below shows emission accruing block by block and paying out at
-each epoch boundary — slide `tempo` to see the cadence in wall-clock time.
+each epoch boundary — slide `tempo` across the full owner-settable range
+(360 to 50,400 blocks, ~72 minutes to ~7 days) to see the cadence in
+wall-clock time.
 
 <HyperparamTempoTimeline />
 
@@ -38,16 +40,22 @@ Inspect with:
 btcli sudo get --netuid N --name tempo
 ```
 
-Not settable through `btcli sudo set` — root/governance only there
-(`sudo_set_tempo` in AdminUtils requires the root origin and accepts any
-u16). The subtensor pallet does expose an owner-side `set_tempo` extrinsic,
-bounded to 360–50,400 blocks (~72 minutes to ~7 days) and rate-limited,
-for owners using raw calls.
+Owner-settable:
+
+```
+btcli sudo set --netuid N --name tempo --value 720
+```
+
+This dispatches `sudo_set_tempo` (AdminUtils), which is owner-or-root: the
+owner is bounded to 360–50,400 blocks (~72 minutes to ~7 days) and
+rate-limited to one change per 360 blocks; root may set any u16. Both paths
+respect the admin freeze window, and a successful change resets the epoch
+cycle so the next epoch lands a full new tempo after the change.
 
 ## Related
 
 [`rho`](/docs/hyperparameters/rho) ·
 [`kappa`](/docs/hyperparameters/kappa) ·
-[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) ·
+[`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor) ·
 [`max_validators`](/docs/hyperparameters/max-validators) ·
 [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period)

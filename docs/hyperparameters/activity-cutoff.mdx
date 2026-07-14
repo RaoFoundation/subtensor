@@ -38,20 +38,23 @@ Inspect with:
 btcli sudo get --netuid N --name activity_cutoff
 ```
 
-This returns the effective block count. Owner-settable:
+This returns the effective block count. It is not settable directly: the
+epoch derives it from
+[`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor)
+(per-mille of [`tempo`](/docs/hyperparameters/tempo)), so change the factor
+instead:
 
 ```
-btcli sudo set --netuid N --name activity_cutoff --value 5000
+btcli sudo set --netuid N --name activity_cutoff_factor --value 13889
 ```
 
-The value is a raw block count (12s blocks), floor 360. Note that this
-dispatches the legacy absolute-blocks extrinsic; the epoch reads the
-factor-derived value, so the tempo-relative `set_activity_cutoff_factor`
-extrinsic (per-mille of [`tempo`](/docs/hyperparameters/tempo)) is the
-authoritative way to change what the epoch actually uses.
+A legacy absolute-blocks extrinsic (`sudo_set_activity_cutoff`) still exists
+on chain, but the value it writes is ignored by the epoch and it will be
+removed; don't use it.
 
 ## Related
 
+[`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor) ·
 [`tempo`](/docs/hyperparameters/tempo) ·
 [`kappa`](/docs/hyperparameters/kappa) ·
 [`rho`](/docs/hyperparameters/rho) ·

@@ -1582,7 +1582,7 @@
         },
         "name": {
           "type": "string",
-          "description": "Hyperparameter to set. One of: activity_cutoff, adjustment_alpha, alpha_high, alpha_low, alpha_sigmoid_steepness, bonds_moving_avg, bonds_penalty, bonds_reset_enabled, burn_half_life, burn_increase_mult, commit_reveal_period, commit_reveal_weights_enabled, immunity_period, liquid_alpha_enabled, max_allowed_uids, max_burn, max_difficulty, min_allowed_weights, min_burn, min_childkey_take, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_cut_enabled, owner_immune_neuron_limit, rho, serving_rate_limit, transfers_enabled, weights_version, yuma3_enabled."
+          "description": "Hyperparameter to set. One of: activity_cutoff_factor, adjustment_alpha, alpha_high, alpha_low, alpha_sigmoid_steepness, bonds_moving_avg, bonds_penalty, bonds_reset_enabled, burn_half_life, burn_increase_mult, commit_reveal_period, commit_reveal_weights_enabled, immunity_period, liquid_alpha_enabled, max_allowed_uids, max_burn, max_difficulty, min_allowed_weights, min_burn, min_childkey_take, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_cut_enabled, owner_immune_neuron_limit, rho, serving_rate_limit, tempo, transfers_enabled, weights_version, yuma3_enabled."
         },
         "value": {
           "type": [

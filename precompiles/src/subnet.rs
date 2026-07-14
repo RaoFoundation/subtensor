@@ -505,7 +505,7 @@ where
         netuid: u16,
         factor_milli: u32,
     ) -> EvmResult<()> {
-        let call = pallet_subtensor::Call::<R>::set_activity_cutoff_factor {
+        let call = pallet_admin_utils::Call::<R>::sudo_set_activity_cutoff_factor {
             netuid: netuid.into(),
             factor_milli,
         };

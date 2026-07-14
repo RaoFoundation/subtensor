@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { ACCENT } from './chart-theme';
 
 // Chain default is 10 (MinNonImmuneUids); scaled down to suit the small demo grid.
 const MIN_NON_IMMUNE = 2;
@@ -271,10 +272,13 @@ export function HyperparamUidLifecycle({ focus }: { focus?: string }) {
               key={uid}
               className={
                 'relative flex h-9 items-center justify-center border font-mono text-[0.625rem] ' +
-                (uid === nextPrune ? 'border-dashed border-[var(--bt-fg)] ' : 'border-line ') +
+                (uid === nextPrune ? 'border-dashed ' : 'border-line ') +
                 (uid === lastTouched ? 'ring-1 ring-[var(--bt-fg)]' : '')
               }
-              style={{ backgroundColor: `rgba(41, 41, 41, ${0.04 + shade * 0.56})` }}
+              style={{
+                backgroundColor: `rgba(41, 41, 41, ${0.04 + shade * 0.56})`,
+                ...(uid === nextPrune ? { borderColor: ACCENT } : {}),
+              }}
               title={`uid ${uid} — emission ${slot.emission.toFixed(1)}${status}`}
             >
               <span className={shade > 0.55 ? 'text-white' : ''}>{uid}</span>
@@ -292,9 +296,16 @@ export function HyperparamUidLifecycle({ focus }: { focus?: string }) {
         })}
       </div>
 
-      <p className="mt-3 font-mono text-xs text-mute">{eventMessage(sim.lastEvent)}</p>
+      <p
+        className={
+          'mt-4 font-mono text-xs' + (sim.lastEvent?.kind === 'fail' ? '' : ' text-mute')
+        }
+        style={sim.lastEvent?.kind === 'fail' ? { color: ACCENT } : undefined}
+      >
+        {eventMessage(sim.lastEvent)}
+      </p>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         <button type="button" onClick={() => register(false)} className={buttonClass}>
           Register miner
         </button>
@@ -306,7 +317,7 @@ export function HyperparamUidLifecycle({ focus }: { focus?: string }) {
         </button>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-4">
+      <div className="mt-8 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-4">
         <ExplainerStat label="Filled / capacity" value={`${sim.slots.length} / ${maxUids}`} />
         <ExplainerStat
           label="Immune (new)"
@@ -322,10 +333,11 @@ export function HyperparamUidLifecycle({ focus }: { focus?: string }) {
           label="Next pruned"
           value={nextPrune === null ? '—' : `uid ${nextPrune}`}
           hint={sim.slots.length < maxUids ? 'Subnet not full' : 'Lowest emission, prunable'}
+          accent={nextPrune !== null}
         />
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-8 grid gap-x-8 gap-y-5 border-t border-line pt-4 pb-1 sm:grid-cols-3">
         <div className={focusClass('max_allowed_uids')}>
           <ExplainerSlider
             label="max_allowed_uids"

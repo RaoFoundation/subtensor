@@ -8,9 +8,11 @@ import {
   BarElement,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -44,6 +46,30 @@ function dividends(stakes: number[], yuma3: boolean): number[] {
   return normalize(yuma3 ? perValidator.map((d, i) => d * stakes[i]) : perValidator);
 }
 
+// Direct in-plot labels above the V1 bar pair (which always has the most
+// headroom of the two groups), replacing the Chart.js legend. Positions are
+// read from live bar metadata at draw time, so no stale-closure ref is needed.
+const barLabelPlugin: Plugin<'bar'> = {
+  id: 'yuma3BarLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx, chartArea } = chart;
+    const labels: { datasetIndex: number; text: string; color: string }[] = [
+      { datasetIndex: 0, text: 'CLASSIC', color: INK_FAINT },
+      { datasetIndex: 1, text: 'YUMA3', color: INK },
+    ];
+    ctx.save();
+    ctx.font = GRAPH_FONT;
+    ctx.textAlign = 'center';
+    for (const { datasetIndex, text, color } of labels) {
+      const bar = chart.getDatasetMeta(datasetIndex)?.data?.[0];
+      if (!bar) continue;
+      ctx.fillStyle = color;
+      ctx.fillText(text, bar.x, Math.max(bar.y - 6, chartArea.top + 10));
+    }
+    ctx.restore();
+  },
+};
+
 export function HyperparamYuma3Chart() {
   const [bigStake, setBigStake] = useState(0.8);
 
@@ -59,14 +85,14 @@ export function HyperparamYuma3Chart() {
           label: 'classic dividends (yuma3 off)',
           data: classic,
           backgroundColor: 'rgba(41, 41, 41, 0.3)',
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
         {
           label: 'Yuma3 dividends (yuma3 on)',
           data: yuma3,
           backgroundColor: 'rgba(41, 41, 41, 0.85)',
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
       ],
@@ -80,11 +106,7 @@ export function HyperparamYuma3Chart() {
       maintainAspectRatio: false,
       interaction: { mode: 'index' as const, intersect: false },
       plugins: {
-        legend: {
-          display: true,
-          position: 'bottom' as const,
-          labels: { font: { family: 'FiraCode, monospace', size: 10 }, boxWidth: 12 },
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
             label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
@@ -94,18 +116,20 @@ export function HyperparamYuma3Chart() {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
         },
         y: {
           min: 0,
           max: 1,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: {
-            font: { family: 'FiraCode, monospace', size: 10 },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({
+            maxTicksLimit: 5,
             callback: (v: string | number) => `${Math.round(Number(v) * 100)}%`,
-          },
-          title: { display: true, text: 'share of validator dividends', font: { size: 11 } },
+          }),
+          title: axisTitle('share of validator dividends'),
         },
       },
     }),
@@ -118,7 +142,7 @@ export function HyperparamYuma3Chart() {
       caption="Two validators, two miners: V1 splits its weight 50/50, V2 puts everything on M1. Classic (off) column-normalizes ΔB = W ∘ S, so stake is baked into each miner's bond column. Yuma3 (on) keeps bonds as each validator's own weight proportions (get_bonds_fixed_proportion), sums normalized bonds × incentive per validator, then scales by stake once. Bonds shown at steady state."
     >
       <div className="h-56">
-        <Bar data={data} options={options} />
+        <Bar data={data} options={options} plugins={[barLabelPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ExplainerPanel, ExplainerStat } from './explainer-panel';
+import { ACCENT, ACCENT_REGION } from './chart-theme';
 
 const WINDOWS = 12;
 const ATTEMPTS_PER_WINDOW = 2;
@@ -22,8 +23,12 @@ export function HyperparamRegistrationGate() {
       caption="Both burned_register and the legacy PoW register land in do_register, which checks get_network_registration_allowed at step 3 before anything else about the caller matters. Click a stretch of blocks to flip the flag there: every attempt under a closed gate fails with SubNetRegistrationDisabled, no matter how much TAO the caller offers."
     >
       <div className="flex items-baseline justify-between">
-        <p className="bt-label text-mute">registration_allowed over time (click to toggle)</p>
-        <p className="font-mono text-[0.7rem] text-mute">blocks &rarr;</p>
+        <p className="font-mono text-[0.625rem] uppercase tracking-[0.08em] text-mute">
+          registration_allowed over time (click to toggle)
+        </p>
+        <p className="font-mono text-[0.625rem] uppercase tracking-[0.08em] text-mute">
+          blocks &rarr;
+        </p>
       </div>
 
       <div className="mt-2 flex gap-1">
@@ -39,12 +44,16 @@ export function HyperparamRegistrationGate() {
               className={
                 open
                   ? 'h-2 bg-[rgb(41,41,41)]'
-                  : 'h-2 border border-dashed border-[rgba(41,41,41,0.45)] bg-transparent'
+                  : 'h-2 border-b border-dashed bg-transparent'
               }
+              style={open ? undefined : { borderColor: ACCENT }}
             />
-            <span className="flex flex-col items-center gap-0.5 border border-line bg-bg py-1.5 font-mono text-[0.75rem] leading-none group-hover:bg-panel">
+            <span
+              className="flex flex-col items-center gap-0.5 border-b border-line py-1.5 font-mono text-[0.75rem] leading-none group-hover:bg-panel"
+              style={open ? undefined : { backgroundColor: ACCENT_REGION }}
+            >
               {Array.from({ length: ATTEMPTS_PER_WINDOW }).map((_, k) => (
-                <span key={k} className={open ? '' : 'text-mute'}>
+                <span key={k} style={open ? undefined : { color: ACCENT }}>
                   {open ? '\u2713' : '\u2717'}
                 </span>
               ))}
@@ -53,27 +62,35 @@ export function HyperparamRegistrationGate() {
         ))}
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[0.7rem] text-mute">
-        <span>&#9632; gate open &middot; &#9633; gate closed</span>
-        <span>{'\u2713'} UID assigned &middot; {'\u2717'} Err(SubNetRegistrationDisabled)</span>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[0.625rem] uppercase tracking-[0.08em] text-mute">
+        <span>
+          &#9644; gate open &middot; <span style={{ color: ACCENT }}>&#9476;</span> gate closed
+        </span>
+        <span>
+          {'\u2713'} UID assigned &middot; <span style={{ color: ACCENT }}>{'\u2717'}</span>{' '}
+          Err(SubNetRegistrationDisabled)
+        </span>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
-        <ExplainerStat
-          label="Attempts accepted"
-          value={`${accepted}`}
-          hint="gate open: burned and legacy PoW paths both proceed"
-        />
-        <ExplainerStat
-          label="Attempts rejected"
-          value={`${rejected}`}
-          hint="SubNetRegistrationDisabled, regardless of burn offered"
-        />
-        <ExplainerStat
-          label="Existing neurons"
-          value="unaffected"
-          hint="the flag only stops new registrations; pruning and immunity continue"
-        />
+      <div className="mt-8 border-t border-line pt-4">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
+          <ExplainerStat
+            label="Attempts accepted"
+            value={`${accepted}`}
+            hint="gate open: burned and legacy PoW paths both proceed"
+          />
+          <ExplainerStat
+            label="Attempts rejected"
+            value={`${rejected}`}
+            hint="SubNetRegistrationDisabled, regardless of burn offered"
+            accent={rejected > 0}
+          />
+          <ExplainerStat
+            label="Existing neurons"
+            value="unaffected"
+            hint="the flag only stops new registrations; pruning and immunity continue"
+          />
+        </div>
       </div>
     </ExplainerPanel>
   );

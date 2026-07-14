@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,6 +9,7 @@ import {
   LineElement,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
@@ -19,6 +20,15 @@ import {
   formatPct,
   rollForwardLock,
 } from '@/lib/emission-math';
+import {
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -34,21 +44,64 @@ export function ConvictionModeComparison() {
     return {labels, perpetual, decaying};
   }, [lockedMass, horizon]);
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ lockedMass, horizon });
+  drawState.current = { lockedMass, horizon };
+
+  // Direct in-plot series labels instead of a legend, in the uppercase
+  // FiraCode style of the v431 release graphs.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'modeComparisonAnnotations',
+      afterDatasetsDraw(chart) {
+        const { lockedMass, horizon } = drawState.current;
+        const { ctx, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        ctx.textAlign = 'left';
+
+        // Perpetual conviction rises toward mass; label above the curve.
+        const xMain = horizon * 0.55;
+        const perpetualY = rollForwardLock(lockedMass, 0, xMain, {perpetual: true}).conviction;
+        ctx.fillStyle = INK;
+        ctx.fillText('PERPETUAL', xScale.getPixelForValue(xMain) + 4, yScale.getPixelForValue(perpetualY) - 8);
+
+        // Decaying conviction peaks then falls; label below the curve.
+        const decayingY = rollForwardLock(lockedMass, 0, xMain, {perpetual: false}).conviction;
+        ctx.fillStyle = INK_FAINT;
+        ctx.fillText('DECAYING', xScale.getPixelForValue(xMain) + 4, yScale.getPixelForValue(decayingY) + 16);
+
+        // Freed locked mass of the decaying lock, labelled at the left where
+        // its steep descent is clear of the two conviction curves.
+        const xMass = horizon * 0.12;
+        const massY = rollForwardLock(lockedMass, 0, xMass, {perpetual: false}).lockedMass;
+        ctx.fillText('DECAYING MASS', xScale.getPixelForValue(xMass) + 6, yScale.getPixelForValue(massY) - 8);
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
-      labels: chart.labels.map((b) => String(Math.round(b))),
       datasets: [
         {
           label: 'Perpetual — conviction',
-          data: chart.perpetual.map((p) => p.conviction),
-          borderColor: 'rgb(41, 41, 41)',
+          data: chart.labels.map((dt, i) => ({x: dt, y: chart.perpetual[i].conviction})),
+          borderColor: INK,
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.25,
         },
         {
           label: 'Decaying — conviction',
-          data: chart.decaying.map((p) => p.conviction),
+          data: chart.labels.map((dt, i) => ({x: dt, y: chart.decaying[i].conviction})),
           borderColor: 'rgba(41, 41, 41, 0.5)',
           borderWidth: 1.5,
           borderDash: [5, 3],
@@ -57,8 +110,8 @@ export function ConvictionModeComparison() {
         },
         {
           label: 'Decaying — locked mass',
-          data: chart.decaying.map((p) => p.lockedMass),
-          borderColor: 'rgba(110, 110, 110, 0.45)',
+          data: chart.labels.map((dt, i) => ({x: dt, y: chart.decaying[i].lockedMass})),
+          borderColor: INK_FAINT,
           borderWidth: 1,
           pointRadius: 0,
           tension: 0.25,
@@ -73,16 +126,34 @@ export function ConvictionModeComparison() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: 'bottom' as const,
-          labels: {boxWidth: 10, font: {size: 10}},
+        legend: {display: false},
+        tooltip: {
+          callbacks: {
+            title: (items: {parsed: {x: number}}[]) =>
+              `+${formatBlocks(items[0]?.parsed.x ?? 0)}`,
+            label: (ctx: {dataset: {label?: string}; parsed: {y: number}}) =>
+              `${ctx.dataset.label}: ${formatAlpha(ctx.parsed.y)}`,
+          },
         },
       },
       scales: {
-        x: {ticks: {maxTicksLimit: 6, font: {size: 10}}},
+        x: {
+          type: 'linear' as const,
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            callback: (v: number | string) => formatBlocks(Number(v)),
+          }),
+          title: axisTitle('blocks since lock'),
+        },
         y: {
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {callback: (v: number | string) => formatAlpha(Number(v)), font: {size: 10}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            maxTicksLimit: 5,
+            callback: (v: number | string) => formatAlpha(Number(v)),
+          }),
+          title: axisTitle('conviction (α)'),
         },
       },
     }),
@@ -101,10 +172,10 @@ export function ConvictionModeComparison() {
       caption="Same 500k α lock on a subnet hotkey. Perpetual: mass stays, conviction approaches mass. Decaying: mass frees on UnlockRate; conviction peaks then falls."
     >
       <div className="h-48">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-3">
         <ExplainerStat
           label="Perpetual at 1τ"
           value={formatAlpha(atTau.conviction)}
@@ -118,7 +189,7 @@ export function ConvictionModeComparison() {
         <ExplainerStat label="Locked mass (start)" value={formatAlpha(lockedMass)} />
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid gap-x-8 gap-y-5 border-t border-line pt-4 pb-1 sm:grid-cols-2">
         <ExplainerSlider
           label="Locked mass"
           value={lockedMass}

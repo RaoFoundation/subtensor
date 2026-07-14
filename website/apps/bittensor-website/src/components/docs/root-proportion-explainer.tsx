@@ -42,40 +42,43 @@ export function RootProportionExplainer() {
       title={`Root proportion — SN${featured.netuid} ${featured.name}`}
       caption="Finney snapshot for Targon: mature subnet with high alpha issuance; injection cap binds and routes excess TAO to pool buybacks."
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
         <ExplainerStat label="root_proportion" value={formatPct(rootProp)} />
         <ExplainerStat label="Injection cap (α/block)" value={`${injectionCap.toFixed(4)} α`} />
-        <ExplainerStat label="Excess TAO → buyback" value={formatTao(excessTao, 4)} hint={`${formatTao(taoEmission, 4)} tao_in − cap`} />
+        <ExplainerStat
+          label="Excess TAO → buyback"
+          value={formatTao(excessTao, 4)}
+          hint={`${formatTao(taoEmission, 4)} tao_in − cap`}
+          accent={excessTao > 0}
+        />
       </div>
 
-      <div className="mt-4 grid gap-3 border border-line bg-bg p-3 text-[0.8125rem] sm:grid-cols-3">
-        <div>
-          <p className="bt-label text-mute">Pool reserves</p>
-          <p className="mt-1 font-mono">{formatTao(featured.taoIn, 0)} τ · {featured.alphaIn.toLocaleString()} α</p>
-        </div>
-        <div>
-          <p className="bt-label text-mute">Alpha issuance</p>
-          <p className="mt-1 font-mono">{(alphaIssuanceVal / 1_000_000).toFixed(2)}M α</p>
-        </div>
-        <div>
-          <p className="bt-label text-mute">Spot price</p>
-          <p className="mt-1 font-mono">{featured.spotPrice.toFixed(4)} τ/α</p>
-        </div>
+      <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-3">
+        <ExplainerStat
+          label="Pool reserves"
+          value={`${formatTao(featured.taoIn, 0)} · ${featured.alphaIn.toLocaleString()} α`}
+        />
+        <ExplainerStat label="Alpha issuance" value={`${(alphaIssuanceVal / 1_000_000).toFixed(2)}M α`} />
+        <ExplainerStat label="Spot price" value={`${featured.spotPrice.toFixed(4)} τ/α`} />
       </div>
 
-      <div className="mt-5 flex h-16 items-end gap-px border border-line bg-bg p-2">
-        {chart.map((v, i) => (
-          <div
-            key={i}
-            className="flex-1 bg-fg/70"
-            style={{height: `${Math.max(v * 100, 2)}%`, opacity: 0.15 + v * 0.85}}
-            title={formatPct(v)}
-          />
-        ))}
+      <div className="mt-6 border-t border-line pt-4">
+        <div className="flex h-16 items-end gap-px border-b border-line">
+          {chart.map((v, i) => (
+            <div
+              key={i}
+              className="flex-1 bg-fg/70"
+              style={{height: `${Math.max(v * 100, 2)}%`, opacity: 0.15 + v * 0.85}}
+              title={formatPct(v)}
+            />
+          ))}
+        </div>
+        <p className="mt-2 font-mono text-[0.625rem] uppercase tracking-[0.08em] text-mute">
+          root_proportion vs alpha issuance (root TAO held fixed at finney level)
+        </p>
       </div>
-      <p className="mt-1 text-[0.75rem] text-mute">root_proportion vs alpha issuance (root TAO held fixed at finney level)</p>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid gap-x-8 gap-y-5 border-t border-line pt-4 sm:grid-cols-2">
         <ExplainerSlider
           label="Root subnet TAO (τ)"
           value={rootTao}
@@ -110,15 +113,15 @@ export function RootProportionExplainer() {
         />
       </div>
 
-      <div className="mt-4 grid gap-3 border border-line bg-bg p-3 text-[0.8125rem] sm:grid-cols-2">
-        <div>
-          <p className="bt-label text-mute">Price-neutral target</p>
-          <p className="mt-1 font-mono">alpha_in = tao_in / price → {naiveAlphaIn.toFixed(4)} α</p>
-        </div>
-        <div>
-          <p className="bt-label text-mute">After cap</p>
-          <p className="mt-1 font-mono">→ {alphaIn.toFixed(4)} α injected ({formatTao(taoIn, 4)} τ)</p>
-        </div>
+      <div className="mt-6 grid gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-2">
+        <ExplainerStat
+          label="Price-neutral target"
+          value={`alpha_in = tao_in / price → ${naiveAlphaIn.toFixed(4)} α`}
+        />
+        <ExplainerStat
+          label="After cap"
+          value={`→ ${alphaIn.toFixed(4)} α injected (${formatTao(taoIn, 4)})`}
+        />
       </div>
     </ExplainerPanel>
   );

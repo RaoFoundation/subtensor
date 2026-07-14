@@ -14,6 +14,7 @@ import {
 import type { ChartData, ChartOptions } from 'chart.js';
 import { Chart } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRID, INK, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(
   CategoryScale,
@@ -60,14 +61,14 @@ export function HyperparamWeightsVersionGate() {
               ? 'rgba(41, 41, 41, 0.75)'
               : 'rgba(41, 41, 41, 0.12)',
           ),
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
         {
           type: 'line' as const,
           label: 'weights_version',
           data: VALIDATORS.map(() => required),
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
           borderDash: [4, 4],
           pointRadius: 0,
@@ -98,15 +99,17 @@ export function HyperparamWeightsVersionGate() {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
         },
         y: {
           min: 0,
           max: 1100,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'version_key sent', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({ maxTicksLimit: 5 }),
+          title: axisTitle('version_key sent'),
         },
       },
     }),

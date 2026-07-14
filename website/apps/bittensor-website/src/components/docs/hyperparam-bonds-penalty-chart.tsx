@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Chart } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRID, INK, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Tooltip, Legend);
 
@@ -45,7 +46,7 @@ export function HyperparamBondsPenaltyChart() {
           label: 'in-consensus validator (bond weights)',
           data: honest,
           backgroundColor: 'rgba(41, 41, 41, 0.3)',
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
         {
@@ -53,7 +54,7 @@ export function HyperparamBondsPenaltyChart() {
           label: 'deviant validator (bond weights)',
           data: deviant,
           backgroundColor: 'rgba(41, 41, 41, 0.85)',
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
         {
@@ -64,7 +65,7 @@ export function HyperparamBondsPenaltyChart() {
           borderDash: [4, 4],
           borderWidth: 1,
           pointRadius: 2,
-          pointBackgroundColor: 'rgb(41, 41, 41)',
+          pointBackgroundColor: INK,
           stepped: 'middle' as const,
           fill: false,
         },
@@ -89,16 +90,18 @@ export function HyperparamBondsPenaltyChart() {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'miner', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
+          title: axisTitle('miner'),
         },
         y: {
           min: 0,
           max: 0.75,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'weight used for bond accrual', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({ maxTicksLimit: 5 }),
+          title: axisTitle('weight used for bond accrual'),
         },
       },
     }),

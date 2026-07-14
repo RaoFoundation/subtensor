@@ -1634,8 +1634,9 @@ DESCRIPTIONS: dict[str, str] = {
         "`SYMBOLS` list and choose a valid entry."
     ),
     "TempoOutOfBounds": (
-        "`set_tempo` was given a tempo outside the allowed MIN_TEMPO to MAX_TEMPO range. Check "
-        "the tempo argument against those chain constants and pick a value inside the bounds."
+        "The subnet owner gave `sudo_set_tempo` a tempo outside the allowed MIN_TEMPO to "
+        "MAX_TEMPO range (360-50,400 blocks). Check the tempo argument against those chain "
+        "constants and pick a value inside the bounds; only root may set a tempo outside them."
     ),
     "TooManyChildren": (
         "`set_children` was called with more than 5 child hotkeys for a parent on the subnet. "

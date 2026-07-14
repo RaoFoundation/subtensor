@@ -15,6 +15,7 @@ from ._generated.errors import ERRORS
 from .error_descriptions import DESCRIPTIONS as _DESCRIPTIONS
 from .error_map import NAME_TO_CODE as _NAME_TO_CODE
 from .error_map import ErrorCode
+from .settings import chain_error_docs_url, error_docs_url
 
 
 class BittensorError(Exception):
@@ -328,7 +329,20 @@ class ChainError(BittensorError):
         }
         if self.description:
             payload["description"] = self.description
+        if docs_url := self.docs_url:
+            payload["docs_url"] = docs_url
         return payload
+
+    @property
+    def docs_url(self) -> Optional[str]:
+        """The most specific docs page for this failure: the exact chain
+        error's page when the name is classified, the semantic code's page
+        otherwise, None when nothing more specific than unknown is known."""
+        if self.name and self.name in _NAME_TO_CODE:
+            return chain_error_docs_url(self.name)
+        if self.code is not ErrorCode.UNKNOWN:
+            return error_docs_url(self.code.value)
+        return None
 
 
 def chain_error_from_substrate_request(error: Exception) -> ChainError:

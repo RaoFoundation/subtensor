@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,9 +11,20 @@ import {
   Filler,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Chart } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import {
+  ACCENT,
+  ACCENT_REGION,
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(
   CategoryScale,
@@ -49,6 +60,60 @@ export function HyperparamActivityCutoffChart() {
   const inactive = useMemo(() => WEIGHT_AGES.map((age) => age > cutoff), [cutoff]);
   const activeCount = inactive.filter((i) => !i).length;
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ cutoff });
+  drawState.current = { cutoff };
+
+  // The cutoff is a warning threshold: tint the stale zone above it and label
+  // it directly in-plot (no legend).
+  const annotationPlugin = useMemo<Plugin<'bar'>>(
+    () => ({
+      id: 'cutoffAnnotations',
+      beforeDatasetsDraw(chart) {
+        const { cutoff } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const yScale = scales.y;
+        if (!yScale) return;
+
+        const yCutoff = yScale.getPixelForValue(cutoff);
+        ctx.save();
+        ctx.fillStyle = ACCENT_REGION;
+        ctx.fillRect(chartArea.left, chartArea.top, chartArea.width, yCutoff - chartArea.top);
+        ctx.restore();
+      },
+      afterDatasetsDraw(chart) {
+        const { cutoff } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const yScale = scales.y;
+        if (!yScale) return;
+
+        const yCutoff = yScale.getPixelForValue(cutoff);
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        // Left side stays clear: the ages ramp up left to right, so the bars
+        // near the threshold all sit on the right half of the plot.
+        ctx.fillStyle = ACCENT;
+        ctx.textAlign = 'left';
+        ctx.fillText(
+          `ACTIVITY_CUTOFF = ${cutoff}`,
+          chartArea.left + 6,
+          Math.max(yCutoff - 6, chartArea.top + 10),
+        );
+        if (yCutoff - chartArea.top > 26) {
+          ctx.textAlign = 'center';
+          ctx.fillText(
+            'INACTIVE — STAKE MASKED',
+            (chartArea.left + chartArea.right) / 2,
+            (chartArea.top + yCutoff) / 2 + 3,
+          );
+        }
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
       labels: WEIGHT_AGES.map((_, i) => `v${i + 1}`),
@@ -57,9 +122,9 @@ export function HyperparamActivityCutoffChart() {
           type: 'line' as const,
           label: 'activity_cutoff',
           data: WEIGHT_AGES.map(() => cutoff),
-          borderColor: 'rgb(41, 41, 41)',
-          borderDash: [6, 4],
-          borderWidth: 1.5,
+          borderColor: ACCENT,
+          borderDash: [4, 4],
+          borderWidth: 1,
           pointRadius: 0,
           fill: false,
         },
@@ -70,7 +135,7 @@ export function HyperparamActivityCutoffChart() {
           backgroundColor: inactive.map((isInactive) =>
             isInactive ? 'rgba(41, 41, 41, 0.12)' : 'rgba(41, 41, 41, 0.65)',
           ),
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1,
         },
       ],
@@ -101,15 +166,17 @@ export function HyperparamActivityCutoffChart() {
       },
       scales: {
         x: {
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {font: {family: 'FiraCode, monospace', size: 10}},
-          title: {display: true, text: 'validators', font: {size: 11}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks(),
+          title: axisTitle('validators'),
         },
         y: {
           min: 0,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {font: {family: 'FiraCode, monospace', size: 10}},
-          title: {display: true, text: 'blocks since last weight set', font: {size: 11}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({maxTicksLimit: 5}),
+          title: axisTitle('blocks since last weight set'),
         },
       },
     }),
@@ -122,7 +189,7 @@ export function HyperparamActivityCutoffChart() {
       caption="Each bar is how long a validator has gone without setting weights. run_epoch.rs marks a neuron inactive when last_update + activity_cutoff < current_block: bars past the dashed line fade out — their stake is masked from the active-stake vector and they earn no dividends until they set weights again."
     >
       <div className="h-52">
-        <Chart type="bar" data={data} options={options} />
+        <Chart type="bar" data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

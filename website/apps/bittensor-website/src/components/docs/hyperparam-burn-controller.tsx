@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,10 +10,21 @@ import {
   LineElement,
   Filler,
   Tooltip,
+  type Plugin,
 } from 'chart.js';
 import type { ChartData } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import {
+  ACCENT,
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(
   CategoryScale,
@@ -168,18 +179,66 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
   // mult * 0.5^(gap / half_life) = 1  =>  gap = half_life * log2(mult).
   const breakEven = mult > 1 ? BLOCKS_PER_DAY / (halfLife * Math.log2(mult)) : Infinity;
 
-  const data = useMemo(() => {
-    // Only draw a clamp line when it is near the curve (or is the focused
-    // parameter), so it does not stretch the log axis into empty space.
-    const showMinLine = focus === 'min_burn' || sim.low <= minBurn * 2;
-    const showMaxLine = focus === 'max_burn' || sim.peak >= maxBurn * 0.5;
+  // Only draw a clamp line when it is near the curve (or is the focused
+  // parameter), so it does not stretch the log axis into empty space.
+  const showMinLine = focus === 'min_burn' || sim.low <= minBurn * 2;
+  const showMaxLine = focus === 'max_burn' || sim.peak >= maxBurn * 0.5;
+  const effMax = Math.max(maxBurn, minBurn);
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ focus, minBurn, effMax, showMinLine, showMaxLine });
+  drawState.current = { focus, minBurn, effMax, showMinLine, showMaxLine };
+
+  // Direct uppercase labels on the clamp lines, replacing any legend.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'burnClampAnnotations',
+      afterDatasetsDraw(chart) {
+        const { focus, minBurn, effMax, showMinLine, showMaxLine } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const yScale = scales.y;
+        if (!yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+
+        // Labels sit above their line at the right edge; when the line hugs
+        // the top of the plot (a pinned ceiling) the label drops below-left,
+        // where the curve has not yet arrived.
+        const drawLineLabel = (text: string, linePx: number, color: string) => {
+          ctx.fillStyle = color;
+          if (linePx - 5 < chartArea.top + 10) {
+            ctx.textAlign = 'left';
+            ctx.fillText(text, chartArea.left + 6, linePx + 14);
+          } else {
+            ctx.textAlign = 'right';
+            ctx.fillText(text, chartArea.right - 6, linePx - 5);
+          }
+        };
+
+        if (showMinLine) {
+          const y = yScale.getPixelForValue(minBurn);
+          drawLineLabel('MIN_BURN FLOOR', y, focus === 'min_burn' ? ACCENT : INK_FAINT);
+        }
+        if (showMaxLine) {
+          const y = yScale.getPixelForValue(effMax);
+          drawLineLabel('MAX_BURN CEILING', y, focus === 'max_burn' ? ACCENT : INK_FAINT);
+        }
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
+  const data = useMemo(() => {
     const datasets: ChartData<'line', (number | null)[]>['datasets'] = [
       {
         label: 'Burn cost (τ)',
         data: sim.ys,
-        borderColor: 'rgb(41, 41, 41)',
-        backgroundColor: 'rgba(41, 41, 41, 0.08)',
+        borderColor: INK,
+        backgroundColor: 'rgba(41, 41, 41, 0.03)',
         fill: true,
         tension: 0,
         pointRadius: 0,
@@ -191,7 +250,7 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
       datasets.push({
         label: 'min_burn',
         data: sim.ys.map(() => minBurn),
-        borderColor: focus === 'min_burn' ? 'rgb(41, 41, 41)' : 'rgba(41, 41, 41, 0.3)',
+        borderColor: focus === 'min_burn' ? ACCENT : 'rgba(41, 41, 41, 0.3)',
         borderWidth: focus === 'min_burn' ? 1.5 : 1,
         borderDash: focus === 'min_burn' ? [6, 4] : [2, 3],
         pointRadius: 0,
@@ -201,8 +260,8 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
     if (showMaxLine) {
       datasets.push({
         label: 'max_burn',
-        data: sim.ys.map(() => Math.max(maxBurn, minBurn)),
-        borderColor: focus === 'max_burn' ? 'rgb(41, 41, 41)' : 'rgba(41, 41, 41, 0.3)',
+        data: sim.ys.map(() => effMax),
+        borderColor: focus === 'max_burn' ? ACCENT : 'rgba(41, 41, 41, 0.3)',
         borderWidth: focus === 'max_burn' ? 1.5 : 1,
         borderDash: focus === 'max_burn' ? [6, 4] : [2, 3],
         pointRadius: 0,
@@ -221,8 +280,8 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
       datasets.push({
         label: 'half-life markers',
         data: markers,
-        borderColor: 'rgb(41, 41, 41)',
-        backgroundColor: 'rgb(41, 41, 41)',
+        borderColor: ACCENT,
+        backgroundColor: ACCENT,
         pointRadius: 4,
         pointStyle: 'rectRot' as const,
         showLine: false,
@@ -234,7 +293,7 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
       labels: sim.xs.map((b) => formatBlocksElapsed(b, windowBlocks)),
       datasets,
     };
-  }, [sim, focus, minBurn, maxBurn, halfLife, windowBlocks]);
+  }, [sim, focus, minBurn, effMax, halfLife, windowBlocks, showMinLine, showMaxLine]);
 
   const options = useMemo(
     () => ({
@@ -256,18 +315,18 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { maxTicksLimit: 8, font: { family: 'FiraCode, monospace', size: 10 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
         },
         y: {
           type: 'logarithmic' as const,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: {
-            maxTicksLimit: 6,
-            font: { family: 'FiraCode, monospace', size: 10 },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({
             callback: (value: string | number) => formatTao(Number(value)),
-          },
-          title: { display: true, text: 'burn (τ, log)', font: { size: 11 } },
+          }),
+          title: axisTitle('burn (τ, log)'),
         },
       },
     }),
@@ -280,7 +339,7 @@ export function HyperparamBurnController({ focus }: { focus?: string }) {
       caption={CAPTIONS[focus ?? ''] ?? DEFAULT_CAPTION}
     >
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">

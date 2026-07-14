@@ -102,13 +102,13 @@ The important owner-settable parameters, with chain defaults:
 
 | Parameter | Default | What it does |
 | --- | --- | --- |
-| `tempo` * | 360 | Blocks per epoch. Owner changes bounded 360–50,400. |
+| `tempo` | 360 | Blocks per epoch. Owner changes bounded 360–50,400 and reset the epoch cycle. |
 | `immunity_period` | 4,096 | Blocks a fresh UID is protected from pruning and trimming. |
 | `min_burn` / `max_burn` | 0.0005 τ / 100 τ | Clamp on the neuron registration price. Read the live price with [`burn`](/docs/query/burn). |
 | `burn_half_life` | 360 | Blocks for the registration price to decay halfway toward `min_burn` when nobody registers. |
 | `burn_increase_mult` | 1.26 | Multiplier applied to the registration price after each successful registration. |
 | `max_allowed_uids` | 256 | UID slots. Floor 64; times mechanism count must stay ≤ 256. |
-| `activity_cutoff_factor` * | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
+| `activity_cutoff_factor` | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
 | `serving_rate_limit` | 50 | Minimum blocks between `serve-axon` / `serve-prometheus` calls per key. |
 | `commit_reveal_weights_enabled` | true | Weights are committed hashed, revealed later. |
 | `commit_reveal_period` | 1 | Tempos between commit and reveal. |

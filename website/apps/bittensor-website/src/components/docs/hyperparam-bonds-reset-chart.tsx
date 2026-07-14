@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import { AXIS_BORDER, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -48,19 +49,19 @@ export function HyperparamBondsResetChart() {
         {
           label: resetOn ? 'bond on committing miner (reset on)' : 'bond on committing miner',
           data: withFlag,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgba(41, 41, 41, 0.08)',
+          borderColor: INK,
+          backgroundColor: 'rgba(41, 41, 41, 0.03)',
           fill: true,
           tension: 0,
           pointRadius: 0,
-          borderWidth: 1.5,
+          borderWidth: 1.75,
         },
         ...(resetOn
           ? [
               {
                 label: 'same bond if reset were off',
                 data: noReset,
-                borderColor: 'rgba(41, 41, 41, 0.35)',
+                borderColor: INK_FAINT,
                 borderDash: [4, 4],
                 fill: false,
                 tension: 0,
@@ -93,20 +94,18 @@ export function HyperparamBondsResetChart() {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { maxTicksLimit: 11, font: { family: 'FiraCode, monospace', size: 10 } },
-          title: {
-            display: true,
-            text: `epoch (metadata commit at epoch ${COMMIT_EPOCH})`,
-            font: { size: 11 },
-          },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks(),
+          title: axisTitle(`epoch (metadata commit at epoch ${COMMIT_EPOCH})`),
         },
         y: {
           min: 0,
           max: 1,
-          grid: { color: 'rgba(41, 41, 41, 0.06)' },
-          ticks: { font: { family: 'FiraCode, monospace', size: 10 } },
-          title: { display: true, text: 'bond on the committing miner', font: { size: 11 } },
+          grid: { color: GRID },
+          border: { color: AXIS_BORDER },
+          ticks: baseTicks({ maxTicksLimit: 5 }),
+          title: axisTitle('bond on the committing miner'),
         },
       },
     }),

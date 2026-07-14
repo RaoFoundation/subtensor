@@ -80,11 +80,9 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
-        "set_tempo",
         "trigger_epoch",
         "dissolve_network",
         "root_dissolve_network",
-        "set_activity_cutoff_factor",
         # legacy / superseded weight paths (mechanism variants are wrapped;
         # reveal_weights is wrapped by the RevealWeights intent for salt commits)
         "set_weights",
@@ -215,6 +213,10 @@ RAW_ONLY: dict[str, set[str]] = {
         # Enumerated explicitly (not computed) so a newly added unwrapped call is
         # flagged as missing and requires a deliberate wrap-or-raw-only decision.
         "schedule_grandpa_change",
+        # legacy absolute-blocks cutoff — superseded by the owner-settable
+        # `sudo_set_activity_cutoff_factor` (per-mille of tempo), which the
+        # SetHyperparameter intent wraps as `activity_cutoff_factor`
+        "sudo_set_activity_cutoff",
         "sudo_set_adjustment_interval",
         "sudo_set_admin_freeze_window",
         "sudo_set_ck_burn",
@@ -257,7 +259,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_tao_flow_normalization_exponent",
         "sudo_set_tao_flow_smoothing_factor",
         "sudo_set_target_registrations_per_interval",
-        "sudo_set_tempo",
         "sudo_set_total_issuance",
         "sudo_set_tx_delegate_take_rate_limit",
         "sudo_set_tx_rate_limit",

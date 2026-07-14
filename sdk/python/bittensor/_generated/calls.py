@@ -421,11 +421,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'serve_prometheus', {'netuid': netuid, 'version': version, 'ip': ip, 'port': port, 'ip_type': ip_type})
 
     @staticmethod
-    def set_activity_cutoff_factor(netuid: 'NetUid', factor_milli: 'u32') -> Call:
-        '`set_activity_cutoff_factor`. Per-mille (1/1000) units; `cutoff_blocks = (factor × tempo) / 1000`. Validates `[MinActivityCutoffFactorMilli, MaxActivityCutoffFactorMilli]`. Callable by the subnet owner (rate-limited via `OwnerHyperparamUpdate`, respects the admin freeze window) or by root (bypasses both).'
-        return Call('SubtensorModule', 'set_activity_cutoff_factor', {'netuid': netuid, 'factor_milli': factor_milli})
-
-    @staticmethod
     def set_auto_parent_delegation_enabled(hotkey: 'AccountId32', enabled: 'bool') -> Call:
         'Allows a root validator to toggle auto parent delegation for new subnets owner hotkey'
         return Call('SubtensorModule', 'set_auto_parent_delegation_enabled', {'hotkey': hotkey, 'enabled': enabled})
@@ -479,11 +474,6 @@ class SubtensorModule:
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
         'Set the identity information for a subnet. # Arguments * `origin`: The signature of the calling coldkey, which must be the owner of the subnet.  * `netuid`: The unique network identifier of the subnet.  * `subnet_name`: The name of the subnet.  * `github_repo`: The GitHub repository associated with the subnet identity.  * `subnet_contact`: The contact information for the subnet.'
         return Call('SubtensorModule', 'set_subnet_identity', {'netuid': netuid, 'subnet_name': subnet_name, 'github_repo': github_repo, 'subnet_contact': subnet_contact, 'subnet_url': subnet_url, 'discord': discord, 'description': description, 'logo_url': logo_url, 'additional': additional})
-
-    @staticmethod
-    def set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'Owner-side `set_tempo`. Validates `[MinTempo, MaxTempo]`, applies a fixed `MinTempo`-block cooldown via `TransactionType::TempoUpdate`, respects the admin freeze window, and resets the cycle (`LastEpochBlock = current_block`) on success.'
-        return Call('SubtensorModule', 'set_tempo', {'netuid': netuid, 'tempo': tempo})
 
     @staticmethod
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
@@ -868,6 +858,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_activity_cutoff', {'netuid': netuid, 'activity_cutoff': activity_cutoff})
 
     @staticmethod
+    def sudo_set_activity_cutoff_factor(netuid: 'NetUid', factor_milli: 'u32') -> Call:
+        'The extrinsic sets the activity-cutoff factor for a subnet, in per-mille (1/1000) of the tempo: the effective cutoff in blocks is `(factor × tempo) / 1000`. Bounded to `[MinActivityCutoffFactorMilli, MaxActivityCutoffFactorMilli]`. It is callable by the subnet owner (rate-limited via `OwnerHyperparamUpdate`, respects the admin freeze window) or the root account (bypasses both). This supersedes the absolute-blocks `sudo_set_activity_cutoff`.'
+        return Call('AdminUtils', 'sudo_set_activity_cutoff_factor', {'netuid': netuid, 'factor_milli': factor_milli})
+
+    @staticmethod
     def sudo_set_adjustment_alpha(netuid: 'NetUid', adjustment_alpha: 'u64') -> Call:
         'The extrinsic sets the adjustment alpha for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the adjustment alpha.'
         return Call('AdminUtils', 'sudo_set_adjustment_alpha', {'netuid': netuid, 'adjustment_alpha': adjustment_alpha})
@@ -1209,7 +1204,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'The extrinsic sets the tempo for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the tempo.'
+        'The extrinsic sets the tempo for a subnet. It is callable by the subnet owner (bounded to `[MinTempo, MaxTempo]` and rate-limited to one change per `MinTempo` blocks) or the root account (any u16, no rate limit). Both respect the admin freeze window. A successful change resets the epoch cycle (`LastEpochBlock = current_block`).'
         return Call('AdminUtils', 'sudo_set_tempo', {'netuid': netuid, 'tempo': tempo})
 
     @staticmethod

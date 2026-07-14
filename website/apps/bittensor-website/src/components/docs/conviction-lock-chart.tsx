@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,10 +9,20 @@ import {
   LineElement,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
 import { MATURITY_RATE_BLOCKS, formatBlocks, formatPct, perpetualConviction } from '@/lib/emission-math';
+import {
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -29,13 +39,54 @@ export function ConvictionLockChart() {
     });
   }, [lockedMass, startConviction, horizon]);
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ lockedMass, startConviction, horizon });
+  drawState.current = { lockedMass, startConviction, horizon };
+
+  // Direct in-plot labels instead of a legend: uppercase FiraCode annotations
+  // beside the conviction curve and the locked-mass reference line.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'convictionLockAnnotations',
+      afterDatasetsDraw(chart) {
+        const { lockedMass, startConviction, horizon } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        ctx.textAlign = 'left';
+
+        // Locked-mass line label, tucked above the dashed line at the left.
+        const yMass = yScale.getPixelForValue(lockedMass);
+        ctx.fillStyle = INK_FAINT;
+        ctx.fillText('LOCKED MASS (M)', chartArea.left + 6, yMass - 6);
+
+        // Conviction curve label, below the curve where it has risen away
+        // from the mass line's label zone.
+        const xLabel = horizon * 0.45;
+        const yCurve = yScale.getPixelForValue(
+          perpetualConviction(lockedMass, startConviction, xLabel),
+        );
+        ctx.fillStyle = INK;
+        ctx.fillText('CONVICTION', xScale.getPixelForValue(xLabel) + 4, yCurve + 16);
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
       datasets: [
         {
           label: 'Conviction',
           data: points.map((p) => ({x: p.x, y: p.y})),
-          borderColor: 'rgb(41, 41, 41)',
+          borderColor: INK,
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.2,
@@ -43,7 +94,7 @@ export function ConvictionLockChart() {
         {
           label: 'Locked mass',
           data: points.map((p) => ({x: p.x, y: lockedMass})),
-          borderColor: 'rgba(110, 110, 110, 0.6)',
+          borderColor: 'rgba(41, 41, 41, 0.5)',
           borderDash: [4, 4],
           borderWidth: 1,
           pointRadius: 0,
@@ -61,16 +112,18 @@ export function ConvictionLockChart() {
       scales: {
         x: {
           type: 'linear' as const,
-          title: {display: true, text: 'Blocks since lock', font: {size: 11}},
-          ticks: {
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
             callback: (v: number | string) => formatBlocks(Number(v)),
-            maxTicksLimit: 6,
-            font: {size: 10},
-          },
+          }),
+          title: axisTitle('blocks since lock'),
         },
         y: {
-          title: {display: true, text: 'α', font: {size: 11}},
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({maxTicksLimit: 5}),
+          title: axisTitle('conviction (α)'),
         },
       },
     }),
@@ -86,16 +139,16 @@ export function ConvictionLockChart() {
       caption="c₁ = m − (m − c₀)·e^(−Δt/τ). Locked mass stays fixed; conviction approaches mass asymptotically (~63% at 1τ)."
     >
       <div className="h-44">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-3">
         <ExplainerStat label="At 1τ (~130d scale)" value={formatPct(pctAtTau)} hint={`τ = ${MATURITY_RATE_BLOCKS.toLocaleString()} blocks`} />
         <ExplainerStat label="Locked mass (m)" value={`${lockedMass.toLocaleString()} α`} />
         <ExplainerStat label="Starting conviction (c₀)" value={`${startConviction.toLocaleString()} α`} />
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid gap-x-8 gap-y-5 border-t border-line pt-4 pb-1 sm:grid-cols-2">
         <ExplainerSlider
           label="Locked mass"
           value={lockedMass}

@@ -20,14 +20,14 @@ function FlowCard({
   note?: string;
 }) {
   return (
-    <div className="border border-line bg-bg p-4">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-        <p className="bt-label">{title}</p>
+    <div className="border-t border-line pt-3">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="font-mono text-[0.6875rem] font-medium uppercase tracking-[0.08em]">{title}</p>
         <code className="text-[0.6875rem] text-mute">{command}</code>
       </div>
-      <div className="mb-3 flex flex-wrap gap-2 text-[0.6875rem]">
-        <span className="border border-line px-2 py-0.5 text-mute">signs: {signer}</span>
-        <span className="border border-line px-2 py-0.5 text-mute">gas: {gas}</span>
+      <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 font-mono text-[0.625rem] uppercase tracking-[0.08em] text-mute">
+        <span>signs · {signer}</span>
+        <span>gas · {gas}</span>
       </div>
       <ol className="space-y-2">
         {steps.map((step, index) => (
@@ -51,7 +51,7 @@ export function EvmMoneyFlows() {
       title="Four ways TAO crosses the ss58 ↔ EVM seam"
       caption="Pick the path that matches who holds the keys. The two “withdraw” names are easy to confuse — read the signer and gas columns."
     >
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-x-8 gap-y-6 lg:grid-cols-2">
         <FlowCard
           title="Fund an EVM key from your coldkey"
           command="btcli evm fund"

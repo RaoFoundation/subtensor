@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -8,11 +8,13 @@ import {
   BarElement,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
 import { useEmissionSnapshot } from '@/hooks/use-emission-snapshot';
 import { formatPct, formatTao, subnetEmissionShares } from '@/lib/emission-math';
+import { ACCENT, AXIS_BORDER, GRAPH_FONT, GRID, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -41,16 +43,47 @@ export function SubnetEmissionShareChart() {
   const shares = useMemo(() => subnetEmissionShares(prices, burns), [prices, burns]);
   const blockEmission = snapshot.blockEmissionTao;
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ shares, selectedIdx });
+  drawState.current = { shares, selectedIdx };
+
+  // Direct value labels at each bar end instead of a legend; the selected
+  // (highlighted) bar carries the accent.
+  const valueLabelPlugin = useMemo<Plugin<'bar'>>(
+    () => ({
+      id: 'barValueLabels',
+      afterDatasetsDraw(chart) {
+        const { shares, selectedIdx } = drawState.current;
+        const meta = chart.getDatasetMeta(0);
+        const { ctx } = chart;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        meta.data.forEach((bar, i) => {
+          const share = shares[i];
+          if (share === undefined) return;
+          const selected = i === selectedIdx;
+          ctx.fillStyle = selected ? ACCENT : INK_FAINT;
+          const text = `${(share * 100).toFixed(1)}%${selected ? ' · SELECTED' : ''}`;
+          ctx.fillText(text, bar.x + 6, bar.y);
+        });
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const data = useMemo(
     () => ({
-      labels: rows.map((r) => subnetLabel(r.netuid, r.name)),
+      labels: rows.map((r) => subnetLabel(r.netuid, r.name).toUpperCase()),
       datasets: [
         {
           label: 'TAO share',
           data: shares.map((s) => s * 100),
-          backgroundColor: rows.map((_, i) =>
-            i === selectedIdx ? 'rgba(41,41,41,0.92)' : 'rgba(41,41,41,0.35)',
-          ),
+          backgroundColor: rows.map((_, i) => (i === selectedIdx ? ACCENT : 'rgba(41,41,41,0.3)')),
           borderWidth: 0,
         },
       ],
@@ -81,16 +114,19 @@ export function SubnetEmissionShareChart() {
       },
       scales: {
         x: {
-          max: Math.max(...shares.map((s) => s * 100)) * 1.15,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {
-            callback: (v: number | string) => `${v}%`,
-            font: {family: 'FiraCode, monospace', size: 10},
-          },
+          // Headroom for the in-plot value labels beside the longest bar.
+          max: Math.max(...shares.map((s) => s * 100)) * 1.35,
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            callback: (v: number | string) => `${Number(v).toFixed(0)}%`,
+          }),
+          title: axisTitle('share of TAO emission'),
         },
         y: {
           grid: {display: false},
-          ticks: {font: {size: 10}},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({autoSkip: false, maxTicksLimit: 12}),
         },
       },
       onClick: (_: unknown, elements: {index: number}[]) => {
@@ -116,17 +152,18 @@ export function SubnetEmissionShareChart() {
         {loading ? (
           <div className="flex h-full items-center justify-center text-sm text-mute">Loading snapshot…</div>
         ) : (
-          <Bar data={data} options={options} />
+          <Bar data={data} options={options} plugins={[valueLabelPlugin]} />
         )}
       </div>
 
       {selected && (
         <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-4">
             <ExplainerStat
               label={subnetLabel(selected.netuid, selected.name)}
               value={formatPct(shares[selectedIdx] ?? 0)}
               hint={`${formatTao(blockEmission * (shares[selectedIdx] ?? 0), 4)}/block`}
+              accent
             />
             <ExplainerStat label="EMA price (p)" value={selected.emaPrice.toFixed(4)} hint={`Spot ${selected.spotPrice.toFixed(4)} τ/α`} />
             <ExplainerStat label="Miner burn (b)" value={formatPct(selected.minerBurned, 1)} hint="Last tempo withheld share" />
@@ -137,7 +174,7 @@ export function SubnetEmissionShareChart() {
             />
           </div>
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div className="mt-6 grid gap-x-8 gap-y-5 border-t border-line pt-4 sm:grid-cols-2">
             <ExplainerSlider
               label={`What-if EMA for SN${selected.netuid}`}
               value={displayEma}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,9 +10,20 @@ import {
   Filler,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
+import {
+  ACCENT,
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -49,16 +60,72 @@ export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
   const label = (name: string, hint: string) =>
     (focus === name ? '▸ ' : '') + `${name} (${hint})`;
 
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ kappa, focus });
+  drawState.current = { kappa, focus };
+
+  // Direct in-plot labels replacing any legend: uppercase FiraCode annotations.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'sigmoidAnnotations',
+      afterDatasetsDraw(chart) {
+        const { kappa, focus } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+
+        if (focus === 'rho') {
+          // Label each ghost curve where the two steepnesses have separated.
+          ctx.fillStyle = INK_FAINT;
+          ctx.textAlign = 'left';
+          const xGentle = 0.04;
+          ctx.fillText(
+            `RHO = ${RHO_GHOSTS[0]}`,
+            xScale.getPixelForValue(xGentle) + 2,
+            yScale.getPixelForValue(trustSigmoid(xGentle, RHO_GHOSTS[0], kappa)) - 8,
+          );
+          const xSteep = Math.min(kappa + 0.05, 0.9);
+          ctx.fillText(
+            `RHO = ${RHO_GHOSTS[1]}`,
+            xScale.getPixelForValue(xSteep) + 4,
+            yScale.getPixelForValue(trustSigmoid(xSteep, RHO_GHOSTS[1], kappa)) + 4,
+          );
+        }
+
+        if (focus === 'kappa') {
+          const xPx = xScale.getPixelForValue(kappa);
+          const onLeft = kappa > 0.5;
+          ctx.textAlign = onLeft ? 'right' : 'left';
+          const dx = onLeft ? -6 : 6;
+          ctx.fillStyle = INK;
+          ctx.fillText(`KAPPA = ${kappa.toFixed(2)}`, xPx + dx, chartArea.bottom - 8);
+          // The curve sits below 0.5 left of kappa and above it to the right,
+          // so tuck the crossing label into whichever side is clear.
+          ctx.fillStyle = ACCENT;
+          ctx.fillText('TRUST 0.5', xPx + dx, yScale.getPixelForValue(0.5) + (onLeft ? -8 : 14));
+        }
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
+
   const datasets = useMemo(() => {
     const main = {
       label: 'Trust',
       data: sigmoidPoints(rho, kappa),
-      borderColor: 'rgb(41, 41, 41)',
-      backgroundColor: 'rgba(41, 41, 41, 0.08)',
+      borderColor: INK,
+      backgroundColor: 'rgba(41, 41, 41, 0.03)',
       fill: true,
       tension: 0,
       pointRadius: 0,
-      borderWidth: 1.5,
+      borderWidth: 1.75,
       order: 0,
     };
 
@@ -86,19 +153,20 @@ export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
           {x: kappa, y: 0},
           {x: kappa, y: 1},
         ],
-        borderColor: 'rgba(41, 41, 41, 0.45)',
-        borderDash: [6, 4],
-        borderWidth: 1.5,
+        borderColor: INK_FAINT,
+        borderDash: [4, 4],
+        borderWidth: 1,
         fill: false,
         tension: 0,
         pointRadius: 0,
         order: 1,
       };
+      // Highlight point: the trust flip through 0.5 is the moment kappa controls.
       const crossing = {
         label: 'majority crossing',
         data: [{x: kappa, y: 0.5}],
-        borderColor: 'rgb(41, 41, 41)',
-        backgroundColor: 'rgb(41, 41, 41)',
+        borderColor: ACCENT,
+        backgroundColor: ACCENT,
         showLine: false,
         pointRadius: 4,
         pointStyle: 'rectRot' as const,
@@ -138,16 +206,18 @@ export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
           type: 'linear' as const,
           min: 0,
           max: 1,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {maxTicksLimit: 11, font: {family: 'FiraCode, monospace', size: 10}},
-          title: {display: true, text: 'consensus alignment (stake fraction)', font: {size: 11}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks(),
+          title: axisTitle('consensus alignment (stake fraction)'),
         },
         y: {
           min: 0,
           max: 1,
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {font: {family: 'FiraCode, monospace', size: 10}},
-          title: {display: true, text: 'trust', font: {size: 11}},
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({maxTicksLimit: 5}),
+          title: axisTitle('trust'),
         },
       },
     }),
@@ -160,7 +230,7 @@ export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
       caption={(focus && CAPTIONS[focus]) || DEFAULT_CAPTION}
     >
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">

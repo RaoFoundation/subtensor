@@ -1,0 +1,421 @@
+---
+title: Multisig wallets
+description: Put a coldkey under M-of-N control so no single stolen or lost key can move your funds.
+---
+
+A single coldkey is a single point of failure. If it leaks — a compromised
+laptop, a phished mnemonic, a malicious dependency — everything it holds is
+gone, irreversibly: subnet ownership, stake, free balance. A **multisig**
+removes that single point of failure by deriving an account address from a
+*set* of coldkeys plus a **threshold**: a call only executes from that account
+once `M` of the `N` signatories have approved it.
+
+Conventionally written "M-of-N": a 2-of-3 multisig has three member keys and
+requires any two of them to sign. That protects you in both directions —
+
+* **Compromise:** an attacker with one stolen key can open an operation but
+  cannot execute anything. You see the pending approval and simply never
+  co-sign it.
+* **Loss:** with 2-of-3, losing any one key loses nothing. The remaining two
+  can move the funds to a new account.
+
+The signatories can be separate people (a subnet team's treasury) or separate
+keys held by one person on separate machines (your own coldkey, hardened).
+Nobody holds "the multisig key" — no such key exists. The address is pure math
+over the member set and threshold.
+
+## How it works
+
+The multisig address is derived deterministically from the sorted signatory
+set and the threshold. The same three keys with threshold 2 always produce the
+same address, on any machine, with no on-chain registration step.
+
+Spending is an approval round:
+
+1. One signatory **opens** an operation by submitting the full call
+   ([`multisig-execute`](/docs/tx/multisig-execute)) or its approval
+   ([`multisig-approve`](/docs/tx/multisig-approve)) with no timepoint. This
+   reserves a deposit from the opener (returned on execution or cancellation)
+   and records the operation on-chain under the hash of the call.
+2. Other signatories approve, quoting the **timepoint** (block height and
+   extrinsic index) of the opening approval. Every approval must describe the
+   identical call, threshold, and signatory set — the chain matches by hash.
+3. Whoever brings the count to `threshold` must submit
+   [`multisig-execute`](/docs/tx/multisig-execute) with the full call, which
+   then dispatches *as the multisig account* in the same extrinsic.
+
+Two consequences worth internalizing: the inner call's arguments must be fully
+explicit (it runs as the multisig, not as any signer's wallet), and because
+the address is derived from the member set, **changing membership changes the
+address**. If a signer leaves the team you must create a new multisig and move
+the funds — unless you make the members [pure proxies](/docs/guides/proxies)
+instead of raw coldkeys, which lets you swap the human behind a member slot
+without changing the multisig address.
+
+## Prerequisites
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install bittensor
+```
+
+One install gives you both `btcli` and the Python SDK. Practice on testnet
+(`-n test` on every command, or `btcli config set network test`) with test TAO
+before touching mainnet. Each *signatory* needs a little TAO for fees and the
+opener's deposit; the multisig account itself holds the actual funds.
+
+## Step 1 — the signatory keys
+
+For this walkthrough, a 2-of-3 with wallets `alice`, `bob`, and `carol`. In
+production these live on different machines owned by different people; each
+person only ever holds their own coldkey.
+
+```bash
+btcli wallet create -w alice    # repeat for bob and carol (on their machines)
+```
+
+Signers who are other people are just addresses to you — save them in the
+address book so every later command can use names instead of raw ss58:
+
+```bash
+btcli addresses add bob 5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
+btcli addresses add carol 5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
+btcli addresses list
+```
+
+## Step 2 — save the signer set and derive the address
+
+`btcli multisig add` stores a named signer set in your local multisig book and
+derives the on-chain address. Signatories can be wallet names, address-book
+names, or raw ss58 — order doesn't matter.
+
+```bash
+btcli multisig add team-treasury --threshold 2 --signatories alice,bob,carol
+btcli multisig show team-treasury     # derives and prints the multisig address
+btcli multisig list                   # all saved signer sets
+btcli wallet list                     # multisigs appear alongside wallets on disk
+```
+
+The book entry is purely local convenience — every signer should run the same
+`multisig add` on their own machine (same members, same threshold) and confirm
+`multisig show` prints the **same address**. If it doesn't, someone has a
+wrong member list, and funds sent there would belong to a different account.
+
+In Python, the same derivation:
+
+```python
+import bittensor as sub
+
+async with sub.Client("test") as client:
+    ms = await client.multisig(
+        ["5Grw...alice", "5FHn...bob", "5DAA...carol"],
+        threshold=2,
+    )
+    print(ms.address)      # deterministic in the set + threshold
+```
+
+## Step 3 — fund and watch it
+
+Send TAO to the derived address like any other account:
+
+```bash
+btcli addresses add team-treasury-addr 5Fmulti...sigAddress
+btcli tx transfer --dest team-treasury-addr --amount-tao 100 -w alice
+```
+
+Balances and every other [query](/docs/query) work on the address directly —
+no key needed for reads:
+
+```bash
+btcli query balance --coldkey team-treasury-addr
+```
+
+Optionally register it as a watch-only wallet (public key only, no secrets),
+so wallet-flavored commands work by name:
+
+```bash
+btcli wallet regen-coldkeypub -w team-treasury --ss58 5Fmulti...sigAddress
+btcli wallet balance team-treasury
+```
+
+## Step 4 — spend: open the operation
+
+Alice proposes paying 10 TAO out of the treasury. The inner call is an intent
+spec — `{"op": <intent name>, ...args}`, same shape as a batch child — with
+fully explicit arguments. As always, `--dry-run` previews fee and effects
+without submitting:
+
+```bash
+btcli tx multisig-execute \
+  --threshold 2 \
+  --other-signatories bob,carol \
+  --call '{"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 10}' \
+  -w alice --dry-run
+
+btcli tx multisig-execute \
+  --threshold 2 \
+  --other-signatories bob,carol \
+  --call '{"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 10}' \
+  -w alice
+```
+
+`--other-signatories` lists every member *except* the signer; the CLI adds
+Alice's coldkey and sorts the set. Since no timepoint was passed, this opens
+the operation: Alice's deposit is reserved, and nothing executes yet.
+
+After submission the CLI prints the operation's `call_hash`, `call_data`, the
+opening `timepoint`, and **ready-to-run commands for each remaining
+co-signer** — copy-paste them to Bob and Carol over your team channel. The
+opening extrinsic embeds the full call, so co-signers can also recover
+everything from chain state alone (next step); no out-of-band call data is
+required.
+
+## Step 5 — view pending operations
+
+Any signer can inspect what's awaiting approval. With the saved multisig book
+entry:
+
+```bash
+btcli multisig pending --multisig team-treasury -w bob
+```
+
+This lists every open operation on the multisig account with its target call,
+decoded parameters, approval count, who has signed, who hasn't, the timepoint,
+and a copy-paste command for each remaining co-signer. Filter to one operation
+with `--call-hash 0x...`; if the call details can't be decoded locally (e.g.
+the opening block is pruned on your RPC node), pass the `call_data` hex once
+with `--call-data 0x...`.
+
+The raw chain state is also one query away:
+
+```bash
+btcli query multisig --account team-treasury-addr --call-hash 0x... --json
+```
+
+which returns the pending operation's timepoint (`when`), the approvals so
+far, the depositor, and the reserved deposit. **Check `pending` on a
+schedule.** An operation you don't recognize means a member key is
+compromised — don't co-sign, and rotate that member out.
+
+## Step 6 — approve and execute
+
+Bob was handed a ready-to-run command by `pending` (or by Alice). Because his
+approval is the one that reaches the threshold, it must be
+`multisig-execute` with the full call — the chain needs the call to run it.
+The timepoint identifies the pending operation:
+
+```bash
+btcli tx multisig-execute \
+  --threshold 2 \
+  --other-signatories alice,carol \
+  --call '{"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 10}' \
+  --timepoint '{"height": 5951841, "index": 6}' \
+  -w bob
+```
+
+The transfer executes as the multisig account in this same extrinsic, and
+Alice's deposit is returned.
+
+In a wider set (say 3-of-5), the signers *between* the first and the last can
+use [`multisig-approve`](/docs/tx/multisig-approve) instead — it records
+consent by hash only, which stays cheap even for huge calls, but never
+executes. Opening approval: omit the timepoint. Intermediate approvals: pass
+it. Last signer: always `multisig-execute` with the full call.
+
+## 1-of-N: shared access without approval rounds
+
+A threshold-1 multisig lets any single member act alone — useful as a shared
+operational account where you still want membership to be explicit and
+auditable. No approval round, timepoint, or deposit:
+
+```bash
+btcli tx multisig-threshold-1 \
+  --other-signatories bob,carol \
+  --call '{"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 1}' \
+  -w alice
+```
+
+Note that 1-of-N adds *no* compromise protection — any one stolen member key
+spends. Use threshold ≥ 2 for security. See
+[`multisig-threshold-1`](/docs/tx/multisig-threshold-1).
+
+## Cancel a pending operation
+
+Only the signatory who opened the operation (and paid the deposit) can cancel
+it, which discards the stored approvals and returns the deposit. Threshold,
+signatory set, call, and timepoint must all match exactly:
+
+```bash
+btcli tx multisig-cancel \
+  --threshold 2 \
+  --other-signatories bob,carol \
+  --call '{"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 10}' \
+  --timepoint '{"height": 5951841, "index": 6}' \
+  -w alice
+```
+
+If the *opener's* key is the compromised one, the honest members can't cancel
+— but they don't need to: an operation below threshold never executes, and
+the attacker's deposit stays locked until they cancel it themselves. Just
+never co-sign it, and move the funds to a fresh multisig without the bad key.
+See [`multisig-cancel`](/docs/tx/multisig-cancel).
+
+## Migrate an existing account to a multisig
+
+If the account you want to protect already exists — a subnet owner's coldkey
+especially — funding the multisig is **not** a migration. A
+[`transfer`](/docs/tx/transfer) moves transferable TAO and nothing else:
+stake, conviction locks, hotkey registrations, and subnet ownership are
+separate on-chain state that stays with the old coldkey.
+([`transfer-stake`](/docs/tx/transfer-stake) moves a stake position, but
+still not ownership.) The tool that moves *everything* is the announced
+**coldkey swap**:
+
+```bash
+# 1. Verify the destination first: every member derives the same address,
+#    and it must be a completely unused account — no balance history, stake,
+#    hotkeys, or locks.
+btcli multisig show team-treasury
+
+# 2. Announce, committing to the multisig address. Costs 0.1 TAO and locks
+#    the old coldkey for the chain's delay (36,000 blocks, ~5 days) — only
+#    swap-related calls go through while it's pending.
+btcli tx announce-coldkey-swap --new-coldkey 5Fmulti...sigAddress -w old-owner
+
+# 3. After the delay, execute. Balance, stake, locks, hotkeys, registrations,
+#    and subnet ownership all move to the multisig. Irreversible.
+btcli tx swap-coldkey-announced --new-coldkey 5Fmulti...sigAddress -w old-owner
+```
+
+The delay exists so the real owner can catch a thief's announcement
+([`dispute-coldkey-swap`](/docs/tx/dispute-coldkey-swap) freezes the key);
+check a pending one with the
+[`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) read.
+After the swap, every owner action goes through the multisig approval round —
+for routine operations like hyperparameter changes, grant a scoped proxy from
+the multisig instead (next section).
+
+## Day-to-day operations: pair it with a proxy
+
+An approval round for every hyperparameter tweak gets old fast. The standard
+layering keeps the multisig as the high-impact control plane and delegates
+the routine work: from the multisig, grant an operations key a narrowly
+scoped [proxy](/docs/guides/proxies) — `Owner` for a subnet owner's identity
+and hyperparameter calls, `Staking` for a treasury that manages positions.
+The grant itself is just an inner call in the usual round:
+
+```bash
+btcli tx multisig-execute \
+  --threshold 2 \
+  --other-signatories bob,carol \
+  --call '{"op": "add_proxy", "delegate_ss58": "5F...opsKey", "proxy_type": "Owner", "delay": 0}' \
+  -w alice
+```
+
+The ops key now handles routine changes alone (`--proxy-for` the multisig
+address), but cannot transfer funds or rotate the owner — and if it leaks,
+the multisig convenes once to revoke it (`{"op": "remove_proxy", ...}`) while
+the principal never moves. The full pattern is in the
+[proxy guide](/docs/guides/proxies).
+
+## Any call, including sudo: `btcli call --multisig`
+
+The `tx multisig-*` intents cover calls that have intents. For anything else —
+raw pallet calls, or a chain whose sudo key is a multisig — the raw-call
+escape hatch takes the same multisig flags:
+
+```bash
+btcli call SubtensorModule.some_call --args '{"netuid": 3}' \
+  --multisig team-treasury -w alice --yes
+```
+
+`--multisig NAME` pulls the threshold and signer set from your multisig book
+(inline `--multisig-threshold 2 --other-signatories bob,carol` works too, and
+`--sudo` wraps the call in `Sudo.sudo`). After each approval the CLI prints
+`call_hash`, `call_data`, the timepoint, and the exact command for each
+remaining co-signer — the same flow as above, for any call the chain exposes.
+
+## The SDK
+
+The high-level handle wraps the whole round. Each signatory calls `approve`
+with the identical call; the approval that reaches the threshold executes it
+and returns the inner call's events:
+
+```python
+import bittensor as sub
+from bittensor.wallet import Wallet
+
+async with sub.Client("test") as client:
+    ms = await client.multisig(
+        ["5Grw...alice", "5FHn...bob", "5DAA...carol"],
+        threshold=2,
+    )
+
+    call = sub.calls.Balances.transfer_keep_alive(
+        dest="5DevPayee...",
+        value=10 * 10**9,          # raw calls take rao (1 TAO = 1e9 rao)
+    )
+
+    # on Alice's machine — opens the operation
+    result = await ms.approve(call, Wallet(name="alice"))
+
+    # on Bob's machine — same call, reaches threshold, executes
+    result = await ms.approve(call, Wallet(name="bob"))
+    print(result.success, result.block_hash)
+```
+
+For the intent-shaped flow (human-unit arguments, `plan` preview, explicit
+timepoints), the `Multisig*` intents mirror the CLI exactly:
+
+```python
+intent = sub.MultisigExecute(
+    threshold=2,
+    other_signatories=["5FHn...bob", "5DAA...carol"],
+    call={"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 10},
+    # timepoint={"height": ..., "index": ...} on every approval after the first
+)
+plan = await client.plan(intent, wallet)      # fee, effects — nothing submitted
+result = await client.execute(intent, wallet)
+```
+
+`sub.MultisigApprove`, `sub.MultisigCancel`, and `sub.MultisigThreshold1` are
+the other three, and the executing approval surfaces `multisig_call_hash` and
+`multisig_call_data` in `result.data`. Inspect pending state with the read:
+
+```python
+pending = await client.read("multisig", account_ss58=ms.address, call_hash="0x...")
+# → timepoint (when), approvals so far, depositor, reserved deposit
+```
+
+## Deposits and limits
+
+* Opening a pending operation reserves **0.132 TAO base + 0.032 TAO per unit
+  of threshold** from the opener, returned on execution or cancellation.
+* A multisig can have at most **100 signatories**.
+* Approving twice from the same signer, or with a mismatched timepoint,
+  threshold, or signatory set, fails — the (set, threshold, call-hash) triple
+  is the operation's identity.
+
+## Operating it safely
+
+* **Threshold ≥ 2, always, for anything valuable.** M=1 is a convenience
+  account, not a security boundary. 2-of-3 is the usual sweet spot: survives
+  one lost key *and* one stolen key.
+* **Independent keys.** Signatories on the same laptop defeat the point. Give
+  each member key its own machine, and consider signing with a
+  [Ledger](/docs/guides/ledger) (`--ledger`) or a
+  [browser extension](/docs/guides/extension-signing) (`--signer extension`)
+  so member coldkeys never sit on the machine running `btcli` at all.
+* **Verify the address independently.** Every member derives it themselves
+  (`btcli multisig show`) before anyone funds it.
+* **Watch `pending`.** A pending operation nobody proposed is your compromise
+  alarm, and it fires *before* any funds move — that early warning is half
+  the value of a multisig. Check it on a schedule, or script it with
+  `--json`.
+* **Verify before you co-sign.** The `pending` output decodes the target and
+  parameters — read them. Your approval is the security boundary.
+* **Plan for membership change.** Swapping a member means a new address and a
+  funds migration, unless members are [pure proxies](/docs/guides/proxies)
+  with swappable controllers behind them.
+* **Test the full round on testnet** — open, view, approve, cancel — before
+  moving real funds. Fees and deposits behave identically.

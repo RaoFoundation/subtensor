@@ -12,7 +12,7 @@ anything on Bittensor. That folder is the single source of truth for all docs:
 user-facing concepts and guides, the generated reference, and runtime/contributor
 internals (`docs/internals/`).
 
-The reference section (`docs/tx`, `docs/query`, `docs/errors.mdx`) and the
+The reference section (`docs/tx`, `docs/query`, `docs/errors`) and the
 JSON catalogs (`public/catalog/`) are **generated** from the SDK's own
 registries — never edit them by hand:
 

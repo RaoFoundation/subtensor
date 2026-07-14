@@ -4,7 +4,8 @@ Subnet-level data renders as aligned key/value sections (raw chain values
 primary, dim readings beside them — the hyperparameters convention); the
 per-uid arrays collapse into one tree branch per neuron, largest stake first,
 hotkeys labeled with their local wallet name when one exists, else their
-on-chain identity name. JSON carries the raw metagraph record untouched.
+on-chain identity name. JSON carries the runtime record as the read returns
+it (untouched except `name`/`symbol`, which the read decodes to text).
 """
 
 from __future__ import annotations

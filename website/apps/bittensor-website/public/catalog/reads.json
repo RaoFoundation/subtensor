@@ -592,7 +592,7 @@
   {
     "name": "metagraph",
     "summary": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).",
-    "description": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).",
+    "description": "The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).\n\n`name` and `symbol` are decoded to text (the wire carries them as\ncompact-u16 vectors of utf-8 bytes, unlike every other text field).",
     "params": {
       "netuid": "integer"
     },
@@ -954,8 +954,8 @@
   },
   {
     "name": "subnet_hyperparameters",
-    "summary": "All hyperparameters for a subnet (named fields; version-dependent set).",
-    "description": "All hyperparameters for a subnet (named fields; version-dependent set).",
+    "summary": "All hyperparameters for a subnet, as a flat name -> raw value mapping.",
+    "description": "All hyperparameters for a subnet, as a flat name -> raw value mapping.\n\nThe set of names is version-dependent; None if the subnet does not exist.\nUses the forward-compatible `get_subnet_hyperparams_v3` runtime API, so\nnewly added chain hyperparameters (e.g. `burn_half_life`) show up\nwithout a client update.",
     "params": {
       "netuid": "integer"
     },

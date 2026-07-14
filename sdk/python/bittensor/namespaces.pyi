@@ -430,8 +430,14 @@ class Subnets(_ReadNamespace):
     async def subnet(self, netuid: int, *, block: Optional[int] = None) -> SubnetInfo:
         """Tempo, burn, and neuron count for one subnet (the three reads run concurrently)."""
 
-    async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> dict:
-        """All hyperparameters for a subnet (named fields; version-dependent set)."""
+    async def subnet_hyperparameters(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """All hyperparameters for a subnet, as a flat name -> raw value mapping.
+
+        The set of names is version-dependent; None if the subnet does not exist.
+        Uses the forward-compatible `get_subnet_hyperparams_v3` runtime API, so
+        newly added chain hyperparameters (e.g. `burn_half_life`) show up
+        without a client update.
+        """
 
     async def subnet_identity(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """The identity metadata of a subnet, or None."""

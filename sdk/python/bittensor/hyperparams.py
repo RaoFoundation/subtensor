@@ -128,7 +128,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "tempo": Hyperparam(
         "blocks",
-        "Blocks per epoch: how often the subnet runs consensus and distributes emissions.",
+        "Blocks per epoch: how often the subnet runs consensus and distributes "
+        "emissions. Owner changes are bounded to 360-50,400 blocks, rate-limited "
+        "to one per 360 blocks, and reset the epoch cycle.",
         short="blocks per consensus epoch",
     ),
     "min_difficulty": Hyperparam(
@@ -168,8 +170,16 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     "activity_cutoff": Hyperparam(
         "blocks",
         "Blocks without setting weights after which a validator is considered "
-        "inactive and excluded from consensus.",
+        "inactive and excluded from consensus. Read-only: the epoch derives it "
+        "as activity_cutoff_factor x tempo / 1000.",
         short="no-weights window before inactive",
+    ),
+    "activity_cutoff_factor": Hyperparam(
+        "int",
+        "Activity cutoff as per-mille of tempo (1000 = one tempo, bounds "
+        "1,000-50,000): the effective cutoff is factor x tempo / 1000 blocks. "
+        "Supersedes the absolute-blocks activity_cutoff.",
+        short="activity cutoff, per-mille of tempo",
     ),
     "registration_allowed": Hyperparam(
         "bool",
@@ -296,6 +306,25 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "Whether the Yuma3 consensus variant is enabled for this subnet.",
         short="yuma3 consensus variant toggle",
     ),
+    "yuma_version": Hyperparam(
+        "int",
+        "Consensus variant the epoch runs: 2 for classic Yuma, 3 when "
+        "yuma3_enabled is set. Derived from that flag, not stored on chain.",
+        short="epoch consensus variant (2 or 3)",
+    ),
+    "subnet_is_active": Hyperparam(
+        "bool",
+        "Whether the owner's one-shot start_call has fired: staking, alpha "
+        "trading, and emissions are live. False for a registered-but-unstarted "
+        "subnet.",
+        short="subnet started (staking + emissions)",
+    ),
+    "user_liquidity_enabled": Hyperparam(
+        "bool",
+        "Legacy swap-v3 flag for user-provided liquidity positions; always "
+        "false since the balancer migration deprecated all user LP calls.",
+        short="legacy user-LP flag (always false)",
+    ),
     "bonds_reset_enabled": Hyperparam(
         "bool",
         "Whether validator bonds are reset on certain subnet events.",
@@ -338,6 +367,7 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "weights_rate_limit": st.SubtensorModule.WeightsSetRateLimit,
     "adjustment_interval": st.SubtensorModule.AdjustmentInterval,
     "activity_cutoff": st.SubtensorModule.ActivityCutoff,
+    "activity_cutoff_factor": st.SubtensorModule.ActivityCutoffFactorMilli,
     "registration_allowed": st.SubtensorModule.NetworkRegistrationAllowed,
     "network_pow_registration_allowed": st.SubtensorModule.NetworkPowRegistrationAllowed,
     "target_regs_per_interval": st.SubtensorModule.TargetRegistrationsPerInterval,
