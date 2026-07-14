@@ -16,9 +16,9 @@ Signed by the hotkey that made the commit. Only needed for legacy
 salt-based commits — the timelocked path used by `set_weights` and
 `commit_weights` is auto-revealed by the chain and never needs this call.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.reveal_weights` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.reveal_weights` |
 
 ## Parameters
 

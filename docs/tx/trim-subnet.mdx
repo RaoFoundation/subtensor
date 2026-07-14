@@ -19,9 +19,9 @@ before shrinking a live subnet. To simply cap future growth without
 evicting anyone, set the `max_allowed_uids` hyperparameter to a value
 at or above the current UID count instead.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | AdminUtils | `AdminUtils.sudo_trim_to_max_allowed_uids` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | subnet owner | AdminUtils | `AdminUtils.sudo_trim_to_max_allowed_uids` |
 
 ## Parameters
 

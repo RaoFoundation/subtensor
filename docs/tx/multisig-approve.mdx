@@ -16,9 +16,9 @@ once `threshold - 1` approvals exist, the last signatory must send
 `multisig_execute` with the full call. Approving twice from the same
 signer, or with a mismatched timepoint, threshold, or signatory set, fails.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Multisig | `Multisig.as_multi`, `Multisig.approve_as_multi` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Multisig | `Multisig.as_multi`, `Multisig.approve_as_multi` |
 
 ## Parameters
 

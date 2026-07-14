@@ -13,9 +13,9 @@ creation block and extrinsic index (shown in the result): `kill_pure_proxy`
 needs them to close the account later. Losing the spawner key means losing
 the pure proxy and anything it holds.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.create_pure` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Proxy | `Proxy.create_pure` |
 
 ## Parameters
 

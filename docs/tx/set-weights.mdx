@@ -20,9 +20,9 @@ owner is exempt), and `version_key` must not be older than the subnet's
 required version. Prefer this over `commit_weights`/`reveal_weights`
 unless you specifically need to force one path.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.set_mechanism_weights`, `SubtensorModule.commit_timelocked_mechanism_weights` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.set_mechanism_weights`, `SubtensorModule.commit_timelocked_mechanism_weights` |
 
 ## Parameters
 

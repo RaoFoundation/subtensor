@@ -19,9 +19,9 @@ hotkey must match the existing lock's hotkey or the call fails with
 persists is controlled per coldkey per subnet with
 `set_perpetual_lock`.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.lock_stake` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.lock_stake` |
 
 ## Parameters
 

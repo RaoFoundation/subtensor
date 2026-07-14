@@ -11,9 +11,9 @@ returned. Only the signatory who opened the operation (and paid the
 deposit) may cancel it. The threshold, signatory set, call, and opening
 `timepoint` must all match the pending operation exactly.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Multisig | `Multisig.cancel_as_multi` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Multisig | `Multisig.cancel_as_multi` |
 
 ## Parameters
 

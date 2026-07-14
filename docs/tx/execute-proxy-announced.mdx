@@ -12,9 +12,9 @@ inner call is given as an intent op name plus its arguments and must hash
 to exactly what was announced. Fails if the delay has not elapsed or no
 matching announcement exists.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.proxy_announced` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Proxy | `Proxy.proxy_announced` |
 
 ## Parameters
 

@@ -24,9 +24,9 @@ bipartite); and the parent hotkey needs a minimum own stake
 effect after a chain-defined cooldown, except on subnets whose subtoken
 is not yet enabled, where they apply immediately.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_children` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_children` |
 
 ## Parameters
 

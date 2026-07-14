@@ -16,9 +16,9 @@ limit (omitted = market order), but this intent always requires
 partially filling at a worse rate. Counts against a configured spend
 cap.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.add_stake_burn` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.add_stake_burn` |
 
 ## Parameters
 

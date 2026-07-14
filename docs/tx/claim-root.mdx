@@ -15,9 +15,9 @@ the subnet owner or root) are silently skipped while the transaction
 still succeeds. Unclaimed dividends simply keep accruing — there is no
 deadline — but each call pays out only the subnets listed.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.claim_root` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.claim_root` |
 
 ## Parameters
 

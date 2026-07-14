@@ -13,9 +13,9 @@ clear their previous values); the chain enforces length limits on each
 field. Purely cosmetic — for the token ticker use `update_symbol`, and
 for economics use `set_hyperparameter`.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_subnet_identity` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | subnet owner | SubtensorModule | `SubtensorModule.set_subnet_identity` |
 
 ## Parameters
 

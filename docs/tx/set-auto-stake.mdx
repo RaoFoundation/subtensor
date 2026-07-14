@@ -15,9 +15,9 @@ already the destination fails (`SameAutoStakeHotkeyAlreadySet`). Call
 it again with a different hotkey to redirect; read the current setting
 back with the `auto_stake` read.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
 
 ## Parameters
 

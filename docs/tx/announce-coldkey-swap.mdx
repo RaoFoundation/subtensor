@@ -21,9 +21,9 @@ pending announcement can be cancelled with
 `clear_coldkey_swap_announcement`, and the legitimate holder can freeze
 an unauthorized one with `dispute_coldkey_swap`.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.announce_coldkey_swap` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.announce_coldkey_swap` |
 
 ## Parameters
 

@@ -11,9 +11,9 @@ creation: spawner, type, index, plus the block height and extrinsic index
 of the `create_pure_proxy` call. Irreversible — any funds left in the
 account become permanently inaccessible, so empty it first.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.kill_pure` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Proxy | `Proxy.kill_pure` |
 
 ## Parameters
 

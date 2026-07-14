@@ -21,9 +21,9 @@ behavior is identical to `swap_hotkey_v2` with `keep_stake=false`
 touching the coldkey; a compromised coldkey needs a coldkey swap
 instead.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.swap_hotkey` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.swap_hotkey` |
 
 ## Parameters
 

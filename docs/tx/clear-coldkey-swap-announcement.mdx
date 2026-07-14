@@ -15,9 +15,9 @@ moves; a fresh `announce_coldkey_swap` can be made afterwards. If the
 announcement was made by an attacker, `dispute_coldkey_swap` is the
 right call instead.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.clear_coldkey_swap_announcement` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.clear_coldkey_swap_announcement` |
 
 ## Parameters
 

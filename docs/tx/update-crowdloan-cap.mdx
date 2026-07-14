@@ -9,9 +9,9 @@ Raises or lowers the total the crowdloan can collect. Only the creator may
 change it, and only while the loan has not been finalized. Reaching the
 (new) cap is what allows the creator to finalize.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.update_cap` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Crowdloan | `Crowdloan.update_cap` |
 
 ## Parameters
 

@@ -15,9 +15,9 @@ and per interval (three times `target_registrations_per_interval`);
 hitting either cap fails until the window passes. Use
 `burned_register` for ordinary subnets.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.root_register` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.root_register` |
 
 ## Parameters
 

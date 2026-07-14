@@ -12,9 +12,9 @@ the deposit itself stays locked until `dissolve_crowdloan` returns it.
 Fails once the crowdloan has finalized or if the signer has nothing left
 to withdraw.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.withdraw` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Crowdloan | `Crowdloan.withdraw` |
 
 ## Parameters
 

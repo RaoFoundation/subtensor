@@ -13,9 +13,9 @@ not need to know the current value. Signed by the coldkey that owns the
 hotkey. If the move is upward it inherits the increase path's constraints
 (take maximum and rate limit on increases).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.increase_take`, `SubtensorModule.decrease_take` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.increase_take`, `SubtensorModule.decrease_take` |
 
 ## Parameters
 

@@ -13,9 +13,9 @@ without it the whole call fails once the limit would be breached. Like
 plus the swap fee (`AmountTooLow`). Prefer this over plain `add_stake`
 for large amounts or thin pools, where the swap itself moves the price.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.add_stake_limit` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.add_stake_limit` |
 
 ## Parameters
 

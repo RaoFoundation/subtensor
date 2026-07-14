@@ -12,9 +12,9 @@ signer per delegation (returned on removal). The delegate can act within
 `proxy_type` immediately (or after announcing, if `delay` > 0) — grant
 only to keys you control or fully trust.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.add_proxy` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Proxy | `Proxy.add_proxy` |
 
 ## Parameters
 

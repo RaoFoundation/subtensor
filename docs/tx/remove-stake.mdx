@@ -20,9 +20,9 @@ stake currently available. A partial unstake must leave a remainder
 worth at least 0.002 TAO at the simulated pool price — exit the full
 position instead of leaving dust (`AmountTooLow`).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.remove_stake`, `SubtensorModule.remove_stake_limit` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.remove_stake`, `SubtensorModule.remove_stake_limit` |
 
 ## Parameters
 

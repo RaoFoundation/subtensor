@@ -41,6 +41,7 @@
     "yuma3-enabled",
     "yuma-version",
     "subnet-is-active",
+    "subnet-emission-enabled",
     "user-liquidity-enabled",
     "bonds-reset-enabled",
     "transfers-enabled",

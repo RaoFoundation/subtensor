@@ -14,9 +14,9 @@ Ownership stays with the signing coldkey — use `transfer_stake` to hand
 the position to another coldkey, or `swap_stake` when only the subnet
 changes.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.move_stake` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.move_stake` |
 
 ## Parameters
 

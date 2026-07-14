@@ -953,6 +953,20 @@
     "python": "client.locks.subnet_convictions(...)"
   },
   {
+    "name": "subnet_emission_enabled",
+    "summary": "Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent).",
+    "description": "Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent).",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to query."
+    },
+    "category": "Hyperparameters",
+    "docs_url": "/docs/query/subnet-emission-enabled",
+    "python": "client.hyperparameters.subnet_emission_enabled(...)"
+  },
+  {
     "name": "subnet_hyperparameters",
     "summary": "All hyperparameters for a subnet, as a flat name -> raw value mapping.",
     "description": "All hyperparameters for a subnet, as a flat name -> raw value mapping.\n\nThe set of names is version-dependent; None if the subnet does not exist.\nUses the forward-compatible `get_subnet_hyperparams_v3` runtime API, so\nnewly added chain hyperparameters (e.g. `burn_half_life`) show up\nwithout a client update.",

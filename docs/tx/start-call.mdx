@@ -14,9 +14,9 @@ chain's minimum delay since the subnet was registered — calling too
 early fails. Until this is called the subnet earns nothing, so run it
 as soon as the delay allows.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.start_call` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | subnet owner | SubtensorModule | `SubtensorModule.start_call` |
 
 ## Parameters
 

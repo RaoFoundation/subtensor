@@ -15,9 +15,9 @@ Calling again overwrites the whole identity (empty fields clear their
 previous values); the chain enforces length limits on each field. Purely
 cosmetic: no effect on balances, stake, or permissions.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_identity` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_identity` |
 
 ## Parameters
 

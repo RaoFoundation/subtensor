@@ -14,9 +14,9 @@ and rate-limit behavior as `set_weights`. Use `set_weights` instead
 unless you need to force the commit path regardless of the subnet's
 commit-reveal setting.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.commit_timelocked_mechanism_weights` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.commit_timelocked_mechanism_weights` |
 
 ## Parameters
 

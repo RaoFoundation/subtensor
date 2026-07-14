@@ -13,9 +13,9 @@ handshake, and running any TLS endpoint is up to the caller. Signed by
 the hotkey, which must be registered on the subnet. Use plain
 `serve_axon` when peers do not need a published key.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.serve_axon_tls` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.serve_axon_tls` |
 
 ## Parameters
 

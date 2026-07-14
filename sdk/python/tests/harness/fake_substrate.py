@@ -51,6 +51,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "ImmunityPeriod"): 4096,
     ("SubtensorModule", "SubnetworkN"): 0,
     ("SubtensorModule", "NetworkRegisteredAt"): 0,
+    ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
 }

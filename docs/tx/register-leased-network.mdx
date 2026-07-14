@@ -17,9 +17,9 @@ this until raised. With an `end_block` the beneficiary can later take
 full ownership via `terminate_lease`; without one the lease is
 perpetual and ownership never transfers.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.register_leased_network` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.register_leased_network` |
 
 ## Parameters
 

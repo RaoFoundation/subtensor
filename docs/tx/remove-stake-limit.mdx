@@ -14,9 +14,9 @@ the entire position (the build fails if nothing is staked there). Like
 least 0.002 TAO at the simulated pool price (`AmountTooLow`). Prefer
 this over plain `remove_stake` when exiting large positions.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.remove_stake_limit` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.remove_stake_limit` |
 
 ## Parameters
 

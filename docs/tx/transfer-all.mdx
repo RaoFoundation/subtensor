@@ -12,9 +12,9 @@ to move those. A spend-cap policy treats this as an unbounded spend and
 blocks it until the cap is raised. With `keep_alive` (the default) the
 existential deposit stays behind; disable it to empty and reap the account.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Balances | `Balances.transfer_all` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Balances | `Balances.transfer_all` |
 
 ## Parameters
 

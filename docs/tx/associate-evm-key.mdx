@@ -18,9 +18,9 @@ chain reject the call. Prerequisites: the hotkey must be registered on
 and re-association is rate-limited to once per 7,200 blocks (~1 day) per
 neuron.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.associate_evm_key` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.associate_evm_key` |
 
 ## Parameters
 

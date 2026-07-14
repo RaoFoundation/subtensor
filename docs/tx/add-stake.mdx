@@ -20,9 +20,9 @@ when the amount is below the chain minimum of 0.002 TAO plus the swap fee.
 Dynamic subnets also reject a single swap larger than 1000x the pool's TAO
 reserve (`InsufficientLiquidity`).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.add_stake`, `SubtensorModule.add_stake_limit` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.add_stake`, `SubtensorModule.add_stake_limit` |
 
 ## Parameters
 

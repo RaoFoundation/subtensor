@@ -12,9 +12,9 @@ lease's end block has passed — earlier attempts fail, and perpetual leases
 (no end block) can never be terminated this way. Check the lease's end
 block with the `lease` read before calling.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.terminate_lease` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.terminate_lease` |
 
 ## Parameters
 

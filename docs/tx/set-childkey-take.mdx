@@ -12,9 +12,9 @@ the coldkey that owns the child hotkey. The chain enforces both its
 minimum and maximum childkey take bounds, and rate-limits only increases
 — decreases apply immediately, so lowering the take is always available.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_childkey_take` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_childkey_take` |
 
 ## Parameters
 

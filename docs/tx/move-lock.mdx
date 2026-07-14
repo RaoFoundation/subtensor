@@ -14,9 +14,9 @@ zero and matures again from scratch. The destination hotkey must exist
 on chain (fails with `HotKeyAccountNotExists`). Fails if there is no
 existing lock on the subnet to move.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.move_lock` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.move_lock` |
 
 ## Parameters
 

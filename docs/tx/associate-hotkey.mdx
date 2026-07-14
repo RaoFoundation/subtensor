@@ -13,9 +13,9 @@ that are not already owned: if the hotkey already belongs to a coldkey the
 call succeeds but is silently a no-op — it does not error, and it does not
 take over the hotkey.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.try_associate_hotkey` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.try_associate_hotkey` |
 
 ## Parameters
 

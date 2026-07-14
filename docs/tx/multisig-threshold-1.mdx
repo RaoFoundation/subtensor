@@ -12,9 +12,9 @@ signer plus `other_signatories`, so the full member set must still be
 supplied even though nobody else signs. For thresholds above 1 use
 `multisig_execute` / `multisig_approve` instead.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Multisig | `Multisig.as_multi_threshold_1` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Multisig | `Multisig.as_multi_threshold_1` |
 
 ## Parameters
 

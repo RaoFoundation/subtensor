@@ -14,9 +14,9 @@ one signer — an extrinsic has a single signature — and batches cannot
 contain other batches. Spend limits and policy checks aggregate across
 every child, and the transaction plan lists each child's effects.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Utility | `Utility.batch_all` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Utility | `Utility.batch_all` |
 
 ## Parameters
 

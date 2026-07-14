@@ -10,9 +10,9 @@ deposits are returned. Careful if this account spawned pure proxies — they
 are controlled *through* delegations, so removing everything can strand them
 permanently (there is no key to recover a pure proxy with).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.remove_proxies` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Proxy | `Proxy.remove_proxies` |
 
 ## Parameters
 

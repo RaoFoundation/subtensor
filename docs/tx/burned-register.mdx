@@ -17,9 +17,9 @@ lower UID), and the new UID can itself be evicted once its immunity
 period ends. Use `root_register` instead for the root network
 (netuid 0).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.burned_register` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.burned_register` |
 
 ## Parameters
 

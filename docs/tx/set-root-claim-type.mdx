@@ -12,9 +12,9 @@ keeps alpha on the listed `subnets` while swapping the rest. The setting
 is per-coldkey and persists until changed again; it does not move anything
 already claimed. Read it back with the `root_claim_type` read.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_root_claim_type` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_root_claim_type` |
 
 ## Parameters
 

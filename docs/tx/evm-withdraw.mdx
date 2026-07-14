@@ -15,9 +15,9 @@ This is not `btcli evm send-to-ss58`, which spends from a stored EVM key
 via the balance-transfer precompile. Fails if the mirror holds less than
 the amount.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | EVM | `EVM.withdraw` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | EVM | `EVM.withdraw` |
 
 ## Parameters
 

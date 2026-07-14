@@ -16,9 +16,9 @@ intent so the chain has the call to run. Every approval must repeat the
 same threshold, signatory set, and call; later approvals must also pass
 the opening `timepoint` or they will not match the pending operation.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Multisig | `Multisig.as_multi` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Multisig | `Multisig.as_multi` |
 
 ## Parameters
 

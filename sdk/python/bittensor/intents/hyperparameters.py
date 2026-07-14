@@ -96,6 +96,7 @@ class SetHyperparameter(Intent):
 
     op = "set_hyperparameter"
     signer = "coldkey"
+    origin = "subnet_owner"
     wraps = tuple(
         dict.fromkeys(("AdminUtils", method) for method, _ in OWNER_HYPERPARAMETERS.values())
     )

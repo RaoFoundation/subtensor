@@ -13,9 +13,9 @@ sooner than the take rate limit allows. Signed by the coldkey that owns
 the hotkey. Use `set_take` if you just want to land on an absolute value
 without tracking the direction yourself.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.increase_take` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.increase_take` |
 
 ## Parameters
 

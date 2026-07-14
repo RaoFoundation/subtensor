@@ -16,9 +16,9 @@ any price. The two netuids must differ (`SameNetuid`). Use `move_stake`
 when the hotkey should change too, and `remove_stake` plus `add_stake`
 only if you want to control each leg separately.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.swap_stake`, `SubtensorModule.swap_stake_limit` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.swap_stake`, `SubtensorModule.swap_stake_limit` |
 
 ## Parameters
 

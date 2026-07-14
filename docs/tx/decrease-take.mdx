@@ -12,9 +12,9 @@ current take — and unlike increases it is not rate limited, so lowering
 your take is always available. Signed by the coldkey that owns the hotkey.
 Use `set_take` to land on an absolute value without tracking direction.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.decrease_take` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.decrease_take` |
 
 ## Parameters
 

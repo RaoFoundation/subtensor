@@ -14,9 +14,9 @@ miner state in them. Any change to the count clears the emission split
 back to an even division. Rate-limited and blocked during the
 end-of-epoch admin freeze window.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | AdminUtils | `AdminUtils.sudo_set_mechanism_count` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | subnet owner | AdminUtils | `AdminUtils.sudo_set_mechanism_count` |
 
 ## Parameters
 

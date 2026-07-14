@@ -14,9 +14,9 @@ balance. With `keep_alive` (the default) the transfer refuses to drop
 the sender below the existential deposit; disable it only when
 intentionally emptying the account.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Balances | `Balances.transfer_keep_alive`, `Balances.transfer_allow_death`, `Balances.transfer_all` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Balances | `Balances.transfer_keep_alive`, `Balances.transfer_allow_death`, `Balances.transfer_all` |
 
 ## Parameters
 

@@ -179,9 +179,40 @@ def params_table(schema: dict) -> str:
 
 # --- Intent (tx) pages -----------------------------------------------------
 
+# `Intent.origin` classvar -> the human phrasing the docs show for it.
+ORIGIN_LABELS = {
+    "signed": "any signed key",
+    "subnet_owner": "subnet owner",
+    "root": "root (chain sudo)",
+}
+
 
 def intent_pallet(cls) -> str:
     return cls.wraps[0][0] if cls.wraps else "Other"
+
+
+def verify_section(cls) -> str:
+    """A "Verify" section linking to the read that confirms the intent's
+    effect (``cls.verify``), when the intent declares one."""
+    if not cls.verify:
+        return ""
+    name = kebab(cls.verify)
+    spec = READS.get(cls.verify)
+    if spec is not None:
+        cli_parts, _ = read_cli_invocation(spec)
+        cmd = " ".join(cli_parts) + " --json"
+    else:
+        cmd = f"btcli query {name} --json"
+    return f"""
+## Verify
+
+After inclusion, confirm the effect with the
+[`{name}`](/docs/query/{name}) read:
+
+```bash
+{cmd}
+```
+"""
 
 
 def intent_page(op: str, cls) -> str:
@@ -205,10 +236,10 @@ def intent_page(op: str, cls) -> str:
     return f"""{frontmatter(kebab(op), summary)}
 {body}
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `{cls.signer}` | {intent_pallet(cls)} | {wraps} |
-
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `{cls.signer}` | {ORIGIN_LABELS[cls.origin]} | {intent_pallet(cls)} | {wraps} |
+{verify_section(cls)}
 ## Parameters
 
 {params_table(schema)}
@@ -268,12 +299,13 @@ def intent_index() -> str:
     ]
     for pallet in sorted(groups):
         parts.append(f"## {pallet}\n")
-        parts.append("| Operation | Signer | Summary |")
-        parts.append("| --- | --- | --- |")
+        parts.append("| Operation | Signer | Origin | Summary |")
+        parts.append("| --- | --- | --- | --- |")
         for op, cls in groups[pallet]:
             summary = cls.describe().split("\n")[0]
             parts.append(
-                f"| [`{kebab(op)}`](/docs/tx/{kebab(op)}) | {cls.signer} | {cell(summary)} |"
+                f"| [`{kebab(op)}`](/docs/tx/{kebab(op)}) | {cls.signer} | "
+                f"{ORIGIN_LABELS[cls.origin]} | {cell(summary)} |"
             )
         parts.append("")
     return "\n".join(parts)
@@ -324,21 +356,8 @@ def namespace_call(spec, py_kwargs: list[str]) -> str:
     return f"client.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
 
 
-def read_page(spec) -> str:
-    body = mdx_escape(body_after_summary(spec.doc))
-    if spec.params:
-        lines = [
-            "| Parameter | Type | Description |",
-            "| --- | --- | --- |",
-        ]
-        for name, jtype in spec.params.items():
-            lines.append(
-                f"| `{name}` | {jtype} | {cell(spec.param_docs.get(name, ''))} |"
-            )
-        table = "\n".join(lines) + "\n"
-    else:
-        table = "This read takes no parameters.\n"
-
+def read_cli_invocation(spec) -> tuple[list[str], list[str]]:
+    """The ``btcli query`` command parts and Python kwarg placeholders for a read."""
     cli_parts = [f"btcli query {kebab(spec.name)}"]
     py_kwargs = []
     for name, jtype in spec.params.items():
@@ -357,6 +376,25 @@ def read_page(spec) -> str:
             cli_parts.append(f"--{kebab(name)} <{jtype}>")
             py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
         py_kwargs.append(f"{name}={py_value}")
+    return cli_parts, py_kwargs
+
+
+def read_page(spec) -> str:
+    body = mdx_escape(body_after_summary(spec.doc))
+    if spec.params:
+        lines = [
+            "| Parameter | Type | Description |",
+            "| --- | --- | --- |",
+        ]
+        for name, jtype in spec.params.items():
+            lines.append(
+                f"| `{name}` | {jtype} | {cell(spec.param_docs.get(name, ''))} |"
+            )
+        table = "\n".join(lines) + "\n"
+    else:
+        table = "This read takes no parameters.\n"
+
+    cli_parts, py_kwargs = read_cli_invocation(spec)
 
     read_call = f"client.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
     if namespace_shadowed(spec):

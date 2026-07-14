@@ -10,9 +10,9 @@ The (delegate, proxy_type, delay) triple must match the original
 a different delegation. The proxy deposit reserved at add time is returned
 to the signer. Check current delegations with `btcli query proxies`.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.remove_proxy` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Proxy | `Proxy.remove_proxy` |
 
 ## Parameters
 

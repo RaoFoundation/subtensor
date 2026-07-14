@@ -13,9 +13,9 @@ back when the creator calls `refund_crowdloan`, or the contributor can
 `withdraw_crowdloan` themselves any time before finalization. On
 success, the funds go to the loan's target or fund its inner call.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.contribute` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Crowdloan | `Crowdloan.contribute` |
 
 ## Parameters
 

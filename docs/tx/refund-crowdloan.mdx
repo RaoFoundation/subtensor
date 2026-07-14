@@ -12,9 +12,9 @@ everyone is paid back. Once all contributors are refunded, the creator
 runs `dissolve_crowdloan`, which returns the creator's remaining
 contribution (including the deposit) and removes the loan.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.refund` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | Crowdloan | `Crowdloan.refund` |
 
 ## Parameters
 

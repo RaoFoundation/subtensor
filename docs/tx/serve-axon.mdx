@@ -13,9 +13,9 @@ rate limit (re-publishing too soon fails). Use `serve_axon_tls` if peers
 should verify a TLS certificate, and `reset_axon` to stop advertising the
 endpoint.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.serve_axon` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.serve_axon` |
 
 ## Parameters
 

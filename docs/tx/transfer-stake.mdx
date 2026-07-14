@@ -16,9 +16,9 @@ spend-cap policy treats this as an unbounded spend and blocks it until
 the cap is raised. Use `move_stake` to re-delegate without changing
 owners.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.transfer_stake` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.transfer_stake` |
 
 ## Parameters
 

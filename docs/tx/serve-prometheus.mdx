@@ -11,9 +11,9 @@ which must be registered on the subnet, and subject to the same serving
 rate limit as `serve_axon`. Like the axon calls, this only writes chain
 data — running the metrics server is up to the caller.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.serve_prometheus` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.serve_prometheus` |
 
 ## Parameters
 

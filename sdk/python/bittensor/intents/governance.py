@@ -33,6 +33,7 @@ class TrimSubnet(Intent):
 
     op = "trim_subnet"
     signer = "coldkey"
+    origin = "subnet_owner"  # the chain also accepts root
     wraps = (("AdminUtils", "sudo_trim_to_max_allowed_uids"),)
 
     netuid: int = field(metadata={"help": "Subnet to trim; the signer must be its owner."})
@@ -125,6 +126,7 @@ class SetMechanismCount(Intent):
 
     op = "set_mechanism_count"
     signer = "coldkey"
+    origin = "subnet_owner"  # the chain also accepts root
     wraps = (("AdminUtils", "sudo_set_mechanism_count"),)
 
     netuid: int = field(metadata={"help": "Subnet to configure; the signer must be its owner."})
@@ -157,6 +159,7 @@ class UpdateSymbol(Intent):
 
     op = "update_symbol"
     signer = "coldkey"
+    origin = "subnet_owner"  # the chain also accepts root
     wraps = (("SubtensorModule", "update_symbol"),)
 
     netuid: int = field(

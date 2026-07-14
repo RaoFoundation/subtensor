@@ -13,9 +13,9 @@ announcement delay has not elapsed, no announcement exists, or the swap
 is frozen by a dispute. After it succeeds, the old coldkey is empty; all
 future operations sign with the new coldkey.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.swap_coldkey_announced` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.swap_coldkey_announced` |
 
 ## Parameters
 
