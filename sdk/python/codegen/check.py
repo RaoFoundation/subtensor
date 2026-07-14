@@ -233,6 +233,9 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_max_allowed_validators",
         "sudo_set_max_epochs_per_block",
         "sudo_set_max_mechanism_count",
+        # unused uneven-split setter — removed from the intent/CLI surface;
+        # still reachable via `btcli call` if needed
+        "sudo_set_mechanism_emission_split",
         "sudo_set_max_registrations_per_block",
         "sudo_set_min_allowed_uids",
         "sudo_set_min_delegate_take",
