@@ -10,7 +10,6 @@ from ...hyperparams import to_raw
 from ...intents import (
     SetHyperparameter,
     SetMechanismCount,
-    SetMechanismEmissionSplit,
     SetSubnetIdentity,
     SetTake,
     StakeBurn,
@@ -23,7 +22,7 @@ from ...intents.hyperparameters import OWNER_HYPERPARAMETERS
 from ...settings import U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..hyperparams_view import show_hyperparameters
+from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
 from ..prompt import PromptSpec, fill_missing, interactive
 from ..tx import _parse_money
 
@@ -61,7 +60,7 @@ def _prompt_set_args(
     specs: list[PromptSpec] = []
     if name is None:
         if interactive(app_ctx):
-            params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+            params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
             show_hyperparameters(
                 app_ctx,
                 netuid,
@@ -116,7 +115,7 @@ def sudo_set(
         name, value = _prompt_set_args(app_ctx, netuid, name, value)
     try:
         intent = SetHyperparameter(netuid=netuid, name=name, value=value)
-    except ValueError as error:
+    except (ValueError, OverflowError) as error:
         app_ctx.output.error(
             str(error),
             help=f"`btcli sudo get --netuid {netuid} --name {name}` explains "
@@ -139,7 +138,7 @@ def sudo_get(
 ):
     """Show subnet hyperparameters."""
     app_ctx: AppContext = ctx_of(ctx)
-    params = app_ctx.run(lambda c: c.read("subnet_hyperparameters", netuid=netuid))
+    params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
     show_hyperparameters(app_ctx, netuid, params, name)
 
 
@@ -420,30 +419,3 @@ def mechanism_emissions(
     app_ctx: AppContext = ctx_of(ctx)
     split = app_ctx.run(lambda c: c.read("mechanism_emission_split", netuid=netuid))
     app_ctx.output.detail(None, {"netuid": netuid, "split": split})
-
-
-@mechanisms_app.command("split-emissions")
-@with_tx_globals
-def set_mechanism_emissions(
-    ctx: typer.Context,
-    netuid: int = typer.Option(
-        ..., "--netuid", help=SetMechanismEmissionSplit.field_help("netuid")
-    ),
-    split: str = typer.Option(
-        ...,
-        "--split",
-        help="Comma-separated integer weights, one per mechanism; the subnet's "
-        "emission is divided between mechanisms in proportion to them.",
-    ),
-):
-    """Set mechanism emission split.
-
-    Only the subnet owner can call this. It changes how the subnet's
-    emission is divided between its mechanisms from the next epoch on.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    values = [int(part.strip()) for part in split.split(",") if part.strip()]
-    app_ctx.submit(SetMechanismEmissionSplit(netuid=netuid, split=values))
-
-
-mechanisms_app.command("emissions-split", hidden=True)(set_mechanism_emissions)

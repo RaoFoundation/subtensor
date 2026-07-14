@@ -137,10 +137,6 @@ intent_plan_test!(
 intent_plan_test!(intent_set_hyperparameter, "set_hyperparameter");
 intent_plan_test!(intent_set_identity, "set_identity");
 intent_plan_test!(intent_set_mechanism_count, "set_mechanism_count");
-intent_plan_test!(
-    intent_set_mechanism_emission_split,
-    "set_mechanism_emission_split"
-);
 intent_plan_test!(intent_set_perpetual_lock, "set_perpetual_lock");
 intent_plan_test!(intent_set_root_claim_type, "set_root_claim_type");
 intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
@@ -1088,6 +1084,10 @@ fn test_typed_reads() {
         .subnet_hyperparameters(1, None)
         .expect("hyperparameters read");
     assert!(field(&hp, "tempo").is_some());
+    assert!(
+        field(&hp, "burn_half_life").is_some(),
+        "v3 hyperparams must include burn_half_life; got {hp:#?}"
+    );
 
     let rate = ctx
         .client

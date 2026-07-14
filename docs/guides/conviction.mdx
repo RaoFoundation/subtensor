@@ -102,7 +102,7 @@ btcli tx lock-stake --netuid 7 --amount-alpha 1000 --dry-run -w my_coldkey
 btcli tx lock-stake --netuid 7 --amount-alpha 1000 -w my_coldkey
 
 # Switch to perpetual mode (irreversible public signal when switching to decaying)
-btcli tx set-perpetual-lock --netuid 7 --enabled true -w my_coldkey
+btcli tx set-perpetual-lock --netuid 7 --enabled -w my_coldkey
 ```
 
 The same flow in Python — lock, opt into perpetual, then read conviction back:

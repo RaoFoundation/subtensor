@@ -11,6 +11,14 @@ use sp_std::vec::Vec;
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// Neuron precompile for smart-contract (EVM) access to neuron management operations.
+///
+/// Each method maps to a `pallet-subtensor` dispatchable and is dispatched as a
+/// signed runtime call on behalf of the EVM caller (its mapped Substrate account),
+/// so the caller pays the underlying extrinsic weight and is subject to the same
+/// authorization rules (e.g. the caller coldkey must own the addressed hotkey).
+/// All methods are marked `payable` so calls carrying EVM value do not revert,
+/// but none of these methods consume the attached value.
 pub struct NeuronPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for NeuronPrecompile<R>
@@ -61,6 +69,22 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
+    /// Set inter-neuron weights for the calling neuron on a subnet.
+    ///
+    /// Dispatches `set_weights`. This direct path is only honored when commit-reveal
+    /// weights are **disabled** for the subnet; when commit-reveal is enabled the
+    /// weights must instead be committed and revealed via `commitWeights` /
+    /// `revealWeights`.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `dests` - Destination UIDs the weights apply to (uint16[])
+    /// * `weights` - Weight values, one per destination UID (uint16[])
+    /// * `version_key` - Weights version key; rejected if it is lower than the
+    ///   subnet's configured weights version key (uint64)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call
     #[precompile::public("setWeights(uint16,uint16[],uint16[],uint64)")]
     #[precompile::payable]
     pub fn set_weights(
@@ -83,6 +107,20 @@ where
         )
     }
 
+    /// Commit a hash of intended weights for the commit-reveal-v2 flow.
+    ///
+    /// Dispatches `commit_weights`. Stores a commitment for the caller's neuron on
+    /// the subnet so the weights can later be revealed during the correct reveal
+    /// epoch. Requires commit-reveal weights to be enabled for the subnet and the
+    /// caller to meet the subnet's stake threshold.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `commit_hash` - Hash of `(hotkey, netuid, uids, values, salt, version_key)`
+    ///   committing to the weights that will be revealed (bytes32)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call
     #[precompile::public("commitWeights(uint16,bytes32)")]
     #[precompile::payable]
     pub fn commit_weights(
@@ -101,6 +139,22 @@ where
         )
     }
 
+    /// Reveal previously committed weights and set them for the calling neuron.
+    ///
+    /// Dispatches `reveal_weights`. Verifies the reveal matches a prior
+    /// `commitWeights` commitment for the current reveal epoch, then sets the
+    /// weights and consumes the commitment. The revealed tuple must hash (under the
+    /// same scheme used to build the commit) to the stored commit hash.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `uids` - Destination UIDs the weights apply to (uint16[])
+    /// * `values` - Weight values, one per destination UID (uint16[])
+    /// * `salt` - Salts, one per destination UID, binding the commit (uint16[])
+    /// * `version_key` - Neuron version key, must match the committed value (uint64)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call
     #[precompile::public("revealWeights(uint16,uint16[],uint16[],uint16[],uint64)")]
     #[precompile::payable]
     pub fn reveal_weights(
@@ -125,6 +179,21 @@ where
         )
     }
 
+    /// Register a hotkey on a subnet by burning TAO from the caller coldkey.
+    ///
+    /// Dispatches `burned_register`. The EVM caller is used as the owning coldkey;
+    /// `hotkey` is the neuron hotkey to register. The subnet's current registration
+    /// burn is charged to the caller; on success the hotkey is assigned a UID on
+    /// the subnet (pruning the lowest-scoring neuron if the subnet is full) and the
+    /// coldkey becomes its owner.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `hotkey` - The hotkey account ID to register (bytes32)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call (e.g. insufficient
+    ///   balance to cover the burn, registration disabled, or no UID available)
     #[precompile::public("burnedRegister(uint16,bytes32)")]
     #[precompile::payable]
     fn burned_register(
@@ -142,6 +211,21 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(coldkey))
     }
 
+    /// Register a hotkey on a subnet with a maximum acceptable burn price.
+    ///
+    /// Dispatches `register_limit`. Like `burnedRegister`, but the registration only
+    /// proceeds if the subnet's current burn is less than or equal to `limit_price`,
+    /// so a surging burn cannot over-charge the caller. The EVM caller is the owning
+    /// coldkey; `hotkey` is the neuron hotkey to register.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `hotkey` - The hotkey account ID to register (bytes32)
+    /// * `limit_price` - Maximum burn, in RAO, the caller is willing to pay (uint64)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call (e.g. current burn
+    ///   exceeds `limit_price`, insufficient balance, registration disabled)
     #[precompile::public("registerLimit(uint16,bytes32,uint64)")]
     #[precompile::payable]
     fn register_limit(
@@ -161,6 +245,24 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(coldkey))
     }
 
+    /// Publish the calling neuron's Axon endpoint metadata for a subnet.
+    ///
+    /// Dispatches `serve_axon`. Stores the network location of the neuron's Axon
+    /// (its query/forward RPC server) so validators and other neurons on the subnet
+    /// can discover and reach it.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `version` - Axon protocol version (uint32)
+    /// * `ip` - IPv4/IPv6 address as a packed integer (uint128)
+    /// * `port` - TCP port (uint16)
+    /// * `ip_type` - Address family: 4 for IPv4, 6 for IPv6 (uint8)
+    /// * `protocol` - Transport protocol (uint8)
+    /// * `placeholder1` - Reserved field (uint8)
+    /// * `placeholder2` - Reserved field (uint8)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call
     #[precompile::public("serveAxon(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8)")]
     #[precompile::payable]
     #[allow(clippy::too_many_arguments)]
@@ -192,6 +294,25 @@ where
         )
     }
 
+    /// Publish the calling neuron's Axon endpoint metadata together with a TLS certificate.
+    ///
+    /// Dispatches `serve_axon_tls`. Like `serveAxon`, and additionally stores a TLS
+    /// certificate so the Axon can be reached over a mutually-authenticated TLS
+    /// connection.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `version` - Axon protocol version (uint32)
+    /// * `ip` - IPv4/IPv6 address as a packed integer (uint128)
+    /// * `port` - TCP port (uint16)
+    /// * `ip_type` - Address family: 4 for IPv4, 6 for IPv6 (uint8)
+    /// * `protocol` - Transport protocol (uint8)
+    /// * `placeholder1` - Reserved field (uint8)
+    /// * `placeholder2` - Reserved field (uint8)
+    /// * `certificate` - TLS certificate bytes (bytes)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call
     #[precompile::public(
         "serveAxonTls(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8,bytes)"
     )]
@@ -227,6 +348,20 @@ where
         )
     }
 
+    /// Publish the calling neuron's Prometheus metrics endpoint metadata for a subnet.
+    ///
+    /// Dispatches `serve_prometheus`. Stores the network location of the neuron's
+    /// Prometheus metrics server so its operational metrics can be scraped.
+    ///
+    /// # Arguments
+    /// * `netuid` - The subnet identifier (uint16)
+    /// * `version` - Prometheus endpoint version (uint32)
+    /// * `ip` - IPv4/IPv6 address as a packed integer (uint128)
+    /// * `port` - TCP port (uint16)
+    /// * `ip_type` - Address family: 4 for IPv4, 6 for IPv6 (uint8)
+    ///
+    /// # Returns
+    /// * `()` on success, or an EVM error reverts the call
     #[precompile::public("servePrometheus(uint16,uint32,uint128,uint16,uint8)")]
     #[precompile::payable]
     #[allow(clippy::too_many_arguments)]

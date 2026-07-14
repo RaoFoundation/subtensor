@@ -79,6 +79,51 @@ fn test_migrate_associated_evm_address_index() {
 }
 
 #[test]
+fn test_migrate_clear_orphan_subnet_identities_v3() {
+    new_test_ext(1).execute_with(|| {
+        let migration_name = b"migrate_clear_orphan_subnet_identities_v3".to_vec();
+        HasMigrationRun::<Test>::remove(&migration_name);
+
+        let orphan_netuid = NetUid::from(1);
+        let live_netuid = NetUid::from(2);
+
+        // live_netuid is a registered network; orphan_netuid is not.
+        NetworksAdded::<Test>::insert(live_netuid, true);
+
+        let orphan_identity = SubnetIdentityV3 {
+            subnet_name: b"orphan".to_vec(),
+            ..Default::default()
+        };
+        let live_identity = SubnetIdentityV3 {
+            subnet_name: b"live".to_vec(),
+            ..Default::default()
+        };
+
+        SubnetIdentitiesV3::<Test>::insert(orphan_netuid, orphan_identity);
+        SubnetIdentitiesV3::<Test>::insert(live_netuid, live_identity.clone());
+
+        crate::migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<Test>();
+
+        // The orphan identity is removed; the live subnet identity is preserved.
+        assert!(!SubnetIdentitiesV3::<Test>::contains_key(orphan_netuid));
+        assert_eq!(
+            SubnetIdentitiesV3::<Test>::get(live_netuid),
+            Some(live_identity.clone())
+        );
+
+        // Migration is marked as run.
+        assert!(HasMigrationRun::<Test>::get(&migration_name));
+
+        // Idempotent: re-running is a no-op (live identity still present).
+        crate::migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<Test>();
+        assert_eq!(
+            SubnetIdentitiesV3::<Test>::get(live_netuid),
+            Some(live_identity)
+        );
+    });
+}
+
+#[test]
 fn test_migrate_associated_evm_address_index_reconciles_over_cap_buckets() {
     new_test_ext(1).execute_with(|| {
         let migration_name = b"migrate_associated_evm_address_index".to_vec();
@@ -3348,6 +3393,42 @@ fn test_migrate_cleanup_swap_v3() {
         assert_eq!(
             u64::from(SubnetAlphaIn::<Test>::get(NetUid::from(1))),
             reserves + provided
+        );
+    });
+}
+
+// Regression test for issue #2793: migrate_cleanup_swap_v3 must be wired into the pallet
+// on_runtime_upgrade hook. Seeds a *Provided residual, runs the full upgrade hook, and asserts
+// the residual is folded into the main reserves. Without the wiring line in hooks.rs this fails.
+#[test]
+fn test_migrate_cleanup_swap_v3_runs_on_runtime_upgrade() {
+    use crate::migrations::migrate_cleanup_swap_v3::deprecated_swap_maps;
+    use frame_support::traits::Hooks;
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let provided: u64 = 9876;
+
+        deprecated_swap_maps::SubnetTaoProvided::<Test>::insert(netuid, TaoBalance::from(provided));
+        deprecated_swap_maps::SubnetAlphaInProvided::<Test>::insert(
+            netuid,
+            AlphaBalance::from(provided),
+        );
+
+        let tao_before = u64::from(SubnetTAO::<Test>::get(netuid));
+        let alpha_before = u64::from(SubnetAlphaIn::<Test>::get(netuid));
+
+        let _ = <crate::Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert!(!deprecated_swap_maps::SubnetTaoProvided::<Test>::contains_key(netuid));
+        assert!(!deprecated_swap_maps::SubnetAlphaInProvided::<Test>::contains_key(netuid));
+        assert_eq!(
+            u64::from(SubnetTAO::<Test>::get(netuid)),
+            tao_before + provided
+        );
+        assert_eq!(
+            u64::from(SubnetAlphaIn::<Test>::get(netuid)),
+            alpha_before + provided
         );
     });
 }

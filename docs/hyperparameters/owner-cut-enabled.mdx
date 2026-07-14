@@ -1,0 +1,45 @@
+---
+title: owner_cut_enabled
+description: Per-subnet toggle for the subnet owner's 18% share of alpha emission.
+---
+
+Controls whether the subnet owner receives their cut of the subnet's alpha
+emission. Owners care because it is their revenue; stakers and miners care
+because whatever the owner does not take is redistributed to them.
+
+## How it works
+
+The cut percentage itself is a **global, root-set** value (`SubnetOwnerCut`,
+11796/65535 ≈ 18%). This flag only decides, per subnet, whether the deduction
+happens at all. It defaults to **true**.
+
+Every block, when the chain accrues the subnet's `alpha_out`, it multiplies it
+by the cut percentage, subtracts that from the amount destined for
+participants, and accumulates it in a pending bucket. At the next epoch the
+pending cut is staked directly to the subnet owner's hotkey and coldkey, while
+the remainder goes through Yuma Consensus to miners, validators, and stakers
+(see [the per-tempo split](/docs/concepts/emissions#the-per-tempo-split)).
+
+When the flag is off, no deduction happens: the full `alpha_out` flows to
+participants and the owner receives nothing — the forgone cut is not stashed
+or paid retroactively. Blocks are settled as they accrue, so flipping the flag
+mid-tempo affects only the blocks after the change.
+
+<HyperparamOwnerCut focus="owner_cut_enabled" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name owner_cut_enabled
+btcli sudo set --netuid 12 --name owner_cut_enabled --value false
+```
+
+Settable by the subnet owner or root; booleans take `true` or `false`. Not
+permitted on the root subnet.
+
+## Related
+
+- [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled)
+  — lock the cut as it arrives
+- [`transfers_enabled`](/docs/hyperparameters/transfers-enabled)
+- [Emissions](/docs/concepts/emissions) — the full per-tempo split

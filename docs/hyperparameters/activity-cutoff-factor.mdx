@@ -1,0 +1,53 @@
+---
+title: activity_cutoff_factor
+description: Tempo-relative activity cutoff — per-mille of tempo a validator can go without setting weights.
+---
+
+`activity_cutoff_factor` sets the inactivity window as a fraction of the
+epoch length instead of an absolute block count: the effective
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) is
+`factor × tempo / 1000` blocks. Because the window scales with
+[`tempo`](/docs/hyperparameters/tempo), a subnet that changes its epoch
+cadence keeps the same *number of epochs* of tolerance rather than a fixed
+wall-clock window.
+
+## How it works
+
+`get_activity_cutoff_blocks` (`pallets/subtensor/src/utils/misc.rs`) computes
+`factor_milli × tempo / 1000`, clamped to at least 1 block, and the epoch uses
+that value to mask inactive validators out of consensus (see
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) for the masking
+mechanics).
+
+The factor is per-mille: 1,000 means one full tempo, 13,889 (the default)
+means ~13.9 tempos — 5,000 blocks (~16.7 hours) at the default tempo of 360,
+matching the legacy absolute cutoff. Bounds are 1,000–50,000 (one to fifty
+tempos).
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name activity_cutoff_factor
+```
+
+Owner-settable:
+
+```
+btcli sudo set --netuid N --name activity_cutoff_factor --value 13889
+```
+
+This dispatches `sudo_set_activity_cutoff_factor` (AdminUtils), owner-or-root:
+the owner path is rate-limited (once per ~2 tempos by default) and respects
+the admin freeze window; root bypasses both. It supersedes the legacy
+absolute-blocks `sudo_set_activity_cutoff`, whose stored value the epoch
+ignores.
+
+## Related
+
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) ·
+[`tempo`](/docs/hyperparameters/tempo) ·
+[`kappa`](/docs/hyperparameters/kappa) ·
+[`max_validators`](/docs/hyperparameters/max-validators) ·
+[`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit)

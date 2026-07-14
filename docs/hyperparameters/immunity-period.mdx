@@ -1,0 +1,32 @@
+---
+title: immunity_period
+description: Blocks a newly registered neuron is protected from being pruned as the lowest-scoring UID on a full subnet.
+---
+
+`immunity_period` is the number of blocks a freshly registered neuron cannot be pruned to make room for a new registration. Subnet owners tune it to give new miners time to earn emission before they compete for their slot; miners care because it is their grace window to prove themselves.
+
+## How it works
+
+When a subnet is at [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids), each new registration must recycle an existing slot. `get_neuron_to_prune` (`pallets/subtensor/src/subnets/registration.rs`) scans every UID and treats a neuron as immune while `current_block − registration_block` is less than `immunity_period`. It picks the lowest-emission non-immune neuron (ties broken by older registration, then lower UID). Owner-immune UIDs (see [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit)) are skipped entirely.
+
+Immunity is not absolute: if pruning a non-immune neuron would leave `MinNonImmuneUids` (default 10) or fewer non-immune UIDs, the chain instead prunes the lowest-emission immune neuron. If no candidate exists at all, registration fails with `NoNeuronIdAvailable`.
+
+The default is 4096 blocks, about 13.7 hours at 12-second blocks. Longer periods shelter newcomers but shrink the pool of prunable slots; with heavy registration churn, most of the subnet can end up immune.
+
+<HyperparamUidLifecycle focus="immunity_period" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name immunity_period
+```
+
+The value is a plain block count:
+
+```
+btcli sudo set --netuid N --name immunity_period --value 4096
+```
+
+## Related
+
+[`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids), [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit), [`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit), [`min_burn`](/docs/hyperparameters/min-burn), [`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block)

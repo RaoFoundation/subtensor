@@ -305,6 +305,33 @@ impl<F, OU> SubtensorTxFeeHandler<F, OU> {
                 origin_netuid,
                 ..
             }) => alpha_vec.push((hotkey.clone(), *origin_netuid)),
+            Some(SubtensorCall::swap_hotkey {
+                hotkey,
+                new_hotkey: _,
+                netuid,
+            }) => match netuid {
+                Some(netuid) => alpha_vec.push((hotkey.clone(), *netuid)),
+                None => {
+                    let netuids = OU::get_all_netuids_for_coldkey_and_hotkey(who, hotkey);
+                    netuids
+                        .into_iter()
+                        .for_each(|netuid| alpha_vec.push((hotkey.clone(), netuid)));
+                }
+            },
+            Some(SubtensorCall::swap_hotkey_v2 {
+                hotkey,
+                new_hotkey: _,
+                netuid,
+                keep_stake: _,
+            }) => match netuid {
+                Some(netuid) => alpha_vec.push((hotkey.clone(), *netuid)),
+                None => {
+                    let netuids = OU::get_all_netuids_for_coldkey_and_hotkey(who, hotkey);
+                    netuids
+                        .into_iter()
+                        .for_each(|netuid| alpha_vec.push((hotkey.clone(), netuid)));
+                }
+            },
             Some(SubtensorCall::recycle_alpha {
                 hotkey,
                 amount: _,

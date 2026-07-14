@@ -27,7 +27,12 @@ from .. import config as cfg
 from ..balance import Balance
 from ..intents import Plan
 from ..result import ErrorCode, ExtrinsicResult
-from ..settings import explorer_account_url, explorer_extrinsic_url, explorer_subnet_url
+from ..settings import (
+    error_docs_url,
+    explorer_account_url,
+    explorer_extrinsic_url,
+    explorer_subnet_url,
+)
 from . import multisig_helpers as ms_helpers
 
 # Stripe-muted palette: almost monochrome — dim for structure (titles, keys,
@@ -427,33 +432,79 @@ class Output:
             return
         self._print_fields(fields)
 
-    def _print_fields(self, fields: dict[str, Any]) -> None:
-        """Aligned key/value block: dim keys, values colored by semantic role."""
-        width = max((len(k) for k in fields), default=0)
-        for key, value in fields.items():
-            # Built with Text (not markup) so values containing "[" render as-is.
-            line = Text("  ")
-            line.append(key.rjust(width), style=STYLE_KEY)
+    def _print_fields(self, fields: dict[str, Any], indent: int = 2) -> None:
+        """Aligned key/value block: dim keys, values colored by semantic role.
+
+        Structured values stay legible instead of printing as raw reprs: dict
+        values recurse as indented sub-blocks, lists of records render one
+        compact line per record, and lists of scalars join with commas.
+        """
+        # Reads like subnet_names / weights key by int; coerce for display only.
+        labels = [(str(key), value) for key, value in fields.items()]
+        width = max((len(label) for label, _ in labels), default=0)
+        for label, value in labels:
+            # Built with Text (not markup) so values containing "[" render
+            # as-is; never wrapped (addresses and hashes are copy targets).
+            line = Text(" " * indent, overflow="ignore", no_wrap=True)
+            line.append(label.rjust(width), style=STYLE_KEY)
+            if isinstance(value, (dict, list)) and not value:
+                line.append("  ")
+                line.append("none", style="dim")
+                self._out.print(line)
+                continue
+            if isinstance(value, dict):
+                self._out.print(line)
+                self._print_fields(value, indent + 2)
+                continue
+            if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+                self._out.print(line)
+                for item in value:
+                    self._out.print(self._record_line(item, indent + 2), soft_wrap=True)
+                continue
             line.append("  ")
-            if key.endswith("netuid") and str(value).isdigit():
+            if isinstance(value, list):
+                value = ", ".join(str(item) for item in value)
+            if label.endswith("netuid") and str(value).isdigit():
                 line.append_text(self.subnet_text(value))
             else:
                 line.append_text(
                     self._linked_text(
-                        str(value), _value_style(key, value), _address_kind_for_key(key)
+                        str(value),
+                        _value_style(label, value),
+                        _address_kind_for_key(label),
                     )
                 )
-            self._out.print(line)
+            self._out.print(line, soft_wrap=True)
+
+    def _record_line(self, record: dict[str, Any], indent: int) -> Text:
+        """One record as a compact ``key value  key value`` line (list items
+        inside a detail block, e.g. proxies or stake positions)."""
+        line = Text(" " * indent, overflow="ignore", no_wrap=True)
+        for index, (key, value) in enumerate(record.items()):
+            label = str(key)
+            if index:
+                line.append("  ")
+            line.append(f"{label} ", style=STYLE_KEY)
+            line.append_text(
+                self._linked_text(
+                    str(value), _value_style(label, value), _address_kind_for_key(label)
+                )
+            )
+        return line
 
     def hyperparameters(
         self,
         title: str,
-        rows: list[tuple[str, str, Optional[str]]],
+        rows: list[tuple[str, str, Optional[str], Optional[str]]],
         json_fields: dict[str, Any],
         hint: Optional[str] = None,
+        docs: Optional[str] = None,
     ) -> None:
-        """Aligned hyperparameter listing: raw value plus its dim human reading
-        (``kappa  32767  ≈ 0.5``). JSON carries the raw record untouched."""
+        """Aligned hyperparameter listing: raw value, its dim human reading, and
+        a one-line description (``kappa  32767  ≈ 0.5  consensus majority-stake
+        threshold``). ``docs`` links each name (OSC-8) to its explainer page
+        under that URL and prints as a ``see:`` footer. JSON carries the raw
+        record untouched."""
         if self.json_mode:
             self._json(json_fields)
             return
@@ -461,19 +512,28 @@ class Output:
         if not rows:
             self._out.print("  [dim]none[/dim]")
             return
-        name_width = max(len(name) for name, _, _ in rows)
-        value_width = max(len(value) for _, value, _ in rows)
-        for name, value, note in rows:
+        name_width = max(len(name) for name, _, _, _ in rows)
+        value_width = max(len(value) for _, value, _, _ in rows)
+        note_width = max((len(note) for _, _, note, _ in rows if note), default=0)
+        for name, value, note, short in rows:
             line = Text("  ", overflow="ignore", no_wrap=True)
-            line.append(name.rjust(name_width), style=STYLE_KEY)
+            name_style = f"{STYLE_KEY} link {docs}/{name.replace('_', '-')}" if docs else STYLE_KEY
+            line.append(name.rjust(name_width), style=name_style)
             line.append("  ")
             line.append(value.rjust(value_width))
-            if note:
+            if short:
+                # The reading column is padded so descriptions align.
+                line.append(f"  {(note or '').ljust(note_width)}", style=STYLE_HINT)
+                line.append(f"  {short}", style=STYLE_INCIDENTAL)
+            elif note:
                 line.append(f"  {note}", style=STYLE_HINT)
             self._out.print(line, soft_wrap=True)
-        if hint:
+        if hint or docs:
             self._out.print()
+        if hint:
             self._sub_diag("help", hint, console=self._out)
+        if docs:
+            self._sub_diag("see", docs, console=self._out)
 
     def hyperparameter(
         self,
@@ -484,6 +544,7 @@ class Output:
         *,
         help: Optional[str] = None,
         note: Optional[str] = None,
+        see: Optional[str] = None,
     ) -> None:
         """One hyperparameter in full: value fields, the explanation paragraph,
         and the how-to-set diagnostics."""
@@ -495,12 +556,14 @@ class Output:
         if doc:
             self._out.print()
             self._out.print(Padding(_prose(doc), (0, 0, 0, 2)))
-        if help or note:
+        if help or note or see:
             self._out.print()
         if help:
             self._sub_diag("help", help, console=self._out)
         if note:
             self._sub_diag("note", note, console=self._out)
+        if see:
+            self._sub_diag("see", see, console=self._out)
 
     def table(
         self,
@@ -1496,7 +1559,11 @@ class Output:
             return
         if error.name:
             self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
+        if error.description:
+            self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
+        if error.docs_url:
+            self._sub_diag("see", error.docs_url)
         if result.explorer_url:
             self._sub_diag("see", result.explorer_url)
         # The exact chain name gives the most specific explanation; the semantic
@@ -1514,13 +1581,21 @@ class Output:
     def explain(self, code: str, explanation: str, help_text: str) -> None:
         """Long-form explanation of one error code (`rustc --explain` convention)."""
         if self.json_mode:
-            self._json({"code": code, "explanation": explanation, "help": help_text})
+            self._json(
+                {
+                    "code": code,
+                    "explanation": explanation,
+                    "help": help_text,
+                    "see": error_docs_url(code),
+                }
+            )
             return
         self._out.print(Text(f"error[{code}]", style=STYLE_ERROR))
         self._out.print()
         self._out.print(_prose(explanation))
         self._out.print()
         self._sub_diag("help", help_text, console=self._out)
+        self._sub_diag("see", error_docs_url(code), console=self._out)
 
     def error_catalog(self, title: str, records: list[dict[str, str]]) -> None:
         """The chain error catalog as a gh-style listing: one dim pallet header
@@ -1541,7 +1616,8 @@ class Output:
                 self._out.print()
                 self._out.print(Text(pallet, style=STYLE_KEY))
             line = Text("  ", overflow="ignore", no_wrap=True)
-            line.append(record["name"].ljust(width))
+            url = record.get("docs_url")
+            line.append(record["name"].ljust(width), style=f"link {url}" if url else "")
             line.append("  ")
             line.append(record["code"], style=STYLE_KEY)
             self._out.print(line, soft_wrap=True)
@@ -1554,8 +1630,10 @@ class Output:
         self._out.print(f"[dim]{len(records)} {suffix}[/dim]")
 
     def explain_chain(self, matches: list[dict[str, str]]) -> None:
-        """Explain exact chain error names: the on-chain docs plus the semantic
-        code each classifies to. One block per pallet when a name collides."""
+        """Explain exact chain error names: the researched description (trigger
+        plus where to check) with the on-chain docs as fallback, and the
+        semantic code each classifies to. One block per pallet when a name
+        collides."""
         if self.json_mode:
             self._json(matches[0] if len(matches) == 1 else matches)
             return
@@ -1568,9 +1646,12 @@ class Output:
             header.append(f"{match['pallet']}.{match['name']}")
             self._out.print(header)
             self._out.print()
-            self._out.print(_prose(_diagnostic(match["docs"] or match["name"])))
+            body = match.get("description") or match["docs"] or match["name"]
+            self._out.print(_prose(_diagnostic(body)))
             self._out.print()
             self._sub_diag("help", match["help"], console=self._out)
+            see = match.get("docs_url") or error_docs_url(match["code"])
+            self._sub_diag("see", see, console=self._out)
         for code in dict.fromkeys(match["code"] for match in matches):
             tail = _prose(f"for more information about this code, run `btcli explain {code}`")
             tail.style = STYLE_HINT

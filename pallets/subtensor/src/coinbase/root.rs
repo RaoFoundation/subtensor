@@ -42,15 +42,15 @@ impl<T: Config> Pallet<T> {
         Self::get_max_allowed_uids(NetUid::ROOT)
     }
 
-    /// Checks for any UIDs in the given list that are either equal to the root netuid or exceed the total number of subnets.
+    /// Checks whether any netuid in the given list does not exist.
     ///
-    /// It's important to check for invalid UIDs to ensure data integrity and avoid referencing nonexistent subnets.
+    /// It's important to check for invalid netuids to ensure data integrity and avoid referencing nonexistent subnets.
     ///
     /// # Arguments
-    /// * `uids`: A reference to a vector of UIDs to check.
+    /// * `netuids`: A reference to a slice of netuids to check.
     ///
     /// # Returns
-    /// * `bool`: 'true' if any of the UIDs are invalid, 'false' otherwise.
+    /// * `bool`: 'true' if any of the netuids are invalid, 'false' otherwise.
     ///
     pub fn contains_invalid_root_uids(netuids: &[NetUid]) -> bool {
         for netuid in netuids {

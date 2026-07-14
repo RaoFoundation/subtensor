@@ -93,6 +93,10 @@ class ExtensionSigner:
     async def close(self) -> None:
         await self._bridge.close()
 
+    async def report_transaction_result(self, success: bool) -> None:
+        """Update the bridge page after the chain submission completes."""
+        await self._bridge.report_transaction_result(success)
+
     async def sign_extrinsic_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         body = dict(payload)
         body["address"] = self.ss58_address

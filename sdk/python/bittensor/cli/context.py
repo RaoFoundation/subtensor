@@ -459,22 +459,29 @@ class AppContext:
                 )
                 use_shield = False
             signer = await self.resolve_signing_wallet(intent.signer)
+            result = None
             try:
                 if use_shield:
-                    return await client.submit_shielded(
+                    result = await client.submit_shielded(
                         intent,
                         signer,
                         wait_for_finalization=False,
                     )
-                result = await client.execute(
-                    intent,
-                    signer,
-                    wait_for_finalization=False,
-                    **options,
-                )
-                await self._attach_multisig_followup(client, intent, result)
+                else:
+                    result = await client.execute(
+                        intent,
+                        signer,
+                        wait_for_finalization=False,
+                        **options,
+                    )
+                    await self._attach_multisig_followup(client, intent, result)
                 return result
             finally:
+                if self.uses_extension_signer() and hasattr(signer, "report_transaction_result"):
+                    with contextlib.suppress(Exception):
+                        await signer.report_transaction_result(
+                            bool(result is not None and result.success)
+                        )
                 if hasattr(signer, "close"):
                     await signer.close()
 

@@ -1,0 +1,38 @@
+---
+title: alpha_low
+description: Lower bound of the liquid-alpha bonds EMA range — the smoothing rate for weights that sit at consensus.
+---
+
+`alpha_low` is the floor of the per-pair bonds EMA rate when [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) is on. It is the rate applied to validator–miner pairs whose weights match consensus — the slow, steady end of the liquid-alpha range. Subnet owners tune it to set how sluggish bonds are in the default case; validators care because it governs how fast their conviction decays or accrues when they are not deviating.
+
+## How it works
+
+Each epoch, `alpha_sigmoid` (`pallets/subtensor/src/epoch/run_epoch.rs`) computes a per-pair rate:
+
+```
+alpha = alpha_low + sigmoid(diff) × (alpha_high − alpha_low)
+```
+
+where `diff` is the pair's deviation from consensus and the sigmoid rises with [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness). At zero deviation the sigmoid is near 0, so alpha sits at `alpha_low`; the result is always clamped into the `alpha_low`..`alpha_high` window. Defaults are (45875, 58982), i.e. 0.7 and 0.9 of `u16::MAX`.
+
+Validation in `do_set_alpha_values`: liquid alpha must already be enabled (`LiquidAlphaDisabled`), `alpha_low` must be at least 1638 (`u16::MAX / 40` ≈ 0.025) and at most `alpha_high`, else `AlphaLowOutOfRange`.
+
+<HyperparamLiquidAlpha focus="alpha_low" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name alpha_low
+```
+
+Stored as u16 (65535 = 1.0); the CLI accepts the raw integer or a 0..1 fraction with a decimal point:
+
+```
+btcli sudo set --netuid N --name alpha_low --value 0.7
+```
+
+On chain, `alpha_low` and [`alpha_high`](/docs/hyperparameters/alpha-high) live in one storage value set by a single `sudo_set_alpha_values` call. The CLI reads the current pair and resubmits it with only `alpha_low` changed, so the other side is preserved.
+
+## Related
+
+[`alpha_high`](/docs/hyperparameters/alpha-high), [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness), [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled), [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg), [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled)

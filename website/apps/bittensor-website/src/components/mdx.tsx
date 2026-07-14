@@ -9,8 +9,35 @@ import { ConvictionModeComparison } from './docs/conviction-mode-comparison';
 import { ConvictionSubnetScenario } from './docs/conviction-subnet-scenario';
 import { EmissionFlowDiagram } from './docs/emission-flow-diagram';
 import { EmissionNetworkSnapshot } from './docs/emission-network-snapshot';
+import { HyperparamActivityCutoffChart } from './docs/hyperparam-activity-cutoff-chart';
+import { HyperparamBondsPenaltyChart } from './docs/hyperparam-bonds-penalty-chart';
+import { HyperparamBondsResetChart } from './docs/hyperparam-bonds-reset-chart';
+import { HyperparamBurnController } from './docs/hyperparam-burn-controller';
+import { HyperparamChildkeyTakeRange } from './docs/hyperparam-childkey-take-range';
+import { HyperparamConsensusSigmoid } from './docs/hyperparam-consensus-sigmoid';
+import { HyperparamMaxValidatorsChart } from './docs/hyperparam-max-validators-chart';
+import { HyperparamLegacyAdjustment } from './docs/hyperparam-legacy-adjustment';
+import { HyperparamLiquidAlpha } from './docs/hyperparam-liquid-alpha';
+import { HyperparamOwnerCut } from './docs/hyperparam-owner-cut';
+import { HyperparamPowDifficulty } from './docs/hyperparam-pow-difficulty';
+import { HyperparamPowToggleDeadEnd } from './docs/hyperparam-pow-toggle-dead-end';
+import { HyperparamRegistrationGate } from './docs/hyperparam-registration-gate';
+import { HyperparamRegsCapChart } from './docs/hyperparam-regs-cap-chart';
+import { HyperparamRegsPerBlockChart } from './docs/hyperparam-regs-per-block-chart';
+import { HyperparamServingRateLimitChart } from './docs/hyperparam-serving-rate-limit-chart';
+import { HyperparamTempoTimeline } from './docs/hyperparam-tempo-timeline';
+import { HyperparamTransfersEnabledFlow } from './docs/hyperparam-transfers-enabled-flow';
+import { HyperparamUidLifecycle } from './docs/hyperparam-uid-lifecycle';
+import { HyperparamWeightsRateLimitChart } from './docs/hyperparam-weights-rate-limit-chart';
+import { HyperparamWeightsRules } from './docs/hyperparam-weights-rules';
+import { HyperparamWeightsVersionGate } from './docs/hyperparam-weights-version-gate';
+import { HyperparamYuma3Chart } from './docs/hyperparam-yuma3-chart';
+import { MevShieldTimeline } from './docs/mev-shield-timeline';
 import { RegistrationBurnTimeline } from './docs/registration-burn-timeline';
 import { RootProportionExplainer } from './docs/root-proportion-explainer';
+import { StakingFlowDiagram } from './docs/staking-flow-diagram';
+import { StakingPoolSwapDemo } from './docs/staking-pool-swap-demo';
+import { StakingSlippageLimit } from './docs/staking-slippage-limit';
 import { SubnetEmissionShareChart } from './docs/subnet-emission-share-chart';
 import { TaoHalvingChart } from './docs/tao-halving-chart';
 import { YumaConsensusDemo } from './docs/yuma-consensus-demo';
@@ -106,12 +133,39 @@ export function getMDXComponents(components?: MDXComponents) {
     EmissionNetworkSnapshot,
     EmissionFlowDiagram,
     RootProportionExplainer,
+    StakingFlowDiagram,
+    StakingPoolSwapDemo,
+    StakingSlippageLimit,
+    MevShieldTimeline,
     RegistrationBurnTimeline,
     ConvictionLockChart,
     ConvictionSubnetScenario,
     ConvictionModeComparison,
     EvmAddressDomains,
     EvmMoneyFlows,
+    HyperparamActivityCutoffChart,
+    HyperparamBondsPenaltyChart,
+    HyperparamBondsResetChart,
+    HyperparamBurnController,
+    HyperparamChildkeyTakeRange,
+    HyperparamConsensusSigmoid,
+    HyperparamMaxValidatorsChart,
+    HyperparamLegacyAdjustment,
+    HyperparamLiquidAlpha,
+    HyperparamOwnerCut,
+    HyperparamPowDifficulty,
+    HyperparamPowToggleDeadEnd,
+    HyperparamRegistrationGate,
+    HyperparamRegsCapChart,
+    HyperparamRegsPerBlockChart,
+    HyperparamServingRateLimitChart,
+    HyperparamTempoTimeline,
+    HyperparamTransfersEnabledFlow,
+    HyperparamUidLifecycle,
+    HyperparamWeightsRateLimitChart,
+    HyperparamWeightsRules,
+    HyperparamWeightsVersionGate,
+    HyperparamYuma3Chart,
     ...components,
   } satisfies MDXComponents;
 }

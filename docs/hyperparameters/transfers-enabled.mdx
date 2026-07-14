@@ -1,0 +1,48 @@
+---
+title: transfers_enabled
+description: Per-subnet toggle allowing stake to be transferred between coldkeys.
+---
+
+Controls whether staked alpha on this subnet can be moved from one coldkey to
+another. It matters to stakers who shift positions between their own wallets or
+hand alpha to someone else without unstaking, and to subnet owners who would
+rather see alpha change hands only through the pool.
+
+## How it works
+
+The flag lives in `TransferToggle` storage and defaults to **true**. It is
+checked only on the coldkey-changing path:
+[`transfer-stake`](/docs/tx/transfer-stake) validates it and fails with
+`TransferDisallowed` when the toggle is off. Moving stake between hotkeys or
+subnets under the *same* coldkey ([`move-stake`](/docs/tx/move-stake),
+[`swap-stake`](/docs/tx/swap-stake)) never consults the flag, and neither does
+ordinary staking or unstaking — disabling transfers does not trap anyone's
+stake, it only pins it to its current coldkey.
+
+For a cross-subnet transfer, **both** the origin and destination subnets must
+have transfers enabled. If the transferred stake carries a
+[conviction lock](/docs/guides/conviction), the lock follows the stake: locked
+mass and conviction move to the destination coldkey in proportion to the amount
+transferred.
+
+Flip the toggle below and try moving stake between the two coldkeys:
+
+<HyperparamTransfersEnabledFlow />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name transfers_enabled
+btcli sudo set --netuid 12 --name transfers_enabled --value false
+```
+
+Settable by the subnet owner or root; booleans take `true` or `false`.
+
+## Related
+
+- [`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) — the other
+  per-subnet economics toggle
+- [`min_childkey_take`](/docs/hyperparameters/min-childkey-take)
+- [Money](/docs/concepts/money) — how stake, pools, and valuation work
+- [Conviction locks](/docs/guides/conviction) — what happens to locked stake
+  on transfer

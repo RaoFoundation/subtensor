@@ -13,7 +13,7 @@ export function EmissionNetworkSnapshot() {
       title="Finney mainnet snapshot"
       caption={`Price-EMA emission (live ${snapshot.emissionMode}). Σ EMA prices from TaoMarketCap — fetched ${formatSnapshotAge(snapshot.fetchedAt)}.`}
     >
-      <div className="grid gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-5 lg:grid-cols-4">
         <ExplainerStat
           label="Block emission"
           value={loading ? '…' : `${formatTao(snapshot.blockEmissionTao)} / block`}
@@ -32,6 +32,7 @@ export function EmissionNetworkSnapshot() {
               ? 'Root dividends active (Σ EMA > 1.0, TMC)'
               : 'Root gate closed (Σ EMA ≤ 1.0, TMC)'
           }
+          accent={!loading && !snapshot.rootDividendGateOpen}
         />
         <ExplainerStat
           label="Root pool TAO"
@@ -40,7 +41,7 @@ export function EmissionNetworkSnapshot() {
         />
       </div>
 
-      <p className="mt-4 text-[0.8125rem] leading-relaxed text-mute">
+      <p className="mt-6 border-t border-line pt-4 text-[0.8125rem] leading-relaxed text-mute">
         TAO splits across subnets by <strong className="font-medium text-fg">SubnetMovingPrice</strong>{' '}
         (EMA of spot alpha price, capped at 1.0), minus last-tempo{' '}
         <strong className="font-medium text-fg">MinerBurned</strong> penalties. Top recipient right

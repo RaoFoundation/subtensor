@@ -150,9 +150,6 @@
     "test": "intent_set_mechanism_count"
   },
   {
-    "test": "intent_set_mechanism_emission_split"
-  },
-  {
     "test": "intent_set_perpetual_lock"
   },
   {

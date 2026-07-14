@@ -137,7 +137,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`mechanism-emission-split`](/docs/query/mechanism-emission-split) | Emission split between mechanisms on a subnet. |
 | [`metagraph`](/docs/query/metagraph) | The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...). |
 | [`subnet`](/docs/query/subnet) | Tempo, burn, and neuron count for one subnet (the three reads run concurrently). |
-| [`subnet-hyperparameters`](/docs/query/subnet-hyperparameters) | All hyperparameters for a subnet (named fields; version-dependent set). |
+| [`subnet-hyperparameters`](/docs/query/subnet-hyperparameters) | All hyperparameters for a subnet, as a flat name -> raw value mapping. |
 | [`subnet-identity`](/docs/query/subnet-identity) | The identity metadata of a subnet, or None. |
 | [`subnet-names`](/docs/query/subnet-names) | Registered name of every subnet that published an identity, keyed by netuid. |
 | [`subnet-registration-cost`](/docs/query/subnet-registration-cost) | Current cost to register a new subnet. |

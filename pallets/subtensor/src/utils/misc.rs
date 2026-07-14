@@ -108,9 +108,9 @@ impl<T: Config> Pallet<T> {
     // ==== Global Setters ====
     // ========================
     /// Unchecked tempo write used by tests, precompiles, and internal helpers.
-    /// Does NOT reset `LastEpochBlock` — that is the responsibility of the owner-side
-    /// `set_tempo` extrinsic and `sudo_set_tempo` (root), both of which perform the cycle
-    /// reset explicitly.
+    /// Does NOT reset `LastEpochBlock` — that is the responsibility of
+    /// `AdminUtils::sudo_set_tempo` (owner-or-root), which performs the cycle
+    /// reset explicitly via `apply_tempo_with_cycle_reset`.
     pub fn set_tempo_unchecked(netuid: NetUid, tempo: u16) {
         Tempo::<T>::insert(netuid, tempo);
         Self::deposit_event(Event::TempoSet(netuid, tempo));

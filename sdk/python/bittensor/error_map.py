@@ -65,7 +65,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     # ── Balances ────────────────────────────────────────────────────────
     "VestingBalance": _C.INSUFFICIENT_BALANCE,
     "LiquidityRestrictions": _C.INSUFFICIENT_BALANCE,
-    "InsufficientBalance": _C.INSUFFICIENT_BALANCE,  # also SubtensorModule, Crowdloan, Swap
+    "InsufficientBalance": _C.INSUFFICIENT_BALANCE,  # also Crowdloan, Swap
     "ExistentialDeposit": _C.INSUFFICIENT_BALANCE,
     "Expendability": _C.INSUFFICIENT_BALANCE,
     "ExistingVestingSchedule": _C.ALREADY_EXISTS,
@@ -186,6 +186,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "SubtokenDisabled": _C.SUBTOKEN_DISABLED,  # also Swap
     "HotKeySwapOnSubnetIntervalNotPassed": _C.RATE_LIMITED,
     "SameNetuid": _C.INVALID_ARGUMENT,
+    "InsufficientTaoBalance": _C.INSUFFICIENT_BALANCE,
+    "InsufficientAlphaBalance": _C.INSUFFICIENT_BALANCE,
     "InvalidLeaseBeneficiary": _C.INVALID_ARGUMENT,
     "LeaseCannotEndInThePast": _C.INVALID_ARGUMENT,
     "LeaseNetuidNotFound": _C.NOT_FOUND,

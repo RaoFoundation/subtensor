@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 429
+Spec version: 431
 """
 from typing import Any, NamedTuple
 
@@ -422,7 +422,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_activity_cutoff_factor(netuid: 'NetUid', factor_milli: 'u32') -> Call:
-        '`set_activity_cutoff_factor`. Per-mille (1/1000) units; `cutoff_blocks = (factor × tempo) / 1000`. Validates `[MinActivityCutoffFactorMilli, MaxActivityCutoffFactorMilli]`. Callable by the subnet owner (rate-limited via `OwnerHyperparamUpdate`, respects the admin freeze window) or by root (bypasses both).'
+        'Deprecated compatibility entry point retained for call-index stability. This call charges a fee, returns success, and does not modify state. Use `AdminUtils::sudo_set_activity_cutoff_factor` to change the factor.'
         return Call('SubtensorModule', 'set_activity_cutoff_factor', {'netuid': netuid, 'factor_milli': factor_milli})
 
     @staticmethod
@@ -452,7 +452,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_mechanism_weights(netuid: 'NetUid', mecid: 'MechId', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
-        'Sets the caller weights for the incentive mechanism for mechanisms. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored as u16s they represent rational values in the range [0,1] which sum to 1 and can be interpreted as probabilities. The specific weights determine how inflation propagates outward from this peer.  # Note The 16 bit integers weights should represent 1.0 as the max u16. However, the function normalizes all integers to u16_max anyway. This means that if the sum of all elements is larger or smaller than the amount of elements * u16_max, all elements will be corrected for this deviation.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `mecid`: The u8 mechnism identifier.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: The u16 integer encoded weights. Interpreted as rational values in the range [0,1]. They must sum to in32::MAX.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
+        'Sets the caller weights for the incentive mechanism for mechanisms. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `mecid`: The u8 mechnism identifier.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
@@ -482,12 +482,12 @@ class SubtensorModule:
 
     @staticmethod
     def set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'Owner-side `set_tempo`. Validates `[MinTempo, MaxTempo]`, applies a fixed `MinTempo`-block cooldown via `TransactionType::TempoUpdate`, respects the admin freeze window, and resets the cycle (`LastEpochBlock = current_block`) on success.'
+        'Deprecated compatibility entry point retained for call-index stability. This call charges a fee, returns success, and does not modify state. Use `AdminUtils::sudo_set_tempo` to change subnet tempo.'
         return Call('SubtensorModule', 'set_tempo', {'netuid': netuid, 'tempo': tempo})
 
     @staticmethod
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
-        'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored as u16s they represent rational values in the range [0,1] which sum to 1 and can be interpreted as probabilities. The specific weights determine how inflation propagates outward from this peer.  # Note The 16 bit integers weights should represent 1.0 as the max u16. However, the function normalizes all integers to u16_max anyway. This means that if the sum of all elements is larger or smaller than the amount of elements * u16_max, all elements will be corrected for this deviation.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: The u16 integer encoded weights. Interpreted as rational values in the range [0,1]. They must sum to in32::MAX.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
+        'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
@@ -868,6 +868,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_activity_cutoff', {'netuid': netuid, 'activity_cutoff': activity_cutoff})
 
     @staticmethod
+    def sudo_set_activity_cutoff_factor(netuid: 'NetUid', factor_milli: 'u32') -> Call:
+        'The extrinsic sets the activity-cutoff factor for a subnet, in per-mille (1/1000) of the tempo: the effective cutoff in blocks is `(factor × tempo) / 1000`. Bounded to `[MinActivityCutoffFactorMilli, MaxActivityCutoffFactorMilli]`. It is callable by the subnet owner (rate-limited via `OwnerHyperparamUpdate`, respects the admin freeze window) or the root account (bypasses both). This supersedes the absolute-blocks `sudo_set_activity_cutoff`.'
+        return Call('AdminUtils', 'sudo_set_activity_cutoff_factor', {'netuid': netuid, 'factor_milli': factor_milli})
+
+    @staticmethod
     def sudo_set_adjustment_alpha(netuid: 'NetUid', adjustment_alpha: 'u64') -> Call:
         'The extrinsic sets the adjustment alpha for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the adjustment alpha.'
         return Call('AdminUtils', 'sudo_set_adjustment_alpha', {'netuid': netuid, 'adjustment_alpha': adjustment_alpha})
@@ -1209,7 +1214,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'The extrinsic sets the tempo for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the tempo.'
+        'The extrinsic sets the tempo for a subnet. It is callable by the subnet owner (bounded to `[MinTempo, MaxTempo]` and rate-limited to one change per `MinTempo` blocks) or the root account (any u16, no rate limit). Both respect the admin freeze window. A successful change resets the epoch cycle (`LastEpochBlock = current_block`).'
         return Call('AdminUtils', 'sudo_set_tempo', {'netuid': netuid, 'tempo': tempo})
 
     @staticmethod

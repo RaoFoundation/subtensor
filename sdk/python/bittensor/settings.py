@@ -100,6 +100,23 @@ def resolve_endpoint(network: str) -> tuple[str, str]:
 
 _REVERSE_NETWORKS = {url: name for name, url in NETWORKS.items()}
 
+# The published SDK/CLI documentation site (docs pages referenced from CLI
+# output link here).
+DOCS_URL = "https://www.bittensor.com/docs"
+
+
+def error_docs_url(code_value: str) -> str:
+    """Docs explainer page for a semantic error code (e.g. insufficient_balance)."""
+    return f"{DOCS_URL}/errors/{code_value.replace('_', '-')}"
+
+
+def chain_error_docs_url(name: str) -> str:
+    """Docs explainer page for an exact chain error name (e.g. SlippageTooHigh).
+
+    The docs keep the on-chain CamelCase name in the URL, so no mangling."""
+    return f"{DOCS_URL}/errors/chain/{name}"
+
+
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``
 # is the on-chain extrinsic identifier "block_number-index" (index zero-padded
 # to 4 digits), the format both taostats and taomarketcap use. taomarketcap is

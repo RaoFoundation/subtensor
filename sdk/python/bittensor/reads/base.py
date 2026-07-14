@@ -23,7 +23,31 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Union
+
+
+@dataclass(frozen=True)
+class Grouped:
+    """Render hint for ``{group: [record, ...]}`` results: flatten to a table
+    with ``key`` as the leading column (e.g. epoch for weight commits)."""
+
+    key: str
+
+
+@dataclass(frozen=True)
+class Matrix:
+    """Render hint for ``{row: {col: value}}`` results: flatten to a long-form
+    three-column table with these column names."""
+
+    row: str
+    col: str
+    value: str
+
+
+# A read whose result isn't naturally a flat record/list declares its shape
+# here, and the generated `query` command renders it as a table instead of
+# falling back to a key/value dump of the raw mapping.
+RenderHint = Union[Grouped, Matrix]
 
 
 @dataclass
@@ -34,6 +58,7 @@ class ReadSpec:
     fetch: Callable[..., Awaitable[Any]]
     category: str  # topical grouping, rendered as a help panel by `query --help`
     param_docs: dict[str, str]  # param name -> meaning, for --help and the catalog
+    render: Optional[RenderHint] = None  # table shape for non-record results
 
     @property
     def summary(self) -> str:
@@ -49,12 +74,15 @@ def read(
     *,
     category: str,
     param_docs: Optional[dict[str, str]] = None,
+    render: Optional[RenderHint] = None,
 ):
     """Register a read under a stable machine name.
 
     ``param_docs`` documents what each param means; it feeds the generated
     ``query`` command's option help and the agent catalog. Address params
     (``*_ss58``) get their accepted-input-shapes note appended automatically.
+    ``render`` declares the table shape for results that aren't flat records
+    (see :data:`RenderHint`).
     """
 
     def decorate(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
@@ -64,7 +92,7 @@ def read(
         unknown = set(param_docs or {}) - set(params or {})
         if unknown:
             raise ValueError(f"param_docs for unknown params of read {name!r}: {sorted(unknown)}")
-        REGISTRY[name] = ReadSpec(name, doc, params or {}, fn, category, param_docs or {})
+        REGISTRY[name] = ReadSpec(name, doc, params or {}, fn, category, param_docs or {}, render)
         return fn
 
     return decorate
@@ -108,9 +136,16 @@ def scalar_read(name: str, item, *, per_netuid: bool, doc: str, category: str):
 
 
 def utf8_text(value: Any) -> Any:
-    """Decode chain byte-strings (hex or bytes) to text where possible."""
+    """Decode chain byte-strings (hex, bytes, or byte-value lists) to text
+    where possible. Compact-u16 vectors (e.g. the metagraph's ``name`` and
+    ``symbol``) arrive as lists of ints carrying utf-8 bytes."""
     if isinstance(value, str) and value.startswith("0x"):
         value = bytes.fromhex(value[2:])
+    if isinstance(value, (list, tuple)):
+        try:
+            value = bytes(int(b) for b in value)
+        except (TypeError, ValueError):
+            return value
     if isinstance(value, (bytes, bytearray)):
         try:
             return value.decode("utf-8")

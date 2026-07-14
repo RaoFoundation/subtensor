@@ -287,6 +287,36 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Math (KaTeX) — sized to sit inside the prose rather than on top of it.
+   Two classes (.bt-docs .katex) so this beats the marketing pages' global
+   `.katex { font-size: 2em }` without touching them. KaTeX's own math-italic
+   faces are kept: forcing mono breaks fraction/superscript metrics.
+--------------------------------------------------------------------------- */
+
+.bt-docs .katex {
+  /* KaTeX defaults to 1.21em; match the prose x-height instead. */
+  font-size: 1em;
+  color: var(--bt-fg);
+}
+
+/* Display math: restrained and left-aligned like the site's other blocks
+   (code, blockquotes), with an indent echoing the blockquote inset. */
+.bt-docs .katex-display {
+  margin-block: 1.5rem;
+  text-align: start;
+  padding-inline-start: 1.25em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bt-line) transparent;
+}
+
+.bt-docs .katex-display > .katex {
+  text-align: start;
+  font-size: 1.0625em;
+}
+
+/* ---------------------------------------------------------------------------
    Code blocks — shiki output (bt-light theme).
 --------------------------------------------------------------------------- */
 

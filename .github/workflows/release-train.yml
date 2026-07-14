@@ -360,6 +360,12 @@ jobs:
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
+      # PEP 740 provenance: sign every dist with this job's OIDC identity
+      # (must match the trusted publisher, so it runs here rather than in
+      # build-core-wheels.yml). uv publish uploads the resulting
+      # *.publish.attestation files alongside each dist.
+      - name: Generate PEP 740 attestations
+        uses: astral-sh/attest-action@f589a42a7efb6fe400b4f400de60b4bc90390027 # v0.0.6
       # --check-url makes a re-run after a partial upload idempotent: files
       # already on the index are skipped instead of failing with a 400
       # duplicate (e.g. the SDK wheel landed but bittensor-core didn't).

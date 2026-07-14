@@ -3,6 +3,9 @@
 //! Keep this file boring: one generated group per call-bearing runtime pallet.
 //! Proxy-specific policy belongs in `mod.rs`.
 
+// The Owner proxy keeps deprecated Subtensor tempo calls for encoded-call compatibility.
+#![allow(deprecated)]
+
 use frame_system::Call as SystemCall;
 use pallet_admin_utils::Call as AdminUtilsCall;
 use pallet_balances::Call as BalancesCall;
@@ -471,8 +474,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_min_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_max_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::terminate_lease),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::SubtensorModule(SubtensorCall::trigger_epoch),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_num_root_claims),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_root_claim_threshold),
@@ -482,12 +483,14 @@ call_filter_group!(
     ]
 );
 
-// Subnet parameters a subnet owner may set directly (the admin-utils calls
-// guarded by `ensure_sn_owner_or_root`). These are the genuine owner/lease
-// management surface, as opposed to the root-only `RootConfigCalls`.
+// Subnet parameters a subnet owner may set directly. This includes deprecated
+// Subtensor compatibility calls plus AdminUtils calls guarded by
+// `ensure_sn_owner_or_root`, as opposed to the root-only `RootConfigCalls`.
 call_filter_group!(
     SubnetManagementCalls,
     [
+        RuntimeCall::SubtensorModule(SubtensorCall::set_tempo),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_activity_cutoff_factor),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_serving_rate_limit),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_difficulty),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_weights_version_key),
@@ -496,6 +499,8 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_min_allowed_weights),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_rho),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_activity_cutoff),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_activity_cutoff_factor),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tempo),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_min_burn),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_burn),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_bonds_moving_average),
@@ -545,7 +550,6 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_registrations_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_owner_cut),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_rate_limit),
-        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tempo),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_total_issuance),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_immunity_period),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_network_min_lock_cost),
@@ -680,7 +684,7 @@ type SubtensorSplitCalls = (
     SubtensorCommonCalls,
 );
 
-// admin-utils, split for the Owner and SubnetLeaseBeneficiary proxies.
+// AdminUtils calls and deprecated owner-call shims, split for owner proxies.
 #[cfg(test)]
 type AdminUtilsSplitCalls = (SubnetManagementCalls, RootConfigCalls, OwnerKeyCalls);
 

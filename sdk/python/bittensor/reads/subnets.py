@@ -94,15 +94,48 @@ async def commit_reveal_enabled(view, netuid: int) -> bool:
     return bool(value)
 
 
+# I32F32 has 32 fractional bits. The hyperparams RPC returns
+# ``alpha_sigmoid_steepness`` as I32F32(saturating_from_num(i16)), but storage
+# and ``sudo_set_alpha_sigmoid_steepness`` take the plain i16 — so peel the
+# scale at the read boundary so display / copy-paste match the setter.
+_I32F32_ONE = 2**32
+
+
+def _hyperparam_value(tagged: dict) -> object:
+    """Flatten one v3 ``{type_tag: payload}`` value to its raw payload.
+
+    U64F64 decodes as ``{'bits': raw}``; those bits are what ``sudo set``
+    writes for ``burn_increase_mult``. I32F32 is only used for
+    ``alpha_sigmoid_steepness``, whose setter takes the integer part of the
+    fixed-point value (bits / 2^32), not the raw bits.
+    """
+    ((tag, payload),) = tagged.items()
+    if isinstance(payload, dict) and set(payload) == {"bits"}:
+        bits = payload["bits"]
+        if tag == "I32F32":
+            return int(bits) // _I32F32_ONE
+        return bits
+    return payload
+
+
 @read(
     "subnet_hyperparameters",
     {"netuid": "integer"},
     category="Subnets",
     param_docs={"netuid": "Subnet to query."},
 )
-async def subnet_hyperparameters(view, netuid: int) -> dict:
-    """All hyperparameters for a subnet (named fields; version-dependent set)."""
-    return await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_hyperparams, [netuid])
+async def subnet_hyperparameters(view, netuid: int) -> Optional[dict]:
+    """All hyperparameters for a subnet, as a flat name -> raw value mapping.
+
+    The set of names is version-dependent; None if the subnet does not exist.
+    Uses the forward-compatible ``get_subnet_hyperparams_v3`` runtime API, so
+    newly added chain hyperparameters (e.g. ``burn_half_life``) show up
+    without a client update.
+    """
+    entries = await view.runtime(api.SubnetInfoRuntimeApi.get_subnet_hyperparams_v3, [netuid])
+    if entries is None:
+        return None
+    return {entry["name"]: _hyperparam_value(entry["value"]) for entry in entries}
 
 
 @read(
@@ -112,8 +145,17 @@ async def subnet_hyperparameters(view, netuid: int) -> dict:
     param_docs={"netuid": "Subnet whose metagraph to fetch."},
 )
 async def metagraph(view, netuid: int) -> dict:
-    """The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...)."""
-    return await view.runtime(api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+    """The full metagraph for a subnet in one call (stakes, ranks, emissions, axons, ...).
+
+    `name` and `symbol` are decoded to text (the wire carries them as
+    compact-u16 vectors of utf-8 bytes, unlike every other text field).
+    """
+    graph = await view.runtime(api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+    if isinstance(graph, dict):
+        for key in ("name", "symbol"):
+            if key in graph:
+                graph[key] = utf8_text(graph[key])
+    return graph
 
 
 @read(

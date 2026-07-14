@@ -41,6 +41,36 @@ needs the [raw-call escape hatch](/docs/concepts/advanced).
 A new subnet is a two-step commitment: register, then activate with
 [`start-call`](/docs/tx/start-call) — until then it earns nothing.
 
+## Secure the owner account
+
+A subnet owner's coldkey controls the subnet's identity and owner-settable
+hyperparameters — authority that should never live in a single coldkey on an
+operational machine. The standard layering: make the owner account a
+[**multisig**](/docs/guides/multisig) from registration, and from it grant a
+dedicated operations key the narrow **Owner**
+[proxy type](/docs/guides/proxies#proxy-types) for routine changes. The ops
+key can manage subnet identity and hyperparameters but cannot transfer funds
+or rotate the owner; the multisig convenes only to manage that proxy, veto
+delayed calls, and act outside the **Owner** scope. Both guides walk through
+the setup — see
+[Subnet owners specifically](/docs/guides/proxies#subnet-owners-specifically)
+in the proxy guide for this exact pattern.
+
+For a new crowd-funded subnet, a
+[crowdloan lease](#financing-leases-and-crowdloans) provides a different secure
+ownership model: the chain creates the lease owner account and grants the
+beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
+
+If the subnet is already owned by a single coldkey, adopting this setup is a
+one-time ownership migration via the announced **coldkey swap**. Sending TAO to
+the multisig address is not enough: balance, stake, conviction locks, and
+subnet ownership are separate on-chain state, and a plain
+[`transfer`](/docs/tx/transfer) moves only the first. The full procedure —
+verifying the derived address, what the swap moves, and the delay — is in
+[Migrate an existing account to a multisig](/docs/guides/multisig#migrate-an-existing-account-to-a-multisig);
+[Wallet key rotation](/docs/concepts/wallets#key-rotation-and-recovery) covers
+what a coldkey swap does and doesn't move.
+
 ## Activate
 
 Once the chain's activation delay has passed, flip the subnet on with
@@ -102,13 +132,13 @@ The important owner-settable parameters, with chain defaults:
 
 | Parameter | Default | What it does |
 | --- | --- | --- |
-| `tempo` * | 360 | Blocks per epoch. Owner changes bounded 360–50,400. |
+| `tempo` | 360 | Blocks per epoch. Owner changes bounded 360–50,400 and reset the epoch cycle. |
 | `immunity_period` | 4,096 | Blocks a fresh UID is protected from pruning and trimming. |
 | `min_burn` / `max_burn` | 0.0005 τ / 100 τ | Clamp on the neuron registration price. Read the live price with [`burn`](/docs/query/burn). |
 | `burn_half_life` | 360 | Blocks for the registration price to decay halfway toward `min_burn` when nobody registers. |
 | `burn_increase_mult` | 1.26 | Multiplier applied to the registration price after each successful registration. |
 | `max_allowed_uids` | 256 | UID slots. Floor 64; times mechanism count must stay ≤ 256. |
-| `activity_cutoff_factor` * | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
+| `activity_cutoff_factor` | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
 | `serving_rate_limit` | 50 | Minimum blocks between `serve-axon` / `serve-prometheus` calls per key. |
 | `commit_reveal_weights_enabled` | true | Weights are committed hashed, revealed later. |
 | `commit_reveal_period` | 1 | Tempos between commit and reveal. |
@@ -166,11 +196,11 @@ excess neurons. Rules:
 ## Mechanisms
 
 A subnet can run multiple scoring mechanisms, each with its own weights.
-[`set-mechanism-count`](/docs/tx/set-mechanism-count) and
-[`set-mechanism-emission-split`](/docs/tx/set-mechanism-emission-split)
-configure them; validators target one via the `mechid` field on
-[`set-weights`](/docs/tx/set-weights). Read the current count with
-[`mechanism-count`](/docs/query/mechanism-count).
+[`set-mechanism-count`](/docs/tx/set-mechanism-count) configures how many;
+validators target one via the `mechid` field on
+[`set-weights`](/docs/tx/set-weights). Read the current count and split with
+[`mechanism-count`](/docs/query/mechanism-count) and
+[`mechanism-emission-split`](/docs/query/mechanism-emission-split).
 
 - The chain currently caps subnets at **2** mechanisms.
 - Each mechanism runs Yuma Consensus independently, with its own weight matrix
@@ -186,8 +216,7 @@ configure them; validators target one via the `mechid` field on
 - The emission split is a vector of u16 weights summing to 65,535 (e.g.
   `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
   mechanism count resets the split to even.
-- Count and split changes are each rate-limited to once per 7,200 blocks
-  (~24 hours).
+- Count changes are rate-limited to once per 7,200 blocks (~24 hours).
 
 ## Deregistration
 

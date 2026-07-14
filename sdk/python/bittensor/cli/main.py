@@ -22,9 +22,10 @@ from typer.core import TyperGroup
 from .. import __version__, wallets
 from .._generated.errors import ERRORS
 from ..config import get as config_default
+from ..error_descriptions import DESCRIPTIONS
 from ..intents import list_tools
-from ..result import EXPLANATIONS, REMEDIATION, ErrorCode, classify_error
-from ..settings import DEFAULT_NETWORK
+from ..result import EXPLANATIONS, REMEDIATION, ChainError, ErrorCode, classify_error
+from ..settings import DEFAULT_NETWORK, chain_error_docs_url, error_docs_url
 from . import globals as g
 from . import help_theme  # noqa: F401  (restyles typer's --help at import)
 from .call import call as call_command
@@ -33,7 +34,6 @@ from .commands import (
     axon,
     config,
     crowd,
-    deriv,
     evm,
     extension,
     lock,
@@ -95,7 +95,6 @@ app.add_typer(config.app, name="config")
 app.add_typer(utils.app, name="utils")
 
 app.add_typer(lock.app, name="lock", rich_help_panel=PANEL_STAKING)
-app.add_typer(deriv.app, name="deriv", rich_help_panel=PANEL_STAKING)
 app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
 
 app.add_typer(weights.app, name="weights", rich_help_panel=PANEL_OPERATORS)
@@ -119,7 +118,6 @@ for _sub_app, _aliases in (
     (config.app, ("c", "conf")),
     (weights.app, ("wt", "weight")),
     (crowd.app, ("cr", "crowdloan")),
-    (deriv.app, ("d",)),
 ):
     for _alias in _aliases:
         app.add_typer(_sub_app, name=_alias, hidden=True)
@@ -326,7 +324,17 @@ def _chain_error_matches(query: str) -> list[dict[str, str]]:
                 "name": info.name,
                 "code": code.value,
                 "docs": info.docs,
-                "help": REMEDIATION[code],
+                "description": DESCRIPTIONS.get(info.name, ""),
+                # Same remediation a failure would print (per-name overrides
+                # like SlippageTooHigh's tolerance flags included).
+                "help": ChainError("", name=info.name).remediation,
+                # The exact name's page when it is classified (and thus has
+                # one), the semantic code's page otherwise.
+                "docs_url": (
+                    chain_error_docs_url(info.name)
+                    if info.name in DESCRIPTIONS
+                    else error_docs_url(code.value)
+                ),
             }
         )
     return matches
@@ -347,6 +355,7 @@ def _chain_error_catalog(out: Output, pallet: Optional[str]) -> None:
             "name": info.name,
             "code": classify_error(info.docs, info.name).value,
             "description": info.docs,
+            "docs_url": (chain_error_docs_url(info.name) if info.name in DESCRIPTIONS else None),
         }
         for info in ERRORS.values()
         if pallet is None or info.pallet.lower() == pallet.lower()

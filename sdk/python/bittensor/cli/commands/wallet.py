@@ -221,16 +221,20 @@ def create(
     )
     coldkey_crypto = _resolve_crypto_type(app_ctx, crypto_type)
     hotkey_crypto = _resolve_crypto_type(app_ctx, hotkey_crypto_type)
-    wallet = wallets.create(
-        name=app_ctx.wallet_name,
-        hotkey=app_ctx.hotkey_name,
-        path=app_ctx.wallet_path,
-        n_words=n_words,
-        use_password=not no_password,
-        overwrite=overwrite,
-        coldkey_crypto_type=coldkey_crypto,
-        hotkey_crypto_type=hotkey_crypto,
-    )
+    try:
+        wallet = wallets.create(
+            name=app_ctx.wallet_name,
+            hotkey=app_ctx.hotkey_name,
+            path=app_ctx.wallet_path,
+            n_words=n_words,
+            use_password=not no_password,
+            overwrite=overwrite,
+            coldkey_crypto_type=coldkey_crypto,
+            hotkey_crypto_type=hotkey_crypto,
+        )
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
     app_ctx.output.detail(
         "created wallet",
         {
@@ -262,14 +266,18 @@ def new_coldkey(
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to create the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    wallet = wallets.new_coldkey(
-        name=app_ctx.wallet_name,
-        path=app_ctx.wallet_path,
-        n_words=n_words,
-        use_password=not no_password,
-        overwrite=overwrite,
-        crypto_type=crypto,
-    )
+    try:
+        wallet = wallets.new_coldkey(
+            name=app_ctx.wallet_name,
+            path=app_ctx.wallet_path,
+            n_words=n_words,
+            use_password=not no_password,
+            overwrite=overwrite,
+            crypto_type=crypto,
+        )
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
     app_ctx.output.detail(
         "created coldkey",
         {
@@ -366,16 +374,20 @@ def regen_coldkey(
     )
     confirm_wallet(app_ctx, help_text="Wallet to regenerate the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
-    wallet = wallets.regen_coldkey(
-        mnemonic=mnemonic,
-        seed=seed,
-        json=json_keystore,
-        name=app_ctx.wallet_name,
-        path=app_ctx.wallet_path,
-        use_password=not no_password,
-        overwrite=overwrite,
-        crypto_type=crypto,
-    )
+    try:
+        wallet = wallets.regen_coldkey(
+            mnemonic=mnemonic,
+            seed=seed,
+            json=json_keystore,
+            name=app_ctx.wallet_name,
+            path=app_ctx.wallet_path,
+            use_password=not no_password,
+            overwrite=overwrite,
+            crypto_type=crypto,
+        )
+    except ValueError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
     reported_crypto = wallet.coldkey.crypto_type if json_keystore else crypto
     app_ctx.output.detail(
         "regenerated coldkey",

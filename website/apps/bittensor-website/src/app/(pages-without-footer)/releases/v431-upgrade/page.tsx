@@ -537,6 +537,70 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
         </section>
 
         <section className={styles.section}>
+          <p className={styles.subtitle}>Operational breaking changes</p>
+          <p>
+            Beyond the economics and the new package, several call sites and accounting
+            assumptions change under the upgraded runtime. The full checklist lives in the{' '}
+            <DocLink href='/docs/migration#chain-and-runtime-changes'>migration guide</DocLink>;
+            the short version:
+          </p>
+          <ol className={styles.list}>
+            <li>
+              <strong>Stake moves are strict.</strong> <code>move_stake</code>,{' '}
+              <code>transfer_stake</code>, and <code>swap_stake</code> no longer silently shrink
+              an oversize alpha amount after an alpha-paid fee. Submitting the full stake balance
+              can fail — leave dust, or read the post-fee balance first.
+            </li>
+            <li>
+              <strong>Limit stakes refund leftover TAO.</strong> When a price limit stops a
+              stake-in before the full amount swaps, the unswapped TAO returns to the coldkey.
+              Prefer post-state balances over summing <code>StakeAdded</code> for partial fills.
+            </li>
+            <li>
+              <strong>Insufficient-balance errors split.</strong> SubtensorModule renamed{' '}
+              <code>InsufficientBalance</code> to <code>InsufficientTaoBalance</code> and added{' '}
+              <code>InsufficientAlphaBalance</code>. Match on the semantic error code, or handle
+              both names; other pallets may still emit the old name.
+            </li>
+            <li>
+              <strong>Owner tempo and activity cutoff moved.</strong> Set them through{' '}
+              <code>AdminUtils::sudo_set_tempo</code> and{' '}
+              <code>AdminUtils::sudo_set_activity_cutoff_factor</code>. The old SubtensorModule
+              call indices are retired — retarget raw encodings and Owner proxy prebuilds. The
+              live inactivity window is the tempo-relative factor, not the legacy absolute
+              blocks value.
+            </li>
+            <li>
+              <strong>Default slippage is on.</strong> Stake intents in v11 apply a 5% price
+              bound unless you opt out. Scripts that assumed any-price execution will see{' '}
+              <code>SlippageTooHigh</code>.
+            </li>
+            <li>
+              <strong>Take changes pay fees.</strong> <code>increase_take</code> and{' '}
+              <code>decrease_take</code> are no longer free extrinsics.
+            </li>
+            <li>
+              <strong>Subnet registration can queue.</strong> Under full capacity or pending
+              cleanup, <code>register_network</code> may emit{' '}
+              <code>NetworkRegistrationQueued</code> without creating the subnet — wait for{' '}
+              <code>NetworkAdded</code>.
+            </li>
+            <li>
+              <strong>Drand rounds are sequential.</strong> After the first pulse, only{' '}
+              <code>last_stored_round + 1</code> is accepted; missing rounds must be backfilled
+              in order.
+            </li>
+            <li>
+              <strong>Metadata and catalogs changed shape.</strong>{' '}
+              <code>get_proxy_filter</code> is now <code>get_proxy_filters</code>; TAO/Alpha and{' '}
+              <code>NetUid</code> have distinct metadata types;{' '}
+              <code>/catalog/errors.json</code> <code>chain_errors</code> values are objects
+              with <code>code</code>, <code>description</code>, and <code>docs_url</code>.
+            </li>
+          </ol>
+        </section>
+
+        <section className={styles.section}>
           <p className={styles.subtitle}>What you need to do</p>
           <p style={{textAlign: 'left', width: '100%'}}>
             Most participants require little or no action. In order of urgency:
@@ -546,25 +610,43 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
               <strong>Python users</strong> — uninstall bittensor-cli and bittensor-wallet,
               then install the new bittensor package. Follow the{' '}
               <DocLink href='/docs/migration'>migration guide</DocLink>; keyfiles are
-              unchanged.
+              unchanged. Expect default 5% slippage on stake trades, and branch on error{' '}
+              <em>codes</em> rather than the old <code>InsufficientBalance</code> name alone.
             </li>
             <li>
-              <strong>Proxy users</strong> — proxy permissions are now deny-by-default. Review
-              every existing proxy configuration.
+              <strong>Proxy users</strong> — permissions are deny-by-default. Review every
+              existing grant. Coldkey-swap and dissolve calls are narrower than before; Owner
+              proxies that set tempo or activity cutoff must target the AdminUtils calls.
             </li>
             <li>
-              <strong>Node operators</strong> — nodes not yet running the spec 431 binary must
-              upgrade to continue syncing.
+              <strong>Stakers and automation</strong> — do not submit a full alpha balance when
+              fees are paid in alpha; leave dust. If you stake with a price limit, check the
+              coldkey balance after inclusion rather than trusting the pre-refund event amount.
             </li>
             <li>
-              <strong>Indexers and SDK authors</strong> — chain metadata now carries typed
-              currency units; verify decoders against the new{' '}
-              <DocLink href='/docs/query'>query reference</DocLink>.
-            </li>
-            <li>
-              <strong>Subnet owners and stakers</strong> — review the{' '}
+              <strong>Subnet owners</strong> — review the{' '}
               <DocLink href='/docs/guides/conviction'>conviction guide</DocLink>. Ownership of
-              subnets older than one year is now contestable.
+              subnets older than one year is contestable. Set tempo and{' '}
+              <code>activity_cutoff_factor</code> through AdminUtils /{' '}
+              <code>btcli sudo set</code>. Emission forecasts that still fold{' '}
+              <code>root_proportion</code> into the cross-subnet split are wrong.
+            </li>
+            <li>
+              <strong>Indexers and SDK authors</strong> — regenerate bindings for typed
+              currency units and <code>get_proxy_filters</code>; handle{' '}
+              <code>NetworkRegistrationQueued</code>; treat limit-stake{' '}
+              <code>StakeAdded</code> / volume deltas cautiously until you confirm consumed
+              amounts; update any parser of <code>errors.json</code> chain_errors.
+            </li>
+            <li>
+              <strong>Node operators and drand submitters</strong> — no binary upgrade is
+              required to keep syncing Wasm; install the latest node image when published for
+              node-software updates. Custom pulse submitters must backfill rounds sequentially.
+            </li>
+            <li>
+              <strong>Validators and delegates</strong> — <code>increase_take</code> /{' '}
+              <code>decrease_take</code> now incur transaction fees; preview with{' '}
+              <code>--dry-run</code>.
             </li>
           </ol>
         </section>

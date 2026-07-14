@@ -650,6 +650,31 @@ pub mod pallet {
             Ok(())
         }
 
+        /// The extrinsic sets the activity-cutoff factor for a subnet, in per-mille
+        /// (1/1000) of the tempo: the effective cutoff in blocks is
+        /// `(factor × tempo) / 1000`. Bounded to `[MinActivityCutoffFactorMilli,
+        /// MaxActivityCutoffFactorMilli]`. It is callable by the subnet owner
+        /// (rate-limited via `OwnerHyperparamUpdate`, respects the admin freeze
+        /// window) or the root account (bypasses both). This supersedes the
+        /// absolute-blocks `sudo_set_activity_cutoff`.
+        #[pallet::call_index(97)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_activity_cutoff_factor())]
+        pub fn sudo_set_activity_cutoff_factor(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            factor_milli: u32,
+        ) -> DispatchResult {
+            pallet_subtensor::Pallet::<T>::do_set_activity_cutoff_factor(
+                origin,
+                netuid,
+                factor_milli,
+            )?;
+            log::debug!(
+                "ActivityCutoffFactorMilliSet( netuid: {netuid:?} factor_milli: {factor_milli:?} ) "
+            );
+            Ok(())
+        }
+
         /// The extrinsic sets the network registration allowed for a subnet.
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network registration allowed.
@@ -975,18 +1000,23 @@ pub mod pallet {
         }
 
         /// The extrinsic sets the tempo for a subnet.
-        /// It is only callable by the root account.
-        /// The extrinsic will call the Subtensor pallet to set the tempo.
+        /// It is callable by the subnet owner (bounded to `[MinTempo, MaxTempo]` and
+        /// rate-limited to one change per `MinTempo` blocks) or the root account (any
+        /// u16, no rate limit). Both respect the admin freeze window. A successful
+        /// change resets the epoch cycle (`LastEpochBlock = current_block`).
         #[pallet::call_index(30)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_tempo())]
+        #[pallet::weight(
+            <T as pallet::Config>::WeightInfo::sudo_set_tempo().max(
+                // Conservative floor from the original owner-call benchmark,
+                // plus the additional subnet-existence read performed by this call.
+                // Remove once weights are regenerated with the owner-path benchmark.
+                Weight::from_parts(44_877_000, 4_498)
+                    .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(7_u64))
+                    .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(3_u64))
+            )
+        )]
         pub fn sudo_set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
-            ensure_root(origin)?;
-            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
-            ensure!(
-                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
-                Error::<T>::SubnetDoesNotExist
-            );
-            pallet_subtensor::Pallet::<T>::apply_tempo_with_cycle_reset(netuid, tempo);
+            pallet_subtensor::Pallet::<T>::do_set_tempo(origin, netuid, tempo)?;
             log::debug!("TempoSet( netuid: {netuid:?} tempo: {tempo:?} ) ");
             Ok(())
         }

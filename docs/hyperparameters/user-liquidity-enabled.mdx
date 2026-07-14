@@ -1,0 +1,41 @@
+---
+title: user_liquidity_enabled
+description: Legacy flag for user-provided swap liquidity; always false since the balancer migration.
+---
+
+`user_liquidity_enabled` once gated whether users could open their own
+liquidity positions in a subnet's swap pool. That feature is gone: the chain
+migrated the swap to a balancer design, and the flag is now hardcoded to
+**false** for every subnet. It remains in the hyperparameter listing only so
+existing clients keep decoding a familiar field — treat it as a tombstone,
+not a setting.
+
+## How it works
+
+Under swap v3, `EnabledUserLiquidity` in the Swap pallet controlled per-subnet
+access to user LP calls (`add_liquidity`, `remove_liquidity`,
+`modify_position`). The balancer migration
+(`pallets/swap/src/pallet/migrations/migrate_swapv3_to_balancer.rs`) deleted
+that storage outright, and each of those extrinsics — along with the
+`toggle_user_liquidity` call that flipped the flag — now fails immediately
+with `Deprecated` (`pallets/swap/src/pallet/mod.rs`).
+
+The hyperparameter getter reflects this: `get_subnet_hyperparams_v3`
+(`pallets/subtensor/src/rpc_info/subnet_info.rs`) reports a literal `false`
+with no storage read behind it. There is nothing to enable and no one who can
+enable it.
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name user_liquidity_enabled
+```
+
+Always false. Not settable by anyone — the calls that once toggled it are
+deprecated on-chain.
+
+## Related
+
+[`transfers_enabled`](/docs/hyperparameters/transfers-enabled) ·
+[`subnet_is_active`](/docs/hyperparameters/subnet-is-active) ·
+[Money](/docs/concepts/money) — how the swap pool prices alpha today

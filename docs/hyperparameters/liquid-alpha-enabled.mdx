@@ -1,0 +1,32 @@
+---
+title: liquid_alpha_enabled
+description: Switches the bonds EMA from one flat rate to a per-weight rate that varies between alpha_low and alpha_high.
+---
+
+`liquid_alpha_enabled` turns on "liquid alpha": instead of every validator–miner bond smoothing at the same flat rate, each pair gets its own EMA rate based on how far the validator's weight deviates from consensus. Subnet owners enable it to reward decisive, differentiated weight-setting; validators care because it changes how fast their bonds — and dividends — respond to weight changes.
+
+## How it works
+
+In the epoch's `compute_bonds` (`pallets/subtensor/src/epoch/run_epoch.rs`), if this flag is on and consensus is non-empty, the chain builds a full matrix of per-pair alphas via `compute_liquid_alpha_values`: each pair's deviation (weight above consensus when increasing a bond, bond above weight when decreasing) is pushed through a sigmoid and mapped into the [`alpha_low`](/docs/hyperparameters/alpha-low)..[`alpha_high`](/docs/hyperparameters/alpha-high) range, with [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) controlling the transition sharpness. Larger deviations get a higher alpha, so those bonds move faster.
+
+When the flag is off, every pair uses the flat rate `1 − bonds_moving_avg / 1,000,000` (`compute_disabled_liquid_alpha`).
+
+One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) is off, the classic bond code ignores this toggle entirely and always uses [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg). Setting `alpha_low`/`alpha_high` also requires this flag to be on first (`LiquidAlphaDisabled` error otherwise).
+
+<HyperparamLiquidAlpha focus="liquid_alpha_enabled" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name liquid_alpha_enabled
+```
+
+Boolean — pass true or false:
+
+```
+btcli sudo set --netuid N --name liquid_alpha_enabled --value true
+```
+
+## Related
+
+[`alpha_low`](/docs/hyperparameters/alpha-low), [`alpha_high`](/docs/hyperparameters/alpha-high), [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness), [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled), [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg)

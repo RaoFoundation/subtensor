@@ -1,0 +1,48 @@
+---
+title: min_burn
+description: Floor for the burned-registration cost, in rao.
+---
+
+Sets the lowest price a subnet can charge for a burned registration. Miners
+watch it because it is the cost of joining a quiet subnet; owners tune it to
+keep registration from ever becoming free while still letting the price decay
+to something affordable.
+
+## How it works
+
+Every block, `update_registration_prices_for_networks` (in
+`pallets/subtensor/src/subnets/registration.rs`, run from `block_step`) decays
+the current burn price exponentially toward zero — and then clamps it into
+`[min_burn, max_burn]`. The same clamp is applied after each registration bumps
+the price by [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult).
+So with no registrations arriving, the price settles at exactly `min_burn` and
+stays there; `min_burn` is the resting price of an idle subnet.
+
+The value is stored in `MinBurn` as a rao amount (1 TAO = 1e9 rao). The chain
+default is 500,000 rao (τ0.0005). The owner-set extrinsic
+(`sudo_set_min_burn` in `pallets/admin-utils/src/lib.rs`) enforces two bounds:
+the new value must be **below 1 TAO** (`MinBurnUpperBound`) and **strictly less
+than the subnet's current `max_burn`**. Registration burns are recycled — they
+are subtracted from total issuance and can be re-emitted, which pushes halvings
+out (see [emissions](/docs/concepts/emissions)).
+
+<HyperparamBurnController focus="min_burn" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name min_burn
+btcli sudo set --netuid 12 --name min_burn --value 0.001
+```
+
+Settable by the subnet owner or root. A value with a decimal point is a TAO
+amount (`0.001` = τ0.001); a plain integer is raw rao (`1000000` = τ0.001).
+
+## Related
+
+- [`max_burn`](/docs/hyperparameters/max-burn) — the matching ceiling
+- [`burn_half_life`](/docs/hyperparameters/burn-half-life) — how fast the price
+  decays back to this floor
+- [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) — the bump
+  per registration
+- [`registration_allowed`](/docs/hyperparameters/registration-allowed)

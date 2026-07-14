@@ -771,8 +771,7 @@ impl<T: Config> Pallet<T> {
     /// * `hotkey` (&T::AccountId): The hotkey for which to retrieve the childkey take.
     ///
     /// # Returns
-    /// * `u16`: The childkey take value. This is a percentage represented as a value between 0
-    ///   and 10000, where 10000 represents 100%.
+    /// * `u16`: The childkey take value, scaled so `u16::MAX` represents 100%.
     pub fn get_childkey_take(hotkey: &T::AccountId, netuid: NetUid) -> u16 {
         ChildkeyTake::<T>::get(hotkey, netuid)
             .deconstruct()

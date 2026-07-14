@@ -30,7 +30,6 @@ from .crowdloan import (
 from .evm import EvmWithdraw, FundEvmKey
 from .governance import (
     SetMechanismCount,
-    SetMechanismEmissionSplit,
     StakeBurn,
     TrimSubnet,
     UpdateSymbol,
@@ -143,7 +142,6 @@ __all__ = [
     "SetHyperparameter",
     "SetIdentity",
     "SetMechanismCount",
-    "SetMechanismEmissionSplit",
     "SetPerpetualLock",
     "SetRootClaimType",
     "SetSubnetIdentity",

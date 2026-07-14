@@ -95,7 +95,7 @@ fn test_transfer_tao_zero_balance_non_zero_amount_fails() {
 
         assert_noop!(
             SubtensorModule::transfer_tao(&origin, &dest, 1u64.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
 
         assert_eq!(total_balance(&origin), 0.into());
@@ -114,7 +114,7 @@ fn test_transfer_tao_amount_greater_than_transferrable_fails() {
 
         assert_noop!(
             SubtensorModule::transfer_tao(&origin, &dest, amount.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
     });
 }
@@ -307,7 +307,7 @@ fn test_burn_tao_insufficient_balance_fails() {
 
         assert_noop!(
             SubtensorModule::burn_tao(&coldkey, 1u64.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
     });
 }
@@ -357,7 +357,7 @@ fn test_recycle_tao_amount_greater_than_max_preserving_fails() {
 
         assert_noop!(
             SubtensorModule::recycle_tao(&coldkey, too_much.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
 
         assert_eq!(balances_total_issuance(), subtensor_total_issuance());
@@ -567,7 +567,7 @@ fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
 
         assert_noop!(
             SubtensorModule::recycle_tao(&origin, max_preserving + 1u64.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
     });
 }

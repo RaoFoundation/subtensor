@@ -95,7 +95,8 @@ resolve, and some subnets require it:
 
 ```bash
 btcli evm associate --netuid 1 -w my_wallet -H my_hotkey
-btcli query associated-evm-key --netuid 1 --hotkey 5F… --json
+btcli query uid --netuid 1 --hotkey 5F… --json          # resolve UID
+btcli query associated-evm-key --netuid 1 --uid 0 --json
 ```
 
 Under the hood this is the reverse direction of proof: the **EVM key** signs

@@ -1,0 +1,39 @@
+---
+title: yuma_version
+description: Which Yuma consensus variant the subnet's epoch runs — a derived reading of yuma3_enabled.
+---
+
+`yuma_version` names the consensus variant the subnet's epoch executes: **2**
+for classic Yuma, **3** for the Yuma3 bond computation. It is a convenience
+reading, not its own switch — the chain derives it from the
+[`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) flag, and those are the
+only two values it takes. Validators use it to know which bond math is paying
+their dividends without decoding a boolean in their head.
+
+## How it works
+
+`get_subnet_hyperparams_v3` (`pallets/subtensor/src/rpc_info/subnet_info.rs`)
+computes it inline: 3 when `Yuma3On` is set for the subnet, 2 otherwise. No
+`YumaVersion` storage exists; the epoch itself branches on `Yuma3On` directly
+(`pallets/subtensor/src/epoch/run_epoch.rs`). What the two variants actually
+change — bond normalization, the EMA path, and whether liquid alpha applies —
+is covered on the [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) page.
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name yuma_version
+```
+
+Not settable directly. The subnet owner switches variants through the flag:
+
+```
+btcli sudo set --netuid N --name yuma3_enabled --value true
+```
+
+## Related
+
+[`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) ·
+[`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) ·
+[`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) ·
+[Yuma Consensus overview](/docs/concepts/emissions#yuma-consensus)

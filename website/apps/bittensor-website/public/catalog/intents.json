@@ -1571,7 +1571,7 @@
   {
     "name": "set_hyperparameter",
     "summary": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).",
-    "description": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).\n\nDispatches the matching AdminUtils `sudo_set_*` call for the named\nparameter. The signer must be the subnet's owner coldkey; root-only\nparameters are not available here and must go through the raw-call escape\nhatch. Changes take effect on chain immediately and shape subnet economics\nand consensus (registration costs, weight rules, immunity, transfers), so\nverify the raw value before sending \u2014 `value` accepts either the raw\non-chain integer or a human form that is converted for you. Some\nparameters are rate-limited by the chain, so a quick follow-up change can\nfail. Read current values back with the `subnet_hyperparameters` read.",
+    "description": "Set an owner-settable subnet hyperparameter (btcli `sudo set`).\n\nDispatches the matching AdminUtils `sudo_set_*` call for the named\nparameter (`alpha_low`/`alpha_high` read the current pair from chain and\nset both via `sudo_set_alpha_values`). The signer must be the subnet's\nowner coldkey; root-only parameters are not available here and must go\nthrough the raw-call escape hatch. Changes take effect on chain immediately\nand shape subnet economics and consensus (registration costs, weight\nrules, immunity, transfers), so\nverify the raw value before sending \u2014 `value` accepts either the raw\non-chain integer or a human form that is converted for you. Some\nparameters are rate-limited by the chain, so a quick follow-up change can\nfail. Read current values back with the `subnet_hyperparameters` read.",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -1582,7 +1582,7 @@
         },
         "name": {
           "type": "string",
-          "description": "Hyperparameter to set. One of: activity_cutoff, bonds_moving_avg, bonds_reset_enabled, burn_half_life, burn_increase_mult, commit_reveal_period, commit_reveal_weights_enabled, immunity_period, liquid_alpha_enabled, max_allowed_uids, min_allowed_weights, min_burn, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_cut_enabled, serving_rate_limit, transfers_enabled, weights_version, yuma3_enabled."
+          "description": "Hyperparameter to set. One of: activity_cutoff_factor, adjustment_alpha, alpha_high, alpha_low, alpha_sigmoid_steepness, bonds_moving_avg, bonds_penalty, bonds_reset_enabled, burn_half_life, burn_increase_mult, commit_reveal_period, commit_reveal_weights_enabled, immunity_period, liquid_alpha_enabled, max_allowed_uids, max_burn, max_difficulty, min_allowed_weights, min_burn, min_childkey_take, network_pow_registration_allowed, owner_cut_auto_lock_enabled, owner_cut_enabled, owner_immune_neuron_limit, rho, serving_rate_limit, tempo, transfers_enabled, weights_version, yuma3_enabled."
         },
         "value": {
           "type": [
@@ -1590,7 +1590,7 @@
             "number",
             "string"
           ],
-          "description": "New value. Give the raw on-chain integer, or the human form as a float or a string with a decimal point (a 0..1 fraction for normalized parameters, a TAO amount for rao parameters). Boolean parameters take true/false or 0/1."
+          "description": "New value. Give the raw on-chain integer (within the parameter's codec bounds), or the human form as a float or a string with a decimal point (a 0..1 fraction for normalized parameters, a non-negative TAO amount for rao parameters). Boolean parameters take true/false or 0/1 only."
         }
       },
       "required": [
@@ -1653,7 +1653,7 @@
   {
     "name": "set_mechanism_count",
     "summary": "Set the number of mechanisms on a subnet.",
-    "description": "Set the number of mechanisms on a subnet.\n\nMechanisms are independent incentive sub-markets within one subnet, each\nrunning its own weights and consensus; this owner-only call sets how many\nthe subnet runs. The count must be greater than zero, and the chain caps\nhow many mechanisms a subnet may have. Increasing the count opens new\nmechanisms; decreasing it removes the highest-numbered ones and the\nminer state in them. Any change to the count clears the emission split\nback to an even division \u2014 reapply `set_mechanism_emission_split`\nafterwards if you want an uneven split. Rate-limited and blocked during\nthe end-of-epoch admin freeze window.",
+    "description": "Set the number of mechanisms on a subnet.\n\nMechanisms are independent incentive sub-markets within one subnet, each\nrunning its own weights and consensus; this owner-only call sets how many\nthe subnet runs. The count must be greater than zero, and the chain caps\nhow many mechanisms a subnet may have. Increasing the count opens new\nmechanisms; decreasing it removes the highest-numbered ones and the\nminer state in them. Any change to the count clears the emission split\nback to an even division. Rate-limited and blocked during the\nend-of-epoch admin freeze window.",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -1678,33 +1678,6 @@
     "docs_url": "/docs/tx/set-mechanism-count"
   },
   {
-    "name": "set_mechanism_emission_split",
-    "summary": "Set emission split between mechanisms on a subnet.",
-    "description": "Set emission split between mechanisms on a subnet.\n\nOwner-only: divides the subnet's emission between its mechanisms, one\nentry per mechanism in order. Entries with a decimal point are relative\nweights (e.g. `[0.5, 0.5]` or `[3.0, 1.0]`), normalized to the exact\nu16 split the chain requires; plain integers are raw u16 weights and must\nsum to exactly 65,535 themselves. The list may be at most as long as the\nsubnet's current mechanism count (see `set_mechanism_count`) \u2014 a\nshorter list leaves the trailing mechanisms with zero. Changing the\nsplit reallocates future emission only \u2014 nothing already emitted moves.",
-    "signer": "coldkey",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet to configure; the signer must be its owner."
-        },
-        "split": {
-          "type": "array",
-          "description": "Emission weights in mechanism order, at most one entry per mechanism: relative weights with a decimal point (normalized for you, e.g. [0.5, 0.5]), or raw u16 integers summing to exactly 65,535."
-        }
-      },
-      "required": [
-        "netuid",
-        "split"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx set-mechanism-emission-split --netuid <int> --split <a,b,c>",
-    "python_class": "SetMechanismEmissionSplit",
-    "docs_url": "/docs/tx/set-mechanism-emission-split"
-  },
-  {
     "name": "set_perpetual_lock",
     "summary": "Enable or disable perpetual lock mode for a coldkey on a subnet.",
     "description": "Enable or disable perpetual lock mode for a coldkey on a subnet.\n\nSwitches how the signing coldkey's stake lock on the subnet behaves over\ntime: perpetual mode keeps the lock (and its conviction) in force\nindefinitely, while decaying mode lets it wind down over time so the\nstake eventually becomes liquid again. A per-coldkey, per-subnet setting\nthat moves no funds by itself \u2014 it changes the behavior of locks created\nwith `lock_stake`. Enabling perpetual mode means the locked stake stays\nilliquid until you switch back to decaying and the lock runs off.",
@@ -1727,7 +1700,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-perpetual-lock --netuid <int> --enabled <true|false>",
+    "cli": "btcli tx set-perpetual-lock --netuid <int> --enabled/--no-enabled",
     "python_class": "SetPerpetualLock",
     "docs_url": "/docs/tx/set-perpetual-lock"
   },

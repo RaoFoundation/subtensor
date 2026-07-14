@@ -40,7 +40,7 @@ binding crate per language, and one product directory per language surface.
 | `sdk/bittensor-core/` | The chain-defined compute core for clients: sp-core key primitives, keyfiles, SCALE codec + runtime metadata engine, extrinsic assembly, RFC-0078 metadata digests, drand timelock, ML-KEM, Ledger transport — a cargo workspace member built against the same crate revisions as the runtime so client crypto and codec can never drift from the chain's |
 | `sdk/bittensor-core-py/` | PyO3 bindings for the core (bindings only, no logic) — published to PyPI as `bittensor-core` wheels ([Rust setup](/docs/internals/rust-setup)). Future surfaces add sibling binding crates (napi, uniffi) next to the core they mirror |
 | `sdk/python/` | The `bittensor` Python SDK and `btcli` — bindings generated from chain metadata ([SDK tests](/docs/internals/sdk-tests)) |
-| `docs/` | This documentation — the single source of truth, rendered to bittensor.com/docs by the website app. `docs/tx/`, `docs/query/`, and `docs/errors.mdx` are generated; never hand-edit them |
+| `docs/` | This documentation — the single source of truth, rendered to bittensor.com/docs by the website app. `docs/tx/`, `docs/query/`, and `docs/errors/` are generated; never hand-edit them |
 | `website/` | Yarn 4 + Turbo monorepo. `apps/bittensor-website` is the production site (marketing + these docs); `packages/` holds shared UI/API libraries |
 | `ink-contract/` | Standalone ink! contract source used by the wasm-contract tests |
 

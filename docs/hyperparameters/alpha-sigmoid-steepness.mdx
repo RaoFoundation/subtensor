@@ -1,0 +1,37 @@
+---
+title: alpha_sigmoid_steepness
+description: Slope of the liquid-alpha sigmoid mapping consensus deviation to the bonds EMA rate; negative values (root only) invert the curve.
+---
+
+`alpha_sigmoid_steepness` shapes the transition between [`alpha_low`](/docs/hyperparameters/alpha-low) and [`alpha_high`](/docs/hyperparameters/alpha-high) when [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) is on. Subnet owners tune it to make the liquid-alpha response gradual (small values) or nearly a step function (large values); validators care because it decides how much deviation from consensus is needed before their bonds start moving at the fast rate.
+
+## How it works
+
+For each validator–miner pair, `alpha_sigmoid` (`pallets/subtensor/src/epoch/run_epoch.rs`) computes
+
+```
+sigmoid = 1 / (1 + e^(-(steepness / 100) × (diff − 0.5)))
+alpha   = alpha_low + sigmoid × (alpha_high − alpha_low)
+```
+
+where `diff` is the pair's deviation from consensus, clamped to 0..1. The stored i16 is divided by 100, so the default 1000 gives an effective slope of 10: alpha sits near `alpha_low` for small deviations, crosses the midpoint at `diff = 0.5`, and saturates near `alpha_high` beyond it. Steepness near 0 flattens the curve to the midpoint of the range; very large values approximate a hard threshold at 0.5.
+
+Negative steepness inverts the curve — consensus-aligned pairs get the fast rate — and `sudo_set_alpha_sigmoid_steepness` in `pallets/admin-utils/src/lib.rs` reserves that to root: a subnet owner passing a negative value gets `NegativeSigmoidSteepness`.
+
+<HyperparamLiquidAlpha focus="alpha_sigmoid_steepness" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name alpha_sigmoid_steepness
+```
+
+Plain integer (i16); owners may set 0 or positive values:
+
+```
+btcli sudo set --netuid N --name alpha_sigmoid_steepness --value 1000
+```
+
+## Related
+
+[`alpha_low`](/docs/hyperparameters/alpha-low), [`alpha_high`](/docs/hyperparameters/alpha-high), [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled), [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled)

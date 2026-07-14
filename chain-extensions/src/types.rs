@@ -140,6 +140,10 @@ impl From<DispatchError> for Output {
             Some("SlippageTooHigh") => Output::SlippageTooHigh,
             Some("SubnetNotExists") => Output::SubnetNotExists,
             Some("SameAutoStakeHotkeyAlreadySet") => Output::SameAutoStakeHotkeyAlreadySet,
+            Some("InsufficientTaoBalance") => Output::InsufficientBalance,
+            Some("InsufficientAlphaBalance") => Output::InsufficientBalance,
+            // Other pallets (e.g. swap, crowdloan) still emit their own
+            // `InsufficientBalance`; keep mapping it to the same ABI code.
             Some("InsufficientBalance") => Output::InsufficientBalance,
             Some("AmountTooLow") => Output::AmountTooLow,
             Some("InsufficientLiquidity") => Output::InsufficientLiquidity,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,6 +10,7 @@ import {
   Filler,
   Tooltip,
   Legend,
+  type Plugin,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
@@ -20,10 +21,18 @@ import {
   halvingThresholdsTao,
 } from '@/lib/emission-math';
 import { DEFAULT_EMISSION_SNAPSHOT } from '@/lib/emission-snapshot';
+import { ACCENT, AXIS_BORDER, GRAPH_FONT, GRID, INK, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
 const SAMPLE_POINTS = 120;
+const THRESHOLDS = halvingThresholdsTao(6);
+const LABELED_HALVINGS = 3;
+
+function formatIssuanceM(value: number): string {
+  const millions = value / 1_000_000;
+  return `${millions.toFixed(Number.isInteger(millions * 10) ? 1 : 2)}M`;
+}
 
 export function TaoHalvingChart() {
   const [issuance, setIssuance] = useState(DEFAULT_EMISSION_SNAPSHOT.totalIssuanceTao);
@@ -35,17 +44,98 @@ export function TaoHalvingChart() {
   }, []);
 
   const currentEmission = blockEmissionTao(issuance);
-  const thresholds = halvingThresholdsTao(6);
+
+  // The plugin is registered once at chart creation, so it reads live values
+  // through a ref instead of closing over state that would go stale.
+  const drawState = useRef({ issuance, currentEmission });
+  drawState.current = { issuance, currentEmission };
+
+  // Halving markers and direct series labels drawn in-plot: uppercase FiraCode
+  // annotations instead of a legend. Red marks the halving thresholds only.
+  const annotationPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'halvingAnnotations',
+      afterDatasetsDraw(chart) {
+        const { issuance, currentEmission } = drawState.current;
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = GRAPH_FONT;
+
+        // Halving thresholds: accent dots at each drop point; only the first
+        // few carry a dashed guide and label so the crowded right edge stays quiet.
+        THRESHOLDS.forEach((threshold, k) => {
+          const xPx = xScale.getPixelForValue(threshold);
+          if (xPx < chartArea.left || xPx > chartArea.right) return;
+
+          const stepLevel = 1 / 2 ** k; // emission on the step ending here
+          const levelAfter = stepLevel / 2;
+
+          if (k < LABELED_HALVINGS) {
+            ctx.strokeStyle = ACCENT;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(xPx, chartArea.top);
+            ctx.lineTo(xPx, chartArea.bottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const yPx = Math.max(yScale.getPixelForValue(stepLevel) - 8, chartArea.top + 10);
+            ctx.fillStyle = ACCENT;
+            ctx.textAlign = 'right';
+            ctx.fillText(`HALVING ${k + 1} · ${formatIssuanceM(threshold)}`, xPx - 6, yPx);
+          }
+
+          ctx.fillStyle = ACCENT;
+          ctx.beginPath();
+          ctx.arc(xPx, yScale.getPixelForValue(levelAfter), 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Selected issuance: quiet dashed guide plus an ink dot on the curve.
+        const xSel = xScale.getPixelForValue(issuance);
+        const ySel = yScale.getPixelForValue(currentEmission);
+        ctx.strokeStyle = INK_FAINT;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(xSel, chartArea.top);
+        ctx.lineTo(xSel, chartArea.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = INK;
+        ctx.beginPath();
+        ctx.arc(xSel, ySel, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        const flip = xSel > (chartArea.left + chartArea.right) / 2;
+        ctx.textAlign = flip ? 'right' : 'left';
+        ctx.fillText('SELECTED ISSUANCE', xSel + (flip ? -8 : 8), chartArea.bottom - 8);
+
+        // Direct series label instead of a legend.
+        ctx.fillStyle = INK;
+        ctx.textAlign = 'left';
+        ctx.fillText('BLOCK EMISSION', chartArea.left + 6, Math.max(yScale.getPixelForValue(1) - 8, chartArea.top + 10));
+
+        ctx.restore();
+      },
+    }),
+    [],
+  );
 
   const data = useMemo(
     () => ({
-      labels: chart.xs.map((x) => `${(x / 1_000_000).toFixed(1)}M`),
       datasets: [
         {
           label: 'Block emission (τ)',
-          data: chart.ys,
-          borderColor: 'rgb(41, 41, 41)',
-          backgroundColor: 'rgba(41, 41, 41, 0.08)',
+          data: chart.xs.map((x, i) => ({x, y: chart.ys[i]})),
+          borderColor: INK,
+          backgroundColor: 'rgba(41, 41, 41, 0.03)',
           fill: true,
           tension: 0,
           pointRadius: 0,
@@ -65,30 +155,37 @@ export function TaoHalvingChart() {
         legend: {display: false},
         tooltip: {
           callbacks: {
-            title: (items: {dataIndex: number}[]) => {
-              const idx = items[0]?.dataIndex ?? 0;
-              return `Issuance ${formatTao(chart.xs[idx], 2)}`;
-            },
+            title: (items: {parsed: {x: number}}[]) =>
+              `Issuance ${formatTao(items[0]?.parsed.x ?? 0, 2)}`,
             label: (ctx: {parsed: {y: number}}) => `${ctx.parsed.y.toFixed(4)} τ / block`,
           },
         },
       },
       scales: {
         x: {
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {maxTicksLimit: 8, font: {family: 'FiraCode, monospace', size: 10}},
+          type: 'linear' as const,
+          min: 0,
+          max: TOTAL_SUPPLY_TAO,
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({
+            callback: (value: string | number) => `${(Number(value) / 1_000_000).toFixed(1)}M`,
+          }),
+          title: axisTitle('total issuance (τ)'),
         },
         y: {
-          grid: {color: 'rgba(41, 41, 41, 0.06)'},
-          ticks: {font: {family: 'FiraCode, monospace', size: 10}},
-          title: {display: true, text: 'τ / block', font: {size: 11}},
+          min: 0,
+          grid: {color: GRID},
+          border: {color: AXIS_BORDER},
+          ticks: baseTicks({maxTicksLimit: 5}),
+          title: axisTitle('τ / block'),
         },
       },
     }),
-    [chart.xs],
+    [],
   );
 
-  const nextThreshold = thresholds.find((t) => t > issuance);
+  const nextThreshold = THRESHOLDS.find((t) => t > issuance);
 
   return (
     <ExplainerPanel
@@ -96,10 +193,10 @@ export function TaoHalvingChart() {
       caption={`Matches get_block_emission_for_issuance. Finney issuance today ≈ ${formatTao(DEFAULT_EMISSION_SNAPSHOT.totalIssuanceTao, 2)} → ${formatTao(DEFAULT_EMISSION_SNAPSHOT.blockEmissionTao)}/block.`}
     >
       <div className="h-52">
-        <Line data={data} options={options} />
+        <Line data={data} options={options} plugins={[annotationPlugin]} />
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-3">
         <ExplainerStat label="At selected issuance" value={formatTao(currentEmission) + ' / block'} />
         <ExplainerStat
           label="Daily at 12s blocks"
@@ -112,7 +209,7 @@ export function TaoHalvingChart() {
         />
       </div>
 
-      <div className="mt-5">
+      <div className="mt-6 border-t border-line pt-4">
         <ExplainerSlider
           label="Total issuance"
           value={issuance}

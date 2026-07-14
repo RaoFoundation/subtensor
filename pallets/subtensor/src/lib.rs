@@ -469,7 +469,7 @@ pub mod pallet {
         false
     }
 
-    /// Default value for false.
+    /// Default value for true.
     #[pallet::type_value]
     pub fn DefaultTrue<T: Config>() -> bool {
         true
@@ -1122,7 +1122,7 @@ pub mod pallet {
         2
     }
 
-    /// Default value for ck burn, 18%.
+    /// Default value for ck burn, 0%.
     #[pallet::type_value]
     pub fn DefaultCKBurn<T: Config>() -> u64 {
         0
@@ -1632,7 +1632,7 @@ pub mod pallet {
     }
 
     /// MAP ( netuid ) --> bool | Whether subnet owner cut should be auto-locked.
-    /// Missing entries default to true, so auto-locking is enabled unless explicitly disabled.
+    /// Missing entries default to false, so auto-locking is disabled unless explicitly enabled.
     #[pallet::storage]
     pub type OwnerCutAutoLockEnabled<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultOwnerCutAutoLockEnabled<T>>;
@@ -1830,7 +1830,7 @@ pub mod pallet {
     #[pallet::storage]
     pub type Tempo<T> = StorageMap<_, Identity, NetUid, u16, ValueQuery, DefaultTempo<T>>;
 
-    /// Lower bound for owner-set tempo. Also the fixed cooldown for `set_tempo`.
+    /// Lower bound for owner-set tempo. Also the fixed cooldown for `sudo_set_tempo`.
     pub const MIN_TEMPO: u16 = 360;
     /// Upper bound for owner-set tempo (≈ 7 days at 12 s/block).
     pub const MAX_TEMPO: u16 = 50_400;
@@ -1851,7 +1851,7 @@ pub mod pallet {
     /// MAP ( netuid ) --> last epoch attempt block (consumed slot).
     /// Drives normal-cadence scheduling and the admin freeze window.
     /// Advances on every `should_run_epoch == true` slot — including consistency-skipped slots —
-    /// and on a successful `set_tempo` (cycle reset).
+    /// and on a successful `sudo_set_tempo` (cycle reset).
     #[pallet::storage]
     pub type LastEpochBlock<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultZeroU64<T>>;
@@ -2968,7 +2968,7 @@ impl<T: Config + pallet_balances::Config<Balance = TaoBalance>>
 
         ensure!(
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid) >= alpha,
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientAlphaBalance
         );
 
         // Decrese alpha out counter

@@ -1,0 +1,53 @@
+---
+title: max_burn
+description: Ceiling for the burned-registration cost, in rao.
+---
+
+Caps how expensive a burned registration can get, no matter how many
+registrations pile in. Miners care because it bounds their worst-case entry
+cost during a registration rush; owners tune it to decide how hard a rush
+should be throttled by price.
+
+## How it works
+
+The burn price moves in two ways, and both are clamped into
+`[min_burn, max_burn]` in `pallets/subtensor/src/subnets/registration.rs`:
+
+- Each successful registration multiplies the price by
+  [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)
+  (`bump_registration_price_after_registration`). Once the product exceeds
+  `max_burn`, the price is pinned at `max_burn` — further registrations in the
+  same burst cost exactly `max_burn` each.
+- Each block, the price decays exponentially with half-life
+  [`burn_half_life`](/docs/hyperparameters/burn-half-life)
+  (`update_registration_prices_for_networks`), pulling it back down from the
+  ceiling toward [`min_burn`](/docs/hyperparameters/min-burn).
+
+The value lives in `MaxBurn` storage as a rao amount (1 TAO = 1e9 rao); the
+chain default is 100 TAO. The owner-set extrinsic (`sudo_set_max_burn` in
+`pallets/admin-utils/src/lib.rs`) requires the new value to be **above 0.1 TAO**
+(`MaxBurnLowerBound`) and **strictly greater than the subnet's current
+`min_burn`**. A low ceiling makes registration cheap but lets bursts through; a
+high ceiling makes sustained bursts increasingly expensive.
+
+<HyperparamBurnController focus="max_burn" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name max_burn
+btcli sudo set --netuid 12 --name max_burn --value 50.0
+```
+
+Settable by the subnet owner or root. A value with a decimal point is a TAO
+amount (`50.0` = τ50); a plain integer is raw rao.
+
+## Related
+
+- [`min_burn`](/docs/hyperparameters/min-burn) — the matching floor
+- [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) — how fast a
+  rush drives the price toward this cap
+- [`burn_half_life`](/docs/hyperparameters/burn-half-life) — how fast it comes
+  back down
+- [`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) — the
+  non-price rate limit

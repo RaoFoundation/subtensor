@@ -13,6 +13,7 @@
     "tx",
     "query",
     "errors",
+    "hyperparameters",
     "---Contributing---",
     "internals"
   ]

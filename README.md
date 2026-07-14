@@ -50,7 +50,7 @@ contracts alongside native Substrate extrinsics.
 | Shared Rust | [`common/`](./common/), [`primitives/`](./primitives/), [`support/`](./support/) | Shared types, math primitives, lints, macros, weight tooling. |
 | Client core | [`sdk/bittensor-core/`](./sdk/bittensor-core/) | The Rust core for Bittensor clients (keypairs, keyfiles, SCALE codec, extrinsic assembly, RFC-0078 digest, drand timelock, ML-KEM) — built against the same crate revisions as the chain; Python bindings in [`sdk/bittensor-core-py/`](./sdk/bittensor-core-py/). |
 | Python SDK | [`sdk/python/`](./sdk/python/) | The `bittensor` package and `btcli` CLI. Generated from chain metadata so reads, writes, and docs cannot drift. |
-| Documentation | [`docs/`](./docs/) | Source for bittensor.com/docs. `docs/tx/`, `docs/query/`, and `docs/errors.mdx` are generated — do not hand-edit. |
+| Documentation | [`docs/`](./docs/) | Source for bittensor.com/docs. `docs/tx/`, `docs/query/`, and `docs/errors/` are generated — do not hand-edit. |
 | Website | [`website/`](./website/) | Yarn + Turbo monorepo; `apps/bittensor-website` renders marketing pages and these docs. |
 | Tests | [`ts-tests/`](./ts-tests/), [`clones/`](./clones/), [`eco-tests/`](./eco-tests/) | Moonwall/zombienet integration tests, mainnet-clone regression harness, indexer contract tests. |
 | Operations | [`chainspecs/`](./chainspecs/), [`scripts/`](./scripts/), [`Dockerfile`](./Dockerfile) | Chain specs, CI/dev scripts, production and localnet Docker images. |

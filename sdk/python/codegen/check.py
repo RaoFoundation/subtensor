@@ -80,11 +80,9 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
-        "set_tempo",
         "trigger_epoch",
         "dissolve_network",
         "root_dissolve_network",
-        "set_activity_cutoff_factor",
         # legacy / superseded weight paths (mechanism variants are wrapped;
         # reveal_weights is wrapped by the RevealWeights intent for salt commits)
         "set_weights",
@@ -120,6 +118,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "set_pending_childkey_cooldown",
         "enable_voting_power_tracking",
         "disable_voting_power_tracking",
+        # Deprecated no-op compatibility stubs (call indices 139/140). Functional
+        # updates go through AdminUtils.sudo_set_tempo / sudo_set_activity_cutoff_factor.
+        "set_tempo",
+        "set_activity_cutoff_factor",
     },
     "Balances": {
         # force_* are root-origin; burn/upgrade are niche
@@ -215,12 +217,12 @@ RAW_ONLY: dict[str, set[str]] = {
         # Enumerated explicitly (not computed) so a newly added unwrapped call is
         # flagged as missing and requires a deliberate wrap-or-raw-only decision.
         "schedule_grandpa_change",
-        "sudo_set_adjustment_alpha",
+        # legacy absolute-blocks cutoff — superseded by the owner-settable
+        # `sudo_set_activity_cutoff_factor` (per-mille of tempo), which the
+        # SetHyperparameter intent wraps as `activity_cutoff_factor`
+        "sudo_set_activity_cutoff",
         "sudo_set_adjustment_interval",
         "sudo_set_admin_freeze_window",
-        "sudo_set_alpha_sigmoid_steepness",
-        "sudo_set_alpha_values",
-        "sudo_set_bonds_penalty",
         "sudo_set_ck_burn",
         "sudo_set_coldkey_swap_announcement_delay",
         "sudo_set_coldkey_swap_reannouncement_delay",
@@ -233,13 +235,13 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_kappa",
         "sudo_set_lock_reduction_interval",
         "sudo_set_max_allowed_validators",
-        "sudo_set_max_burn",
-        "sudo_set_max_difficulty",
         "sudo_set_max_epochs_per_block",
         "sudo_set_max_mechanism_count",
+        # unused uneven-split setter — removed from the intent/CLI surface;
+        # still reachable via `btcli call` if needed
+        "sudo_set_mechanism_emission_split",
         "sudo_set_max_registrations_per_block",
         "sudo_set_min_allowed_uids",
-        "sudo_set_min_childkey_take_per_subnet",
         "sudo_set_min_delegate_take",
         "sudo_set_min_difficulty",
         "sudo_set_min_non_immune_uids",
@@ -250,10 +252,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_network_registration_allowed",
         "sudo_set_nominator_min_required_stake",
         "sudo_set_owner_hparam_rate_limit",
-        "sudo_set_owner_immune_neuron_limit",
         "sudo_set_rao_recycled",
         "sudo_set_recycle_or_burn",
-        "sudo_set_rho",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
@@ -266,7 +266,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_tao_flow_normalization_exponent",
         "sudo_set_tao_flow_smoothing_factor",
         "sudo_set_target_registrations_per_interval",
-        "sudo_set_tempo",
         "sudo_set_total_issuance",
         "sudo_set_tx_delegate_take_rate_limit",
         "sudo_set_tx_rate_limit",
@@ -329,12 +328,15 @@ def check_coverage() -> int:
 
 def check_names() -> int:
     from bittensor._generated.errors import ERRORS
+    from bittensor.error_descriptions import DESCRIPTIONS
     from bittensor.error_map import NAME_TO_CODE, ErrorCode
     from bittensor.result import classify_error
 
     catalog = {info.name for info in ERRORS.values()}
     stale = sorted(name for name in NAME_TO_CODE if name not in catalog)
     unclassified = sorted(name for name in catalog if classify_error("", name) is ErrorCode.UNKNOWN)
+    undescribed = sorted(name for name in NAME_TO_CODE if name not in DESCRIPTIONS)
+    orphan_descriptions = sorted(name for name in DESCRIPTIONS if name not in NAME_TO_CODE)
     if stale:
         print(f"STALE: error names classified by the SDK but absent from chain: {stale}")
     if unclassified:
@@ -342,11 +344,27 @@ def check_names() -> int:
             "UNCLASSIFIED: chain error names with no semantic code "
             f"(add them to bittensor/error_map.py): {unclassified}"
         )
-    if stale or unclassified:
+    if undescribed:
+        print(
+            "UNDESCRIBED: classified error names with no description "
+            f"(add them under bittensor/error_descriptions/<pallet>.py): {undescribed}"
+        )
+    if orphan_descriptions:
+        print(
+            "ORPHANED: described error names no longer classified "
+            f"(remove them from bittensor/error_descriptions/<pallet>.py): {orphan_descriptions}"
+        )
+    empty = sorted(name for name, text in DESCRIPTIONS.items() if not text.strip())
+    if empty:
+        print(
+            "EMPTY: described error names with blank prose "
+            f"(fill them in bittensor/error_descriptions/<pallet>.py): {empty}"
+        )
+    if stale or unclassified or undescribed or orphan_descriptions or empty:
         return 1
     print(
-        f"names ok: all {len(catalog)} chain error names classify to a semantic code "
-        "and no mapped name is stale"
+        f"names ok: all {len(catalog)} chain error names classify to a semantic code, "
+        "every classified name is described (non-empty), and no mapped name is stale"
     )
     return 0
 
@@ -371,6 +389,13 @@ def check_units() -> int:
     problems: list[str] = []
     derived = 0
     for name, meta in hyperparams.HYPERPARAMS.items():
+        if not meta.short:
+            problems.append(f"{name}: no short description (the listing's blurb column)")
+        elif len(meta.short) > hyperparams.SHORT_MAX:
+            problems.append(
+                f"{name}: short description is {len(meta.short)} chars "
+                f"(max {hyperparams.SHORT_MAX}): {meta.short!r}"
+            )
         metadata_kind = hyperparams.metadata_kind(name)
         if metadata_kind is None:
             # No dedicated storage value, or the (pre-newtype) metadata
@@ -390,7 +415,8 @@ def check_units() -> int:
         return 1
     print(
         f"units ok: {derived} metadata-derived hyperparameter kinds agree with the hand "
-        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity)"
+        f"table ({len(hyperparams.HYPERPARAMS) - derived} carry no unit-bearing identity), "
+        f"and all {len(hyperparams.HYPERPARAMS)} carry a short description"
     )
     return 0
 

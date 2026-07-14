@@ -1,0 +1,56 @@
+---
+title: burn_increase_mult
+description: Multiplier applied to the burn cost after each successful registration.
+---
+
+Controls how sharply the registration price reacts to demand: every successful
+registration multiplies the current burn cost by this factor. Owners tune it to
+decide how strongly a registration burst should price out the next entrant;
+miners see it as the reason the cost quoted a moment ago can jump before their
+own transaction lands.
+
+## How it works
+
+After each successful registration, `bump_registration_price_after_registration`
+(in `pallets/subtensor/src/subnets/registration.rs`) sets
+
+```
+new_burn = clamp(burn × burn_increase_mult, min_burn, max_burn)
+```
+
+The bump is immediate — the very next registration, even in the same block,
+pays the raised price. Values below 1 are treated as 1 at read time
+(`max(mult, 1)`), so the multiplier can never shrink the price. Between
+registrations, the per-block decay governed by
+[`burn_half_life`](/docs/hyperparameters/burn-half-life) pulls the price back
+toward [`min_burn`](/docs/hyperparameters/min-burn). The steady-state
+registration rate the pair supports is where bumps and decay cancel:
+`half_life × log2(mult)` blocks per registration.
+
+The value is stored in `BurnIncreaseMult` as U64F64 fixed-point (raw bits
+divided by 2^64 give the real multiplier); the default is **1.26** (~3
+registrations to double the price). The owner-set extrinsic
+(`sudo_set_burn_increase_mult` in `pallets/admin-utils/src/lib.rs`) requires
+the value to be **between 1 and 3** inclusive and rejects the root subnet,
+which does not use the bump path.
+
+<HyperparamBurnController focus="burn_increase_mult" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name burn_increase_mult
+btcli sudo set --netuid 12 --name burn_increase_mult --value 1.5
+```
+
+Settable by the subnet owner or root. A value with a decimal point is the
+multiplier itself (`1.5`); a plain integer is the raw U64F64 bits.
+
+## Related
+
+- [`burn_half_life`](/docs/hyperparameters/burn-half-life) — the decay that
+  counteracts these bumps
+- [`min_burn`](/docs/hyperparameters/min-burn) /
+  [`max_burn`](/docs/hyperparameters/max-burn) — the clamp bounds
+- [`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) — the hard
+  per-block cap behind the price mechanism

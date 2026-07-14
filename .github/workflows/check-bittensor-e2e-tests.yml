@@ -125,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           manifest=sdk/bittensor-core/tests/e2e-manifest.json
-          jq -e 'length == 113' "$manifest" >/dev/null
+          jq -e 'length == 112' "$manifest" >/dev/null
           jq -e 'map(.test) | length == (unique | length)' "$manifest" >/dev/null
           jq -e 'all(.[]; (.test | startswith("intent_")) or (.test | startswith("test_")))' "$manifest" >/dev/null
           test_matrix=$(jq -c . "$manifest")
@@ -314,7 +314,27 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push Docker Image to GHCR
-        run: docker push "$LOCALNET_IMAGE_CI"
+        # GHCR intermittently returns `unknown blob` mid-push (dropped upload
+        # session). Push is idempotent for a content-addressed tag, so retry.
+        run: |
+          for i in 1 2 3 4; do
+            if out=$(docker push "$LOCALNET_IMAGE_CI" 2>&1); then
+              printf '%s\n' "$out"
+              exit 0
+            fi
+            printf '%s\n' "$out"
+            if [ "$i" -eq 4 ]; then
+              echo "::error::docker push failed after 4 attempts"
+              exit 1
+            fi
+            if printf '%s\n' "$out" | grep -qiE 'unknown blob|blob unknown|blob upload|timeout|EOF|connection reset|5[0-9]{2}'; then
+              echo "::warning::transient GHCR push error (attempt $i/4); retrying in $((i * 20))s"
+              sleep $((i * 20))
+              continue
+            fi
+            echo "::error::non-transient docker push failure; not retrying"
+            exit 1
+          done
 
   run-rust-e2e-tests:
     needs:

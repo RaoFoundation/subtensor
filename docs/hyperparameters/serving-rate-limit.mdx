@@ -1,0 +1,32 @@
+---
+title: serving_rate_limit
+description: Minimum blocks a neuron must wait between axon (or prometheus) serve calls.
+---
+
+`serving_rate_limit` is the minimum number of blocks between consecutive `serve_axon` calls from the same neuron on a subnet. Miners care because it caps how often they can republish their IP/port endpoint; owners tune it to keep endpoint churn and extrinsic spam down without blocking legitimate updates.
+
+## How it works
+
+When a neuron posts its axon endpoint, `do_serve_axon` (`pallets/subtensor/src/subnets/serving.rs`) checks `axon_passes_rate_limit`: the call is accepted only if `current_block − last_serve_block >= serving_rate_limit`, where `last_serve_block` is stamped on the neuron's stored axon info at each successful serve. A first-ever serve always passes, and setting the parameter to 0 disables the check entirely. Violations fail with `ServingRateLimitExceeded`. The same limit applies independently to `serve_prometheus` via `prometheus_passes_rate_limit`.
+
+The default is 50 blocks — about 10 minutes at 12-second blocks. Unlike the pruning family of parameters, this one does not affect who keeps a UID, only how frequently a UID's published endpoint can change; a miner that misses the window just retries after the cooldown.
+
+Drag the slider to see which of a miner's serve attempts survive the cooldown:
+
+<HyperparamServingRateLimitChart />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name serving_rate_limit
+```
+
+The value is a plain block count:
+
+```
+btcli sudo set --netuid N --name serving_rate_limit --value 50
+```
+
+## Related
+
+[`immunity_period`](/docs/hyperparameters/immunity-period), [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids), [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit), [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit)

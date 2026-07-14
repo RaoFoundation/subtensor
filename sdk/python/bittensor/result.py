@@ -12,8 +12,10 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ._generated.errors import ERRORS
+from .error_descriptions import DESCRIPTIONS as _DESCRIPTIONS
 from .error_map import NAME_TO_CODE as _NAME_TO_CODE
 from .error_map import ErrorCode
+from .settings import chain_error_docs_url, error_docs_url
 
 
 class BittensorError(Exception):
@@ -106,7 +108,7 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "many calls (serving an axon, setting weights, some stake operations) require the "
         "hotkey to hold a UID on the target subnet. register it first with "
         "`btcli subnets register --netuid N`, or check where it is registered with "
-        "`btcli view` commands."
+        "`btcli query netuids-for-hotkey` / `btcli query uid --netuid N`."
     ),
     ErrorCode.NOT_AUTHORIZED: (
         "the signing key is not allowed to perform this call: the coldkey is not "
@@ -311,13 +313,37 @@ class ChainError(BittensorError):
                 return help_text
         return REMEDIATION[self.code]
 
+    @property
+    def description(self) -> Optional[str]:
+        """What triggered this exact chain error and where to check, from the
+        per-name table in :mod:`bittensor.error_descriptions` (split by pallet).
+        ``None`` when the
+        failure carried no module error name (e.g. a pool rejection)."""
+        return _DESCRIPTIONS.get(self.name) if self.name else None
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "message": self.message,
             "name": self.name,
             "code": self.code.value,
             "remediation": self.remediation,
         }
+        if self.description:
+            payload["description"] = self.description
+        if docs_url := self.docs_url:
+            payload["docs_url"] = docs_url
+        return payload
+
+    @property
+    def docs_url(self) -> Optional[str]:
+        """The most specific docs page for this failure: the exact chain
+        error's page when the name is classified, the semantic code's page
+        otherwise, None when nothing more specific than unknown is known."""
+        if self.name and self.name in _NAME_TO_CODE:
+            return chain_error_docs_url(self.name)
+        if self.code is not ErrorCode.UNKNOWN:
+            return error_docs_url(self.code.value)
+        return None
 
 
 def chain_error_from_substrate_request(error: Exception) -> ChainError:

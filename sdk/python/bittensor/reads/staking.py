@@ -243,10 +243,9 @@ async def auto_stake_all(view, coldkey_ss58: str) -> list[dict]:
     One entry per subnet where a destination hotkey is set; subnets with no
     entry have auto-stake unset.
     """
-    rows = await view.query_map(st.SubtensorModule.AutoStakeDestination)
-    out: list[dict] = []
-    for (coldkey, netuid), hotkey in rows:
-        if str(coldkey) != coldkey_ss58:
-            continue
-        out.append({"netuid": int(netuid), "hotkey": str(hotkey)})
-    return sorted(out, key=lambda row: row["netuid"])
+    # Scope the double-map to this coldkey (same pattern as locks_for_coldkey).
+    rows = await view.query_map(st.SubtensorModule.AutoStakeDestination, [coldkey_ss58])
+    return sorted(
+        ({"netuid": int(netuid), "hotkey": str(hotkey)} for netuid, hotkey in rows),
+        key=lambda row: row["netuid"],
+    )
