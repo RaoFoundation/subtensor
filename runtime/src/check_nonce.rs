@@ -5,6 +5,7 @@ use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
     RuntimeDebugNoBound,
     dispatch::{DispatchInfo, Pays},
+    traits::Get,
 };
 use frame_system::Config;
 use scale_info::TypeInfo;
@@ -88,8 +89,11 @@ where
     type Pre = Pre;
 
     fn weight(&self, _: &T::RuntimeCall) -> Weight {
-        // TODO: benchmark transaction extension
-        Weight::zero()
+        // Account for the account-nonce storage ops the extension performs on
+        // signed transactions: one `Account::get` read in `validate`, plus one
+        // `Account::mutate` (read + write) in `prepare` to bump the nonce.
+        // Non-signed calls refund this weight in full via `Val::Refund`.
+        T::DbWeight::get().reads_writes(2, 1)
     }
 
     fn validate(
@@ -172,5 +176,24 @@ where
             Pre::NonceChecked => Ok(Weight::zero()),
             Pre::Refund(weight) => Ok(weight),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Runtime, RuntimeCall};
+    use sp_runtime::traits::Zero;
+
+    #[test]
+    fn check_nonce_weight_accounts_for_account_storage_ops() {
+        let ext = CheckNonce::<Runtime>::from(<<Runtime as frame_system::Config>::Nonce>::zero());
+        let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+        // validate performs one `Account::get` read; prepare performs one
+        // `Account::mutate` (read + write). The declared extension weight must
+        // reflect those ops, not zero.
+        let expected = <Runtime as frame_system::Config>::DbWeight::get().reads_writes(2, 1);
+        assert_eq!(ext.weight(&call), expected);
+        assert!(!ext.weight(&call).is_zero());
     }
 }
