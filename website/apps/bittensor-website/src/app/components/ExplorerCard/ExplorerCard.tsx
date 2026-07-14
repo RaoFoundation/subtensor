@@ -35,20 +35,23 @@ export function ExplorerCard({card}: ExplorerCardProps) {
       <span className={styles.leftIconSpacer} />
     );
 
+  const isExternal = /^https?:\/\//.test(card.href);
+
   return (
     <a
       className={styles.card}
       data-id={card.id}
       href={card.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={`Open ${card.name} in a new tab`}
+      {...(isExternal
+        ? {target: '_blank', rel: 'noopener noreferrer', 'aria-label': `Open ${card.name} in a new tab`}
+        : {'aria-label': `Open ${card.name}`})}
     >
       <span className={styles.imageFrame}>
         <img className={styles.image} src={card.imageSrc} alt="" {...imageProps} />
       </span>
       <span className={styles.gradient} aria-hidden="true" />
       <span className={styles.overlay} aria-hidden="true" />
+      {card.badge ? <span className={styles.badge}>{card.badge}</span> : null}
       <span className={styles.logoBar} aria-hidden="true">
         {leftIcon}
         <img className={styles.rightLogo} src={card.logoSrc} alt="" {...imageProps} />

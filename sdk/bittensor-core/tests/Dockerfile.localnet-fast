@@ -1,0 +1,28 @@
+ARG BASE_IMAGE=ubuntu:latest
+
+FROM $BASE_IMAGE
+
+ARG BUILD_TRIPLE=x86_64-unknown-linux-gnu
+
+ENV RUST_BACKTRACE=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY build/ci_target/fast-runtime/${BUILD_TRIPLE}/release/node-subtensor \
+    /target/fast-runtime/release/node-subtensor
+COPY build/ci_target/fast-runtime/${BUILD_TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
+    /target/fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+COPY snapshot.json /snapshot.json
+COPY scripts/localnet.sh /scripts/localnet.sh
+
+RUN chmod +x /target/fast-runtime/release/node-subtensor /scripts/localnet.sh
+
+ENV BUILD_BINARY=0
+ENV RUN_IN_DOCKER=1
+
+EXPOSE 30334 30335 9944 9945
+
+ENTRYPOINT ["/scripts/localnet.sh"]
+CMD ["True"]

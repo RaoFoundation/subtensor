@@ -1,20 +1,23 @@
-'use client';
-
+import FadeInWrapper from '@/app/components/FadeInWrapper';
 import {Link} from '@raofoundation/ui';
-import {motion} from 'framer-motion';
 import Image from 'next/image';
+import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'Incentivizing Intelligence — the Bittensor academic paper',
+  description:
+    'The academic paper behind Bittensor: a peer-to-peer market where machine intelligence ' +
+    'is valued by other intelligence systems and rewarded on a digital ledger.',
+  alternates: {canonical: '/academia'},
+  openGraph: {images: '/images/og_thumbs/academia.png'},
+};
 
 const page = () => {
   return (
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
-      <motion.div
-        className={styles.page_container}
-        initial={{opacity: 0}}
-        animate={{opacity: 1}}
-        transition={{duration: 1}}
-      >
+      <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
           <p className={styles.paper_title}>Incentivizing Intelligence: The Bittensor Approach</p>
           <p className={styles.subtitle}>
@@ -412,7 +415,7 @@ const page = () => {
             Follow this link for the original version
           </Link>
         </span>
-      </motion.div>
+      </FadeInWrapper>
     </Suspense>
   );
 };

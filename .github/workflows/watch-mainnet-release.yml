@@ -72,9 +72,12 @@ jobs:
 
           # Match both this workflow's tags (v424) and the legacy scheme
           # inherited from upstream (v3.4.9-424) so an already-released
-          # runtime is never released twice.
+          # runtime is never released twice. Pre-releases don't count: the
+          # release train publishes the proposal as a pre-release v<spec>,
+          # which this workflow promotes to the final release below.
           if gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
-              --json tagName --jq '.[].tagName' \
+              --json tagName,isPrerelease \
+              --jq '.[] | select(.isPrerelease | not) | .tagName' \
               | grep -Eq "^v${local_spec}$|-${local_spec}$"; then
             echo "A release for spec_version $local_spec already exists; nothing to do."
             echo "ready=false" >> $GITHUB_OUTPUT
@@ -136,21 +139,51 @@ jobs:
           unzip -o artifact.zip -d wasm
           ls -la wasm
 
-      - name: Create release with runtime assets
+      - name: Create or promote release with runtime assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPEC_VERSION: ${{ needs.check.outputs.spec_version }}
           RELEASE_SHA: ${{ needs.check.outputs.sha }}
         run: |
-          gh release create "v${SPEC_VERSION}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$RELEASE_SHA" \
-            --title "Runtime ${SPEC_VERSION}" \
-            --generate-notes \
-            wasm/subtensor.wasm \
-            wasm/subtensor-digest.json \
-            wasm/proxy_proxy_blob.hex \
+          tag="v${SPEC_VERSION}"
+          assets=(
+            wasm/subtensor.wasm
+            wasm/subtensor-digest.json
+            wasm/proxy_proxy_blob.hex
             wasm/pending-release.json
+          )
+          [ -f wasm/upgrade-manifest.json ] && assets+=(wasm/upgrade-manifest.json)
+
+          # The release train published the proposal as a pre-release at this
+          # tag; the upgrade has now executed on chain, so promote it to the
+          # final release. Assets are re-uploaded from the provenance-gated
+          # workflow artifact so the release always carries the trusted bytes.
+          # Fall back to creating the release for trains that predate the
+          # proposal pre-release flow.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' || true)
+            if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_SHA" ]; then
+              echo "tag $tag points at $tag_sha but the released commit is $RELEASE_SHA;"
+              echo "the proposal pre-release does not match the executed upgrade — resolve manually."
+              exit 1
+            fi
+            notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" --jq '.body' || true)
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Runtime ${SPEC_VERSION}" \
+              ${notes:+--notes "$notes"} \
+              --prerelease=false \
+              --latest
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$RELEASE_SHA" \
+              --title "Runtime ${SPEC_VERSION}" \
+              --generate-notes \
+              "${assets[@]}"
+          fi
 
       # Mirror: the mainnet branch always points at the code now running on
       # mainnet (the release-train commit, not HEAD of main). Pushed over
@@ -221,10 +254,14 @@ jobs:
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
 
+      # --check-url makes a re-run after a partial upload idempotent: files
+      # already on the index are skipped instead of failing with a 400
+      # duplicate (e.g. the SDK wheel landed but bittensor-core didn't).
       - name: Publish to PyPI
         run: |
           ls -la dist
-          uv publish --trusted-publishing always dist/*
+          uv publish --trusted-publishing always \
+            --check-url https://pypi.org/simple/ dist/*
 
   publish-crates:
     name: Publish Rust crates to crates.io
@@ -282,7 +319,8 @@ jobs:
         run: corepack enable
 
       - name: Deploy to Vercel (production)
-        working-directory: website
+        # Repo root, not website/: the Vercel root directory is resolved
+        # against the cwd (see deploy-docs.yml).
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

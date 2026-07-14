@@ -165,7 +165,7 @@ jobs:
               '',
               `- [Open in polkadot.js apps](${appsUrl})`,
               '- Sudo key: `//Alice` (the clone is a throwaway — do not use real keys)',
-              '- SDK e2e against it: `E2E_ENDPOINT=' + wss + ' uv run pytest -m e2e`',
+              '- SDK drift gate against it: `cd sdk/python && uv run python -m codegen.check --drift ' + wss + '`',
               '',
               `Stays up while the \`mainnet-clone\` label is on this PR (max ${hours}h). ` +
                 'Pushing a new commit replaces it with a fresh clone of the new code; ' +

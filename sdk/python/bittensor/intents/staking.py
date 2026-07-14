@@ -6,12 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from .._generated.runtime_apis import StakeInfoRuntimeApi
+from .._generated.runtime_apis import StakeInfoRuntimeApi, SwapRuntimeApi
 from ..result import BittensorError
+from ..settings import RAO_PER_TAO
 from ..signing import public_view
-from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount, tao_amount
+from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
 from .base import Intent
 from .registry import register
+
+# Default slippage-protection tolerance: the pool price may move at most this
+# fraction from the price observed at build time before the call stops filling.
+DEFAULT_RATE_TOLERANCE = 0.05
 
 NETUID_HELP = "Subnet the stake lives on (netuid 0 is the root network)."
 
@@ -33,6 +38,37 @@ ALLOW_PARTIAL_HELP = (
     "Execute whatever portion fits within the limit price and drop the remainder, "
     "instead of failing the whole call when the limit would be breached."
 )
+
+SLIPPAGE_PROTECTION_HELP = (
+    "Bound the price the swap may execute at (on by default): the call fails "
+    "(`SlippageTooHigh`) instead of filling once the pool price moves more than "
+    "`rate_tolerance` from the price at submission. Disable to execute at any price."
+)
+
+RATE_TOLERANCE_HELP = (
+    "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). "
+    "Ignored when slippage protection is disabled."
+)
+
+
+def _check_rate_tolerance(tolerance: float) -> None:
+    if not 0 <= tolerance < 1:
+        raise BittensorError(
+            f"rate_tolerance must be a fraction in [0, 1), got {tolerance!r} "
+            "(0.05 = 5%). To trade with no price bound, disable slippage protection "
+            "(slippage_protection=False / --no-slippage-protection) instead."
+        )
+
+
+async def _alpha_price_rao(substrate, netuid: int) -> int:
+    """Current spot alpha price (rao per alpha) used to derive a limit price."""
+    price = await substrate.runtime_call(*SwapRuntimeApi.current_alpha_price, [netuid])
+    if price is None:
+        raise BittensorError(
+            f"could not read the alpha price for netuid {netuid} to derive a slippage "
+            "limit; retry, or disable slippage protection to submit without a bound"
+        )
+    return int(price)
 
 
 async def _staked_rao(substrate, wallet: Any, hotkey_ss58: str, netuid: int) -> int:
@@ -60,18 +96,22 @@ class AddStake(Intent):
     Swaps TAO from the coldkey's free balance into the subnet's alpha at the
     current pool price and credits the result to your stake on the hotkey; on
     netuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,
-    so large amounts incur slippage — use ``add_stake_limit`` to bound the
-    price. The position's value then follows the pool price and the validator's
-    performance, and can be exited later with ``remove_stake``. Fails if the
-    coldkey's free balance cannot cover the amount plus the transaction fee,
-    and with ``AmountTooLow`` when the amount is below the chain minimum of
-    0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap
-    larger than 1000x the pool's TAO reserve (``InsufficientLiquidity``).
+    so large amounts incur slippage. By default the call is slippage-protected:
+    it fails (``SlippageTooHigh``) instead of filling once the price rises more
+    than ``rate_tolerance`` (5%) above the price at submission — raise the
+    tolerance or set ``slippage_protection`` to False to execute at any price,
+    or use ``add_stake_limit`` to set an explicit limit price. The position's
+    value then follows the pool price and the validator's performance, and can
+    be exited later with ``remove_stake``. Fails if the coldkey's free balance
+    cannot cover the amount plus the transaction fee, and with ``AmountTooLow``
+    when the amount is below the chain minimum of 0.002 TAO plus the swap fee.
+    Dynamic subnets also reject a single swap larger than 1000x the pool's TAO
+    reserve (``InsufficientLiquidity``).
     """
 
     op = "add_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "add_stake"),)
+    wraps = (("SubtensorModule", "add_stake"), ("SubtensorModule", "add_stake_limit"))
     mev_shield_default = True
 
     hotkey_ss58: str = field(
@@ -79,11 +119,29 @@ class AddStake(Intent):
     )
     netuid: int = field(metadata={"help": NETUID_HELP})
     amount_tao: Money = field(metadata={"help": "How much of the coldkey's free balance to stake."})
+    slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
+    )
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = call_amount(
+            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid
+        )
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
+        if self.slippage_protection:
+            price = await _alpha_price_rao(substrate, self.netuid)
+            return await substrate.compose(
+                calls.SubtensorModule.add_stake_limit(
+                    hotkey=self.hotkey_ss58,
+                    netuid=self.netuid,
+                    amount_staked=self.amount_tao.rao,
+                    limit_price=int(price * (1 + self.rate_tolerance)),
+                    allow_partial=False,
+                )
+            )
         return await substrate.compose(
             calls.SubtensorModule.add_stake(
                 hotkey=self.hotkey_ss58,
@@ -93,7 +151,12 @@ class AddStake(Intent):
         )
 
     def summary(self) -> str:
-        return f"stake {self.amount_tao} to {self.hotkey_ss58} on netuid {self.netuid}"
+        note = (
+            f" (fails if price moves >{self.rate_tolerance:.2%})"
+            if self.slippage_protection
+            else " (no slippage protection)"
+        )
+        return f"stake {self.amount_tao} to {self.hotkey_ss58} on netuid {self.netuid}{note}"
 
     def spend(self) -> Spend:
         return self.amount_tao
@@ -108,7 +171,11 @@ class RemoveStake(Intent):
     it to the signing coldkey's free balance. Pass ``all`` to exit the entire
     position on that hotkey and subnet (the build fails if nothing is staked
     there). Like staking, the swap moves the pool, so large amounts incur
-    slippage — use ``remove_stake_limit`` to bound the price. The hotkey and
+    slippage. By default the call is slippage-protected: it fails
+    (``SlippageTooHigh``) instead of filling once the price falls more than
+    ``rate_tolerance`` (5%) below the price at submission — raise the tolerance
+    or set ``slippage_protection`` to False to execute at any price, or use
+    ``remove_stake_limit`` to set an explicit limit price. The hotkey and
     netuid must match where the stake is actually held, and the subnet must
     have subtoken trading enabled. The requested amount is capped to the
     stake currently available. A partial unstake must leave a remainder
@@ -118,7 +185,7 @@ class RemoveStake(Intent):
 
     op = "remove_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "remove_stake"),)
+    wraps = (("SubtensorModule", "remove_stake"), ("SubtensorModule", "remove_stake_limit"))
     mev_shield_default = True
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
@@ -127,15 +194,33 @@ class RemoveStake(Intent):
     amount_alpha: Money = field(
         metadata={"help": "How much to unstake from this position, or ``all``."}
     )
+    slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
+    )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "amount_unstaked", netuid=self.netuid, allow_all=True
+        )
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
         if self.amount_alpha == ALL:
             rao = await _staked_rao(substrate, wallet, self.hotkey_ss58, self.netuid)
         else:
             rao = self.amount_alpha.rao
+        if self.slippage_protection:
+            price = await _alpha_price_rao(substrate, self.netuid)
+            return await substrate.compose(
+                calls.SubtensorModule.remove_stake_limit(
+                    hotkey=self.hotkey_ss58,
+                    netuid=self.netuid,
+                    amount_unstaked=rao,
+                    limit_price=int(price * (1 - self.rate_tolerance)),
+                    allow_partial=False,
+                )
+            )
         return await substrate.compose(
             calls.SubtensorModule.remove_stake(
                 hotkey=self.hotkey_ss58,
@@ -146,7 +231,12 @@ class RemoveStake(Intent):
 
     def summary(self) -> str:
         amount = "ALL alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
-        return f"unstake {amount} from {self.hotkey_ss58} on netuid {self.netuid}"
+        note = (
+            f" (fails if price moves >{self.rate_tolerance:.2%})"
+            if self.slippage_protection
+            else " (no slippage protection)"
+        )
+        return f"unstake {amount} from {self.hotkey_ss58} on netuid {self.netuid}{note}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         if self.amount_alpha == ALL:
@@ -186,7 +276,9 @@ class MoveStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.origin_netuid)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -238,7 +330,9 @@ class AddStakeLimit(Intent):
     allow_partial: bool = field(default=False, metadata={"help": ALLOW_PARTIAL_HELP})
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = call_amount(
+            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
@@ -291,7 +385,9 @@ class RemoveStakeLimit(Intent):
     allow_partial: bool = field(default=False, metadata={"help": ALLOW_PARTIAL_HELP})
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "amount_unstaked", netuid=self.netuid, allow_all=True
+        )
 
     async def build(self, substrate, wallet: Any):
         if self.amount_alpha == ALL:
@@ -402,14 +498,18 @@ class SwapStake(Intent):
     Moves part of a position from the origin subnet to the destination subnet
     while staying on the same hotkey: the alpha is swapped to TAO in the
     origin pool and then to alpha in the destination pool, so both legs can
-    incur slippage. The two netuids must differ (``SameNetuid``). Use
-    ``move_stake`` when the hotkey should change too, and ``remove_stake``
-    plus ``add_stake`` only if you want to control each leg separately.
+    incur slippage. By default the call is slippage-protected: it fails
+    (``SlippageTooHigh``) instead of filling once the origin/destination price
+    ratio falls more than ``rate_tolerance`` (5%) below the ratio at submission
+    — raise the tolerance or set ``slippage_protection`` to False to execute at
+    any price. The two netuids must differ (``SameNetuid``). Use ``move_stake``
+    when the hotkey should change too, and ``remove_stake`` plus ``add_stake``
+    only if you want to control each leg separately.
     """
 
     op = "swap_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "swap_stake"),)
+    wraps = (("SubtensorModule", "swap_stake"), ("SubtensorModule", "swap_stake_limit"))
     mev_shield_default = True
 
     hotkey_ss58: str = field(metadata={"help": STAKE_HOTKEY_HELP})
@@ -421,11 +521,39 @@ class SwapStake(Intent):
             "explicit amount; ``all`` is not accepted)."
         }
     )
+    slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
+    )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.origin_netuid)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+        )
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
+        if self.slippage_protection:
+            origin_price = await _alpha_price_rao(substrate, self.origin_netuid)
+            dest_price = await _alpha_price_rao(substrate, self.dest_netuid)
+            if dest_price <= 0:
+                raise BittensorError(
+                    f"netuid {self.dest_netuid} has no alpha price; cannot derive a "
+                    "slippage limit — disable slippage protection to submit anyway"
+                )
+            # The chain compares the limit against the origin/destination price
+            # ratio (falling as the swap executes), scaled by 1e9.
+            ratio_rao = origin_price * RAO_PER_TAO // dest_price
+            return await substrate.compose(
+                calls.SubtensorModule.swap_stake_limit(
+                    hotkey=self.hotkey_ss58,
+                    origin_netuid=self.origin_netuid,
+                    destination_netuid=self.dest_netuid,
+                    alpha_amount=self.amount_alpha.rao,
+                    limit_price=int(ratio_rao * (1 - self.rate_tolerance)),
+                    allow_partial=False,
+                )
+            )
         return await substrate.compose(
             calls.SubtensorModule.swap_stake(
                 hotkey=self.hotkey_ss58,
@@ -436,9 +564,14 @@ class SwapStake(Intent):
         )
 
     def summary(self) -> str:
+        note = (
+            f" (fails if price ratio moves >{self.rate_tolerance:.2%})"
+            if self.slippage_protection
+            else " (no slippage protection)"
+        )
         return (
             f"swap {self.amount_alpha} on {self.hotkey_ss58} from netuid "
-            f"{self.origin_netuid} to netuid {self.dest_netuid}"
+            f"{self.origin_netuid} to netuid {self.dest_netuid}{note}"
         )
 
     def touches_netuids(self) -> list[int]:
@@ -481,7 +614,9 @@ class TransferStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.origin_netuid)
+        self.amount_alpha = call_amount(
+            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+        )
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(

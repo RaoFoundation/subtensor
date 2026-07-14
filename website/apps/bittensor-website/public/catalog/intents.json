@@ -32,7 +32,7 @@
   {
     "name": "add_stake",
     "summary": "Stake TAO from the coldkey onto a hotkey.",
-    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage \u2014 use `add_stake_limit` to bound the\nprice. The position's value then follows the pool price and the validator's\nperformance, and can be exited later with `remove_stake`. Fails if the\ncoldkey's free balance cannot cover the amount plus the transaction fee,\nand with `AmountTooLow` when the amount is below the chain minimum of\n0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap\nlarger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).",
+    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage. By default the call is slippage-protected:\nit fails (`SlippageTooHigh`) instead of filling once the price rises more\nthan `rate_tolerance` (5%) above the price at submission \u2014 raise the\ntolerance or set `slippage_protection` to False to execute at any price,\nor use `add_stake_limit` to set an explicit limit price. The position's\nvalue then follows the pool price and the validator's performance, and can\nbe exited later with `remove_stake`. Fails if the coldkey's free balance\ncannot cover the amount plus the transaction fee, and with `AmountTooLow`\nwhen the amount is below the chain minimum of 0.002 TAO plus the swap fee.\nDynamic subnets also reject a single swap larger than 1000x the pool's TAO\nreserve (`InsufficientLiquidity`).",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -57,6 +57,14 @@
             }
           ],
           "description": "How much of the coldkey's free balance to stake."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
         }
       },
       "required": [
@@ -480,8 +488,12 @@
       "type": "object",
       "properties": {
         "take": {
-          "type": "integer",
-          "description": "New take as a u16 proportion (fraction of 65535, e.g. 5898 is about 9 percent). The chain enforces its configured take bounds."
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -493,7 +505,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx decrease-take --take <int>",
+    "cli": "btcli tx decrease-take --take <value>",
     "python_class": "DecreaseTake",
     "docs_url": "/docs/tx/decrease-take"
   },
@@ -679,8 +691,12 @@
       "type": "object",
       "properties": {
         "take": {
-          "type": "integer",
-          "description": "New take as a u16 proportion (fraction of 65535, e.g. 5898 is about 9 percent). The chain enforces its configured take bounds."
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -692,7 +708,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx increase-take --take <int>",
+    "cli": "btcli tx increase-take --take <value>",
     "python_class": "IncreaseTake",
     "docs_url": "/docs/tx/increase-take"
   },
@@ -1104,7 +1120,7 @@
   {
     "name": "remove_stake",
     "summary": "Unstake alpha from a hotkey back to the coldkey.",
-    "description": "Unstake alpha from a hotkey back to the coldkey.\n\nSwaps the alpha position back to TAO at the current pool price and credits\nit to the signing coldkey's free balance. Pass `all` to exit the entire\nposition on that hotkey and subnet (the build fails if nothing is staked\nthere). Like staking, the swap moves the pool, so large amounts incur\nslippage \u2014 use `remove_stake_limit` to bound the price. The hotkey and\nnetuid must match where the stake is actually held, and the subnet must\nhave subtoken trading enabled. The requested amount is capped to the\nstake currently available. A partial unstake must leave a remainder\nworth at least 0.002 TAO at the simulated pool price \u2014 exit the full\nposition instead of leaving dust (`AmountTooLow`).",
+    "description": "Unstake alpha from a hotkey back to the coldkey.\n\nSwaps the alpha position back to TAO at the current pool price and credits\nit to the signing coldkey's free balance. Pass `all` to exit the entire\nposition on that hotkey and subnet (the build fails if nothing is staked\nthere). Like staking, the swap moves the pool, so large amounts incur\nslippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the price falls more than\n`rate_tolerance` (5%) below the price at submission \u2014 raise the tolerance\nor set `slippage_protection` to False to execute at any price, or use\n`remove_stake_limit` to set an explicit limit price. The hotkey and\nnetuid must match where the stake is actually held, and the subnet must\nhave subtoken trading enabled. The requested amount is capped to the\nstake currently available. A partial unstake must leave a remainder\nworth at least 0.002 TAO at the simulated pool price \u2014 exit the full\nposition instead of leaving dust (`AmountTooLow`).",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -1135,6 +1151,14 @@
             }
           ],
           "description": "How much to unstake from this position, or ``all``."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
         }
       },
       "required": [
@@ -1456,8 +1480,12 @@
           "description": "Subnet the childkey take applies to."
         },
         "take": {
-          "type": "integer",
-          "description": "New take as a u16 proportion (fraction of 65535, e.g. 5898 is about 9 percent). The chain enforces its configured take bounds."
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -1470,14 +1498,14 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-childkey-take --netuid <int> --take <int>",
+    "cli": "btcli tx set-childkey-take --netuid <int> --take <value>",
     "python_class": "SetChildkeyTake",
     "docs_url": "/docs/tx/set-childkey-take"
   },
   {
     "name": "set_children",
     "summary": "Assign child hotkeys with stake-weight proportions on a subnet.",
-    "description": "Assign child hotkeys with stake-weight proportions on a subnet.\n\nChildkeys let a parent hotkey delegate a fraction of its stake weight to\nother hotkeys on one subnet \u2014 commonly used to split validation duties or\npoint stake at a separate validating key without moving the stake itself.\nEach entry in `children` is a pair of proportion and hotkey ss58, where\nproportion is a u64 share of u64::MAX; the proportions must not sum past\nthe whole. The call replaces the full child set, so pass an empty list to\nrevoke all children. Signed by the coldkey that owns the parent hotkey,\nand subject to the chain's childkey rate limit.\n\nChain guards: not allowed on the root subnet; at most 5 children per\nhotkey per subnet; duplicate children are rejected; a hotkey that is a\nparent of this hotkey cannot be added as its child (relations stay\nbipartite); and the parent hotkey needs a minimum own stake\n(StakeThreshold) unless it is the subnet-owner hotkey. Changes take\neffect after a chain-defined cooldown, except on subnets whose subtoken\nis not yet enabled, where they apply immediately.",
+    "description": "Assign child hotkeys with stake-weight proportions on a subnet.\n\nChildkeys let a parent hotkey delegate a fraction of its stake weight to\nother hotkeys on one subnet \u2014 commonly used to split validation duties or\npoint stake at a separate validating key without moving the stake itself.\nEach entry in `children` is a pair of proportion and hotkey ss58. A\nproportion with a decimal point is the human 0..1 fraction of the parent's\nstake weight (e.g. 0.5); a plain integer is the raw u64 share of u64::MAX.\nThe proportions must not sum past the whole. The call replaces the full\nchild set, so pass an empty list to revoke all children. Signed by the\ncoldkey that owns the parent hotkey, and subject to the chain's childkey\nrate limit.\n\nChain guards: not allowed on the root subnet; at most 5 children per\nhotkey per subnet; duplicate children are rejected; a hotkey that is a\nparent of this hotkey cannot be added as its child (relations stay\nbipartite); and the parent hotkey needs a minimum own stake\n(StakeThreshold) unless it is the subnet-owner hotkey. Changes take\neffect after a chain-defined cooldown, except on subnets whose subtoken\nis not yet enabled, where they apply immediately.",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -1488,7 +1516,7 @@
         },
         "children": {
           "type": "array",
-          "description": "JSON list of proportion-and-hotkey pairs; each proportion is a u64 share of u64::MAX of the parent's stake weight delegated to that child. An empty list revokes all children."
+          "description": "JSON list of proportion-and-hotkey pairs; each proportion is a 0..1 fraction (e.g. 0.5) or a raw u64 share of u64::MAX of the parent's stake weight delegated to that child. An empty list revokes all children."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -1652,7 +1680,7 @@
   {
     "name": "set_mechanism_emission_split",
     "summary": "Set emission split between mechanisms on a subnet.",
-    "description": "Set emission split between mechanisms on a subnet.\n\nOwner-only: divides the subnet's emission between its mechanisms. The\nlist gives one u16 weight per mechanism, in order, and the entries must\nsum to exactly 65,535; each mechanism receives that fraction of\nemission. The list may be at most as long as the subnet's current\nmechanism count (see `set_mechanism_count`) \u2014 a shorter list leaves\nthe trailing mechanisms with zero. Changing the split reallocates\nfuture emission only \u2014 nothing already emitted moves.",
+    "description": "Set emission split between mechanisms on a subnet.\n\nOwner-only: divides the subnet's emission between its mechanisms, one\nentry per mechanism in order. Entries with a decimal point are relative\nweights (e.g. `[0.5, 0.5]` or `[3.0, 1.0]`), normalized to the exact\nu16 split the chain requires; plain integers are raw u16 weights and must\nsum to exactly 65,535 themselves. The list may be at most as long as the\nsubnet's current mechanism count (see `set_mechanism_count`) \u2014 a\nshorter list leaves the trailing mechanisms with zero. Changing the\nsplit reallocates future emission only \u2014 nothing already emitted moves.",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -1663,10 +1691,7 @@
         },
         "split": {
           "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "description": "u16 emission weights in mechanism order, summing to exactly 65,535; at most one entry per mechanism."
+          "description": "Emission weights in mechanism order, at most one entry per mechanism: relative weights with a decimal point (normalized for you, e.g. [0.5, 0.5]), or raw u16 integers summing to exactly 65,535."
         }
       },
       "required": [
@@ -1794,8 +1819,12 @@
       "type": "object",
       "properties": {
         "take": {
-          "type": "integer",
-          "description": "New take as a u16 proportion (fraction of 65535, e.g. 5898 is about 9 percent). The chain enforces its configured take bounds."
+          "type": [
+            "integer",
+            "number",
+            "string"
+          ],
+          "description": "New take: a 0..1 fraction (e.g. 0.18 for 18 percent) or the raw u16 proportion (0..65535). The chain enforces its configured take bounds."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -1807,7 +1836,7 @@
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx set-take --take <int>",
+    "cli": "btcli tx set-take --take <value>",
     "python_class": "SetTake",
     "docs_url": "/docs/tx/set-take"
   },
@@ -1977,7 +2006,7 @@
   {
     "name": "swap_stake",
     "summary": "Swap stake on one hotkey between two subnets.",
-    "description": "Swap stake on one hotkey between two subnets.\n\nMoves part of a position from the origin subnet to the destination subnet\nwhile staying on the same hotkey: the alpha is swapped to TAO in the\norigin pool and then to alpha in the destination pool, so both legs can\nincur slippage. The two netuids must differ (`SameNetuid`). Use\n`move_stake` when the hotkey should change too, and `remove_stake`\nplus `add_stake` only if you want to control each leg separately.",
+    "description": "Swap stake on one hotkey between two subnets.\n\nMoves part of a position from the origin subnet to the destination subnet\nwhile staying on the same hotkey: the alpha is swapped to TAO in the\norigin pool and then to alpha in the destination pool, so both legs can\nincur slippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the origin/destination price\nratio falls more than `rate_tolerance` (5%) below the ratio at submission\n\u2014 raise the tolerance or set `slippage_protection` to False to execute at\nany price. The two netuids must differ (`SameNetuid`). Use `move_stake`\nwhen the hotkey should change too, and `remove_stake` plus `add_stake`\nonly if you want to control each leg separately.",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -2006,6 +2035,14 @@
             }
           ],
           "description": "How much of the origin position to swap across (an explicit amount; ``all`` is not accepted)."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
         }
       },
       "required": [

@@ -1,10 +1,13 @@
 import type {ExplorerCardData} from './explorers';
 
 export const learnResources: ExplorerCardData[] = [
+  // Our own documentation. Keep this entry first so it is always the
+  // highest-priority resource in the Learn section.
   {
     id: 'bittensordocs',
     name: 'Bittensor Docs',
-    href: 'https://bittensor.com/docs',
+    href: '/docs',
+    badge: 'Official',
     imageSrc: '/assets/learn/bittensor-docs-card.png',
     leftIconSrc: '/assets/learn/bittensor-docs-icon.svg',
     logoSrc: '/assets/learn/bittensor-docs-logo.svg',

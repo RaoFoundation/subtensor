@@ -18,6 +18,7 @@ from ...intents import (
     TrimSubnet,
     UpdateSymbol,
 )
+from ...intents.children import take_to_u16
 from ...intents.hyperparameters import OWNER_HYPERPARAMETERS
 from ...settings import U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
@@ -174,22 +175,7 @@ _TAKE_HELP = (
 def _parse_take(_app_ctx: AppContext, raw: str) -> int:
     """Convert a take to its raw u16, with the hyperparameter value rules:
     a decimal point marks the human 0..1 fraction, a bare integer is raw."""
-    text = raw.strip().lower().removeprefix("+")
-    if "." in text or "e" in text:
-        try:
-            fraction = float(text)
-        except ValueError:
-            raise ValueError(f"invalid take {raw!r} — {_TAKE_HELP}")
-        if not 0.0 <= fraction <= 1.0:
-            raise ValueError("a fractional take must be within 0..1 (e.g. 0.18)")
-        return round(fraction * U16_MAX)
-    try:
-        value = int(text)
-    except ValueError:
-        raise ValueError(f"invalid take {raw!r} — {_TAKE_HELP}")
-    if not 0 <= value <= U16_MAX:
-        raise ValueError(f"a raw u16 take must be within 0..{U16_MAX}")
-    return value
+    return take_to_u16(raw)
 
 
 def _prompt_take(app_ctx: AppContext, hotkey: str) -> int:

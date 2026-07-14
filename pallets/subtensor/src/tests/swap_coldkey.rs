@@ -18,6 +18,7 @@ use frame_support::{assert_err, assert_noop, assert_ok};
 use frame_system::{Config, RawOrigin};
 use share_pool::SafeFloat;
 use sp_core::{Get, H256, U256};
+use sp_runtime::PerU16;
 use sp_runtime::traits::Hash;
 use sp_runtime::traits::{DispatchInfoOf, DispatchTransaction, TransactionExtension};
 use sp_runtime::{DispatchError, traits::TxBaseImplication};
@@ -1158,12 +1159,12 @@ fn test_coldkey_swap_total() {
         ensure_min_balance(&nominator2, stake * 2.into() + ed);
         ensure_min_balance(&nominator3, stake * 2.into() + ed);
 
-        Delegates::<Test>::insert(hotkey1, u16::MAX / 10);
-        Delegates::<Test>::insert(hotkey2, u16::MAX / 10);
-        Delegates::<Test>::insert(hotkey3, u16::MAX / 10);
-        Delegates::<Test>::insert(delegate1, u16::MAX / 10);
-        Delegates::<Test>::insert(delegate2, u16::MAX / 10);
-        Delegates::<Test>::insert(delegate3, u16::MAX / 10);
+        Delegates::<Test>::insert(hotkey1, PerU16::from_parts(u16::MAX / 10));
+        Delegates::<Test>::insert(hotkey2, PerU16::from_parts(u16::MAX / 10));
+        Delegates::<Test>::insert(hotkey3, PerU16::from_parts(u16::MAX / 10));
+        Delegates::<Test>::insert(delegate1, PerU16::from_parts(u16::MAX / 10));
+        Delegates::<Test>::insert(delegate2, PerU16::from_parts(u16::MAX / 10));
+        Delegates::<Test>::insert(delegate3, PerU16::from_parts(u16::MAX / 10));
 
         assert_ok!(SubtensorModule::add_stake(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),

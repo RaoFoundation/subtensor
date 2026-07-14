@@ -3,12 +3,12 @@ title: Mainnet clone testing
 description: How CI sudo-upgrades a clone of live mainnet with your runtime, and how to reproduce it locally when it fails.
 ---
 
-Every PR runs the **Clone Upgrade Check** (`check-clone-upgrade.yml`): it
+Every PR runs the **Clone Upgrade Check** (`runtime-checks.yml`): it
 builds your proposed runtime, applies it to a local copy of *real mainnet
-state* via a sudo upgrade, then runs regression tests and the Python SDK e2e
-suite against the upgraded chain. This catches problems unit tests can't —
-migrations that break on real storage, changed RPC shapes, SDK
-incompatibilities — before anything ships.
+state* via a sudo upgrade, then runs regression tests and the Python SDK
+metadata drift gate against the upgraded chain. This catches problems unit
+tests can't - migrations that break on real storage, changed RPC shapes, SDK
+incompatibilities - before anything ships.
 
 This page explains what the check does and how to reproduce each step locally.
 
@@ -28,8 +28,8 @@ This page explains what the check does and how to reproduce each step locally.
    and submits `sudo(system.setCode(...))` from Alice. The clone is now
    running mainnet state under **your** runtime, including any migrations it
    triggered.
-4. **`npm test`** runs the smoke test; CI then runs the SDK's offline checks
-   and its e2e suite (`pytest -m e2e`) against the upgraded chain.
+4. **`npm test`** runs the smoke test; CI then runs the SDK metadata drift
+   gate (`python -m codegen.check --drift`) against the upgraded chain.
 
 ## Reproducing locally
 
@@ -64,13 +64,13 @@ To re-sync fresh mainnet state instead of reusing the cached spec, delete
 every start, so each run replays your upgrade from the cached state — restart
 the node to retry a failed upgrade from scratch.
 
-### Running the SDK suites against the clone
+### Running the SDK drift gate against the clone
 
 ```bash
 cd sdk/python
 uv sync --locked --all-extras --dev
 uv run pytest                              # offline unit tests
-E2E_ENDPOINT=ws://127.0.0.1:9944 uv run pytest -m e2e
+uv run python -m codegen.check --drift ws://127.0.0.1:9944
 ```
 
 ### Targeted regression tests

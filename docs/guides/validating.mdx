@@ -137,9 +137,9 @@ Timing reads: [`weights-rate-limit`](/docs/query/weights-rate-limit),
 [`reveal-period`](/docs/query/reveal-period).
 
 Reading back what the chain holds:
-[`client.read("weights", netuid=1)`](/docs/query/weights) returns every
+[`client.weights.weights(netuid=1)`](/docs/query/weights) returns every
 validator's row as normalized fractions, and
-[`client.read("bonds", netuid=1)`](/docs/query/bonds) the bond matrix your
+[`client.weights.bonds(netuid=1)`](/docs/query/bonds) the bond matrix your
 dividends flow through.
 
 ## Commit-reveal

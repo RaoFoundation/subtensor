@@ -1,3 +1,6 @@
+// Canonical origin: the apex domain 308-redirects to www.
+export const siteUrl = 'https://www.bittensor.com';
+
 export const appName = 'Bittensor Docs';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';

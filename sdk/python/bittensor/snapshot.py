@@ -3,8 +3,8 @@
 A :class:`Snapshot` exposes the client's whole *read* surface — the generic
 accessors (``query`` / ``query_map`` / ``query_batch`` / ``runtime`` /
 ``constant``), the read registry (``read`` / ``reads``), and the typed
-namespaces (``balances`` / ``staking`` / ``subnets`` / ``neurons``) — with
-every call resolving against the same block. That gives two things:
+namespaces (``subnets`` / ``staking`` / ``balances`` / ... — one per read
+category) — with every call resolving against the same block. That gives two things:
 consistency (no torn reads across blocks) and speed (the block hash resolves
 once and is served from the transport's cache afterwards, instead of
 re-resolving the chain head on every call).
@@ -28,10 +28,21 @@ class Snapshot:
     def __init__(self, client: Any, block: int):
         self._client = client
         self.block = block
+        # One namespace per read category (keep in sync with Client and
+        # namespaces.NAMESPACES; explicit so type checkers see each attribute).
         self.balances = namespaces.Balances(self)
+        self.chain = namespaces.Chain(self)
+        self.delegation = namespaces.Delegation(self)
+        self.epochs = namespaces.Epochs(self)
+        self.hyperparameters = namespaces.Hyperparameters(self)
+        self.identity = namespaces.Identity(self)
+        self.leasing = namespaces.Leasing(self)
+        self.locks = namespaces.Locks(self)
+        self.neurons = namespaces.Neurons(self)
+        self.prices = namespaces.Prices(self)
         self.staking = namespaces.Staking(self)
         self.subnets = namespaces.Subnets(self)
-        self.neurons = namespaces.Neurons(self)
+        self.weights = namespaces.Weights(self)
 
     # Generic accessors, pinned -------------------------------------------------
 

@@ -53,7 +53,7 @@ async function main() {
     console.log("run id:", RUN_ID);
 
     assertMetadataAvailable();
-    await repairIssuanceMirrorIfNeeded("pre-test setup");
+    await assertIssuanceMatch("pre-test setup");
     await fundTestAccounts();
     await assertIssuanceMatch("initial");
 
@@ -406,30 +406,6 @@ async function ensureEvmWhitelistDisabled() {
   await submitAndWait(fundSource, api.tx.sudo.sudo(api.tx.evm.disableWhitelist(true)), "sudo disable EVM whitelist");
   assert.equal((await api.query.evm.disableWhitelistCheck()).isTrue, true, "EVM whitelist did not disable");
   console.log("EVM whitelist check disabled");
-}
-
-async function repairIssuanceMirrorIfNeeded(label) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const balances = (await api.query.balances.totalIssuance()).toBigInt();
-    const subtensor: bigint = (await api.query.subtensorModule.totalIssuance()).toBigInt();
-    const diff = balances - subtensor;
-    if (diff === 0n) {
-      console.log(`${label}: issuance matched`, balances.toString());
-      return;
-    }
-
-    const target = balances + diff;
-    assert.ok(target > 0n, `cannot repair issuance mirror: computed target ${target}`);
-    await submitAndWait(
-      fundSource,
-      api.tx.sudo.sudo(api.tx.system.setStorage([
-        [api.query.subtensorModule.totalIssuance.key(), storageValueHex("u64", target)],
-      ])),
-      `sudo repair Subtensor TotalIssuance mirror attempt ${attempt}`
-    );
-  }
-
-  await assertIssuanceMatch(`${label} repaired`);
 }
 
 async function assertIssuanceMatch(label) {

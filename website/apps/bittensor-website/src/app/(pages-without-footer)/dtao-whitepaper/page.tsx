@@ -1,8 +1,17 @@
 import React, {Suspense} from 'react';
 import Image from 'next/image';
 import {Link} from '@raofoundation/ui';
+import type {Metadata} from 'next';
 import FadeInWrapper from '@/app/components/FadeInWrapper';
 import styles from './page.module.css';
+
+export const metadata: Metadata = {
+  title: 'dTAO Whitepaper — subnet token economics',
+  description:
+    'The dynamic TAO (dTAO) whitepaper: subnet-specific alpha tokens, liquidity pools, and ' +
+    'how emissions flow through the Bittensor network.',
+  alternates: {canonical: '/dtao-whitepaper'},
+};
 import Section1 from './Section1';
 import Section2 from './Section2';
 import Section3 from './Section3';

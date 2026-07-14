@@ -26,10 +26,10 @@ impl<T: Config> CheckDelegateTake<T> {
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::increase_take { hotkey, take } | Call::decrease_take { hotkey, take } => {
-                if *take < Pallet::<T>::get_min_delegate_take() {
+                if take.deconstruct() < Pallet::<T>::get_min_delegate_take() {
                     return Err(Error::<T>::DelegateTakeTooLow);
                 }
-                if *take > Pallet::<T>::get_max_delegate_take() {
+                if take.deconstruct() > Pallet::<T>::get_max_delegate_take() {
                     return Err(Error::<T>::DelegateTakeTooHigh);
                 }
                 Pallet::<T>::do_take_checks(who, hotkey)
@@ -81,14 +81,20 @@ mod tests {
         weights::Weight,
     };
     use sp_core::U256;
-    use sp_runtime::DispatchError;
+    use sp_runtime::{DispatchError, PerU16};
 
     fn increase_take_call(hotkey: U256, take: u16) -> RuntimeCall {
-        RuntimeCall::SubtensorModule(SubtensorCall::increase_take { hotkey, take })
+        RuntimeCall::SubtensorModule(SubtensorCall::increase_take {
+            hotkey,
+            take: PerU16::from_parts(take),
+        })
     }
 
     fn decrease_take_call(hotkey: U256, take: u16) -> RuntimeCall {
-        RuntimeCall::SubtensorModule(SubtensorCall::decrease_take { hotkey, take })
+        RuntimeCall::SubtensorModule(SubtensorCall::decrease_take {
+            hotkey,
+            take: PerU16::from_parts(take),
+        })
     }
 
     fn dispatch_with_ext(call: RuntimeCall, origin: RuntimeOrigin) -> DispatchResultWithPostInfo {

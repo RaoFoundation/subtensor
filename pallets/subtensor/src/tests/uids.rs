@@ -4,6 +4,7 @@ use super::mock::*;
 use crate::*;
 use frame_support::{assert_err, assert_ok};
 use sp_core::{H160, U256};
+use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
 
 /********************************************
@@ -45,13 +46,13 @@ fn test_replace_neuron() {
             SubtensorModule::set_element_at(v, neuron_uid as usize, 5.into())
         });
         Consensus::<Test>::mutate(netuid, |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, 5u16)
+            SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
         Incentive::<Test>::mutate(NetUidStorageIndex::from(netuid), |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, 5u16)
+            SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
         Dividends::<Test>::mutate(netuid, |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, 5u16)
+            SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
         Bonds::<Test>::insert(NetUidStorageIndex::from(netuid), neuron_uid, vec![(0, 1)]);
 
@@ -249,9 +250,9 @@ fn test_replace_neuron_clears_validator_trust_and_permit() {
         // Simulate the previous occupant having earned a validator_permit and trust score.
         ValidatorTrust::<Test>::mutate(netuid, |v| {
             if v.len() <= idx {
-                v.resize(idx + 1, 0);
+                v.resize(idx + 1, PerU16::zero());
             }
-            v[idx] = 42;
+            v[idx] = PerU16::from_parts(42);
         });
         ValidatorPermit::<Test>::mutate(netuid, |v| {
             if v.len() <= idx {
@@ -268,7 +269,7 @@ fn test_replace_neuron_clears_validator_trust_and_permit() {
         );
 
         // The replaced neuron must not inherit the previous occupant's validator state.
-        assert_eq!(ValidatorTrust::<Test>::get(netuid)[idx], 0);
+        assert_eq!(ValidatorTrust::<Test>::get(netuid)[idx], PerU16::zero());
         assert!(!ValidatorPermit::<Test>::get(netuid)[idx]);
     });
 }

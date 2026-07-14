@@ -2,7 +2,7 @@ name: Warm R2 sccache
 
 # Normal same-repository PR and main CI writes through while it compiles. This
 # workflow is maintenance only: refresh deployed-state branches when they move,
-# repair expired/missing main entries at Amsterdam noon, or recover manually.
+# repair expired/missing main entries at 12:00 UTC, or recover manually.
 
 on:
   push:
@@ -11,7 +11,6 @@ on:
       - testnet
   schedule:
     - cron: "0 12 * * *"
-      timezone: "Europe/Amsterdam"
   workflow_dispatch:
     inputs:
       source_ref:

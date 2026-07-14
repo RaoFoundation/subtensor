@@ -1657,6 +1657,7 @@ dependencies = [
  "sha2 0.10.9",
  "sodiumoxide",
  "sp-core",
+ "subtensor-macros",
  "tle",
  "twox-hash 2.1.2",
  "w3f-bls 0.1.3",

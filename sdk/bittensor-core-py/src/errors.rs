@@ -1,7 +1,7 @@
 //! The one place `CoreError` becomes a Python exception.
 
 use bittensor_core::CoreError;
-use pyo3::exceptions::{PyKeyError, PyValueError};
+use pyo3::exceptions::{PyConnectionError, PyKeyError, PyPermissionError, PyValueError};
 use pyo3::prelude::*;
 
 pyo3::create_exception!(
@@ -33,5 +33,7 @@ pub fn to_py_err(error: CoreError) -> PyErr {
         CoreError::NotInRuntime(what) => PyKeyError::new_err(what),
         CoreError::Codec(msg) | CoreError::Crypto(msg) => PyValueError::new_err(msg),
         CoreError::Device(msg) => LedgerError::new_err(msg),
+        CoreError::Rpc(msg) => PyConnectionError::new_err(msg),
+        CoreError::Policy(msg) => PyPermissionError::new_err(msg),
     }
 }

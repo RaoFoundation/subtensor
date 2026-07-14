@@ -9,14 +9,14 @@ impl<T: Config> Pallet<T> {
     /// Moves stake from one hotkey to another across subnets.
     ///
     /// # Arguments
-    /// * `origin` - The origin of the transaction, which must be signed by the `origin_hotkey`.
-    /// * `origin_hotkey` - The account ID of the hotkey from which the stake is being moved.
-    /// * `destination_hotkey` - The account ID of the hotkey to which the stake is being moved.
-    /// * `origin_netuid` - The network ID of the origin subnet.
-    /// * `destination_netuid` - The network ID of the destination subnet.
+    /// * `origin`: The origin of the transaction, which must be signed by the `origin_hotkey`.
+    /// * `origin_hotkey`: The account ID of the hotkey from which the stake is being moved.
+    /// * `destination_hotkey`: The account ID of the hotkey to which the stake is being moved.
+    /// * `origin_netuid`: The network ID of the origin subnet.
+    /// * `destination_netuid`: The network ID of the destination subnet.
     ///
     /// # Returns
-    /// * `DispatchResult` - Indicates the success or failure of the operation.
+    /// * `DispatchResult`: Indicates the success or failure of the operation.
     ///
     /// # Errors
     /// This function will return an error if:
@@ -77,11 +77,11 @@ impl<T: Config> Pallet<T> {
     /// Toggles the atomic alpha transfers for a specific subnet.
     ///
     /// # Arguments
-    /// * `netuid` - The network ID (subnet) for which the transfer functionality is being toggled.
-    /// * `toggle` - A boolean value indicating whether to enable (true) or disable (false) transfers.
+    /// * `netuid`: The network ID (subnet) for which the transfer functionality is being toggled.
+    /// * `toggle`: A boolean value indicating whether to enable (true) or disable (false) transfers.
     ///
     /// # Returns
-    /// * `DispatchResult` - Indicates success or failure of the operation.
+    /// * `DispatchResult`: Indicates success or failure of the operation.
     ///
     /// # Events
     /// Emits a `TransferToggle` event upon successful completion.
@@ -96,15 +96,15 @@ impl<T: Config> Pallet<T> {
     /// while keeping the same hotkey.
     ///
     /// # Arguments
-    /// * `origin` - The origin of the transaction, which must be signed by the `origin_coldkey`.
-    /// * `destination_coldkey` - The account ID of the coldkey to which the stake is being transferred.
-    /// * `hotkey` - The account ID of the hotkey associated with this stake.
-    /// * `origin_netuid` - The network ID (subnet) from which the stake is being transferred.
-    /// * `destination_netuid` - The network ID (subnet) to which the stake is being transferred.
-    /// * `alpha_amount` - The amount of stake to transfer.
+    /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
+    /// * `destination_coldkey`: The account ID of the coldkey to which the stake is being transferred.
+    /// * `hotkey`: The account ID of the hotkey associated with this stake.
+    /// * `origin_netuid`: The network ID (subnet) from which the stake is being transferred.
+    /// * `destination_netuid`: The network ID (subnet) to which the stake is being transferred.
+    /// * `alpha_amount`: The amount of stake to transfer.
     ///
     /// # Returns
-    /// * `DispatchResult` - Indicates success or failure.
+    /// * `DispatchResult`: Indicates success or failure.
     ///
     /// # Errors
     /// This function will return an error if:
@@ -163,14 +163,14 @@ impl<T: Config> Pallet<T> {
     /// (`origin_netuid`) to another (`destination_netuid`).
     ///
     /// # Arguments
-    /// * `origin` - The origin of the transaction, which must be signed by the coldkey that owns the hotkey.
-    /// * `hotkey` - The hotkey whose stake is being swapped.
-    /// * `origin_netuid` - The subnet ID from which stake is removed.
-    /// * `destination_netuid` - The subnet ID to which stake is added.
-    /// * `alpha_amount` - The amount of stake to swap.
+    /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the hotkey.
+    /// * `hotkey`: The hotkey whose stake is being swapped.
+    /// * `origin_netuid`: The subnet ID from which stake is removed.
+    /// * `destination_netuid`: The subnet ID to which stake is added.
+    /// * `alpha_amount`: The amount of stake to swap.
     ///
     /// # Returns
-    /// * `DispatchResult` - Indicates success or failure.
+    /// * `DispatchResult`: Indicates success or failure.
     ///
     /// # Errors
     /// This function returns an error if:
@@ -226,16 +226,16 @@ impl<T: Config> Pallet<T> {
     /// (`origin_netuid`) to another (`destination_netuid`).
     ///
     /// # Arguments
-    /// * `origin` - The origin of the transaction, which must be signed by the coldkey that owns the hotkey.
-    /// * `hotkey` - The hotkey whose stake is being swapped.
-    /// * `origin_netuid` - The subnet ID from which stake is removed.
-    /// * `destination_netuid` - The subnet ID to which stake is added.
-    /// * `alpha_amount` - The amount of stake to swap.
-    /// * `limit_price` - The limit price.
-    /// * `allow_partial` - Allow partial execution
+    /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the hotkey.
+    /// * `hotkey`: The hotkey whose stake is being swapped.
+    /// * `origin_netuid`: The subnet ID from which stake is removed.
+    /// * `destination_netuid`: The subnet ID to which stake is added.
+    /// * `alpha_amount`: The amount of stake to swap.
+    /// * `limit_price`: The limit price.
+    /// * `allow_partial`: Allow partial execution
     ///
     /// # Returns
-    /// * `DispatchResult` - Indicates success or failure.
+    /// * `DispatchResult`: Indicates success or failure.
     ///
     /// # Errors
     /// This function returns an error if:
@@ -418,9 +418,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// In the corner case when SubnetTAO(2) == SubnetTAO(1), no slippage is going to occur.
     ///
-    /// TODO: This formula only works for a single swap step, so it is not 100% correct for swap v3 or
-    /// highly assymetric balancers.
-    /// We need an updated one.
+    // TODO: This formula only works for a single swap step, so it is not 100% correct for swap v3 or
+    // highly assymetric balancers.
+    // We need an updated one.
     pub fn get_max_amount_move(
         origin_netuid: NetUid,
         destination_netuid: NetUid,

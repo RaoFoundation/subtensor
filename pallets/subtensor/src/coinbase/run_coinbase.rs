@@ -966,9 +966,9 @@ impl<T: Config> Pallet<T> {
     /// The hotkey also gets a portion based on its own stake contribution, this is added to the childkey take.
     ///
     /// # Arguments
-    /// * `hotkye` - The hotkey to distribute out from.
-    /// * `netuid` - The netuid we are computing on.
-    /// * `dividends` - the dividends to distribute.
+    /// * `hotkye`: The hotkey to distribute out from.
+    /// * `netuid`: The netuid we are computing on.
+    /// * `dividends`: the dividends to distribute.
     ///
     /// # Returns
     /// * dividend_tuples: `Vec<(T::AccountId, u64)>` - Vector of (hotkey, divs) for each parent including self.
@@ -1110,10 +1110,10 @@ impl<T: Config> Pallet<T> {
     /// Checks if the epoch should run for a given subnet based on the current block.
     ///
     /// # Arguments
-    /// * `netuid` - The unique identifier of the subnet.
+    /// * `netuid`: The unique identifier of the subnet.
     ///
     /// # Returns
-    /// * `bool` - True if the epoch should run, false otherwise.
+    /// * `bool`: True if the epoch should run, false otherwise.
     pub fn should_run_epoch(netuid: NetUid, current_block: u64) -> bool {
         let tempo = Self::get_tempo(netuid);
         if tempo == 0 {

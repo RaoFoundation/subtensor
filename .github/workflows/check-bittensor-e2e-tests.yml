@@ -50,7 +50,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
-  # The in-repo SDK e2e harness reads LOCALNET_IMAGE from the environment.
+  # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
   # Per-commit tag on GHCR: built once, pulled by every test job. Registry
   # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
@@ -119,59 +119,85 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.10"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        with:
-          enable-cache: "true"
-          cache-dependency-glob: "sdk/python/uv.lock"
-
-      # One matrix entry per test FILE, not per test: every job pays ~2-3
-      # minutes of fixed cost (checkout, uv sync, downloading + loading the
-      # localnet image, booting a chain), so per-test fan-out spent ~20x more
-      # time on setup than on tests. The e2e conftest's fixtures are already
-      # session-scoped — one localnet shared by all tests in a pytest run —
-      # so a per-file job is the granularity the suite was written for.
-      - name: Collect in-repo SDK e2e tests
+      - name: Verify the Rust e2e migration manifest
         id: get-tests
-        working-directory: sdk/python
+        shell: bash
         run: |
           set -euo pipefail
-          uv sync --locked --all-extras --dev
-          test_matrix=$(
-            uv run pytest -q --collect-only -m e2e \
-            | sed -n '/^tests\/e2e\//p' \
-            | jq -R -s -c '
-                split("\n")
-                | map(select(. != ""))
-                | map(split("::")[0])
-                | unique
-                | map({nodeid: ., label: (sub("^tests/e2e/"; "") | sub("\\.py$"; ""))})
-              '
-          )
-          echo "Found test files: $test_matrix"
-          if [ "$test_matrix" = "[]" ] || [ -z "$test_matrix" ]; then
-            echo "No e2e tests found — failing."
-            exit 1
-          fi
+          manifest=sdk/bittensor-core/tests/e2e-manifest.json
+          jq -e 'length == 113' "$manifest" >/dev/null
+          jq -e 'map(.test) | length == (unique | length)' "$manifest" >/dev/null
+          jq -e 'all(.[]; (.test | startswith("intent_")) or (.test | startswith("test_")))' "$manifest" >/dev/null
+          test_matrix=$(jq -c . "$manifest")
+          echo "Found $(jq length "$manifest") migrated Rust e2e tests"
           echo "test-files=$test_matrix" >> "$GITHUB_OUTPUT"
+
+  build-rust-e2e-test-binary:
+    needs: [check-label, find-e2e-tests]
+    if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+
+      - name: Install Rust + build dependencies
+        run: |
+          chmod +x ./scripts/install_build_env.sh
+          ./scripts/install_build_env.sh
+
+      - name: Compile once and prove manifest completeness
         shell: bash
+        run: |
+          set -euo pipefail
+          source "$HOME/.cargo/env"
+          mkdir -p build/rust-e2e
+          # The workspace/localnet build also compiles the Python binding. Keep
+          # CoreError/API compatibility in this faster job so failures surface
+          # before the expensive node builds.
+          cargo check -p bittensor-core-py
+          cargo test -p bittensor-core --test e2e --no-run --message-format=json \
+            > build/rust-e2e/cargo-messages.json
+          executable=$(
+            jq -r '
+              select(.reason == "compiler-artifact")
+              | select(.target.name == "e2e")
+              | select(.target.kind | index("test"))
+              | .executable // empty
+            ' build/rust-e2e/cargo-messages.json | tail -n 1
+          )
+          test -n "$executable"
+          cp "$executable" build/rust-e2e/bittensor-core-e2e
+          chmod +x build/rust-e2e/bittensor-core-e2e
+
+          jq -r '.[].test' sdk/bittensor-core/tests/e2e-manifest.json \
+            | sort > build/rust-e2e/expected-tests.txt
+          build/rust-e2e/bittensor-core-e2e --list --format terse \
+            | sed -n 's/: test$//p' \
+            | sort > build/rust-e2e/compiled-tests.txt
+          diff -u build/rust-e2e/expected-tests.txt build/rust-e2e/compiled-tests.txt
+
+      - name: Upload compiled Rust e2e binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bittensor-core-e2e
+          path: build/rust-e2e/bittensor-core-e2e
+          if-no-files-found: error
 
   artifacts:
-    name: Node • ${{ matrix.runtime }} • ${{ matrix.platform.arch }}
+    name: Node • fast-runtime • ${{ matrix.platform.arch }}
     needs: [check-label, trusted-pr]
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
-        runtime: ["fast-runtime", "non-fast-runtime"]
 
     runs-on: ${{ matrix.platform.runner }}
     environment:
@@ -212,15 +238,13 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_BUILD_TARGET="${{ matrix.platform.triple }}"
 
-          if [ "${{ matrix.runtime }}" = "fast-runtime" ]; then
-            ./scripts/localnet.sh --build-only
-          else
-            ./scripts/localnet.sh False --build-only
-          fi
+          # The SDK e2e suite validates the fast-runtime localnet image used
+          # by developer and CI localnet runs.
+          ./scripts/localnet.sh --build-only
 
       - name: Prepare artifacts for upload
         run: |
-          RUNTIME="${{ matrix.runtime }}"
+          RUNTIME="fast-runtime"
           TRIPLE="${{ matrix.platform.triple }}"
 
           BINARY_PATH="target/${RUNTIME}/${TRIPLE}/release/node-subtensor"
@@ -247,7 +271,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: binaries-${{ matrix.platform.triple }}-${{ matrix.runtime }}
+          name: binaries-${{ matrix.platform.triple }}-fast-runtime
           path: build/
           if-no-files-found: error
 
@@ -280,7 +304,7 @@ jobs:
           docker info | grep "Docker Root Dir"
 
       - name: Build Docker Image
-        run: docker build -f Dockerfile-localnet --build-arg BUILT_IN_CI="Boom shakalaka" -t "$LOCALNET_IMAGE_CI" .
+        run: docker build -f sdk/bittensor-core/tests/Dockerfile.localnet-fast -t "$LOCALNET_IMAGE_CI" .
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -292,10 +316,11 @@ jobs:
       - name: Push Docker Image to GHCR
         run: docker push "$LOCALNET_IMAGE_CI"
 
-  run-sdk-e2e-tests:
+  run-rust-e2e-tests:
     needs:
       - check-label
       - find-e2e-tests
+      - build-rust-e2e-test-binary
       - build-image-with-current-branch
     if: needs.check-label.outputs.skip-bittensor-e2e-tests == 'false'
     runs-on: ubuntu-latest
@@ -306,24 +331,13 @@ jobs:
         include: ${{ fromJson(needs.find-e2e-tests.outputs.test-files) }}
 
     timeout-minutes: 60
-    name: "sdk: ${{ matrix.label }}"
+    name: "rust-e2e: ${{ matrix.test }}"
     steps:
-      - name: Check-out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Download compiled Rust e2e binary
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        with:
-          enable-cache: "true"
-          cache-dependency-glob: "sdk/python/uv.lock"
-
-      - name: Install in-repo SDK
-        working-directory: sdk/python
-        run: |
-          uv sync --locked --all-extras --dev
+          name: bittensor-core-e2e
+          path: rust-e2e
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -333,37 +347,42 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull Docker Image
-        run: docker pull "$LOCALNET_IMAGE_CI"
+        # GHCR intermittently returns permission_denied/timeouts under the
+        # ~120-job pull fan-out, so retry with backoff instead of failing the shard.
+        run: |
+          for i in 1 2 3; do
+            docker pull "$LOCALNET_IMAGE_CI" && exit 0
+            echo "docker pull failed (attempt $i), retrying in $((i * 15))s..."
+            sleep $((i * 15))
+          done
+          docker pull "$LOCALNET_IMAGE_CI"
 
       - name: Retag Docker Image
         run: docker tag "$LOCALNET_IMAGE_CI" "$LOCALNET_IMAGE"
 
       - name: Run with retry
-        working-directory: sdk/python
         env:
           SKIP_PULL: 1
+          RUST_BACKTRACE: 1
+          TEST_NAME: ${{ matrix.test }}
         run: |
           set +e
+          chmod +x rust-e2e/bittensor-core-e2e
           for i in 1 2; do
-            echo "Attempt $i: Running tests"
-            # -m e2e overrides the default addopts (-m 'not e2e') which would
-            # otherwise deselect the collected tests and fail with "no tests
-            # ran". The retry reruns only what failed (--lf reads pytest's
-            # cache from attempt 1) against a fresh localnet — the session
-            # fixture tears the container down and boots a new one per run.
-            if [ "$i" = "1" ]; then
-              uv run pytest "${{ matrix.nodeid }}" -s -m e2e
-            else
-              uv run pytest "${{ matrix.nodeid }}" -s -m e2e --lf
-            fi
+            echo "Attempt $i: Running $TEST_NAME"
+            rust-e2e/bittensor-core-e2e \
+              "$TEST_NAME" \
+              --exact \
+              --nocapture \
+              --test-threads=1
             status=$?
             if [ $status -eq 0 ]; then
-              echo "Tests passed on attempt $i"
+              echo "Test passed on attempt $i"
               break
             else
-              echo "Tests failed on attempt $i"
+              echo "Test failed on attempt $i"
               if [ $i -eq 2 ]; then
-                echo "Tests failed after 2 attempts"
+                echo "Test failed after 2 attempts"
                 exit 1
               fi
               echo "Retrying..."

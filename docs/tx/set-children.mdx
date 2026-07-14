@@ -8,11 +8,13 @@ description: "Assign child hotkeys with stake-weight proportions on a subnet."
 Childkeys let a parent hotkey delegate a fraction of its stake weight to
 other hotkeys on one subnet — commonly used to split validation duties or
 point stake at a separate validating key without moving the stake itself.
-Each entry in `children` is a pair of proportion and hotkey ss58, where
-proportion is a u64 share of u64::MAX; the proportions must not sum past
-the whole. The call replaces the full child set, so pass an empty list to
-revoke all children. Signed by the coldkey that owns the parent hotkey,
-and subject to the chain's childkey rate limit.
+Each entry in `children` is a pair of proportion and hotkey ss58. A
+proportion with a decimal point is the human 0..1 fraction of the parent's
+stake weight (e.g. 0.5); a plain integer is the raw u64 share of u64::MAX.
+The proportions must not sum past the whole. The call replaces the full
+child set, so pass an empty list to revoke all children. Signed by the
+coldkey that owns the parent hotkey, and subject to the chain's childkey
+rate limit.
 
 Chain guards: not allowed on the root subnet; at most 5 children per
 hotkey per subnet; duplicate children are rejected; a hotkey that is a
@@ -31,7 +33,7 @@ is not yet enabled, where they apply immediately.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet on which the child relationships apply. |
-| `children` | array | yes | JSON list of proportion-and-hotkey pairs; each proportion is a u64 share of u64::MAX of the parent's stake weight delegated to that child. An empty list revokes all children. |
+| `children` | array | yes | JSON list of proportion-and-hotkey pairs; each proportion is a 0..1 fraction (e.g. 0.5) or a raw u64 share of u64::MAX of the parent's stake weight delegated to that child. An empty list revokes all children. |
 | `hotkey_ss58` | string | no | Hotkey the operation applies to. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58

@@ -18,7 +18,7 @@ from bittensor.intents import REGISTRY, build
 from bittensor.intents._money import UNBOUNDED, _Unbounded
 from bittensor.intents.base import BuiltCall
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import BOB, INTENT_SAMPLES, dev_wallet
+from tests.harness.samples import BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
 
 
 @pytest.fixture()
@@ -242,6 +242,183 @@ class TestExecuteFlow:
         )
         assert result.success
         assert substrate.last_call.module == "Balances"
+
+
+class TestStakingMoneyUnits:
+    """Unit-tagged amounts at the staking intent boundary: a correctly tagged
+    Balance behaves exactly like the plain number; the wrong unit (alpha into
+    a TAO parameter or vice versa) raises a ValueError naming the extrinsic,
+    the parameter, and both units."""
+
+    @pytest.mark.parametrize(
+        ("op", "amount_field", "tagged", "extra"),
+        [
+            ("add_stake", "amount_tao", Balance.from_tao("1.5"), {}),
+            ("remove_stake", "amount_alpha", Balance.from_alpha("1.5", 1), {}),
+            (
+                "add_stake_limit",
+                "amount_tao",
+                Balance.from_tao("1.5"),
+                {"limit_price_rao": 10**9},
+            ),
+            (
+                "remove_stake_limit",
+                "amount_alpha",
+                Balance.from_alpha("1.5", 1),
+                {"limit_price_rao": 10**9},
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_tagged_correct_builds_same_call_as_untagged(
+        self, substrate: FakeSubstrate, wallet, op, amount_field, tagged, extra
+    ):
+        base = {"hotkey_ss58": BOB, "netuid": 1, **extra}
+        untagged = build(op, {**base, amount_field: 1.5})
+        with_balance = build(op, {**base, amount_field: tagged})
+        assert getattr(with_balance, amount_field) == getattr(untagged, amount_field)
+        built_a = await untagged.build(substrate, wallet)
+        built_b = await with_balance.build(substrate, wallet)
+        assert built_b.params == built_a.params
+
+    @pytest.mark.parametrize(
+        ("op", "args", "match"),
+        [
+            (
+                "add_stake",
+                {"hotkey_ss58": BOB, "netuid": 1, "amount_tao": Balance.from_alpha(1.0, 1)},
+                r"add_stake.*'amount_staked' takes TAO.*subnet-1 ALPHA",
+            ),
+            (
+                "remove_stake",
+                {"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": Balance.from_tao(1.0)},
+                r"remove_stake.*'amount_unstaked' takes subnet-1 ALPHA.*tagged TAO",
+            ),
+            (
+                "add_stake_limit",
+                {
+                    "hotkey_ss58": BOB,
+                    "netuid": 2,
+                    "amount_tao": Balance.from_alpha(1.0, 2),
+                    "limit_price_rao": 10**9,
+                },
+                r"add_stake_limit.*'amount_staked' takes TAO.*subnet-2 ALPHA",
+            ),
+            (
+                "remove_stake_limit",
+                {
+                    "hotkey_ss58": BOB,
+                    "netuid": 2,
+                    "amount_alpha": Balance.from_tao(1.0),
+                    "limit_price_rao": 10**9,
+                },
+                r"remove_stake_limit.*'amount_unstaked' takes subnet-2 ALPHA.*tagged TAO",
+            ),
+            (
+                "move_stake",
+                {
+                    "origin_hotkey_ss58": BOB,
+                    "origin_netuid": 1,
+                    "dest_hotkey_ss58": BOB,
+                    "dest_netuid": 2,
+                    "amount_alpha": Balance.from_tao(1.0),
+                },
+                r"move_stake.*'alpha_amount' takes subnet-1 ALPHA.*tagged TAO",
+            ),
+            (
+                "swap_stake",
+                {
+                    "hotkey_ss58": BOB,
+                    "origin_netuid": 1,
+                    "dest_netuid": 2,
+                    "amount_alpha": Balance.from_alpha(1.0, 2),
+                },
+                r"swap_stake.*'alpha_amount' takes subnet-1 ALPHA.*subnet-2 ALPHA",
+            ),
+            (
+                "transfer_stake",
+                {
+                    "dest_coldkey_ss58": BOB,
+                    "hotkey_ss58": BOB,
+                    "origin_netuid": 1,
+                    "dest_netuid": 2,
+                    "amount_alpha": Balance.from_tao(1.0),
+                },
+                r"transfer_stake.*'alpha_amount' takes subnet-1 ALPHA.*tagged TAO",
+            ),
+        ],
+    )
+    def test_wrong_unit_raises_valueerror(self, op, args, match):
+        with pytest.raises(ValueError, match=match):
+            build(op, args)
+
+    def test_root_alpha_is_tao(self):
+        # netuid 0 stake is TAO-denominated, so a TAO Balance is the correct
+        # tag for remove_stake on root.
+        intent = build(
+            "remove_stake", {"hotkey_ss58": BOB, "netuid": 0, "amount_alpha": Balance.from_tao(1.0)}
+        )
+        assert intent.amount_alpha == Balance.from_tao(1.0)
+
+
+class TestProportionInputs:
+    """Normalized-proportion ergonomics on takes, child proportions, and the
+    mechanism emission split: a value with a decimal point is the human 0..1
+    form (converted to the raw fixed-point integer at construction), a plain
+    integer is the raw wire value (bound-checked), matching the hyperparameter
+    value rules."""
+
+    U16_MAX = 65535
+    U64_MAX = 2**64 - 1
+
+    @pytest.mark.parametrize("op", ["set_take", "increase_take", "decrease_take"])
+    def test_take_accepts_fraction_and_raw(self, op):
+        assert build(op, {"take": 0.18}).take == round(0.18 * self.U16_MAX)
+        assert build(op, {"take": "0.18"}).take == round(0.18 * self.U16_MAX)
+        assert build(op, {"take": 11796}).take == 11796
+
+    def test_childkey_take_accepts_fraction(self):
+        intent = build("set_childkey_take", {"netuid": 1, "take": 0.09})
+        assert intent.take == round(0.09 * self.U16_MAX)
+
+    @pytest.mark.parametrize("bad", [70000, 1.5, -1, "abc"])
+    def test_take_rejects_out_of_range(self, bad):
+        with pytest.raises(ValueError):
+            build("set_take", {"take": bad})
+
+    def test_children_accept_fraction_proportions(self):
+        intent = build("set_children", {"netuid": 1, "children": [[0.5, BOB]]})
+        assert intent.children == [[round(0.5 * self.U64_MAX), BOB]]
+
+    def test_children_accept_raw_shares(self):
+        intent = build("set_children", {"netuid": 1, "children": [[2**63, BOB]]})
+        assert intent.children == [[2**63, BOB]]
+
+    def test_children_reject_oversum(self):
+        with pytest.raises(ValueError, match=r"must not exceed 1\.0"):
+            build("set_children", {"netuid": 1, "children": [[0.7, BOB], [0.7, BOB_HOT]]})
+
+    def test_children_roundtrip_after_normalization(self):
+        intent = build("set_children", {"netuid": 1, "children": [[0.25, BOB]]})
+        encoded = intent.to_dict()
+        rebuilt = build("set_children", {k: v for k, v in encoded.items() if k != "op"})
+        assert rebuilt.to_dict() == encoded
+
+    def test_split_normalizes_relative_floats(self):
+        intent = build("set_mechanism_emission_split", {"netuid": 1, "split": [0.5, 0.5]})
+        assert sum(intent.split) == self.U16_MAX
+        assert abs(intent.split[0] - intent.split[1]) <= 1
+
+    def test_split_normalizes_uneven_weights(self):
+        intent = build("set_mechanism_emission_split", {"netuid": 1, "split": [3.0, 1.0]})
+        assert sum(intent.split) == self.U16_MAX
+        assert intent.split[0] == round(3 / 4 * self.U16_MAX)
+
+    def test_split_raw_ints_must_sum_exactly(self):
+        exact = build("set_mechanism_emission_split", {"netuid": 1, "split": [32768, 32767]})
+        assert exact.split == [32768, 32767]
+        with pytest.raises(ValueError, match="sum to exactly"):
+            build("set_mechanism_emission_split", {"netuid": 1, "split": [1, 1]})
 
 
 def test_tools_catalog_matches_registry():

@@ -46,7 +46,7 @@ btcli tx burned-register --netuid 1 -w my_coldkey
 ```
 
 ```python
-price = await client.read("burn", netuid=1)   # current registration cost
+price = await client.subnets.burn(netuid=1)   # current registration cost
 await client.execute(sub.BurnedRegister(netuid=1), wallet)
 ```
 

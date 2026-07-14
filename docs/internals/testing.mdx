@@ -11,8 +11,9 @@ how to reproduce each locally saves round-trips:
 | Rust unit tests | Pallet and runtime logic | `cargo test --workspace` (below) | `check-rust.yml` |
 | TypeScript / Moonwall | End-to-end chain behavior, EVM, zombienet multi-node | `ts-tests/` (below) | `typescript-e2e.yml` |
 | Migration checks | `on_runtime_upgrade` against live state | try-runtime CLI (below) | `try-runtime.yml` |
-| [Mainnet clone](/docs/internals/mainnet-clone) | Runtime upgrade + regression tests on cloned mainnet state | `clones/` scripts | `check-clone-upgrade.yml` |
-| [Python SDK](/docs/internals/sdk-tests) | SDK unit + e2e tests, codegen drift gates | `cd sdk/python && just check` | `check-clone-upgrade.yml` |
+| [Mainnet clone](/docs/internals/mainnet-clone) | Runtime upgrade + regression tests on cloned mainnet state | `clones/` scripts | `runtime-checks.yml` |
+| [Python SDK](/docs/internals/sdk-tests) | SDK unit tests and codegen drift gates | `cd sdk/python && just check` | `runtime-checks.yml` |
+| Rust SDK e2e | Chain-facing SDK behavior against localnet | `cargo test -p bittensor-core --test e2e` | `check-bittensor-e2e-tests.yml` |
 | [eco-tests](/docs/internals/eco-tests) | Storage/RPC shapes the TAO.com indexer depends on | `cd eco-tests && cargo test` | `eco-tests.yml` |
 
 ## Rust tests
@@ -153,8 +154,8 @@ pnpm moonwall run zombienet_staking
   your runtime, and runs JS regression tests against it. Full walkthrough:
   [Mainnet clone testing](/docs/internals/mainnet-clone).
 - **Python SDK** (`sdk/python/`): `just sync && just check` runs the same
-  offline gates as CI; e2e tests need a running localnet, and runtime metadata
-  changes require regenerating the codegen bindings. Full walkthrough:
+  offline gates as CI; runtime metadata changes require regenerating the
+  codegen bindings. Full walkthrough:
   [Python SDK tests](/docs/internals/sdk-tests).
 - **eco-tests** (`eco-tests/`): excluded from the cargo workspace, so run them
   from their own directory: `cd eco-tests && cargo test`. They pin the storage
