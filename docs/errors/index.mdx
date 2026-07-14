@@ -9,7 +9,7 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 
 | Code | Chain errors | Remediation |
 | --- | --- | --- |
-| [`insufficient_balance`](/docs/errors/insufficient-balance) | 23 | Fund the signing account or reduce the amount; check with `btcli wallet balance` |
+| [`insufficient_balance`](/docs/errors/insufficient-balance) | 25 | Fund the signing account or reduce the amount; check with `btcli wallet balance` |
 | [`insufficient_liquidity`](/docs/errors/insufficient-liquidity) | 8 | The pool cannot absorb this trade; reduce the amount or split it into smaller steps |
 | [`rate_limited`](/docs/errors/rate-limited) | 17 | Wait for the rate-limit window to pass, then retry |
 | [`not_registered`](/docs/errors/not-registered) | 4 | Register the hotkey on this subnet first with `btcli subnets register` |

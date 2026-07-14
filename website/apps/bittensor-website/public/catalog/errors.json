@@ -674,9 +674,14 @@
       "description": "A batch weights call passed vectors of different lengths, e.g. netuids vs commit hashes, or uids vs values, salts and version_keys in batch reveal. Check that every parallel vector argument in the batch extrinsic has the same length.",
       "docs_url": "/docs/errors/chain/InputLengthsUnequal"
     },
+    "InsufficientAlphaBalance": {
+      "code": "insufficient_balance",
+      "description": "A stake decrease asked to debit more alpha than the hotkey-coldkey pair holds on that subnet. Compare the requested amount against the pair's current stake on the netuid (`btcli stake list` or the `Alpha` storage entry).",
+      "docs_url": "/docs/errors/chain/InsufficientAlphaBalance"
+    },
     "InsufficientBalance": {
       "code": "insufficient_balance",
-      "description": "The caller's spendable balance is below what the operation needs, whether a plain transfer, a stake operation, a crowdloan deposit or contribution, or a swap. Compare the account's free balance in `System.Account` (net of holds, freezes, and fees) against the amount being moved.",
+      "description": "The caller's spendable balance is below what the operation needs, whether a plain transfer, a crowdloan deposit or contribution, or a swap. Compare the account's free balance in `System.Account` (net of holds, freezes, and fees) against the amount being moved.",
       "docs_url": "/docs/errors/chain/InsufficientBalance"
     },
     "InsufficientInputAmount": {
@@ -693,6 +698,11 @@
       "code": "insufficient_balance",
       "description": "The requested lock amount exceeds the coldkey's total alpha stake on that subnet (existing locked mass included). Compare the amount against the coldkey's stake on the netuid, e.g. via `btcli stake list`, and lock less or add stake first.",
       "docs_url": "/docs/errors/chain/InsufficientStakeForLock"
+    },
+    "InsufficientTaoBalance": {
+      "code": "insufficient_balance",
+      "description": "The coldkey's free TAO balance is below the amount a TAO-side operation needs: a transfer between coldkeys, a burn or recycle, or a subnet-registration lock. Check the coldkey's balance with `btcli wallet balance` against the amount being moved.",
+      "docs_url": "/docs/errors/chain/InsufficientTaoBalance"
     },
     "InvalidCallFlags": {
       "code": "invalid_argument",

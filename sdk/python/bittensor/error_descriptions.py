@@ -103,9 +103,9 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "InsufficientBalance": (
         "The caller's spendable balance is below what the operation needs, whether a plain "
-        "transfer, a stake operation, a crowdloan deposit or contribution, or a swap. Compare "
-        "the account's free balance in `System.Account` (net of holds, freezes, and fees) "
-        "against the amount being moved."
+        "transfer, a crowdloan deposit or contribution, or a swap. Compare the account's free "
+        "balance in `System.Account` (net of holds, freezes, and fees) against the amount "
+        "being moved."
     ),
     "IssuanceDeactivated": (
         "Total issuance cannot be adjusted because issuance has already been deactivated. Check "
@@ -1252,6 +1252,11 @@ DESCRIPTIONS: dict[str, str] = {
         "hashes, or uids vs values, salts and version_keys in batch reveal. Check that every "
         "parallel vector argument in the batch extrinsic has the same length."
     ),
+    "InsufficientAlphaBalance": (
+        "A stake decrease asked to debit more alpha than the hotkey-coldkey pair holds on that "
+        "subnet. Compare the requested amount against the pair's current stake on the netuid "
+        "(`btcli stake list` or the `Alpha` storage entry)."
+    ),
     "InsufficientLiquidity": (
         "The pool cannot absorb the operation: the swap simulation failed, reserves are smaller "
         "than the payout, or the amount exceeds the pool's supported input. Check the subnet "
@@ -1261,6 +1266,11 @@ DESCRIPTIONS: dict[str, str] = {
         "The requested lock amount exceeds the coldkey's total alpha stake on that subnet "
         "(existing locked mass included). Compare the amount against the coldkey's stake on the "
         "netuid, e.g. via `btcli stake list`, and lock less or add stake first."
+    ),
+    "InsufficientTaoBalance": (
+        "The coldkey's free TAO balance is below the amount a TAO-side operation needs: a "
+        "transfer between coldkeys, a burn or recycle, or a subnet-registration lock. Check "
+        "the coldkey's balance with `btcli wallet balance` against the amount being moved."
     ),
     "InvalidChild": (
         "The children or parents list includes the pivot hotkey itself (a self-loop), including "
