@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 429
+Spec version: 430
 
 Pallet constant descriptors: unpack into substrate.constant.
 """
