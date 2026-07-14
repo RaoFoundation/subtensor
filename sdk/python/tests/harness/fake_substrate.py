@@ -61,6 +61,13 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "InitialStartCallDelay"): 100,
 }
 
+# Runtime-API results answered when the test seeds nothing. Chosen so intent
+# builds that consult chain state (e.g. the alpha price backing the default
+# slippage-protection limit) work offline.
+DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
+    ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
+}
+
 GENESIS_HASH = "0x" + "00" * 32
 
 
@@ -128,7 +135,7 @@ class FakeSubstrate:
         self._maps: dict[tuple[str, str], list[tuple[Any, Any]]] = {}
         self._constants: dict[tuple[str, str], Any] = dict(DEFAULT_CONSTANTS)
         # (api, method) -> value, or callable(params) -> value
-        self._runtime: dict[tuple[str, str], Any] = {}
+        self._runtime: dict[tuple[str, str], Any] = dict(DEFAULT_RUNTIME)
 
         self.fee = Balance.from_rao(124_414)
         self.weight = {"ref_time": 1_000_000, "proof_size": 3_593}

@@ -14,9 +14,11 @@ import typer
 from ... import config as cfg
 from ... import storage, wallets
 from .. import multisig_helpers as ms_helpers
+from .. import upgrade_helpers as uh
 from ..context import AppContext, ctx_of
 from ..globals import with_globals
 from ..prompt import confirm_wallet
+from .upgrade import load_pending_upgrades, render_upgrade_records
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -277,7 +279,7 @@ def multisig_pending(
 
     async def _load(client):
         ms = await client.multisig(signatories_resolved, threshold)
-        return await ms_helpers.list_pending_with_commands(
+        records = await ms_helpers.list_pending_with_commands(
             client,
             app_ctx,
             ms=ms,
@@ -288,6 +290,25 @@ def multisig_pending(
             call_hash_filter=call_hash,
             call_data=call_data,
         )
+        # When this multisig IS the chain's sudo key, pending runtime-upgrade
+        # proposals (held one layer out, on the CI deployment multisig) are
+        # part of what its signers are waiting to act on — surface them here.
+        upgrades: list = []
+        sudo_key = await client.query(storage.Sudo.Key)
+        if str(sudo_key) == ms.address and not call_hash:
+            upgrades = await load_pending_upgrades(client, app_ctx, uh.DEFAULT_UPGRADE_REPO)
+        return records, upgrades
 
-    records = app_ctx.run(_load)
+    records, upgrades = app_ctx.run(_load)
+    if app_ctx.output.json_mode and upgrades:
+        app_ctx.output.value(
+            {
+                "pending_multisigs": records,
+                "count": len(records),
+                "pending_upgrades": upgrades,
+            }
+        )
+        return
     app_ctx.output.pending_multisigs(records, title=f"pending multisig — {label}")
+    if upgrades:
+        render_upgrade_records(app_ctx, upgrades)

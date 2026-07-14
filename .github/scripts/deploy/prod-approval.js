@@ -1,13 +1,12 @@
 const { main } = require("./approve-upgrade-multisig");
 
 // New triumvirate (June 22, 2026). 2-of-3 derives sudo multisig
-// 5DcSqBNqCmfdJZRGFSwwcRb2dZdJHZuKK8Tb1Gx8gbmF5E8s.
-const SUDO_SIGNATORIES = [
-  "5E7RCRrPVS8TckCDjr92B5ciGziwz2kfvxe4URy3L7AgirGJ", // A
-  "5FevFjov8435t5XC2MUSRpFYxtthE8pZy1toHpgAAia3ZphG", // B
-  "5GRCukV2rZmSVfJhAXoLjcrU1pMVCf2Ra1ydbiCFZdaQXDXo", // C
-];
-const SUDO_THRESHOLD = 2; // 2 of 3
+// 5DcSqBNqCmfdJZRGFSwwcRb2dZdJHZuKK8Tb1Gx8gbmF5E8s. The signer set lives in
+// sudo-signatories.json so the release-train manifest embeds the same list.
+const {
+  signatories: SUDO_SIGNATORIES,
+  threshold: SUDO_THRESHOLD,
+} = require("./sudo-signatories.json");
 
 main(SUDO_SIGNATORIES, SUDO_THRESHOLD).catch((error) => {
   console.error(error.stack);

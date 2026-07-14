@@ -32,7 +32,7 @@
   {
     "name": "add_stake",
     "summary": "Stake TAO from the coldkey onto a hotkey.",
-    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage \u2014 use `add_stake_limit` to bound the\nprice. The position's value then follows the pool price and the validator's\nperformance, and can be exited later with `remove_stake`. Fails if the\ncoldkey's free balance cannot cover the amount plus the transaction fee,\nand with `AmountTooLow` when the amount is below the chain minimum of\n0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap\nlarger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).",
+    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage. By default the call is slippage-protected:\nit fails (`SlippageTooHigh`) instead of filling once the price rises more\nthan `rate_tolerance` (5%) above the price at submission \u2014 raise the\ntolerance or set `slippage_protection` to False to execute at any price,\nor use `add_stake_limit` to set an explicit limit price. The position's\nvalue then follows the pool price and the validator's performance, and can\nbe exited later with `remove_stake`. Fails if the coldkey's free balance\ncannot cover the amount plus the transaction fee, and with `AmountTooLow`\nwhen the amount is below the chain minimum of 0.002 TAO plus the swap fee.\nDynamic subnets also reject a single swap larger than 1000x the pool's TAO\nreserve (`InsufficientLiquidity`).",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -57,6 +57,14 @@
             }
           ],
           "description": "How much of the coldkey's free balance to stake."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
         }
       },
       "required": [
@@ -1112,7 +1120,7 @@
   {
     "name": "remove_stake",
     "summary": "Unstake alpha from a hotkey back to the coldkey.",
-    "description": "Unstake alpha from a hotkey back to the coldkey.\n\nSwaps the alpha position back to TAO at the current pool price and credits\nit to the signing coldkey's free balance. Pass `all` to exit the entire\nposition on that hotkey and subnet (the build fails if nothing is staked\nthere). Like staking, the swap moves the pool, so large amounts incur\nslippage \u2014 use `remove_stake_limit` to bound the price. The hotkey and\nnetuid must match where the stake is actually held, and the subnet must\nhave subtoken trading enabled. The requested amount is capped to the\nstake currently available. A partial unstake must leave a remainder\nworth at least 0.002 TAO at the simulated pool price \u2014 exit the full\nposition instead of leaving dust (`AmountTooLow`).",
+    "description": "Unstake alpha from a hotkey back to the coldkey.\n\nSwaps the alpha position back to TAO at the current pool price and credits\nit to the signing coldkey's free balance. Pass `all` to exit the entire\nposition on that hotkey and subnet (the build fails if nothing is staked\nthere). Like staking, the swap moves the pool, so large amounts incur\nslippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the price falls more than\n`rate_tolerance` (5%) below the price at submission \u2014 raise the tolerance\nor set `slippage_protection` to False to execute at any price, or use\n`remove_stake_limit` to set an explicit limit price. The hotkey and\nnetuid must match where the stake is actually held, and the subnet must\nhave subtoken trading enabled. The requested amount is capped to the\nstake currently available. A partial unstake must leave a remainder\nworth at least 0.002 TAO at the simulated pool price \u2014 exit the full\nposition instead of leaving dust (`AmountTooLow`).",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -1143,6 +1151,14 @@
             }
           ],
           "description": "How much to unstake from this position, or ``all``."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
         }
       },
       "required": [
@@ -1990,7 +2006,7 @@
   {
     "name": "swap_stake",
     "summary": "Swap stake on one hotkey between two subnets.",
-    "description": "Swap stake on one hotkey between two subnets.\n\nMoves part of a position from the origin subnet to the destination subnet\nwhile staying on the same hotkey: the alpha is swapped to TAO in the\norigin pool and then to alpha in the destination pool, so both legs can\nincur slippage. The two netuids must differ (`SameNetuid`). Use\n`move_stake` when the hotkey should change too, and `remove_stake`\nplus `add_stake` only if you want to control each leg separately.",
+    "description": "Swap stake on one hotkey between two subnets.\n\nMoves part of a position from the origin subnet to the destination subnet\nwhile staying on the same hotkey: the alpha is swapped to TAO in the\norigin pool and then to alpha in the destination pool, so both legs can\nincur slippage. By default the call is slippage-protected: it fails\n(`SlippageTooHigh`) instead of filling once the origin/destination price\nratio falls more than `rate_tolerance` (5%) below the ratio at submission\n\u2014 raise the tolerance or set `slippage_protection` to False to execute at\nany price. The two netuids must differ (`SameNetuid`). Use `move_stake`\nwhen the hotkey should change too, and `remove_stake` plus `add_stake`\nonly if you want to control each leg separately.",
     "signer": "coldkey",
     "input_schema": {
       "type": "object",
@@ -2019,6 +2035,14 @@
             }
           ],
           "description": "How much of the origin position to swap across (an explicit amount; ``all`` is not accepted)."
+        },
+        "slippage_protection": {
+          "type": "boolean",
+          "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
         }
       },
       "required": [
