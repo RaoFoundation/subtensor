@@ -1007,7 +1007,7 @@ pub mod pallet {
         #[pallet::call_index(30)]
         #[pallet::weight(
             <T as pallet::Config>::WeightInfo::sudo_set_tempo().max(
-                // Conservative floor from the deprecated compatibility call benchmark,
+                // Conservative floor from the original owner-call benchmark,
                 // plus the additional subnet-existence read performed by this call.
                 // Remove once weights are regenerated with the owner-path benchmark.
                 Weight::from_parts(44_877_000, 4_498)

@@ -422,7 +422,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_activity_cutoff_factor(netuid: 'NetUid', factor_milli: 'u32') -> Call:
-        'Deprecated compatibility entry point for setting the activity-cutoff factor. Use `AdminUtils::sudo_set_activity_cutoff_factor` for new integrations.'
+        'Deprecated compatibility entry point retained for call-index stability. This call charges a fee, returns success, and does not modify state. Use `AdminUtils::sudo_set_activity_cutoff_factor` to change the factor.'
         return Call('SubtensorModule', 'set_activity_cutoff_factor', {'netuid': netuid, 'factor_milli': factor_milli})
 
     @staticmethod
@@ -482,7 +482,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_tempo(netuid: 'NetUid', tempo: 'u16') -> Call:
-        'Deprecated compatibility entry point for setting subnet tempo. Use `AdminUtils::sudo_set_tempo` for new integrations.'
+        'Deprecated compatibility entry point retained for call-index stability. This call charges a fee, returns success, and does not modify state. Use `AdminUtils::sudo_set_tempo` to change subnet tempo.'
         return Call('SubtensorModule', 'set_tempo', {'netuid': netuid, 'tempo': tempo})
 
     @staticmethod
@@ -1587,4 +1587,3 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
