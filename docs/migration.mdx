@@ -18,9 +18,10 @@ equivalent.
    [CLI mappings](#cli-migration) mechanically; where a row says "no direct
    equivalent", use the listed escape hatch.
 3. Watch the semantic traps in [Money](#money-and-balance),
-   [Weights and take](#weights-children-and-take), and
-   [Results and errors](#results-and-errors) — these change behavior, not
-   just names.
+   [Weights and take](#weights-children-and-take),
+   [Results and errors](#results-and-errors), and
+   [Chain and runtime changes](#chain-and-runtime-changes) — these change
+   behavior, not just names.
 4. Verify against the live catalogs rather than guessing:
    `sub.intents.list_tools()` and `sub.reads.list_reads()` in Python,
    `btcli tools` and `btcli query --help` on the CLI, or the generated
@@ -321,6 +322,16 @@ mg.neuron(5), mg.by_hotkey("5F...")
 | `mg.save()` / `mg.load()` | gone — persist `mg.raw` yourself if needed |
 | `bt.Metagraph(netuid, network=...)` | always fetched through a client |
 
+The metagraph record returned by the `metagraph` read (`client.read("metagraph", netuid=...)`,
+`btcli query metagraph --json`) carries `name` and `symbol` decoded to text; on
+the wire they are compact-u16 vectors of utf-8 bytes, unlike every other text
+field on the record. If you need the undecoded wire record, call the runtime
+API directly:
+
+```python
+await client.runtime(sub.runtime_api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+```
+
 ## Transactions
 
 Every old transaction method maps to an intent class executed with
@@ -481,10 +492,17 @@ the legacy v10 header format (recipe in the guide).
 | `.extrinsic_fee` | `.fee` |
 | `.extrinsic_receipt` | `.block_hash`, `.extrinsic_id`, `.events`, `.explorer_url` |
 | `.data` (uid, reveal_round, ...) | `.data` (same idea) |
-| `.error` (a Python exception) | `.error` — `ChainError` with `.name`, `.code` (`sub.ErrorCode`), `.remediation` |
+| `.error` (a Python exception) | `.error` — `ChainError` with `.name`, `.code` (`sub.ErrorCode`), `.remediation`, plus `.description` / `.docs_url` when the name is classified |
 | `raise_error=True` kwarg | `result.raise_for_failure()` |
 | typed exceptions (`StakeError`, `NotRegisteredError`, `TxRateLimitExceeded`, ...) | branch on `result.error.code`: `ErrorCode.INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_REGISTERED`, `SUBNET_NOT_EXISTS`, ... ([Errors](/docs/errors)) |
 | `BalanceTypeError` / `BalanceUnitMismatchError` | `TypeError` / `sub.UnitMismatchError` |
+
+Prefer `.code` over matching `.name` or message strings. SubtensorModule renamed
+`InsufficientBalance` → `InsufficientTaoBalance` (same error index) and added
+`InsufficientAlphaBalance`; both still classify as
+`ErrorCode.INSUFFICIENT_BALANCE`. Other pallets (Balances, Crowdloan, Swap)
+may still emit `InsufficientBalance`. `btcli explain <Name>` and
+`result.error.description` give the per-name trigger text.
 
 ```python
 result = await client.execute(intent, wallet)
@@ -494,6 +512,104 @@ if not result.success:
         case sub.ErrorCode.INSUFFICIENT_BALANCE: ...
         case _: log(result.error.remediation)
 ```
+
+## Chain and runtime changes
+
+The v11 package ships against a runtime that also changed behavior. These are
+not rename mappings — scripts that still "work" can fail or mis-account after
+the upgrade. Full narrative:
+[The V431 Upgrade](/releases/v431-upgrade).
+
+### Ownership and emissions
+
+- **Subnet ownership.** For subnets at least one year old, ownership transfers
+  to the highest-conviction hotkey when total conviction reaches 10% of
+  `SubnetAlphaOut`. Existing conviction counts toward this threshold. See
+  [Conviction](/docs/guides/conviction).
+- **Cross-subnet emissions.** Allocation uses EMA price adjusted by miner burn;
+  `root_proportion` is no longer included in the inter-subnet split (it still
+  applies inside each subnet for injection caps and root dividends). Update
+  emission calculations and forecasts. See [Emissions](/docs/concepts/emissions).
+
+### Proxies and coldkeys
+
+- **Deny-by-default allowlists.** Proxy types only permit listed call groups.
+  Audit every existing grant. Triumvirate / Senate / Governance / RootWeights
+  proxies deny all calls. A Staking proxy cannot wrap `Utility.batch_all` —
+  batched staking needs NonTransfer. See [Proxies](/docs/guides/proxies).
+- **Coldkey-swap and dissolve scope.** NonTransfer, NonFungible, and
+  NonCritical proxies can no longer call `reset_coldkey_swap`, `swap_coldkey`,
+  or `schedule_swap_coldkey`. NonCritical can no longer call
+  `root_dissolve_network`. Owner proxies are limited to owner-settable subnet
+  configuration and identity calls (not owner-key rotation).
+- **Reject locked alpha.** Coldkeys that should accept locked-alpha transfers
+  must opt in with `set_reject_locked_alpha` (raw call / `submit_call` —
+  no first-class intent yet). Default is to reject.
+
+### Staking and fees
+
+- **Default slippage protection.** `AddStake`, `RemoveStake`, and `SwapStake`
+  (and the matching CLI commands) apply a 5% price bound by default. Old
+  any-price scripts fail with `SlippageTooHigh` unless you pass
+  `slippage_protection=False` / `--no-slippage-protection`, or set an explicit
+  `rate_tolerance` / limit price.
+- **Strict stake moves.** `move_stake` / `transfer_stake` / `swap_stake` no
+  longer silently cap the alpha amount to what remains after an alpha-paid
+  fee. Submitting the full stake balance can fail with
+  `NotEnoughStakeToWithdraw` — leave dust or query the post-fee balance first.
+- **Limit-stake TAO refund.** When a price limit stops a stake-in swap before
+  the full TAO is consumed, the unswapped remainder is refunded to the coldkey
+  (it used to sit on the subnet pallet account). Prefer post-state balances
+  over summing `StakeAdded` amounts for partial fills — the event can still
+  report the pre-refund TAO, and `SubnetVolume` may overstate the same way.
+- **Take changes pay fees.** `increase_take` and `decrease_take` are
+  `Pays::Yes`. Preview with `client.plan(...)` / `--dry-run`.
+- **Hotkey-swap alpha fees.** `swap_hotkey` / `swap_hotkey_v2` can take the
+  transaction fee in alpha across the hotkey's stake subnets — same
+  "don't submit the entire balance" footgun as stake moves when paying in
+  alpha.
+- **Stake move/transfer/swap extrinsics** also pay the ordinary transaction
+  fee (`Pays::Yes`). Same-subnet `move_stake` is not a pool swap, but it is
+  not fee-free.
+
+### Registration, hyperparameters, and randomness
+
+- **Queued subnet registration.** When capacity is full or cleanup is pending,
+  `register_network` may emit `NetworkRegistrationQueued` without creating the
+  subnet. Wait for `NetworkAdded` before treating the registration as live.
+- **Tempo and activity cutoff.** Owner (and root) set these through
+  `AdminUtils::sudo_set_tempo` and `AdminUtils::sudo_set_activity_cutoff_factor`.
+  `SubtensorModule` call indices 139 (`set_tempo`) and 140
+  (`set_activity_cutoff_factor`) are retired — retarget raw encodings and Owner
+  proxy prebuilds. The live inactivity window is
+  `activity_cutoff_factor` (per-mille of tempo); absolute `activity_cutoff` is
+  derived / legacy. Set via `sub.SetHyperparameter` /
+  `btcli sudo set --name activity_cutoff_factor|tempo`.
+- **Hyperparams read API.** Prefer `get_subnet_hyperparams_v3` (name→value);
+  v1/v2 are deprecated. The SDK read already uses v3.
+- **Drand submissions.** After the initial pulse, only `last_stored_round + 1`
+  is accepted. Missing rounds must be backfilled sequentially or commit-reveal
+  / timelock consumers stall.
+
+### Runtime API, metadata, and catalogs
+
+- **`get_proxy_filter` → `get_proxy_filters`.** Regenerate any client that
+  called the singular API.
+- **Typed metadata.** TAO/Alpha balances, `NetUid`, and related fields use
+  distinct TypeInfo paths (SCALE bytes unchanged). Regenerate static bindings.
+- **Error catalog shape.** `/catalog/errors.json` `chain_errors` values are
+  now `{code, description, docs_url}` objects, not bare code strings. Update
+  parsers that assumed a string.
+- **Contract / EVM ABI.** Chain-extension output still collapses both
+  Subtensor insufficient-balance variants to the ABI `InsufficientBalance`
+  code — contracts cannot distinguish TAO vs Alpha from that code alone.
+
+### Dissolution (operators / indexers)
+
+- **Settlement cursor.** Multi-block dissolution stake settlement keeps the
+  cursor on the last *completed* hotkey and retries an unpaid one on the next
+  pass instead of skipping it. Cleanup progress that assumed "cursor always
+  advances" needs a re-check.
 
 ## CLI migration
 
@@ -583,12 +699,17 @@ explains any error code.
 2. Swap `bt.Subtensor` / `bt.AsyncSubtensor` for `sub.SyncClient` /
    `sub.Client`; move `block=`-pinned reads onto `client.at(block)`.
 3. Rewrite reads using the tables above; anything unmapped goes through
-   `client.query(sub.storage...)`.
+   `client.query(sub.storage...)`. Prefer hyperparams v3 for custom RPC
+   clients.
 4. Rewrite each transaction as an intent + `client.execute`; take values and
    child proportions keep working as 0–1 floats (plain integers mean the raw
-   u16/u64 wire values); replace safe-staking flags with `*Limit` intents.
+   u16/u64 wire values); replace safe-staking flags with `*Limit` intents or
+   the default 5% slippage protection (`--no-slippage-protection` to opt out).
 5. Update result handling: `.success` still works, but branch on
-   `result.error.code` instead of exception types or message strings.
+   `result.error.code` instead of exception types or message strings. Treat
+   SubtensorModule `InsufficientTaoBalance` /
+   `InsufficientAlphaBalance` as the old `InsufficientBalance` (other pallets
+   may still emit that name).
 6. Fix Balance usage: no `.tao` on alpha, no cross-unit arithmetic,
    `from_alpha` for subnet currency.
 7. Delete `bt.config`/argparse plumbing, `bt.logging` calls (use standard
@@ -601,5 +722,10 @@ explains any error code.
    that layer on your own HTTP stack with `sub.http_auth` for the hotkey
    signing ([Signed requests](/docs/guides/signed-requests)); only its chain
    calls move to this SDK's client.
-10. Dry-run everything: `client.plan(...)` in Python, `--dry-run` on the
+10. Apply the [chain and runtime changes](#chain-and-runtime-changes): audit
+    proxies; retarget owner tempo / `activity_cutoff_factor` calls to
+    AdminUtils; never submit a full alpha balance when fees are alpha-paid;
+    wait for `NetworkAdded` on queued registrations; regenerate metadata
+    bindings and any `errors.json` / `get_proxy_filter` consumers.
+11. Dry-run everything: `client.plan(...)` in Python, `--dry-run` on the
     CLI, ideally against `test` or a local node first.
