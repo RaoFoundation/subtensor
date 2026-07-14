@@ -2331,10 +2331,35 @@ mod dispatches {
             Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
         }
 
-        // Call indices 139 (`set_tempo`) and 140 (`set_activity_cutoff_factor`)
-        // are retired: both moved to the AdminUtils pallet (`sudo_set_tempo`,
-        // `sudo_set_activity_cutoff_factor`) where the other owner-settable
-        // hyperparameters live. Do not reuse these indices.
+        /// Deprecated compatibility entry point for setting subnet tempo.
+        /// Use `AdminUtils::sudo_set_tempo` for new integrations.
+        #[deprecated(note = "Use `AdminUtils::sudo_set_tempo` instead")]
+        #[pallet::call_index(139)]
+        #[pallet::weight(
+            Weight::from_parts(44_877_000, 4_440)
+                .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(6_u64))
+                .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(3_u64))
+        )]
+        pub fn set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
+            Self::do_set_tempo(origin, netuid, tempo)
+        }
+
+        /// Deprecated compatibility entry point for setting the activity-cutoff factor.
+        /// Use `AdminUtils::sudo_set_activity_cutoff_factor` for new integrations.
+        #[deprecated(note = "Use `AdminUtils::sudo_set_activity_cutoff_factor` instead")]
+        #[pallet::call_index(140)]
+        #[pallet::weight(
+            Weight::from_parts(37_446_000, 4_364)
+                .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(7_u64))
+                .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(2_u64))
+        )]
+        pub fn set_activity_cutoff_factor(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            factor_milli: u32,
+        ) -> DispatchResult {
+            Self::do_set_activity_cutoff_factor(origin, netuid, factor_milli)
+        }
 
         /// Owner-side `trigger_epoch`. Schedules an epoch to fire after `AdminFreezeWindow`
         /// blocks. Rate-limited via the existing `OwnerHyperparamUpdate` pattern.

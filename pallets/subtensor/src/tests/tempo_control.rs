@@ -1,4 +1,6 @@
 #![allow(clippy::expect_used)]
+#![allow(deprecated)]
+use codec::Encode;
 use frame_support::{assert_noop, assert_ok};
 use frame_system::Config;
 use sp_core::U256;
@@ -12,6 +14,44 @@ use crate::{
 
 const DEFAULT_TEMPO: u16 = 360;
 const NEW_TEMPO: u16 = 720;
+
+#[test]
+fn deprecated_tempo_extrinsics_keep_their_call_indices() {
+    let netuid = NetUid::from(1);
+    let tempo_call = crate::Call::<Test>::set_tempo {
+        netuid,
+        tempo: NEW_TEMPO,
+    };
+    let activity_call = crate::Call::<Test>::set_activity_cutoff_factor {
+        netuid,
+        factor_milli: 5_000,
+    };
+
+    assert_eq!(tempo_call.encode()[0], 139);
+    assert_eq!(activity_call.encode()[0], 140);
+}
+
+#[test]
+fn deprecated_tempo_extrinsics_forward_to_shared_logic() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1);
+        let netuid = setup_subnet(owner);
+
+        assert_ok!(crate::Pallet::<Test>::set_tempo(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            NEW_TEMPO,
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), NEW_TEMPO);
+
+        assert_ok!(crate::Pallet::<Test>::set_activity_cutoff_factor(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            5_000,
+        ));
+        assert_eq!(ActivityCutoffFactorMilli::<Test>::get(netuid), 5_000);
+    });
+}
 
 fn setup_subnet(owner: U256) -> NetUid {
     let netuid = NetUid::from(1);
