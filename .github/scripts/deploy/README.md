@@ -83,18 +83,21 @@ Do not sign a WASM you were simply handed. srtool builds are deterministic:
 identical source at the same toolchain produces a byte-identical runtime. The
 pre-release tag *is* the code being deployed.
 
-The short version is one command (requires docker):
+The short version is one command (requires docker). Run it from a checkout
+you already trust — reviewed `main`, not the proposal tag, so the proposal
+cannot supply the verifier that vouches for it:
 
 ```
-git fetch origin && git checkout v<spec>
+git fetch origin && git checkout origin/main
 ./scripts/verify-upgrade.sh
 ```
 
-It downloads the release manifest and wasm, confirms your checkout is the
-proposal commit, runs the same srtool container CI used, byte-compares the
-result against the released runtime, runs `btcli upgrade check` against the
-chain if btcli is installed, and prints the `btcli upgrade sign` command
-pinned to your own build. It never submits anything.
+It downloads the release manifest and wasm, fetches the proposal commit and
+rebuilds it from a pristine clone in the same srtool container CI used,
+byte-compares the result against the released runtime, runs
+`btcli upgrade check` against the chain if btcli is installed, and prints
+the `btcli upgrade sign` command pinned to your own build. It never submits
+anything.
 
 The manual recipe, if you prefer to run each step yourself:
 

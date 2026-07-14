@@ -569,12 +569,13 @@ jobs:
 
           One command rebuilds the runtime from this tag with srtool,
           byte-compares it against the released wasm, and prints the sign
-          command pinned to your own build (needs docker; see
+          command pinned to your own build. Run it from a checkout you
+          already trust (reviewed main), not this tag (needs docker; see
           \`.github/scripts/deploy/README.md\` for the manual recipe):
 
           \`\`\`
-          git fetch origin && git checkout ${tag}
-          ./scripts/verify-upgrade.sh
+          git fetch origin && git checkout origin/main
+          ./scripts/verify-upgrade.sh --url ${url}
           \`\`\`
 
           Signing without verifying trusts the released wasm: plain

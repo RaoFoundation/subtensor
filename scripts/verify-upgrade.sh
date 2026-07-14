@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # One-command independent verification of a proposed runtime upgrade.
 #
-# For sudo-multisig (triumvirate) signers: rebuilds the runtime from a
-# pristine export of the proposal commit, byte-compares it against the
-# artifact CI published in the proposal pre-release, and prints the exact
-# sign command pinned to YOUR build. Never signs anything itself.
+# For sudo-multisig (triumvirate) signers: fetches the proposal tag,
+# rebuilds the runtime from a pristine clone of the proposal commit,
+# byte-compares it against the artifact CI published in the proposal
+# pre-release, and prints the exact sign command pinned to YOUR build.
+# Never signs anything itself.
+#
+# Run this script from a checkout you already trust (reviewed main), NOT
+# from the proposal tag: a malicious proposal could otherwise supply the
+# very verifier that vouches for it.
 #
 # Usage:
-#   git clone <repo> && cd subtensor && git checkout v<spec>
-#   ./scripts/verify-upgrade.sh                  # infers release from the tag
+#   git fetch origin && git checkout origin/main
+#   ./scripts/verify-upgrade.sh                  # verifies the newest release
 #   ./scripts/verify-upgrade.sh --url <release>  # explicit release URL
 #
 # Requires: docker, curl, jq, git. Uses btcli for the final chain check if
@@ -25,7 +30,7 @@ url=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --url) url="${2:?--url needs a value}"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (only --url <release-url> is accepted)" ;;
   esac
 done
@@ -39,11 +44,12 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
 # ---------------------------------------------------------------- release ---
+origin=$(git remote get-url origin)
+slug=$(echo "$origin" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
 if [ -z "$url" ]; then
-  tag=$(git describe --tags --exact-match 2>/dev/null) \
-    || die "HEAD is not at a release tag; check out the proposal tag (git checkout v<spec>) or pass --url"
-  origin=$(git remote get-url origin)
-  slug=$(echo "$origin" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
+  tag=$(curl -fsSL "https://api.github.com/repos/${slug}/releases?per_page=1" \
+    | jq -r '.[0].tag_name // empty')
+  [ -n "$tag" ] || die "could not discover the newest release; pass --url <release-url>"
   url="https://github.com/${slug}/releases/tag/${tag}"
 fi
 # Strict allowlist: a URL that fails this cannot smuggle shell metacharacters
@@ -81,12 +87,10 @@ release_sha=$(shasum -a 256 "$work/release.wasm" | cut -d' ' -f1)
 ok "release wasm matches manifest sha256"
 
 # ----------------------------------------------------------------- source ---
-head_commit=$(git rev-parse HEAD)
-[ "$head_commit" = "$commit" ] \
-  || die "HEAD ($head_commit) is not the proposal commit ($commit); run: git fetch origin && git checkout $tag"
+git fetch --quiet origin "refs/tags/${tag}:refs/tags/${tag}" 2>/dev/null \
+  || note "could not fetch tag ${tag}; assuming the proposal commit is already local"
 git cat-file -e "${commit}^{commit}" 2>/dev/null \
-  || die "proposal commit $commit is not present locally; run: git fetch origin"
-ok "HEAD is the proposal commit ${commit}"
+  || die "proposal commit $commit not found after fetching origin — do not sign"
 
 # Build from a pristine clone of the proposal commit, never the working
 # tree: local modifications, untracked files, and ignored inputs such as a
@@ -97,10 +101,14 @@ src="$work/src"
 git clone --quiet "$repo_root" "$src"
 git -C "$src" checkout --quiet "$commit" \
   || die "could not check out $commit in the verification clone"
-ok "created pristine source clone at ${commit}"
+ok "created pristine source clone at proposal commit ${commit}"
 
 # ------------------------------------------------------------------ build ---
-pinned_rustc=$(grep -Eo 'RUSTC_VERSION="[0-9.]+"' "$src/scripts/srtool/build-srtool-image.sh" | grep -Eo '[0-9.]+')
+# The builder image recipe comes from the checkout this script runs in (the
+# signer's trusted checkout), never from the proposal commit: a malicious
+# proposal must not be able to swap out the toolchain that verifies it.
+image_script="$repo_root/scripts/srtool/build-srtool-image.sh"
+pinned_rustc=$(grep -Eo 'RUSTC_VERSION="[0-9.]+"' "$image_script" | grep -Eo '[0-9.]+')
 if [ -n "$rustc_line" ]; then
   echo "manifest toolchain: ${rustc_line}; local srtool pin: ${pinned_rustc}"
 fi
@@ -111,7 +119,7 @@ fi
 # fast; the first run takes ~10 min.
 verify_image="srtool-verify"
 note "building the pinned srtool builder image as ${verify_image} (cached after first run)"
-DOCKER_DEFAULT_PLATFORM=linux/amd64 "$src/scripts/srtool/build-srtool-image.sh" "$verify_image"
+DOCKER_DEFAULT_PLATFORM=linux/amd64 "$image_script" "$verify_image"
 
 note "running the deterministic srtool build (30+ min on Apple Silicon under emulation)"
 ( cd "$src/runtime" && { [ -L node-subtensor ] || ln -s . node-subtensor; } )
