@@ -1,5 +1,10 @@
 #![allow(clippy::expect_used)]
-use frame_support::{assert_noop, assert_ok};
+#![allow(deprecated)]
+use codec::Encode;
+use frame_support::{
+    assert_noop, assert_ok,
+    dispatch::{GetDispatchInfo, Pays},
+};
 use frame_system::Config;
 use sp_core::U256;
 use subtensor_runtime_common::NetUid;
@@ -12,6 +17,53 @@ use crate::{
 
 const DEFAULT_TEMPO: u16 = 360;
 const NEW_TEMPO: u16 = 720;
+
+#[test]
+fn deprecated_tempo_extrinsics_keep_their_call_indices() {
+    let netuid = NetUid::from(1);
+    let tempo_call = crate::Call::<Test>::set_tempo {
+        netuid,
+        tempo: NEW_TEMPO,
+    };
+    let activity_call = crate::Call::<Test>::set_activity_cutoff_factor {
+        netuid,
+        factor_milli: 5_000,
+    };
+
+    assert_eq!(tempo_call.encode()[0], 139);
+    assert_eq!(activity_call.encode()[0], 140);
+    assert_eq!(tempo_call.get_dispatch_info().pays_fee, Pays::Yes);
+    assert_eq!(activity_call.get_dispatch_info().pays_fee, Pays::Yes);
+}
+
+#[test]
+fn deprecated_tempo_extrinsics_return_ok_without_changing_state() {
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1);
+        let netuid = setup_subnet(owner);
+        let tempo_before = Tempo::<Test>::get(netuid);
+        let factor_before = ActivityCutoffFactorMilli::<Test>::get(netuid);
+        let last_epoch_before = LastEpochBlock::<Test>::get(netuid);
+
+        assert_ok!(crate::Pallet::<Test>::set_tempo(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            NEW_TEMPO,
+        ));
+        assert_ok!(crate::Pallet::<Test>::set_activity_cutoff_factor(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            5_000,
+        ));
+
+        assert_eq!(Tempo::<Test>::get(netuid), tempo_before);
+        assert_eq!(
+            ActivityCutoffFactorMilli::<Test>::get(netuid),
+            factor_before
+        );
+        assert_eq!(LastEpochBlock::<Test>::get(netuid), last_epoch_before);
+    });
+}
 
 fn setup_subnet(owner: U256) -> NetUid {
     let netuid = NetUid::from(1);

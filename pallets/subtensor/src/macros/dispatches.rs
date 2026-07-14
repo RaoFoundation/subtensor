@@ -2331,10 +2331,29 @@ mod dispatches {
             Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
         }
 
-        // Call indices 139 (`set_tempo`) and 140 (`set_activity_cutoff_factor`)
-        // are retired: both moved to the AdminUtils pallet (`sudo_set_tempo`,
-        // `sudo_set_activity_cutoff_factor`) where the other owner-settable
-        // hyperparameters live. Do not reuse these indices.
+        /// Deprecated compatibility entry point retained for call-index stability.
+        /// This call charges a fee, returns success, and does not modify state.
+        /// Use `AdminUtils::sudo_set_tempo` to change subnet tempo.
+        #[deprecated(note = "Use `AdminUtils::sudo_set_tempo` instead")]
+        #[pallet::call_index(139)]
+        #[pallet::weight((Weight::from_parts(0, 0), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_tempo(_origin: OriginFor<T>, _netuid: NetUid, _tempo: u16) -> DispatchResult {
+            Ok(())
+        }
+
+        /// Deprecated compatibility entry point retained for call-index stability.
+        /// This call charges a fee, returns success, and does not modify state.
+        /// Use `AdminUtils::sudo_set_activity_cutoff_factor` to change the factor.
+        #[deprecated(note = "Use `AdminUtils::sudo_set_activity_cutoff_factor` instead")]
+        #[pallet::call_index(140)]
+        #[pallet::weight((Weight::from_parts(0, 0), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_activity_cutoff_factor(
+            _origin: OriginFor<T>,
+            _netuid: NetUid,
+            _factor_milli: u32,
+        ) -> DispatchResult {
+            Ok(())
+        }
 
         /// Owner-side `trigger_epoch`. Schedules an epoch to fire after `AdminFreezeWindow`
         /// blocks. Rate-limited via the existing `OwnerHyperparamUpdate` pattern.

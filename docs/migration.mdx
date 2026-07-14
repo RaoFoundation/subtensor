@@ -580,8 +580,9 @@ the upgrade. Full narrative:
 - **Tempo and activity cutoff.** Owner (and root) set these through
   `AdminUtils::sudo_set_tempo` and `AdminUtils::sudo_set_activity_cutoff_factor`.
   `SubtensorModule` call indices 139 (`set_tempo`) and 140
-  (`set_activity_cutoff_factor`) are retired — retarget raw encodings and Owner
-  proxy prebuilds. The live inactivity window is
+  (`set_activity_cutoff_factor`) remain as deprecated no-op compatibility entry
+  points: they charge a fee and return success without changing state. Use the
+  AdminUtils calls to update these values. The live inactivity window is
   `activity_cutoff_factor` (per-mille of tempo); absolute `activity_cutoff` is
   derived / legacy. Set via `sub.SetHyperparameter` /
   `btcli sudo set --name activity_cutoff_factor|tempo`.
