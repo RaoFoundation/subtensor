@@ -189,9 +189,10 @@ swap is a two-step, delayed process:
    window the wallet is locked — no transfers or staking; the coldkey can only
    execute or dispute.
 2. [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) executes after
-   the delay, moving everything — balance, stake, hotkeys, registrations,
-   subnet ownership — to the destination, which must be an unused coldkey with
-   no existing stake, registrations, or child hotkeys.
+   the delay, moving everything — balance, stake, conviction locks (including
+   accrued conviction), hotkeys, registrations, and subnet ownership — to the
+   destination. The destination must be an unused coldkey with no existing
+   stake, registrations, child hotkeys, or active locked mass.
 
 Check a pending announcement with the
 [`coldkey-swap-announcement`](/docs/query/coldkey-swap-announcement) read. An
