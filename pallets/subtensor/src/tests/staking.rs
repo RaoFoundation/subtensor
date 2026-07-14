@@ -1435,7 +1435,7 @@ fn test_remove_balance_from_coldkey_account_failed() {
         // as there is no balance, nor does the account exist
         let result =
             SubtensorModule::transfer_tao_to_subnet(netuid, &coldkey_account_id, amount.into());
-        assert_eq!(result, Err(Error::<Test>::InsufficientBalance.into()));
+        assert_eq!(result, Err(Error::<Test>::InsufficientTaoBalance.into()));
     });
 }
 

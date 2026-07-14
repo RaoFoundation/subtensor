@@ -214,8 +214,8 @@ mod errors {
         HotKeySwapOnSubnetIntervalNotPassed,
         /// Invalid netuid duplication
         SameNetuid,
-        /// The caller does not have enough balance for the operation.
-        InsufficientBalance,
+        /// The caller does not have enough TAO balance for the operation.
+        InsufficientTaoBalance,
         /// Invalid lease beneficiary to register the leased network.
         InvalidLeaseBeneficiary,
         /// Lease cannot end in the past.
@@ -330,5 +330,7 @@ mod errors {
         LockIdOverFlow,
         /// Need to wait more blocks to do the start call.
         StartCallNotReady,
+        /// The caller does not have enough Alpha stake for the operation.
+        InsufficientAlphaBalance,
     }
 }

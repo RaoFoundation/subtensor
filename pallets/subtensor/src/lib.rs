@@ -2968,7 +2968,7 @@ impl<T: Config + pallet_balances::Config<Balance = TaoBalance>>
 
         ensure!(
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid) >= alpha,
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientAlphaBalance
         );
 
         // Decrese alpha out counter
