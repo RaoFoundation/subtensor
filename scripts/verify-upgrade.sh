@@ -127,6 +127,10 @@ note "building the pinned srtool builder image as ${verify_image} (cached after 
 DOCKER_DEFAULT_PLATFORM=linux/amd64 "$image_script" "$verify_image"
 
 note "running the deterministic srtool build (30+ min on Apple Silicon under emulation)"
+# A hostile proposal could commit a wasm at a path matching the output
+# search below; purge every candidate so anything found afterwards was
+# necessarily produced by this build.
+find "$src" -name 'node_subtensor_runtime.compact.compressed.wasm' -delete
 ( cd "$src/runtime" && { [ -L node-subtensor ] || ln -s . node-subtensor; } )
 # Fresh cargo home: a signer's ~/.cargo/config.toml could redirect registries
 # or patch sources, so the verification build must not see it.
@@ -142,8 +146,11 @@ docker run --rm --user root --platform=linux/amd64 \
     code=\$?; [ \$code -ne 0 ] && cat /build/runtime/node-subtensor/srtool-output.log && exit \$code; \
     exit 0"
 
-built_wasm=$(find "$src/runtime" -name 'node_subtensor_runtime.compact.compressed.wasm' -path '*srtool*' | head -n 1)
-[ -n "$built_wasm" ] || die "srtool build produced no compact.compressed.wasm"
+candidates=$(find "$src/runtime" -name 'node_subtensor_runtime.compact.compressed.wasm' -path '*/target/srtool/*')
+[ -n "$candidates" ] || die "srtool build produced no compact.compressed.wasm"
+[ "$(printf '%s\n' "$candidates" | wc -l)" -eq 1 ] \
+  || die "expected exactly one srtool output wasm, found:${candidates}"
+built_wasm="$candidates"
 # $work (and the wasm inside it) is deleted on exit; keep a copy beside the
 # repo so the printed sign command references a path that still exists.
 local_wasm="$repo_root/verified-${tag}.wasm"
