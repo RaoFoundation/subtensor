@@ -157,6 +157,10 @@ impl<T: Config> Pallet<T> {
         let old_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(old_coldkey);
         let mut new_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(new_coldkey);
         for owned_hotkey in old_owned_hotkeys.iter() {
+            if Uids::<T>::contains_key(NetUid::ROOT, owned_hotkey) {
+                Self::decrement_root_registered_hotkey_count(old_coldkey);
+                Self::increment_root_registered_hotkey_count(new_coldkey);
+            }
             // Remove the hotkey from the old coldkey.
             Owner::<T>::remove(owned_hotkey);
             // Add the hotkey to the new coldkey.

@@ -19,13 +19,13 @@ REPEAT="${REPEAT:-20}"
 
 die() { echo "ERROR: $1" >&2; exit 1; }
 
-# ── Auto-discover pallets ────────────────────────────────────────────────────
+# ── Auto-discover benchmark targets ──────────────────────────────────────────
 declare -A OUTPUTS
 while read -r name path; do
   OUTPUTS[$name]="$path"
 done < <("$SCRIPT_DIR/discover_pallets.sh")
 
-(( ${#OUTPUTS[@]} > 0 )) || die "no benchmarked pallets found"
+(( ${#OUTPUTS[@]} > 0 )) || die "no benchmark targets found"
 
 mkdir -p "$PATCH_DIR"
 

@@ -12,7 +12,8 @@
                 "suites/dev"
             ],
             "runScripts": [
-                "generate-types.sh"
+                "generate-types.sh",
+                "build-upgrade-runtime.sh"
             ],
             "multiThreads": true,
             "reporters": ["basic"],
@@ -37,6 +38,41 @@
                         "newRpcBehaviour": true,
                         "maxStartupTimeout": 120000,
                         "connectTimeout": 30000
+                    }
+                ]
+            }
+        },
+        {
+            "name": "dev_fast",
+            "timeout": 120000,
+            "envVars": ["DEBUG_COLORS=1"],
+            "testFileDir": [
+                "suites/dev_fast"
+            ],
+            "runScripts": [
+                "build-fast-runtime.sh"
+            ],
+            "multiThreads": true,
+            "reporters": ["basic"],
+            "foundation": {
+                "type": "dev",
+                "launchSpec": [
+                    {
+                        "name": "subtensor",
+                        "binPath": "../target/release-fast/node-subtensor",
+                        "options": [
+                            "--one",
+                            "--dev",
+                            "--force-authoring",
+                            "--rpc-cors=all",
+                            "--no-prometheus",
+                            "--no-telemetry",
+                            "--reserved-only",
+                            "--tmp",
+                            "--sealing=manual"
+                        ],
+                        "disableDefaultEthProviders": true,
+                        "newRpcBehaviour": true
                     }
                 ]
             }

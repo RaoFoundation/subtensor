@@ -8529,15 +8529,19 @@ dependencies = [
  "pallet-hotfix-sufficients",
  "pallet-insecure-randomness-collective-flip",
  "pallet-limit-orders",
+ "pallet-multi-collective",
  "pallet-multisig",
  "pallet-nomination-pools",
  "pallet-nomination-pools-runtime-api",
  "pallet-offences",
  "pallet-preimage",
+ "pallet-referenda 1.0.0",
+ "pallet-registry",
  "pallet-safe-mode",
  "pallet-scheduler",
  "pallet-session",
  "pallet-shield",
+ "pallet-signed-voting",
  "pallet-staking",
  "pallet-staking-reward-curve",
  "pallet-staking-reward-fn",
@@ -10231,6 +10235,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-multi-collective"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "num-traits",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "subtensor-runtime-common",
+]
+
+[[package]]
 name = "pallet-multisig"
 version = "41.0.0"
 source = "git+https://github.com/opentensor/polkadot-sdk.git?rev=7cc54bf2d50ae3921d718736dfeb0de9468539c7#7cc54bf2d50ae3921d718736dfeb0de9468539c7"
@@ -10498,6 +10519,28 @@ dependencies = [
 
 [[package]]
 name = "pallet-referenda"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-multi-collective",
+ "pallet-preimage",
+ "pallet-scheduler",
+ "pallet-signed-voting",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+]
+
+[[package]]
+name = "pallet-referenda"
 version = "41.0.0"
 source = "git+https://github.com/opentensor/polkadot-sdk.git?rev=7cc54bf2d50ae3921d718736dfeb0de9468539c7#7cc54bf2d50ae3921d718736dfeb0de9468539c7"
 dependencies = [
@@ -10759,6 +10802,23 @@ dependencies = [
  "sp-weights",
  "stc-shield",
  "stp-shield",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+]
+
+[[package]]
+name = "pallet-signed-voting"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
  "subtensor-macros",
  "subtensor-runtime-common",
 ]
@@ -12805,7 +12865,7 @@ dependencies = [
  "pallet-proxy",
  "pallet-ranked-collective",
  "pallet-recovery",
- "pallet-referenda",
+ "pallet-referenda 41.0.0",
  "pallet-remark",
  "pallet-revive",
  "pallet-root-offences",
@@ -14289,7 +14349,7 @@ dependencies = [
  "pallet-proxy",
  "pallet-ranked-collective",
  "pallet-recovery",
- "pallet-referenda",
+ "pallet-referenda 41.0.0",
  "pallet-root-testing",
  "pallet-scheduler",
  "pallet-session",
@@ -18538,6 +18598,7 @@ dependencies = [
  "approx",
  "environmental",
  "frame-support",
+ "impl-trait-for-tuples",
  "num-traits",
  "parity-scale-codec",
  "polkadot-runtime-common",
@@ -20481,7 +20542,7 @@ dependencies = [
  "pallet-preimage",
  "pallet-proxy",
  "pallet-recovery",
- "pallet-referenda",
+ "pallet-referenda 41.0.0",
  "pallet-root-testing",
  "pallet-scheduler",
  "pallet-session",

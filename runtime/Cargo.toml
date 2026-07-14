@@ -158,6 +158,11 @@ stp-shield.workspace = true
 
 ethereum.workspace = true
 
+# Governance
+pallet-multi-collective.workspace = true
+pallet-signed-voting.workspace = true
+pallet-referenda.workspace = true
+
 [dev-dependencies]
 frame-metadata.workspace = true
 sp-tracing.workspace = true
@@ -203,6 +208,9 @@ std = [
 	"pallet-scheduler/std",
 	"pallet-preimage/std",
 	"pallet-commitments/std",
+	"pallet-multi-collective/std",
+	"pallet-signed-voting/std",
+	"pallet-referenda/std",
 	"precompile-utils/std",
 	"sp-api/std",
 	"sp-block-builder/std",
@@ -329,10 +337,13 @@ runtime-benchmarks = [
 	# Smart Tx fees pallet
 	"subtensor-transaction-fee/runtime-benchmarks",
 	"pallet-shield/runtime-benchmarks",
-	
+	"pallet-limit-orders/runtime-benchmarks",
+	"pallet-referenda/runtime-benchmarks",
+	"pallet-multi-collective/runtime-benchmarks",
+	"pallet-signed-voting/runtime-benchmarks",
+
 	"subtensor-runtime-common/runtime-benchmarks",
 	"subtensor-chain-extensions/runtime-benchmarks",
-	"pallet-limit-orders/runtime-benchmarks",
 	"subtensor-swap-interface/runtime-benchmarks",
 ]
 try-runtime = [
@@ -370,6 +381,9 @@ try-runtime = [
 	"pallet-fast-unstake/try-runtime",
 	"pallet-nomination-pools/try-runtime",
 	"pallet-offences/try-runtime",
+	"pallet-multi-collective/try-runtime",
+	"pallet-signed-voting/try-runtime",
+	"pallet-referenda/try-runtime",
 
 	# EVM + Frontier
 	"fp-self-contained/try-runtime",

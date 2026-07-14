@@ -306,6 +306,9 @@ impl crate::Config for Test {
     type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
+    type OnRootRegistrationChange = ();
+    type RootRegisteredInspector = ();
+    type EmaValueProvider = ();
     type SubtensorPalletId = SubtensorPalletId;
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;

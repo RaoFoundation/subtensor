@@ -139,11 +139,24 @@ jobs:
         working-directory: ts-tests
         run: pnpm install --frozen-lockfile
 
-      - name: Install lsof (dev foundation RPC port discovery)
-        if: matrix.test == 'dev'
+      - name: Install system dependencies
         run: |
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+            build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config lsof
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Utilize Shared Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e-runtime-upgrade
+          cache-on-failure: true
+          workspaces: ". -> ts-tests/tmp/cargo-target"
 
       - name: Run tests
         run: |

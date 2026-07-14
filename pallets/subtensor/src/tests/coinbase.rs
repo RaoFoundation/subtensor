@@ -4378,3 +4378,303 @@ fn test_reveal_crv3_defers_with_capped_epoch() {
         );
     });
 }
+
+fn ref_count(coldkey: &U256) -> u32 {
+    RootRegisteredHotkeyCount::<Test>::get(coldkey)
+}
+
+fn root_register_with_stake(coldkey: &U256, hotkey: &U256, alpha_netuid: NetUid) {
+    register_ok_neuron(alpha_netuid, *hotkey, *coldkey, 0);
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        hotkey,
+        coldkey,
+        NetUid::ROOT,
+        AlphaBalance::from(1_000_000_000),
+    );
+    assert_ok!(SubtensorModule::root_register(
+        RuntimeOrigin::signed(*coldkey),
+        *hotkey,
+    ));
+}
+
+#[test]
+fn root_register_increments_ref_count_for_new_coldkey() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let coldkey = U256::from(10);
+        let hotkey = U256::from(11);
+
+        assert_eq!(ref_count(&coldkey), 0);
+        assert!(!SubtensorModule::coldkey_has_root_hotkey(&coldkey));
+
+        root_register_with_stake(&coldkey, &hotkey, alpha);
+
+        assert_eq!(ref_count(&coldkey), 1);
+        assert!(SubtensorModule::coldkey_has_root_hotkey(&coldkey));
+    });
+}
+
+#[test]
+fn root_register_accumulates_ref_count_for_same_coldkey() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let coldkey = U256::from(10);
+        let h1 = U256::from(11);
+        let h2 = U256::from(12);
+        let h3 = U256::from(13);
+
+        root_register_with_stake(&coldkey, &h1, alpha);
+        root_register_with_stake(&coldkey, &h2, alpha);
+        root_register_with_stake(&coldkey, &h3, alpha);
+
+        assert_eq!(ref_count(&coldkey), 3);
+        assert!(SubtensorModule::coldkey_has_root_hotkey(&coldkey));
+    });
+}
+
+#[test]
+fn root_register_replace_path_shifts_ref_count_to_new_coldkey() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        // Cap the root subnet at 1 so the second registration follows the
+        // replace path rather than the append path.
+        MaxAllowedUids::<Test>::set(NetUid::ROOT, 1);
+
+        let cold_old = U256::from(10);
+        let hot_old = U256::from(11);
+        register_ok_neuron(alpha, hot_old, cold_old, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot_old,
+            &cold_old,
+            NetUid::ROOT,
+            AlphaBalance::from(1_000_000_000),
+        );
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(cold_old),
+            hot_old,
+        ));
+        assert_eq!(ref_count(&cold_old), 1);
+
+        // Higher-stake new entrant displaces hot_old.
+        let cold_new = U256::from(20);
+        let hot_new = U256::from(21);
+        register_ok_neuron(alpha, hot_new, cold_new, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot_new,
+            &cold_new,
+            NetUid::ROOT,
+            AlphaBalance::from(10_000_000_000_u64),
+        );
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(cold_new),
+            hot_new,
+        ));
+
+        assert_eq!(ref_count(&cold_old), 0);
+        assert_eq!(ref_count(&cold_new), 1);
+        assert!(!SubtensorModule::coldkey_has_root_hotkey(&cold_old));
+        assert!(SubtensorModule::coldkey_has_root_hotkey(&cold_new));
+    });
+}
+
+#[test]
+fn root_register_replace_with_same_coldkey_keeps_ref_count_stable() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        // Same coldkey registers two hotkeys in a capacity-1 root subnet:
+        // the second registration goes through the replace path. The
+        // counter should land back at 1, not 0 or 2.
+        MaxAllowedUids::<Test>::set(NetUid::ROOT, 1);
+
+        let coldkey = U256::from(10);
+        let hot1 = U256::from(11);
+        let hot2 = U256::from(12);
+
+        register_ok_neuron(alpha, hot1, coldkey, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot1,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(1_000_000_000),
+        );
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(coldkey),
+            hot1,
+        ));
+
+        register_ok_neuron(alpha, hot2, coldkey, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot2,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(10_000_000_000_u64),
+        );
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(coldkey),
+            hot2,
+        ));
+
+        assert_eq!(ref_count(&coldkey), 1);
+    });
+}
+
+#[test]
+fn trim_root_decrements_ref_count_for_evicted_hotkeys() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        // The trim must satisfy `max_n >= MinAllowedUids`. Setting the
+        // immunity period to zero stops the freshly-registered neurons
+        // from counting against the immune-percentage cap.
+        MinAllowedUids::<Test>::set(NetUid::ROOT, 1);
+        MaxAllowedUids::<Test>::set(NetUid::ROOT, 2);
+        ImmunityPeriod::<Test>::set(NetUid::ROOT, 0);
+
+        // Two distinct coldkeys, each with one root-registered hotkey. The
+        // trim drops the lowest-emitter UID, which we force to be `hot_b`
+        // by giving `hot_a` the higher emission.
+        let cold_a = U256::from(10);
+        let hot_a = U256::from(11);
+        let cold_b = U256::from(20);
+        let hot_b = U256::from(21);
+
+        root_register_with_stake(&cold_a, &hot_a, alpha);
+        root_register_with_stake(&cold_b, &hot_b, alpha);
+        assert_eq!(ref_count(&cold_a), 1);
+        assert_eq!(ref_count(&cold_b), 1);
+
+        let uid_a = SubtensorModule::get_uid_for_net_and_hotkey(NetUid::ROOT, &hot_a)
+            .expect("hot_a registered");
+        let uid_b = SubtensorModule::get_uid_for_net_and_hotkey(NetUid::ROOT, &hot_b)
+            .expect("hot_b registered");
+        Emission::<Test>::mutate(NetUid::ROOT, |v| {
+            v[uid_a as usize] = AlphaBalance::from(100);
+            v[uid_b as usize] = AlphaBalance::from(1);
+        });
+
+        assert_ok!(SubtensorModule::trim_to_max_allowed_uids(NetUid::ROOT, 1));
+
+        assert!(!RootRegisteredHotkeyCount::<Test>::contains_key(cold_b));
+        assert_eq!(ref_count(&cold_a), 1);
+    });
+}
+
+#[test]
+fn root_register_fires_on_added_for_fresh_coldkey() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let coldkey = U256::from(10);
+        let _ = take_root_registration_log();
+
+        root_register_with_stake(&coldkey, &U256::from(11), alpha);
+        assert_eq!(
+            take_root_registration_log(),
+            vec![RootRegistrationChange::Added(coldkey)]
+        );
+
+        // Second root hotkey under the same coldkey: the ref count goes
+        // 1→2, no membership edge to report.
+        root_register_with_stake(&coldkey, &U256::from(12), alpha);
+        assert!(take_root_registration_log().is_empty());
+    });
+}
+
+#[test]
+fn root_register_replace_fires_removed_and_added_when_owners_differ() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        MaxRegistrationsPerBlock::<Test>::set(NetUid::ROOT, 64);
+        TargetRegistrationsPerInterval::<Test>::set(NetUid::ROOT, 64);
+        MaxAllowedUids::<Test>::set(NetUid::ROOT, 1);
+
+        let outgoing = U256::from(10);
+        let incoming = U256::from(20);
+        root_register_with_stake(&outgoing, &U256::from(11), alpha);
+        let _ = take_root_registration_log();
+
+        // Replacement path: incoming coldkey displaces the outgoing one.
+        let h2 = U256::from(21);
+        register_ok_neuron(alpha, h2, incoming, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &h2,
+            &incoming,
+            NetUid::ROOT,
+            AlphaBalance::from(10_000_000_000_u64),
+        );
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(incoming),
+            h2,
+        ));
+
+        assert_eq!(
+            take_root_registration_log(),
+            vec![
+                RootRegistrationChange::Removed(outgoing),
+                RootRegistrationChange::Added(incoming),
+            ]
+        );
+    });
+}
+
+#[test]
+fn trim_to_max_allowed_uids_fires_removed_for_evicted_coldkey() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        MaxRegistrationsPerBlock::<Test>::set(NetUid::ROOT, 64);
+        TargetRegistrationsPerInterval::<Test>::set(NetUid::ROOT, 64);
+
+        let cold1 = U256::from(10);
+        let cold2 = U256::from(20);
+        root_register_with_stake(&cold1, &U256::from(11), alpha);
+        root_register_with_stake(&cold2, &U256::from(21), alpha);
+        let _ = take_root_registration_log();
+
+        // Lifts the immunity guard so trim can pick a fresh UID; `MinAllowedUids`
+        // is dropped to 1 (the floor `trim_to_max_allowed_uids` honors) so the
+        // call doesn't bounce on the lower bound either.
+        ImmunityPeriod::<Test>::set(NetUid::ROOT, 0);
+        MinAllowedUids::<Test>::set(NetUid::ROOT, 1);
+
+        assert_ok!(SubtensorModule::trim_to_max_allowed_uids(NetUid::ROOT, 1));
+
+        // Exactly one of the two coldkeys was evicted; the corresponding
+        // Removed must fire and no spurious events should appear.
+        let log = take_root_registration_log();
+        let removed: Vec<_> = log
+            .iter()
+            .filter_map(|c| match c {
+                RootRegistrationChange::Removed(c) => Some(*c),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            removed.len(),
+            1,
+            "one Removed per evicted coldkey, got {log:?}"
+        );
+        assert!(removed[0] == cold1 || removed[0] == cold2);
+    });
+}

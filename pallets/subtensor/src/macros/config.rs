@@ -6,7 +6,7 @@ use frame_support::pallet_macros::pallet_section;
 #[pallet_section]
 mod config {
 
-    use crate::{CommitmentsInterface, GetAlphaForTao, GetTaoForAlpha};
+    use crate::{CommitmentsInterface, GetAlphaForTao, GetTaoForAlpha, root_registered::*};
     use frame_support::PalletId;
     use pallet_alpha_assets::AlphaAssetsInterface;
     use pallet_commitments::GetCommitments;
@@ -70,6 +70,15 @@ mod config {
 
         /// Provider of current block author
         type AuthorshipProvider: AuthorshipInfo<Self::AccountId>;
+
+        /// Handler for root-registration transitions.
+        type OnRootRegistrationChange: OnRootRegistrationChange<Self::AccountId>;
+
+        /// External snapshot of the root-registered coldkey set.
+        type RootRegisteredInspector: RootRegisteredInspector<Self::AccountId>;
+
+        /// Provider for the value sampled by root-registered EMAs.
+        type EmaValueProvider: EmaValueProvider<Self::AccountId>;
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: crate::weights::WeightInfo;

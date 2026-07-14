@@ -1815,7 +1815,7 @@ fn ghsa_2026_011_all_subnets_swap_covers_parent_key_subnets_not_child_side() {
 
         let interval: u64 = <Test as crate::Config>::HotkeySwapOnSubnetInterval::get();
 
-        add_network(member_netuid, 13, 0);
+        add_network(member_netuid, 13, 0;
         add_network(parent_netuid, 13, 0);
         add_network(child_netuid, 13, 0);
         register_ok_neuron(member_netuid, old_hotkey, coldkey, 0);
@@ -1956,5 +1956,46 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
         // FIXED: the old hotkey's ChildkeyTake row is removed (no orphan left behind).
         assert!(!ChildkeyTake::<Test>::contains_key(old_hotkey, netuid));
         assert_eq!(ChildkeyTake::<Test>::get(old_hotkey, netuid), 0);
+    });
+}
+
+#[test]
+fn test_swap_hotkey_preserves_root_registered_hotkey_count() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let coldkey = U256::from(10);
+        let old_hotkey = U256::from(11);
+        let new_hotkey = U256::from(12);
+
+        // Register `old_hotkey` on the root subnet under `coldkey`.
+        register_ok_neuron(alpha, old_hotkey, coldkey, 0);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old_hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(1_000_000_000),
+        );
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(coldkey),
+            old_hotkey,
+        ));
+        assert_eq!(RootRegisteredHotkeyCount::<Test>::get(coldkey), 1);
+
+        let mut weight = Weight::zero();
+    assert_ok!(SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+       false,
+        ));
+
+        // The coldkey still controls one root-registered hotkey; only the
+        // identity changed.
+        assert_eq!(RootRegisteredHotkeyCount::<Test>::get(coldkey), 1);
+        assert!(SubtensorModule::coldkey_has_root_hotkey(&coldkey));
     });
 }

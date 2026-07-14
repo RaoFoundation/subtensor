@@ -332,6 +332,9 @@ impl pallet_subtensor::Config for Test {
     type CommitmentsInterface = CommitmentsI;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
+    type OnRootRegistrationChange = ();
+    type RootRegisteredInspector = ();
+    type EmaValueProvider = ();
     type SubtensorPalletId = SubtensorPalletId;
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;

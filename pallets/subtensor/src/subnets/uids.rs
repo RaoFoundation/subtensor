@@ -200,6 +200,10 @@ impl<T: Config> Pallet<T> {
 
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
+                        if netuid == NetUid::ROOT {
+                            let owner = Owner::<T>::get(&hotkey);
+                            Self::decrement_root_registered_hotkey_count(&owner);
+                        }
                         Uids::<T>::remove(netuid, &hotkey);
                         IsNetworkMember::<T>::remove(&hotkey, netuid);
                         LastHotkeyEmissionOnNetuid::<T>::remove(&hotkey, netuid);

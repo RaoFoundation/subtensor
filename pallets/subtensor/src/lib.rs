@@ -37,6 +37,7 @@ pub mod extensions;
 pub mod guards;
 pub mod macros;
 pub mod migrations;
+pub mod root_registered;
 pub mod rpc_info;
 pub mod staking;
 pub mod subnets;
@@ -83,6 +84,7 @@ pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 pub mod pallet {
     use crate::RateLimitKey;
     use crate::migrations;
+    use crate::root_registered::{EmaState, EmaValueProvider, InFlightEmaSample};
     use crate::staking::lock::LockState;
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
     use frame_support::Twox64Concat;
@@ -1408,6 +1410,36 @@ pub mod pallet {
     #[pallet::storage]
     pub type OwnedHotkeys<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, Vec<T::AccountId>, ValueQuery>;
+
+    /// Number of hotkeys controlled by this coldkey that are currently registered on the root subnet.
+    #[pallet::storage]
+    pub type RootRegisteredHotkeyCount<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
+    /// EMA state for each root-registered coldkey.
+    #[pallet::storage]
+    pub type RootRegisteredEma<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, EmaState, ValueQuery>;
+
+    /// Fixed coldkey snapshot used by the current EMA sampling cycle.
+    #[pallet::storage]
+    pub type CurrentCycleMembers<T: Config> =
+        StorageValue<_, BoundedVec<T::AccountId, ConstU32<64>>, ValueQuery>;
+
+    /// Internal: the EMA value provider for the runtime.
+    pub type EmaProviderOf<T> = <T as Config>::EmaValueProvider;
+
+    /// Internal: provider-owned progress for the coldkey currently being sampled.
+    pub type EmaProgressOf<T> = <EmaProviderOf<T> as EmaValueProvider<AccountIdOf<T>>>::Progress;
+
+    /// Internal: in-flight sample for the current coldkey. Present only
+    /// while `T::EmaValueProvider` has returned `SampleStep::Continue`.
+    pub type InFlightEmaSampleOf<T> = InFlightEmaSample<AccountIdOf<T>, EmaProgressOf<T>>;
+
+    /// Cursor and in-flight provider progress for the EMA sampling cycle.
+    #[pallet::storage]
+    pub type EmaSamplerState<T: Config> =
+        StorageValue<_, (u32, Option<InFlightEmaSampleOf<T>>), ValueQuery>;
 
     /// --- DMAP ( cold, netuid )--> hot | Returns the hotkey a coldkey will autostake to with mining rewards.
     #[pallet::storage]

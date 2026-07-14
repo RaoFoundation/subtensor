@@ -22,6 +22,7 @@ mod networks;
 mod neuron_info;
 mod recycle_alpha;
 mod registration;
+mod root_registered;
 mod serving;
 mod staking;
 mod staking2;

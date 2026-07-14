@@ -2010,3 +2010,81 @@ fn dispute_coldkey_swap(who: U256) {
         RuntimeOrigin::signed(who),
     ));
 }
+
+fn ref_count(coldkey: &U256) -> u32 {
+    RootRegisteredHotkeyCount::<Test>::get(coldkey)
+}
+
+#[test]
+fn swap_coldkey_transfers_ref_count_for_root_registered_hotkeys() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let old_coldkey = U256::from(10);
+        let new_coldkey = U256::from(20);
+        let h1 = U256::from(11);
+        let h2 = U256::from(12);
+        let h_not_root = U256::from(13);
+
+        // Two root-registered hotkeys plus one non-root-registered hotkey,
+        // all owned by old_coldkey.
+        root_register_with_stake(&old_coldkey, &h1, alpha);
+        root_register_with_stake(&old_coldkey, &h2, alpha);
+        register_ok_neuron(alpha, h_not_root, old_coldkey, 0);
+
+        assert_eq!(ref_count(&old_coldkey), 2);
+        assert_eq!(ref_count(&new_coldkey), 0);
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+
+        assert_eq!(ref_count(&old_coldkey), 0);
+        assert_eq!(ref_count(&new_coldkey), 2);
+        assert!(!SubtensorModule::coldkey_has_root_hotkey(&old_coldkey));
+        assert!(SubtensorModule::coldkey_has_root_hotkey(&new_coldkey));
+    });
+}
+
+#[test]
+fn swap_coldkey_with_no_root_hotkeys_is_noop_for_ref_count() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let old_coldkey = U256::from(10);
+        let new_coldkey = U256::from(20);
+        let hot = U256::from(11);
+
+        // Hotkey registered on alpha only, not on root.
+        register_ok_neuron(alpha, hot, old_coldkey, 0);
+        assert_eq!(ref_count(&old_coldkey), 0);
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+
+        assert_eq!(ref_count(&old_coldkey), 0);
+        assert_eq!(ref_count(&new_coldkey), 0);
+    });
+}
+
+#[test]
+fn swap_coldkey_fires_removed_for_source_and_added_for_target() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        let from = U256::from(10);
+        let to = U256::from(99);
+        root_register_with_stake(&from, &U256::from(11), alpha);
+        root_register_with_stake(&from, &U256::from(12), alpha);
+        let _ = take_root_registration_log();
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&from, &to));
+
+        let log = take_root_registration_log();
+        assert!(log.contains(&RootRegistrationChange::Removed(from)));
+        assert!(log.contains(&RootRegistrationChange::Added(to)));
+    });
+}

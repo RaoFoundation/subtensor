@@ -4934,3 +4934,51 @@ fn test_migrate_dynamic_tempo_idempotent() {
         );
     });
 }
+
+#[test]
+fn test_migrate_init_root_registered_hotkey_count_backfills_counts_and_fires_hooks() {
+    new_test_ext(1).execute_with(|| {
+        let alpha = NetUid::from(1);
+        add_network(NetUid::ROOT, 1, 0);
+        add_network(alpha, 1, 0);
+
+        MaxRegistrationsPerBlock::<Test>::set(NetUid::ROOT, 64);
+        TargetRegistrationsPerInterval::<Test>::set(NetUid::ROOT, 64);
+
+        // Two hotkeys under cold1, one under cold2: the migration must
+        // reconstruct counts {cold1: 2, cold2: 1} and fire exactly one
+        // `on_added` per distinct coldkey.
+        let cold1 = U256::from(10);
+        let cold2 = U256::from(20);
+        root_register_with_stake(&cold1, &U256::from(11), alpha);
+        root_register_with_stake(&cold1, &U256::from(12), alpha);
+        root_register_with_stake(&cold2, &U256::from(21), alpha);
+
+        // Simulate pre-migration state: `Keys[ROOT]` populated, reverse
+        // index empty, and the hook log clean.
+        let _ = RootRegisteredHotkeyCount::<Test>::clear(u32::MAX, None);
+        let _ = take_root_registration_log();
+
+        crate::migrations::migrate_init_root_registered_hotkey_count::migrate_init_root_registered_hotkey_count::<Test>();
+
+        // Counts reconstructed.
+        assert_eq!(RootRegisteredHotkeyCount::<Test>::get(cold1), 2);
+        assert_eq!(RootRegisteredHotkeyCount::<Test>::get(cold2), 1);
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_init_root_registered_hotkey_count".to_vec()
+        ));
+
+        // One Added per distinct coldkey, regardless of hotkey count.
+        let log = take_root_registration_log();
+        let added: Vec<_> = log
+            .iter()
+            .filter_map(|c| match c {
+                RootRegistrationChange::Added(c) => Some(*c),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(added.len(), 2, "one Added per distinct coldkey, got {log:?}");
+        assert!(added.contains(&cold1));
+        assert!(added.contains(&cold2));
+    });
+}

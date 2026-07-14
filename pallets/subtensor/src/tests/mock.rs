@@ -6,6 +6,9 @@
 
 use core::num::NonZeroU64;
 
+use crate::root_registered::{
+    EmaValueProvider, OnRootRegistrationChange, RootRegisteredInspector, SampleStep,
+};
 use crate::utils::rate_limiting::TransactionType;
 use crate::*;
 pub use frame_support::traits::Imbalance;
@@ -182,6 +185,169 @@ impl AuthorshipInfo<U256> for MockAuthorshipProvider {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootRegistrationChange {
+    Added(U256),
+    Removed(U256),
+}
+
+thread_local! {
+    static ROOT_REGISTRATION_LOG: core::cell::RefCell<Vec<RootRegistrationChange>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+pub fn take_root_registration_log() -> Vec<RootRegistrationChange> {
+    ROOT_REGISTRATION_LOG.with(|log| log.borrow_mut().drain(..).collect())
+}
+
+pub struct MockOnRootRegistrationChange;
+
+impl OnRootRegistrationChange<U256> for MockOnRootRegistrationChange {
+    fn on_added(coldkey: &U256) {
+        ROOT_REGISTRATION_LOG.with(|log| {
+            log.borrow_mut()
+                .push(RootRegistrationChange::Added(*coldkey))
+        });
+    }
+    fn on_removed(coldkey: &U256) {
+        ROOT_REGISTRATION_LOG.with(|log| {
+            log.borrow_mut()
+                .push(RootRegistrationChange::Removed(*coldkey))
+        });
+    }
+    fn on_added_weight() -> Weight {
+        Weight::zero()
+    }
+    fn on_removed_weight() -> Weight {
+        Weight::zero()
+    }
+}
+
+thread_local! {
+    static MOCK_ROOT_REGISTERED_INSPECTOR_MEMBERS: core::cell::RefCell<Option<Vec<U256>>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// Override the membership exposed by `MockRootRegisteredInspector` to
+/// `pallet_subtensor`'s try_state check. `None` (the default) makes
+/// the check a no-op; `Some(_)` opts the test in.
+pub fn set_mock_root_registered_inspector_members(members: Option<Vec<U256>>) {
+    MOCK_ROOT_REGISTERED_INSPECTOR_MEMBERS.with(|m| *m.borrow_mut() = members);
+}
+
+pub struct MockRootRegisteredInspector;
+
+impl RootRegisteredInspector<U256> for MockRootRegisteredInspector {
+    fn members() -> Option<Vec<U256>> {
+        MOCK_ROOT_REGISTERED_INSPECTOR_MEMBERS.with(|m| m.borrow().clone())
+    }
+}
+
+thread_local! {
+    static EMA_VALUE_PROVIDER_LOG: RefCell<Vec<(U256, U64F64)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+pub fn take_ema_value_provider_log() -> Vec<(U256, U64F64)> {
+    EMA_VALUE_PROVIDER_LOG.with(|log| log.borrow_mut().drain(..).collect())
+}
+
+/// Define a thread-local whose value can be temporarily replaced via an
+/// RAII guard. The previous value is restored when the guard drops, so
+/// tests do not need to manually undo their setup (and inherit nothing
+/// from a panicking neighbor).
+macro_rules! define_scoped_state {
+    ($flag:ident, $guard:ident, $reader:ident, $ty:ty, $default:expr) => {
+        thread_local! {
+            static $flag: RefCell<$ty> = const { RefCell::new($default) };
+        }
+
+        #[must_use = "the guard restores the prior value on drop; bind it to a local"]
+        pub struct $guard {
+            previous: Option<$ty>,
+        }
+
+        impl $guard {
+            pub fn new(value: $ty) -> Self {
+                let previous =
+                    Some($flag.with(|r| core::mem::replace(&mut *r.borrow_mut(), value)));
+                Self { previous }
+            }
+        }
+
+        impl Drop for $guard {
+            fn drop(&mut self) {
+                if let Some(prev) = self.previous.take() {
+                    $flag.with(|r| *r.borrow_mut() = prev);
+                }
+            }
+        }
+
+        fn $reader() -> $ty {
+            $flag.with(|r| r.borrow().clone())
+        }
+    };
+}
+
+define_scoped_state!(
+    EMA_VALUE_PROVIDER_STEP,
+    EmaValueProviderStepGuard,
+    ema_value_provider_step,
+    Option<fn(U256, MockEmaProgress) -> (SampleStep<MockEmaProgress>, Weight)>,
+    None
+);
+define_scoped_state!(
+    EMA_VALUE_PROVIDER_STEP_WEIGHT,
+    EmaValueProviderStepWeightGuard,
+    ema_value_provider_step_weight,
+    Weight,
+    Weight::zero()
+);
+
+#[freeze_struct("79e67cd33ad5c63b")]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Debug,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub struct MockEmaProgress {
+    pub offset: u32,
+    pub partial: u128,
+}
+
+pub struct MockEmaValueProvider;
+
+impl EmaValueProvider<U256> for MockEmaValueProvider {
+    type Progress = MockEmaProgress;
+
+    fn step(coldkey: &U256, progress: Self::Progress) -> (SampleStep<Self::Progress>, Weight) {
+        let (step, weight) = match ema_value_provider_step() {
+            Some(f) => f(*coldkey, progress),
+            None => (
+                SampleStep::Complete {
+                    sample: U64F64::from_num(0u64),
+                },
+                ema_value_provider_step_weight(),
+            ),
+        };
+        EMA_VALUE_PROVIDER_LOG
+            .with(|log| log.borrow_mut().push((*coldkey, U64F64::from_num(0u64))));
+        (step, weight)
+    }
+
+    fn step_weight() -> Weight {
+        ema_value_provider_step_weight()
+    }
+}
+
 parameter_types! {
     pub const InitialMinAllowedWeights: u16 = 0;
     pub const InitialEmissionValue: u16 = 0;
@@ -346,6 +512,9 @@ impl crate::Config for Test {
     type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
+    type OnRootRegistrationChange = MockOnRootRegistrationChange;
+    type RootRegisteredInspector = MockRootRegisteredInspector;
+    type EmaValueProvider = MockEmaValueProvider;
     type SubtensorPalletId = SubtensorPalletId;
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
@@ -391,7 +560,6 @@ parameter_types! {
     pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) *
         BlockWeights::get().max_block;
     pub const MaxScheduledPerBlock: u32 = 50;
-    pub const NoPreimagePostponement: Option<u32> = Some(10);
 }
 
 impl pallet_scheduler::Config for Test {
@@ -1187,4 +1355,18 @@ pub fn remove_owner_registration_stake(netuid: NetUid) {
         TotalHotkeyAlpha::<Test>::get(owner_hotkey, netuid),
         AlphaBalance::ZERO
     );
+}
+
+pub fn root_register_with_stake(coldkey: &U256, hotkey: &U256, alpha_netuid: NetUid) {
+    register_ok_neuron(alpha_netuid, *hotkey, *coldkey, 0);
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        hotkey,
+        coldkey,
+        NetUid::ROOT,
+        AlphaBalance::from(1_000_000_000),
+    );
+    assert_ok!(SubtensorModule::root_register(
+        RuntimeOrigin::signed(*coldkey),
+        *hotkey,
+    ));
 }

@@ -64,6 +64,9 @@ pallet-subtensor = { path = "pallets/subtensor", default-features = false }
 pallet-subtensor-swap = { path = "pallets/swap", default-features = false }
 pallet-subtensor-swap-runtime-api = { path = "pallets/swap/runtime-api", default-features = false }
 pallet-subtensor-swap-rpc = { path = "pallets/swap/rpc", default-features = false }
+pallet-multi-collective = { path = "pallets/multi-collective", default-features = false }
+pallet-signed-voting = { path = "pallets/signed-voting", default-features = false }
+pallet-referenda = { path = "pallets/referenda", default-features = false }
 procedural-fork = { path = "support/procedural-fork", default-features = false }
 safe-bigmath = { package = "safe-bigmath", default-features = false, git = "https://github.com/sam0x17/safe-bigmath", rev = "013c49984910e1c9a23289e8c85e7a856e263a02" }
 safe-math = { path = "primitives/safe-math", default-features = false }

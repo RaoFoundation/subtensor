@@ -121,14 +121,15 @@ impl<T: Config> Pallet<T> {
         // --- 8. Check if the root net is below its allowed size.
         // max allowed is senate size.
         if current_num_root_validators < Self::get_max_root_validators() {
-            // --- 12.1.1 We can append to the subnetwork as it's not full.
+            // We can append to the subnetwork as it's not full.
             subnetwork_uid = current_num_root_validators;
 
-            // --- 12.1.2 Add the new account and make them a member of the Senate.
+            // Add the new account and make them a member of the Senate.
             Self::append_neuron(NetUid::ROOT, &hotkey, current_block_number);
             log::debug!("add new neuron: {hotkey:?} on uid {subnetwork_uid:?}");
+            Self::increment_root_registered_hotkey_count(&coldkey);
         } else {
-            // --- 13.1.1 The network is full. Perform replacement.
+            // The network is full. Perform replacement.
             // Find the neuron with the lowest stake value to replace.
             let mut lowest_stake = AlphaBalance::MAX;
             let mut lowest_uid: u16 = 0;
@@ -145,19 +146,23 @@ impl<T: Config> Pallet<T> {
             let replaced_hotkey: T::AccountId =
                 Self::get_hotkey_for_net_and_uid(NetUid::ROOT, subnetwork_uid)?;
 
-            // --- 13.1.2 The new account has a higher stake than the one being replaced.
+            // The new account has a higher stake than the one being replaced.
             ensure!(
                 lowest_stake < Self::get_stake_for_hotkey_on_subnet(&hotkey, NetUid::ROOT),
                 Error::<T>::StakeTooLowForRoot
             );
 
-            // --- 13.1.3 The new account has a higher stake than the one being replaced.
+            // The new account has a higher stake than the one being replaced.
             // Replace the neuron account with new information.
             Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
 
             log::debug!(
                 "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {subnetwork_uid:?}"
             );
+
+            let replaced_owner = Owner::<T>::get(&replaced_hotkey);
+            Self::decrement_root_registered_hotkey_count(&replaced_owner);
+            Self::increment_root_registered_hotkey_count(&coldkey);
         }
 
         // --- 13. Force all members on root to become a delegate.

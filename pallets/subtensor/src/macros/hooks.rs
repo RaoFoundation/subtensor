@@ -15,27 +15,27 @@ mod hooks {
         // 	* 'n': (BlockNumberFor<T>):
         // 		- The number of the block we are initializing.
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
-            let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
+            let mut weight = Weight::zero();
 
-            let block_step_result = Self::block_step();
-            match block_step_result {
+            weight.saturating_accrue(Self::clean_up_hotkey_swap_records(block_number));
+            weight.saturating_accrue(Self::tick_root_registered_ema());
+
+            match Self::block_step() {
                 Ok(_) => {
-                    // --- If the block step was successful, return the weight.
-                    log::debug!("Successfully ran block step.");
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
-                        .saturating_add(hotkey_swap_clean_up_weight)
+                    log::debug!("Successfully ran block step.")
                 }
                 Err(e) => {
-                    // --- If the block step was unsuccessful, return the weight anyway.
-                    log::error!("Error while stepping block: {:?}", e);
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
-                        .saturating_add(hotkey_swap_clean_up_weight)
+                    log::error!("Error while stepping block: {:?}", e)
                 }
-            }
+            };
+            // TODO: benchmark properly
+            weight.saturating_accrue(
+                Weight::from_parts(110_634_229_000_u64, 0)
+                    .saturating_add(T::DbWeight::get().reads(8304_u64))
+                    .saturating_add(T::DbWeight::get().writes(110_u64)),
+            );
+
+            weight
         }
 
         fn on_runtime_upgrade() -> frame_support::weights::Weight {
@@ -177,7 +177,9 @@ mod hooks {
                 // Capture the runtime-upgrade block for TAO-in refund cutover.
                 .saturating_add(migrations::migrate_tao_in_refund_deployment_block::migrate_tao_in_refund_deployment_block::<T>())
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
-                .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>());
+                .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
+                // Backfill `RootRegisteredHotkeyCount` from the root-subnet `Keys` map
+                .saturating_add(migrations::migrate_init_root_registered_hotkey_count::migrate_init_root_registered_hotkey_count::<T>());
             weight
         }
 
@@ -185,6 +187,9 @@ mod hooks {
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
             // Disabled: https://github.com/opentensor/subtensor/pull/1166
             // Self::check_total_stake()?;
+            Self::check_root_registered_hotkey_count()?;
+            Self::check_root_registered_matches_inspector()?;
+            Self::check_root_registered_ema_matches_count()?;
             Ok(())
         }
     }
