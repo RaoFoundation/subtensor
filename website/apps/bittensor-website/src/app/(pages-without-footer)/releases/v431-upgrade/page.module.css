@@ -1,0 +1,132 @@
+@import url(../../shared.module.css);
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.paper_title {
+  font-size: 20px;
+}
+
+.subtitle {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  margin-bottom: -8px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.paper_link {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  text-transform: uppercase;
+  color: #d15168;
+}
+
+.inline_link {
+  color: #d15168;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.list {
+  list-style-type: decimal;
+  margin: 10px 10px;
+  padding: inherit 10px;
+  display: flex;
+  gap: 10px;
+  flex-direction: column;
+  width: calc(100% - 40px);
+}
+
+.code_block {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  /* Viewport-based width: with white-space pre, width 100% would let the
+     longest code line dictate the section's min-content width and force the
+     whole page to overflow horizontally on narrow screens. The page
+     container is max-width 960px with 32px side padding. */
+  width: calc(100vw - 64px);
+  max-width: 896px;
+  margin: 0;
+  padding: 16px 20px;
+  border: 1px solid rgba(41, 41, 41, 0.2);
+  box-sizing: border-box;
+  text-align: left;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+
+.graph {
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+}
+
+/* The SVG scales with the viewport, so at phone widths the 10px labels
+   become ~5px. CSS font-size beats the SVG presentation attribute. */
+@media (max-width: 640px) {
+  .graph text {
+    font-size: 16px;
+  }
+}
+
+.graph_caption {
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center !important;
+}
+
+.metrics_table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.metrics_table th {
+  font-family: 'FiraCode';
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgb(41, 41, 41);
+}
+
+.metrics_table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(41, 41, 41, 0.15);
+  text-align: left;
+}
+
+.connect_links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 24px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.connect_link {
+  display: inline-flex;
+  text-decoration: none;
+}
+
+.connect_label {
+  font-family: 'FiraCode';
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 18px;
+  color: rgb(41, 41, 41);
+  text-transform: uppercase;
+}

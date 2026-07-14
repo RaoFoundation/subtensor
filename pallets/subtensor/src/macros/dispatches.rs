@@ -1390,7 +1390,7 @@ mod dispatches {
         /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
         ///
         /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
-        ///       fill or kill type or order.
+        ///       fill or kill type of order.
         ///
         /// # Events
         /// * `StakeAdded`: On the successfully adding stake to a global account.
@@ -1443,7 +1443,7 @@ mod dispatches {
         /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
         ///
         /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
-        ///       fill or kill type or order.
+        ///       fill or kill type of order.
         ///
         /// # Events
         /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
@@ -1484,7 +1484,7 @@ mod dispatches {
         /// * `destination_netuid`: The network/subnet ID to which stake is added.
         /// * `alpha_amount`: The amount of stake to swap.
         /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
-        /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type or order.
+        /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type of order.
         ///
         /// # Errors
         /// * `BadOrigin`: The transaction is not signed.

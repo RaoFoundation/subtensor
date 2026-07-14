@@ -11,6 +11,11 @@ on:
       - "docs/**"
       - "website/**"
   workflow_dispatch:
+    inputs:
+      production:
+        description: "Deploy to production (bittensor.com) instead of staging"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-docs
@@ -20,6 +25,11 @@ jobs:
   deploy:
     name: Deploy staging docs to Vercel
     runs-on: [self-hosted, fireactions-turbo-8]
+    # Production deploys only run from main (a dispatch on any other ref would
+    # otherwise ship unreviewed code) and are gated behind the same environment
+    # approval as the post-upgrade promotion in watch-mainnet-release.yml.
+    if: ${{ !inputs.production || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.production && 'mainnet' || null }}
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -43,9 +53,16 @@ jobs:
         # CLI resolves it against the cwd (running from website/ doubles the
         # path and fails with ENOENT).
         run: |
-          npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
-          npx --yes vercel build --token "$VERCEL_TOKEN"
-          url=$(npx --yes vercel deploy --prebuilt --token "$VERCEL_TOKEN")
-          echo "Deployed: $url"
-          npx --yes vercel alias set "$url" "staging.$DOCS_DOMAIN" --token "$VERCEL_TOKEN"
-          echo "Aliased to https://staging.$DOCS_DOMAIN" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.production }}" = "true" ]; then
+            npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+            npx --yes vercel build --prod --token "$VERCEL_TOKEN"
+            npx --yes vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
+            echo "Deployed to https://$DOCS_DOMAIN (production)" >> $GITHUB_STEP_SUMMARY
+          else
+            npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+            npx --yes vercel build --token "$VERCEL_TOKEN"
+            url=$(npx --yes vercel deploy --prebuilt --token "$VERCEL_TOKEN")
+            echo "Deployed: $url"
+            npx --yes vercel alias set "$url" "staging.$DOCS_DOMAIN" --token "$VERCEL_TOKEN"
+            echo "Aliased to https://staging.$DOCS_DOMAIN" >> $GITHUB_STEP_SUMMARY
+          fi
