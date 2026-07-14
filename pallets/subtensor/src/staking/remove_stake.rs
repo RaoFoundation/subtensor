@@ -586,9 +586,14 @@ impl<T: Config> Pallet<T> {
         };
 
         let mut last_hot = None;
+        // Once a hotkey's Alpha/AlphaV2 prefix scan is started, finish it even if the
+        // remaining on_idle budget is exhausted. A single hotkey can have more prefix
+        // entries across all subnets than one block's leftover weight; aborting mid-hotkey
+        // and retrying forever livelocks dissolution.
+        let mut exhausted = false;
 
         for (hot, this_netuid, _) in iter {
-            if !weight_meter.can_consume(r) {
+            if exhausted || !weight_meter.can_consume(r) {
                 read_all = false;
                 break;
             }
@@ -598,13 +603,12 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let mut iterate_all = true;
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if !weight_meter.can_consume(r) {
-                    iterate_all = false;
-                    break;
+                if weight_meter.can_consume(r) {
+                    weight_meter.consume(r);
+                } else {
+                    exhausted = true;
                 }
-                weight_meter.consume(r);
 
                 if this_netuid != netuid {
                     continue;
@@ -627,11 +631,10 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            if !iterate_all {
+            last_hot = Some(hot);
+            if exhausted {
                 read_all = false;
                 break;
-            } else {
-                last_hot = Some(hot);
             }
         }
 
@@ -667,6 +670,9 @@ impl<T: Config> Pallet<T> {
         let mut hotkeys_in_subnet: Vec<T::AccountId> = Vec::new();
         let mut coldkeys = BTreeSet::<T::AccountId>::new();
         let mut last_completed_key = last_key.clone();
+        // Finish the current hotkey even if weight runs out mid-prefix; otherwise a fat
+        // Alpha/AlphaV2 hotkey prefix livelocks dissolution across blocks.
+        let mut exhausted = false;
 
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
@@ -674,7 +680,7 @@ impl<T: Config> Pallet<T> {
         };
 
         for (hot, this_netuid, _) in iter {
-            if !weight_meter.can_consume(r) {
+            if exhausted || !weight_meter.can_consume(r) {
                 read_all = false;
                 break;
             }
@@ -685,18 +691,17 @@ impl<T: Config> Pallet<T> {
             }
             hotkeys_in_subnet.push(hot.clone());
 
-            let mut inner_read_all = true;
             let mut coldkey_value_vec: Vec<(T::AccountId, u128)> = Vec::new();
 
-            // Handle one hotkey and all its coldkeys or skip the hotkey if the weight is not enough
-            // Then we just need to record the hotkey as checkpoint
+            // Drain the whole hotkey prefix once started. Weight is accounted when it
+            // still fits; overshoot is allowed so the cursor can advance past this hotkey.
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if !weight_meter.can_consume(r.saturating_mul(2_u64)) {
-                    inner_read_all = false;
-                    break;
+                let inner_reads = r.saturating_mul(2_u64);
+                if weight_meter.can_consume(inner_reads) {
+                    weight_meter.consume(inner_reads);
+                } else {
+                    exhausted = true;
                 }
-
-                weight_meter.consume(r.saturating_mul(2_u64));
                 if this_netuid != netuid {
                     continue;
                 }
@@ -722,27 +727,23 @@ impl<T: Config> Pallet<T> {
                         coldkeys.insert(cold.clone());
                     }
 
-                    // reserve the weight for the add_balance_to_coldkey_account function call later
-                    if !weight_meter.can_consume(need_to_consume_weight) {
-                        inner_read_all = false;
-                        // This hotkey has not been fully processed or queued for payout yet.
-                        // Keep the cursor on the last completed hotkey so the next pass retries it.
-                        break;
+                    if weight_meter.can_consume(need_to_consume_weight) {
+                        weight_meter.consume(need_to_consume_weight);
+                    } else {
+                        exhausted = true;
                     }
-                    weight_meter.consume(need_to_consume_weight);
                     let val_u128 = val_u64 as u128;
                     coldkey_value_vec.push((cold.clone(), val_u128));
                 }
             }
 
-            if !inner_read_all {
+            for (cold, value) in coldkey_value_vec {
+                stakers.push((hot.clone(), cold, value));
+            }
+            last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
+            if exhausted {
                 read_all = false;
                 break;
-            } else {
-                for (cold, value) in coldkey_value_vec {
-                    stakers.push((hot.clone(), cold, value));
-                }
-                last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
             }
         }
 
@@ -844,10 +845,12 @@ impl<T: Config> Pallet<T> {
         };
 
         let mut last_hot = None;
+        // Finish the current hotkey's Alpha/AlphaV2 cleanup even if weight is exhausted.
+        let mut exhausted = false;
 
         for (hot, this_netuid, _) in iter {
             let mut coldkeys: Vec<T::AccountId> = Vec::new();
-            if !weight_meter.can_consume(r) {
+            if exhausted || !weight_meter.can_consume(r) {
                 read_all = false;
                 break;
             }
@@ -857,39 +860,35 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let mut iterate_all = true;
-            // handle all coldkeys for the hotkey as transactional, it is overdesigned to record two layers of checkpoints
             for (cold, this_netuid, _) in Self::alpha_iter_single_prefix(&hot) {
-                if !weight_meter.can_consume(r) {
-                    read_all = false;
-                    iterate_all = false;
-                    break;
+                if weight_meter.can_consume(r) {
+                    weight_meter.consume(r);
+                } else {
+                    exhausted = true;
                 }
-                weight_meter.consume(r);
                 if this_netuid != netuid {
                     continue;
                 }
                 coldkeys.push(cold.clone());
             }
 
-            if !iterate_all {
-                read_all = false;
-                break;
-            }
-
             let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
-
-            if !weight_meter.can_consume(weight_for_all_remove) {
-                read_all = false;
-                break;
+            if weight_meter.can_consume(weight_for_all_remove) {
+                weight_meter.consume(weight_for_all_remove);
+            } else {
+                exhausted = true;
             }
-            weight_meter.consume(weight_for_all_remove);
 
             last_hot = Some(hot.clone());
 
             for cold in coldkeys {
                 Alpha::<T>::remove((&hot, &cold, netuid));
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
+            }
+
+            if exhausted {
+                read_all = false;
+                break;
             }
         }
 

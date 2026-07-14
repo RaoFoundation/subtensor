@@ -439,14 +439,14 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_multi_block_total_issuance() {
 
         assert!(completed, "settle_stakes should finish");
         assert!(
-            iterations >= 5,
+            iterations >= 3,
             "should need multiple blocks, completed in {iterations}"
         );
     });
 }
 
 #[test]
-fn test_destroy_alpha_in_out_stakes_settle_stakes_retries_unpaid_hotkey() {
+fn test_destroy_alpha_in_out_stakes_settle_stakes_finishes_hotkey_past_weight() {
     new_test_ext(0).execute_with(|| {
         let cold_base = U256::from(7000);
         let hot_base = U256::from(8000);
@@ -494,6 +494,8 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_retries_unpaid_hotkey() {
             .expect("staked coldkey should exist");
         let first_balance_before = SubtensorModule::get_coldkey_balance(&first_cold);
 
+        // Enough to start the first hotkey, not enough to reserve its payout weight.
+        // Cleanup must still finish and pay that hotkey so dissolution cannot livelock.
         let tight = <Test as frame_system::Config>::DbWeight::get()
             .reads(3)
             .saturating_add(<Test as frame_system::Config>::DbWeight::get().writes(1));
@@ -507,13 +509,13 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_retries_unpaid_hotkey() {
 
         assert!(!done);
         assert_eq!(
-            new_key, None,
-            "cursor must not advance past a hotkey that was read but not paid"
+            new_key,
+            Some(TotalHotkeyAlpha::<Test>::hashed_key_for(&first_hot, netuid)),
+            "cursor must advance past the hotkey that was finished over budget"
         );
-        assert_eq!(
-            SubtensorModule::get_coldkey_balance(&first_cold),
-            first_balance_before,
-            "tight pass should not pay without reserving full weight"
+        assert!(
+            SubtensorModule::get_coldkey_balance(&first_cold) > first_balance_before,
+            "started hotkey must be paid even when weight is exhausted mid-prefix"
         );
 
         let mut full_meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
@@ -525,10 +527,6 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_retries_unpaid_hotkey() {
         );
 
         assert!(done);
-        assert!(
-            SubtensorModule::get_coldkey_balance(&first_cold) > first_balance_before,
-            "retry should pay the hotkey that could not fit in the previous pass"
-        );
     });
 }
 
@@ -600,10 +598,8 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_keeps_previous_cursor() {
         );
         let first_balance_after = SubtensorModule::get_coldkey_balance(&first_cold);
 
-        let tight = <Test as frame_system::Config>::DbWeight::get()
-            .reads(3)
-            .saturating_add(<Test as frame_system::Config>::DbWeight::get().writes(1));
-        let mut tight_meter = WeightMeter::with_limit(tight);
+        // Not enough weight to start another hotkey outer read — cursor must stay put.
+        let mut tight_meter = WeightMeter::with_limit(Weight::zero());
         let (done, retry_key) = SubtensorModule::destroy_alpha_in_out_stakes_settle_stakes(
             netuid,
             &mut tight_meter,
@@ -615,12 +611,12 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes_keeps_previous_cursor() {
         assert_eq!(
             retry_key,
             Some(previous_key),
-            "cursor should stay at the previous completed hotkey when no new hotkey fits"
+            "cursor should stay at the previous completed hotkey when no new hotkey can start"
         );
         assert_eq!(
             SubtensorModule::get_coldkey_balance(&first_cold),
             first_balance_after,
-            "tight retry should not rewind and pay the completed hotkey again"
+            "empty-budget pass should not rewind and pay the completed hotkey again"
         );
     });
 }
