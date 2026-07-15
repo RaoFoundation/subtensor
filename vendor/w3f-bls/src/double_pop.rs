@@ -17,6 +17,7 @@ use ark_ec::Group;
 use ark_ff::field_hashers::{DefaultFieldHasher, HashToField};
 
 const PROOF_OF_POSSESSION_CONTEXT: &'static [u8] = b"POP_";
+#[allow(dead_code)]
 const BLS_CONTEXT: &'static [u8] = b"BLS_";
 
 /// Proof Of Possession of the secret key as the secret scaler genarting both public

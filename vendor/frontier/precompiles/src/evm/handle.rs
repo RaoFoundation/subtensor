@@ -49,6 +49,7 @@ pub trait PrecompileHandleExt: PrecompileHandle {
 	fn read_u32_selector(&self) -> MayRevert<u32>;
 
 	/// Returns a reader of the input, skipping the selector.
+	#[allow(mismatched_lifetime_syntaxes)]
 	fn read_after_selector(&self) -> MayRevert<Reader>;
 }
 
@@ -96,6 +97,7 @@ impl<T: PrecompileHandle> PrecompileHandleExt for T {
 	}
 
 	/// Returns a reader of the input, skipping the selector.
+	#[allow(mismatched_lifetime_syntaxes)]
 	fn read_after_selector(&self) -> MayRevert<Reader> {
 		Reader::new_skip_selector(self.input())
 	}

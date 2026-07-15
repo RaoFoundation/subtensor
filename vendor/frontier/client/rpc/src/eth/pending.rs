@@ -61,6 +61,7 @@ where
 	P: TransactionPool<Block = B, Hash = B::Hash> + 'static,
 {
 	/// Creates a pending runtime API.
+	#[allow(mismatched_lifetime_syntaxes)]
 	pub(crate) async fn pending_runtime_api(&self) -> Result<(B::Hash, ApiRef<C::Api>), Error> {
 		let api = self.client.runtime_api();
 
