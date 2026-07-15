@@ -1719,9 +1719,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::LastHotkeySwapOnNetuid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Alpha` (r:9 w:0)
+	/// Storage: `SubtensorModule::Alpha` (r:1025 w:256)
 	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:9 w:8)
+	/// Storage: `SubtensorModule::AlphaV2` (r:769 w:1024)
 	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:5 w:0)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -1765,7 +1765,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalHotkeyShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalHotkeySharesV2` (r:8 w:8)
 	/// Proof: `SubtensorModule::TotalHotkeySharesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::StakingHotkeys` (r:1 w:1)
+	/// Storage: `SubtensorModule::StakingHotkeys` (r:512 w:512)
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Delegates` (r:1 w:0)
 	/// Proof: `SubtensorModule::Delegates` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -1773,12 +1773,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::Keys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn swap_hotkey() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `3172`
-		//  Estimated: `28912`
-		// Minimum execution time: 1_266_031_000 picoseconds.
-		Weight::from_parts(1_276_767_000, 28912)
-			.saturating_add(T::DbWeight::get().reads(179_u64))
-			.saturating_add(T::DbWeight::get().writes(97_u64))
+		//  Measured:  `87814`
+		//  Estimated: `2625679`
+		// Minimum execution time: 28_723_830_000 picoseconds.
+		Weight::from_parts(29_019_885_000, 2625679)
+			.saturating_add(T::DbWeight::get().reads(2466_u64))
+			.saturating_add(T::DbWeight::get().writes(1880_u64))
 	}
 	/// Storage: `SubtensorModule::Owner` (r:1 w:1)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4211,9 +4211,9 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::LastHotkeySwapOnNetuid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Alpha` (r:9 w:0)
+	/// Storage: `SubtensorModule::Alpha` (r:1025 w:256)
 	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:9 w:8)
+	/// Storage: `SubtensorModule::AlphaV2` (r:769 w:1024)
 	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:5 w:0)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4257,7 +4257,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalHotkeyShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalHotkeySharesV2` (r:8 w:8)
 	/// Proof: `SubtensorModule::TotalHotkeySharesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::StakingHotkeys` (r:1 w:1)
+	/// Storage: `SubtensorModule::StakingHotkeys` (r:512 w:512)
 	/// Proof: `SubtensorModule::StakingHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Delegates` (r:1 w:0)
 	/// Proof: `SubtensorModule::Delegates` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4265,12 +4265,12 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::Keys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn swap_hotkey() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `3172`
-		//  Estimated: `28912`
-		// Minimum execution time: 1_266_031_000 picoseconds.
-		Weight::from_parts(1_276_767_000, 28912)
-			.saturating_add(RocksDbWeight::get().reads(179_u64))
-			.saturating_add(RocksDbWeight::get().writes(97_u64))
+		//  Measured:  `87814`
+		//  Estimated: `2625679`
+		// Minimum execution time: 28_723_830_000 picoseconds.
+		Weight::from_parts(29_019_885_000, 2625679)
+			.saturating_add(RocksDbWeight::get().reads(2466_u64))
+			.saturating_add(RocksDbWeight::get().writes(1880_u64))
 	}
 	/// Storage: `SubtensorModule::Owner` (r:1 w:1)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)

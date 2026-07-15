@@ -1562,6 +1562,11 @@ mod pallet_benchmarks {
         let new: T::AccountId = account("B", 0, 8);
 
         let num_subnets: u16 = 4;
+        let max_rows = crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_ROWS;
+        let base_rows_per_subnet = max_rows / u32::from(num_subnets);
+        let extra_rows = max_rows % u32::from(num_subnets);
+        let mut rows_created: u32 = 0;
+
         for i in 1..=num_subnets {
             let netuid = NetUid::from(i);
             Subtensor::<T>::init_new_network(netuid, 1);
@@ -1579,15 +1584,32 @@ mod pallet_benchmarks {
                 old.clone()
             ));
 
-            let alpha_amount = AlphaBalance::from(1_000_000_u64);
-            SubnetAlphaOut::<T>::insert(netuid, alpha_amount * 2.into());
-            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &old,
-                &coldkey,
+            let rows_this_subnet = base_rows_per_subnet + u32::from(u32::from(i) <= extra_rows);
+            let alpha_units = 1_000_000_u64;
+            let alpha_amount = AlphaBalance::from(alpha_units);
+            SubnetAlphaOut::<T>::insert(
                 netuid,
-                alpha_amount,
+                alpha_amount * (u64::from(rows_this_subnet) + 2).into(),
             );
+
+            for _ in 0..rows_this_subnet {
+                let staker: T::AccountId = account("stake", rows_created, 9);
+                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &old,
+                    &staker,
+                    netuid,
+                    alpha_amount,
+                );
+
+                if rows_created % 2 == 0 {
+                    AlphaV2::<T>::remove((&old, &staker, netuid));
+                    Alpha::<T>::insert((&old, &staker, netuid), U64F64::from_num(alpha_units));
+                }
+
+                rows_created = rows_created.saturating_add(1);
+            }
         }
+        assert_eq!(rows_created, max_rows);
 
         Owner::<T>::insert(&old, &coldkey);
         let cost = Subtensor::<T>::get_key_swap_cost();

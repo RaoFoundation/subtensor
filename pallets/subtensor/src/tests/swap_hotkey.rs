@@ -1,13 +1,16 @@
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+use crate::weights::WeightInfo;
 use approx::assert_abs_diff_eq;
 use codec::Encode;
+use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use frame_support::weights::Weight;
+use frame_support::weights::constants::WEIGHT_REF_TIME_PER_SECOND;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use frame_system::{Config, RawOrigin};
 use share_pool::SafeFloat;
 use sp_core::{Get, H160, H256, U256};
-use sp_runtime::{PerU16, SaturatedConversion};
+use sp_runtime::{BoundedVec, DispatchError, PerU16, SaturatedConversion};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::{SwapEngine, SwapHandler};
@@ -271,7 +274,10 @@ fn test_swap_certificates() {
         let new_hotkey = U256::from(2);
         let coldkey = U256::from(3);
         let netuid = NetUid::from(0u16);
-        let certificate = NeuronCertificate::try_from(vec![1, 2, 3]).unwrap();
+        let certificate = NeuronCertificate {
+            public_key: BoundedVec::truncate_from(vec![2, 3]),
+            algorithm: 1,
+        };
         let mut weight = Weight::zero();
 
         add_network(netuid, 1, 1);
@@ -1969,6 +1975,247 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
         assert_eq!(
             ChildkeyTake::<Test>::get(old_hotkey, netuid),
             PerU16::zero()
+        );
+    });
+}
+
+fn move_stake_row_to_legacy_alpha(hotkey: U256, coldkey: U256, netuid: NetUid, alpha_units: u64) {
+    AlphaV2::<Test>::remove((hotkey, coldkey, netuid));
+    Alpha::<Test>::insert((hotkey, coldkey, netuid), U64F64::from_num(alpha_units));
+}
+
+#[test]
+fn hotkey_swap_migrates_mixed_alpha_and_alpha_v2_positions_once() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(10);
+        let old_hotkey = U256::from(11);
+        let new_hotkey = U256::from(12);
+        let legacy_staker = U256::from(21);
+        let v2_staker = U256::from(22);
+        let netuid = NetUid::from(1);
+
+        add_network(netuid, 13, 0);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey,
+            &old_hotkey
+        ));
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old_hotkey,
+            &legacy_staker,
+            netuid,
+            AlphaBalance::from(100_u64),
+        );
+        move_stake_row_to_legacy_alpha(old_hotkey, legacy_staker, netuid, 100);
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &old_hotkey,
+            &v2_staker,
+            netuid,
+            AlphaBalance::from(200_u64),
+        );
+
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            None,
+            false,
+        ));
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &new_hotkey,
+                &legacy_staker,
+                netuid
+            ),
+            AlphaBalance::from(100_u64)
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &new_hotkey,
+                &v2_staker,
+                netuid
+            ),
+            AlphaBalance::from(200_u64)
+        );
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(new_hotkey, netuid),
+            AlphaBalance::from(300_u64)
+        );
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(old_hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert!(!Alpha::<Test>::contains_key((
+            old_hotkey,
+            legacy_staker,
+            netuid
+        )));
+        assert!(!AlphaV2::<Test>::contains_key((
+            old_hotkey,
+            legacy_staker,
+            netuid
+        )));
+        assert!(AlphaV2::<Test>::contains_key((
+            new_hotkey,
+            legacy_staker,
+            netuid
+        )));
+        assert!(AlphaV2::<Test>::contains_key((
+            new_hotkey, v2_staker, netuid
+        )));
+    });
+}
+
+#[test]
+fn oversized_all_subnet_hotkey_swap_fails_before_fee_or_mutation() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(30);
+        let old_hotkey = U256::from(31);
+        let new_hotkey = U256::from(32);
+        let netuid = NetUid::from(1);
+
+        add_network(netuid, 13, 0);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey,
+            &old_hotkey
+        ));
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        SubtensorModule::set_last_tx_block_delegate_take(&old_hotkey, 77);
+        SubtensorModule::set_last_tx_block_childkey(&old_hotkey, 88);
+
+        for i in 0..=crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_ROWS {
+            let staker = U256::from(1_000_u64 + u64::from(i));
+            AlphaV2::<Test>::insert((old_hotkey, staker, netuid), SafeFloat::from(1_u64));
+        }
+
+        let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &old_hotkey,
+                &new_hotkey,
+                None,
+                false,
+            ),
+            DispatchError::Exhausted
+        );
+
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&coldkey),
+            balance_before
+        );
+        assert_eq!(Owner::<Test>::get(old_hotkey), coldkey);
+        assert!(!Owner::<Test>::contains_key(new_hotkey));
+        assert_eq!(
+            SubtensorModule::get_last_tx_block_delegate_take(&new_hotkey),
+            0
+        );
+        assert_eq!(
+            SubtensorModule::get_last_tx_block_childkey_take(&new_hotkey),
+            0
+        );
+        assert_eq!(
+            AlphaV2::<Test>::iter_prefix((old_hotkey,)).count(),
+            (crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_ROWS as usize).saturating_add(1)
+        );
+    });
+}
+
+#[test]
+fn incident_sized_all_subnet_swap_uses_single_prepared_stake_set() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(40);
+        let old_hotkey = U256::from(41);
+        let new_hotkey = U256::from(42);
+        let subnet_count = 8_u16;
+
+        for i in 1..=subnet_count {
+            add_network(NetUid::from(i), 13, 0);
+        }
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey,
+            &old_hotkey
+        ));
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+
+        for i in 0..crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_ROWS {
+            let netuid = NetUid::from((i % u32::from(subnet_count)) as u16 + 1);
+            let staker = U256::from(2_000_u64 + u64::from(i));
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old_hotkey,
+                &staker,
+                netuid,
+                AlphaBalance::from(1_000_u64),
+            );
+            if i % 2 == 0 {
+                move_stake_row_to_legacy_alpha(old_hotkey, staker, netuid, 1_000);
+            }
+        }
+
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &new_hotkey,
+            None,
+            false,
+        ));
+
+        assert_eq!(Alpha::<Test>::iter_prefix((old_hotkey,)).count(), 0);
+        assert_eq!(AlphaV2::<Test>::iter_prefix((old_hotkey,)).count(), 0);
+        assert_eq!(
+            AlphaV2::<Test>::iter_prefix((new_hotkey,)).count(),
+            crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_ROWS as usize
+        );
+        for i in 1..=subnet_count {
+            let netuid = NetUid::from(i);
+            assert_eq!(
+                TotalHotkeyAlpha::<Test>::get(old_hotkey, netuid),
+                AlphaBalance::ZERO
+            );
+            assert_eq!(
+                TotalHotkeyAlpha::<Test>::get(new_hotkey, netuid),
+                AlphaBalance::from(
+                    1_000_u64
+                        * u64::from(
+                            crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_ROWS
+                                / u32::from(subnet_count)
+                        )
+                )
+            );
+        }
+    });
+}
+
+#[test]
+fn declared_swap_hotkey_weight_fits_production_normal_block_limit() {
+    new_test_ext(1).execute_with(|| {
+        let dispatch_info = RuntimeCall::SubtensorModule(crate::Call::swap_hotkey {
+            hotkey: U256::from(1),
+            new_hotkey: U256::from(2),
+            netuid: None,
+        })
+        .get_dispatch_info();
+        assert_eq!(dispatch_info.class, DispatchClass::Normal);
+
+        let declared = <Test as crate::Config>::WeightInfo::swap_hotkey();
+        let production_normal_limit =
+            Weight::from_parts(3_u64 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX);
+
+        assert!(
+            declared.ref_time() <= production_normal_limit.ref_time(),
+            "swap_hotkey weight {:?} must fit production Normal limit {:?}",
+            declared,
+            production_normal_limit
+        );
+        assert!(
+            declared.proof_size() <= production_normal_limit.proof_size(),
+            "swap_hotkey proof {:?} must fit production Normal proof {:?}",
+            declared,
+            production_normal_limit
         );
     });
 }

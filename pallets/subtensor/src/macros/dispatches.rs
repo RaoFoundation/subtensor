@@ -864,9 +864,7 @@ mod dispatches {
         /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
         ///   is transferred to the new hotkey.
         #[pallet::call_index(72)]
-        #[pallet::weight((Weight::from_parts(275_300_000, 0)
-        .saturating_add(T::DbWeight::get().reads(52_u64))
-        .saturating_add(T::DbWeight::get().writes(35_u64)), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_hotkey())]
         pub fn swap_hotkey_v2(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
