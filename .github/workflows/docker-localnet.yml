@@ -1,9 +1,11 @@
 name: Publish Localnet Docker Image
 
 # Localnet images are the chain-in-a-box used by SDK/btcli e2e harnesses.
-# Each long-lived branch publishes a matching tag because main, devnet, and
-# testnet can contain different runtimes. Only main also advances :latest.
-# Manual PR builds publish :pr-N without moving a branch tag or :latest.
+# The release train force-moves the devnet/testnet mirror branch only after
+# that exact commit is verified on the corresponding live network; the mirror
+# push is therefore the publication hook for those tags. Main publishes its
+# candidate tag directly and is the only branch that advances :latest. Manual
+# PR builds publish :pr-N without moving a branch tag or :latest.
 
 on:
   release:

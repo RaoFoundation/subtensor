@@ -22,15 +22,17 @@ Choose the image tag for the code you need to test:
 
 | Tag | Source |
 | --- | --- |
-| `devnet` | Current `devnet` branch |
-| `testnet` | Current `testnet` branch |
-| `main` / `latest` | Current `main` branch |
+| `devnet` | Exact commit deployed to devnet (the `devnet` mirror branch) |
+| `testnet` | Exact commit deployed to testnet (the `testnet` mirror branch) |
+| `main` / `latest` | Current `main` branch candidate |
 | `sha-<commit>` | Immutable commit build for reproducible CI |
 | `v<spec_version>` | Immutable mainnet release build |
 
-The three branch tags are deliberately independent because their runtimes can
-differ. Re-pull a moving branch tag before testing changes that landed since
-your last run.
+The three branch tags are deliberately independent because a candidate moves
+through the networks in stages. The release train updates `devnet` or `testnet`
+only after verifying the new runtime on that live network; those mirror pushes
+publish the corresponding image tags. Re-pull a moving tag before testing
+changes that landed since your last run.
 
 To keep chain state, mount `/tmp` and pass `--no-purge` when starting a new
 container from that volume:
