@@ -281,6 +281,7 @@ fn test_terminate_lease_works() {
         assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
         assert!(!SubnetLeaseShares::<Test>::contains_prefix(lease_id));
         assert!(!AccumulatedLeaseDividends::<Test>::contains_key(lease_id));
+        assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
 
         // Ensure the beneficiary has been removed as a proxy
         assert!(PROXIES.with_borrow(|proxies| proxies.0.is_empty()));
