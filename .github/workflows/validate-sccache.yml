@@ -24,6 +24,10 @@ on:
         description: "Run origin/cold/warm cache benchmarks on fireactions-ax41-01"
         type: boolean
         default: false
+      benchmark_artifact_cache:
+        description: "Include the large GitHub artifact comparison"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -139,7 +143,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   benchmark-artifact-cache:
-    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.benchmark_host_cache &&
+      inputs.benchmark_artifact_cache
     needs: benchmark-sccache-local-warm
     runs-on: [self-hosted, fireactions-benchmarking]
     timeout-minutes: 45
