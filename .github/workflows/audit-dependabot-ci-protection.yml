@@ -1,0 +1,28 @@
+name: Audit Dependabot CI protection
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-main-protection:
+    name: Audit main Dependabot CI protection
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require the dedicated policy check on main
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          match=$(gh api \
+            "repos/$REPOSITORY/branches/main" \
+            --jq '.protection.required_status_checks.contexts[]? | select(. == "Dependabot CI policy")')
+          if [[ "$match" != "Dependabot CI policy" ]]; then
+            echo "::error::main must require the 'Dependabot CI policy' status check."
+            exit 1
+          fi
