@@ -843,7 +843,7 @@ mod dispatches {
         )]
         #[pallet::call_index(70)]
         #[pallet::weight((
-            crate::Pallet::<T>::swap_hotkey_dispatch_weight(),
+            <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
             DispatchClass::Normal,
             Pays::Yes
         ))]

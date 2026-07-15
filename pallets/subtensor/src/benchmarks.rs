@@ -1561,29 +1561,36 @@ mod pallet_benchmarks {
         let old: T::AccountId = account("A", 0, 7);
         let new: T::AccountId = account("B", 0, 8);
 
-        let num_subnets: u16 = 4;
-        for i in 1..=num_subnets {
+        // Reproduce the known incident scale. Without a protocol cap there is no
+        // finite storage-level worst case, so this benchmark deliberately measures
+        // the largest observed production workload rather than a synthetic bound.
+        const INCIDENT_SUBNETS: u16 = 129;
+        const INCIDENT_STAKE_POSITIONS: u32 = 10_189;
+
+        let alpha_amount = AlphaBalance::from(1_000_000_u64);
+        let subnet_alpha = AlphaBalance::from(1_000_000_000_000_u64);
+
+        // Populate the maximum observed topology and make the old hotkey a member
+        // everywhere so the benchmark includes the complete per-subnet metadata path.
+        for i in 1..=INCIDENT_SUBNETS {
             let netuid = NetUid::from(i);
             Subtensor::<T>::init_new_network(netuid, 1);
+            Subtensor::<T>::set_max_allowed_uids(netuid, 1);
             SubtokenEnabled::<T>::insert(netuid, true);
-            Subtensor::<T>::set_network_registration_allowed(netuid, true);
-            Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-
-            let reg_balance = TaoBalance::from(1_000_000_u64);
             seed_swap_reserves::<T>(netuid);
-            add_balance_to_coldkey_account::<T>(&coldkey, reg_balance.into());
+            SubnetAlphaOut::<T>::insert(netuid, subnet_alpha);
+            Subtensor::<T>::append_neuron(netuid, &old, 0);
+        }
 
-            assert_ok!(Subtensor::<T>::burned_register(
-                RawOrigin::Signed(coldkey.clone()).into(),
-                netuid,
-                old.clone()
-            ));
-
-            let alpha_amount = AlphaBalance::from(1_000_000_u64);
-            SubnetAlphaOut::<T>::insert(netuid, alpha_amount * 2.into());
+        // Use distinct coldkeys so execution performs the maximum observed number
+        // of actual position migrations and StakingHotkeys index rewrites. The
+        // positions are spread evenly over all active subnets.
+        for i in 0..INCIDENT_STAKE_POSITIONS {
+            let staker: T::AccountId = account("stake", i, 9);
+            let netuid = NetUid::from(((i % u32::from(INCIDENT_SUBNETS)).saturating_add(1)) as u16);
             Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &old,
-                &coldkey,
+                &staker,
                 netuid,
                 alpha_amount,
             );
