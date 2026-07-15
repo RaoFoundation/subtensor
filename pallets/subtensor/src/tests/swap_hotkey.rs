@@ -1972,3 +1972,42 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
         );
     });
 }
+
+#[test]
+fn oversized_hotkey_swap_is_rejected_before_fee_or_mutation() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let owner = U256::from(3);
+        let netuid = NetUid::from(1);
+
+        Owner::<Test>::insert(old_hotkey, owner);
+        OwnedHotkeys::<Test>::insert(owner, vec![old_hotkey]);
+        add_balance_to_coldkey_account(
+            &owner,
+            SubtensorModule::get_key_swap_cost().saturating_add(1_000_u64.into()),
+        );
+
+        let max_work_items = crate::swap::swap_hotkey::MAX_HOTKEY_SWAP_STAKE_WORK_ITEMS;
+        for index in 0..=max_work_items {
+            let coldkey = U256::from(10_000_u64.saturating_add(index as u64));
+            AlphaV2::<Test>::insert(
+                (old_hotkey, coldkey, netuid),
+                SafeFloat::from(U64F64::from_num(1)),
+            );
+        }
+
+        // `assert_noop!` also verifies that the storage root is unchanged, so
+        // neither the swap fee nor any hotkey metadata can be partially applied.
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(owner),
+                &old_hotkey,
+                &new_hotkey,
+                None,
+                false,
+            ),
+            Error::<Test>::InvalidValue
+        );
+    });
+}

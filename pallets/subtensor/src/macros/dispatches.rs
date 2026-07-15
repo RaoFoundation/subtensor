@@ -842,7 +842,11 @@ mod dispatches {
             note = "Please use swap_hotkey_v2 instead. This extrinsic will be removed some time after June 2026."
         )]
         #[pallet::call_index(70)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_hotkey())]
+        #[pallet::weight((
+            crate::Pallet::<T>::swap_hotkey_dispatch_weight(),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn swap_hotkey(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -864,9 +868,11 @@ mod dispatches {
         /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
         ///   is transferred to the new hotkey.
         #[pallet::call_index(72)]
-        #[pallet::weight((Weight::from_parts(275_300_000, 0)
-        .saturating_add(T::DbWeight::get().reads(52_u64))
-        .saturating_add(T::DbWeight::get().writes(35_u64)), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn swap_hotkey_v2(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
