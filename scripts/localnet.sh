@@ -60,9 +60,49 @@ fi
 
 SPEC_PATH="${SCRIPT_DIR}/specs/"
 FULL_PATH="$SPEC_PATH$CHAIN.json"
+PID_FILE="${LOCALNET_PID_FILE:-/tmp/subtensor-localnet.pids}"
 
-# Kill any existing nodes which may have not exited correctly after a previous run.
-pkill -9 'node-subtensor' || true
+stop_recorded_nodes() {
+  [ -f "$PID_FILE" ] || return 0
+
+  local recorded_pids=()
+  while IFS= read -r pid; do
+    case "$pid" in
+      ''|*[!0-9]*) continue ;;
+    esac
+
+    # PID files can survive a container restart through a /tmp volume. Only
+    # signal a reused PID when it is still one of our node processes.
+    if kill -0 "$pid" 2>/dev/null \
+      && ps -p "$pid" -o comm= 2>/dev/null | grep -q 'node-subtensor'; then
+      kill -TERM "$pid" 2>/dev/null || true
+      recorded_pids+=("$pid")
+    fi
+  done <"$PID_FILE"
+
+  # Never purge a database while a node from the previous run still has it
+  # open. Give recorded nodes time to close, then force only those exact PIDs.
+  for _ in {1..30}; do
+    any_running=0
+    for pid in "${recorded_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        any_running=1
+        break
+      fi
+    done
+    [ "$any_running" -eq 1 ] || break
+    sleep 1
+  done
+  for pid in "${recorded_pids[@]}"; do
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+
+  rm -f "$PID_FILE"
+}
+
+if [ "$BUILD_ONLY" -eq 0 ]; then
+  stop_recorded_nodes
+fi
 
 if [ ! -d "$SPEC_PATH" ]; then
   echo "*** Creating directory ${SPEC_PATH}..."
@@ -74,6 +114,7 @@ if [[ "$BUILD_BINARY" == "1" ]]; then
 
   BUILD_CMD=(
     cargo build
+    --locked
     --workspace
     --profile=release
     --features "$FEATURES"
@@ -112,6 +153,45 @@ fi
 
 if [ $BUILD_ONLY -eq 0 ]; then
   echo "*** Starting localnet nodes..."
+
+  NODE_PIDS=()
+  SHUTDOWN_STARTED=0
+
+  shutdown_nodes() {
+    [ "$SHUTDOWN_STARTED" -eq 0 ] || return 0
+    SHUTDOWN_STARTED=1
+    trap - EXIT INT TERM
+
+    for pid in "${NODE_PIDS[@]}"; do
+      kill -TERM "$pid" 2>/dev/null || true
+    done
+
+    # Give the databases time to close cleanly before forcing termination.
+    for _ in {1..30}; do
+      any_running=0
+      for pid in "${NODE_PIDS[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+          any_running=1
+          break
+        fi
+      done
+      [ "$any_running" -eq 1 ] || break
+      sleep 1
+    done
+
+    for pid in "${NODE_PIDS[@]}"; do
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    done
+    rm -f "$PID_FILE"
+  }
+
+  # Called indirectly by the signal trap below.
+  # shellcheck disable=SC2329
+  handle_signal() {
+    shutdown_nodes
+    exit 143
+  }
 
   one_start=(
     "$NODE_BINARY"
@@ -176,12 +256,31 @@ if [ $BUILD_ONLY -eq 0 ]; then
     three_start+=(--unsafe-rpc-external)
   fi
 
-  trap 'pkill -P $$' EXIT SIGINT SIGTERM
+  trap shutdown_nodes EXIT
+  trap handle_signal INT TERM
 
-  (
-    ("${one_start[@]}" 2>&1) &
-    ("${two_start[@]}" 2>&1) &
-    ("${three_start[@]}" 2>&1)
-    wait
-  )
+  "${one_start[@]}" 2>&1 &
+  NODE_PIDS+=("$!")
+  "${two_start[@]}" 2>&1 &
+  NODE_PIDS+=("$!")
+  "${three_start[@]}" 2>&1 &
+  NODE_PIDS+=("$!")
+  printf '%s\n' "${NODE_PIDS[@]}" >"$PID_FILE"
+
+  # Modern container Bash supports wait -n, which makes the container fail
+  # promptly if any node exits. Retain a portable fallback for macOS Bash 3.2.
+  set +e
+  if help wait 2>&1 | grep -q -- '-n'; then
+    wait -n "${NODE_PIDS[@]}"
+  else
+    wait "${NODE_PIDS[0]}"
+  fi
+  node_status=$?
+  set -e
+
+  # A node exiting by itself, even with status zero, leaves a broken partial
+  # network. Stop its peers and make that visible to Docker/CI.
+  [ "$node_status" -ne 0 ] || node_status=1
+  shutdown_nodes
+  exit "$node_status"
 fi

@@ -16,9 +16,32 @@ docker run --rm --name local_chain \
 ```
 
 Append `False` to the command to run real 12-second blocks instead of the
-default fast-blocks mode (0.25 s). `--rm` discards chain state when the
-container exits; omit it to persist state across restarts. Re-pull the image
-regularly — it tracks mainnet behavior.
+default fast-blocks mode (0.25 s).
+
+Choose the image tag for the code you need to test:
+
+| Tag | Source |
+| --- | --- |
+| `devnet` | Current `devnet` branch |
+| `testnet` | Current `testnet` branch |
+| `main` / `latest` | Current `main` branch |
+| `sha-<commit>` | Immutable commit build for reproducible CI |
+| `v<spec_version>` | Immutable mainnet release build |
+
+The three branch tags are deliberately independent because their runtimes can
+differ. Re-pull a moving branch tag before testing changes that landed since
+your last run.
+
+To keep chain state, mount `/tmp` and pass `--no-purge` when starting a new
+container from that volume:
+
+```bash
+docker volume create subtensor-localnet-data
+docker run --rm --name local_chain \
+  -p 9944:9944 -p 9945:9945 \
+  -v subtensor-localnet-data:/tmp \
+  ghcr.io/raofoundation/subtensor-localnet:devnet True --no-purge
+```
 
 A fresh localnet ships with subnet 0 (root) and subnet 1 already created.
 

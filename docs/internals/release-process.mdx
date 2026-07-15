@@ -90,7 +90,9 @@ mainnet*, not what was merged.
 The watcher explicitly dispatches `docker.yml` and `docker-localnet.yml`
 because releases created with the default `GITHUB_TOKEN` do not emit another
 workflow event. The production build publishes both the immutable release tag
-and `:latest`; the localnet build does the same in its separate package.
+and `:latest`. The localnet build publishes the immutable release tag in its
+separate package; localnet `:latest` remains an alias for the current `:main`
+branch image, while `:devnet` and `:testnet` follow their respective branches.
 
 ## Hotfixes
 

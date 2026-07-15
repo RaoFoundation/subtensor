@@ -105,6 +105,9 @@ docker run --rm --name local_chain \
   ghcr.io/raofoundation/subtensor-localnet:devnet
 ```
 
+Use `:testnet` or `:main` to match those branches; `:latest` is an alias for
+`:main`. Immutable `:sha-<commit>` tags are also published for reproducible CI.
+
 Then connect with `btcli --network local query is-fast-blocks` or
 `bittensor.Client("local")`. See
 [local development](https://bittensor.com/docs/guides/local-development)
