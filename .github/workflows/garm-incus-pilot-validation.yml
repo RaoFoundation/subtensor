@@ -24,7 +24,9 @@ jobs:
   representative-workload:
     name: Docker and Rust workload
     needs: trusted-source
-    runs-on: [self-hosted, garm-incus-turbo-8]
+    # GitHub runner scale sets route on their system label; unlike classic
+    # self-hosted runners, the JIT runner does not advertise `self-hosted`.
+    runs-on: garm-incus-turbo-8
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
