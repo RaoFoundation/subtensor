@@ -1597,8 +1597,9 @@ mod pallet_benchmarks {
         }
 
         Owner::<T>::insert(&old, &coldkey);
+        let ed = <T as pallet_balances::Config>::ExistentialDeposit::get();
         let cost = Subtensor::<T>::get_key_swap_cost();
-        add_balance_to_coldkey_account::<T>(&coldkey, cost.into());
+        add_balance_to_coldkey_account::<T>(&coldkey, cost + ed);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), old, new, None);
