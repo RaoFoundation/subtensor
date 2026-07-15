@@ -92,10 +92,10 @@ jobs:
             printf '%s\n' "$stats" | tee "$RUNNER_TEMP/sccache-$label.txt"
             printf '%s=%s\n' "${label}_seconds" "$seconds" >> "$RUNNER_TEMP/exact-prewarm"
             printf '%s=%s\n' "${label}_rust_hits" \
-              "$(awk '$1 == "Cache" && $2 == "hits" && $3 == "(Rust)" {print $4}' <<< "$stats")" \
+              "$(awk '$1 == "Cache" && $2 == "hits" && $3 == "(Rust)" {count = $4} END {print count + 0}' <<< "$stats")" \
               >> "$RUNNER_TEMP/exact-prewarm"
             printf '%s=%s\n' "${label}_rust_misses" \
-              "$(awk '$1 == "Cache" && $2 == "misses" && $3 == "(Rust)" {print $4}' <<< "$stats")" \
+              "$(awk '$1 == "Cache" && $2 == "misses" && $3 == "(Rust)" {count = $4} END {print count + 0}' <<< "$stats")" \
               >> "$RUNNER_TEMP/exact-prewarm"
           }
 
