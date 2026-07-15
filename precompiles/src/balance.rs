@@ -44,11 +44,14 @@ mod tests {
         AccountId, Runtime, TestBalanceStatus, abi_word, addr_from_index, execute_precompile,
         fund_account, new_test_ext, precompiles, selector_u32,
     };
-    use frame_support::traits::{
-        ReservableCurrency,
-        tokens::{
-            Fortitude, Preservation,
-            fungible::{Inspect, InspectFreeze, InspectHold, MutateFreeze, MutateHold},
+    use frame_support::{
+        dispatch::DispatchResult,
+        traits::{
+            ReservableCurrency,
+            tokens::{
+                Fortitude, Preservation,
+                fungible::{Inspect, InspectFreeze, InspectHold, MutateFreeze, MutateHold},
+            },
         },
     };
     use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
@@ -106,8 +109,8 @@ mod tests {
     }
 
     #[test]
-    fn balance_precompile_returns_free_not_total_or_reducible_balance() {
-        new_test_ext().execute_with(|| {
+    fn balance_precompile_returns_free_not_total_or_reducible_balance() -> DispatchResult {
+        new_test_ext().execute_with(|| -> DispatchResult {
             let caller = addr_from_index(0x7001);
             let target = coldkey(0x33);
             let initial = 1_000_u64;
@@ -117,20 +120,17 @@ mod tests {
             let expected_free = initial - reserved - held;
 
             fund_account(&target, initial);
-            pallet_balances::Pallet::<Runtime>::reserve(&target, reserved.into())
-                .expect("reserve should succeed for funded account");
+            pallet_balances::Pallet::<Runtime>::reserve(&target, reserved.into())?;
             <pallet_balances::Pallet<Runtime> as MutateHold<AccountId>>::hold(
                 &TestBalanceStatus::Test,
                 &target,
                 held.into(),
-            )
-            .expect("hold should succeed for funded account");
+            )?;
             <pallet_balances::Pallet<Runtime> as MutateFreeze<AccountId>>::set_freeze(
                 &TestBalanceStatus::Test,
                 &target,
                 frozen.into(),
-            )
-            .expect("freeze should succeed for funded account");
+            )?;
 
             assert_eq!(
                 pallet_balances::Pallet::<Runtime>::reserved_balance(&target),
@@ -176,7 +176,9 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
                 .execute_returns_raw(abi_word(U256::from(expected_free)));
-        });
+
+            Ok(())
+        })
     }
 
     #[test]
