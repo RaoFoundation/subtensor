@@ -29,7 +29,7 @@ Use `[CRITICAL]`, `[HIGH]`, `[MEDIUM]`, `[LOW]` on every finding. Critical and H
 
 ## Trust context (factor this into severity)
 
-- **CI runs require nucleus approval on every PR.** A nucleus team member must explicitly authorize each workflow run before it executes. Drive-by malicious actors cannot run CI; an attacker would need to either (a) compromise a nucleus account or (b) social-engineer a nucleus member into approving a hostile PR.
+- **CI runs require nucleus approval on every PR.** Fork PRs use GitHub's native workflow approval; same-repository Dependabot PRs require two approvals from reviewers with repository write access on the current revision (or an explicit maintainer rerun). Drive-by malicious actors cannot run CI; an attacker would need to either (a) compromise a nucleus account or (b) social-engineer nucleus members into approving a hostile PR.
 - **Changes under `.github/` are heavily scrutinized by humans before CI is approved.** Workflow files, persona prompts, helper scripts, and required-check definitions get a manual eyeball pass. So changes to these paths are not, on their own, a strong "this PR is malicious" signal — the human nucleus reviewer is your backstop and they pay extra attention here. Still flag concrete problems you spot in them, but calibrate severity to the actual risk, not to the path.
 - **External / unknown contributors** still warrant heightened scrutiny per the threat model, but the nucleus-approval gate means a hostile PR can't silently exfiltrate by triggering CI on push. The realistic attack surface is what happens *after* nucleus approves, e.g. malicious code that runs at `cargo build` time once CI is greenlit.
 

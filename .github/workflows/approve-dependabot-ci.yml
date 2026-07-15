@@ -1,0 +1,126 @@
+name: Approve Dependabot CI
+
+# Dependabot branches live inside this repository, so GitHub's native fork-PR
+# approval policy does not hold their workflow runs. Two reviewers with write
+# access must approve the current head revision before this workflow releases
+# the already-created runs by rerunning the failed approval job and dependents.
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: approve-dependabot-ci-${{ github.event.pull_request.number }}
+  # Serialize approvals without letting a later COMMENTED review cancel a
+  # release that is already rerunning CI.
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    name: Release approved CI runs
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.review.state == 'approved' &&
+      github.event.review.commit_id == github.event.pull_request.head.sha
+    runs-on: ubuntu-latest
+    env:
+      REQUIRED_APPROVALS: "2"
+    steps:
+      - name: Verify current-revision approvals
+        id: approvals
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          reviews=$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews")
+          approved_reviewers=$(jq -r --arg sha "$HEAD_SHA" '
+            add
+            | map(select(.commit_id == $sha))
+            | sort_by(.submitted_at)
+            | reduce .[] as $review ({}; .[$review.user.login] = $review)
+            | [.[] | select(.state == "APPROVED")]
+            | .[].user.login
+          ' <<< "$reviews")
+
+          count=0
+          while read -r reviewer; do
+            [[ -z "$reviewer" ]] && continue
+
+            # This metadata endpoint returns the reviewer's effective access,
+            # including grants inherited from teams and the organization.
+            if ! permission=$(gh api \
+              "repos/$GITHUB_REPOSITORY/collaborators/$reviewer/permission" \
+              --jq .permission); then
+              echo "Unable to verify repository access for $reviewer; ignoring approval."
+              continue
+            fi
+
+            if [[ "$permission" == "write" || "$permission" == "admin" ]]; then
+              echo "Counting current-revision approval from $reviewer ($permission access)."
+              ((count += 1))
+            else
+              echo "Ignoring current-revision approval from $reviewer ($permission access)."
+            fi
+          done <<< "$approved_reviewers"
+
+          echo "Current-revision write-access approvals: $count/$REQUIRED_APPROVALS"
+          if (( count < REQUIRED_APPROVALS )); then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rerun blocked CI workflows
+        if: steps.approvals.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # An approval can arrive while the lightweight gate jobs are still
+          # queued. Wait for the latest run of each workflow to settle so no
+          # blocked workflow is missed simply because it failed a moment later.
+          for attempt in {1..12}; do
+            runs=$(gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/actions/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")
+            latest_runs=$(jq '
+              map(.workflow_runs)
+              | (add // [])
+              | sort_by(.created_at)
+              | reduce .[] as $run ({}; .[$run.workflow_id | tostring] = $run)
+              | [.[]]
+            ' <<< "$runs")
+            pending=$(jq '[.[] | select(.status != "completed")] | length' <<< "$latest_runs")
+
+            if (( pending == 0 )); then
+              break
+            fi
+            if (( attempt == 12 )); then
+              echo "Timed out waiting for $pending CI workflow run(s) to settle."
+              exit 1
+            fi
+
+            echo "Waiting for $pending CI workflow run(s) to settle (attempt $attempt/12)."
+            sleep 10
+          done
+
+          run_ids=$(jq -r '
+            [.[] | select(.conclusion == "failure")]
+            | .[].id
+          ' <<< "$latest_runs")
+
+          if [[ -z "$run_ids" ]]; then
+            echo "No blocked workflow runs found for $HEAD_SHA."
+            exit 0
+          fi
+
+          while read -r run_id; do
+            echo "Rerunning failed jobs and dependents for workflow run $run_id"
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/rerun-failed-jobs"
+          done <<< "$run_ids"

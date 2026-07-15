@@ -19,8 +19,12 @@ env:
   ECO_TESTS_REVIEWERS: "evgeny-s"
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   notify:
     name: Notify indexer reviewer
+    needs: automation-approved
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

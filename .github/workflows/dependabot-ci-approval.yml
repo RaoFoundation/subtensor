@@ -1,0 +1,22 @@
+name: Dependabot CI Approval
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  check:
+    name: Automated PR CI approved
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require maintainer approval for Dependabot CI
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          !(github.run_attempt > 1 && github.triggering_actor != 'dependabot[bot]')
+        run: |
+          echo "::error::Dependabot CI requires two write-access approvals for the current revision, or an explicit maintainer rerun."
+          exit 1
+
+      - run: echo "Automated PR CI is approved."

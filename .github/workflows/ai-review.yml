@@ -19,8 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   decide:
     name: decide
+    needs: automation-approved
     runs-on: ubuntu-latest
     permissions:
       contents: read

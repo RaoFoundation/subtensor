@@ -20,10 +20,14 @@ env:
   RUST_BACKTRACE: full
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   # Fork PRs must not run on self-hosted runners — checkout executes untrusted
   # code from the fork head (RCE risk on persistent org hardware).
   trusted-pr:
     name: Trusted PR source (non-fork)
+    needs: automation-approved
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     steps:
@@ -37,6 +41,7 @@ jobs:
   # the changed-file list from the API, so no untrusted code is executed.
   changes:
     name: detect rust changes
+    needs: automation-approved
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read

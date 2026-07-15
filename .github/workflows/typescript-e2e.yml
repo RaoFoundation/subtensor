@@ -14,8 +14,12 @@ permissions:
   contents: read
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   trusted-pr:
     name: Trusted PR source (non-fork)
+    needs: automation-approved
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     steps:
@@ -27,6 +31,7 @@ jobs:
   # they exercise; `skipped` satisfies branch protection.
   changes:
     name: detect e2e-relevant changes
+    needs: automation-approved
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -54,8 +59,19 @@ jobs:
           fi
 
   typescript-formatting:
+    needs: automation-approved
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      # `typescript-formatting` is required on main. Keep it red while the
+      # reusable approval job is blocked; otherwise GitHub treats a job
+      # skipped through `needs` as satisfying branch protection.
+      - name: Enforce automated-PR approval
+        if: needs.automation-approved.result != 'success'
+        run: |
+          echo "::error::Automated PR CI has not been approved."
+          exit 1
+
       - name: Check-out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

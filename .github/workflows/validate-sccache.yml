@@ -20,7 +20,11 @@ permissions:
   contents: read
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   test-config-boundary:
+    needs: automation-approved
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

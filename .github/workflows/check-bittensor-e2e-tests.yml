@@ -58,14 +58,19 @@ env:
   LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet:ci-${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   trusted-pr:
     name: Trusted PR source (non-fork)
+    needs: automation-approved
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
 
   check-label:
+    needs: automation-approved
     runs-on: ubuntu-latest
     outputs:
       skip-bittensor-e2e-tests: ${{ steps.get-labels.outputs.skip-bittensor-e2e-tests || steps.set-default.outputs.skip-bittensor-e2e-tests }}

@@ -42,8 +42,12 @@ env:
   KEEP_ALIVE_MINUTES: 360
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   clone-preview:
     name: Sudo-upgrade mainnet clone, expose endpoint
+    needs: automation-approved
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: sccache-writer

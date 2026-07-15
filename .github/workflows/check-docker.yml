@@ -40,8 +40,12 @@ permissions:
   contents: read
 
 jobs:
+  automation-approved:
+    uses: ./.github/workflows/dependabot-ci-approval.yml
+
   trusted-pr:
     name: Trusted PR source (non-fork)
+    needs: automation-approved
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     steps:
