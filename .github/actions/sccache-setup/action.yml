@@ -12,8 +12,8 @@ inputs:
     description: "Protected Environment writer secret; used only for an authorized source"
     default: ""
   local-tier:
-    description: "auto to use validated Fireactions host cache metadata, or disabled for origin benchmarks"
-    default: "auto"
+    description: "auto to opt into validated Fireactions host cache metadata, or disabled for direct R2"
+    default: "disabled"
 
 outputs:
   enabled:

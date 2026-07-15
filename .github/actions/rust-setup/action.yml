@@ -26,8 +26,8 @@ inputs:
     description: "Protected writer secret; used only for an authorized source"
     default: ""
   sccache-local-tier:
-    description: "auto to use a validated Fireactions host cache, or disabled for origin benchmarks"
-    default: "auto"
+    description: "auto to opt into a validated Fireactions host cache, or disabled for direct R2"
+    default: "disabled"
 
 runs:
   using: "composite"

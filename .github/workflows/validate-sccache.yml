@@ -90,6 +90,7 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           cache-key: host-cache-benchmark-local-cold
+          sccache-local-tier: auto
 
       - name: Require local sccache activation and measure cold fill
         env:
@@ -122,6 +123,7 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           cache-key: host-cache-benchmark-local-warm
+          sccache-local-tier: auto
 
       - name: Require local sccache activation and measure warm reads
         env:
