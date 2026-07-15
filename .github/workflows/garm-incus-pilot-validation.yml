@@ -1,0 +1,65 @@
+name: GARM Incus pilot validation
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/garm-incus-pilot-validation.yml
+  workflow_dispatch:
+
+concurrency:
+  group: garm-incus-pilot-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  trusted-source:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Trusted source; the isolated pilot runner may execute checkout."
+
+  representative-workload:
+    name: Docker and Rust workload
+    needs: trusted-source
+    runs-on: [self-hosted, garm-incus-turbo-8]
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: full
+      SKIP_WASM_BUILD: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify ephemeral VM isolation and capacity
+        run: |
+          set -euo pipefail
+          test "$(systemd-detect-virt)" = "kvm"
+          test "$(nproc)" -ge 8
+          test "$(awk '/MemTotal/ { print int($2 / 1024 / 1024) }' /proc/meminfo)" -ge 22
+          printf 'runner=%s virtualization=%s cpus=%s\n' \
+            "$RUNNER_NAME" "$(systemd-detect-virt)" "$(nproc)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Exercise Docker runtime
+        run: |
+          set -euo pipefail
+          docker version
+          docker info
+          docker run --rm --pull=always ubuntu:24.04 \
+            bash -ceu 'test "$(uname -m)" = x86_64; echo docker-smoke-ok'
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: garm-incus-pilot-safe-math
+          sccache-credential-mode: reader
+
+      - name: Compile a representative Subtensor workspace crate
+        run: |
+          set -euo pipefail
+          started_at=$(date +%s)
+          cargo check -p safe-math --all-targets
+          finished_at=$(date +%s)
+          printf 'Rust check duration: %ss\n' "$((finished_at - started_at))" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
