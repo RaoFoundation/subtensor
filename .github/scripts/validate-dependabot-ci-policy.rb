@@ -5,7 +5,6 @@ require "yaml"
 GATE_JOB = "automation-approved"
 GATE_WORKFLOW = "./.github/workflows/dependabot-ci-approval.yml"
 POLICY_PATH = ".github/workflows/validate-dependabot-ci-policy.yml"
-BOOTSTRAP_SENTINEL = [".github/workflows/typescript-e2e.yml", "typescript-formatting"].freeze
 JOB_STATUS_FUNCTIONS = %w[always failure cancelled success].freeze
 
 def workflow(path)
@@ -57,7 +56,6 @@ def validate_repository!
     jobs.each do |job_name, job|
       next unless overrides_implicit_success?(job.fetch("if", ""))
       next if path == POLICY_PATH && job_name == "validate-policy"
-      next if [path, job_name] == BOOTSTRAP_SENTINEL
 
       dependencies = Array(job.fetch("needs", []))
       condition = job.fetch("if").to_s
@@ -78,12 +76,8 @@ def validate_repository!
 
   typescript = workflow(".github/workflows/typescript-e2e.yml")
     .fetch("jobs").fetch("typescript-formatting")
-  bootstrap_guard = typescript.fetch("steps").find do |step|
-    step["name"] == "Enforce automated-PR approval"
-  end
-  unless typescript["if"] == "always()" &&
-         bootstrap_guard&.fetch("if", "") == "needs.automation-approved.result != 'success'"
-    raise ".github/workflows/typescript-e2e.yml: required-check bootstrap guard is missing"
+  if typescript.fetch("steps").any? { |step| step["name"] == "Enforce automated-PR approval" }
+    raise ".github/workflows/typescript-e2e.yml: approval policy leaked into formatting"
   end
 
   approval = workflow(".github/workflows/approve-dependabot-ci.yml")
