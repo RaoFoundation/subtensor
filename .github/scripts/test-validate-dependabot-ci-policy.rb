@@ -9,14 +9,15 @@ class DependabotCiPolicyValidatorTest < Minitest::Test
       "always()",
       "failure() && needs.build.result == 'failure'",
       "cancelled()",
-      "!cancelled()"
+      "!cancelled()",
+      "!success()",
+      "success() == false"
     ].each do |condition|
       assert overrides_implicit_success?(condition), condition
     end
   end
 
-  def test_accepts_conditions_with_implicit_or_explicit_success
+  def test_accepts_conditions_that_do_not_override_implicit_success
     refute overrides_implicit_success?("needs.changes.outputs.rust == 'true'")
-    refute overrides_implicit_success?("success() && needs.build.result == 'success'")
   end
 end
