@@ -184,7 +184,15 @@ jobs:
     if: >-
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
-    runs-on: [self-hosted, fireactions-turbo-8]
+    # A same-repository PR can opt into the isolated host-cache canary without
+    # changing the runner placement of ordinary PRs or manual diagnostics.
+    runs-on: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        contains(github.event.pull_request.labels.*.name, 'fireactions-cache-benchmark') &&
+        fromJSON('["self-hosted","fireactions-turbo-8-cache-canary"]') ||
+        fromJSON('["self-hosted","fireactions-turbo-8"]')
+      }}
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
@@ -207,7 +215,21 @@ jobs:
           rustup component add rust-src
 
       - name: Build node-subtensor (release)
-        run: cargo build --release -p node-subtensor
+        run: |
+          set -euo pipefail
+          sccache --zero-stats
+          started=$(date -u +%s)
+          cargo build --release -p node-subtensor
+          seconds=$(($(date -u +%s) - started))
+          sccache --show-stats | tee "$RUNNER_TEMP/sccache-node-release.txt"
+          {
+            echo "### Release node compile"
+            echo "- Wall time: ${seconds}s"
+            echo "- Host-local tier: ${SCCACHE_LOCAL_TIER:-false}"
+            echo '```text'
+            cat "$RUNNER_TEMP/sccache-node-release.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release node + runtime wasm
         uses: actions/upload-artifact@v4
@@ -470,7 +492,13 @@ jobs:
   clone-upgrade:
     name: clone-upgrade
     needs: [trusted-pr, changes, build-node-release]
-    runs-on: [self-hosted, fireactions-turbo-8]
+    runs-on: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        contains(github.event.pull_request.labels.*.name, 'fireactions-cache-benchmark') &&
+        fromJSON('["self-hosted","fireactions-turbo-8-cache-canary"]') ||
+        fromJSON('["self-hosted","fireactions-turbo-8"]')
+      }}
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
     permissions:
@@ -533,6 +561,12 @@ jobs:
           checkpoint=/tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
           ./clones/scripts/local-clone-checkpoint.sh restore "$checkpoint"
           echo "Restored artifact ${{ steps.clone-snapshot.outputs.artifact-id }} from run ${{ steps.clone-snapshot.outputs.run-id }}."
+          {
+            echo "### Mainnet clone snapshot"
+            echo "- Download source: ${{ steps.download-clone-snapshot.outputs.source }}"
+            echo "- Download and extraction: ${{ steps.download-clone-snapshot.outputs.seconds }}s"
+            echo "- Artifact: ${{ steps.clone-snapshot.outputs.artifact-id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
           # Tells start-local-clone.sh to keep the pre-initialized database
           # instead of wiping it and re-running genesis init.
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"

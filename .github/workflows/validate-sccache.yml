@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       benchmark_host_cache:
-        description: "Run origin/cold/warm cache benchmarks on fireactions-ax41-01"
+        description: "Run paired cache benchmarks on the isolated turbo-8 cache canary"
         type: boolean
         default: false
       benchmark_artifact_cache:
@@ -47,9 +47,75 @@ jobs:
           .github/scripts/test-snapshot-artifact.sh
           .github/scripts/test-download-artifact.sh
 
+  prewarm-exact-runtime:
+    name: prewarm and verify exact runtime check keys
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.fork == false
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
+    timeout-minutes: 60
+    env:
+      SKIP_WASM_BUILD: 1
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure protected direct-R2 writer
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: exact-runtime-prewarm
+          sccache-credential-mode: writer
+          sccache-local-tier: disabled
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Populate exact keys and verify the second clean check hits R2
+        run: |
+          set -euo pipefail
+          [[ "${SCCACHE_ENABLED:-false}" == true ]]
+          [[ "${SCCACHE_BACKEND:-}" == r2 ]]
+          [[ "${SCCACHE_LOCAL_TIER:-false}" == false ]]
+
+          measure() {
+            local label="$1"
+            cargo clean
+            sccache --zero-stats >/dev/null
+            local started seconds stats
+            started=$(date -u +%s)
+            cargo check --locked -p node-subtensor-runtime
+            seconds=$(($(date -u +%s) - started))
+            stats=$(sccache --show-stats)
+            printf '%s\n' "$stats" | tee "$RUNNER_TEMP/sccache-$label.txt"
+            printf '%s=%s\n' "${label}_seconds" "$seconds" >> "$RUNNER_TEMP/exact-prewarm"
+            printf '%s=%s\n' "${label}_rust_hits" \
+              "$(awk '$1 == "Cache" && $2 == "hits" && $3 == "(Rust)" {print $4}' <<< "$stats")" \
+              >> "$RUNNER_TEMP/exact-prewarm"
+            printf '%s=%s\n' "${label}_rust_misses" \
+              "$(awk '$1 == "Cache" && $2 == "misses" && $3 == "(Rust)" {print $4}' <<< "$stats")" \
+              >> "$RUNNER_TEMP/exact-prewarm"
+          }
+
+          : > "$RUNNER_TEMP/exact-prewarm"
+          measure fill
+          measure verify
+          source "$RUNNER_TEMP/exact-prewarm"
+          [[ "$verify_rust_hits" =~ ^[0-9]+$ && "$verify_rust_misses" =~ ^[0-9]+$ ]]
+          if (( verify_rust_hits < 500 || verify_rust_misses > 10 )); then
+            echo "::error::exact-key verification produced ${verify_rust_hits} Rust hits and ${verify_rust_misses} misses"
+            exit 1
+          fi
+          {
+            echo "### Exact runtime-only R2 prewarm"
+            echo "- Fill: ${fill_seconds}s (${fill_rust_hits} Rust hits, ${fill_rust_misses} misses)"
+            echo "- Clean verification: ${verify_seconds}s (${verify_rust_hits} Rust hits, ${verify_rust_misses} misses)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   benchmark-sccache-paired:
     if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
-    runs-on: [self-hosted, fireactions-benchmarking]
+    runs-on: [self-hosted, fireactions-turbo-8-cache-canary]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -152,7 +218,7 @@ jobs:
       inputs.benchmark_host_cache &&
       inputs.benchmark_artifact_cache
     needs: benchmark-sccache-paired
-    runs-on: [self-hosted, fireactions-benchmarking]
+    runs-on: [self-hosted, fireactions-turbo-8-cache-canary]
     timeout-minutes: 45
     permissions:
       contents: read
