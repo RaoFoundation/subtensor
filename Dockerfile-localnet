@@ -41,6 +41,7 @@ RUN test -x /build/target/fast-runtime/release/node-subtensor \
 FROM ${BASE_IMAGE} AS runtime-base
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG TARGETARCH
 
 LABEL com.bittensor.image.authors="operations@bittensor.com" \
   com.bittensor.image.vendor="Rao Foundation" \
@@ -48,9 +49,26 @@ LABEL com.bittensor.image.authors="operations@bittensor.com" \
   com.bittensor.image.description="Bittensor Subtensor local development network" \
   com.bittensor.image.documentation="https://bittensor.com/docs"
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl procps \
-  && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+  if [ "${TARGETARCH}" = "arm64" ]; then \
+    for sources in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+      [ ! -f "${sources}" ] || sed -i \
+        's|http://ports.ubuntu.com/ubuntu-ports|http://ftp.kaist.ac.kr/ubuntu-ports|g' \
+        "${sources}"; \
+    done; \
+  fi; \
+  apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
+  apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y ca-certificates; \
+  if [ "${TARGETARCH}" = "arm64" ]; then \
+    for sources in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+      [ ! -f "${sources}" ] || sed -i \
+        's|http://ftp.kaist.ac.kr/ubuntu-ports|https://ftp.kaist.ac.kr/ubuntu-ports|g' \
+        "${sources}"; \
+    done; \
+    apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
+  fi; \
+  apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y --no-install-recommends curl procps; \
+  rm -rf /var/lib/apt/lists/*
 
 COPY ./snapshot.json /snapshot.json
 COPY --chmod=0755 ./scripts/localnet.sh /scripts/localnet.sh
