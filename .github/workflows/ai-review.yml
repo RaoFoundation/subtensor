@@ -320,12 +320,13 @@ jobs:
 
   auditor:
     name: auditor
-    needs: [decide, skeptic]
+    needs: [automation-approved, decide, skeptic]
     # always() so this evaluates even when skeptic is skipped (e.g. when
     # workflow_dispatch was invoked with persona=auditor). We still block on a
     # failed skeptic — `skipped` is allowed; `failure`/`cancelled` is not.
     if: |
       always() &&
+      needs.automation-approved.result == 'success' &&
       needs.decide.outputs.run_auditor == 'true' &&
       (needs.skeptic.result == 'success' || needs.skeptic.result == 'skipped')
     runs-on: ubuntu-latest
@@ -641,9 +642,10 @@ jobs:
   # edit to a long-lived sticky way up at the top).
   notify:
     name: notify
-    needs: [decide, skeptic, auditor]
+    needs: [automation-approved, decide, skeptic, auditor]
     if: |
       always() &&
+      needs.automation-approved.result == 'success' &&
       (needs.skeptic.outputs.posted_url != '' || needs.auditor.outputs.posted_url != '')
     runs-on: ubuntu-latest
     permissions:

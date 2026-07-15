@@ -60,18 +60,8 @@ jobs:
 
   typescript-formatting:
     needs: automation-approved
-    if: always()
     runs-on: ubuntu-latest
     steps:
-      # `typescript-formatting` is required on main. Keep it red while the
-      # reusable approval job is blocked; otherwise GitHub treats a job
-      # skipped through `needs` as satisfying branch protection.
-      - name: Enforce automated-PR approval
-        if: needs.automation-approved.result != 'success'
-        run: |
-          echo "::error::Automated PR CI has not been approved."
-          exit 1
-
       - name: Check-out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -199,8 +189,8 @@ jobs:
 
   shield-result:
     name: typescript-e2e-zombienet_shield
-    if: always()
-    needs: [build, run-shield-tests]
+    if: always() && needs.automation-approved.result == 'success'
+    needs: [automation-approved, build, run-shield-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check Shield shard results

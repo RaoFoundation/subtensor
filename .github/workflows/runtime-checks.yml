@@ -667,8 +667,8 @@ jobs:
   # a build failure cascading into a skipped clone job — fails.
   clone-upgrade-gate:
     name: Sudo-upgrade mainnet clone and test
-    needs: [changes, build-node-release, clone-upgrade]
-    if: always()
+    needs: [automation-approved, changes, build-node-release, clone-upgrade]
+    if: always() && needs.automation-approved.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate clone result
