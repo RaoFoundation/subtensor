@@ -47,7 +47,7 @@ jobs:
           .github/scripts/test-snapshot-artifact.sh
           .github/scripts/test-download-artifact.sh
 
-  benchmark-sccache-origin:
+  benchmark-sccache-paired:
     if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
     runs-on: [self-hosted, fireactions-benchmarking]
     timeout-minutes: 120
@@ -57,91 +57,89 @@ jobs:
       - name: Configure direct R2 sccache baseline
         uses: ./.github/actions/rust-setup
         with:
-          cache-key: host-cache-benchmark-origin
+          cache-key: host-cache-benchmark-paired
           sccache-local-tier: disabled
 
-      - name: Measure direct R2 compiler-cache reads
+      - name: Validate host-local cache contract
+        env:
+          SCCACHE_GHA_FALLBACK: "false"
+          SCCACHE_LOCAL_TIER_MODE: auto
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/sccache-local-contract.json"
+          output="$RUNNER_TEMP/sccache-local-contract.output"
+          trap 'rm -f "$config" "$output"' EXIT
+          : > "$output"
+          .github/scripts/sccache-configure.sh prepare reader "$config" "$output"
+          python3 -c '
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          local = data.get("local")
+          if not isinstance(local, dict) or local.get("endpoint") != "http://192.168.128.1:8092":
+              raise SystemExit("validated host-local tier is unavailable")
+          ' "$config"
+
+      - name: Measure paired origin and warm-local reads in one VM
         env:
           SKIP_WASM_BUILD: 1
         run: |
           set -euo pipefail
-          sccache --zero-stats
-          started=$(date -u +%s)
-          cargo check --locked -p node-subtensor-runtime
-          seconds=$(($(date -u +%s) - started))
-          sccache --show-stats | tee "$RUNNER_TEMP/sccache-origin.txt"
+
+          start_backend() {
+            local mode="$1"
+            sccache --stop-server >/dev/null 2>&1 || true
+            if [[ "$mode" == local ]]; then
+              export SCCACHE_MULTILEVEL_CHAIN=webdav,s3
+              export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore
+              export SCCACHE_WEBDAV_ENDPOINT=http://192.168.128.1:8092
+              export SCCACHE_WEBDAV_KEY_PREFIX=""
+              export SCCACHE_WEBDAV_USERNAME="$AWS_ACCESS_KEY_ID"
+              export SCCACHE_WEBDAV_PASSWORD="$AWS_SECRET_ACCESS_KEY"
+            else
+              unset SCCACHE_MULTILEVEL_CHAIN SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY
+              unset SCCACHE_WEBDAV_ENDPOINT SCCACHE_WEBDAV_KEY_PREFIX
+              unset SCCACHE_WEBDAV_USERNAME SCCACHE_WEBDAV_PASSWORD
+            fi
+            sccache --start-server >/dev/null
+          }
+
+          measure() {
+            local label="$1"
+            local mode="$2"
+            cargo clean
+            start_backend "$mode"
+            sccache --zero-stats >/dev/null
+            local started seconds
+            started=$(date -u +%s)
+            cargo check --locked -p node-subtensor-runtime
+            seconds=$(($(date -u +%s) - started))
+            if ! sccache --show-adv-stats > "$RUNNER_TEMP/sccache-$label.txt" 2>&1; then
+              sccache --show-stats > "$RUNNER_TEMP/sccache-$label.txt"
+            fi
+            echo "$label=$seconds" >> "$RUNNER_TEMP/sccache-paired-times"
+          }
+
+          : > "$RUNNER_TEMP/sccache-paired-times"
+          measure origin_1 origin
+          measure local_1 local
+          measure local_2 local
+          measure origin_2 origin
+
+          source "$RUNNER_TEMP/sccache-paired-times"
+          origin_average=$(( (origin_1 + origin_2) / 2 ))
+          local_average=$(( (local_1 + local_2) / 2 ))
           {
-            echo "### Direct R2 sccache baseline"
-            echo "- Wall time: ${seconds}s"
-            echo '```text'
-            cat "$RUNNER_TEMP/sccache-origin.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  benchmark-sccache-local-cold:
-    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
-    needs: benchmark-sccache-origin
-    runs-on: [self-hosted, fireactions-benchmarking]
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Configure host-local sccache tier
-        uses: ./.github/actions/rust-setup
-        with:
-          cache-key: host-cache-benchmark-local-cold
-          sccache-local-tier: auto
-
-      - name: Require local sccache activation and measure cold fill
-        env:
-          SKIP_WASM_BUILD: 1
-        run: |
-          set -euo pipefail
-          [[ "${SCCACHE_LOCAL_TIER:-false}" == true ]]
-          sccache --zero-stats
-          started=$(date -u +%s)
-          cargo check --locked -p node-subtensor-runtime
-          seconds=$(($(date -u +%s) - started))
-          sccache --show-stats | tee "$RUNNER_TEMP/sccache-local-cold.txt"
-          {
-            echo "### Host-local sccache cold fill"
-            echo "- Wall time: ${seconds}s"
-            echo '```text'
-            cat "$RUNNER_TEMP/sccache-local-cold.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  benchmark-sccache-local-warm:
-    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
-    needs: benchmark-sccache-local-cold
-    runs-on: [self-hosted, fireactions-benchmarking]
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Configure host-local sccache tier
-        uses: ./.github/actions/rust-setup
-        with:
-          cache-key: host-cache-benchmark-local-warm
-          sccache-local-tier: auto
-
-      - name: Require local sccache activation and measure warm reads
-        env:
-          SKIP_WASM_BUILD: 1
-        run: |
-          set -euo pipefail
-          [[ "${SCCACHE_LOCAL_TIER:-false}" == true ]]
-          sccache --zero-stats
-          started=$(date -u +%s)
-          cargo check --locked -p node-subtensor-runtime
-          seconds=$(($(date -u +%s) - started))
-          sccache --show-stats | tee "$RUNNER_TEMP/sccache-local-warm.txt"
-          {
-            echo "### Host-local sccache warm read"
-            echo "- Wall time: ${seconds}s"
-            echo '```text'
-            cat "$RUNNER_TEMP/sccache-local-warm.txt"
-            echo '```'
+            echo "### Paired sccache benchmark (same VM)"
+            echo "- Order: origin, local, local, origin"
+            echo "- Direct R2: ${origin_1}s, ${origin_2}s (mean ${origin_average}s)"
+            echo "- Warm host-local: ${local_1}s, ${local_2}s (mean ${local_average}s)"
+            for label in origin_1 local_1 local_2 origin_2; do
+              echo
+              echo "#### $label"
+              echo '```text'
+              cat "$RUNNER_TEMP/sccache-$label.txt"
+              echo '```'
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
   benchmark-artifact-cache:
@@ -149,7 +147,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       inputs.benchmark_host_cache &&
       inputs.benchmark_artifact_cache
-    needs: benchmark-sccache-local-warm
+    needs: benchmark-sccache-paired
     runs-on: [self-hosted, fireactions-benchmarking]
     timeout-minutes: 45
     permissions:
