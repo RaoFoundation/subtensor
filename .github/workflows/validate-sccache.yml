@@ -7,6 +7,10 @@ on:
       - ".github/actions/sccache-setup/**"
       - ".github/scripts/sccache-configure.sh"
       - ".github/scripts/test-sccache-configure.sh"
+      - ".github/scripts/download-artifact.sh"
+      - ".github/scripts/test-download-artifact.sh"
+      - ".github/scripts/snapshot-artifact.sh"
+      - ".github/scripts/test-snapshot-artifact.sh"
       - ".github/workflows/check-bittensor-e2e-tests.yml"
       - ".github/workflows/check-node-compat.yml"
       - ".github/workflows/mainnet-clone-preview.yml"
@@ -15,6 +19,11 @@ on:
       - ".github/workflows/typescript-e2e.yml"
       - ".github/workflows/validate-sccache.yml"
   workflow_dispatch:
+    inputs:
+      benchmark_host_cache:
+        description: "Run origin/cold/warm cache benchmarks on fireactions-ax41-01"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,3 +37,161 @@ jobs:
 
       - name: Test fail-open and writer event gates
         run: .github/scripts/test-sccache-configure.sh
+
+      - name: Test immutable artifact selection and download boundary
+        run: |
+          .github/scripts/test-snapshot-artifact.sh
+          .github/scripts/test-download-artifact.sh
+
+  benchmark-sccache-origin:
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
+    runs-on: [self-hosted, fireactions-benchmarking]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure direct R2 sccache baseline
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: host-cache-benchmark-origin
+          sccache-local-tier: disabled
+
+      - name: Measure direct R2 compiler-cache reads
+        env:
+          SKIP_WASM_BUILD: 1
+        run: |
+          set -euo pipefail
+          sccache --zero-stats
+          started=$(date -u +%s)
+          cargo check --locked -p node-subtensor-runtime
+          seconds=$(($(date -u +%s) - started))
+          sccache --show-stats | tee "$RUNNER_TEMP/sccache-origin.txt"
+          {
+            echo "### Direct R2 sccache baseline"
+            echo "- Wall time: ${seconds}s"
+            echo '```text'
+            cat "$RUNNER_TEMP/sccache-origin.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  benchmark-sccache-local-cold:
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
+    needs: benchmark-sccache-origin
+    runs-on: [self-hosted, fireactions-benchmarking]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure host-local sccache tier
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: host-cache-benchmark-local-cold
+
+      - name: Require local sccache activation and measure cold fill
+        env:
+          SKIP_WASM_BUILD: 1
+        run: |
+          set -euo pipefail
+          [[ "${SCCACHE_LOCAL_TIER:-false}" == true ]]
+          sccache --zero-stats
+          started=$(date -u +%s)
+          cargo check --locked -p node-subtensor-runtime
+          seconds=$(($(date -u +%s) - started))
+          sccache --show-stats | tee "$RUNNER_TEMP/sccache-local-cold.txt"
+          {
+            echo "### Host-local sccache cold fill"
+            echo "- Wall time: ${seconds}s"
+            echo '```text'
+            cat "$RUNNER_TEMP/sccache-local-cold.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  benchmark-sccache-local-warm:
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
+    needs: benchmark-sccache-local-cold
+    runs-on: [self-hosted, fireactions-benchmarking]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure host-local sccache tier
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: host-cache-benchmark-local-warm
+
+      - name: Require local sccache activation and measure warm reads
+        env:
+          SKIP_WASM_BUILD: 1
+        run: |
+          set -euo pipefail
+          [[ "${SCCACHE_LOCAL_TIER:-false}" == true ]]
+          sccache --zero-stats
+          started=$(date -u +%s)
+          cargo check --locked -p node-subtensor-runtime
+          seconds=$(($(date -u +%s) - started))
+          sccache --show-stats | tee "$RUNNER_TEMP/sccache-local-warm.txt"
+          {
+            echo "### Host-local sccache warm read"
+            echo "- Wall time: ${seconds}s"
+            echo '```text'
+            cat "$RUNNER_TEMP/sccache-local-warm.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  benchmark-artifact-cache:
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
+    needs: benchmark-sccache-local-warm
+    runs-on: [self-hosted, fireactions-benchmarking]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Select latest trusted mainnet clone snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh select \
+            mainnet-snapshot main "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml 168 \
+            "$GITHUB_OUTPUT" required
+
+      - name: Measure direct, local-cold, and local-warm artifact downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          ARTIFACT_ID: ${{ steps.snapshot.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.snapshot.outputs.artifact-digest }}
+          ARTIFACT_SIZE: ${{ steps.snapshot.outputs.artifact-size-bytes }}
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/direct-output"
+          : > "$RUNNER_TEMP/cold-output"
+          : > "$RUNNER_TEMP/warm-output"
+          FIREACTIONS_ARTIFACT_CACHE_DISABLE=true \
+            .github/scripts/download-artifact.sh "$ARTIFACT_ID" mainnet-snapshot \
+              "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$RUNNER_TEMP/direct" "$RUNNER_TEMP/direct-output"
+          .github/scripts/download-artifact.sh "$ARTIFACT_ID" mainnet-snapshot \
+            "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$RUNNER_TEMP/local-cold" "$RUNNER_TEMP/cold-output"
+          .github/scripts/download-artifact.sh "$ARTIFACT_ID" mainnet-snapshot \
+            "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$RUNNER_TEMP/local-warm" "$RUNNER_TEMP/warm-output"
+          direct_sha=$(sha256sum "$RUNNER_TEMP/direct/mainnet-snapshot.tar.gz" | awk '{print $1}')
+          cold_sha=$(sha256sum "$RUNNER_TEMP/local-cold/mainnet-snapshot.tar.gz" | awk '{print $1}')
+          warm_sha=$(sha256sum "$RUNNER_TEMP/local-warm/mainnet-snapshot.tar.gz" | awk '{print $1}')
+          [[ "$direct_sha" == "$cold_sha" && "$direct_sha" == "$warm_sha" ]]
+          direct_seconds=$(sed -n 's/^seconds=//p' "$RUNNER_TEMP/direct-output")
+          cold_seconds=$(sed -n 's/^seconds=//p' "$RUNNER_TEMP/cold-output")
+          warm_seconds=$(sed -n 's/^seconds=//p' "$RUNNER_TEMP/warm-output")
+          warm_source=$(sed -n 's/^source=//p' "$RUNNER_TEMP/warm-output")
+          [[ "$warm_source" == local-hit ]]
+          {
+            echo "### Mainnet snapshot artifact cache"
+            echo "- Artifact: $ARTIFACT_ID ($ARTIFACT_SIZE bytes)"
+            echo "- Direct GitHub: ${direct_seconds}s"
+            echo "- Local cold fill: ${cold_seconds}s"
+            echo "- Local warm hit: ${warm_seconds}s"
+            echo "- Extracted payload SHA-256: $warm_sha"
+          } >> "$GITHUB_STEP_SUMMARY"

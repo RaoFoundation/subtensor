@@ -67,11 +67,16 @@ if data.get("mode") == "gha":
     raise SystemExit(0)
 for key in ("access_key_id", "secret_access_key"):
     print(data[key])
+local = data.get("local")
+if isinstance(local, dict):
+    for key in ("username", "password"):
+        print(local[key])
 ' "$config_file"
   )
-  if [[ ${#credentials[@]} -eq 2 ]]; then
-    printf '::add-mask::%s\n' "${credentials[0]}"
-    printf '::add-mask::%s\n' "${credentials[1]}"
+  if [[ ${#credentials[@]} -gt 0 ]]; then
+    for credential in "${credentials[@]}"; do
+      [[ -n "$credential" ]] && printf '::add-mask::%s\n' "$credential"
+    done
   fi
 }
 
@@ -123,7 +128,7 @@ prepare_reader() {
   fi
   chmod 0600 "$config_file"
 
-  if ! python3 -c '
+  if ! SCCACHE_LOCAL_TIER_MODE="${SCCACHE_LOCAL_TIER_MODE:-auto}" python3 -c '
 import json, os, sys
 path = sys.argv[1]
 expected = {
@@ -143,6 +148,19 @@ for key in ("access_key_id", "secret_access_key"):
     value = data.get(key)
     if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
         raise ValueError(f"invalid {key}")
+local_mode = os.environ.get("SCCACHE_LOCAL_TIER_MODE", "auto")
+if local_mode not in ("auto", "disabled"):
+    raise ValueError("invalid local tier mode")
+local = data.get("local")
+if local_mode == "disabled":
+    data.pop("local", None)
+elif local is not None:
+    if not isinstance(local, dict) or set(local) != {"endpoint", "key_prefix", "username", "password"}:
+        raise ValueError("invalid local cache contract")
+    if local.get("endpoint") != "http://192.168.128.1:8092" or local.get("key_prefix") != "":
+        raise ValueError("invalid local cache endpoint")
+    if local.get("username") != data["access_key_id"] or local.get("password") != data["secret_access_key"]:
+        raise ValueError("invalid local cache credential")
 data["mode"] = "reader"
 tmp = path + ".normalized"
 with open(tmp, "w", encoding="utf-8") as handle:
@@ -153,6 +171,54 @@ os.replace(tmp, path)
     fallback_reader "$config_file" "$output_file" "MMDSv2 sccache metadata failed validation"
     return
   fi
+}
+
+attach_local_metadata() {
+  local config_file="$1"
+  local local_mode="${SCCACHE_LOCAL_TIER_MODE:-auto}"
+  local token_url="${MMDS_TOKEN_URL:-$MMDS_TOKEN_URL_DEFAULT}"
+  local metadata_url="${MMDS_METADATA_URL:-$MMDS_METADATA_URL_DEFAULT}"
+  local metadata_file="${config_file}.mmds"
+  local token
+
+  [[ "$local_mode" == auto || "$local_mode" == disabled ]] || return 1
+  [[ "$local_mode" == auto ]] || return 0
+  if ! token="$(curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
+    --request PUT --header 'X-Metadata-Token-TTL-Seconds: 60' "$token_url" 2>/dev/null)"; then
+    warning "local sccache tier unavailable to trusted writer; using direct R2"
+    return 0
+  fi
+  if ! curl --fail --silent --show-error --connect-timeout 1 --max-time 3 \
+    --header "X-Metadata-Token: $token" --header 'Accept: application/json' \
+    --output "$metadata_file" "$metadata_url" 2>/dev/null; then
+    warning "local sccache metadata unavailable to trusted writer; using direct R2"
+    rm -f "$metadata_file"
+    return 0
+  fi
+  if ! python3 -c '
+import json, os, sys
+config_path, metadata_path = sys.argv[1:]
+with open(metadata_path, encoding="utf-8") as handle:
+    metadata = json.load(handle)
+local = metadata.get("local")
+if not isinstance(local, dict) or set(local) != {"endpoint", "key_prefix", "username", "password"}:
+    raise ValueError("invalid local contract")
+if local.get("endpoint") != "http://192.168.128.1:8092" or local.get("key_prefix") != "":
+    raise ValueError("invalid local endpoint")
+if local.get("username") != metadata.get("access_key_id") or local.get("password") != metadata.get("secret_access_key"):
+    raise ValueError("invalid local credential")
+with open(config_path, encoding="utf-8") as handle:
+    config = json.load(handle)
+config["local"] = local
+tmp = config_path + ".local"
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump(config, handle, separators=(",", ":"))
+os.chmod(tmp, 0o600)
+os.replace(tmp, config_path)
+' "$config_file" "$metadata_file" 2>/dev/null; then
+    warning "local sccache metadata failed validation; using direct R2"
+  fi
+  rm -f "$metadata_file"
 }
 
 prepare_writer() {
@@ -190,6 +256,8 @@ os.chmod(path, 0o600)
 ' 2>/dev/null; then
     disable_prepare "$config_file" "$output_file" "writer configuration could not be materialized"
   fi
+  attach_local_metadata "$config_file" ||
+    disable_prepare "$config_file" "$output_file" "invalid local tier mode"
 }
 
 writer_source_is_trusted() {
@@ -314,6 +382,13 @@ for key in ("bucket", "endpoint", "region", "key_prefix", "access_key_id", "secr
     sys.stdout.write(value + "\0")
 if data.get("s3_use_ssl") is not True:
     raise ValueError("invalid s3_use_ssl")
+local = data.get("local")
+if local is not None:
+    for key in ("endpoint", "key_prefix", "username", "password"):
+        value = local.get(key)
+        if not isinstance(value, str) or "\n" in value or "\r" in value:
+            raise ValueError(f"invalid local {key}")
+        sys.stdout.write(value + "\0")
 ' "$config_file" >"$fields_file" 2>/dev/null; then
     rm -f "$fields_file"
     disable_activate "$config_file" "$output_file" "validated configuration could not be parsed"
@@ -322,7 +397,7 @@ if data.get("s3_use_ssl") is not True:
     values+=("$value")
   done < "$fields_file"
   rm -f "$fields_file"
-  if [[ ${#values[@]} -ne 1 && ${#values[@]} -ne 7 ]]; then
+  if [[ ${#values[@]} -ne 1 && ${#values[@]} -ne 7 && ${#values[@]} -ne 11 ]]; then
     disable_activate "$config_file" "$output_file" "validated configuration is incomplete"
   fi
 
@@ -365,11 +440,38 @@ if data.get("s3_use_ssl") is not True:
   export AWS_ACCESS_KEY_ID="${values[5]}"
   export AWS_SECRET_ACCESS_KEY="${values[6]}"
 
+  local local_tier=false
+  if [[ ${#values[@]} -eq 11 ]]; then
+    printf '::add-mask::%s\n' "${values[9]}"
+    printf '::add-mask::%s\n' "${values[10]}"
+    export SCCACHE_MULTILEVEL_CHAIN=webdav,s3
+    export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore
+    export SCCACHE_WEBDAV_ENDPOINT="${values[7]}"
+    export SCCACHE_WEBDAV_KEY_PREFIX="${values[8]}"
+    export SCCACHE_WEBDAV_USERNAME="${values[9]}"
+    export SCCACHE_WEBDAV_PASSWORD="${values[10]}"
+    local_tier=true
+  fi
+
   "$sccache_bin" --stop-server >/dev/null 2>&1 || true
   if ! "$sccache_bin" --start-server >"$start_log" 2>&1; then
-    "$sccache_bin" --stop-server >/dev/null 2>&1 || true
-    rm -f "$start_log"
-    disable_activate "$config_file" "$output_file" "R2 backend startup check failed"
+    if [[ "$local_tier" == true ]]; then
+      warning "local sccache tier startup failed; retrying direct R2"
+      "$sccache_bin" --stop-server >/dev/null 2>&1 || true
+      unset SCCACHE_MULTILEVEL_CHAIN SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY
+      unset SCCACHE_WEBDAV_ENDPOINT SCCACHE_WEBDAV_KEY_PREFIX
+      unset SCCACHE_WEBDAV_USERNAME SCCACHE_WEBDAV_PASSWORD
+      local_tier=false
+      if ! "$sccache_bin" --start-server >"$start_log" 2>&1; then
+        "$sccache_bin" --stop-server >/dev/null 2>&1 || true
+        rm -f "$start_log"
+        disable_activate "$config_file" "$output_file" "R2 backend startup check failed"
+      fi
+    else
+      "$sccache_bin" --stop-server >/dev/null 2>&1 || true
+      rm -f "$start_log"
+      disable_activate "$config_file" "$output_file" "R2 backend startup check failed"
+    fi
   fi
   rm -f "$start_log" "$config_file"
 
@@ -386,6 +488,15 @@ if data.get("s3_use_ssl") is not True:
     printf 'SCCACHE_IGNORE_SERVER_IO_ERROR=1\n'
     printf 'AWS_ACCESS_KEY_ID=%s\n' "$AWS_ACCESS_KEY_ID"
     printf 'AWS_SECRET_ACCESS_KEY=%s\n' "$AWS_SECRET_ACCESS_KEY"
+    printf 'SCCACHE_LOCAL_TIER=%s\n' "$local_tier"
+    if [[ "$local_tier" == true ]]; then
+      printf 'SCCACHE_MULTILEVEL_CHAIN=%s\n' "$SCCACHE_MULTILEVEL_CHAIN"
+      printf 'SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=%s\n' "$SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY"
+      printf 'SCCACHE_WEBDAV_ENDPOINT=%s\n' "$SCCACHE_WEBDAV_ENDPOINT"
+      printf 'SCCACHE_WEBDAV_KEY_PREFIX=%s\n' "$SCCACHE_WEBDAV_KEY_PREFIX"
+      printf 'SCCACHE_WEBDAV_USERNAME=%s\n' "$SCCACHE_WEBDAV_USERNAME"
+      printf 'SCCACHE_WEBDAV_PASSWORD=%s\n' "$SCCACHE_WEBDAV_PASSWORD"
+    fi
   } >> "$env_file"
   set_output "$output_file" enabled true
   printf 'sccache R2 backend enabled in %s mode\n' "${values[0]}"

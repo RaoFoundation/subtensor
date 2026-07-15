@@ -25,6 +25,9 @@ inputs:
   sccache-writer-secret-access-key:
     description: "Protected writer secret; used only for an authorized source"
     default: ""
+  sccache-local-tier:
+    description: "auto to use a validated Fireactions host cache, or disabled for origin benchmarks"
+    default: "auto"
 
 runs:
   using: "composite"
@@ -89,5 +92,6 @@ runs:
       uses: ./.github/actions/sccache-setup
       with:
         credential-mode: ${{ inputs.sccache-credential-mode }}
+        local-tier: ${{ inputs.sccache-local-tier }}
         writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
         writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}

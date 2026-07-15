@@ -316,15 +316,18 @@ jobs:
         run: echo "SNAPSHOT_RESTORE_STARTED=$(date -u +%s)" >> "$GITHUB_ENV"
 
       - name: Download selected try-runtime state snapshot
+        id: download-snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ steps.snapshot.outputs.artifact-id }}
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.snapshot.outputs.run-id }}
-          path: snap
-          merge-multiple: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          .github/scripts/download-artifact.sh \
+            "${{ steps.snapshot.outputs.artifact-id }}" \
+            "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network.name }}" \
+            "${{ steps.snapshot.outputs.artifact-digest }}" \
+            "${{ steps.snapshot.outputs.artifact-size-bytes }}" \
+            snap "$GITHUB_OUTPUT"
 
       - name: Validate try-runtime state snapshot
         if: steps.state-mode.outputs.fresh-state != 'true'
@@ -343,6 +346,7 @@ jobs:
           {
             echo "### ${{ matrix.network.name }} cached state"
             echo "- Artifact: ${{ steps.snapshot.outputs.artifact-id }} (run ${{ steps.snapshot.outputs.run-id }})"
+            echo "- Download source: ${{ steps.download-snapshot.outputs.source }}"
             echo "- Age: ${{ steps.snapshot.outputs.age-hours }}h"
             echo "- Finalized block: $block"
             echo "- Runtime: $spec"
@@ -509,14 +513,16 @@ jobs:
         id: download-clone-snapshot
         if: steps.clone-snapshot.outputs.found == 'true'
         continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ steps.clone-snapshot.outputs.artifact-id }}
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.clone-snapshot.outputs.run-id }}
-          path: /tmp/mainnet-snapshot
-          merge-multiple: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          .github/scripts/download-artifact.sh \
+            "${{ steps.clone-snapshot.outputs.artifact-id }}" \
+            mainnet-snapshot \
+            "${{ steps.clone-snapshot.outputs.artifact-digest }}" \
+            "${{ steps.clone-snapshot.outputs.artifact-size-bytes }}" \
+            /tmp/mainnet-snapshot "$GITHUB_OUTPUT"
 
       - name: Restore mainnet clone snapshot
         id: restore-clone-snapshot
