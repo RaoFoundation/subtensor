@@ -113,27 +113,31 @@ jobs:
             started=$(date -u +%s)
             cargo check --locked -p node-subtensor-runtime
             seconds=$(($(date -u +%s) - started))
-            if ! sccache --show-adv-stats > "$RUNNER_TEMP/sccache-$label.txt" 2>&1; then
-              sccache --show-stats > "$RUNNER_TEMP/sccache-$label.txt"
+            if ! sccache --show-adv-stats 2>&1 | tee "$RUNNER_TEMP/sccache-$label.txt"; then
+              sccache --show-stats | tee "$RUNNER_TEMP/sccache-$label.txt"
             fi
             echo "$label=$seconds" >> "$RUNNER_TEMP/sccache-paired-times"
           }
 
           : > "$RUNNER_TEMP/sccache-paired-times"
-          measure origin_1 origin
+          # Discard the first compile so registry extraction, filesystem page
+          # cache, and daemon startup do not get attributed to either backend.
+          measure warmup origin
           measure local_1 local
-          measure local_2 local
+          measure origin_1 origin
           measure origin_2 origin
+          measure local_2 local
 
           source "$RUNNER_TEMP/sccache-paired-times"
           origin_average=$(( (origin_1 + origin_2) / 2 ))
           local_average=$(( (local_1 + local_2) / 2 ))
           {
             echo "### Paired sccache benchmark (same VM)"
-            echo "- Order: origin, local, local, origin"
+            echo "- Discarded warmup: origin"
+            echo "- Measured order: local, origin, origin, local"
             echo "- Direct R2: ${origin_1}s, ${origin_2}s (mean ${origin_average}s)"
             echo "- Warm host-local: ${local_1}s, ${local_2}s (mean ${local_average}s)"
-            for label in origin_1 local_1 local_2 origin_2; do
+            for label in warmup local_1 origin_1 origin_2 local_2; do
               echo
               echo "#### $label"
               echo '```text'

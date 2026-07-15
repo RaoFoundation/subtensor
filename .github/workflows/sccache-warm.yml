@@ -2,7 +2,7 @@ name: Warm R2 sccache
 
 # Normal same-repository PR and main CI writes through while it compiles. This
 # workflow is maintenance only: refresh deployed-state branches when they move,
-# repair expired/missing main entries at 12:00 UTC, or recover manually.
+# repair expired/missing main entries every six hours, or recover manually.
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
       - devnet
       - testnet
   schedule:
-    - cron: "0 12 * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
       source_ref:
@@ -111,6 +111,14 @@ jobs:
         run: |
           unset SKIP_WASM_BUILD
           cargo build --release --locked -p node-subtensor --features fast-runtime
+
+      # Package selection changes Cargo feature unification and therefore the
+      # rustc/sccache keys. Clean first so Cargo cannot satisfy this variant
+      # from the job-local target directory without exercising sccache.
+      - name: Warm runtime-only check artifacts
+        run: |
+          cargo clean
+          cargo check --locked -p node-subtensor-runtime
 
   production-amd64:
     name: Populate amd64 production cache

@@ -100,8 +100,6 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           cache-key: fireactions-host-cache-maintenance
-          # The benchmark found this tier slower than direct R2, so only the
-          # canary maintenance path opts in while we retain it for evaluation.
           sccache-local-tier: auto
 
       - name: Refresh representative compiler objects
@@ -110,6 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${SCCACHE_LOCAL_TIER:-false}" == true ]]
+          cargo clean
           sccache --zero-stats
-          cargo check --workspace --locked
+          cargo check --locked -p node-subtensor-runtime
           sccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
