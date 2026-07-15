@@ -13,6 +13,7 @@ on:
       - ".github/scripts/test-snapshot-artifact.sh"
       - ".github/workflows/check-bittensor-e2e-tests.yml"
       - ".github/workflows/check-node-compat.yml"
+      - ".github/workflows/fireactions-cache-maintenance.yml"
       - ".github/workflows/mainnet-clone-preview.yml"
       - ".github/workflows/runtime-checks.yml"
       - ".github/workflows/sccache-warm.yml"
