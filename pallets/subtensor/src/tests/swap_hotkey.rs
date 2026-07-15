@@ -1988,12 +1988,12 @@ fn hotkey_swap_has_no_hard_position_cap() {
         OwnedHotkeys::<Test>::insert(owner, vec![old_hotkey]);
         add_balance_to_coldkey_account(
             &owner,
-            SubtensorModule::get_key_swap_cost().saturating_add(1_000_u64.into()),
+            SubtensorModule::get_key_swap_cost().saturating_add(ExistentialDeposit::get()),
         );
 
         // This is deliberately one more than the removed 1,024-position cap.
         for index in 0..=1_024_u64 {
-            let coldkey = U256::from(10_000_u64.saturating_add(index as u64));
+            let coldkey = U256::from(10_000_u64.saturating_add(index));
             SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &old_hotkey,
                 &coldkey,
