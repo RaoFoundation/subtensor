@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 classifier="$script_dir/classify-typescript-e2e-changes.sh"
 extractor="$script_dir/extract-pull-file-paths.sh"
+workflow="$script_dir/../workflows/typescript-e2e.yml"
 output=$(mktemp)
 paths=$(mktemp)
 trap 'rm -f "$output" "$paths"' EXIT
@@ -157,5 +158,16 @@ assert_value state_count 5
 assert_value shield true
 assert_value build_count 2
 assert_value build_matrix '{"include":[{"variant":"fast","flags":"--features fast-runtime"},{"variant":"release","flags":""}]}'
+
+# The pull-request routing decision must execute base-branch code. The inline
+# bootstrap fallback is unavoidable while this PR introduces the scripts, so
+# keep its fixed full matrices synchronized with classifier --all.
+grep -Fq 'ref: ${{ github.event_name == '\''pull_request'\'' && github.event.pull_request.base.sha || github.sha }}' "$workflow"
+grep -Fq 'if [[ ! -x "$classifier" || ! -x "$extractor" ]]; then' "$workflow"
+grep -Fq "echo 'shield=$(value shield)'" "$workflow"
+grep -Fq "echo 'state_count=$(value state_count)'" "$workflow"
+grep -Fq "echo 'state_matrix=$(value state_matrix)'" "$workflow"
+grep -Fq "echo 'build_count=$(value build_count)'" "$workflow"
+grep -Fq "echo 'build_matrix=$(value build_matrix)'" "$workflow"
 
 echo "typescript E2E change classifier tests passed"

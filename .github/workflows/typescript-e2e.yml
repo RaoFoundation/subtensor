@@ -40,15 +40,18 @@ jobs:
       build_count: ${{ steps.filter.outputs.build_count }}
       build_matrix: ${{ steps.filter.outputs.build_matrix }}
     steps:
-      # Only the small classifier is checked out on a GitHub-hosted runner.
-      # Fork PRs still cannot pass the self-hosted runner trust gate below.
-      - name: Check out E2E classifier
+      # Routing decisions for pull requests must come from the trusted base
+      # revision. A PR may change these scripts, but those changes take effect
+      # only after merge; during initial rollout, their absence fails closed.
+      - name: Check out trusted E2E classifier
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: |
             .github/scripts/classify-typescript-e2e-changes.sh
             .github/scripts/extract-pull-file-paths.sh
           path: .trusted-e2e-filter
+          persist-credentials: false
 
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
@@ -61,6 +64,26 @@ jobs:
         run: |
           set -euo pipefail
           classifier=.trusted-e2e-filter/.github/scripts/classify-typescript-e2e-changes.sh
+          extractor=.trusted-e2e-filter/.github/scripts/extract-pull-file-paths.sh
+
+          select_full_matrix() {
+            {
+              echo 'shield=true'
+              echo 'state_count=5'
+              echo 'state_matrix={"include":[{"test":"zombienet_evm","binary":"fast"},{"test":"zombienet_staking","binary":"fast"},{"test":"zombienet_coldkey_swap","binary":"fast"},{"test":"dev","binary":"release"},{"test":"zombienet_subnets","binary":"fast"}]}'
+              echo 'build_count=2'
+              echo 'build_matrix={"include":[{"variant":"fast","flags":"--features fast-runtime"},{"variant":"release","flags":""}]}'
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          # During rollout the trusted scripts may be absent from the base
+          # revision. Never fall back to PR-controlled code in that bootstrap
+          # window: run every E2E suite instead.
+          if [[ ! -x "$classifier" || ! -x "$extractor" ]]; then
+            echo "trusted E2E classifier unavailable; running the full matrix" >&2
+            select_full_matrix
+            exit 0
+          fi
 
           if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
             "$classifier" --all "$GITHUB_OUTPUT"
@@ -73,7 +96,6 @@ jobs:
             exit 0
           fi
 
-          extractor=.trusted-e2e-filter/.github/scripts/extract-pull-file-paths.sh
           if ! paths=$(printf '%s\n' "$files" | "$extractor" "$EXPECTED_CHANGED_FILES"); then
             echo "changed-file response invalid; running the full E2E matrix" >&2
             "$classifier" --all "$GITHUB_OUTPUT"
