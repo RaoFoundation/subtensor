@@ -22,11 +22,16 @@ set -euo pipefail
 output=''
 headers=''
 url=''
+cache_only=false
 for ((index=1; index<=$#; index++)); do
   value="${!index}"
   case "$value" in
     --output) next=$((index + 1)); output="${!next}" ;;
     --dump-header) next=$((index + 1)); headers="${!next}" ;;
+    --header)
+      next=$((index + 1))
+      [[ "${!next}" != 'Cache-Control: only-if-cached' ]] || cache_only=true
+      ;;
     http://*|https://*) url="$value" ;;
   esac
 done
@@ -34,6 +39,7 @@ case "$url" in
   */token) printf 'mmds-token' ;;
   */artifact-cache) cp "$MOCK_METADATA" "$output" ;;
   http://192.168.128.1:8093/*)
+    [[ "$cache_only" == true ]] || { echo 'local request was not cache-only' >&2; exit 2; }
     [[ "${MOCK_LOCAL_FAIL:-false}" != true ]] || exit 22
     cp "$MOCK_ARCHIVE" "$output"
     printf 'HTTP/1.1 200 OK\r\nX-Fireactions-Cache: hit\r\n\r\n' > "$headers"
@@ -92,6 +98,7 @@ mkdir -p "$RUNNER_TEMP"
 : > "$GITHUB_STEP_SUMMARY"
 "$script_dir/benchmark-artifact-cache.sh" >/dev/null
 grep -q '^### Mainnet snapshot artifact cache$' "$GITHUB_STEP_SUMMARY"
-grep -q '^- Local warm hit: ' "$GITHUB_STEP_SUMMARY"
+grep -q '^- Cache-only probe 1: .* (local-hit)$' "$GITHUB_STEP_SUMMARY"
+grep -q '^- Cache-only probe 2: .* (local-hit)$' "$GITHUB_STEP_SUMMARY"
 
 echo "artifact download helper tests passed"

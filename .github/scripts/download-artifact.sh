@@ -71,9 +71,13 @@ print(data["endpoint"], end="")
 
 cache_endpoint=$(discover_cache_endpoint || true)
 if [[ -n "$cache_endpoint" ]]; then
-  if curl --fail --silent --show-error --retry 2 --retry-all-errors \
+  # Artifact IDs are immutable and scheduled producers prefill the fleet.
+  # A compliant cache returns a stored response or a fast 504 instead of
+  # synchronously fetching a multi-gigabyte miss while the job waits.
+  if curl --fail --silent --show-error \
     --connect-timeout 5 --max-time 1800 \
     --header "Authorization: Bearer $GH_TOKEN" \
+    --header 'Cache-Control: only-if-cached' \
     --dump-header "$headers" --output "$archive" \
     "$cache_endpoint/v1/artifacts/$artifact_id"; then
     cache_result=$(awk -F': *' 'tolower($1)=="x-fireactions-cache" {gsub("\\r", "", $2); print tolower($2)}' "$headers" | tail -1)

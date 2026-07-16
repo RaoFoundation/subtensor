@@ -284,7 +284,7 @@ jobs:
             .github/workflows/refresh-mainnet-snapshot.yml 168 \
             "$GITHUB_OUTPUT" required
 
-      - name: Measure direct, local-cold, and local-warm artifact downloads
+      - name: Measure direct and cache-only artifact downloads
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
