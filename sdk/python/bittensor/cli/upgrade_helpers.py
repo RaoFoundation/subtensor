@@ -445,6 +445,24 @@ async def compose_finalizing_call(
     )
 
 
+async def finalizing_max_weight(client, finalizing, signer_address: str) -> dict:
+    """max_weight for the sudo-layer approval that dispatches ``finalizing``.
+
+    ``pallet_multisig`` rejects the executing ``as_multi`` with
+    ``MaxWeightTooLow`` unless its max_weight covers the wrapped call's
+    declared dispatch weight — which for the finalizing call is the pinned
+    ``FINALIZE_WEIGHT`` it embeds *plus* the multisig pallet's own overhead.
+    Estimate the declared weight from the live runtime and pad it 10% so the
+    approval never lands just under the line.
+    """
+
+    weight = await client.estimate_weight(finalizing, address=signer_address)
+    return {
+        "ref_time": int(weight["ref_time"] * 11 // 10),
+        "proof_size": int(weight["proof_size"] * 11 // 10),
+    }
+
+
 def sorted_other_signatories(signatories: list[str], self_address: str) -> list[str]:
     """Everyone but ``self_address``, sorted by raw account id (chain order)."""
     others = [s for s in signatories if s != self_address]

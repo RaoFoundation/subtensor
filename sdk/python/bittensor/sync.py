@@ -395,6 +395,9 @@ class SyncClient:
     def compose(self, call):
         return self._call(self._client.compose(call))
 
+    def estimate_weight(self, call, *, address):
+        return self._call(self._client.estimate_weight(call, address=address))
+
     def multisig(self, signatories, threshold):
         multi = self._call(self._client.multisig(signatories, threshold))
         return _SyncNamespace(multi, self._call)

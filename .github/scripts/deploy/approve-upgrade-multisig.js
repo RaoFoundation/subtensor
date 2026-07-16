@@ -37,7 +37,11 @@ async function getSudoMultisigProposal(
       remainingSignatories, // 2. List of other signatories in lexicographic order
       null, // 3. Timepoint (null for the first submission)
       multisigProposal.method.hash.toHex(), // 4. The call to be executed (proxy call of runtime upgrade)
-      { refTime: 60_000_000_000, proofSize: 10_000 } // 5. Maximum weight as an object
+      // Must cover the finalizing as_multi's declared weight: its own pinned
+      // 60e9/10k max_weight argument plus multisig+proxy overhead (measured
+      // ~65e9/21k on v431). Too-low values fail the executing approval with
+      // MaxWeightTooLow.
+      { refTime: 80_000_000_000, proofSize: 50_000 } // 5. Maximum weight as an object
     );
 
     return sudoMultiApprove;
@@ -50,7 +54,7 @@ async function getSudoMultisigProposal(
         remainingSignatories, // 2. List of other signatories in lexicographic order
         timePointAndBlockHeight, // 3. Timepoint (null for the first submission)
         multisigProposal.method.hash.toHex(), // 4. The call to be executed (proxy call of runtime upgrade)
-        { refTime: 60_000_000_000, proofSize: 10_000 } // 5. Maximum weight as an object
+        { refTime: 80_000_000_000, proofSize: 50_000 } // 5. Maximum weight as an object
       );
 
       return sudoMultiApprove;
@@ -62,7 +66,13 @@ async function getSudoMultisigProposal(
         remainingSignatories, // 2. List of other signatories in lexicographic order
         timePointAndBlockHeight, // 3. Timepoint (null for the first submission)
         multisigProposal, // 4. The call to be executed (proxy call of runtime upgrade)
-        { refTime: 60_000_000_000, proofSize: 10_000 } // 5. Maximum weight as an object
+        // The executing approval: max_weight must cover the finalizing
+        // as_multi's declared weight (its pinned 60e9/10k argument plus
+        // multisig+proxy overhead — measured ~65e9/21k on v431), or the
+        // chain rejects it with MaxWeightTooLow. The 60e9/10k literal at
+        // the deploymentMultisigProposal below is different: it is *inside*
+        // the finalizing call's encoding and must never change.
+        { refTime: 80_000_000_000, proofSize: 50_000 } // 5. Maximum weight as an object
       );
 
       return sudoMultiApprove;
