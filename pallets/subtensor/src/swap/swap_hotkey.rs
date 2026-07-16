@@ -27,20 +27,8 @@ impl<T: Config> Pallet<T> {
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
     /// existing precedence over a duplicate legacy row.
     fn prepare_hotkey_stake(old_hotkey: &T::AccountId) -> PreparedHotkeyStake<T::AccountId> {
-        let mut merged: BTreeMap<(T::AccountId, NetUid), SafeFloat> = BTreeMap::new();
-
-        for ((coldkey, netuid), alpha) in Alpha::<T>::iter_prefix((old_hotkey,)) {
-            merged.insert((coldkey, netuid), alpha.into());
-        }
-
-        for ((coldkey, netuid), alpha) in AlphaV2::<T>::iter_prefix((old_hotkey,)) {
-            merged.insert((coldkey, netuid), alpha);
-        }
-
-        let positions: Vec<(T::AccountId, NetUid, SafeFloat)> = merged
-            .into_iter()
-            .map(|((coldkey, netuid), alpha)| (coldkey, netuid, alpha))
-            .collect();
+        let positions: Vec<(T::AccountId, NetUid, SafeFloat)> =
+            Self::alpha_iter_single_prefix(old_hotkey).collect();
         let mut coldkeys_by_netuid: BTreeMap<NetUid, Vec<T::AccountId>> = BTreeMap::new();
 
         for (coldkey, netuid, _) in &positions {
