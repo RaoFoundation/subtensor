@@ -41,8 +41,10 @@ runs:
       if: inputs.test == 'dev'
       shell: bash
       run: |
-        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+        if ! command -v lsof >/dev/null 2>&1; then
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+        fi
 
     - name: Run tests
       shell: bash

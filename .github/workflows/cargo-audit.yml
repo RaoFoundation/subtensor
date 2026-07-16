@@ -34,8 +34,15 @@ jobs:
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
-      - name: Install cargo-audit
-        run: cargo install --force --locked cargo-audit
+      - name: Ensure cargo-audit
+        run: |
+          # The pinned runner image provides this exact binary. Old images and
+          # hosted runners keep the normal Cargo install fallback.
+          if cargo-audit --version 2>/dev/null | grep -Fq 'cargo-audit 0.22.2'; then
+            echo "Using preinstalled cargo-audit 0.22.2"
+          else
+            cargo install --locked cargo-audit --version 0.22.2
+          fi
 
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping

@@ -73,7 +73,11 @@ runs:
         # links dozens of test binaries. Guarded so a runner image without
         # the mold package falls back to the default linker instead of
         # failing every Rust job at setup.
-        if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mold; then
+        # The production runner image already carries mold. Avoid consulting
+        # apt (whose package lists are intentionally removed from the image)
+        # when the linker is ready, while retaining the old-runner fallback.
+        if command -v mold >/dev/null 2>&1 || \
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mold; then
           mkdir -p "$HOME/.cargo"
           cat >> "$HOME/.cargo/config.toml" <<'EOF'
         [target.x86_64-unknown-linux-gnu]

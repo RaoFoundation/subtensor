@@ -194,7 +194,9 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Install cargo-nextest
         run: |
-          curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
+          if ! cargo-nextest --version 2>/dev/null | grep -Fq 'cargo-nextest 0.9.140 '; then
+            curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
+          fi
           cargo nextest --version
       # nextest runs each test in its own process with better scheduling than
       # libtest's per-binary threading — typically 2-3x faster on suites this
@@ -255,8 +257,10 @@ jobs:
           node-version: 22
       - name: Install wasm-pack
         run: |
-          curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
-            | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
+          if ! wasm-pack --version 2>/dev/null | grep -Fq 'wasm-pack 0.13.1'; then
+            curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
+              | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
+          fi
           wasm-pack --version
       - name: wasm smoke test (node)
         run: |
@@ -313,5 +317,7 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Install and run zepter
         run: |
-          cargo install --locked -q zepter
+          if ! zepter --version 2>/dev/null | grep -Fq '1.88.1'; then
+            cargo install --locked -q zepter
+          fi
           zepter run check
