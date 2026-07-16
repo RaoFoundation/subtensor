@@ -38,6 +38,10 @@ on:
       - "!chain-extensions/src/tests.rs"
       - "!chain-extensions/src/mock.rs"
       - "!precompiles/src/mock.rs"
+      - "!node/tests/**"
+      - "!runtime/tests/**"
+      - "!support/*/tests/**"
+      - "!support/procedural-fork/src/pallet/parse/tests/**"
 
 concurrency:
   group: check-docker-${{ github.ref }}

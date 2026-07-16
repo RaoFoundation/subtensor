@@ -142,6 +142,14 @@ classify chain-extensions/src/tests.rs chain-extensions/src/mock.rs precompiles/
 assert_value e2e false
 assert_value build_count 0
 
+classify node/tests/chain_spec.rs runtime/tests/metadata.rs support/macros/tests/tests.rs
+assert_value e2e false
+assert_value build_count 0
+
+classify support/procedural-fork/src/pallet/parse/tests/tasks.rs
+assert_value e2e false
+assert_value build_count 0
+
 classify pallets/subtensor/src/migrations/migrate_staking.rs
 assert_value e2e false
 assert_value build_count 0
@@ -216,6 +224,11 @@ for file in \
     exit 1
   fi
 done
+if ! assert_cfg_test_module \
+  "$repo_root/support/procedural-fork/src/pallet/parse/mod.rs" tests; then
+  echo "classifier-ignored path is not cfg(test)-gated: support/procedural-fork/src/pallet/parse/tests" >&2
+  exit 1
+fi
 
 # The pull-request routing decision must execute base-branch code. The inline
 # bootstrap fallback is unavoidable while this PR introduces the scripts, so

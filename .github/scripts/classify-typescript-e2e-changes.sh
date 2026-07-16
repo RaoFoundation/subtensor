@@ -57,7 +57,7 @@ else
         ;;
 
       # Rust unit-test-only edits cannot change the node exercised by E2E.
-      pallets/*/src/tests/*|pallets/*/src/tests.rs|pallets/*/src/mock.rs|chain-extensions/src/tests.rs|chain-extensions/src/mock.rs|precompiles/src/mock.rs)
+      pallets/*/src/tests/*|pallets/*/src/tests.rs|pallets/*/src/mock.rs|chain-extensions/src/tests.rs|chain-extensions/src/mock.rs|precompiles/src/mock.rs|node/tests/*|runtime/tests/*|support/*/tests/*|support/procedural-fork/src/pallet/parse/tests/*)
         ;;
 
       # Fresh-genesis E2E networks never execute on-runtime-upgrade hooks.

@@ -22,7 +22,7 @@ while IFS= read -r path; do
     # Rust test modules are compiled and executed by Check Rust. They cannot
     # change the production node or runtime wasm consumed by this workflow, so
     # rebuilding and sudo-upgrading a mainnet clone adds no coverage.
-    pallets/*/src/tests/*|pallets/*/src/tests.rs|pallets/*/src/mock.rs|chain-extensions/src/tests.rs|chain-extensions/src/mock.rs|precompiles/src/mock.rs)
+    pallets/*/src/tests/*|pallets/*/src/tests.rs|pallets/*/src/mock.rs|chain-extensions/src/tests.rs|chain-extensions/src/mock.rs|precompiles/src/mock.rs|node/tests/*|runtime/tests/*|support/*/tests/*|support/procedural-fork/src/pallet/parse/tests/*)
       ;;
     common/*|node/*|pallets/*|precompiles/*|primitives/*|runtime/*|support/*|chain-extensions/*|src/*|vendor/*|Cargo.toml|build.rs|rust-toolchain.toml)
       runtime=true
