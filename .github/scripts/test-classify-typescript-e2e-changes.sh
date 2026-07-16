@@ -241,5 +241,6 @@ grep -Fq "echo 'state_count=$(value state_count)'" "$workflow"
 grep -Fq "echo 'state_matrix=$(value state_matrix)'" "$workflow"
 grep -Fq "echo 'build_count=$(value build_count)'" "$workflow"
 grep -Fq "echo 'build_matrix=$(value build_matrix)'" "$workflow"
+grep -Fq 'name: typescript-e2e-zombienet_evm' "$workflow"
 
 echo "typescript E2E change classifier tests passed"

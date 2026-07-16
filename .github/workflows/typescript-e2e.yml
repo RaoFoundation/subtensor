@@ -205,6 +205,26 @@ jobs:
           binary: ${{ matrix.binary }}
           test: ${{ matrix.test }}
 
+  # Keep the historical EVM check context stable while the implementation is
+  # split into balanced _a/_b jobs. This also reports success when path routing
+  # intentionally skips state E2E, avoiding a permanently Expected context.
+  evm-result:
+    name: typescript-e2e-zombienet_evm
+    if: always()
+    needs: [build, run-e2e-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check EVM shard prerequisites
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          STATE_RESULT: ${{ needs.run-e2e-tests.result }}
+        run: |
+          if [[ "$BUILD_RESULT" == "failure" || "$BUILD_RESULT" == "cancelled" || \
+                "$STATE_RESULT" == "failure" || "$STATE_RESULT" == "cancelled" ]]; then
+            echo "EVM E2E prerequisites failed: build=$BUILD_RESULT state-shards=$STATE_RESULT" >&2
+            exit 1
+          fi
+
   # Shield validates consensus, key rotation, timing, and transaction
   # mortality, so every shard retains the six-node topology and production
   # slot duration. A 250 ms runtime outruns the asynchronous key-rotation
