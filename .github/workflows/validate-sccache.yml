@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       benchmark_host_cache:
-        description: "Run paired cache benchmarks on the isolated turbo-8 cache canary"
+        description: "Run paired cache benchmarks on the cache-enabled turbo-8 fleet"
         type: boolean
         default: false
       benchmark_artifact_cache:
@@ -116,7 +116,7 @@ jobs:
 
   benchmark-sccache-paired:
     if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
-    runs-on: [self-hosted, fireactions-turbo-8-cache-canary]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -219,7 +219,7 @@ jobs:
       inputs.benchmark_host_cache &&
       inputs.benchmark_artifact_cache
     needs: benchmark-sccache-paired
-    runs-on: [self-hosted, fireactions-turbo-8-cache-canary]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 45
     permissions:
       contents: read

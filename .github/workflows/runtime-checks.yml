@@ -184,15 +184,8 @@ jobs:
     if: >-
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
-    # A same-repository PR can opt into the isolated host-cache canary without
-    # changing the runner placement of ordinary PRs or manual diagnostics.
-    runs-on: >-
-      ${{
-        github.event_name == 'pull_request' &&
-        contains(github.event.pull_request.labels.*.name, 'fireactions-cache-benchmark') &&
-        fromJSON('["self-hosted","fireactions-turbo-8-cache-canary"]') ||
-        fromJSON('["self-hosted","fireactions-turbo-8"]')
-      }}
+    # Every turbo host exposes the same fail-open local cache metadata.
+    runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
@@ -492,13 +485,7 @@ jobs:
   clone-upgrade:
     name: clone-upgrade
     needs: [trusted-pr, changes, build-node-release]
-    runs-on: >-
-      ${{
-        github.event_name == 'pull_request' &&
-        contains(github.event.pull_request.labels.*.name, 'fireactions-cache-benchmark') &&
-        fromJSON('["self-hosted","fireactions-turbo-8-cache-canary"]') ||
-        fromJSON('["self-hosted","fireactions-turbo-8"]')
-      }}
+    runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
     permissions:
