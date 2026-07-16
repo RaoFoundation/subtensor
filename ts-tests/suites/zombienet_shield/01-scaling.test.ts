@@ -166,7 +166,7 @@ describeSuite({
                     const innerTxHex = await api.tx.Balances.transfer_keep_alive({
                         dest: MultiAddress.Id(charlie.address),
                         value: amount,
-                    }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
+                    }).sign(getSignerFromKeypair(sender), { nonce: nonce + 1 });
 
                     txPromises.push(submitEncrypted(api, sender, hexToU8a(innerTxHex), nextKey, nonce));
                 }
@@ -174,7 +174,7 @@ describeSuite({
                 await Promise.all(txPromises);
 
                 const balanceAfter = await getBalance(api, charlie.address);
-                expect(balanceAfter).toBeGreaterThan(balanceBefore);
+                expect(balanceAfter).toBe(balanceBefore + BigInt(senders.length) * amount);
             },
         });
     },
