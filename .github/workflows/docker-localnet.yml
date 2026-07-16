@@ -269,6 +269,12 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ needs.setup.outputs.sha }}
             org.opencontainers.image.version=${{ needs.setup.outputs.tag }}
+          # GHCR reads multi-architecture package metadata from the OCI index,
+          # while Dockerfile labels live on each platform image config.
+          annotations: |
+            index:org.opencontainers.image.description=Subtensor local development network for CI and local testing
+            index:org.opencontainers.image.source=https://github.com/RaoFoundation/subtensor
+            index:org.opencontainers.image.licenses=Apache-2.0
 
   # CI consumers pull anonymously. A successful authenticated push is not
   # sufficient: fail if package visibility regresses to private.
@@ -304,6 +310,26 @@ jobs:
               sleep 10
             done
           done
+
+          repository="${GITHUB_REPOSITORY,,}-localnet"
+          registry_token="$(
+            curl -fsSL --get \
+              --data-urlencode "scope=repository:$repository:pull" \
+              https://ghcr.io/token \
+              | jq -er '.token // .access_token'
+          )"
+          manifest="$(
+            curl -fsSL \
+              -H "Authorization: Bearer $registry_token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json' \
+              "https://ghcr.io/v2/$repository/manifests/$TAG"
+          )"
+          test "$(jq -r '.annotations["org.opencontainers.image.description"]' <<<"$manifest")" = \
+            "Subtensor local development network for CI and local testing"
+          test "$(jq -r '.annotations["org.opencontainers.image.source"]' <<<"$manifest")" = \
+            "https://github.com/RaoFoundation/subtensor"
+          test "$(jq -r '.annotations["org.opencontainers.image.licenses"]' <<<"$manifest")" = \
+            "Apache-2.0"
 
           # Match the anonymous CI consumer path, including layer downloads
           # and execution, rather than treating manifest visibility as enough.
