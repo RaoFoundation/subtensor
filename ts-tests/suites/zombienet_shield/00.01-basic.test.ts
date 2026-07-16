@@ -31,6 +31,7 @@ describeSuite({
         let ferdie: KeyringPair;
         let one: KeyringPair;
         let two: KeyringPair;
+        let t04Recipient: KeyringPair;
 
         beforeAll(async () => {
             client = context.papi("Node");
@@ -45,6 +46,7 @@ describeSuite({
             ferdie = keyring.addFromUri("//Ferdie");
             one = keyring.addFromUri("//One");
             two = keyring.addFromUri("//Two");
+            t04Recipient = keyring.addFromUri("//ShieldT04Recipient");
 
             await checkRuntime(api);
 
@@ -52,8 +54,8 @@ describeSuite({
         }, 120000);
 
         // The environment runs these cases concurrently. Each case has a
-        // distinct sender nonce; the rejected T05/T06 calls reuse recipients
-        // only because neither is allowed to change their balance.
+        // distinct sender nonce and successful recipient; the rejected T05/T06
+        // calls share Dave only because neither is allowed to change his balance.
 
         it({
             id: "T01",
@@ -132,7 +134,7 @@ describeSuite({
                 const nextKey = await getNextKey(api);
                 expect(nextKey).toBeDefined();
 
-                const balanceBefore = await getBalance(api, two.address);
+                const balanceBefore = await getBalance(api, t04Recipient.address);
 
                 const senders = [ferdie, one];
                 const amount = 1_000_000_000n;
@@ -142,7 +144,7 @@ describeSuite({
                     const nonce = await getAccountNonce(api, sender.address);
 
                     const innerTxHex = await api.tx.Balances.transfer_keep_alive({
-                        dest: MultiAddress.Id(two.address),
+                        dest: MultiAddress.Id(t04Recipient.address),
                         value: amount,
                     }).sign(getSignerFromKeypair(sender), { nonce: nonce + 1 });
 
@@ -151,7 +153,7 @@ describeSuite({
 
                 await Promise.all(txPromises);
 
-                const balanceAfter = await getBalance(api, two.address);
+                const balanceAfter = await getBalance(api, t04Recipient.address);
                 expect(balanceAfter).toBe(balanceBefore + amount * BigInt(senders.length));
             },
         });
