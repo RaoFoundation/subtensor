@@ -17,7 +17,7 @@ the amount.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | EVM | `EVM.withdraw` |
+| `coldkey` | signed account | EVM | `EVM.withdraw` |
 
 ## Parameters
 
@@ -63,3 +63,9 @@ an agent would:
 ```python
 result = sub.execute_tool("evm_withdraw", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`EVM.withdraw` is implemented by Frontier's `pallet_evm` (vendored under `vendor/frontier`), outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

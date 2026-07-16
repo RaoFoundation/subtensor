@@ -17,7 +17,7 @@ deadline — but each call pays out only the subnets listed.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.claim_root` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.claim_root` |
 
 ## Parameters
 
@@ -63,3 +63,33 @@ an agent would:
 ```python
 result = sub.execute_tool("claim_root", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1904`](/code/pallets/subtensor/src/macros/dispatches.rs#L1904):
+
+```rust
+#[pallet::call_index(121)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
+pub fn claim_root(
+    origin: OriginFor<T>,
+    subnets: BTreeSet<NetUid>,
+) -> DispatchResultWithPostInfo {
+    let coldkey: T::AccountId = ensure_signed(origin)?;
+
+    ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
+    ensure!(
+        subnets.len() <= MAX_SUBNET_CLAIMS,
+        Error::<T>::InvalidSubnetNumber
+    );
+
+    Self::maybe_add_coldkey_index(&coldkey);
+
+    let weight = Self::do_root_claim(coldkey, Some(subnets))?;
+    Ok((Some(weight), Pays::Yes).into())
+}
+```
+
+Delegates to [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L389), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L355).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

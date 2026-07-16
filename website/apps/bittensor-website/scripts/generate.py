@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import functools
 import inspect
 import json
+import re
 import shutil
 import sys
 import tempfile
+import textwrap
 from dataclasses import MISSING, fields
 from pathlib import Path
 
@@ -177,11 +180,174 @@ def params_table(schema: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --- On-chain implementation ------------------------------------------------
+#
+# Each intent declares the chain call(s) it wraps; the pages link (and quote)
+# the actual dispatchable from the Rust source, served by the site's /code
+# viewer. Extraction is deterministic over the checkout, so --check also
+# catches docs whose line anchors drifted after a Rust change.
+
+REPO_ROOT = APP_DIR.parents[2]
+
+# Runtime pallet name (as used in Intent.wraps) -> in-repo crate directory.
+PALLET_DIRS = {
+    "SubtensorModule": "pallets/subtensor",
+    "AdminUtils": "pallets/admin-utils",
+    "Crowdloan": "pallets/crowdloan",
+    "Proxy": "pallets/proxy",
+    "Utility": "pallets/utility",
+}
+
+# Pallets wrapped by intents but implemented outside this repository's
+# pallets/ tree — the section says so instead of linking.
+UPSTREAM_PALLETS = {
+    "Balances": "Substrate's `pallet_balances`",
+    "Multisig": "Substrate's `pallet_multisig`",
+    "Sudo": "Substrate's `pallet_sudo`",
+    "EVM": "Frontier's `pallet_evm` (vendored under `vendor/frontier`)",
+}
+
+# Mirrors the /code corpus exclusions (src/lib/code.ts).
+_EXCLUDED_RUST = {"tests.rs", "mock.rs", "benchmarks.rs", "benchmarking.rs"}
+
+
+@functools.lru_cache(maxsize=None)
+def pallet_sources(pallet_dir: str) -> tuple[tuple[str, list[str]], ...]:
+    """(repo-relative path, lines) for each non-test source file of a crate."""
+    out = []
+    for path in sorted((REPO_ROOT / pallet_dir / "src").rglob("*.rs")):
+        if "tests" in path.parts or path.name in _EXCLUDED_RUST:
+            continue
+        rel = str(path.relative_to(REPO_ROOT))
+        out.append((rel, path.read_text().splitlines()))
+    return tuple(out)
+
+
+def find_dispatchable(pallet_dir: str, call: str) -> dict | None:
+    """Locate `pub fn <call>` guarded by #[pallet::call_index]; return its
+    file, 1-based line numbers, and the snippet from the attribute down to
+    the closing brace."""
+    fn_re = re.compile(rf"\s*pub fn {re.escape(call)}\s*\(")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if not fn_re.match(line):
+                continue
+            # The attribute block above the fn; require call_index so plain
+            # helpers with the same name never match. Intermediate lines may
+            # be multi-line attributes (e.g. a weight tuple), so only another
+            # function boundary invalidates the match.
+            start = None
+            for j in range(i - 1, max(0, i - 15) - 1, -1):
+                if "#[pallet::call_index" in lines[j]:
+                    start = j
+                    break
+                stripped = lines[j].strip()
+                if "pub fn " in stripped or stripped == "}":
+                    break
+            if start is None:
+                continue
+            depth = 0
+            opened = False
+            end = i
+            for k in range(i, len(lines)):
+                depth += lines[k].count("{") - lines[k].count("}")
+                opened = opened or "{" in lines[k]
+                if opened and depth <= 0:
+                    end = k
+                    break
+            snippet = textwrap.dedent("\n".join(lines[start : end + 1]))
+            return {
+                "path": rel,
+                "line": start + 1,
+                "fn_line": i + 1,
+                "body": lines[i : end + 1],
+                "snippet": snippet,
+            }
+    return None
+
+
+def find_fn(pallet_dir: str, name: str) -> tuple[str, int] | None:
+    """First `pub fn <name>` in the crate (any impl block), as (path, line)."""
+    fn_re = re.compile(rf"\s*pub(?:\(\w+\))? fn {re.escape(name)}\s*[(<]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if fn_re.match(line):
+                return rel, i + 1
+    return None
+
+
+def delegate_links(pallet_dir: str, dispatchable: dict, call: str) -> list[str]:
+    """Markdown links to the `Self::…` functions the dispatchable delegates
+    to, in call order — the pointer past the thin wrapper into the logic."""
+    links = []
+    seen = set()
+    for line in dispatchable["body"]:
+        for name in re.findall(r"Self::(\w+)\s*\(", line):
+            if name in seen or name == call:
+                continue
+            seen.add(name)
+            found = find_fn(pallet_dir, name)
+            if found:
+                path, lineno = found
+                links.append(f"[`{name}`](/code/{path}#L{lineno})")
+    return links[:3]
+
+
+def implementation_section(cls) -> str:
+    if not cls.wraps:
+        return ""
+    parts = ["## On-chain implementation\n"]
+    in_repo = [(p, c) for p, c in cls.wraps if p in PALLET_DIRS]
+
+    # An intent fanning out over many calls (set_hyperparameter) gets a link
+    # table; quoting dozens of near-identical dispatchables helps nobody.
+    if len(in_repo) > 3:
+        parts.append("| Chain call | Source |")
+        parts.append("| --- | --- |")
+        for pallet, call in in_repo:
+            found = find_dispatchable(PALLET_DIRS[pallet], call)
+            if found is None:
+                raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            parts.append(
+                f"| `{pallet}.{call}` | "
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}) |"
+            )
+        parts.append("")
+    else:
+        for pallet, call in cls.wraps:
+            if pallet in UPSTREAM_PALLETS:
+                parts.append(
+                    f"`{pallet}.{call}` is implemented by {UPSTREAM_PALLETS[pallet]}, "
+                    "outside this repository's pallets.\n"
+                )
+                continue
+            found = find_dispatchable(PALLET_DIRS[pallet], call)
+            if found is None:
+                raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            parts.append(
+                f"`{pallet}.{call}` — "
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}):\n"
+            )
+            parts.append(f"```rust\n{found['snippet']}\n```\n")
+            links = delegate_links(PALLET_DIRS[pallet], found, call)
+            if links:
+                parts.append(f"Delegates to {', '.join(links)}.\n")
+
+    parts.append(
+        "Every file is browsable under [/code](/code) exactly as built into "
+        "the runtime, or as plain text under `/code/raw/<path>` "
+        "(index: [`/code/index.json`](/code/index.json)).\n"
+    )
+    return "\n" + "\n".join(parts)
+
+
 # --- Intent (tx) pages -----------------------------------------------------
 
 # `Intent.origin` classvar -> the human phrasing the docs show for it.
+# "signed" is the extrinsic origin only — many calls still require a specific
+# hotkey, beneficiary, or other pallet role (see each intent's body).
 ORIGIN_LABELS = {
-    "signed": "any signed key",
+    "signed": "signed account (pallet role may apply)",
     "subnet_owner": "subnet owner",
     "root": "root (chain sudo)",
 }
@@ -279,7 +445,7 @@ an agent would:
 ```python
 result = sub.execute_tool("{op}", {{...}}, wallet)
 ```
-"""
+{implementation_section(cls)}"""
 
 
 def intent_index() -> str:

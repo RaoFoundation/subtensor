@@ -65,3 +65,37 @@ an agent would:
 ```python
 result = sub.execute_tool("set_mechanism_count", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`AdminUtils.sudo_set_mechanism_count` — [`pallets/admin-utils/src/lib.rs#L1871`](/code/pallets/admin-utils/src/lib.rs#L1871):
+
+```rust
+#[pallet::call_index(76)]
+#[pallet::weight(Weight::from_parts(15_000_000, 0)
+.saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
+.saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+pub fn sudo_set_mechanism_count(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    mechanism_count: MechId,
+) -> DispatchResult {
+    let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+        origin,
+        netuid,
+        &[TransactionType::MechanismCountUpdate],
+    )?;
+    pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+    pallet_subtensor::Pallet::<T>::do_set_mechanism_count(netuid, mechanism_count)?;
+
+    pallet_subtensor::Pallet::<T>::record_owner_rl(
+        maybe_owner,
+        netuid,
+        &[TransactionType::MechanismCountUpdate],
+    );
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

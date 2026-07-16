@@ -15,7 +15,7 @@ illiquid until you switch back to decaying and the lock runs off.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_perpetual_lock` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.set_perpetual_lock` |
 
 ## Parameters
 
@@ -64,3 +64,24 @@ an agent would:
 ```python
 result = sub.execute_tool("set_perpetual_lock", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_perpetual_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2325`](/code/pallets/subtensor/src/macros/dispatches.rs#L2325):
+
+```rust
+#[pallet::call_index(138)]
+#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(4, 3))]
+pub fn set_perpetual_lock(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    enabled: bool,
+) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+    Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
+}
+```
+
+Delegates to [`do_set_perpetual_lock`](/code/pallets/subtensor/src/staking/lock.rs#L655).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

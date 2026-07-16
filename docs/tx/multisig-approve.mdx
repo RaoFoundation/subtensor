@@ -18,7 +18,7 @@ signer, or with a mismatched timepoint, threshold, or signatory set, fails.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Multisig | `Multisig.as_multi`, `Multisig.approve_as_multi` |
+| `coldkey` | signed account | Multisig | `Multisig.as_multi`, `Multisig.approve_as_multi` |
 
 ## Parameters
 
@@ -71,3 +71,11 @@ an agent would:
 ```python
 result = sub.execute_tool("multisig_approve", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Multisig.as_multi` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
+
+`Multisig.approve_as_multi` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

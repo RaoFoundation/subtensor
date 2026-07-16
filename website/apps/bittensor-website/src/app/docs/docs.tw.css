@@ -10,6 +10,7 @@
 @import 'tailwindcss/utilities.css' source(none);
 
 @source './';
+@source '../code';
 @source '../../components';
 @source '../../lib';
 @source '../../../../../../docs';

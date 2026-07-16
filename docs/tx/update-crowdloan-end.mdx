@@ -13,7 +13,7 @@ loan has not been finalized.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.update_end` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.update_end` |
 
 ## Parameters
 
@@ -62,3 +62,39 @@ an agent would:
 ```python
 result = sub.execute_tool("update_crowdloan_end", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.update_end` — [`pallets/crowdloan/src/lib.rs#L863`](/code/pallets/crowdloan/src/lib.rs#L863):
+
+```rust
+#[pallet::call_index(7)]
+#[pallet::weight(T::WeightInfo::update_end())]
+pub fn update_end(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+    #[pallet::compact] new_end: BlockNumberFor<T>,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let now = frame_system::Pallet::<T>::block_number();
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can update the min contribution.
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    Self::ensure_valid_end(now, new_end)?;
+
+    crowdloan.end = new_end;
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    Self::deposit_event(Event::<T>::EndUpdated {
+        crowdloan_id,
+        new_end,
+    });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

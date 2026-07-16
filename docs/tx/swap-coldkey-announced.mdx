@@ -15,7 +15,7 @@ future operations sign with the new coldkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.swap_coldkey_announced` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.swap_coldkey_announced` |
 
 ## Parameters
 
@@ -61,3 +61,37 @@ an agent would:
 ```python
 result = sub.execute_tool("swap_coldkey_announced", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.swap_coldkey_announced` — [`pallets/subtensor/src/macros/dispatches.rs#L2038`](/code/pallets/subtensor/src/macros/dispatches.rs#L2038):
+
+```rust
+#[pallet::call_index(126)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced())]
+pub fn swap_coldkey_announced(
+    origin: OriginFor<T>,
+    new_coldkey: T::AccountId,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone())
+        .ok_or(Error::<T>::ColdkeySwapAnnouncementNotFound)?;
+
+    ensure!(
+        new_coldkey_hash == T::Hashing::hash_of(&new_coldkey),
+        Error::<T>::AnnouncedColdkeyHashDoesNotMatch
+    );
+
+    let now = <frame_system::Pallet<T>>::block_number();
+    ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
+
+    Self::do_swap_coldkey(&who, &new_coldkey)?;
+
+    Ok(())
+}
+```
+
+Delegates to [`do_swap_coldkey`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L6).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -16,7 +16,7 @@ existing lock on the subnet to move.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.move_lock` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.move_lock` |
 
 ## Parameters
 
@@ -65,3 +65,24 @@ an agent would:
 ```python
 result = sub.execute_tool("move_lock", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2309`](/code/pallets/subtensor/src/macros/dispatches.rs#L2309):
+
+```rust
+#[pallet::call_index(137)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_lock())]
+pub fn move_lock(
+    origin: OriginFor<T>,
+    destination_hotkey: T::AccountId,
+    netuid: NetUid,
+) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+    Self::do_move_lock(&coldkey, &destination_hotkey, netuid)
+}
+```
+
+Delegates to [`do_move_lock`](/code/pallets/subtensor/src/staking/lock.rs#L1733).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -18,7 +18,7 @@ owners.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.transfer_stake` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.transfer_stake` |
 
 ## Parameters
 
@@ -76,3 +76,33 @@ an agent would:
 ```python
 result = sub.execute_tool("transfer_stake", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1309`](/code/pallets/subtensor/src/macros/dispatches.rs#L1309):
+
+```rust
+#[pallet::call_index(86)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake())]
+pub fn transfer_stake(
+    origin: OriginFor<T>,
+    destination_coldkey: T::AccountId,
+    hotkey: T::AccountId,
+    origin_netuid: NetUid,
+    destination_netuid: NetUid,
+    alpha_amount: AlphaBalance,
+) -> DispatchResult {
+    Self::do_transfer_stake(
+        origin,
+        destination_coldkey,
+        hotkey,
+        origin_netuid,
+        destination_netuid,
+        alpha_amount,
+    )
+}
+```
+
+Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L120).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

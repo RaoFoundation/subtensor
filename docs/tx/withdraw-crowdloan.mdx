@@ -14,7 +14,7 @@ to withdraw.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.withdraw` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.withdraw` |
 
 ## Parameters
 
@@ -60,3 +60,59 @@ an agent would:
 ```python
 result = sub.execute_tool("withdraw_crowdloan", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.withdraw` — [`pallets/crowdloan/src/lib.rs#L548`](/code/pallets/crowdloan/src/lib.rs#L548):
+
+```rust
+#[pallet::call_index(2)]
+#[pallet::weight(T::WeightInfo::withdraw())]
+pub fn withdraw(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Ensure contributor has balance left in the crowdloan account
+    let mut amount = Contributions::<T>::get(crowdloan_id, &who).unwrap_or_else(Zero::zero);
+    ensure!(amount > Zero::zero(), Error::<T>::NoContribution);
+
+    if who == crowdloan.creator {
+        // Ensure the deposit is kept
+        amount = amount.saturating_sub(crowdloan.deposit);
+        ensure!(amount > Zero::zero(), Error::<T>::DepositCannotBeWithdrawn);
+        Contributions::<T>::insert(crowdloan_id, &who, crowdloan.deposit);
+    } else {
+        Contributions::<T>::remove(crowdloan_id, &who);
+        crowdloan.contributors_count = crowdloan
+            .contributors_count
+            .checked_sub(1)
+            .ok_or(Error::<T>::Underflow)?;
+    }
+
+    CurrencyOf::<T>::transfer(
+        &crowdloan.funds_account,
+        &who,
+        amount,
+        Preservation::Expendable,
+    )?;
+
+    // Update the crowdloan raised amount to reflect the withdrawal.
+    crowdloan.raised = crowdloan.raised.saturating_sub(amount);
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    Self::deposit_event(Event::<T>::Withdrew {
+        contributor: who,
+        crowdloan_id,
+        amount,
+    });
+
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

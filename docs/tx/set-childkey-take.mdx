@@ -14,7 +14,7 @@ minimum and maximum childkey take bounds, and rate-limits only increases
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_childkey_take` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.set_childkey_take` |
 
 ## Parameters
 
@@ -64,3 +64,27 @@ an agent would:
 ```python
 result = sub.execute_tool("set_childkey_take", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_childkey_take` — [`pallets/subtensor/src/macros/dispatches.rs#L929`](/code/pallets/subtensor/src/macros/dispatches.rs#L929):
+
+```rust
+#[pallet::call_index(75)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_childkey_take())]
+pub fn set_childkey_take(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    take: PerU16,
+) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+
+    // Call the utility function to set the childkey take
+    Self::do_set_childkey_take(coldkey, hotkey, netuid, take)
+}
+```
+
+Delegates to [`do_set_childkey_take`](/code/pallets/subtensor/src/staking/set_children.rs#L707).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

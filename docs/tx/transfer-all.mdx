@@ -14,7 +14,7 @@ existential deposit stays behind; disable it to empty and reap the account.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Balances | `Balances.transfer_all` |
+| `coldkey` | signed account | Balances | `Balances.transfer_all` |
 
 ## Parameters
 
@@ -61,3 +61,9 @@ an agent would:
 ```python
 result = sub.execute_tool("transfer_all", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Balances.transfer_all` is implemented by Substrate's `pallet_balances`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -13,7 +13,7 @@ data — running the metrics server is up to the caller.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.serve_prometheus` |
+| `hotkey` | signed account | SubtensorModule | `SubtensorModule.serve_prometheus` |
 
 ## Parameters
 
@@ -66,3 +66,26 @@ an agent would:
 ```python
 result = sub.execute_tool("serve_prometheus", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.serve_prometheus` — [`pallets/subtensor/src/macros/dispatches.rs#L758`](/code/pallets/subtensor/src/macros/dispatches.rs#L758):
+
+```rust
+#[pallet::call_index(5)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_prometheus(), DispatchClass::Normal, Pays::No))]
+pub fn serve_prometheus(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    version: u32,
+    ip: u128,
+    port: u16,
+    ip_type: u8,
+) -> DispatchResult {
+    Self::do_serve_prometheus(origin, netuid, version, ip, port, ip_type)
+}
+```
+
+Delegates to [`do_serve_prometheus`](/code/pallets/subtensor/src/subnets/serving.rs#L135).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

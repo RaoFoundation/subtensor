@@ -17,7 +17,7 @@ back with the `auto_stake` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
 
 ## Parameters
 
@@ -64,3 +64,57 @@ an agent would:
 ```python
 result = sub.execute_tool("set_auto_stake", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1795`](/code/pallets/subtensor/src/macros/dispatches.rs#L1795):
+
+```rust
+#[pallet::call_index(114)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_coldkey_auto_stake_hotkey())]
+pub fn set_coldkey_auto_stake_hotkey(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    hotkey: T::AccountId,
+) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+    ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+    ensure!(
+        Uids::<T>::contains_key(netuid, &hotkey),
+        Error::<T>::HotKeyNotRegisteredInSubNet
+    );
+
+    let current_hotkey = AutoStakeDestination::<T>::get(coldkey.clone(), netuid);
+    if let Some(current_hotkey) = current_hotkey {
+        ensure!(
+            current_hotkey != hotkey,
+            Error::<T>::SameAutoStakeHotkeyAlreadySet
+        );
+
+        // Remove the coldkey from the old hotkey (if present)
+        AutoStakeDestinationColdkeys::<T>::mutate(current_hotkey.clone(), netuid, |v| {
+            v.retain(|c| c != &coldkey);
+        });
+    }
+
+    // Add the coldkey to the new hotkey (if not already present)
+    AutoStakeDestination::<T>::insert(coldkey.clone(), netuid, hotkey.clone());
+    AutoStakeDestinationColdkeys::<T>::mutate(hotkey.clone(), netuid, |v| {
+        if !v.contains(&coldkey) {
+            v.push(coldkey.clone());
+        }
+    });
+
+    Self::deposit_event(Event::AutoStakeDestinationSet {
+        coldkey,
+        netuid,
+        hotkey,
+    });
+
+    Ok(())
+}
+```
+
+Delegates to [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L39).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

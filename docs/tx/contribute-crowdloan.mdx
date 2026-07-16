@@ -15,7 +15,7 @@ success, the funds go to the loan's target or fund its inner call.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.contribute` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.contribute` |
 
 ## Parameters
 
@@ -64,3 +64,111 @@ an agent would:
 ```python
 result = sub.execute_tool("contribute_crowdloan", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.contribute` — [`pallets/crowdloan/src/lib.rs#L440`](/code/pallets/crowdloan/src/lib.rs#L440):
+
+```rust
+#[pallet::call_index(1)]
+#[pallet::weight(T::WeightInfo::contribute())]
+pub fn contribute(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+    #[pallet::compact] amount: BalanceOf<T>,
+) -> DispatchResult {
+    let contributor = ensure_signed(origin)?;
+    let now = frame_system::Pallet::<T>::block_number();
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+
+    // Ensure crowdloan has not ended and has not raised cap
+    ensure!(now < crowdloan.end, Error::<T>::ContributionPeriodEnded);
+    ensure!(crowdloan.raised < crowdloan.cap, Error::<T>::CapRaised);
+
+    // Ensure contribution is at least the minimum contribution
+    ensure!(
+        amount >= crowdloan.min_contribution,
+        Error::<T>::ContributionTooLow
+    );
+
+    // Ensure the crowdloan has not reached the maximum number of contributors
+    ensure!(
+        crowdloan.contributors_count < T::MaxContributors::get(),
+        Error::<T>::MaxContributorsReached
+    );
+
+    // Compute how much room is left before the crowdloan reaches its cap.
+    let left_to_raise = crowdloan
+        .cap
+        .checked_sub(&crowdloan.raised)
+        .ok_or(Error::<T>::Underflow)?;
+
+    // The requested contribution must meet the minimum contribution, but
+    // the accepted amount may be lower when only a smaller remainder can
+    // be accepted before reaching the crowdloan cap or the contributor's
+    // maximum contribution.
+    let amount = if let Some(max_contribution) = MaxContributions::<T>::get(crowdloan_id) {
+        let current_contribution =
+            Contributions::<T>::get(crowdloan_id, &contributor).unwrap_or_else(Zero::zero);
+        ensure!(
+            current_contribution < max_contribution,
+            Error::<T>::MaxContributionReached
+        );
+        let left_to_contribute = max_contribution
+            .checked_sub(&current_contribution)
+            .ok_or(Error::<T>::Underflow)?;
+        amount.min(left_to_contribute).min(left_to_raise)
+    } else {
+        amount.min(left_to_raise)
+    };
+
+    // Ensure contribution does not overflow the actual raised amount
+    crowdloan.raised = crowdloan
+        .raised
+        .checked_add(&amount)
+        .ok_or(Error::<T>::Overflow)?;
+
+    // Compute the new total contribution and ensure it does not overflow, we
+    // also increment the contributor count if the contribution is new.
+    let contribution =
+        if let Some(contribution) = Contributions::<T>::get(crowdloan_id, &contributor) {
+            contribution
+                .checked_add(&amount)
+                .ok_or(Error::<T>::Overflow)?
+        } else {
+            // We have a new contribution
+            crowdloan.contributors_count = crowdloan
+                .contributors_count
+                .checked_add(1)
+                .ok_or(Error::<T>::Overflow)?;
+            amount
+        };
+
+    // Ensure contributor has enough balance to pay
+    ensure!(
+        CurrencyOf::<T>::balance(&contributor) >= amount,
+        Error::<T>::InsufficientBalance
+    );
+
+    CurrencyOf::<T>::transfer(
+        &contributor,
+        &crowdloan.funds_account,
+        amount,
+        Preservation::Expendable,
+    )?;
+
+    Contributions::<T>::insert(crowdloan_id, &contributor, contribution);
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    Self::deposit_event(Event::<T>::Contributed {
+        crowdloan_id,
+        contributor,
+        amount,
+    });
+
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

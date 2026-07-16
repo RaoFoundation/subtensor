@@ -11,7 +11,7 @@ import {
 import { ChevronRight, Menu, Search as SearchIcon, X } from 'lucide-react';
 import type { TreeNode } from '@/lib/tree';
 import { cn } from '@/lib/cn';
-import { SidebarSearch } from './search';
+import { SidebarSearch, useSearchController } from './search';
 
 /* The bittensor.com header is 88px tall on desktop (32px padding + 24px logo). */
 const HEADER_OFFSET = 'top-[88px] h-[calc(100dvh-88px)]';
@@ -26,10 +26,16 @@ const DrawerContext = createContext<{
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const { registerMobileOpener } = useSearchController();
 
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  useEffect(
+    () => registerMobileOpener(() => setOpen(true)),
+    [registerMobileOpener],
+  );
 
   return (
     <DrawerContext.Provider value={{ open, setOpen }}>
@@ -52,14 +58,14 @@ export function SidebarTrigger() {
   );
 }
 
-/** Mobile header search button: the search input lives in the drawer. */
+/** Mobile header search button: opens the drawer and focuses the input. */
 export function SidebarSearchTrigger() {
-  const { setOpen } = useContext(DrawerContext);
+  const { open } = useSearchController();
   return (
     <button
       type="button"
       aria-label="Search"
-      onClick={() => setOpen(true)}
+      onClick={() => open()}
       className="p-2 text-mute hover:text-fg md:hidden"
     >
       <SearchIcon className="size-3.5" />

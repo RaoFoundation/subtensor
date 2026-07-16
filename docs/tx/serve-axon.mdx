@@ -15,7 +15,7 @@ endpoint.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.serve_axon` |
+| `hotkey` | signed account | SubtensorModule | `SubtensorModule.serve_axon` |
 
 ## Parameters
 
@@ -69,3 +69,40 @@ an agent would:
 ```python
 result = sub.execute_tool("serve_axon", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.serve_axon` — [`pallets/subtensor/src/macros/dispatches.rs#L650`](/code/pallets/subtensor/src/macros/dispatches.rs#L650):
+
+```rust
+#[pallet::call_index(4)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon(), DispatchClass::Normal, Pays::No))]
+pub fn serve_axon(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    version: u32,
+    ip: u128,
+    port: u16,
+    ip_type: u8,
+    protocol: u8,
+    placeholder1: u8,
+    placeholder2: u8,
+) -> DispatchResult {
+    Self::do_serve_axon(
+        origin,
+        netuid,
+        version,
+        ip,
+        port,
+        ip_type,
+        protocol,
+        placeholder1,
+        placeholder2,
+        None,
+    )
+}
+```
+
+Delegates to [`do_serve_axon`](/code/pallets/subtensor/src/subnets/serving.rs#L42).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

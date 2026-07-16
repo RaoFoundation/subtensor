@@ -17,7 +17,7 @@ hitting either cap fails until the window passes. Use
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.root_register` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.root_register` |
 
 ## Parameters
 
@@ -61,3 +61,19 @@ an agent would:
 ```python
 result = sub.execute_tool("root_register", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L819`](/code/pallets/subtensor/src/macros/dispatches.rs#L819):
+
+```rust
+#[pallet::call_index(62)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
+pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_root_register(origin, hotkey)
+}
+```
+
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -18,7 +18,7 @@ you made yourself.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.dispute_coldkey_swap` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.dispute_coldkey_swap` |
 
 ## Parameters
 
@@ -60,3 +60,32 @@ an agent would:
 ```python
 result = sub.execute_tool("dispute_coldkey_swap", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.dispute_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2069`](/code/pallets/subtensor/src/macros/dispatches.rs#L2069):
+
+```rust
+#[pallet::call_index(127)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dispute_coldkey_swap())]
+pub fn dispute_coldkey_swap(origin: OriginFor<T>) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+
+    ensure!(
+        ColdkeySwapAnnouncements::<T>::contains_key(&coldkey),
+        Error::<T>::ColdkeySwapAnnouncementNotFound
+    );
+    ensure!(
+        !ColdkeySwapDisputes::<T>::contains_key(&coldkey),
+        Error::<T>::ColdkeySwapAlreadyDisputed
+    );
+
+    let now = <frame_system::Pallet<T>>::block_number();
+    ColdkeySwapDisputes::<T>::insert(&coldkey, now);
+
+    Self::deposit_event(Event::ColdkeySwapDisputed { coldkey });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

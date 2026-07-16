@@ -21,7 +21,7 @@ persists is controlled per coldkey per subnet with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.lock_stake` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.lock_stake` |
 
 ## Parameters
 
@@ -71,3 +71,25 @@ an agent would:
 ```python
 result = sub.execute_tool("lock_stake", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2285`](/code/pallets/subtensor/src/macros/dispatches.rs#L2285):
+
+```rust
+#[pallet::call_index(136)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::lock_stake())]
+pub fn lock_stake(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    amount: AlphaBalance,
+) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+    Self::do_lock_stake(&coldkey, netuid, &hotkey, amount)
+}
+```
+
+Delegates to [`do_lock_stake`](/code/pallets/subtensor/src/staking/lock.rs#L775).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

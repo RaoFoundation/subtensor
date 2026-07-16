@@ -11,7 +11,7 @@ change it, and only while the loan has not been finalized.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.update_min_contribution` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.update_min_contribution` |
 
 ## Parameters
 
@@ -60,3 +60,48 @@ an agent would:
 ```python
 result = sub.execute_tool("update_crowdloan_min_contribution", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.update_min_contribution` — [`pallets/crowdloan/src/lib.rs#L819`](/code/pallets/crowdloan/src/lib.rs#L819):
+
+```rust
+#[pallet::call_index(6)]
+#[pallet::weight(T::WeightInfo::update_min_contribution())]
+pub fn update_min_contribution(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+    #[pallet::compact] new_min_contribution: BalanceOf<T>,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can update the min contribution.
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    // The new min contribution should be greater than absolute minimum contribution.
+    ensure!(
+        new_min_contribution >= T::AbsoluteMinimumContribution::get(),
+        Error::<T>::MinimumContributionTooLow
+    );
+    if let Some(max_contribution) = MaxContributions::<T>::get(crowdloan_id) {
+        ensure!(
+            new_min_contribution <= max_contribution,
+            Error::<T>::MinimumContributionTooHigh
+        );
+    }
+
+    crowdloan.min_contribution = new_min_contribution;
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    Self::deposit_event(Event::<T>::MinContributionUpdated {
+        crowdloan_id,
+        new_min_contribution,
+    });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

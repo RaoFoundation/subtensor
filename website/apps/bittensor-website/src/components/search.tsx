@@ -18,17 +18,67 @@ import { cn } from '@/lib/cn';
     provider can fall through to another instance, e.g. mobile vs desktop). */
 type Focuser = () => boolean;
 
-const SearchContext = createContext<{
+type SearchController = {
   register: (focus: Focuser) => () => void;
-}>({ register: () => () => {} });
+  /** Open the correct search surface (desktop input or mobile drawer) and focus. */
+  open: () => void;
+  /** Mobile drawer registers how to open itself when no mounted input can focus. */
+  registerMobileOpener: (openDrawer: () => void) => () => void;
+};
+
+const SearchContext = createContext<SearchController>({
+  register: () => () => {},
+  open: () => {},
+  registerMobileOpener: () => () => {},
+});
+
+export function useSearchController() {
+  return useContext(SearchContext);
+}
 
 export function SearchProvider({ children }: { children: React.ReactNode }) {
   const focusers = useRef(new Set<Focuser>());
+  const mobileOpener = useRef<(() => void) | null>(null);
+  const pendingFocus = useRef(false);
 
-  const register = useCallback((focus: Focuser) => {
-    focusers.current.add(focus);
+  const tryFocus = useCallback(() => {
+    for (const focus of focusers.current) {
+      if (focus()) {
+        pendingFocus.current = false;
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  const open = useCallback(() => {
+    if (tryFocus()) return;
+    pendingFocus.current = true;
+    mobileOpener.current?.();
+    // Mobile SidebarSearch mounts after the drawer opens; its register()
+    // call drains pendingFocus once the input is in the tree.
+  }, [tryFocus]);
+
+  const register = useCallback(
+    (focus: Focuser) => {
+      focusers.current.add(focus);
+      if (pendingFocus.current) {
+        // Defer one frame so the input's layout (offsetParent) is settled.
+        requestAnimationFrame(() => {
+          if (pendingFocus.current) tryFocus();
+        });
+      }
+      return () => {
+        focusers.current.delete(focus);
+      };
+    },
+    [tryFocus],
+  );
+
+  const registerMobileOpener = useCallback((openDrawer: () => void) => {
+    mobileOpener.current = openDrawer;
     return () => {
-      focusers.current.delete(focus);
+      if (mobileOpener.current === openDrawer) mobileOpener.current = null;
     };
   }, []);
 
@@ -36,19 +86,20 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
     function onKey(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
         event.preventDefault();
-        for (const focus of focusers.current) {
-          if (focus()) break;
-        }
+        open();
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [open]);
+
+  const value = useMemo(
+    () => ({ register, open, registerMobileOpener }),
+    [register, open, registerMobileOpener],
+  );
 
   return (
-    <SearchContext.Provider value={{ register }}>
-      {children}
-    </SearchContext.Provider>
+    <SearchContext.Provider value={value}>{children}</SearchContext.Provider>
   );
 }
 
@@ -147,7 +198,7 @@ export function SidebarSearch({ children }: { children: React.ReactNode }) {
   const { search, setSearch, query } = useDocsSearch({ type: 'fetch' });
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { register } = useContext(SearchContext);
+  const { register } = useSearchController();
 
   useEffect(
     () =>

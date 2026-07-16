@@ -14,7 +14,7 @@ contribution (including the deposit) and removes the loan.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.refund` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.refund` |
 
 ## Parameters
 
@@ -60,3 +60,77 @@ an agent would:
 ```python
 result = sub.execute_tool("refund_crowdloan", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.refund` — [`pallets/crowdloan/src/lib.rs#L688`](/code/pallets/crowdloan/src/lib.rs#L688):
+
+```rust
+#[pallet::call_index(4)]
+#[pallet::weight(T::WeightInfo::refund(T::RefundContributorsLimit::get()))]
+pub fn refund(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+) -> DispatchResultWithPostInfo {
+    let who = ensure_signed(origin)?;
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+
+    // Ensure the crowdloan is not finalized
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can refund the crowdloan
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    let mut refunded_contributors: Vec<T::AccountId> = vec![];
+    let mut refund_count = 0;
+
+    // Assume everyone can be refunded
+    let mut all_refunded = true;
+
+    // We try to refund all contributors (excluding the creator)
+    let contributions = Contributions::<T>::iter_prefix(crowdloan_id)
+        .filter(|(contributor, _)| *contributor != crowdloan.creator);
+    for (contributor, amount) in contributions {
+        if refund_count >= T::RefundContributorsLimit::get() {
+            // Not everyone can be refunded
+            all_refunded = false;
+            break;
+        }
+
+        CurrencyOf::<T>::transfer(
+            &crowdloan.funds_account,
+            &contributor,
+            amount,
+            Preservation::Expendable,
+        )?;
+
+        refunded_contributors.push(contributor);
+        crowdloan.raised = crowdloan.raised.saturating_sub(amount);
+        refund_count = refund_count.checked_add(1).ok_or(Error::<T>::Overflow)?;
+    }
+
+    crowdloan.contributors_count = crowdloan
+        .contributors_count
+        .checked_sub(refund_count)
+        .ok_or(Error::<T>::Underflow)?;
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    // Clear refunded contributors
+    for contributor in refunded_contributors {
+        Contributions::<T>::remove(crowdloan_id, &contributor);
+    }
+
+    if all_refunded {
+        Self::deposit_event(Event::<T>::AllRefunded { crowdloan_id });
+        // The loop didn't run fully, we refund the unused weights.
+        Ok(Some(T::WeightInfo::refund(refund_count)).into())
+    } else {
+        Self::deposit_event(Event::<T>::PartiallyRefunded { crowdloan_id });
+        // The loop ran fully, we don't refund anything.
+        Ok(().into())
+    }
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

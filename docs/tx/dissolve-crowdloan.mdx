@@ -14,7 +14,7 @@ outstanding fails — refund first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.dissolve` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.dissolve` |
 
 ## Parameters
 
@@ -60,3 +60,57 @@ an agent would:
 ```python
 result = sub.execute_tool("dissolve_crowdloan", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.dissolve` — [`pallets/crowdloan/src/lib.rs#L763`](/code/pallets/crowdloan/src/lib.rs#L763):
+
+```rust
+#[pallet::call_index(5)]
+#[pallet::weight(T::WeightInfo::dissolve())]
+pub fn dissolve(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can dissolve the crowdloan
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    // It can only be dissolved if the raised amount is the creator's contribution,
+    // meaning there is no contributions or every contribution has been refunded
+    let creator_contribution = Contributions::<T>::get(crowdloan_id, &crowdloan.creator)
+        .ok_or(Error::<T>::NoContribution)?;
+    ensure!(
+        creator_contribution == crowdloan.raised,
+        Error::<T>::NotReadyToDissolve
+    );
+
+    // Refund the creator's contribution
+    CurrencyOf::<T>::transfer(
+        &crowdloan.funds_account,
+        &crowdloan.creator,
+        creator_contribution,
+        Preservation::Expendable,
+    )?;
+    Contributions::<T>::remove(crowdloan_id, &crowdloan.creator);
+
+    // Clear the call from the preimage storage
+    if let Some(call) = crowdloan.call {
+        T::Preimages::drop(&call);
+    }
+
+    // Remove the crowdloan
+    let _ = frame_system::Pallet::<T>::dec_providers(&crowdloan.funds_account).defensive();
+    Crowdloans::<T>::remove(crowdloan_id);
+    MaxContributions::<T>::remove(crowdloan_id);
+
+    Self::deposit_event(Event::<T>::Dissolved { crowdloan_id });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -216,7 +216,7 @@ class TestExecuteFlow:
         substrate.queue_result(replace(success_result(), events=[inner_err]))
         result = await client.execute(intent, wallet, proxy_for=BOB)
         assert not result.success
-        assert "proxied call failed" in result.message
+        assert "nested call failed" in result.message
 
     @pytest.mark.asyncio
     async def test_transient_pool_rejection_is_retried(

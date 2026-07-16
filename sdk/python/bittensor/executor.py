@@ -20,6 +20,7 @@ import bittensor_core as _core
 from ._generated import calls as generated_calls
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
+from ._transport.utils.receipt import nested_dispatch_error
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
@@ -51,6 +52,13 @@ def _is_transient(result: ExtrinsicResult) -> bool:
     return any(needle in message for needle in _TRANSIENT_SUBSTRINGS)
 
 
+def _is_sudo_call(call: Any) -> bool:
+    """Whether ``call`` is already a composed ``Sudo.sudo`` wrapper."""
+    module = getattr(call, "module", None) or getattr(call, "call_module", None)
+    function = getattr(call, "function", None) or getattr(call, "call_function", None)
+    return module == "Sudo" and function == "sudo"
+
+
 def _coerce_addresses(intent: Intent) -> Intent:
     """Normalize the intent's ``*_ss58`` / ``*_ss58s`` fields: a ``Wallet``,
     keypair, or signer passed where an address string is expected becomes its
@@ -76,21 +84,6 @@ def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
         event = record.get("event", record) if isinstance(record, dict) else {}
         if event.get("module_id") == module_id and event.get("event_id") == event_id:
             return event.get("attributes")
-    return None
-
-
-def _proxy_inner_error(events: list) -> Optional[Any]:
-    """The ``Err`` payload of a ``Proxy.ProxyExecuted`` event, or None.
-
-    A proxied extrinsic *succeeds* even when the wrapped call fails — the inner
-    outcome is only reported through this event, so it must be checked.
-    """
-    attributes = _find_event(events, "Proxy", "ProxyExecuted")
-    if attributes is None:
-        return None
-    result = attributes.get("result") if isinstance(attributes, dict) else attributes
-    if isinstance(result, dict) and "Err" in result:
-        return result["Err"]
     return None
 
 
@@ -178,6 +171,11 @@ class Executor:
             call, extras = built.call, built.extras
         else:
             call, extras = built, {}
+        # Root intents declare privilege via ``origin``; wrap here so metadata
+        # and execution cannot drift (an intent that forgets Sudo.sudo still
+        # dispatches as root, and docs stay authoritative).
+        if intent.origin == "root" and not _is_sudo_call(call):
+            call = await self.substrate.compose(generated_calls.Sudo.sudo(call=call))
         pub = self._public_keypair(wallet, intent.signer)
         signer_address = pub.ss58_address
         # The account whose state the call actually touches.
@@ -263,14 +261,17 @@ class Executor:
                 break
             # One block, as the chain measures it (0.25s on fast-blocks localnets).
             await asyncio.sleep(await self.substrate.block_time())
-        if proxy_for is not None and result.success:
-            inner_error = _proxy_inner_error(result.events)
+        # Defense for backends that mark ExtrinsicSuccess without decoding
+        # nested Sudo/Proxy/Multisig Results (e.g. in-memory fakes). The RPC
+        # path already fails these in resolve_outcome.
+        if result.success:
+            inner_error = nested_dispatch_error(result.events)
             if inner_error is not None:
                 error = chain_error_from_dispatch(inner_error)
                 result = replace(
                     result,
                     success=False,
-                    message=f"proxied call failed: {error.message}",
+                    message=f"nested call failed: {error.message}",
                     error=error,
                 )
         if result.success:

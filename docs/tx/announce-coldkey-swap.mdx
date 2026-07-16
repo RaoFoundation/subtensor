@@ -23,7 +23,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.announce_coldkey_swap` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.announce_coldkey_swap` |
 
 ## Parameters
 
@@ -69,3 +69,43 @@ an agent would:
 ```python
 result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.announce_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2000`](/code/pallets/subtensor/src/macros/dispatches.rs#L2000):
+
+```rust
+#[pallet::call_index(125)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap())]
+pub fn announce_coldkey_swap(
+    origin: OriginFor<T>,
+    new_coldkey_hash: T::Hash,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let now = <frame_system::Pallet<T>>::block_number();
+
+    if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
+        let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
+        let min_when = when.saturating_add(reannouncement_delay);
+        ensure!(now >= min_when, Error::<T>::ColdkeySwapReannouncedTooEarly);
+    } else {
+        // Only charge the swap cost on the first announcement
+        let swap_cost = Self::get_key_swap_cost();
+        Self::charge_swap_cost(&who, swap_cost)?;
+    }
+
+    let delay = ColdkeySwapAnnouncementDelay::<T>::get();
+    let when = now.saturating_add(delay);
+    ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
+
+    Self::deposit_event(Event::ColdkeySwapAnnounced {
+        who,
+        new_coldkey_hash,
+    });
+    Ok(())
+}
+```
+
+Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L827), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L52).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -39,14 +39,14 @@ from .protocols import (
 )
 from .rpc import RpcSession
 from .utils.receipt import (
-    build_system_error_message,
+    dispatch_error_message,
     extract_failure_details,
     extract_fallback_deposit_fee_amount,
     extract_success_weight,
     extract_total_fee_amount,
     is_extrinsic_failure_event,
     is_extrinsic_success_event,
-    normalize_module_error,
+    nested_dispatch_error,
 )
 
 IMMORTAL = "00"
@@ -380,8 +380,10 @@ def resolve_outcome(extrinsic_events: list[dict], codec: RuntimeCodec) -> dict:
     Returns ``{"is_success", "total_fee_amount", "weight", "error_message"}``.
     The fee is ``TransactionPayment.TransactionFeePaid`` when present, else the
     sum of Treasury/Balances deposits (older runtimes). Failures come from
-    ``System.ExtrinsicFailed`` or Bittensor's MevShield rejection events, with
-    module errors resolved to their metadata name/docs.
+    ``System.ExtrinsicFailed``, Bittensor's MevShield rejection events, or a
+    nested ``Err`` inside Sudo/Proxy/Multisig wrapper events (those wrappers
+    still emit ``System.ExtrinsicSuccess`` when only the inner call fails).
+    Module errors are resolved to their metadata name/docs.
     """
     total_fee, has_fee_paid_event = extract_total_fee_amount(extrinsic_events)
     is_success: Optional[bool] = None
@@ -402,18 +404,17 @@ def resolve_outcome(extrinsic_events: list[dict], codec: RuntimeCodec) -> dict:
             if details["error_message"] is not None:
                 error_message = details["error_message"]
                 continue
-            dispatch_error = details["dispatch_error"]
-            if dispatch_error is None:
-                continue
-            module_error = normalize_module_error(dispatch_error)
-            if module_error is not None:
-                error_message = codec.module_error(
-                    module_error["module_index"], module_error["error_index"]
-                )
-            else:
-                error_message = build_system_error_message(dispatch_error)
+            error_message = dispatch_error_message(details["dispatch_error"], codec)
         elif not has_fee_paid_event:
             total_fee += extract_fallback_deposit_fee_amount(event)
+
+    # Outer ExtrinsicSuccess with a nested wrapper Err is still a failure.
+    if possible_success and error_message is None:
+        nested_error = nested_dispatch_error(extrinsic_events)
+        if nested_error is not None:
+            possible_success = False
+            is_success = False
+            error_message = dispatch_error_message(nested_error, codec)
 
     if possible_success and error_message is None:
         is_success = True

@@ -24,13 +24,15 @@ thread, torn down automatically when the object is garbage collected), while
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import threading
 from typing import Generator, Optional, Union
 
 from .client import Client
 from .intents.weights import SetWeights
 from .result import BittensorError, ExtrinsicResult
-from .settings import DEFAULT_NETWORK
+from .settings import DEFAULT_NETWORK, resolve_endpoint
 from .signing import WalletLike, as_wallet
 from .sync import SyncClient
 from .wallet import Wallet
@@ -113,20 +115,36 @@ class Subtensor(SyncClient):
 
 
 # Shared blocking clients for the module-level convenience functions: one per
-# network, connected on first use, cleaned up by SyncClient's GC finalizer at
-# process exit. A validator loop calling set_weights() every tempo reuses one
-# connection instead of redialing.
+# canonical endpoint, connected on first use. Prefer a caller-owned Subtensor/
+# SyncClient for long-lived processes; this registry exists so a validator loop
+# calling set_weights() every tempo reuses one connection instead of redialing.
+# Closed explicitly via close_shared_clients() or at process exit.
 _shared_lock = threading.Lock()
 _shared_clients: dict[str, SyncClient] = {}
 
 
 def _shared_client(network: str) -> SyncClient:
+    # Canonicalize so "finney" and its default wss URL share one entry.
+    _, endpoint = resolve_endpoint(network)
     with _shared_lock:
-        client = _shared_clients.get(network)
+        client = _shared_clients.get(endpoint)
         if client is None:
             client = SyncClient(network)
-            _shared_clients[network] = client
+            _shared_clients[endpoint] = client
         return client
+
+
+def close_shared_clients() -> None:
+    """Close every client cached for ``set_weights`` (and clear the registry)."""
+    with _shared_lock:
+        clients = list(_shared_clients.values())
+        _shared_clients.clear()
+    for client in clients:
+        with contextlib.suppress(Exception):
+            client.close()
+
+
+atexit.register(close_shared_clients)
 
 
 def _resolve_wallet(wallet: Union[WalletLike, None], hotkey: Optional[str]) -> WalletLike:

@@ -17,7 +17,7 @@ staked.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.unstake_all` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.unstake_all` |
 
 ## Parameters
 
@@ -63,3 +63,19 @@ an agent would:
 ```python
 result = sub.execute_tool("unstake_all", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1220`](/code/pallets/subtensor/src/macros/dispatches.rs#L1220):
+
+```rust
+#[pallet::call_index(83)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
+pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_unstake_all(origin, hotkey)
+}
+```
+
+Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L110).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

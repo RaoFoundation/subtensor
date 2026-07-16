@@ -28,22 +28,36 @@ from .snapshot import Snapshot
 _NAMESPACES = tuple(NAMESPACES)
 
 
-def _finalize_sync(loop: "_Loop", client: Client, state: dict) -> None:
-    """GC/exit fallback for a SyncClient that was never close()d: close the
-    connection on the private loop, then stop the loop thread. Runs via
-    ``weakref.finalize`` (so also at interpreter exit, before threads die).
-    Receives only the internals — never the SyncClient itself, which would
-    keep it alive forever."""
+def _teardown_sync(loop: "_Loop", client: Client, state: dict) -> None:
+    """One teardown path for explicit ``close()`` and the GC finalizer.
+
+    Always shuts the loop down, even when ``client.close()`` raises — otherwise
+    a failed substrate close would leave the background thread running with no
+    finalizer left to clean it up.
+    """
     if loop.is_shutdown:
         return
-    # The cycle collector can run this on any thread — including the loop's
-    # own (it allocates constantly). Blocking on the loop from its own thread
-    # would deadlock; just stop the loop and let the daemon thread drop the
-    # socket with it.
-    if state.get("connected") and not loop.owns_current_thread:
-        with contextlib.suppress(Exception):
-            loop.call(client.close(), timeout=5)
-    loop.shutdown()
+    try:
+        # The cycle collector can run this on any thread — including the loop's
+        # own (it allocates constantly). Blocking on the loop from its own thread
+        # would deadlock; just stop the loop and let the daemon thread drop the
+        # socket with it.
+        if state.get("connected") and not loop.owns_current_thread:
+            with contextlib.suppress(Exception):
+                loop.call(client.close(), timeout=5)
+            state["connected"] = False
+    finally:
+        loop.shutdown()
+
+
+def _finalize_sync(loop: "_Loop", client: Client, state: dict) -> None:
+    """GC/exit fallback for a SyncClient that was never close()d.
+
+    Runs via ``weakref.finalize`` (so also at interpreter exit, before threads
+    die). Receives only the internals — never the SyncClient itself, which
+    would keep it alive forever.
+    """
+    _teardown_sync(loop, client, state)
 
 
 class _Loop:
@@ -166,6 +180,22 @@ class SyncSnapshot:
 
 
 class SyncClient:
+    # Explicit so type checkers see the same namespace surface as ``Client``
+    # (a loop of setattr alone is invisible to them).
+    balances: _SyncNamespace
+    chain: _SyncNamespace
+    delegation: _SyncNamespace
+    epochs: _SyncNamespace
+    hyperparameters: _SyncNamespace
+    identity: _SyncNamespace
+    leasing: _SyncNamespace
+    locks: _SyncNamespace
+    neurons: _SyncNamespace
+    prices: _SyncNamespace
+    staking: _SyncNamespace
+    subnets: _SyncNamespace
+    weights: _SyncNamespace
+
     def __init__(
         self,
         network: str = DEFAULT_NETWORK,
@@ -193,9 +223,21 @@ class SyncClient:
         # completely cold.
         self._loop_thread: Optional[_Loop] = None
         self._finalizer: Optional[weakref.finalize] = None
-        for ns in _NAMESPACES:
-            setattr(self, ns, _SyncNamespace(getattr(self._client, ns), self._call))
-
+        # Keep in sync with namespaces.NAMESPACES / Client (explicit so type
+        # checkers see each attribute; a setattr loop is invisible to them).
+        self.balances = _SyncNamespace(self._client.balances, self._call)
+        self.chain = _SyncNamespace(self._client.chain, self._call)
+        self.delegation = _SyncNamespace(self._client.delegation, self._call)
+        self.epochs = _SyncNamespace(self._client.epochs, self._call)
+        self.hyperparameters = _SyncNamespace(self._client.hyperparameters, self._call)
+        self.identity = _SyncNamespace(self._client.identity, self._call)
+        self.leasing = _SyncNamespace(self._client.leasing, self._call)
+        self.locks = _SyncNamespace(self._client.locks, self._call)
+        self.neurons = _SyncNamespace(self._client.neurons, self._call)
+        self.prices = _SyncNamespace(self._client.prices, self._call)
+        self.staking = _SyncNamespace(self._client.staking, self._call)
+        self.subnets = _SyncNamespace(self._client.subnets, self._call)
+        self.weights = _SyncNamespace(self._client.weights, self._call)
     # Lifecycle ----------------------------------------------------------------
 
     def _ensure_loop(self) -> _Loop:
@@ -234,13 +276,18 @@ class SyncClient:
     def close(self) -> None:
         """Deterministic teardown. Optional: garbage collection (or process
         exit) triggers the same cleanup for clients that are never closed."""
-        if self._finalizer is not None:
-            self._finalizer.detach()
-        if self._state["connected"]:
-            self._loop.call(self._client.close())
-            self._state["connected"] = False
-        if self._loop_thread is not None:
-            self._loop_thread.shutdown()
+        loop = self._loop_thread
+        finalizer = self._finalizer
+        self._finalizer = None
+        try:
+            # Teardown first — never detach the finalizer before the loop is
+            # stopped, or a failed substrate close leaves a live thread with
+            # no cleanup path.
+            if loop is not None:
+                _teardown_sync(loop, self._client, self._state)
+        finally:
+            if finalizer is not None:
+                finalizer.detach()
 
     def __enter__(self) -> "SyncClient":
         return self.connect()

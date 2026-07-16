@@ -15,7 +15,7 @@ take over the hotkey.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.try_associate_hotkey` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.try_associate_hotkey` |
 
 ## Parameters
 
@@ -59,3 +59,23 @@ an agent would:
 ```python
 result = sub.execute_tool("associate_hotkey", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.try_associate_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1529`](/code/pallets/subtensor/src/macros/dispatches.rs#L1529):
+
+```rust
+#[pallet::call_index(91)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey())]
+pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+
+    Self::do_try_associate_hotkey(&coldkey, &hotkey)?;
+
+    Ok(())
+}
+```
+
+Delegates to [`do_try_associate_hotkey`](/code/pallets/subtensor/src/staking/account.rs#L4).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

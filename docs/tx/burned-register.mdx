@@ -19,7 +19,7 @@ period ends. Use `root_register` instead for the root network
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.burned_register` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.burned_register` |
 
 ## Parameters
 
@@ -66,3 +66,23 @@ an agent would:
 ```python
 result = sub.execute_tool("burned_register", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.burned_register` — [`pallets/subtensor/src/macros/dispatches.rs#L826`](/code/pallets/subtensor/src/macros/dispatches.rs#L826):
+
+```rust
+#[pallet::call_index(7)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register())]
+pub fn burned_register(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    hotkey: T::AccountId,
+) -> DispatchResult {
+    Self::do_register(origin, netuid, hotkey)
+}
+```
+
+Delegates to [`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

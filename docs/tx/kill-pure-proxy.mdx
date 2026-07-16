@@ -13,7 +13,7 @@ account become permanently inaccessible, so empty it first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Proxy | `Proxy.kill_pure` |
+| `coldkey` | signed account | Proxy | `Proxy.kill_pure` |
 
 ## Parameters
 
@@ -63,3 +63,43 @@ an agent would:
 ```python
 result = sub.execute_tool("kill_pure_proxy", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L384`](/code/pallets/proxy/src/lib.rs#L384):
+
+```rust
+#[pallet::call_index(5)]
+#[pallet::weight(T::WeightInfo::kill_pure(T::MaxProxies::get()))]
+pub fn kill_pure(
+    origin: OriginFor<T>,
+    spawner: AccountIdLookupOf<T>,
+    proxy_type: T::ProxyType,
+    index: u16,
+    #[pallet::compact] height: BlockNumberFor<T>,
+    #[pallet::compact] ext_index: u32,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let spawner = T::Lookup::lookup(spawner)?;
+
+    let when = (height, ext_index);
+    let proxy = Self::pure_account(&spawner, &proxy_type, index, Some(when))?;
+    ensure!(proxy == who, Error::<T>::NoPermission);
+
+    let (_, deposit) = Proxies::<T>::take(&who);
+    T::Currency::unreserve(&spawner, deposit);
+
+    Self::deposit_event(Event::PureKilled {
+        pure: who,
+        spawner,
+        proxy_type,
+        disambiguation_index: index,
+    });
+
+    Ok(())
+}
+```
+
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L907).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

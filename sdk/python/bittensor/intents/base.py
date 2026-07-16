@@ -25,10 +25,12 @@ if TYPE_CHECKING:
 
 Signer = Literal["coldkey", "hotkey"]
 
-# Who the chain accepts this operation from. "signed" = any funded key;
-# "subnet_owner" = the owner coldkey of the netuid the intent touches;
-# "root" = the chain sudo key (or the sudo multisig) — the call is wrapped
-# in Sudo.sudo at build time.
+# Dispatch privilege the chain's call filter accepts before pallet logic runs.
+# This is *not* a full application-role model: "signed" only means a signed
+# extrinsic origin — the pallet may still require a registered hotkey, the
+# stake beneficiary, the subnet owner, etc. "subnet_owner" / "root" are the
+# cases the SDK elevates in docs and (for root) wraps with Sudo.sudo at
+# execute time. Finer roles belong in each intent's docstring / field help.
 Origin = Literal["signed", "subnet_owner", "root"]
 
 # Field annotations are strings here (PEP 563 / `from __future__ import annotations`),
@@ -114,11 +116,11 @@ class Intent(ABC):
 
     op: ClassVar[str]
     signer: ClassVar[Signer] = "coldkey"
-    # Privilege the chain demands: "signed" (any funded key), "subnet_owner"
-    # (the owner coldkey of the touched netuid), or "root" (the chain sudo
-    # key / sudo multisig). Surfaced in the tool catalog, the CLI help and
-    # pre-sign plan, and the generated docs — so an agent or human knows
-    # whether they *can* run an operation before building it.
+    # Extrinsic-origin privilege (not a full app-role model): "signed" (any
+    # signed account — pallet checks may still require a hotkey, beneficiary,
+    # owner, …), "subnet_owner" (owner coldkey of the touched netuid), or
+    # "root" (chain sudo key / sudo multisig; Executor wraps Sudo.sudo).
+    # Surfaced in the tool catalog, CLI help, pre-sign plan, and docs.
     origin: ClassVar[Origin] = "signed"
     # The registered read that confirms this intent's effect after inclusion
     # (e.g. "subnet_emission_enabled"). Optional, but every root intent should

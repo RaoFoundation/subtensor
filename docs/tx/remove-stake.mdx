@@ -22,7 +22,7 @@ position instead of leaving dust (`AmountTooLow`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.remove_stake`, `SubtensorModule.remove_stake_limit` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.remove_stake`, `SubtensorModule.remove_stake_limit` |
 
 ## Parameters
 
@@ -76,3 +76,50 @@ an agent would:
 ```python
 result = sub.execute_tool("remove_stake", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.remove_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L603`](/code/pallets/subtensor/src/macros/dispatches.rs#L603):
+
+```rust
+#[pallet::call_index(3)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake())]
+pub fn remove_stake(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    amount_unstaked: AlphaBalance,
+) -> DispatchResult {
+    Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)
+}
+```
+
+Delegates to [`do_remove_stake`](/code/pallets/subtensor/src/staking/remove_stake.rs#L35).
+
+`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1454`](/code/pallets/subtensor/src/macros/dispatches.rs#L1454):
+
+```rust
+#[pallet::call_index(89)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_limit())]
+pub fn remove_stake_limit(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    amount_unstaked: AlphaBalance,
+    limit_price: TaoBalance,
+    allow_partial: bool,
+) -> DispatchResult {
+    Self::do_remove_stake_limit(
+        origin,
+        hotkey,
+        netuid,
+        amount_unstaked,
+        limit_price,
+        allow_partial,
+    )
+}
+```
+
+Delegates to [`do_remove_stake_limit`](/code/pallets/subtensor/src/staking/remove_stake.rs#L298).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

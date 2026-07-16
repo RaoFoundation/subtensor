@@ -71,3 +71,39 @@ an agent would:
 ```python
 result = sub.execute_tool("set_hyperparameter", {...}, wallet)
 ```
+
+## On-chain implementation
+
+| Chain call | Source |
+| --- | --- |
+| `AdminUtils.sudo_set_tempo` | [`pallets/admin-utils/src/lib.rs#L1018`](/code/pallets/admin-utils/src/lib.rs#L1018) |
+| `AdminUtils.sudo_set_immunity_period` | [`pallets/admin-utils/src/lib.rs#L457`](/code/pallets/admin-utils/src/lib.rs#L457) |
+| `AdminUtils.sudo_set_min_allowed_weights` | [`pallets/admin-utils/src/lib.rs#L490`](/code/pallets/admin-utils/src/lib.rs#L490) |
+| `AdminUtils.sudo_set_weights_version_key` | [`pallets/admin-utils/src/lib.rs#L339`](/code/pallets/admin-utils/src/lib.rs#L339) |
+| `AdminUtils.sudo_set_activity_cutoff_factor` | [`pallets/admin-utils/src/lib.rs#L662`](/code/pallets/admin-utils/src/lib.rs#L662) |
+| `AdminUtils.sudo_set_min_burn` | [`pallets/admin-utils/src/lib.rs#L747`](/code/pallets/admin-utils/src/lib.rs#L747) |
+| `AdminUtils.sudo_set_max_burn` | [`pallets/admin-utils/src/lib.rs#L786`](/code/pallets/admin-utils/src/lib.rs#L786) |
+| `AdminUtils.sudo_set_bonds_moving_average` | [`pallets/admin-utils/src/lib.rs#L878`](/code/pallets/admin-utils/src/lib.rs#L878) |
+| `AdminUtils.sudo_set_bonds_penalty` | [`pallets/admin-utils/src/lib.rs#L917`](/code/pallets/admin-utils/src/lib.rs#L917) |
+| `AdminUtils.sudo_set_serving_rate_limit` | [`pallets/admin-utils/src/lib.rs#L256`](/code/pallets/admin-utils/src/lib.rs#L256) |
+| `AdminUtils.sudo_set_commit_reveal_weights_interval` | [`pallets/admin-utils/src/lib.rs#L1366`](/code/pallets/admin-utils/src/lib.rs#L1366) |
+| `AdminUtils.sudo_set_max_allowed_uids` | [`pallets/admin-utils/src/lib.rs#L523`](/code/pallets/admin-utils/src/lib.rs#L523) |
+| `AdminUtils.sudo_set_burn_increase_mult` | [`pallets/admin-utils/src/lib.rs#L2174`](/code/pallets/admin-utils/src/lib.rs#L2174) |
+| `AdminUtils.sudo_set_burn_half_life` | [`pallets/admin-utils/src/lib.rs#L2126`](/code/pallets/admin-utils/src/lib.rs#L2126) |
+| `AdminUtils.sudo_set_adjustment_alpha` | [`pallets/admin-utils/src/lib.rs#L426`](/code/pallets/admin-utils/src/lib.rs#L426) |
+| `AdminUtils.sudo_set_rho` | [`pallets/admin-utils/src/lib.rs#L589`](/code/pallets/admin-utils/src/lib.rs#L589) |
+| `AdminUtils.sudo_set_max_difficulty` | [`pallets/admin-utils/src/lib.rs#L306`](/code/pallets/admin-utils/src/lib.rs#L306) |
+| `AdminUtils.sudo_set_alpha_sigmoid_steepness` | [`pallets/admin-utils/src/lib.rs#L1621`](/code/pallets/admin-utils/src/lib.rs#L1621) |
+| `AdminUtils.sudo_set_min_childkey_take_per_subnet` | [`pallets/admin-utils/src/lib.rs#L1190`](/code/pallets/admin-utils/src/lib.rs#L1190) |
+| `AdminUtils.sudo_set_owner_immune_neuron_limit` | [`pallets/admin-utils/src/lib.rs#L1807`](/code/pallets/admin-utils/src/lib.rs#L1807) |
+| `AdminUtils.sudo_set_alpha_values` | [`pallets/admin-utils/src/lib.rs#L1291`](/code/pallets/admin-utils/src/lib.rs#L1291) |
+| `AdminUtils.sudo_set_commit_reveal_weights_enabled` | [`pallets/admin-utils/src/lib.rs#L1229`](/code/pallets/admin-utils/src/lib.rs#L1229) |
+| `AdminUtils.sudo_set_liquid_alpha_enabled` | [`pallets/admin-utils/src/lib.rs#L1267`](/code/pallets/admin-utils/src/lib.rs#L1267) |
+| `AdminUtils.sudo_set_network_pow_registration_allowed` | [`pallets/admin-utils/src/lib.rs#L707`](/code/pallets/admin-utils/src/lib.rs#L707) |
+| `AdminUtils.sudo_set_yuma3_enabled` | [`pallets/admin-utils/src/lib.rs#L1666`](/code/pallets/admin-utils/src/lib.rs#L1666) |
+| `AdminUtils.sudo_set_bonds_reset_enabled` | [`pallets/admin-utils/src/lib.rs#L1700`](/code/pallets/admin-utils/src/lib.rs#L1700) |
+| `AdminUtils.sudo_set_toggle_transfer` | [`pallets/admin-utils/src/lib.rs#L1457`](/code/pallets/admin-utils/src/lib.rs#L1457) |
+| `AdminUtils.sudo_set_owner_cut_enabled` | [`pallets/admin-utils/src/lib.rs#L2224`](/code/pallets/admin-utils/src/lib.rs#L2224) |
+| `AdminUtils.sudo_set_owner_cut_auto_lock_enabled` | [`pallets/admin-utils/src/lib.rs#L2254`](/code/pallets/admin-utils/src/lib.rs#L2254) |
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -15,7 +15,7 @@ the hotkey, which must be registered on the subnet. Use plain
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.serve_axon_tls` |
+| `hotkey` | signed account | SubtensorModule | `SubtensorModule.serve_axon_tls` |
 
 ## Parameters
 
@@ -72,3 +72,41 @@ an agent would:
 ```python
 result = sub.execute_tool("serve_axon_tls", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.serve_axon_tls` — [`pallets/subtensor/src/macros/dispatches.rs#L716`](/code/pallets/subtensor/src/macros/dispatches.rs#L716):
+
+```rust
+#[pallet::call_index(40)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon_tls(), DispatchClass::Normal, Pays::No))]
+pub fn serve_axon_tls(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    version: u32,
+    ip: u128,
+    port: u16,
+    ip_type: u8,
+    protocol: u8,
+    placeholder1: u8,
+    placeholder2: u8,
+    certificate: Vec<u8>,
+) -> DispatchResult {
+    Self::do_serve_axon(
+        origin,
+        netuid,
+        version,
+        ip,
+        port,
+        ip_type,
+        protocol,
+        placeholder1,
+        placeholder2,
+        Some(certificate),
+    )
+}
+```
+
+Delegates to [`do_serve_axon`](/code/pallets/subtensor/src/subnets/serving.rs#L42).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

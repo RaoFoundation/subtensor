@@ -81,3 +81,35 @@ an agent would:
 ```python
 result = sub.execute_tool("set_subnet_emission_enabled", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`AdminUtils.sudo_set_subnet_emission_enabled` — [`pallets/admin-utils/src/lib.rs#L2282`](/code/pallets/admin-utils/src/lib.rs#L2282):
+
+```rust
+#[pallet::call_index(94)]
+#[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_subnet_emission_enabled())]
+pub fn sudo_set_subnet_emission_enabled(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    enabled: bool,
+) -> DispatchResult {
+    ensure_root(origin)?;
+
+    ensure!(
+        pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+        Error::<T>::SubnetDoesNotExist
+    );
+    ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+
+    pallet_subtensor::SubnetEmissionEnabled::<T>::insert(netuid, enabled);
+    Self::deposit_event(Event::SubnetEmissionEnabledSet { netuid, enabled });
+    log::debug!("SubnetEmissionEnabledSet( netuid: {netuid:?}, enabled: {enabled:?} )");
+
+    Ok(())
+}
+```
+
+`Sudo.sudo` is implemented by Substrate's `pallet_sudo`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

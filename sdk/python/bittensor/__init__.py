@@ -85,7 +85,7 @@ from .signing import (
     public_view,
     resolve_signer,
 )
-from ._subtensor import Subtensor, set_weights
+from ._subtensor import Subtensor, close_shared_clients, set_weights
 from .snapshot import Snapshot
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
@@ -112,6 +112,7 @@ globals().update(_INTENT_EXPORTS)
 __all__ = [
     "Subtensor",
     "set_weights",
+    "close_shared_clients",
     "Client",
     "SyncClient",
     # The chain-access contract and its production (websocket RPC) backend.

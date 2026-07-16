@@ -14,7 +14,7 @@ block with the `lease` read before calling.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.terminate_lease` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.terminate_lease` |
 
 ## Parameters
 
@@ -61,3 +61,23 @@ an agent would:
 ```python
 result = sub.execute_tool("terminate_lease", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1705`](/code/pallets/subtensor/src/macros/dispatches.rs#L1705):
+
+```rust
+#[pallet::call_index(111)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get()))]
+pub fn terminate_lease(
+    origin: OriginFor<T>,
+    lease_id: LeaseId,
+    hotkey: T::AccountId,
+) -> DispatchResultWithPostInfo {
+    Self::do_terminate_lease(origin, lease_id, hotkey)
+}
+```
+
+Delegates to [`do_terminate_lease`](/code/pallets/subtensor/src/subnets/leasing.rs#L182).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -14,7 +14,7 @@ matching announcement exists.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Proxy | `Proxy.proxy_announced` |
+| `coldkey` | signed account | Proxy | `Proxy.proxy_announced` |
 
 ## Parameters
 
@@ -70,3 +70,48 @@ an agent would:
 ```python
 result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L549`](/code/pallets/proxy/src/lib.rs#L549):
+
+```rust
+        #[pallet::call_index(9)]
+        #[pallet::weight({
+			let di = call.get_dispatch_info();
+			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+				 // AccountData for inner call origin accountdata.
+				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+				.saturating_add(di.call_weight),
+			DispatchClass::Normal)
+		})]
+        pub fn proxy_announced(
+            origin: OriginFor<T>,
+            delegate: AccountIdLookupOf<T>,
+            real: AccountIdLookupOf<T>,
+            force_proxy_type: Option<T::ProxyType>,
+            call: Box<<T as Config>::RuntimeCall>,
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
+            let delegate = T::Lookup::lookup(delegate)?;
+            let real = T::Lookup::lookup(real)?;
+            let def = Self::find_proxy(&real, &delegate, force_proxy_type)?;
+
+            let call_hash = T::CallHasher::hash_of(&call);
+            let now = T::BlockNumberProvider::current_block_number();
+            Self::edit_announcements(&delegate, |ann| {
+                ann.real != real
+                    || ann.call_hash != call_hash
+                    || now.saturating_sub(ann.height) < def.delay
+            })
+            .map_err(|_| Error::<T>::Unannounced)?;
+
+            Self::do_proxy(def, real, *call);
+
+            Ok(())
+        }
+```
+
+Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1085).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

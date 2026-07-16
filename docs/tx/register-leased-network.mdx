@@ -19,7 +19,7 @@ perpetual and ownership never transfers.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.register_leased_network` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.register_leased_network` |
 
 ## Parameters
 
@@ -66,3 +66,23 @@ an agent would:
 ```python
 result = sub.execute_tool("register_leased_network", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1682`](/code/pallets/subtensor/src/macros/dispatches.rs#L1682):
+
+```rust
+#[pallet::call_index(110)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
+pub fn register_leased_network(
+    origin: OriginFor<T>,
+    emissions_share: Percent,
+    end_block: Option<BlockNumberFor<T>>,
+) -> DispatchResultWithPostInfo {
+    Self::do_register_leased_network(origin, emissions_share, end_block)
+}
+```
+
+Delegates to [`do_register_leased_network`](/code/pallets/subtensor/src/subnets/leasing.rs#L69).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -11,7 +11,7 @@ creator may change it, and only while the loan has not been finalized.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.set_max_contribution` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.set_max_contribution` |
 
 ## Parameters
 
@@ -58,3 +58,47 @@ an agent would:
 ```python
 result = sub.execute_tool("set_crowdloan_max_contribution", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.set_max_contribution` — [`pallets/crowdloan/src/lib.rs#L935`](/code/pallets/crowdloan/src/lib.rs#L935):
+
+```rust
+#[pallet::call_index(9)]
+#[pallet::weight(T::WeightInfo::set_max_contribution())]
+pub fn set_max_contribution(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+    new_max_contribution: Option<BalanceOf<T>>,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can update the max contribution.
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    if let Some(max_contribution) = new_max_contribution {
+        let creator_contribution =
+            Contributions::<T>::get(crowdloan_id, &crowdloan.creator)
+                .unwrap_or_else(Zero::zero);
+        ensure!(
+            max_contribution >= crowdloan.min_contribution
+                && max_contribution >= creator_contribution,
+            Error::<T>::MaximumContributionTooLow
+        );
+        MaxContributions::<T>::insert(crowdloan_id, max_contribution);
+    } else {
+        MaxContributions::<T>::remove(crowdloan_id);
+    }
+
+    Self::deposit_event(Event::<T>::MaxContributionUpdated {
+        crowdloan_id,
+        new_max_contribution,
+    });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

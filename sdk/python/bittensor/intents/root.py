@@ -1,11 +1,11 @@
 """Root-origin chain administration intents.
 
-These intents wrap calls the chain only accepts from its root origin: at
-build time the inner call is composed and nested in ``Sudo.sudo``, so the
-signer must be the chain sudo key. When the sudo key is a multisig, the built
-``Sudo.sudo`` call is what the multisig signatories approve and dispatch (via
-the multisig intents or ``btcli call``'s ``--multisig`` flags). Every intent
-here declares a ``verify`` read that confirms its effect after inclusion.
+These intents build the inner call the chain only accepts from its root
+origin. ``Executor`` nests that call in ``Sudo.sudo`` from ``origin = "root"``,
+so the signer must be the chain sudo key. When the sudo key is a multisig,
+that ``Sudo.sudo`` call is what the multisig signatories approve and dispatch
+(via the multisig intents or ``btcli call``'s ``--multisig`` flags). Every
+intent here declares a ``verify`` read that confirms its effect after inclusion.
 """
 
 from __future__ import annotations
@@ -33,11 +33,12 @@ class SetSubnetEmissionEnabled(Intent):
     subnet from emission share calculation and does not touch ``alpha_out``,
     the owner cut, root proportion, or pending server/validator emission.
 
-    Requires the chain sudo key: the built call is wrapped in ``Sudo.sudo``,
-    and when root is a multisig that ``Sudo.sudo`` call is what the multisig
-    must dispatch. Multiple netuids batch atomically via
-    ``Utility.batch_all`` inside the single sudo call. Verify the effect
-    afterwards with the ``subnet_emission_enabled`` read.
+    Requires the chain sudo key: ``Executor`` wraps the built call in
+    ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig
+    that ``Sudo.sudo`` call is what the multisig must dispatch. Multiple
+    netuids batch atomically via ``Utility.batch_all`` inside the single sudo
+    call. Verify the effect afterwards with the ``subnet_emission_enabled``
+    read.
     """
 
     op = "set_subnet_emission_enabled"
@@ -65,16 +66,16 @@ class SetSubnetEmissionEnabled(Intent):
         self.netuids = [int(n) for n in self.netuids]
 
     async def build(self, substrate, wallet: Any):
+        # Inner call only — Executor wraps ``Sudo.sudo`` from ``origin = "root"``
+        # so privilege metadata and dispatch stay in lockstep.
         inner = [
             calls.AdminUtils.sudo_set_subnet_emission_enabled(netuid=n, enabled=self.enabled)
             for n in self.netuids
         ]
         if len(inner) == 1:
-            call = inner[0]
-        else:
-            composed = [await substrate.compose(c) for c in inner]
-            call = calls.Utility.batch_all(calls=composed)
-        return await substrate.compose(calls.Sudo.sudo(call=await substrate.compose(call)))
+            return await substrate.compose(inner[0])
+        composed = [await substrate.compose(c) for c in inner]
+        return await substrate.compose(calls.Utility.batch_all(calls=composed))
 
     def summary(self) -> str:
         action = "enable" if self.enabled else "disable"

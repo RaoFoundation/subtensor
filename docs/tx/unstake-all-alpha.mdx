@@ -16,7 +16,7 @@ incur slippage.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.unstake_all_alpha` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.unstake_all_alpha` |
 
 ## Parameters
 
@@ -62,3 +62,19 @@ an agent would:
 ```python
 result = sub.execute_tool("unstake_all_alpha", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1244`](/code/pallets/subtensor/src/macros/dispatches.rs#L1244):
+
+```rust
+#[pallet::call_index(84)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
+pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_unstake_all_alpha(origin, hotkey)
+}
+```
+
+Delegates to [`do_unstake_all_alpha`](/code/pallets/subtensor/src/staking/remove_stake.rs#L188).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

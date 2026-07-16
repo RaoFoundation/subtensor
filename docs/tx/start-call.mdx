@@ -62,3 +62,20 @@ an agent would:
 ```python
 result = sub.execute_tool("start_call", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.start_call` — [`pallets/subtensor/src/macros/dispatches.rs#L1547`](/code/pallets/subtensor/src/macros/dispatches.rs#L1547):
+
+```rust
+#[pallet::call_index(92)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::start_call())]
+pub fn start_call(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+    Self::do_start_call(origin, netuid)?;
+    Ok(())
+}
+```
+
+Delegates to [`do_start_call`](/code/pallets/subtensor/src/subnets/subnet.rs#L531).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -22,7 +22,7 @@ unless you specifically need to force one path.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.set_mechanism_weights`, `SubtensorModule.commit_timelocked_mechanism_weights` |
+| `hotkey` | signed account | SubtensorModule | `SubtensorModule.set_mechanism_weights`, `SubtensorModule.commit_timelocked_mechanism_weights` |
 
 ## Parameters
 
@@ -72,3 +72,60 @@ an agent would:
 ```python
 result = sub.execute_tool("set_weights", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L132`](/code/pallets/subtensor/src/macros/dispatches.rs#L132):
+
+```rust
+#[pallet::call_index(119)]
+#[pallet::weight((Weight::from_parts(15_540_000_000, 0)
+.saturating_add(T::DbWeight::get().reads(4111))
+.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+pub fn set_mechanism_weights(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    mecid: MechId,
+    dests: Vec<u16>,
+    weights: Vec<u16>,
+    version_key: u64,
+) -> DispatchResult {
+    if Self::get_commit_reveal_weights_enabled(netuid) {
+        Err(Error::<T>::CommitRevealEnabled.into())
+    } else {
+        Self::do_set_mechanism_weights(origin, netuid, mecid, dests, weights, version_key)
+    }
+}
+```
+
+Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L607), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L916).
+
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L1863`](/code/pallets/subtensor/src/macros/dispatches.rs#L1863):
+
+```rust
+        #[pallet::call_index(118)]
+        #[pallet::weight((Weight::from_parts(84_020_000, 0)
+		.saturating_add(T::DbWeight::get().reads(9_u64))
+		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        pub fn commit_timelocked_mechanism_weights(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+            reveal_round: u64,
+            commit_reveal_version: u16,
+        ) -> DispatchResult {
+            Self::do_commit_timelocked_mechanism_weights(
+                origin,
+                netuid,
+                mecid,
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            )
+        }
+```
+
+Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L263).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

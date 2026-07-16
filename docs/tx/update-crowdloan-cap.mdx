@@ -11,7 +11,7 @@ change it, and only while the loan has not been finalized. Reaching the
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Crowdloan | `Crowdloan.update_cap` |
+| `coldkey` | signed account | Crowdloan | `Crowdloan.update_cap` |
 
 ## Parameters
 
@@ -60,3 +60,40 @@ an agent would:
 ```python
 result = sub.execute_tool("update_crowdloan_cap", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.update_cap` — [`pallets/crowdloan/src/lib.rs#L898`](/code/pallets/crowdloan/src/lib.rs#L898):
+
+```rust
+#[pallet::call_index(8)]
+#[pallet::weight(T::WeightInfo::update_cap())]
+pub fn update_cap(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+    #[pallet::compact] new_cap: BalanceOf<T>,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    // The cap can only be updated if the crowdloan has not been finalized.
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can update the cap.
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    // The new cap should be greater than the actual raised amount.
+    ensure!(new_cap >= crowdloan.raised, Error::<T>::CapTooLow);
+
+    crowdloan.cap = new_cap;
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    Self::deposit_event(Event::<T>::CapUpdated {
+        crowdloan_id,
+        new_cap,
+    });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -12,7 +12,7 @@ to the signer. Check current delegations with `btcli query proxies`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Proxy | `Proxy.remove_proxy` |
+| `coldkey` | signed account | Proxy | `Proxy.remove_proxy` |
 
 ## Parameters
 
@@ -60,3 +60,26 @@ an agent would:
 ```python
 result = sub.execute_tool("remove_proxy", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.remove_proxy` — [`pallets/proxy/src/lib.rs#L287`](/code/pallets/proxy/src/lib.rs#L287):
+
+```rust
+#[pallet::call_index(2)]
+#[pallet::weight(T::WeightInfo::remove_proxy(T::MaxProxies::get()))]
+pub fn remove_proxy(
+    origin: OriginFor<T>,
+    delegate: AccountIdLookupOf<T>,
+    proxy_type: T::ProxyType,
+    delay: BlockNumberFor<T>,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let delegate = T::Lookup::lookup(delegate)?;
+    Self::remove_proxy_delegate(&who, delegate, proxy_type, delay)
+}
+```
+
+Delegates to [`remove_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L986).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

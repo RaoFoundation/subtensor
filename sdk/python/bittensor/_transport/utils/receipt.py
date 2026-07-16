@@ -1,9 +1,67 @@
-from typing import Optional
+from typing import Any, Optional
+
+# Wrapper pallets that report an *inner* DispatchResult while the outer
+# extrinsic still emits System.ExtrinsicSuccess. Keyed by (module, event) →
+# attribute holding the Result.
+_NESTED_RESULT_EVENTS: dict[tuple[str, str], str] = {
+    ("Sudo", "Sudid"): "sudo_result",
+    ("Sudo", "SudoAsDone"): "sudo_result",
+    ("Proxy", "ProxyExecuted"): "result",
+    ("Multisig", "MultisigExecuted"): "result",
+}
 
 
 def _get_event_parts(event: dict) -> tuple[str, str, dict]:
     event_data = event["event"]
     return event_data["module_id"], event_data["event_id"], event_data["attributes"]
+
+
+def nested_dispatch_error(events: list) -> Optional[Any]:
+    """Inner ``Err`` payload from a Sudo/Proxy/Multisig wrapper event, if any.
+
+    These wrappers dispatch a nested call: the outer extrinsic succeeds (and
+    emits ``System.ExtrinsicSuccess``) even when the nested call fails. The
+    failure lives only in the wrapper event's ``Result`` field.
+    """
+    for entry in events:
+        record = entry.value if hasattr(entry, "value") else entry
+        if not isinstance(record, dict):
+            continue
+        event = record.get("event", record)
+        if not isinstance(event, dict):
+            continue
+        module_id = event.get("module_id")
+        event_id = event.get("event_id")
+        if not isinstance(module_id, str) or not isinstance(event_id, str):
+            continue
+        field = _NESTED_RESULT_EVENTS.get((module_id, event_id))
+        if field is None:
+            continue
+        attributes = event.get("attributes")
+        result = attributes.get(field) if isinstance(attributes, dict) else attributes
+        if isinstance(result, dict) and "Err" in result:
+            return result["Err"]
+    return None
+
+
+def dispatch_error_message(dispatch_error: Any, codec: Any) -> Optional[dict]:
+    """Resolve a ``DispatchError`` (module or system) to the receipt error shape."""
+    if dispatch_error is None:
+        return None
+    if isinstance(dispatch_error, str):
+        return {"type": "System", "name": dispatch_error, "docs": dispatch_error}
+    if not isinstance(dispatch_error, dict):
+        return {"type": "System", "name": "DispatchError", "docs": str(dispatch_error)}
+    module_error = normalize_module_error(dispatch_error)
+    if module_error is not None:
+        return codec.module_error(module_error["module_index"], module_error["error_index"])
+    message = build_system_error_message(dispatch_error)
+    if message is not None:
+        return message
+    if len(dispatch_error) == 1:
+        name, detail = next(iter(dispatch_error.items()))
+        return {"type": "System", "name": str(name), "docs": str(detail)}
+    return {"type": "System", "name": "DispatchError", "docs": str(dispatch_error)}
 
 
 def extract_total_fee_amount(events: list[dict]) -> tuple[int, bool]:

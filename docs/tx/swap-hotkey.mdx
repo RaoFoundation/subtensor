@@ -23,7 +23,7 @@ instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.swap_hotkey` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.swap_hotkey` |
 
 ## Parameters
 
@@ -71,3 +71,24 @@ an agent would:
 ```python
 result = sub.execute_tool("swap_hotkey", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L846`](/code/pallets/subtensor/src/macros/dispatches.rs#L846):
+
+```rust
+#[pallet::call_index(70)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_hotkey())]
+pub fn swap_hotkey(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    new_hotkey: T::AccountId,
+    netuid: Option<NetUid>,
+) -> DispatchResultWithPostInfo {
+    Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, false)
+}
+```
+
+Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L32).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

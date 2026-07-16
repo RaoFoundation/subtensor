@@ -14,7 +14,7 @@ supplied even though nobody else signs. For thresholds above 1 use
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | Multisig | `Multisig.as_multi_threshold_1` |
+| `coldkey` | signed account | Multisig | `Multisig.as_multi_threshold_1` |
 
 ## Parameters
 
@@ -63,3 +63,9 @@ an agent would:
 ```python
 result = sub.execute_tool("multisig_threshold_1", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Multisig.as_multi_threshold_1` is implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

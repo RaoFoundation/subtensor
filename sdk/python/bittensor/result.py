@@ -356,8 +356,9 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
     """Build a ChainError from a decoded ``DispatchError`` payload.
 
     Used for errors that arrive inside event attributes (e.g. the inner result of
-    a ``Proxy.ProxyExecuted`` event) rather than as a failed extrinsic. Module
-    errors are resolved to their exact name/docs via the generated catalog.
+    a ``Sudo.Sudid``, ``Proxy.ProxyExecuted``, or ``Multisig.MultisigExecuted``
+    event) rather than as a failed extrinsic. Module errors are resolved to
+    their exact name/docs via the generated catalog.
     """
     if isinstance(err, dict) and "Module" in err:
         module = err["Module"] or {}

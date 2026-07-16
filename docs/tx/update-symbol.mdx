@@ -64,3 +64,32 @@ an agent would:
 ```python
 result = sub.execute_tool("update_symbol", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.update_symbol` — [`pallets/subtensor/src/macros/dispatches.rs#L1730`](/code/pallets/subtensor/src/macros/dispatches.rs#L1730):
+
+```rust
+#[pallet::call_index(112)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::update_symbol())]
+pub fn update_symbol(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    symbol: Vec<u8>,
+) -> DispatchResult {
+    Self::ensure_subnet_owner_or_root(origin, netuid)?;
+    ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
+    Self::ensure_symbol_exists(&symbol)?;
+    Self::ensure_symbol_available(&symbol)?;
+
+    TokenSymbol::<T>::insert(netuid, symbol.clone());
+
+    Self::deposit_event(Event::SymbolUpdated { netuid, symbol });
+    Ok(())
+}
+```
+
+Delegates to [`ensure_subnet_owner_or_root`](/code/pallets/subtensor/src/utils/misc.rs#L12), [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L39), [`ensure_symbol_exists`](/code/pallets/subtensor/src/subnets/symbols.rs#L960).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

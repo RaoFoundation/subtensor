@@ -71,3 +71,41 @@ an agent would:
 ```python
 result = sub.execute_tool("set_subnet_identity", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_subnet_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1163`](/code/pallets/subtensor/src/macros/dispatches.rs#L1163):
+
+```rust
+#[pallet::call_index(78)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_subnet_identity())]
+pub fn set_subnet_identity(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    subnet_name: Vec<u8>,
+    github_repo: Vec<u8>,
+    subnet_contact: Vec<u8>,
+    subnet_url: Vec<u8>,
+    discord: Vec<u8>,
+    description: Vec<u8>,
+    logo_url: Vec<u8>,
+    additional: Vec<u8>,
+) -> DispatchResult {
+    Self::do_set_subnet_identity(
+        origin,
+        netuid,
+        subnet_name,
+        github_repo,
+        subnet_contact,
+        subnet_url,
+        discord,
+        description,
+        logo_url,
+        additional,
+    )
+}
+```
+
+Delegates to [`do_set_subnet_identity`](/code/pallets/subtensor/src/utils/identity.rs#L98).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

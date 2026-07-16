@@ -70,3 +70,35 @@ an agent would:
 ```python
 result = sub.execute_tool("trim_subnet", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L1927`](/code/pallets/admin-utils/src/lib.rs#L1927):
+
+```rust
+#[pallet::call_index(78)]
+#[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_trim_to_max_allowed_uids())]
+pub fn sudo_trim_to_max_allowed_uids(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    max_n: u16,
+) -> DispatchResult {
+    let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+        origin.clone(),
+        netuid,
+        &[TransactionType::MaxUidsTrimming],
+    )?;
+    pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+    pallet_subtensor::Pallet::<T>::trim_to_max_allowed_uids(netuid, max_n)?;
+
+    pallet_subtensor::Pallet::<T>::record_owner_rl(
+        maybe_owner,
+        netuid,
+        &[TransactionType::MaxUidsTrimming],
+    );
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -20,102 +20,102 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`fund-evm-key`](/docs/tx/fund-evm-key) | coldkey | any signed key | Fund an EVM (h160) address with TAO from the signing coldkey. |
-| [`transfer`](/docs/tx/transfer) | coldkey | any signed key | Transfer TAO from the coldkey to a destination address. |
-| [`transfer-all`](/docs/tx/transfer-all) | coldkey | any signed key | Transfer the entire transferable balance to a destination address. |
+| [`fund-evm-key`](/docs/tx/fund-evm-key) | coldkey | signed account | Fund an EVM (h160) address with TAO from the signing coldkey. |
+| [`transfer`](/docs/tx/transfer) | coldkey | signed account | Transfer TAO from the coldkey to a destination address. |
+| [`transfer-all`](/docs/tx/transfer-all) | coldkey | signed account | Transfer the entire transferable balance to a destination address. |
 
 ## Crowdloan
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`contribute-crowdloan`](/docs/tx/contribute-crowdloan) | coldkey | any signed key | Contribute TAO to an active crowdloan. |
-| [`create-crowdloan`](/docs/tx/create-crowdloan) | coldkey | any signed key | Open a crowdloan raising up to `cap_tao` by `end` block. |
-| [`dissolve-crowdloan`](/docs/tx/dissolve-crowdloan) | coldkey | any signed key | Dissolve a fully-refunded crowdloan (creator only). |
-| [`finalize-crowdloan`](/docs/tx/finalize-crowdloan) | coldkey | any signed key | Finalize a crowdloan that reached its cap (creator only). |
-| [`refund-crowdloan`](/docs/tx/refund-crowdloan) | coldkey | any signed key | Refund contributors of a non-finalized crowdloan (creator only). |
-| [`set-crowdloan-max-contribution`](/docs/tx/set-crowdloan-max-contribution) | coldkey | any signed key | Set or clear the per-contributor max for a non-finalized crowdloan (creator only). |
-| [`update-crowdloan-cap`](/docs/tx/update-crowdloan-cap) | coldkey | any signed key | Update the cap of a non-finalized crowdloan (creator only). |
-| [`update-crowdloan-end`](/docs/tx/update-crowdloan-end) | coldkey | any signed key | Update the end block of a non-finalized crowdloan (creator only). |
-| [`update-crowdloan-min-contribution`](/docs/tx/update-crowdloan-min-contribution) | coldkey | any signed key | Update the minimum contribution of a non-finalized crowdloan (creator only). |
-| [`withdraw-crowdloan`](/docs/tx/withdraw-crowdloan) | coldkey | any signed key | Withdraw the signer's contribution from a non-finalized crowdloan. |
+| [`contribute-crowdloan`](/docs/tx/contribute-crowdloan) | coldkey | signed account | Contribute TAO to an active crowdloan. |
+| [`create-crowdloan`](/docs/tx/create-crowdloan) | coldkey | signed account | Open a crowdloan raising up to `cap_tao` by `end` block. |
+| [`dissolve-crowdloan`](/docs/tx/dissolve-crowdloan) | coldkey | signed account | Dissolve a fully-refunded crowdloan (creator only). |
+| [`finalize-crowdloan`](/docs/tx/finalize-crowdloan) | coldkey | signed account | Finalize a crowdloan that reached its cap (creator only). |
+| [`refund-crowdloan`](/docs/tx/refund-crowdloan) | coldkey | signed account | Refund contributors of a non-finalized crowdloan (creator only). |
+| [`set-crowdloan-max-contribution`](/docs/tx/set-crowdloan-max-contribution) | coldkey | signed account | Set or clear the per-contributor max for a non-finalized crowdloan (creator only). |
+| [`update-crowdloan-cap`](/docs/tx/update-crowdloan-cap) | coldkey | signed account | Update the cap of a non-finalized crowdloan (creator only). |
+| [`update-crowdloan-end`](/docs/tx/update-crowdloan-end) | coldkey | signed account | Update the end block of a non-finalized crowdloan (creator only). |
+| [`update-crowdloan-min-contribution`](/docs/tx/update-crowdloan-min-contribution) | coldkey | signed account | Update the minimum contribution of a non-finalized crowdloan (creator only). |
+| [`withdraw-crowdloan`](/docs/tx/withdraw-crowdloan) | coldkey | signed account | Withdraw the signer's contribution from a non-finalized crowdloan. |
 
 ## EVM
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`evm-withdraw`](/docs/tx/evm-withdraw) | coldkey | any signed key | Claim TAO deposited to the coldkey's truncated EVM mirror. |
+| [`evm-withdraw`](/docs/tx/evm-withdraw) | coldkey | signed account | Claim TAO deposited to the coldkey's truncated EVM mirror. |
 
 ## Multisig
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`multisig-approve`](/docs/tx/multisig-approve) | coldkey | any signed key | Register approval for a multisig call (non-final approvals). |
-| [`multisig-cancel`](/docs/tx/multisig-cancel) | coldkey | any signed key | Cancel an ongoing multisig operation (only the original depositor may). |
-| [`multisig-execute`](/docs/tx/multisig-execute) | coldkey | any signed key | Approve and, if the threshold is met, execute a multisig call (final approval). |
-| [`multisig-threshold-1`](/docs/tx/multisig-threshold-1) | coldkey | any signed key | Dispatch a 1-of-N multisig call immediately (single approval). |
+| [`multisig-approve`](/docs/tx/multisig-approve) | coldkey | signed account | Register approval for a multisig call (non-final approvals). |
+| [`multisig-cancel`](/docs/tx/multisig-cancel) | coldkey | signed account | Cancel an ongoing multisig operation (only the original depositor may). |
+| [`multisig-execute`](/docs/tx/multisig-execute) | coldkey | signed account | Approve and, if the threshold is met, execute a multisig call (final approval). |
+| [`multisig-threshold-1`](/docs/tx/multisig-threshold-1) | coldkey | signed account | Dispatch a 1-of-N multisig call immediately (single approval). |
 
 ## Proxy
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`add-proxy`](/docs/tx/add-proxy) | coldkey | any signed key | Authorize a delegate key to sign calls on this account's behalf. |
-| [`create-pure-proxy`](/docs/tx/create-pure-proxy) | coldkey | any signed key | Create a pure proxy: a fresh keyless account controlled via delegation. |
-| [`execute-proxy-announced`](/docs/tx/execute-proxy-announced) | coldkey | any signed key | Execute a proxy call that was announced and has passed its delay. |
-| [`kill-pure-proxy`](/docs/tx/kill-pure-proxy) | coldkey | any signed key | Close a pure proxy account and return its reserved deposit. |
-| [`remove-proxies`](/docs/tx/remove-proxies) | coldkey | any signed key | Revoke every proxy delegation for the signing account at once. |
-| [`remove-proxy`](/docs/tx/remove-proxy) | coldkey | any signed key | Revoke one proxy delegation. |
+| [`add-proxy`](/docs/tx/add-proxy) | coldkey | signed account | Authorize a delegate key to sign calls on this account's behalf. |
+| [`create-pure-proxy`](/docs/tx/create-pure-proxy) | coldkey | signed account | Create a pure proxy: a fresh keyless account controlled via delegation. |
+| [`execute-proxy-announced`](/docs/tx/execute-proxy-announced) | coldkey | signed account | Execute a proxy call that was announced and has passed its delay. |
+| [`kill-pure-proxy`](/docs/tx/kill-pure-proxy) | coldkey | signed account | Close a pure proxy account and return its reserved deposit. |
+| [`remove-proxies`](/docs/tx/remove-proxies) | coldkey | signed account | Revoke every proxy delegation for the signing account at once. |
+| [`remove-proxy`](/docs/tx/remove-proxy) | coldkey | signed account | Revoke one proxy delegation. |
 
 ## SubtensorModule
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`add-stake`](/docs/tx/add-stake) | coldkey | any signed key | Stake TAO from the coldkey onto a hotkey. |
-| [`add-stake-limit`](/docs/tx/add-stake-limit) | coldkey | any signed key | Stake TAO with a limit price (slippage protection). |
-| [`announce-coldkey-swap`](/docs/tx/announce-coldkey-swap) | coldkey | any signed key | Announce (commit to) a coldkey swap; executable after the chain's delay. |
-| [`associate-evm-key`](/docs/tx/associate-evm-key) | hotkey | any signed key | Associate an EVM key with a hotkey on a subnet. |
-| [`associate-hotkey`](/docs/tx/associate-hotkey) | coldkey | any signed key | Associate a hotkey with the signing coldkey. |
-| [`burned-register`](/docs/tx/burned-register) | coldkey | any signed key | Register a hotkey on a subnet by recycling TAO. |
-| [`claim-root`](/docs/tx/claim-root) | coldkey | any signed key | Claim accumulated root dividends from one or more subnets. |
-| [`clear-coldkey-swap-announcement`](/docs/tx/clear-coldkey-swap-announcement) | coldkey | any signed key | Cancel a pending coldkey swap announcement (after the reannouncement delay). |
-| [`commit-weights`](/docs/tx/commit-weights) | hotkey | any signed key | Timelock-encrypt and commit weights, forcing the commit-reveal path. |
-| [`decrease-take`](/docs/tx/decrease-take) | coldkey | any signed key | Decrease the delegate take of a hotkey. |
-| [`dispute-coldkey-swap`](/docs/tx/dispute-coldkey-swap) | coldkey | any signed key | Freeze this coldkey entirely until root resolves the dispute. |
-| [`increase-take`](/docs/tx/increase-take) | coldkey | any signed key | Increase the delegate take of a hotkey. |
-| [`lock-stake`](/docs/tx/lock-stake) | coldkey | any signed key | Lock alpha stake on a subnet, building conviction toward a hotkey. |
-| [`move-lock`](/docs/tx/move-lock) | coldkey | any signed key | Move an existing lock from one hotkey to another on a subnet. |
-| [`move-stake`](/docs/tx/move-stake) | coldkey | any signed key | Move alpha between hotkeys and/or subnets. |
-| [`register-leased-network`](/docs/tx/register-leased-network) | coldkey | any signed key | Register a new crowdloan-funded leased subnet. |
-| [`register-subnet`](/docs/tx/register-subnet) | coldkey | any signed key | Create a new subnet owned by the signing coldkey. |
-| [`remove-stake`](/docs/tx/remove-stake) | coldkey | any signed key | Unstake alpha from a hotkey back to the coldkey. |
-| [`remove-stake-limit`](/docs/tx/remove-stake-limit) | coldkey | any signed key | Unstake alpha with a limit price (slippage protection). |
-| [`reset-axon`](/docs/tx/reset-axon) | hotkey | any signed key | Reset (stop serving) this hotkey's axon endpoint on a subnet. |
-| [`reveal-weights`](/docs/tx/reveal-weights) | hotkey | any signed key | Reveal previously committed weights (legacy salt-based commit-reveal). |
-| [`root-register`](/docs/tx/root-register) | coldkey | any signed key | Register a hotkey on the root network (netuid 0). |
-| [`serve-axon`](/docs/tx/serve-axon) | hotkey | any signed key | Publish this hotkey's axon endpoint (ip:port) for a subnet. |
-| [`serve-axon-tls`](/docs/tx/serve-axon-tls) | hotkey | any signed key | Publish this hotkey's axon endpoint with a neuron certificate. |
-| [`serve-prometheus`](/docs/tx/serve-prometheus) | hotkey | any signed key | Publish this hotkey's prometheus metrics endpoint (ip:port) for a subnet. |
-| [`set-auto-stake`](/docs/tx/set-auto-stake) | coldkey | any signed key | Auto-stake future mining rewards on a subnet to a chosen hotkey. |
-| [`set-childkey-take`](/docs/tx/set-childkey-take) | coldkey | any signed key | Set the childkey take for a hotkey on a subnet. |
-| [`set-children`](/docs/tx/set-children) | coldkey | any signed key | Assign child hotkeys with stake-weight proportions on a subnet. |
-| [`set-identity`](/docs/tx/set-identity) | coldkey | any signed key | Publish an on-chain identity (name, links, description) for the coldkey. |
-| [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | any signed key | Enable or disable perpetual lock mode for a coldkey on a subnet. |
-| [`set-root-claim-type`](/docs/tx/set-root-claim-type) | coldkey | any signed key | Set how a coldkey's root alpha emission is claimed. |
+| [`add-stake`](/docs/tx/add-stake) | coldkey | signed account | Stake TAO from the coldkey onto a hotkey. |
+| [`add-stake-limit`](/docs/tx/add-stake-limit) | coldkey | signed account | Stake TAO with a limit price (slippage protection). |
+| [`announce-coldkey-swap`](/docs/tx/announce-coldkey-swap) | coldkey | signed account | Announce (commit to) a coldkey swap; executable after the chain's delay. |
+| [`associate-evm-key`](/docs/tx/associate-evm-key) | hotkey | signed account | Associate an EVM key with a hotkey on a subnet. |
+| [`associate-hotkey`](/docs/tx/associate-hotkey) | coldkey | signed account | Associate a hotkey with the signing coldkey. |
+| [`burned-register`](/docs/tx/burned-register) | coldkey | signed account | Register a hotkey on a subnet by recycling TAO. |
+| [`claim-root`](/docs/tx/claim-root) | coldkey | signed account | Claim accumulated root dividends from one or more subnets. |
+| [`clear-coldkey-swap-announcement`](/docs/tx/clear-coldkey-swap-announcement) | coldkey | signed account | Cancel a pending coldkey swap announcement (after the reannouncement delay). |
+| [`commit-weights`](/docs/tx/commit-weights) | hotkey | signed account | Timelock-encrypt and commit weights, forcing the commit-reveal path. |
+| [`decrease-take`](/docs/tx/decrease-take) | coldkey | signed account | Decrease the delegate take of a hotkey. |
+| [`dispute-coldkey-swap`](/docs/tx/dispute-coldkey-swap) | coldkey | signed account | Freeze this coldkey entirely until root resolves the dispute. |
+| [`increase-take`](/docs/tx/increase-take) | coldkey | signed account | Increase the delegate take of a hotkey. |
+| [`lock-stake`](/docs/tx/lock-stake) | coldkey | signed account | Lock alpha stake on a subnet, building conviction toward a hotkey. |
+| [`move-lock`](/docs/tx/move-lock) | coldkey | signed account | Move an existing lock from one hotkey to another on a subnet. |
+| [`move-stake`](/docs/tx/move-stake) | coldkey | signed account | Move alpha between hotkeys and/or subnets. |
+| [`register-leased-network`](/docs/tx/register-leased-network) | coldkey | signed account | Register a new crowdloan-funded leased subnet. |
+| [`register-subnet`](/docs/tx/register-subnet) | coldkey | signed account | Create a new subnet owned by the signing coldkey. |
+| [`remove-stake`](/docs/tx/remove-stake) | coldkey | signed account | Unstake alpha from a hotkey back to the coldkey. |
+| [`remove-stake-limit`](/docs/tx/remove-stake-limit) | coldkey | signed account | Unstake alpha with a limit price (slippage protection). |
+| [`reset-axon`](/docs/tx/reset-axon) | hotkey | signed account | Reset (stop serving) this hotkey's axon endpoint on a subnet. |
+| [`reveal-weights`](/docs/tx/reveal-weights) | hotkey | signed account | Reveal previously committed weights (legacy salt-based commit-reveal). |
+| [`root-register`](/docs/tx/root-register) | coldkey | signed account | Register a hotkey on the root network (netuid 0). |
+| [`serve-axon`](/docs/tx/serve-axon) | hotkey | signed account | Publish this hotkey's axon endpoint (ip:port) for a subnet. |
+| [`serve-axon-tls`](/docs/tx/serve-axon-tls) | hotkey | signed account | Publish this hotkey's axon endpoint with a neuron certificate. |
+| [`serve-prometheus`](/docs/tx/serve-prometheus) | hotkey | signed account | Publish this hotkey's prometheus metrics endpoint (ip:port) for a subnet. |
+| [`set-auto-stake`](/docs/tx/set-auto-stake) | coldkey | signed account | Auto-stake future mining rewards on a subnet to a chosen hotkey. |
+| [`set-childkey-take`](/docs/tx/set-childkey-take) | coldkey | signed account | Set the childkey take for a hotkey on a subnet. |
+| [`set-children`](/docs/tx/set-children) | coldkey | signed account | Assign child hotkeys with stake-weight proportions on a subnet. |
+| [`set-identity`](/docs/tx/set-identity) | coldkey | signed account | Publish an on-chain identity (name, links, description) for the coldkey. |
+| [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account | Enable or disable perpetual lock mode for a coldkey on a subnet. |
+| [`set-root-claim-type`](/docs/tx/set-root-claim-type) | coldkey | signed account | Set how a coldkey's root alpha emission is claimed. |
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |
-| [`set-take`](/docs/tx/set-take) | coldkey | any signed key | Set the delegate take to an absolute value. |
-| [`set-weights`](/docs/tx/set-weights) | hotkey | any signed key | Set validator weights, auto-selecting plaintext or commit-reveal. |
-| [`stake-burn`](/docs/tx/stake-burn) | coldkey | any signed key | Buy back / burn stake via the stake-burn extrinsic. |
+| [`set-take`](/docs/tx/set-take) | coldkey | signed account | Set the delegate take to an absolute value. |
+| [`set-weights`](/docs/tx/set-weights) | hotkey | signed account | Set validator weights, auto-selecting plaintext or commit-reveal. |
+| [`stake-burn`](/docs/tx/stake-burn) | coldkey | signed account | Buy back / burn stake via the stake-burn extrinsic. |
 | [`start-call`](/docs/tx/start-call) | coldkey | subnet owner | Activate a subnet (subtoken trading, epochs) as its owner. |
-| [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) | coldkey | any signed key | Execute a previously announced coldkey swap (after the delay has passed). |
-| [`swap-hotkey`](/docs/tx/swap-hotkey) | coldkey | any signed key | Swap a hotkey for a new one (all subnets, or one netuid). |
-| [`swap-stake`](/docs/tx/swap-stake) | coldkey | any signed key | Swap stake on one hotkey between two subnets. |
-| [`terminate-lease`](/docs/tx/terminate-lease) | coldkey | any signed key | Terminate an ended lease and take subnet ownership (beneficiary only). |
-| [`transfer-stake`](/docs/tx/transfer-stake) | coldkey | any signed key | Transfer stake ownership to another coldkey. |
-| [`unstake-all`](/docs/tx/unstake-all) | coldkey | any signed key | Unstake everything from a hotkey across all subnets. |
-| [`unstake-all-alpha`](/docs/tx/unstake-all-alpha) | coldkey | any signed key | Unstake all alpha from a hotkey across subnets (moves it to root). |
+| [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) | coldkey | signed account | Execute a previously announced coldkey swap (after the delay has passed). |
+| [`swap-hotkey`](/docs/tx/swap-hotkey) | coldkey | signed account | Swap a hotkey for a new one (all subnets, or one netuid). |
+| [`swap-stake`](/docs/tx/swap-stake) | coldkey | signed account | Swap stake on one hotkey between two subnets. |
+| [`terminate-lease`](/docs/tx/terminate-lease) | coldkey | signed account | Terminate an ended lease and take subnet ownership (beneficiary only). |
+| [`transfer-stake`](/docs/tx/transfer-stake) | coldkey | signed account | Transfer stake ownership to another coldkey. |
+| [`unstake-all`](/docs/tx/unstake-all) | coldkey | signed account | Unstake everything from a hotkey across all subnets. |
+| [`unstake-all-alpha`](/docs/tx/unstake-all-alpha) | coldkey | signed account | Unstake all alpha from a hotkey across subnets (moves it to root). |
 | [`update-symbol`](/docs/tx/update-symbol) | coldkey | subnet owner | Update a subnet's symbol (from the chain's fixed catalog). |
 
 ## Utility
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
-| [`batch`](/docs/tx/batch) | coldkey | any signed key | Execute several intents atomically in one extrinsic (all-or-nothing). |
+| [`batch`](/docs/tx/batch) | coldkey | signed account | Execute several intents atomically in one extrinsic (all-or-nothing). |

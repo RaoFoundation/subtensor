@@ -18,7 +18,7 @@ cap.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | any signed key | SubtensorModule | `SubtensorModule.add_stake_burn` |
+| `coldkey` | signed account | SubtensorModule | `SubtensorModule.add_stake_burn` |
 
 ## Parameters
 
@@ -71,3 +71,25 @@ an agent would:
 ```python
 result = sub.execute_tool("stake_burn", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2189`](/code/pallets/subtensor/src/macros/dispatches.rs#L2189):
+
+```rust
+#[pallet::call_index(132)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake_burn())]
+pub fn add_stake_burn(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    amount: TaoBalance,
+    limit: Option<TaoBalance>,
+) -> DispatchResult {
+    Self::do_add_stake_burn(origin, hotkey, netuid, amount, limit)
+}
+```
+
+Delegates to [`do_add_stake_burn`](/code/pallets/subtensor/src/staking/recycle_alpha.rs#L129).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

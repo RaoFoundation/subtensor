@@ -20,7 +20,7 @@ neuron.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | any signed key | SubtensorModule | `SubtensorModule.associate_evm_key` |
+| `hotkey` | signed account | SubtensorModule | `SubtensorModule.associate_evm_key` |
 
 ## Parameters
 
@@ -75,3 +75,29 @@ an agent would:
 ```python
 result = sub.execute_tool("associate_evm_key", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.associate_evm_key` — [`pallets/subtensor/src/macros/dispatches.rs#L1587`](/code/pallets/subtensor/src/macros/dispatches.rs#L1587):
+
+```rust
+#[pallet::call_index(93)]
+#[pallet::weight((
+    <T as crate::pallet::Config>::WeightInfo::associate_evm_key(),
+    DispatchClass::Normal,
+    Pays::No
+))]
+pub fn associate_evm_key(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    evm_key: H160,
+    block_number: u64,
+    signature: Signature,
+) -> DispatchResult {
+    Self::do_associate_evm_key(origin, netuid, evm_key, block_number, signature)
+}
+```
+
+Delegates to [`do_associate_evm_key`](/code/pallets/subtensor/src/utils/evm.rs#L46).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
