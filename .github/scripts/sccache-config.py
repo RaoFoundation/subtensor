@@ -96,7 +96,9 @@ def validate_local(
         raise ConfigError("invalid local cache endpoint")
     if credential_source is not None and (
         local["username"] != required_string(credential_source, "access_key_id")
-        or local["password"] != required_string(credential_source, "secret_access_key")
+        or local["password"] != required_string(
+            credential_source, "secret_access_key"
+        )
     ):
         raise ConfigError("invalid local cache credential")
     return local
@@ -110,26 +112,14 @@ def normalize_reader(path: Path, local_mode: str) -> None:
     if local_mode == "disabled":
         values.pop("local", None)
     elif values.get("local") is not None:
-        values["local"] = validate_local(values["local"], credential_source=values)
+        values["local"] = validate_local(
+            values["local"], credential_source=values
+        )
     values["mode"] = "reader"
     atomic_write(path, values)
 
 
 def write_writer(path: Path) -> None:
-    # Auto mode may stage a fully validated MMDS reader contract first. Keep
-    # only its host-local sub-contract: the protected credential below remains
-    # the sole authority for the R2 writer backend.
-    local: dict[str, str] | None = None
-    if path.is_file():
-        existing = load_object(path)
-        existing_mode = existing.get("mode")
-        if existing_mode == "reader":
-            validate_r2(existing, "reader")
-            if existing.get("local") is not None:
-                local = validate_local(existing["local"], credential_source=existing)
-        elif existing_mode != "gha":
-            raise ConfigError("invalid staged writer configuration")
-
     access_key = os.environ.get("AWS_ACCESS_KEY_ID", "")
     secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
     values: dict[str, object] = {
@@ -139,8 +129,6 @@ def write_writer(path: Path) -> None:
         "access_key_id": access_key,
         "secret_access_key": secret_key,
     }
-    if local is not None:
-        values["local"] = local
     validate_r2(values, "writer")
     atomic_write(path, values)
 
@@ -183,7 +171,9 @@ def source_is_trusted(event_path: Path | None) -> bool:
             "devnet",
             "testnet",
         }
-    if event_name == "pull_request" and re.fullmatch(r"refs/pull/[0-9]+/merge", ref):
+    if event_name == "pull_request" and re.fullmatch(
+        r"refs/pull/[0-9]+/merge", ref
+    ):
         if event_path is None or not event_path.is_file() or not repository:
             return False
         pull = load_object(event_path).get("pull_request")
