@@ -40,6 +40,7 @@ from . import evm, http_auth, intents, reads, timelock, wallets
 from ._generated import calls, constants, storage
 from ._generated import runtime_apis as runtime_api
 from ._substrate import RpcSubstrate, Substrate
+from ._subtensor import Subtensor, close_shared_clients, set_weights
 from ._transport.contract import SigningContext, UnsignedExtrinsic
 from .balance import Balance, UnitMismatchError, alpha, rao, tao
 from .client import BlockHeader, BlockInfo, Client, EpochEvent
@@ -85,7 +86,6 @@ from .signing import (
     public_view,
     resolve_signer,
 )
-from ._subtensor import Subtensor, close_shared_clients, set_weights
 from .snapshot import Snapshot
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
@@ -222,7 +222,10 @@ _REMOVED_V10_HINTS = {
     # The lowercase v10 alias. The class is back (one class: blocking used
     # directly, async when awaited) but only under its capitalized name.
     "subtensor": "use bittensor.Subtensor (blocking directly, async when awaited)",
-    "AsyncSubtensor": "use `async with bittensor.Subtensor(network) as client:` or `await bittensor.Subtensor(network)`",
+    "AsyncSubtensor": (
+        "use `async with bittensor.Subtensor(network) as client:` "
+        "or `await bittensor.Subtensor(network)`"
+    ),
     "async_subtensor": "use `async with bittensor.Subtensor(network) as client:`",
     "get_async_subtensor": "use `await bittensor.Subtensor(network)`",
     "MockSubtensor": "removed — test against a local node instead",

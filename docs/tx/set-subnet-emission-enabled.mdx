@@ -15,11 +15,12 @@ this flag on. Disabling only zeros the pool-side `alpha_in` /
 subnet from emission share calculation and does not touch `alpha_out`,
 the owner cut, root proportion, or pending server/validator emission.
 
-Requires the chain sudo key: the built call is wrapped in `Sudo.sudo`,
-and when root is a multisig that `Sudo.sudo` call is what the multisig
-must dispatch. Multiple netuids batch atomically via
-`Utility.batch_all` inside the single sudo call. Verify the effect
-afterwards with the `subnet_emission_enabled` read.
+Requires the chain sudo key: `Executor` wraps the built call in
+`Sudo.sudo` because `origin` is `root`, and when root is a multisig
+that `Sudo.sudo` call is what the multisig must dispatch. Multiple
+netuids batch atomically via `Utility.batch_all` inside the single sudo
+call. Verify the effect afterwards with the `subnet_emission_enabled`
+read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
