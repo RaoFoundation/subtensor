@@ -184,7 +184,7 @@ jobs:
     if: >-
       (github.event_name != 'pull_request' || needs.changes.outputs.runtime == 'true') &&
       !(github.event_name == 'workflow_dispatch' && inputs.try_runtime_only)
-    # Every turbo host exposes the same fail-open local cache metadata.
+    # Turbo runners probe the host-local tier and fail open to direct R2.
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}

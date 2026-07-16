@@ -9,11 +9,12 @@ on:
       - ".github/scripts/test-sccache-configure.sh"
       - ".github/scripts/download-artifact.sh"
       - ".github/scripts/test-download-artifact.sh"
+      - ".github/scripts/r2-artifact-mirror.py"
+      - ".github/scripts/test-r2-artifact-mirror.py"
       - ".github/scripts/snapshot-artifact.sh"
       - ".github/scripts/test-snapshot-artifact.sh"
       - ".github/workflows/check-bittensor-e2e-tests.yml"
       - ".github/workflows/check-node-compat.yml"
-      - ".github/workflows/fireactions-cache-maintenance.yml"
       - ".github/workflows/mainnet-clone-preview.yml"
       - ".github/workflows/runtime-checks.yml"
       - ".github/workflows/sccache-warm.yml"
@@ -22,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       benchmark_host_cache:
-        description: "Run paired cache benchmarks on the cache-enabled turbo-8 fleet"
+        description: "Run paired cache benchmarks on the turbo-8 production pool"
         type: boolean
         default: false
       benchmark_artifact_cache:
@@ -47,6 +48,7 @@ jobs:
         run: |
           .github/scripts/test-snapshot-artifact.sh
           .github/scripts/test-download-artifact.sh
+          .github/scripts/test-r2-artifact-mirror.py
 
   prewarm-exact-runtime:
     name: prewarm and verify exact runtime check keys

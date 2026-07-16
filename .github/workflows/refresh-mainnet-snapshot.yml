@@ -30,6 +30,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   # Serialize every ref globally: diagnostic dispatches must not cancel a
@@ -89,6 +90,7 @@ jobs:
           ls -lh mainnet-snapshot.tar.gz
 
       - name: Upload snapshot artifact
+        id: upload-snapshot
         uses: actions/upload-artifact@v4
         with:
           name: mainnet-snapshot
@@ -97,6 +99,34 @@ jobs:
           retention-days: 7
           # The tarball is already gzipped.
           compression-level: 0
+
+      - name: Mirror scheduled snapshot for fleet prefetch
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-snapshot.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-snapshot.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/mainnet-snapshot-artifact.zip"
+          for attempt in 1 2 3 4 5; do
+            if gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
+              > "$archive"; then
+              break
+            fi
+            rm -f "$archive"
+            sleep $((attempt * 5))
+          done
+          [[ -s "$archive" ]]
+          .github/scripts/r2-artifact-mirror.py \
+            "$archive" \
+            "$ARTIFACT_ID" \
+            mainnet-snapshot \
+            "$ARTIFACT_DIGEST" \
+            "$GITHUB_SHA" \
+            .github/workflows/refresh-mainnet-snapshot.yml
 
   # try-runtime state snapshots, one job per network so one flaky endpoint
   # doesn't prevent the others from publishing. The .snap format
