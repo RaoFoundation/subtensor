@@ -27,7 +27,14 @@ from .intents.base import BuiltCall
 from .intents.proxy import check_proxy_type
 from .result import ChainError, ExtrinsicResult, PolicyError, chain_error_from_dispatch
 from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
-from .signing import WalletLike, as_ss58, as_wallet, public_view, resolve_signer
+from .signing import (
+    WalletLike,
+    as_wallet,
+    coerce_address,
+    is_address_param,
+    public_view,
+    resolve_signer,
+)
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -51,17 +58,14 @@ def _coerce_addresses(intent: Intent) -> Intent:
     Returns a new intent only when something needed coercing."""
     changes = {}
     for field in dataclass_fields(intent):
+        if not is_address_param(field.name):
+            continue
         value = getattr(intent, field.name)
         if value is None or isinstance(value, str):
             continue
-        if field.name.endswith("_ss58"):
-            coerced = as_ss58(value, field.name)
-            if coerced is not value:
-                changes[field.name] = coerced
-        elif field.name.endswith("_ss58s") and isinstance(value, (list, tuple)):
-            coerced_list = [as_ss58(item, field.name) for item in value]
-            if any(a is not b for a, b in zip(coerced_list, value)):
-                changes[field.name] = coerced_list
+        coerced = coerce_address(value, field.name)
+        if coerced is not value:
+            changes[field.name] = coerced
     return replace(intent, **changes) if changes else intent
 
 

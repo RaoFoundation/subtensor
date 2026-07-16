@@ -85,8 +85,8 @@ from .signing import (
     public_view,
     resolve_signer,
 )
+from ._subtensor import Subtensor, set_weights
 from .snapshot import Snapshot
-from .subtensor import Subtensor, set_weights
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
 from .wallet import Wallet
@@ -218,6 +218,9 @@ _NO_NEURON_STACK = (
 )
 
 _REMOVED_V10_HINTS = {
+    # The lowercase v10 alias. The class is back (one class: blocking used
+    # directly, async when awaited) but only under its capitalized name.
+    "subtensor": "use bittensor.Subtensor (blocking directly, async when awaited)",
     "AsyncSubtensor": "use `async with bittensor.Subtensor(network) as client:` or `await bittensor.Subtensor(network)`",
     "async_subtensor": "use `async with bittensor.Subtensor(network) as client:`",
     "get_async_subtensor": "use `await bittensor.Subtensor(network)`",

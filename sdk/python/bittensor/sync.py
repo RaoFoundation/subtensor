@@ -36,9 +36,13 @@ def _finalize_sync(loop: "_Loop", client: Client, state: dict) -> None:
     keep it alive forever."""
     if loop.is_shutdown:
         return
-    if state.get("connected"):
+    # The cycle collector can run this on any thread — including the loop's
+    # own (it allocates constantly). Blocking on the loop from its own thread
+    # would deadlock; just stop the loop and let the daemon thread drop the
+    # socket with it.
+    if state.get("connected") and not loop.owns_current_thread:
         with contextlib.suppress(Exception):
-            loop.call(client.close())
+            loop.call(client.close(), timeout=5)
     loop.shutdown()
 
 
@@ -57,18 +61,25 @@ class _Loop:
     def is_shutdown(self) -> bool:
         return self._shutdown
 
-    def call(self, coro) -> Any:
+    @property
+    def owns_current_thread(self) -> bool:
+        """Whether the caller is already ON the loop thread — where blocking on
+        ``call`` (or joining the thread) would deadlock."""
+        return threading.current_thread() is self._thread
+
+    def call(self, coro, timeout: Optional[float] = None) -> Any:
         if self._shutdown:
             # A stopped loop never runs the coroutine, so .result() would
             # hang forever; fail loudly instead.
             coro.close()
             raise RuntimeError("SyncClient is closed; its event loop has shut down")
-        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
 
     def shutdown(self) -> None:
         self._shutdown = True
         self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
+        if not self.owns_current_thread:
+            self._thread.join(timeout=5)
 
 
 class _SyncNamespace:
@@ -165,7 +176,6 @@ class SyncClient:
         retry_forever: bool = False,
         substrate: Optional[Substrate] = None,
     ):
-        self._loop = _Loop()
         self._client = Client(
             network,
             policy=policy,
@@ -178,13 +188,30 @@ class SyncClient:
         self.endpoint = self._client.endpoint
         # Shared with the GC finalizer, which must not hold the instance itself.
         self._state = {"connected": False}
-        self._finalizer = weakref.finalize(
-            self, _finalize_sync, self._loop, self._client, self._state
-        )
+        # The loop thread is lazy: nothing is spawned until the first blocking
+        # call, so construction (and async use by the Subtensor subclass) stays
+        # completely cold.
+        self._loop_thread: Optional[_Loop] = None
+        self._finalizer: Optional[weakref.finalize] = None
         for ns in _NAMESPACES:
             setattr(self, ns, _SyncNamespace(getattr(self._client, ns), self._call))
 
     # Lifecycle ----------------------------------------------------------------
+
+    def _ensure_loop(self) -> _Loop:
+        """The private event loop, started on first blocking use (with the GC
+        finalizer that makes ``close()`` optional). Overridden by ``Subtensor``
+        to lock the instance into blocking mode."""
+        if self._loop_thread is None:
+            self._loop_thread = _Loop()
+            self._finalizer = weakref.finalize(
+                self, _finalize_sync, self._loop_thread, self._client, self._state
+            )
+        return self._loop_thread
+
+    @property
+    def _loop(self) -> _Loop:
+        return self._ensure_loop()
 
     def connect(self) -> "SyncClient":
         """Open the connection. Idempotent; also runs implicitly on first use."""
@@ -196,17 +223,24 @@ class SyncClient:
     def _call(self, coro) -> Any:
         """The facade's single choke point: connect on first use, then block on
         the coroutine in the background loop."""
-        self.connect()
-        return self._loop.call(coro)
+        try:
+            self.connect()
+            loop = self._loop
+        except BaseException:
+            coro.close()  # never ran; avoid the un-awaited coroutine warning
+            raise
+        return loop.call(coro)
 
     def close(self) -> None:
         """Deterministic teardown. Optional: garbage collection (or process
         exit) triggers the same cleanup for clients that are never closed."""
-        self._finalizer.detach()
+        if self._finalizer is not None:
+            self._finalizer.detach()
         if self._state["connected"]:
             self._loop.call(self._client.close())
             self._state["connected"] = False
-        self._loop.shutdown()
+        if self._loop_thread is not None:
+            self._loop_thread.shutdown()
 
     def __enter__(self) -> "SyncClient":
         return self.connect()

@@ -26,7 +26,7 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Union
 
-from ..signing import as_ss58
+from ..signing import coerce_address, is_address_param
 
 
 @dataclass(frozen=True)
@@ -106,9 +106,10 @@ def read(
 
 def _coercing(fn: Callable[..., Awaitable[Any]], params: dict[str, str]):
     """Wrap a read so its ``*_ss58`` parameters also accept key-bearing objects
-    (a ``Wallet``, keypair, or signer — normalized by :func:`~bittensor.signing.as_ss58`).
+    (a ``Wallet``, keypair, or signer — normalized by
+    :func:`~bittensor.signing.coerce_address`, the same seam intents use).
     Reads without address parameters are registered untouched."""
-    ss58_params = [p for p in params if "_ss58" in p]
+    ss58_params = [p for p in params if is_address_param(p)]
     if not ss58_params:
         return fn
     sig = inspect.signature(fn)
@@ -120,10 +121,7 @@ def _coercing(fn: Callable[..., Awaitable[Any]], params: dict[str, str]):
             value = bound.arguments.get(p)
             if value is None or isinstance(value, str):
                 continue
-            if isinstance(value, (list, tuple)):
-                bound.arguments[p] = [as_ss58(item, p) for item in value]
-            else:
-                bound.arguments[p] = as_ss58(value, p)
+            bound.arguments[p] = coerce_address(value, p)
         return await fn(*bound.args, **bound.kwargs)
 
     return wrapped

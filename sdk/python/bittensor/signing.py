@@ -106,17 +106,38 @@ def as_wallet(wallet: WalletLike) -> Union[Wallet, KeyedWallet, "Signer"]:
 def as_ss58(value: Any, param: str = "") -> Any:
     """Normalize an address argument: a string passes through; a ``Wallet`` (or
     anything wallet-shaped) yields the key the parameter name asks for
-    (``hotkey_*`` -> hotkey, otherwise coldkey); a keypair/:class:`Signer`
+    (``*hotkey*`` -> hotkey, otherwise coldkey); a keypair/:class:`Signer`
     yields its address. Unknown shapes pass through for downstream validation.
+
+    Never unlocks or reads a private keyfile: wallet shapes go through
+    :func:`public_view`, so the address comes from the public coldkeypub /
+    hotkeypub files (a hotkey lookup on a wallet with no hotkey at all still
+    raises the keyfile's own not-found error, which is the right message).
     """
     if value is None or isinstance(value, str):
         return value
-    if hasattr(value, "coldkeypub") and hasattr(value, "hotkey"):
-        key = value.hotkey if "hotkey" in param else value.coldkeypub
-        return key.ss58_address
+    if isinstance(value, (Wallet, KeyedWallet)) and not isinstance(value, Signer):
+        role = "hotkey" if "hotkey" in param else "coldkey"
+        return public_view(value, role).ss58_address
     if hasattr(value, "ss58_address"):
         return value.ss58_address
     return value
+
+
+def is_address_param(name: str) -> bool:
+    """Whether a parameter or field name carries an ss58 address (``*_ss58``)
+    or a list of them (``*_ss58s``) — the single predicate every coercion seam
+    (intent fields, read parameters) matches against."""
+    return name.endswith("_ss58") or name.endswith("_ss58s")
+
+
+def coerce_address(value: Any, param: str) -> Any:
+    """:func:`as_ss58` over a scalar or, for plural ``*_ss58s`` parameters, a
+    list — returning the input unchanged when nothing needs coercing."""
+    if isinstance(value, (list, tuple)):
+        coerced = [as_ss58(item, param) for item in value]
+        return coerced if any(a is not b for a, b in zip(coerced, value)) else value
+    return as_ss58(value, param)
 
 
 class WalletSigner:

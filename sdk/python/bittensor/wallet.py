@@ -45,7 +45,13 @@ class Wallet:
                     "give the hotkey either in the name ('cold/hot') or as the "
                     "hotkey= argument, not both"
                 )
+            compound = name
             name, _, hotkey = name.partition("/")
+            if not name or not hotkey or "/" in hotkey:
+                raise ValueError(
+                    f"invalid wallet name {compound!r}: expected 'wallet/hotkey' "
+                    "with exactly one slash and both parts non-empty"
+                )
         self.name = name
         self.path = path
         self.hotkey_str = hotkey

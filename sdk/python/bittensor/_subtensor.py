@@ -25,25 +25,30 @@ thread, torn down automatically when the object is garbage collected), while
 from __future__ import annotations
 
 import threading
-from typing import Any, Optional, Union
+from typing import Generator, Optional, Union
 
 from .client import Client
 from .intents.weights import SetWeights
 from .result import BittensorError, ExtrinsicResult
-from .settings import DEFAULT_NETWORK, resolve_endpoint
-from .signing import WalletLike
+from .settings import DEFAULT_NETWORK
+from .signing import WalletLike, as_wallet
 from .sync import SyncClient
 from .wallet import Wallet
 
 
-class Subtensor:
+class Subtensor(SyncClient):
     """Chain access for both worlds: blocking when used directly, async when awaited.
+
+    A :class:`SyncClient` (every blocking method and namespace is inherited,
+    real, and typed) that also implements the async protocols: awaiting the
+    instance — or entering ``async with`` — connects the underlying async
+    :class:`Client` on the caller's own loop and returns it.
 
     Construction is cold — no thread, loop, or socket exists until first use —
     so building one is free and the same instance can be handed to either kind
-    of code. Accepts everything :class:`Client` accepts (``policy``,
-    ``fallback_endpoints``, ``archive_endpoints``, ``retry_forever``,
-    ``substrate``).
+    of code. The first blocking call locks the instance into blocking mode;
+    the first ``await`` locks it into async mode. Attribute *inspection* has
+    no side effects (safe to repr, probe, or autocomplete a cold instance).
 
     Blocking mode needs no ``close()``: the connection opens on first call and
     is cleaned up when the instance is garbage collected (or at process exit).
@@ -51,81 +56,60 @@ class Subtensor:
     ``await client.close()`` on the awaited client for deterministic teardown.
     """
 
-    def __init__(
-        self,
-        network: str = DEFAULT_NETWORK,
-        *,
-        policy=None,
-        fallback_endpoints: Optional[list[str]] = None,
-        archive_endpoints: Optional[list[str]] = None,
-        retry_forever: bool = False,
-        substrate=None,
-    ):
-        self.network, self.endpoint = resolve_endpoint(network)
-        self._network_arg = network
-        self._options = dict(
-            policy=policy,
-            fallback_endpoints=fallback_endpoints,
-            archive_endpoints=archive_endpoints,
-            retry_forever=retry_forever,
-            substrate=substrate,
-        )
-        self._sync: Optional[SyncClient] = None
-        self._async: Optional[Client] = None
+    _mode: Optional[str] = None  # None (cold) | "blocking" | "async"
 
-    # Blocking surface ---------------------------------------------------------
+    # Blocking surface: inherited from SyncClient. The only hook is the loop
+    # bootstrap, which every blocking path funnels through.
 
-    def _sync_client(self) -> SyncClient:
-        if self._async is not None:
+    def _ensure_loop(self):
+        if self._mode == "async":
             raise BittensorError(
                 "This Subtensor was awaited (async mode); call methods on the "
                 "awaited client, or create a fresh bt.Subtensor() for blocking use."
             )
-        if self._sync is None:
-            self._sync = SyncClient(self._network_arg, **self._options)
-        return self._sync
+        self._mode = "blocking"
+        return super()._ensure_loop()
 
-    def __getattr__(self, name: str) -> Any:
-        # Everything not defined here is the blocking client's surface
-        # (namespaces, reads, execute/plan, ...), created on first touch.
-        return getattr(self._sync_client(), name)
-
-    def __enter__(self) -> SyncClient:
-        return self._sync_client().connect()
-
-    def __exit__(self, *_exc) -> None:
-        if self._sync is not None:
-            self._sync.close()
-            self._sync = None
+    def close(self) -> None:
+        if self._mode == "async":
+            raise BittensorError(
+                "This Subtensor is async; close the awaited client with "
+                "`await client.close()`."
+            )
+        if self._mode == "blocking":
+            super().close()
+        # cold: nothing to tear down
 
     # Async surface ------------------------------------------------------------
 
     async def _aconnect(self) -> Client:
-        if self._sync is not None:
+        if self._mode == "blocking":
             raise BittensorError(
                 "This Subtensor is already in blocking mode; create a fresh "
                 "bt.Subtensor() to use it with await / async with."
             )
-        if self._async is None:
-            client = Client(self._network_arg, **self._options)
-            await client.connect()
-            self._async = client
-        return self._async
+        self._mode = "async"
+        if not self._state["connected"]:
+            await self._client.connect()
+            self._state["connected"] = True
+        return self._client
 
-    def __await__(self):
+    def __await__(self) -> Generator[object, None, Client]:
         return self._aconnect().__await__()
 
     async def __aenter__(self) -> Client:
         return await self._aconnect()
 
     async def __aexit__(self, *_exc) -> None:
-        if self._async is not None:
-            await self._async.close()
-            self._async = None
+        if self._mode == "async" and self._state["connected"]:
+            await self._client.close()
+            self._state["connected"] = False
 
     def __repr__(self) -> str:
-        mode = "async" if self._async else ("blocking" if self._sync else "cold")
-        return f"Subtensor(network={self.network!r}, endpoint={self.endpoint!r}, mode={mode})"
+        return (
+            f"Subtensor(network={self.network!r}, endpoint={self.endpoint!r}, "
+            f"mode={self._mode or 'cold'})"
+        )
 
 
 # Shared blocking clients for the module-level convenience functions: one per
@@ -145,9 +129,11 @@ def _shared_client(network: str) -> SyncClient:
         return client
 
 
-def _resolve_wallet(wallet: Union[WalletLike, str, None], hotkey: Optional[str]) -> WalletLike:
+def _resolve_wallet(wallet: Union[WalletLike, None], hotkey: Optional[str]) -> WalletLike:
     if wallet is None or isinstance(wallet, str):
-        return Wallet(name=wallet or "default", hotkey=hotkey or "default")
+        name = wallet or "default"
+        # Wallet itself rejects a slash-name combined with an explicit hotkey.
+        return Wallet(name, hotkey) if hotkey is not None else as_wallet(name)
     if hotkey is not None:
         raise BittensorError(
             "hotkey= only combines with a wallet *name*; a wallet object already "
