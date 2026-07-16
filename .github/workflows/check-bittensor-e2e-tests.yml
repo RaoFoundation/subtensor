@@ -3,8 +3,9 @@ name: Bittensor E2E Test
 permissions:
   pull-requests: write
   contents: read
-  # Push/pull the per-PR localnet image on GHCR. Fork PRs never reach the
-  # image jobs (they need the trusted-pr gate), so this is non-fork only.
+  # Push/pull the per-PR localnet image through a separate, CI-only GHCR package.
+  # Fork PRs never reach the image jobs (they need the trusted-pr gate), so
+  # this is non-fork only.
   packages: write
 
 concurrency:
@@ -50,12 +51,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
-  # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment.
+  # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment. Test
+  # jobs retag the CI image to this compatibility name locally; it is
+  # never pushed.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
-  # Per-commit tag on GHCR: built once, pulled by every test job. Registry
-  # pulls beat the old artifact-tarball + docker-load path (~1-2 min/job)
-  # because layers download compressed and in parallel.
-  LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet:ci-${{ github.event.pull_request.head.sha || github.sha }}
+  # Per-commit tag in the CI-only package: built once, pulled by every test
+  # job. Keep these transport artifacts out of the public release package.
+  LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet-ci:ci-${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   trusted-pr:
@@ -304,7 +306,23 @@ jobs:
           docker info | grep "Docker Root Dir"
 
       - name: Build Docker Image
-        run: docker build -f sdk/bittensor-core/tests/Dockerfile.localnet-fast -t "$LOCALNET_IMAGE_CI" .
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          docker build \
+            -f sdk/bittensor-core/tests/Dockerfile.localnet-fast \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --label "org.opencontainers.image.version=ci-$SOURCE_SHA" \
+            -t "$LOCALNET_IMAGE_CI" \
+            .
+
+      - name: Verify CI image isolation and metadata
+        run: |
+          [[ "$LOCALNET_IMAGE_CI" == ghcr.io/raofoundation/subtensor-localnet-ci:ci-* ]]
+          test "$(docker image inspect "$LOCALNET_IMAGE_CI" --format '{{index .Config.Labels "org.opencontainers.image.title"}}')" = "Subtensor Localnet CI"
+          test "$(docker image inspect "$LOCALNET_IMAGE_CI" --format '{{index .Config.Labels "org.opencontainers.image.description"}}')" = "PR-specific Subtensor localnet image for repository E2E tests"
+          test "$(docker image inspect "$LOCALNET_IMAGE_CI" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = "https://github.com/RaoFoundation/subtensor"
+          test "$(docker image inspect "$LOCALNET_IMAGE_CI" --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')" = "Apache-2.0"
 
       - name: Login to GHCR
         uses: docker/login-action@v3

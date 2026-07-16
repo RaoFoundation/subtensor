@@ -28,11 +28,22 @@ fn test_register_leased_network_works() {
         // Register the leased network
         let end_block = 500;
         let emissions_share = Percent::from_percent(30);
-        assert_ok!(SubtensorModule::register_leased_network(
+        let post_info = SubtensorModule::register_leased_network(
             RuntimeOrigin::signed(beneficiary),
             emissions_share,
             Some(end_block),
-        ));
+        )
+        .expect("leased network registration should succeed");
+
+        let contributors_count = 1 + contributions.len() as u32;
+        assert_eq!(
+            post_info.actual_weight,
+            Some(
+                <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::register_leased_network(
+                    contributors_count,
+                ),
+            )
+        );
 
         // Ensure the lease was created
         let lease_id = 0;
@@ -239,25 +250,33 @@ fn test_register_lease_network_fails_if_end_block_is_in_the_past() {
 
 #[test]
 fn test_terminate_lease_works() {
-    new_test_ext(1).execute_with(|| {
+    let mut ext = new_test_ext(1);
+    let beneficiary = U256::from(1);
+    let contributions = vec![(U256::from(2), 990_000_000_000)]; // 990 TAO
+    let end_block = 500;
+
+    let (lease_id, lease) = ext.execute_with(|| {
         // Setup a crowdloan
         let crowdloan_id = 0;
-        let beneficiary = U256::from(1);
         let deposit = 10_000_000_000; // 10 TAO
         let cap = 1_000_000_000_000; // 1000 TAO
-        let contributions = vec![(U256::from(2), 990_000_000_000)]; // 990 TAO
         setup_crowdloan(crowdloan_id, deposit, cap, beneficiary, &contributions);
 
         // Setup a leased network
-        let end_block = 500;
         let tao_to_stake = 100_000_000_000; // 100 TAO
         let emissions_share = Percent::from_percent(30);
-        let (lease_id, lease) = setup_leased_network(
+        setup_leased_network(
             beneficiary,
             emissions_share,
             Some(end_block),
             Some(tao_to_stake),
-        );
+        )
+    });
+
+    // Commit the lease setup so clear_prefix reports the same backend removals as on-chain.
+    ext.commit_all().expect("lease setup should commit");
+
+    ext.execute_with(|| {
 
         // Run to the end of the lease
         run_to_block(end_block);
@@ -266,12 +285,28 @@ fn test_terminate_lease_works() {
         let hotkey = U256::from(3);
         let _ = SubtensorModule::create_account_if_non_existent(&beneficiary, &hotkey);
 
+        assert_eq!(
+            SubnetLeaseShares::<Test>::iter_prefix(lease_id).count(),
+            contributions.len()
+        );
+
         // Terminate the lease
-        assert_ok!(SubtensorModule::terminate_lease(
+        let post_info = SubtensorModule::terminate_lease(
             RuntimeOrigin::signed(beneficiary),
             lease_id,
             hotkey,
-        ));
+        )
+        .expect("lease termination should succeed");
+
+        let contributors_count = 1 + contributions.len() as u32;
+        assert_eq!(
+            post_info.actual_weight,
+            Some(
+                <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::terminate_lease(
+                    contributors_count,
+                ),
+            )
+        );
 
         // Ensure the beneficiary is now the owner of the subnet
         assert_eq!(SubnetOwner::<Test>::get(lease.netuid), beneficiary);
@@ -281,6 +316,7 @@ fn test_terminate_lease_works() {
         assert_eq!(SubnetLeases::<Test>::get(lease_id), None);
         assert!(!SubnetLeaseShares::<Test>::contains_prefix(lease_id));
         assert!(!AccumulatedLeaseDividends::<Test>::contains_key(lease_id));
+        assert!(!SubnetUidToLeaseId::<Test>::contains_key(lease.netuid));
 
         // Ensure the beneficiary has been removed as a proxy
         assert!(PROXIES.with_borrow(|proxies| proxies.0.is_empty()));

@@ -17,7 +17,6 @@ use ark_ec::Group;
 use ark_ff::field_hashers::{DefaultFieldHasher, HashToField};
 
 const PROOF_OF_POSSESSION_CONTEXT: &'static [u8] = b"POP_";
-const BLS_CONTEXT: &'static [u8] = b"BLS_";
 
 /// Proof Of Possession of the secret key as the secret scaler genarting both public
 /// keys in G1 and G2 by generating a BLS Signature of public key (in G2)

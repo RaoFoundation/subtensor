@@ -1,6 +1,6 @@
 ---
 title: Read chain state
-description: The metagraph, alpha, and uid-lookup precompiles — free view calls from the CLI, Python, and Solidity.
+description: The metagraph, alpha, uid-lookup, and balance precompiles — free view calls from the CLI, Python, and Solidity.
 ---
 
 Everything a subnet dashboard needs — stake, incentive, axon endpoints, pool
@@ -74,6 +74,18 @@ key?" — it only returns results for hotkeys that have
 ```bash
 btcli evm call uid-lookup uidLookup 1 0x1074Ad… 16    # up to 16 (uid, block_associated) pairs
 ```
+
+## Coldkey free balances
+
+`balance` (address `0x…080e`) reads any native ss58 account's free TAO
+balance. Like other key-shaped precompile arguments, Solidity passes the raw
+32-byte public key and the CLI accepts ss58 directly:
+
+```bash
+btcli evm call balance getFreeBalance 5F...
+```
+
+The return value is rao.
 
 ## From Python
 
