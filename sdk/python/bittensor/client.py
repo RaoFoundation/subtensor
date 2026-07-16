@@ -475,8 +475,8 @@ class Client:
         ``Utility.batch``, or ``Proxy.proxy`` must be composed before it becomes a
         parameter, e.g.::
 
-            inner = await client.compose(sub.calls.System.set_code(code=wasm_hex))
-            await client.submit_call(sub.calls.Sudo.sudo(call=inner), sudo_wallet)
+            inner = await client.compose(bt.calls.System.set_code(code=wasm_hex))
+            await client.submit_call(bt.calls.Sudo.sudo(call=inner), sudo_wallet)
         """
         return await self._substrate.compose(call)
 

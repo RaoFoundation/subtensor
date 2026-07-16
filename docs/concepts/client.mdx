@@ -3,22 +3,35 @@ title: The client
 description: Connecting, the three levels of reading chain state, blocks and waiting, and snapshots.
 ---
 
-`sub.Client` is the async entry point to everything: reads, transactions, and
-chain metadata. `sub.SyncClient` is a synchronous facade over the same surface.
+`bt.Subtensor` is the entry point to everything: reads, transactions, and
+chain metadata. One class serves both worlds — used directly it is a blocking
+client; awaited, it is the async client. The mode is declared by syntax,
+never guessed from the environment.
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:      # "finney" | "test" | "local" | "ws://..."
-    ...
+sub = bt.Subtensor()               # defaults to finney; connects lazily
+print(sub.block())                 # blocking; no close() needed
 
-client = sub.SyncClient("finney")                # same API, blocking
-client.close()
+client = await bt.Subtensor()      # the same class, awaited: the async client
+print(await client.block())
+
+with bt.Subtensor("test") as client: ...        # scoped, blocking
+async with bt.Subtensor("test") as client: ...  # scoped, async
 ```
 
-Networks: `finney` is mainnet, `test` is the public testnet, `local` is a dev
-node at `ws://127.0.0.1:9944`, and any `ws://` / `wss://` endpoint works
-directly.
+Networks: `finney` (mainnet, the default), `test` (the public testnet),
+`local` (a dev node at `ws://127.0.0.1:9944`), and any `ws://` / `wss://`
+endpoint directly.
+
+Blocking mode never needs `close()`: the connection opens on the first call
+and is torn down automatically when the object is garbage collected or the
+process exits. Async mode follows normal asyncio hygiene — prefer
+`async with`, or `await client.close()` for deterministic teardown.
+
+The examples below show the async form; every one works identically in
+blocking mode with the `await`s dropped.
 
 ## Three levels of reading
 
@@ -51,13 +64,13 @@ client.reads()                            # the machine-readable catalog
 descriptors. This is the escape hatch when no read wraps what you need:
 
 ```python
-tempo = await client.query(sub.storage.SubtensorModule.Tempo, [1])
-pairs = await client.query_map(sub.storage.SubtensorModule.Tempo)
-ed = await client.constant(sub.constants.Balances.ExistentialDeposit)
-info = await client.runtime(sub.runtime_api.NeuronInfoRuntimeApi.get_neurons_lite, [1])
+tempo = await client.query(bt.storage.SubtensorModule.Tempo, [1])
+pairs = await client.query_map(bt.storage.SubtensorModule.Tempo)
+ed = await client.constant(bt.constants.Balances.ExistentialDeposit)
+info = await client.runtime(bt.runtime_api.NeuronInfoRuntimeApi.get_neurons_lite, [1])
 ```
 
-The `sub.storage`, `sub.constants`, `sub.runtime_api`, and `sub.calls` modules
+The `bt.storage`, `bt.constants`, `bt.runtime_api`, and `bt.calls` modules
 are generated from chain metadata and cover the entire runtime surface.
 
 ## Typed results: the metagraph

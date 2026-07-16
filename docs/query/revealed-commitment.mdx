@@ -24,17 +24,19 @@ btcli query revealed-commitment --netuid <integer> --hotkey <ss58|name> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.identity.revealed_commitment(netuid=1, hotkey_ss58="5F...")
+sub = bt.Subtensor()
+result = sub.identity.revealed_commitment(netuid=1, hotkey_ss58="5F...")
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("revealed_commitment", netuid=1, hotkey_ss58="5F...")
+result = sub.read("revealed_commitment", netuid=1, hotkey_ss58="5F...")
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

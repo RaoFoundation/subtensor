@@ -259,23 +259,25 @@ submitting), then submit:
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.{class_name}({py_args})
+intent = bt.{class_name}({py_args})
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("{op}", {{...}}, wallet)
+result = sub.execute_tool("{op}", {{...}}, wallet)
 ```
 """
 
@@ -293,9 +295,9 @@ def intent_index() -> str:
         header,
         "Every mutation is an **intent**: preview it with `plan` / `--dry-run`, "
         "submit it with `execute`. Each CLI command below is `btcli tx <name>`; "
-        "each Python class is `sub.<ClassName>`. The machine-readable catalog of all "
+        "each Python class is `bt.<ClassName>`. The machine-readable catalog of all "
         "of these (with JSON schemas) is at [`/catalog/intents.json`](/catalog/intents.json) "
-        "or via `btcli tools` / `sub.intents.list_tools()`.\n",
+        "or via `btcli tools` / `bt.intents.list_tools()`.\n",
     ]
     for pallet in sorted(groups):
         parts.append(f"## {pallet}\n")
@@ -353,7 +355,7 @@ def namespace_shadowed(spec) -> bool:
 
 
 def namespace_call(spec, py_kwargs: list[str]) -> str:
-    return f"client.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
+    return f"sub.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
 
 
 def read_cli_invocation(spec) -> tuple[list[str], list[str]]:
@@ -396,31 +398,33 @@ def read_page(spec) -> str:
 
     cli_parts, py_kwargs = read_cli_invocation(spec)
 
-    read_call = f"client.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
+    read_call = f"sub.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
     if namespace_shadowed(spec):
         # A curated method with different semantics owns this name on the
         # namespace, so the page documents the name-dispatch form only.
         python_section = f"""```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await {read_call}
+sub = bt.Subtensor()
+result = {read_call}
 ```"""
     else:
-        python_section = f"""Typed namespace method (autocomplete, signature help):
+        python_section = f"""Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await {namespace_call(spec, py_kwargs)}
+sub = bt.Subtensor()
+result = {namespace_call(spec, py_kwargs)}
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await {read_call}
-```"""
+result = {read_call}
+```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`."""
 
     return f"""{frontmatter(kebab(spec.name), spec.summary)}
 {body}
@@ -456,12 +460,13 @@ def read_index() -> str:
         "Reads are free, unsigned, and safe to call at any time. Each CLI command "
         "is `btcli query <name>` (add `--json` for machine-readable output). In "
         "Python every read is a typed method on its category's namespace — "
-        "`await client.subnets.subnet_registration_cost()`, "
-        "`await client.delegation.delegates()` — with autocomplete and signature "
-        "help; `await client.read(\"<name>\", ...)` dispatches the same read by "
+        "`sub.subnets.subnet_registration_cost()`, "
+        "`sub.delegation.delegates()` on `sub = bt.Subtensor()` (awaited on the "
+        "async client) — with autocomplete and signature "
+        "help; `sub.read(\"<name>\", ...)` dispatches the same read by "
         "name. The machine-readable catalog is at "
         "[`/catalog/reads.json`](/catalog/reads.json) or via "
-        "`sub.reads.list_reads()`.\n",
+        "`bt.reads.list_reads()`.\n",
     ]
     for category in sorted(groups):
         parts.append(f"## {category}\n")
@@ -742,7 +747,7 @@ def write_catalogs(catalog_root: Path) -> None:
         r["docs_url"] = f"/docs/query/{kebab(r['name'])}"
         spec = READS[r["name"]]
         if not namespace_shadowed(spec):
-            r["python"] = f"client.{namespace_attr(spec)}.{spec.name}(...)"
+            r["python"] = f"sub.{namespace_attr(spec)}.{spec.name}(...)"
     errors = {
         "codes": {
             code.value: {

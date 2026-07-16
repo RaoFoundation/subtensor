@@ -13,7 +13,9 @@ offline — e.g. in tests, or with an injected fake ``substrate``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
+import weakref
 from typing import Any, Callable, Iterator, Optional
 
 from ._substrate import Substrate
@@ -24,6 +26,20 @@ from .settings import DEFAULT_NETWORK
 from .snapshot import Snapshot
 
 _NAMESPACES = tuple(NAMESPACES)
+
+
+def _finalize_sync(loop: "_Loop", client: Client, state: dict) -> None:
+    """GC/exit fallback for a SyncClient that was never close()d: close the
+    connection on the private loop, then stop the loop thread. Runs via
+    ``weakref.finalize`` (so also at interpreter exit, before threads die).
+    Receives only the internals — never the SyncClient itself, which would
+    keep it alive forever."""
+    if loop.is_shutdown:
+        return
+    if state.get("connected"):
+        with contextlib.suppress(Exception):
+            loop.call(client.close())
+    loop.shutdown()
 
 
 class _Loop:
@@ -160,7 +176,11 @@ class SyncClient:
         )
         self.network = self._client.network
         self.endpoint = self._client.endpoint
-        self._connected = False
+        # Shared with the GC finalizer, which must not hold the instance itself.
+        self._state = {"connected": False}
+        self._finalizer = weakref.finalize(
+            self, _finalize_sync, self._loop, self._client, self._state
+        )
         for ns in _NAMESPACES:
             setattr(self, ns, _SyncNamespace(getattr(self._client, ns), self._call))
 
@@ -168,9 +188,9 @@ class SyncClient:
 
     def connect(self) -> "SyncClient":
         """Open the connection. Idempotent; also runs implicitly on first use."""
-        if not self._connected:
+        if not self._state["connected"]:
             self._loop.call(self._client.connect())
-            self._connected = True
+            self._state["connected"] = True
         return self
 
     def _call(self, coro) -> Any:
@@ -180,9 +200,12 @@ class SyncClient:
         return self._loop.call(coro)
 
     def close(self) -> None:
-        if self._connected:
+        """Deterministic teardown. Optional: garbage collection (or process
+        exit) triggers the same cleanup for clients that are never closed."""
+        self._finalizer.detach()
+        if self._state["connected"]:
             self._loop.call(self._client.close())
-            self._connected = False
+            self._state["connected"] = False
         self._loop.shutdown()
 
     def __enter__(self) -> "SyncClient":

@@ -2,21 +2,23 @@
 
 Quick start:
 
+    import bittensor as bt
+
+    sub = bt.Subtensor()                 # defaults to finney; connects lazily
+    print(sub.balances.get("5F...coldkey"))
+
+No ``close()`` needed — the connection is cleaned up automatically. The same
+class is the async client when awaited:
+
     import asyncio
-    import bittensor as sub
+    import bittensor as bt
 
     async def main():
-        async with sub.Client("finney") as client:
+        async with bt.Subtensor() as client:      # or: client = await bt.Subtensor()
             bal = await client.balances.get("5F...coldkey")
             print(bal)
 
     asyncio.run(main())
-
-Synchronous:
-
-    client = sub.SyncClient("finney")
-    print(client.balances.get("5F...coldkey"))
-    client.close()
 
 Logging:
 
@@ -84,6 +86,7 @@ from .signing import (
     resolve_signer,
 )
 from .snapshot import Snapshot
+from .subtensor import Subtensor, set_weights
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
 from .wallet import Wallet
@@ -107,6 +110,8 @@ _INTENT_EXPORTS = {cls.__name__: cls for cls in _INTENT_REGISTRY.values()}
 globals().update(_INTENT_EXPORTS)
 
 __all__ = [
+    "Subtensor",
+    "set_weights",
     "Client",
     "SyncClient",
     # The chain-access contract and its production (websocket RPC) backend.
@@ -213,11 +218,9 @@ _NO_NEURON_STACK = (
 )
 
 _REMOVED_V10_HINTS = {
-    "Subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
-    "subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
-    "AsyncSubtensor": "use `async with bittensor.Client(network) as client:`",
-    "async_subtensor": "use `async with bittensor.Client(network) as client:`",
-    "get_async_subtensor": "use `await bittensor.Client(network).connect()`",
+    "AsyncSubtensor": "use `async with bittensor.Subtensor(network) as client:` or `await bittensor.Subtensor(network)`",
+    "async_subtensor": "use `async with bittensor.Subtensor(network) as client:`",
+    "get_async_subtensor": "use `await bittensor.Subtensor(network)`",
     "MockSubtensor": "removed — test against a local node instead",
     "axon": _NO_NEURON_STACK,
     "Axon": _NO_NEURON_STACK,

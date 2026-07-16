@@ -8,10 +8,10 @@ import {
   useEffect,
   useState,
 } from 'react';
-import { ChevronRight, Menu, X } from 'lucide-react';
+import { ChevronRight, Menu, Search as SearchIcon, X } from 'lucide-react';
 import type { TreeNode } from '@/lib/tree';
 import { cn } from '@/lib/cn';
-import { SearchTrigger } from './search';
+import { SidebarSearch } from './search';
 
 /* The bittensor.com header is 88px tall on desktop (32px padding + 24px logo). */
 const HEADER_OFFSET = 'top-[88px] h-[calc(100dvh-88px)]';
@@ -48,6 +48,21 @@ export function SidebarTrigger() {
       className="p-2 -ms-2 text-mute hover:text-fg md:hidden"
     >
       <Menu className="size-4" />
+    </button>
+  );
+}
+
+/** Mobile header search button: the search input lives in the drawer. */
+export function SidebarSearchTrigger() {
+  const { setOpen } = useContext(DrawerContext);
+  return (
+    <button
+      type="button"
+      aria-label="Search"
+      onClick={() => setOpen(true)}
+      className="p-2 text-mute hover:text-fg md:hidden"
+    >
+      <SearchIcon className="size-3.5" />
     </button>
   );
 }
@@ -189,12 +204,11 @@ export function Sidebar({ tree }: { tree: TreeNode[] }) {
           HEADER_OFFSET,
         )}
       >
-        <div className="mb-6 ps-4">
-          <SearchTrigger />
-        </div>
-        <nav>
-          <Tree nodes={tree} pathname={pathname} />
-        </nav>
+        <SidebarSearch>
+          <nav>
+            <Tree nodes={tree} pathname={pathname} />
+          </nav>
+        </SidebarSearch>
       </aside>
 
       {/* Mobile drawer; z-index sits above the sticky site header (z-index 100). */}
@@ -213,7 +227,9 @@ export function Sidebar({ tree }: { tree: TreeNode[] }) {
             >
               <X className="size-4" />
             </button>
-            <Tree nodes={tree} pathname={pathname} />
+            <SidebarSearch>
+              <Tree nodes={tree} pathname={pathname} />
+            </SidebarSearch>
           </div>
         </div>
       )}

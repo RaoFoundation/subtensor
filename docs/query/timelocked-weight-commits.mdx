@@ -28,17 +28,19 @@ btcli query timelocked-weight-commits --netuid <integer> --mechid <integer> --js
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.weights.timelocked_weight_commits(netuid=1, mechid=1)
+sub = bt.Subtensor()
+result = sub.weights.timelocked_weight_commits(netuid=1, mechid=1)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("timelocked_weight_commits", netuid=1, mechid=1)
+result = sub.read("timelocked_weight_commits", netuid=1, mechid=1)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

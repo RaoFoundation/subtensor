@@ -71,7 +71,7 @@ signer = bittensor.LedgerSigner()          # account 0, index 0
 print(signer.ss58_address)                 # the on-device account
 print(signer.confirm_address())            # re-derive with on-screen display
 
-async with bittensor.Client() as client:
+async with bittensor.Subtensor() as client:
     result = await client.execute(
         bittensor.Transfer(dest_ss58="5F...", amount_tao=bittensor.tao(1)),
         signer,

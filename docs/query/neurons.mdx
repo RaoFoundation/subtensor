@@ -25,17 +25,19 @@ btcli query neurons --netuid <integer> --lite/--no-lite --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.neurons.neurons(netuid=1, lite=True)
+sub = bt.Subtensor()
+result = sub.neurons.neurons(netuid=1, lite=True)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("neurons", netuid=1, lite=True)
+result = sub.read("neurons", netuid=1, lite=True)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

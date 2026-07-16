@@ -154,36 +154,41 @@ btcli wallet balance my_coldkey    # resolves the wallet's coldkey
 
 ### Reading
 
+`bt.Subtensor` is one class for both worlds: blocking when used directly,
+async when awaited. Blocking mode connects lazily and needs no `close()`.
+
 ```python
-import asyncio
-import bittensor as sub
+import bittensor as bt
 
-async def main():
-    async with sub.Client("finney") as client:
-        # Typed namespaces — every read in the catalog, one namespace per
-        # category, with autocomplete and typed returns
-        bal = await client.balances.get("5F...coldkey")
-        subnets = await client.subnets.all()
-        neurons = await client.neurons.all(netuid=1)
-        cost = await client.subnets.subnet_registration_cost()
-        take = await client.delegation.delegate_take(hotkey_ss58="5F...")
+sub = bt.Subtensor()          # defaults to finney; "test" | "local" | "ws://..."
 
-        # The same reads dispatched by name (the form agents and `btcli query` use)
-        take = await client.read("delegate_take", hotkey_ss58="5F...")
+# Typed namespaces — every read in the catalog, one namespace per
+# category, with autocomplete and typed returns
+bal = sub.balances.get("5F...coldkey")
+subnets = sub.subnets.all()
+neurons = sub.neurons.all(netuid=1)
+cost = sub.subnets.subnet_registration_cost()
+take = sub.delegation.delegate_take(hotkey_ss58="5F...")
 
-        # Generic accessors over the generated descriptors — anything on chain
-        tempo = await client.query(sub.storage.SubtensorModule.Tempo, [1])
-        ed = await client.constant(sub.constants.Balances.ExistentialDeposit)
+# The same reads dispatched by name (the form agents and `btcli query` use)
+take = sub.read("delegate_take", hotkey_ss58="5F...")
 
-asyncio.run(main())
+# Generic accessors over the generated descriptors — anything on chain
+tempo = sub.query(bt.storage.SubtensorModule.Tempo, [1])
+ed = sub.constant(bt.constants.Balances.ExistentialDeposit)
 ```
 
-There is a synchronous facade too:
+Async is the same surface awaited:
 
 ```python
-client = sub.SyncClient("finney")
-print(client.balances.get("5F...coldkey"))
-client.close()
+import asyncio
+import bittensor as bt
+
+async def main():
+    async with bt.Subtensor() as client:   # or: client = await bt.Subtensor()
+        bal = await client.balances.get("5F...coldkey")
+
+asyncio.run(main())
 ```
 
 ### Writing: intents, plan, execute
@@ -196,8 +201,8 @@ through a single policy-gated choke point.
 from bittensor.wallet import Wallet
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
 
-async with sub.Client("finney") as client:
-    intent = sub.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
+async with bt.Subtensor() as client:
+    intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
 
     plan = await client.plan(intent, wallet)
     print(plan.fee, plan.effects, plan.ok)
@@ -218,8 +223,8 @@ Attach a `Policy` to bound what any mutation may do; violations raise
 `PolicyError` at execute time (and show up in `plan`).
 
 ```python
-policy = sub.Policy(max_spend_tao=5.0, allowed_netuids=[1, 2])
-async with sub.Client("finney", policy=policy) as client:
+policy = bt.Policy(max_spend_tao=5.0, allowed_netuids=[1, 2])
+async with bt.Subtensor("finney", policy=policy) as client:
     ...
 ```
 
@@ -232,11 +237,11 @@ for a subnet's alpha (`.tao` on an alpha balance raises). Use strings/`Decimal`
 for exact large amounts.
 
 ```python
-sub.Balance.from_tao("10000000.123456789")   # exact TAO
-sub.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha, prints with the
+bt.Balance.from_tao("10000000.123456789")   # exact TAO
+bt.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha, prints with the
                                              # subnet's on-chain token symbol
                                              # (α₄₂ before a client connects)
-sub.tao(1.5); sub.alpha(2.5, 42); sub.rao(1_500_000_000)
+bt.tao(1.5); bt.alpha(2.5, 42); bt.rao(1_500_000_000)
 ```
 
 Alpha is never summed across subnets or silently treated as TAO. To value stake
@@ -249,7 +254,7 @@ Failures come back as `ExtrinsicResult` with a machine-readable `ErrorCode` and 
 remediation hint, derived from the exact chain error name:
 
 ```python
-result = await client.execute(sub.BurnedRegister(netuid=999), wallet)
+result = await client.execute(bt.BurnedRegister(netuid=999), wallet)
 if not result.success:
     print(result.error.code, result.error.remediation)  # e.g. subnet_not_exists
 ```
@@ -269,7 +274,7 @@ These compose with any intent:
 - **Atomic batch** — several intents in one all-or-nothing extrinsic:
 
   ```python
-  await client.execute(sub.Batch(intents=[
+  await client.execute(bt.Batch(intents=[
       {"op": "transfer", "dest_ss58": "5F...", "amount_tao": 1.0},
       {"op": "add_stake", "hotkey_ss58": "5F...", "netuid": 1, "amount_tao": 2.0},
   ]), wallet)
@@ -279,7 +284,7 @@ These compose with any intent:
   mainnet feature; needs validator-side reveal):
 
   ```python
-  await client.submit_shielded(sub.Transfer(dest_ss58="5F...", amount_tao=1.0), wallet)
+  await client.submit_shielded(bt.Transfer(dest_ss58="5F...", amount_tao=1.0), wallet)
   ```
 
   The CLI shields stake-trading commands (`stake add/remove/move/swap/transfer`,
@@ -331,7 +336,7 @@ the ones no intent wraps. Submit one directly (an active `Policy` refuses this
 unless it sets `allow_raw_calls=True`):
 
 ```python
-call = sub.calls.Commitments.set_commitment(netuid=1, info={...})
+call = bt.calls.Commitments.set_commitment(netuid=1, info={...})
 await client.submit_call(call, wallet, signer="hotkey")
 ```
 
@@ -346,7 +351,7 @@ btcli tools        # machine-readable JSON of every intent + params
 ```
 
 ```python
-sub.intents.list_tools()
+bt.intents.list_tools()
 ```
 
 Combined with `--json` on every command, `--dry-run` to preview, and

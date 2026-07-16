@@ -16,12 +16,12 @@ denominates (netuid 0 is TAO). Arithmetic between different units raises
 `UnitMismatchError` instead of silently mixing currencies.
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-sub.Balance.from_tao("10000000.123456789")   # exact TAO (str/Decimal for big amounts)
-sub.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha; prints with the subnet's
+bt.Balance.from_tao("10000000.123456789")   # exact TAO (str/Decimal for big amounts)
+bt.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha; prints with the subnet's
                                              # on-chain token symbol (α₄₂ before connect)
-sub.tao(1.5); sub.alpha(2.5, 42); sub.rao(1_500_000_000)   # shorthands
+bt.tao(1.5); bt.alpha(2.5, 42); bt.rao(1_500_000_000)   # shorthands
 ```
 
 Readback is unit-named too: `.tao` on a TAO balance, `.alpha` on an alpha

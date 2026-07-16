@@ -8,11 +8,11 @@ application's choice; this module only signs and verifies.
 
 Client side::
 
-    import bittensor as sub
+    import bittensor as bt
 
-    wallet = sub.Wallet(name="my_coldkey", hotkey="my_hotkey")
+    wallet = bt.Wallet(name="my_coldkey", hotkey="my_hotkey")
     body = b'{"prompt": "hello"}'
-    headers = sub.http_auth.sign(
+    headers = bt.http_auth.sign(
         wallet, method="POST", path="/generate", body=body,
         receiver_ss58=miner_hotkey,
     )
@@ -20,7 +20,7 @@ Client side::
 
 Server side::
 
-    caller = sub.http_auth.verify(
+    caller = bt.http_auth.verify(
         request_headers, raw_body,
         method="POST", path="/generate",
         self_hotkey_ss58=my_hotkey,

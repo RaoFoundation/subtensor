@@ -24,17 +24,19 @@ btcli query multisig --account <ss58|name> --call-hash <string> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.balances.multisig(account_ss58="5F...", call_hash="...")
+sub = bt.Subtensor()
+result = sub.balances.multisig(account_ss58="5F...", call_hash="...")
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("multisig", account_ss58="5F...", call_hash="...")
+result = sub.read("multisig", account_ss58="5F...", call_hash="...")
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

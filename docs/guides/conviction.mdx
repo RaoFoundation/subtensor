@@ -108,8 +108,8 @@ btcli tx set-perpetual-lock --netuid 7 --enabled -w my_coldkey
 The same flow in Python — lock, opt into perpetual, then read conviction back:
 
 ```python
-await client.execute(sub.LockStake(netuid=7, hotkey_ss58="5F...", amount_alpha=1000), wallet)
-await client.execute(sub.SetPerpetualLock(netuid=7, enabled=True), wallet)
+await client.execute(bt.LockStake(netuid=7, hotkey_ss58="5F...", amount_alpha=1000), wallet)
+await client.execute(bt.SetPerpetualLock(netuid=7, enabled=True), wallet)
 
 lock = await client.locks.coldkey_lock(coldkey_ss58="5C...", netuid=7)
 conviction = await client.locks.hotkey_conviction(hotkey_ss58="5F...", netuid=7)

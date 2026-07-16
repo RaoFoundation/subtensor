@@ -28,17 +28,19 @@ btcli query weights --netuid <integer> --mechid <integer> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.weights.weights(netuid=1, mechid=1)
+sub = bt.Subtensor()
+result = sub.weights.weights(netuid=1, mechid=1)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("weights", netuid=1, mechid=1)
+result = sub.read("weights", netuid=1, mechid=1)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

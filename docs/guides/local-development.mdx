@@ -58,9 +58,9 @@ btcli query is-fast-blocks --network local
 ```
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("local") as client:
+async with bt.Subtensor("local") as client:
     print(await client.block())
 ```
 
@@ -89,13 +89,13 @@ can skip wallet files entirely:
 
 ```python
 from bittensor.keyfiles import Keypair
-import bittensor as sub
+import bittensor as bt
 
 alice = Keypair.create_from_uri("//Alice")
 
-async with sub.Client("local") as client:
+async with bt.Subtensor("local") as client:
     result = await client.execute(
-        sub.Transfer(dest_ss58="5F...", amount_tao=1000), alice
+        bt.Transfer(dest_ss58="5F...", amount_tao=1000), alice
     )
 ```
 

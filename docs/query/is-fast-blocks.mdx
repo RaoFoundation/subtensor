@@ -21,17 +21,19 @@ btcli query is-fast-blocks --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.chain.is_fast_blocks()
+sub = bt.Subtensor()
+result = sub.chain.is_fast_blocks()
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("is_fast_blocks")
+result = sub.read("is_fast_blocks")
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

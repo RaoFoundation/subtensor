@@ -105,19 +105,19 @@ Under the hood this is the reverse direction of proof: the **EVM key** signs
 that signature. In Python:
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.evm import association_proof
 from bittensor.evm.keys import unlock_evm_key
 
-wallet = sub.Wallet(name="my_wallet", hotkey="my_hotkey")
+wallet = bt.Wallet(name="my_wallet", hotkey="my_hotkey")
 account = unlock_evm_key("default", "my_wallet")
 
-async with sub.Client("finney") as client:
+async with bt.Subtensor() as client:
     signature, block = association_proof(
         account, wallet.hotkey.ss58_address, await client.block()
     )
     result = await client.execute(
-        sub.AssociateEvmKey(
+        bt.AssociateEvmKey(
             netuid=1, evm_key=account.address,
             block_number=block, signature=signature,
         ),

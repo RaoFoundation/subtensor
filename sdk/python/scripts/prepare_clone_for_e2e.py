@@ -28,7 +28,7 @@ import asyncio
 import sys
 from types import SimpleNamespace
 
-import bittensor as sub
+import bittensor as bt
 from bittensor.client import Client
 from bittensor.keyfiles import Keypair
 
@@ -55,7 +55,7 @@ def _alice() -> SimpleNamespace:
 
 async def _sudo(client: Client, wallet: SimpleNamespace, call) -> None:
     inner = await client.compose(call)
-    result = await client.submit_call(sub.calls.Sudo.sudo(call=inner), wallet)
+    result = await client.submit_call(bt.calls.Sudo.sudo(call=inner), wallet)
     if not result.success:
         raise SystemExit(f"sudo({call}) failed: {result.message}")
     print(f"ok: {call}")
@@ -64,22 +64,22 @@ async def _sudo(client: Client, wallet: SimpleNamespace, call) -> None:
 async def main(endpoint: str) -> None:
     alice = _alice()
     async with Client(endpoint) as client:
-        total_networks = int(await client.query(sub.storage.SubtensorModule.TotalNetworks))
-        await _sudo(client, alice, sub.calls.AdminUtils.sudo_set_network_rate_limit(rate_limit=0))
+        total_networks = int(await client.query(bt.storage.SubtensorModule.TotalNetworks))
+        await _sudo(client, alice, bt.calls.AdminUtils.sudo_set_network_rate_limit(rate_limit=0))
         await _sudo(
             client,
             alice,
-            sub.calls.AdminUtils.sudo_set_subnet_limit(
+            bt.calls.AdminUtils.sudo_set_subnet_limit(
                 max_subnets=total_networks + SUBNET_HEADROOM
             ),
         )
         await _sudo(
-            client, alice, sub.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1)
+            client, alice, bt.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1)
         )
         await _sudo(
             client,
             alice,
-            sub.calls.System.set_storage(items=[(REGISTRATION_START_BLOCK_KEY, SCALE_U64_ZERO)]),
+            bt.calls.System.set_storage(items=[(REGISTRATION_START_BLOCK_KEY, SCALE_U64_ZERO)]),
         )
 
 

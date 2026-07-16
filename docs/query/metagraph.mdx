@@ -25,8 +25,8 @@ btcli query metagraph --netuid <integer> --json
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.read("metagraph", netuid=1)
+sub = bt.Subtensor()
+result = sub.read("metagraph", netuid=1)
 ```

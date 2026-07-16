@@ -21,7 +21,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-import bittensor as sub
+import bittensor as bt
 from bittensor._generated import storage as st
 
 I96 = 2**32
@@ -126,7 +126,7 @@ def block_emission_calculated(issuance_tao: float) -> float:
     return 1.0 / (2**k)
 
 
-async def chain_fields(client: sub.Client, netuids: list[int]) -> dict:
+async def chain_fields(client: bt.Client, netuids: list[int]) -> dict:
     view = await client.at()
     total_issuance = int(await view.query(st.SubtensorModule.TotalIssuance))
     block_emission = int(await view.query(st.SubtensorModule.BlockEmission))
@@ -175,7 +175,7 @@ async def build_snapshot() -> dict:
     top_netuids = [int(r["netuid"]) for r in top_rows]
     featured_netuid = 4 if 4 in top_netuids else top_netuids[0]
 
-    async with sub.Client("finney") as client:
+    async with bt.Subtensor() as client:
         chain = await chain_fields(client, top_netuids + [featured_netuid])
 
     subnets = [
