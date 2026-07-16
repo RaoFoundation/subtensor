@@ -29,7 +29,7 @@ while IFS= read -r path; do
     .github/workflows/runtime-checks.yml|.github/workflows/refresh-mainnet-snapshot.yml|.github/actions/rust-setup/*|.github/actions/sccache-setup/*|.github/scripts/sccache-configure.sh)
       runtime=true
       ;;
-    .github/scripts/classify-runtime-changes.sh|.github/scripts/test-runtime-change-filter.sh|.github/scripts/snapshot-artifact.sh|.github/scripts/test-snapshot-artifact.sh|.github/scripts/download-artifact.sh|.github/scripts/test-download-artifact.sh|.github/scripts/r2-artifact-mirror.py|.github/scripts/test-r2-artifact-mirror.py)
+    .github/scripts/classify-runtime-changes.sh|.github/scripts/test-runtime-change-filter.sh|.github/scripts/snapshot-artifact.sh|.github/scripts/test-snapshot-artifact.sh|.github/scripts/download-artifact.sh|.github/scripts/test-download-artifact.sh|.github/scripts/r2-artifact-mirror.py|.github/scripts/test-r2-artifact-mirror.py|.github/scripts/publish-artifact-mirror.sh)
       runtime=true
       snapshot_ci=true
       ;;

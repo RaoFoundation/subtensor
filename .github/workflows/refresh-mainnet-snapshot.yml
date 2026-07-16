@@ -108,20 +108,7 @@ jobs:
           ARTIFACT_DIGEST: ${{ steps.upload-snapshot.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          archive="$RUNNER_TEMP/mainnet-snapshot-artifact.zip"
-          for attempt in 1 2 3 4 5; do
-            if gh api \
-              -H 'Accept: application/vnd.github+json' \
-              "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
-              > "$archive"; then
-              break
-            fi
-            rm -f "$archive"
-            sleep $((attempt * 5))
-          done
-          [[ -s "$archive" ]]
-          .github/scripts/r2-artifact-mirror.py \
-            "$archive" \
+          .github/scripts/publish-artifact-mirror.sh \
             "$ARTIFACT_ID" \
             mainnet-snapshot \
             "$ARTIFACT_DIGEST" \

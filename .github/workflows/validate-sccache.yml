@@ -10,6 +10,7 @@ on:
       - ".github/scripts/download-artifact.sh"
       - ".github/scripts/test-download-artifact.sh"
       - ".github/scripts/r2-artifact-mirror.py"
+      - ".github/scripts/publish-artifact-mirror.sh"
       - ".github/scripts/test-r2-artifact-mirror.py"
       - ".github/scripts/snapshot-artifact.sh"
       - ".github/scripts/test-snapshot-artifact.sh"
@@ -51,7 +52,7 @@ jobs:
           .github/scripts/test-r2-artifact-mirror.py
 
   prewarm-exact-runtime:
-    name: prewarm and verify exact runtime check keys
+    name: prewarm Rust keys and publish clone mirror
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -61,6 +62,9 @@ jobs:
       name: sccache-writer
       deployment: false
     timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
     env:
       SKIP_WASM_BUILD: 1
     steps:
@@ -115,6 +119,27 @@ jobs:
             echo "- Fill: ${fill_seconds}s (${fill_rust_hits} Rust hits, ${fill_rust_misses} misses)"
             echo "- Clean verification: ${verify_seconds}s (${verify_rust_hits} Rust hits, ${verify_rust_misses} misses)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Select a fresh trusted mainnet clone snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh select \
+            mainnet-snapshot main "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml 36 \
+            "$GITHUB_OUTPUT" required
+
+      - name: Publish the clone snapshot for fleet prefetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/publish-artifact-mirror.sh \
+            "${{ steps.snapshot.outputs.artifact-id }}" \
+            mainnet-snapshot \
+            "${{ steps.snapshot.outputs.artifact-digest }}" \
+            "${{ steps.snapshot.outputs.producer-sha }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml
 
   benchmark-sccache-paired:
     if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache

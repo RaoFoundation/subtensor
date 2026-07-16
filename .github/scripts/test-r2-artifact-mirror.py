@@ -6,6 +6,7 @@ import datetime as dt
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("r2-artifact-mirror.py")
+PUBLISH_HELPER = Path(__file__).with_name("publish-artifact-mirror.sh")
 SPEC = importlib.util.spec_from_file_location("r2_artifact_mirror", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -87,5 +89,54 @@ with tempfile.TemporaryDirectory() as directory:
         "producer_sha": "a" * 40,
         "published_at": 1_768_476_000,
     }
+
+with tempfile.TemporaryDirectory() as directory:
+    temp = Path(directory)
+    bin_dir = temp / "bin"
+    bin_dir.mkdir()
+    record = temp / "publisher-arguments"
+    (bin_dir / "gh").write_text(
+        "#!/usr/bin/env bash\nprintf 'immutable artifact zip'\n",
+        encoding="utf-8",
+    )
+    (bin_dir / "python3").write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == */r2-artifact-mirror.py ]]
+[[ -s "$2" ]]
+printf '%s\n' "${@:3}" > "$PUBLISH_RECORD"
+""",
+        encoding="utf-8",
+    )
+    (bin_dir / "gh").chmod(0o755)
+    (bin_dir / "python3").chmod(0o755)
+    result = subprocess.run(
+        [
+            str(PUBLISH_HELPER),
+            "123",
+            "mainnet-snapshot",
+            f"sha256:{'a' * 64}",
+            "b" * 40,
+            ".github/workflows/refresh-mainnet-snapshot.yml",
+        ],
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "GH_TOKEN": "token",
+            "GITHUB_REPOSITORY": "example/repository",
+            "PUBLISH_RECORD": str(record),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "123",
+        "mainnet-snapshot",
+        f"sha256:{'a' * 64}",
+        "b" * 40,
+        ".github/workflows/refresh-mainnet-snapshot.yml",
+    ]
 
 print("R2 artifact mirror tests passed")
