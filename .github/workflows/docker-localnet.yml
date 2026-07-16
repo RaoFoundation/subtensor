@@ -270,7 +270,13 @@ jobs:
     needs: [setup, validate-image]
     runs-on: [self-hosted, fireactions-turbo-8]
     steps:
-      - uses: actions/checkout@v4
+      # Publication tooling belongs to the workflow revision, not the selected
+      # application source. Manual runs may intentionally build an older ref or
+      # a PR whose copy of this script is missing or incompatible.
+      - name: Check out publication tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
 
       - name: Download tested image descriptors
         uses: actions/download-artifact@v5
