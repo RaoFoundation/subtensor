@@ -28,16 +28,14 @@ fn test_register_leased_network_works() {
         // Register the leased network
         let end_block = 500;
         let emissions_share = Percent::from_percent(30);
-        let post_info = SubtensorModule::register_leased_network(
-            RuntimeOrigin::signed(beneficiary),
-            emissions_share,
-            Some(end_block),
-        )
-        .expect("leased network registration should succeed");
-
         let contributors_count = 1 + contributions.len() as u32;
-        assert_eq!(
-            post_info.actual_weight,
+        assert_ok!(
+            SubtensorModule::register_leased_network(
+                RuntimeOrigin::signed(beneficiary),
+                emissions_share,
+                Some(end_block),
+            )
+            .map(|post_info| post_info.actual_weight),
             Some(
                 <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::register_leased_network(
                     contributors_count,
@@ -274,7 +272,7 @@ fn test_terminate_lease_works() {
     });
 
     // Commit the lease setup so clear_prefix reports the same backend removals as on-chain.
-    ext.commit_all().expect("lease setup should commit");
+    assert_ok!(ext.commit_all());
 
     ext.execute_with(|| {
 
@@ -291,16 +289,14 @@ fn test_terminate_lease_works() {
         );
 
         // Terminate the lease
-        let post_info = SubtensorModule::terminate_lease(
-            RuntimeOrigin::signed(beneficiary),
-            lease_id,
-            hotkey,
-        )
-        .expect("lease termination should succeed");
-
         let contributors_count = 1 + contributions.len() as u32;
-        assert_eq!(
-            post_info.actual_weight,
+        assert_ok!(
+            SubtensorModule::terminate_lease(
+                RuntimeOrigin::signed(beneficiary),
+                lease_id,
+                hotkey,
+            )
+            .map(|post_info| post_info.actual_weight),
             Some(
                 <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::terminate_lease(
                     contributors_count,
