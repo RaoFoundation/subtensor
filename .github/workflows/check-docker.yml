@@ -14,13 +14,12 @@ on:
       - "precompiles/**"
       - "primitives/**"
       - "runtime/**"
-      - "sdk/bittensor-core/**"
-      - "sdk/bittensor-core-py/**"
-      - "sdk/bittensor-core-wasm/**"
       - "support/**"
       - "chain-extensions/**"
       - "src/**"
       - "vendor/**"
+      # The bittensor-core SDK crates are not in node-subtensor's dependency
+      # graph. Their shared dependency movement still enters through Cargo.lock.
       - "Cargo.toml"
       - "Cargo.lock"
       - "build.rs"
