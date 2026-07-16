@@ -16,6 +16,7 @@
 //! ownership will be transferred to the beneficiary.
 
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::{
     dispatch::RawOrigin,
     traits::{Defensive, fungible::*},
@@ -163,12 +164,10 @@ impl<T: Config> Pallet<T> {
 
         if crowdloan.contributors_count < T::MaxContributors::get() {
             // We have less contributors than the max allowed, so we need to refund the difference
-            Ok(
-                Some(SubnetLeasingWeightInfo::<T>::do_register_leased_network(
-                    crowdloan.contributors_count,
-                ))
-                .into(),
-            )
+            Ok(Some(<T as Config>::WeightInfo::register_leased_network(
+                crowdloan.contributors_count,
+            ))
+            .into())
         } else {
             // We have the max number of contributors, so we don't need to refund anything
             Ok(().into())
@@ -225,10 +224,12 @@ impl<T: Config> Pallet<T> {
             netuid: lease.netuid,
         });
 
-        if clear_result.unique < T::MaxContributors::get() {
+        // Lease shares exclude the beneficiary, while the benchmark's `k` includes them.
+        let contributors_count = clear_result.unique.saturating_add(1);
+        if contributors_count < T::MaxContributors::get() {
             // We have cleared less than the max number of shareholders, so we need to refund the difference
-            Ok(Some(SubnetLeasingWeightInfo::<T>::do_terminate_lease(
-                clear_result.unique,
+            Ok(Some(<T as Config>::WeightInfo::terminate_lease(
+                contributors_count,
             ))
             .into())
         } else {
@@ -377,29 +378,5 @@ impl<T: Config> Pallet<T> {
         let crowdloan = pallet_crowdloan::Crowdloans::<T>::get(crowdloan_id)
             .ok_or(pallet_crowdloan::Error::<T>::InvalidCrowdloanId)?;
         Ok((crowdloan_id, crowdloan))
-    }
-}
-
-/// Weight functions needed for subnet leasing.
-pub struct SubnetLeasingWeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> SubnetLeasingWeightInfo<T> {
-    pub fn do_register_leased_network(k: u32) -> Weight {
-        Weight::from_parts(301_560_714, 10079)
-            .saturating_add(Weight::from_parts(26_884_006, 0).saturating_mul(k.into()))
-            .saturating_add(T::DbWeight::get().reads(41_u64))
-            .saturating_add(T::DbWeight::get().reads(2_u64.saturating_mul(k.into())))
-            .saturating_add(T::DbWeight::get().writes(55_u64))
-            .saturating_add(T::DbWeight::get().writes(2_u64.saturating_mul(k.into())))
-            .saturating_add(Weight::from_parts(0, 2579).saturating_mul(k.into()))
-    }
-
-    pub fn do_terminate_lease(k: u32) -> Weight {
-        Weight::from_parts(56_635_122, 6148)
-            .saturating_add(Weight::from_parts(912_993, 0).saturating_mul(k.into()))
-            .saturating_add(T::DbWeight::get().reads(4_u64))
-            .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(k.into())))
-            .saturating_add(T::DbWeight::get().writes(7_u64))
-            .saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(k.into())))
-            .saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
     }
 }
