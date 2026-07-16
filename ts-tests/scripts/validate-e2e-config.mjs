@@ -7,13 +7,26 @@ const tsTestsDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const config = JSON.parse(readFileSync(join(tsTestsDir, "moonwall.config.json"), "utf8"));
 const singleNodeSpec = JSON.parse(readFileSync(join(tsTestsDir, "configs/zombie_single_node.json"), "utf8"));
 const shieldSpec = JSON.parse(readFileSync(join(tsTestsDir, "configs/zombie_extended.json"), "utf8"));
+const e2eWorkflow = readFileSync(join(tsTestsDir, "..", ".github/workflows/typescript-e2e.yml"), "utf8");
 const environments = new Map(config.environments.map((environment) => [environment.name, environment]));
 
 const shieldFiles = readdirSync(join(tsTestsDir, "suites/zombienet_shield"))
     .filter((file) => file.endsWith(".test.ts"))
     .map((file) => `suites/zombienet_shield/${file}`)
     .sort();
-const shieldShardNames = ["zombienet_shield_a", "zombienet_shield_b", "zombienet_shield_c"];
+const shieldShardNames = ["zombienet_shield_a", "zombienet_shield_b", "zombienet_shield_c", "zombienet_shield_d"];
+const shieldJob = e2eWorkflow.match(/\n  run-shield-tests:\n(?<body>[\s\S]*?)\n  shield-result:\n/)?.groups?.body;
+if (!shieldJob) {
+    throw new Error("Could not find the Shield matrix in typescript-e2e.yml");
+}
+const workflowShieldShardNames = [...shieldJob.matchAll(/^\s+- (zombienet_shield_[a-z]+)\s*$/gm)].map(
+    (match) => match[1]
+);
+if (!isDeepStrictEqual(workflowShieldShardNames, shieldShardNames)) {
+    throw new Error(
+        `Shield workflow/config mismatch; workflow=[${workflowShieldShardNames.join(", ")}] config=[${shieldShardNames.join(", ")}]`
+    );
+}
 const shieldShardIncludes = shieldShardNames.map((name) => {
     const environment = environments.get(name);
     if (!environment) {
