@@ -25,6 +25,14 @@ BUCKET = "subtensor-ci-sccache"
 REGION = "auto"
 SERVICE = "s3"
 MIRROR_PREFIX = "artifacts/v1"
+ALLOWED_ARTIFACT_NAMES = frozenset(
+    {
+        "mainnet-snapshot",
+        "try-runtime-snap-v0.10.1-mainnet",
+        "try-runtime-snap-v0.10.1-testnet",
+        "try-runtime-snap-v0.10.1-devnet",
+    }
+)
 
 
 class MirrorError(Exception):
@@ -224,8 +232,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.artifact_id <= 0:
         parser.error("artifact_id must be positive")
-    if args.artifact_name != "mainnet-snapshot":
-        parser.error("only the mainnet clone snapshot may be mirrored")
+    if args.artifact_name not in ALLOWED_ARTIFACT_NAMES:
+        parser.error("artifact_name is outside the trusted mirror allowlist")
     if not SHA256_DIGEST.fullmatch(args.digest):
         parser.error("digest must be a sha256 digest")
     if not COMMIT_SHA.fullmatch(args.producer_sha):

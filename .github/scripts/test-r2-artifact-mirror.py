@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,10 +17,20 @@ from unittest import mock
 
 SCRIPT = Path(__file__).with_name("r2-artifact-mirror.py")
 PUBLISH_HELPER = Path(__file__).with_name("publish-artifact-mirror.sh")
+CURRENT_RUN_HELPER = Path(__file__).with_name(
+    "publish-current-run-artifact-mirror.sh"
+)
 SPEC = importlib.util.spec_from_file_location("r2_artifact_mirror", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+assert MODULE.ALLOWED_ARTIFACT_NAMES == {
+    "mainnet-snapshot",
+    "try-runtime-snap-v0.10.1-mainnet",
+    "try-runtime-snap-v0.10.1-testnet",
+    "try-runtime-snap-v0.10.1-devnet",
+}
 
 
 assert MODULE.validate_endpoint(
@@ -90,6 +102,36 @@ with tempfile.TemporaryDirectory() as directory:
         "published_at": 1_768_476_000,
     }
 
+    for artifact_name in MODULE.ALLOWED_ARTIFACT_NAMES:
+        parsed = MODULE.parse_args(
+            [
+                str(archive),
+                "123",
+                artifact_name,
+                f"sha256:{digest}",
+                "a" * 40,
+                ".github/workflows/refresh-mainnet-snapshot.yml",
+            ]
+        )
+        assert parsed.artifact_name == artifact_name
+
+    with mock.patch.object(sys, "stderr", io.StringIO()):
+        try:
+            MODULE.parse_args(
+                [
+                    str(archive),
+                    "123",
+                    "untrusted-artifact",
+                    f"sha256:{digest}",
+                    "a" * 40,
+                    ".github/workflows/refresh-mainnet-snapshot.yml",
+                ]
+            )
+        except SystemExit as error:
+            assert error.code == 2
+        else:
+            raise AssertionError("untrusted mirror artifact was accepted")
+
 with tempfile.TemporaryDirectory() as directory:
     temp = Path(directory)
     bin_dir = temp / "bin"
@@ -138,5 +180,86 @@ printf '%s\n' "${@:3}" > "$PUBLISH_RECORD"
         "b" * 40,
         ".github/workflows/refresh-mainnet-snapshot.yml",
     ]
+
+with tempfile.TemporaryDirectory() as directory:
+    temp = Path(directory)
+    bin_dir = temp / "bin"
+    bin_dir.mkdir()
+    record = temp / "publisher-arguments"
+    metadata = temp / "metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "artifacts": [
+                    {
+                        "id": 123,
+                        "name": "try-runtime-snap-v0.10.1-mainnet",
+                        "expired": False,
+                        "digest": f"sha256:{'a' * 64}",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bin_dir / "gh").write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *actions/runs/789/artifacts*) cat "$MOCK_METADATA" ;;
+  *actions/artifacts/123/zip*) printf 'immutable artifact zip' ;;
+  *) echo "unexpected gh invocation: $*" >&2; exit 2 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    (bin_dir / "python3").write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == */r2-artifact-mirror.py ]]
+[[ -s "$2" ]]
+printf '%s\n' "${@:3}" > "$PUBLISH_RECORD"
+""",
+        encoding="utf-8",
+    )
+    (bin_dir / "gh").chmod(0o755)
+    (bin_dir / "python3").chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "GH_TOKEN": "token",
+        "GITHUB_REPOSITORY": "example/repository",
+        "GITHUB_RUN_ID": "789",
+        "GITHUB_SHA": "b" * 40,
+        "MOCK_METADATA": str(metadata),
+        "PUBLISH_RECORD": str(record),
+    }
+    result = subprocess.run(
+        [str(CURRENT_RUN_HELPER), "try-runtime-snap-v0.10.1-mainnet"],
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        "123",
+        "try-runtime-snap-v0.10.1-mainnet",
+        f"sha256:{'a' * 64}",
+        "b" * 40,
+        ".github/workflows/refresh-mainnet-snapshot.yml",
+    ]
+
+    duplicate = json.loads(metadata.read_text(encoding="utf-8"))
+    duplicate["artifacts"].append(dict(duplicate["artifacts"][0]))
+    metadata.write_text(json.dumps(duplicate), encoding="utf-8")
+    result = subprocess.run(
+        [str(CURRENT_RUN_HELPER), "try-runtime-snap-v0.10.1-mainnet"],
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
 
 print("R2 artifact mirror tests passed")

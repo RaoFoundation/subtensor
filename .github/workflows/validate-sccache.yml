@@ -17,6 +17,7 @@ on:
       - ".github/scripts/benchmark-artifact-cache.sh"
       - ".github/scripts/r2-artifact-mirror.py"
       - ".github/scripts/publish-artifact-mirror.sh"
+      - ".github/scripts/publish-current-run-artifact-mirror.sh"
       - ".github/scripts/test-r2-artifact-mirror.py"
       - ".github/scripts/snapshot-artifact.sh"
       - ".github/scripts/test-snapshot-artifact.sh"

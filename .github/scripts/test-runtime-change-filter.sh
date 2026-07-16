@@ -33,6 +33,7 @@ assert_classification .github/scripts/prewarm-exact-runtime.sh "$runtime_and_sna
 assert_classification .github/scripts/test-prewarm-exact-runtime.sh "$runtime_and_snapshot_only"
 assert_classification .github/scripts/benchmark-sccache-paired.sh "$runtime_and_snapshot_only"
 assert_classification .github/scripts/benchmark-artifact-cache.sh "$runtime_and_snapshot_only"
+assert_classification .github/scripts/publish-current-run-artifact-mirror.sh "$runtime_and_snapshot_only"
 assert_classification clones/scripts/start-local-clone-and-wait.sh "$runtime_only"
 assert_classification .github/workflows/refresh-mainnet-snapshot.yml "$runtime_and_snapshot_only"
 assert_classification .github/workflows/runtime-checks.yml "$runtime_and_snapshot"

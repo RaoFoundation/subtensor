@@ -268,3 +268,40 @@ jobs:
             ${{ matrix.network.name }}.manifest.json
           if-no-files-found: error
           retention-days: 7
+
+  mirror-try-runtime-snapshots:
+    name: mirror try-runtime snapshot ${{ matrix.network }}
+    needs: try-runtime-snapshot
+    # Publish every successful matrix artifact even if another network scrape
+    # failed; the missing network remains visible as a failed mirror leg.
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.source_ref == 'main'))
+    runs-on: ubuntu-latest
+    environment:
+      name: sccache-writer
+      deployment: false
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        network: [mainnet, testnet, devnet]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Publish immutable artifact and latest manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCCACHE_BUCKET: subtensor-ci-sccache
+          SCCACHE_ENDPOINT: https://3dc4cebb791314d78848969042fb3382.r2.cloudflarestorage.com
+          SCCACHE_REGION: auto
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+        run: >-
+          .github/scripts/publish-current-run-artifact-mirror.sh
+          "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network }}"
