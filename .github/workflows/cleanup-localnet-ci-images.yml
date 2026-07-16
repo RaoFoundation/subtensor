@@ -1,0 +1,35 @@
+name: Cleanup Localnet CI Images
+
+# PR-specific images are retained long enough for GitHub's workflow rerun
+# window, then removed from the CI-only package. Public release images live
+# in subtensor-localnet and are deliberately outside this workflow's scope.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cleanup-localnet-ci-images
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      RETENTION_DAYS: 30
+    steps:
+      - name: Check out cleanup policy
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate cleanup policy
+        run: ./.github/scripts/test-cleanup-localnet-ci-images.sh
+
+      - name: Delete expired CI image versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+        run: ./.github/scripts/cleanup-localnet-ci-images.sh
