@@ -262,9 +262,12 @@ where
         // priority in this wrapper (priority is overridden above) and billing it to the coldkey
         // would let a hotkey drain coldkey funds. Other payers keep the original tip.
         let (fee_origin, tip) = if let Some(real) = Self::extract_real_fee_payer(call, &origin) {
+            // Drop the signer-chosen tip: billing it to the real account would let a
+            // delegate drain real funds by attaching an arbitrarily large tip (same class
+            // of drain as the coldkey path, which already zeroes the tip).
             (
                 frame_system::RawOrigin::Signed(real).into(),
-                self.inner.tip(),
+                Zero::zero(),
             )
         } else if let Some(coldkey) = Self::extract_coldkey_fee_payer(call, &origin) {
             (
@@ -934,6 +937,46 @@ mod tests {
                 coldkey_before.saturating_sub(coldkey_after),
                 tipless_fee,
                 "coldkey pays the tipless fee, not the tip"
+            );
+        });
+    }
+
+    #[test]
+    fn audit_probe_real_pays_delegate_selected_tip() {
+        new_test_ext().execute_with(|| {
+            let delegate = signer();
+            let real = real_a();
+            add_proxy(&real, &delegate);
+            enable_real_pays_fee(&real, &delegate);
+
+            let call = proxy_call(real.clone(), call_remark());
+            let info = DispatchInfo {
+                pays_fee: Pays::Yes,
+                ..call.get_dispatch_info()
+            };
+            let tip = TaoBalance::new(1_000_000);
+            let delegate_before = pallet_balances::Pallet::<Runtime>::free_balance(&delegate);
+            let real_before = pallet_balances::Pallet::<Runtime>::free_balance(&real);
+
+            let ext = ChargeTransactionPaymentWrapper::<Runtime>::new(tip);
+            assert_ok!(ext.test_run(
+                RuntimeOrigin::signed(delegate.clone()),
+                &call,
+                &info,
+                0,
+                0,
+                |_origin| Ok(Default::default()),
+            ));
+
+            // After fix: the tip is zeroed on the RealPaysFee path, so only the base
+            // fee (computed with tip=0) is charged to the real account.
+            let expected_fee =
+                pallet_transaction_payment::Pallet::<Runtime>::compute_fee(0, &info, 0u64.into());
+            let real_after = pallet_balances::Pallet::<Runtime>::free_balance(&real);
+            assert_eq!(real_before.saturating_sub(real_after), expected_fee);
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::free_balance(&delegate),
+                delegate_before
             );
         });
     }
