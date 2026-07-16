@@ -47,6 +47,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts/classify-typescript-e2e-changes.sh
+            .github/scripts/extract-pull-file-paths.sh
           path: .trusted-e2e-filter
 
       # Plain gh-api file listing instead of a marketplace action: the org's
@@ -66,20 +67,20 @@ jobs:
             exit 0
           fi
 
-          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename'); then
+          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate); then
             echo "changed-file lookup failed; running the full E2E matrix" >&2
             "$classifier" --all "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          observed=$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')
-          if [[ "$observed" != "$EXPECTED_CHANGED_FILES" ]]; then
-            echo "changed-file list incomplete ($observed/$EXPECTED_CHANGED_FILES); running the full E2E matrix" >&2
+          extractor=.trusted-e2e-filter/.github/scripts/extract-pull-file-paths.sh
+          if ! paths=$(printf '%s\n' "$files" | "$extractor" "$EXPECTED_CHANGED_FILES"); then
+            echo "changed-file response invalid; running the full E2E matrix" >&2
             "$classifier" --all "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          printf '%s\n' "$files" | "$classifier" "$GITHUB_OUTPUT"
+          printf '%s\n' "$paths" | "$classifier" "$GITHUB_OUTPUT"
 
   typescript-formatting:
     runs-on: ubuntu-latest

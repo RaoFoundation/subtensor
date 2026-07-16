@@ -3,8 +3,10 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 classifier="$script_dir/classify-typescript-e2e-changes.sh"
+extractor="$script_dir/extract-pull-file-paths.sh"
 output=$(mktemp)
-trap 'rm -f "$output"' EXIT
+paths=$(mktemp)
+trap 'rm -f "$output" "$paths"' EXIT
 
 value() {
   sed -n "s/^$1=//p" "$output"
@@ -53,6 +55,25 @@ assert_value e2e false
 assert_value state_count 0
 assert_value build_count 0
 assert_value build_matrix '{"include":[]}'
+
+# GitHub reports only the destination as filename for a rename. Preserve the
+# previous path so moving production code out of a covered tree cannot bypass
+# the E2E matrix.
+printf '%s\n%s\n' \
+  '[{"filename":"docs/moved.rs","previous_filename":"pallets/subtensor/src/staking.rs"}]' \
+  '[{"filename":"README.md"}]' \
+  | "$extractor" 2 > "$paths"
+grep -qx 'docs/moved.rs' "$paths"
+grep -qx 'pallets/subtensor/src/staking.rs' "$paths"
+: > "$output"
+"$classifier" "$output" < "$paths"
+assert_value state_count 5
+assert_value shield true
+
+if printf '%s\n' '[{"filename":"README.md"}]' | "$extractor" 2 >/dev/null 2>&1; then
+  echo "expected an incomplete pull-file response to fail closed" >&2
+  exit 1
+fi
 
 classify ts-tests/suites/zombienet_evm/precompile.test.ts
 assert_value evm true
