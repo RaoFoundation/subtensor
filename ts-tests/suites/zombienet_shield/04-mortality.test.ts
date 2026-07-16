@@ -11,16 +11,20 @@ import {
     getAccountNonce,
     getBalance,
     getNextKey,
+    getShieldSlotDurationMs,
     getSignerFromKeypair,
     waitForFinalizedBlocks,
 } from "../../utils";
 import { describeSuite } from "@moonwall/cli";
 import { sleep } from "@zombienet/utils";
 
-// MAX_SHIELD_ERA_PERIOD is 8 blocks. With 12s slots, that's ~96s.
+// MAX_SHIELD_ERA_PERIOD is eight blocks. The assertion is block-based, so it
+// remains identical under the fast runtime while avoiding a production-time wait.
 const MAX_ERA_BLOCKS = 8;
-const SLOT_DURATION_MS = 12_000;
-const POLL_INTERVAL_MS = 3_000;
+const SLOT_DURATION_MS = getShieldSlotDurationMs();
+const POLL_INTERVAL_MS = Math.min(3_000, SLOT_DURATION_MS);
+const STARTUP_TIMEOUT_MS = Math.max(30_000, (MAX_ERA_BLOCKS + 8) * SLOT_DURATION_MS);
+const EVICTION_TIMEOUT_MS = Math.max(30_000, MAX_ERA_BLOCKS * 3 * SLOT_DURATION_MS);
 
 describeSuite({
     id: "04_mortality",
@@ -35,25 +39,22 @@ describeSuite({
         let alice: KeyringPair;
         let bob: KeyringPair;
 
-        beforeAll(
-            async () => {
-                const keyring = new Keyring({ type: "sr25519" });
-                alice = keyring.addFromUri("//Alice");
-                bob = keyring.addFromUri("//Bob");
+        beforeAll(async () => {
+            const keyring = new Keyring({ type: "sr25519" });
+            alice = keyring.addFromUri("//Alice");
+            bob = keyring.addFromUri("//Bob");
 
-                apiAuthority = context.papi("Node").getTypedApi(subtensor);
+            apiAuthority = context.papi("Node").getTypedApi(subtensor);
 
-                clientFull = context.papi("NodeFull");
-                apiFull = clientFull.getTypedApi(subtensor);
+            clientFull = context.papi("NodeFull");
+            apiFull = clientFull.getTypedApi(subtensor);
 
-                await checkRuntime(apiAuthority);
+            await checkRuntime(apiAuthority);
 
-                // Wait for a fresh finalized block, then immediately read NextKey and submit.
-                // This tests the "just after block" boundary where keys just rotated.
-                await waitForFinalizedBlocks(apiAuthority, 1);
-            },
-            (MAX_ERA_BLOCKS + 8) * SLOT_DURATION_MS
-        );
+            // Wait for a fresh finalized block, then immediately read NextKey and submit.
+            // This tests the "just after block" boundary where keys just rotated.
+            await waitForFinalizedBlocks(apiAuthority, 1);
+        }, STARTUP_TIMEOUT_MS);
 
         it({
             id: "T01",
@@ -98,7 +99,7 @@ describeSuite({
                 }
 
                 // Verify it's in the pool.
-                await sleep(1_000);
+                await sleep(Math.min(1_000, SLOT_DURATION_MS));
                 const normalizedTx = signedHex.toLowerCase();
                 const pending: string[] = await clientFull._request("author_pendingExtrinsics", []);
                 const inPool = pending.some((hex) => hex.toLowerCase() === normalizedTx);
@@ -107,9 +108,9 @@ describeSuite({
 
                 // Now poll until our specific tx disappears (mortality eviction).
                 // Use a generous timeout — CI zombienet nodes can miss AURA slots,
-                // so N blocks may take significantly longer than N * 12s.
+                // so N blocks may take significantly longer than N nominal slots.
                 const start = Date.now();
-                const maxPollMs = MAX_ERA_BLOCKS * 3 * SLOT_DURATION_MS;
+                const maxPollMs = EVICTION_TIMEOUT_MS;
                 let evicted = false;
 
                 log(`Waiting for mortality eviction (up to ${maxPollMs / 1000}s)...`);

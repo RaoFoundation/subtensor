@@ -15,17 +15,29 @@ const shieldFiles = readdirSync(join(tsTestsDir, "suites/zombienet_shield"))
     .map((file) => `suites/zombienet_shield/${file}`)
     .sort();
 const shieldShardNames = ["zombienet_shield_a", "zombienet_shield_b", "zombienet_shield_c", "zombienet_shield_d"];
-const shieldJob = e2eWorkflow.match(/\n  run-shield-tests:\n(?<body>[\s\S]*?)\n  shield-result:\n/)?.groups?.body;
+const expectedShieldBinaries = new Map([
+    ["zombienet_shield_a", "fast"],
+    ["zombienet_shield_b", "release"],
+    ["zombienet_shield_c", "fast"],
+    ["zombienet_shield_d", "fast"],
+]);
+const shieldJob = e2eWorkflow.match(/\n {2}run-shield-tests:\n(?<body>[\s\S]*?)\n {2}shield-result:\n/)?.groups?.body;
 if (!shieldJob) {
     throw new Error("Could not find the Shield matrix in typescript-e2e.yml");
 }
-const workflowShieldShardNames = [...shieldJob.matchAll(/^\s+- (zombienet_shield_[a-z]+)\s*$/gm)].map(
-    (match) => match[1]
-);
+const workflowShieldEntries = [
+    ...shieldJob.matchAll(/^\s+- test: (zombienet_shield_[a-z]+)\s*\n\s+binary: (fast|release)\s*$/gm),
+].map((match) => ({ name: match[1], binary: match[2] }));
+const workflowShieldShardNames = workflowShieldEntries.map(({ name }) => name);
 if (!isDeepStrictEqual(workflowShieldShardNames, shieldShardNames)) {
     throw new Error(
         `Shield workflow/config mismatch; workflow=[${workflowShieldShardNames.join(", ")}] config=[${shieldShardNames.join(", ")}]`
     );
+}
+for (const { name, binary } of workflowShieldEntries) {
+    if (binary !== expectedShieldBinaries.get(name)) {
+        throw new Error(`${name} must use the ${expectedShieldBinaries.get(name)} binary; found ${binary}`);
+    }
 }
 const shieldShardIncludes = shieldShardNames.map((name) => {
     const environment = environments.get(name);
@@ -40,6 +52,32 @@ const shieldShardIncludes = shieldShardNames.map((name) => {
 });
 // File counts intentionally differ: the shards are balanced by measured runtime.
 const shieldIncludes = shieldShardIncludes.flat();
+const productionTimingFile = "suites/zombienet_shield/03-timing.test.ts";
+const shieldDefaultVitestArgs = { bail: 1 };
+const productionTimingVitestArgs = {
+    ...shieldDefaultVitestArgs,
+    sequence: { concurrent: true },
+    maxConcurrency: 4,
+};
+
+for (const [index, includes] of shieldShardIncludes.entries()) {
+    const name = shieldShardNames[index];
+    const binary = expectedShieldBinaries.get(name);
+    const containsProductionTiming = includes.includes(productionTimingFile);
+    if (containsProductionTiming && (binary !== "release" || includes.length !== 1)) {
+        throw new Error(`${productionTimingFile} must be the only file in one release-runtime shard`);
+    }
+    if (!containsProductionTiming && binary !== "fast") {
+        throw new Error(`${name} has no production timing test and must use the fast runtime`);
+    }
+    const environment = environments.get(name);
+    const expectedVitestArgs = containsProductionTiming ? productionTimingVitestArgs : shieldDefaultVitestArgs;
+    if (!isDeepStrictEqual(environment?.vitestArgs, expectedVitestArgs)) {
+        throw new Error(
+            `${name} must ${containsProductionTiming ? "run its isolated timing cases concurrently" : "not enable test concurrency"}`
+        );
+    }
+}
 
 const duplicateShieldFiles = shieldIncludes.filter((file, index) => shieldIncludes.indexOf(file) !== index);
 if (duplicateShieldFiles.length > 0) {
@@ -83,11 +121,21 @@ const canonicalShieldEnvironment = environments.get("zombienet_shield");
 if (!canonicalShieldEnvironment) {
     throw new Error("Missing Moonwall environment: zombienet_shield");
 }
-const sharedShieldSettings = ({ name: _name, include: _include, ...settings }) => settings;
+const sharedShieldSettings = ({
+    name: _name,
+    include: _include,
+    envVars: _envVars,
+    vitestArgs: _vitestArgs,
+    ...settings
+}) => settings;
 const canonicalShieldSettings = sharedShieldSettings(canonicalShieldEnvironment);
+if (!isDeepStrictEqual(canonicalShieldEnvironment.vitestArgs, shieldDefaultVitestArgs)) {
+    throw new Error("zombienet_shield must retain the default fail-fast Vitest configuration");
+}
 
 for (const name of ["zombienet_shield", ...shieldShardNames]) {
     const environment = environments.get(name);
+    const expectedRuntime = name === "zombienet_shield" ? "release" : expectedShieldBinaries.get(name);
     const configPath = environment?.foundation?.zombieSpec?.configPath;
     const connectionNames = new Set((environment?.connections ?? []).map((connection) => connection.name));
     if (configPath !== shieldConfig) {
@@ -95,6 +143,9 @@ for (const name of ["zombienet_shield", ...shieldShardNames]) {
     }
     if (!connectionNames.has("Node") || !connectionNames.has("NodeFull")) {
         throw new Error(`${name} must expose authority and full-node connections`);
+    }
+    if (!isDeepStrictEqual(environment?.envVars, [`SHIELD_RUNTIME=${expectedRuntime}`])) {
+        throw new Error(`${name} must declare SHIELD_RUNTIME=${expectedRuntime}`);
     }
     if (name !== "zombienet_shield") {
         if (!isDeepStrictEqual(sharedShieldSettings(environment), canonicalShieldSettings)) {
@@ -104,5 +155,5 @@ for (const name of ["zombienet_shield", ...shieldShardNames]) {
 }
 
 console.log(
-    `Validated ${shieldFiles.length} Shield files, ${shieldShardNames.length + 1} multi-node Shield environments, and four single-node state suites.`
+    `Validated ${shieldFiles.length} Shield files across ${shieldShardNames.length} mixed-runtime shards, ${shieldShardNames.length + 1} multi-node Shield environments, and four single-node state suites.`
 );
