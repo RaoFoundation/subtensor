@@ -59,6 +59,12 @@ grep -qx 'source=local-hit' "$tmp/output"
 cmp "$tmp/payload/mainnet-snapshot.tar.gz" "$tmp/local/mainnet-snapshot.tar.gz"
 
 : > "$tmp/output"
+"$helper" 123 try-runtime-snap-v0.10.1-mainnet "$digest" "$size" \
+  "$tmp/try-runtime" "$tmp/output" >/dev/null
+grep -qx 'source=local-hit' "$tmp/output"
+cmp "$tmp/payload/mainnet-snapshot.tar.gz" "$tmp/try-runtime/mainnet-snapshot.tar.gz"
+
+: > "$tmp/output"
 export MOCK_LOCAL_FAIL=true
 "$helper" 123 mainnet-snapshot "$digest" "$size" "$tmp/direct" "$tmp/output" >/dev/null 2>"$tmp/fallback.log"
 grep -qx 'source=github' "$tmp/output"
@@ -70,5 +76,22 @@ if "$helper" 123 mainnet-snapshot sha256:fffffffffffffffffffffffffffffffffffffff
   echo "expected digest mismatch to fail" >&2
   exit 1
 fi
+
+if "$helper" 123 untrusted-artifact "$digest" "$size" \
+  "$tmp/unsupported" "$tmp/output" >/dev/null 2>&1; then
+  echo "expected unsupported artifact name to fail" >&2
+  exit 1
+fi
+
+export RUNNER_TEMP="$tmp/runner"
+export GITHUB_STEP_SUMMARY="$tmp/summary"
+export ARTIFACT_ID=123
+export ARTIFACT_DIGEST="$digest"
+export ARTIFACT_SIZE="$size"
+mkdir -p "$RUNNER_TEMP"
+: > "$GITHUB_STEP_SUMMARY"
+"$script_dir/benchmark-artifact-cache.sh" >/dev/null
+grep -q '^### Mainnet snapshot artifact cache$' "$GITHUB_STEP_SUMMARY"
+grep -q '^- Local warm hit: ' "$GITHUB_STEP_SUMMARY"
 
 echo "artifact download helper tests passed"

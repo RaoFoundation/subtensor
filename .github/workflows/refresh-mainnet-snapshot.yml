@@ -23,6 +23,13 @@ on:
     - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
+      source_ref:
+        description: "Trusted branch to refresh"
+        required: true
+        default: main
+        type: choice
+        options:
+          - main
       try_runtime_only:
         description: "Generate only try-runtime snapshots (targeted recovery)"
         type: boolean
@@ -47,10 +54,12 @@ env:
 jobs:
   snapshot:
     name: scrape mainnet and publish snapshot
-    if: github.event_name != 'workflow_dispatch' || !inputs.try_runtime_only
+    if: >-
+      (github.event_name != 'workflow_dispatch' || !inputs.try_runtime_only) &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: sccache-writer
       deployment: false
     timeout-minutes: 120
     steps:
@@ -100,8 +109,7 @@ jobs:
           # The tarball is already gzipped.
           compression-level: 0
 
-      - name: Mirror scheduled snapshot for fleet prefetch
-        if: github.event_name == 'schedule'
+      - name: Mirror snapshot for fleet prefetch
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.upload-snapshot.outputs.artifact-id }}

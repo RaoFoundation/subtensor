@@ -9,6 +9,10 @@ on:
       - ".github/scripts/test-sccache-configure.sh"
       - ".github/scripts/download-artifact.sh"
       - ".github/scripts/test-download-artifact.sh"
+      - ".github/scripts/prewarm-exact-runtime.sh"
+      - ".github/scripts/test-prewarm-exact-runtime.sh"
+      - ".github/scripts/benchmark-sccache-paired.sh"
+      - ".github/scripts/benchmark-artifact-cache.sh"
       - ".github/scripts/r2-artifact-mirror.py"
       - ".github/scripts/publish-artifact-mirror.sh"
       - ".github/scripts/test-r2-artifact-mirror.py"
@@ -51,8 +55,14 @@ jobs:
           .github/scripts/test-download-artifact.sh
           .github/scripts/test-r2-artifact-mirror.py
 
+      - name: Check benchmark and prewarm script syntax
+        run: |
+          .github/scripts/test-prewarm-exact-runtime.sh
+          bash -n .github/scripts/benchmark-sccache-paired.sh
+          bash -n .github/scripts/benchmark-artifact-cache.sh
+
   prewarm-exact-runtime:
-    name: prewarm Rust keys and publish clone mirror
+    name: prewarm exact Rust keys
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -63,7 +73,6 @@ jobs:
       deployment: false
     timeout-minutes: 60
     permissions:
-      actions: read
       contents: read
     env:
       SKIP_WASM_BUILD: 1
@@ -80,66 +89,7 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Populate exact keys and verify the second clean check hits R2
-        run: |
-          set -euo pipefail
-          [[ "${SCCACHE_ENABLED:-false}" == true ]]
-          [[ "${SCCACHE_BACKEND:-}" == r2 ]]
-          [[ "${SCCACHE_LOCAL_TIER:-false}" == false ]]
-
-          measure() {
-            local label="$1"
-            cargo clean
-            sccache --zero-stats >/dev/null
-            local started seconds stats
-            started=$(date -u +%s)
-            cargo check --locked -p node-subtensor-runtime
-            seconds=$(($(date -u +%s) - started))
-            stats=$(sccache --show-stats)
-            printf '%s\n' "$stats" | tee "$RUNNER_TEMP/sccache-$label.txt"
-            printf '%s=%s\n' "${label}_seconds" "$seconds" >> "$RUNNER_TEMP/exact-prewarm"
-            printf '%s=%s\n' "${label}_rust_hits" \
-              "$(awk '$1 == "Cache" && $2 == "hits" && $3 == "(Rust)" {count = $4} END {print count + 0}' <<< "$stats")" \
-              >> "$RUNNER_TEMP/exact-prewarm"
-            printf '%s=%s\n' "${label}_rust_misses" \
-              "$(awk '$1 == "Cache" && $2 == "misses" && $3 == "(Rust)" {count = $4} END {print count + 0}' <<< "$stats")" \
-              >> "$RUNNER_TEMP/exact-prewarm"
-          }
-
-          : > "$RUNNER_TEMP/exact-prewarm"
-          measure fill
-          measure verify
-          source "$RUNNER_TEMP/exact-prewarm"
-          [[ "$verify_rust_hits" =~ ^[0-9]+$ && "$verify_rust_misses" =~ ^[0-9]+$ ]]
-          if (( verify_rust_hits < 500 || verify_rust_misses > 10 )); then
-            echo "::error::exact-key verification produced ${verify_rust_hits} Rust hits and ${verify_rust_misses} misses"
-            exit 1
-          fi
-          {
-            echo "### Exact runtime-only R2 prewarm"
-            echo "- Fill: ${fill_seconds}s (${fill_rust_hits} Rust hits, ${fill_rust_misses} misses)"
-            echo "- Clean verification: ${verify_seconds}s (${verify_rust_hits} Rust hits, ${verify_rust_misses} misses)"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Select a fresh trusted mainnet clone snapshot
-        id: snapshot
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          .github/scripts/snapshot-artifact.sh select \
-            mainnet-snapshot main "${{ github.repository_id }}" \
-            .github/workflows/refresh-mainnet-snapshot.yml 36 \
-            "$GITHUB_OUTPUT" required
-
-      - name: Publish the clone snapshot for fleet prefetch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          .github/scripts/publish-artifact-mirror.sh \
-            "${{ steps.snapshot.outputs.artifact-id }}" \
-            mainnet-snapshot \
-            "${{ steps.snapshot.outputs.artifact-digest }}" \
-            "${{ steps.snapshot.outputs.producer-sha }}" \
-            .github/workflows/refresh-mainnet-snapshot.yml
+        run: .github/scripts/prewarm-exact-runtime.sh
 
   benchmark-sccache-paired:
     if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
@@ -154,91 +104,10 @@ jobs:
           cache-key: host-cache-benchmark-paired
           sccache-local-tier: disabled
 
-      - name: Validate host-local cache contract
-        env:
-          SCCACHE_GHA_FALLBACK: "false"
-          SCCACHE_LOCAL_TIER_MODE: auto
-        run: |
-          set -euo pipefail
-          config="$RUNNER_TEMP/sccache-local-contract.json"
-          output="$RUNNER_TEMP/sccache-local-contract.output"
-          trap 'rm -f "$config" "$output"' EXIT
-          : > "$output"
-          .github/scripts/sccache-configure.sh prepare reader "$config" "$output"
-          python3 -c '
-          import json, sys
-          data = json.load(open(sys.argv[1], encoding="utf-8"))
-          local = data.get("local")
-          if not isinstance(local, dict) or local.get("endpoint") != "http://192.168.128.1:8092":
-              raise SystemExit("validated host-local tier is unavailable")
-          ' "$config"
-
       - name: Measure paired origin and warm-local reads in one VM
         env:
           SKIP_WASM_BUILD: 1
-        run: |
-          set -euo pipefail
-
-          start_backend() {
-            local mode="$1"
-            sccache --stop-server >/dev/null 2>&1 || true
-            if [[ "$mode" == local ]]; then
-              export SCCACHE_MULTILEVEL_CHAIN=webdav,s3
-              export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore
-              export SCCACHE_WEBDAV_ENDPOINT=http://192.168.128.1:8092
-              export SCCACHE_WEBDAV_KEY_PREFIX=""
-              export SCCACHE_WEBDAV_USERNAME="$AWS_ACCESS_KEY_ID"
-              export SCCACHE_WEBDAV_PASSWORD="$AWS_SECRET_ACCESS_KEY"
-            else
-              unset SCCACHE_MULTILEVEL_CHAIN SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY
-              unset SCCACHE_WEBDAV_ENDPOINT SCCACHE_WEBDAV_KEY_PREFIX
-              unset SCCACHE_WEBDAV_USERNAME SCCACHE_WEBDAV_PASSWORD
-            fi
-            sccache --start-server >/dev/null
-          }
-
-          measure() {
-            local label="$1"
-            local mode="$2"
-            cargo clean
-            start_backend "$mode"
-            sccache --zero-stats >/dev/null
-            local started seconds
-            started=$(date -u +%s)
-            cargo check --locked -p node-subtensor-runtime
-            seconds=$(($(date -u +%s) - started))
-            if ! sccache --show-adv-stats 2>&1 | tee "$RUNNER_TEMP/sccache-$label.txt"; then
-              sccache --show-stats | tee "$RUNNER_TEMP/sccache-$label.txt"
-            fi
-            echo "$label=$seconds" >> "$RUNNER_TEMP/sccache-paired-times"
-          }
-
-          : > "$RUNNER_TEMP/sccache-paired-times"
-          # Discard the first compile so registry extraction, filesystem page
-          # cache, and daemon startup do not get attributed to either backend.
-          measure warmup origin
-          measure local_1 local
-          measure origin_1 origin
-          measure origin_2 origin
-          measure local_2 local
-
-          source "$RUNNER_TEMP/sccache-paired-times"
-          origin_average=$(( (origin_1 + origin_2) / 2 ))
-          local_average=$(( (local_1 + local_2) / 2 ))
-          {
-            echo "### Paired sccache benchmark (same VM)"
-            echo "- Discarded warmup: origin"
-            echo "- Measured order: local, origin, origin, local"
-            echo "- Direct R2: ${origin_1}s, ${origin_2}s (mean ${origin_average}s)"
-            echo "- Warm host-local: ${local_1}s, ${local_2}s (mean ${local_average}s)"
-            for label in warmup local_1 origin_1 origin_2 local_2; do
-              echo
-              echo "#### $label"
-              echo '```text'
-              cat "$RUNNER_TEMP/sccache-$label.txt"
-              echo '```'
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: .github/scripts/benchmark-sccache-paired.sh
 
   benchmark-artifact-cache:
     if: >-
@@ -271,32 +140,4 @@ jobs:
           ARTIFACT_ID: ${{ steps.snapshot.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.snapshot.outputs.artifact-digest }}
           ARTIFACT_SIZE: ${{ steps.snapshot.outputs.artifact-size-bytes }}
-        run: |
-          set -euo pipefail
-          : > "$RUNNER_TEMP/direct-output"
-          : > "$RUNNER_TEMP/cold-output"
-          : > "$RUNNER_TEMP/warm-output"
-          FIREACTIONS_ARTIFACT_CACHE_DISABLE=true \
-            .github/scripts/download-artifact.sh "$ARTIFACT_ID" mainnet-snapshot \
-              "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$RUNNER_TEMP/direct" "$RUNNER_TEMP/direct-output"
-          .github/scripts/download-artifact.sh "$ARTIFACT_ID" mainnet-snapshot \
-            "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$RUNNER_TEMP/local-cold" "$RUNNER_TEMP/cold-output"
-          .github/scripts/download-artifact.sh "$ARTIFACT_ID" mainnet-snapshot \
-            "$ARTIFACT_DIGEST" "$ARTIFACT_SIZE" "$RUNNER_TEMP/local-warm" "$RUNNER_TEMP/warm-output"
-          direct_sha=$(sha256sum "$RUNNER_TEMP/direct/mainnet-snapshot.tar.gz" | awk '{print $1}')
-          cold_sha=$(sha256sum "$RUNNER_TEMP/local-cold/mainnet-snapshot.tar.gz" | awk '{print $1}')
-          warm_sha=$(sha256sum "$RUNNER_TEMP/local-warm/mainnet-snapshot.tar.gz" | awk '{print $1}')
-          [[ "$direct_sha" == "$cold_sha" && "$direct_sha" == "$warm_sha" ]]
-          direct_seconds=$(sed -n 's/^seconds=//p' "$RUNNER_TEMP/direct-output")
-          cold_seconds=$(sed -n 's/^seconds=//p' "$RUNNER_TEMP/cold-output")
-          warm_seconds=$(sed -n 's/^seconds=//p' "$RUNNER_TEMP/warm-output")
-          warm_source=$(sed -n 's/^source=//p' "$RUNNER_TEMP/warm-output")
-          [[ "$warm_source" == local-hit ]]
-          {
-            echo "### Mainnet snapshot artifact cache"
-            echo "- Artifact: $ARTIFACT_ID ($ARTIFACT_SIZE bytes)"
-            echo "- Direct GitHub: ${direct_seconds}s"
-            echo "- Local cold fill: ${cold_seconds}s"
-            echo "- Local warm hit: ${warm_seconds}s"
-            echo "- Extracted payload SHA-256: $warm_sha"
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: .github/scripts/benchmark-artifact-cache.sh
