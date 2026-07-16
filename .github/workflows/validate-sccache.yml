@@ -6,6 +6,7 @@ on:
       - ".github/actions/rust-setup/**"
       - ".github/actions/sccache-setup/**"
       - ".github/scripts/sccache-configure.sh"
+      - ".github/scripts/sccache-config.py"
       - ".github/scripts/test-sccache-configure.sh"
       - ".github/scripts/sccache-report.sh"
       - ".github/scripts/test-sccache-report.sh"

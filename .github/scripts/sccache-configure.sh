@@ -17,6 +17,8 @@ set -u
 
 readonly MMDS_TOKEN_URL_DEFAULT="http://169.254.169.254/latest/api/token"
 readonly MMDS_METADATA_URL_DEFAULT="http://169.254.169.254/latest/meta-data/sccache"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCCACHE_CONFIG_TOOL="$SCRIPT_DIR/sccache-config.py"
 
 warning() {
   printf '::warning::%s\n' "$1"
@@ -60,18 +62,7 @@ mask_config_credentials() {
   while IFS= read -r credential; do
     credentials+=("$credential")
   done < <(
-    python3 -c '
-import json, sys
-data = json.load(open(sys.argv[1], encoding="utf-8"))
-if data.get("mode") == "gha":
-    raise SystemExit(0)
-for key in ("access_key_id", "secret_access_key"):
-    print(data[key])
-local = data.get("local")
-if isinstance(local, dict):
-    for key in ("username", "password"):
-        print(local[key])
-' "$config_file"
+    "$SCCACHE_CONFIG_TOOL" credentials "$config_file"
   )
   if [[ ${#credentials[@]} -gt 0 ]]; then
     for credential in "${credentials[@]}"; do
@@ -128,46 +119,8 @@ prepare_reader() {
   fi
   chmod 0600 "$config_file"
 
-  if ! SCCACHE_LOCAL_TIER_MODE="${SCCACHE_LOCAL_TIER_MODE:-auto}" python3 -c '
-import json, os, sys
-path = sys.argv[1]
-expected = {
-    "bucket": "subtensor-ci-sccache",
-    "endpoint": "https://3dc4cebb791314d78848969042fb3382.r2.cloudflarestorage.com",
-    "region": "auto",
-    "s3_use_ssl": True,
-    "s3_rw_mode": "READ_ONLY",
-    "key_prefix": "subtensor/v1",
-}
-with open(path, encoding="utf-8") as handle:
-    data = json.load(handle)
-for key, value in expected.items():
-    if data.get(key) != value:
-        raise ValueError(f"invalid {key}")
-for key in ("access_key_id", "secret_access_key"):
-    value = data.get(key)
-    if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
-        raise ValueError(f"invalid {key}")
-local_mode = os.environ.get("SCCACHE_LOCAL_TIER_MODE", "auto")
-if local_mode not in ("auto", "disabled"):
-    raise ValueError("invalid local tier mode")
-local = data.get("local")
-if local_mode == "disabled":
-    data.pop("local", None)
-elif local is not None:
-    if not isinstance(local, dict) or set(local) != {"endpoint", "key_prefix", "username", "password"}:
-        raise ValueError("invalid local cache contract")
-    if local.get("endpoint") != "http://192.168.128.1:8092" or local.get("key_prefix") != "":
-        raise ValueError("invalid local cache endpoint")
-    if local.get("username") != data["access_key_id"] or local.get("password") != data["secret_access_key"]:
-        raise ValueError("invalid local cache credential")
-data["mode"] = "reader"
-tmp = path + ".normalized"
-with open(tmp, "w", encoding="utf-8") as handle:
-    json.dump(data, handle, separators=(",", ":"))
-os.chmod(tmp, 0o600)
-os.replace(tmp, path)
-' "$config_file" 2>/dev/null; then
+  if ! "$SCCACHE_CONFIG_TOOL" normalize-reader \
+    "$config_file" "${SCCACHE_LOCAL_TIER_MODE:-auto}" 2>/dev/null; then
     fallback_reader "$config_file" "$output_file" "MMDSv2 sccache metadata failed validation"
     return
   fi
@@ -195,27 +148,8 @@ attach_local_metadata() {
     rm -f "$metadata_file"
     return 0
   fi
-  if ! python3 -c '
-import json, os, sys
-config_path, metadata_path = sys.argv[1:]
-with open(metadata_path, encoding="utf-8") as handle:
-    metadata = json.load(handle)
-local = metadata.get("local")
-if not isinstance(local, dict) or set(local) != {"endpoint", "key_prefix", "username", "password"}:
-    raise ValueError("invalid local contract")
-if local.get("endpoint") != "http://192.168.128.1:8092" or local.get("key_prefix") != "":
-    raise ValueError("invalid local endpoint")
-if local.get("username") != metadata.get("access_key_id") or local.get("password") != metadata.get("secret_access_key"):
-    raise ValueError("invalid local credential")
-with open(config_path, encoding="utf-8") as handle:
-    config = json.load(handle)
-config["local"] = local
-tmp = config_path + ".local"
-with open(tmp, "w", encoding="utf-8") as handle:
-    json.dump(config, handle, separators=(",", ":"))
-os.chmod(tmp, 0o600)
-os.replace(tmp, config_path)
-' "$config_file" "$metadata_file" 2>/dev/null; then
+  if ! "$SCCACHE_CONFIG_TOOL" attach-local \
+    "$config_file" "$metadata_file" 2>/dev/null; then
     warning "local sccache metadata failed validation; using direct R2"
   fi
   rm -f "$metadata_file"
@@ -236,24 +170,7 @@ prepare_writer() {
     disable_prepare "$config_file" "$output_file" "protected writer credentials are malformed"
   fi
 
-  if ! CONFIG_FILE="$config_file" python3 -c '
-import json, os
-path = os.environ["CONFIG_FILE"]
-data = {
-    "mode": "writer",
-    "bucket": "subtensor-ci-sccache",
-    "endpoint": "https://3dc4cebb791314d78848969042fb3382.r2.cloudflarestorage.com",
-    "region": "auto",
-    "s3_use_ssl": True,
-    "s3_rw_mode": "READ_WRITE",
-    "key_prefix": "subtensor/v1",
-    "access_key_id": os.environ["AWS_ACCESS_KEY_ID"],
-    "secret_access_key": os.environ["AWS_SECRET_ACCESS_KEY"],
-}
-with open(path, "w", encoding="utf-8") as handle:
-    json.dump(data, handle, separators=(",", ":"))
-os.chmod(path, 0o600)
-' 2>/dev/null; then
+  if ! "$SCCACHE_CONFIG_TOOL" write-writer "$config_file" 2>/dev/null; then
     disable_prepare "$config_file" "$output_file" "writer configuration could not be materialized"
   fi
   attach_local_metadata "$config_file" ||
@@ -261,48 +178,8 @@ os.chmod(path, 0o600)
 }
 
 writer_source_is_trusted() {
-  case "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}" in
-    push:refs/heads/main|push:refs/heads/devnet|push:refs/heads/testnet|schedule:refs/heads/main)
-      return 0
-      ;;
-    workflow_dispatch:refs/heads/main)
-      [[ -f "${GITHUB_EVENT_PATH:-}" ]] || return 1
-      GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}" python3 -c '
-import json, os, sys
-with open(sys.argv[1], encoding="utf-8") as handle:
-    event = json.load(handle)
-source_ref = event.get("inputs", {}).get("source_ref")
-if source_ref not in {"main", "devnet", "testnet"}:
-    raise SystemExit(1)
-' "$GITHUB_EVENT_PATH" >/dev/null 2>&1
-      return
-      ;;
-    pull_request:refs/pull/*/merge)
-      [[ -f "${GITHUB_EVENT_PATH:-}" && -n "${GITHUB_REPOSITORY:-}" ]] || return 1
-      GITHUB_REPOSITORY="$GITHUB_REPOSITORY" python3 -c '
-import json, os, re, sys
-with open(sys.argv[1], encoding="utf-8") as handle:
-    event = json.load(handle)
-pull = event.get("pull_request")
-if not isinstance(pull, dict):
-    raise SystemExit(1)
-head_repo = pull.get("head", {}).get("repo")
-if not isinstance(head_repo, dict):
-    raise SystemExit(1)
-trusted = (
-    re.fullmatch(r"refs/pull/[0-9]+/merge", os.environ.get("GITHUB_REF", ""))
-    and head_repo.get("full_name") == os.environ["GITHUB_REPOSITORY"]
-    and head_repo.get("fork") is False
-    and pull.get("user", {}).get("login") != "dependabot[bot]"
-)
-raise SystemExit(0 if trusted else 1)
-' "$GITHUB_EVENT_PATH" >/dev/null 2>&1
-      return
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+  "$SCCACHE_CONFIG_TOOL" source-trusted "${GITHUB_EVENT_PATH:-}" \
+    >/dev/null 2>&1
 }
 
 prepare_auto() {
@@ -349,8 +226,19 @@ activate() {
   local sccache_bin="${SCCACHE_PATH:-}"
   local start_log="${RUNNER_TEMP:-/tmp}/sccache-start-${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-test}.log"
   local fields_file="${RUNNER_TEMP:-/tmp}/sccache-fields-${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-test}"
-  local -a values=()
-  local value
+  local field_name field_value
+  local config_mode=""
+  local config_bucket=""
+  local config_endpoint=""
+  local config_region=""
+  local config_key_prefix=""
+  local config_access_key_id=""
+  local config_secret_access_key=""
+  local config_local_enabled=false
+  local config_local_endpoint=""
+  local config_local_key_prefix=""
+  local config_local_username=""
+  local config_local_password=""
 
   umask 077
   if [[ ! -f "$config_file" ]]; then
@@ -366,42 +254,37 @@ activate() {
     disable_activate "$config_file" "$output_file" "sccache executable is unavailable"
   fi
 
-  if ! python3 -c '
-import json, sys
-data = json.load(open(sys.argv[1], encoding="utf-8"))
-mode = data.get("mode")
-if mode not in ("gha", "reader", "writer"):
-    raise ValueError("invalid mode")
-sys.stdout.write(mode + "\0")
-if mode == "gha":
-    raise SystemExit(0)
-for key in ("bucket", "endpoint", "region", "key_prefix", "access_key_id", "secret_access_key"):
-    value = data.get(key)
-    if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
-        raise ValueError(f"invalid {key}")
-    sys.stdout.write(value + "\0")
-if data.get("s3_use_ssl") is not True:
-    raise ValueError("invalid s3_use_ssl")
-local = data.get("local")
-if local is not None:
-    for key in ("endpoint", "key_prefix", "username", "password"):
-        value = local.get(key)
-        if not isinstance(value, str) or "\n" in value or "\r" in value:
-            raise ValueError(f"invalid local {key}")
-        sys.stdout.write(value + "\0")
-' "$config_file" >"$fields_file" 2>/dev/null; then
+  if ! "$SCCACHE_CONFIG_TOOL" fields "$config_file" \
+    >"$fields_file" 2>/dev/null; then
     rm -f "$fields_file"
     disable_activate "$config_file" "$output_file" "validated configuration could not be parsed"
   fi
-  while IFS= read -r -d '' value; do
-    values+=("$value")
+  while IFS= read -r -d '' field_name && IFS= read -r -d '' field_value; do
+    case "$field_name" in
+      mode) config_mode="$field_value" ;;
+      bucket) config_bucket="$field_value" ;;
+      endpoint) config_endpoint="$field_value" ;;
+      region) config_region="$field_value" ;;
+      key_prefix) config_key_prefix="$field_value" ;;
+      access_key_id) config_access_key_id="$field_value" ;;
+      secret_access_key) config_secret_access_key="$field_value" ;;
+      local_enabled) config_local_enabled="$field_value" ;;
+      local_endpoint) config_local_endpoint="$field_value" ;;
+      local_key_prefix) config_local_key_prefix="$field_value" ;;
+      local_username) config_local_username="$field_value" ;;
+      local_password) config_local_password="$field_value" ;;
+      *)
+        rm -f "$fields_file"
+        disable_activate "$config_file" "$output_file" "validated configuration contains an unknown field"
+        ;;
+    esac
   done < "$fields_file"
   rm -f "$fields_file"
-  if [[ ${#values[@]} -ne 1 && ${#values[@]} -ne 7 && ${#values[@]} -ne 11 ]]; then
+  if [[ -z "$config_mode" ]]; then
     disable_activate "$config_file" "$output_file" "validated configuration is incomplete"
   fi
 
-  if [[ "${values[0]}" == gha ]]; then
+  if [[ "$config_mode" == gha ]]; then
     export SCCACHE_GHA_ENABLED=true
     export SCCACHE_IGNORE_SERVER_IO_ERROR=1
     "$sccache_bin" --stop-server >/dev/null 2>&1 || true
@@ -424,32 +307,32 @@ if local is not None:
     return
   fi
 
-  printf '::add-mask::%s\n' "${values[5]}"
-  printf '::add-mask::%s\n' "${values[6]}"
+  printf '::add-mask::%s\n' "$config_access_key_id"
+  printf '::add-mask::%s\n' "$config_secret_access_key"
 
-  export SCCACHE_BUCKET="${values[1]}"
-  export SCCACHE_ENDPOINT="${values[2]}"
-  export SCCACHE_REGION="${values[3]}"
+  export SCCACHE_BUCKET="$config_bucket"
+  export SCCACHE_ENDPOINT="$config_endpoint"
+  export SCCACHE_REGION="$config_region"
   export SCCACHE_S3_USE_SSL=true
-  export SCCACHE_S3_KEY_PREFIX="${values[4]}"
+  export SCCACHE_S3_KEY_PREFIX="$config_key_prefix"
   # v0.15.0 has no S3 read/write-mode environment variable. Reader mode is
   # enforced by the bucket-scoped Object Read credential validated above.
   # sccache otherwise fails a build when its server or remote backend becomes
   # unavailable after startup. This makes every such failure compile locally.
   export SCCACHE_IGNORE_SERVER_IO_ERROR=1
-  export AWS_ACCESS_KEY_ID="${values[5]}"
-  export AWS_SECRET_ACCESS_KEY="${values[6]}"
+  export AWS_ACCESS_KEY_ID="$config_access_key_id"
+  export AWS_SECRET_ACCESS_KEY="$config_secret_access_key"
 
   local local_tier=false
-  if [[ ${#values[@]} -eq 11 ]]; then
-    printf '::add-mask::%s\n' "${values[9]}"
-    printf '::add-mask::%s\n' "${values[10]}"
+  if [[ "$config_local_enabled" == true ]]; then
+    printf '::add-mask::%s\n' "$config_local_username"
+    printf '::add-mask::%s\n' "$config_local_password"
     export SCCACHE_MULTILEVEL_CHAIN=webdav,s3
     export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore
-    export SCCACHE_WEBDAV_ENDPOINT="${values[7]}"
-    export SCCACHE_WEBDAV_KEY_PREFIX="${values[8]}"
-    export SCCACHE_WEBDAV_USERNAME="${values[9]}"
-    export SCCACHE_WEBDAV_PASSWORD="${values[10]}"
+    export SCCACHE_WEBDAV_ENDPOINT="$config_local_endpoint"
+    export SCCACHE_WEBDAV_KEY_PREFIX="$config_local_key_prefix"
+    export SCCACHE_WEBDAV_USERNAME="$config_local_username"
+    export SCCACHE_WEBDAV_PASSWORD="$config_local_password"
     local_tier=true
   fi
 
@@ -499,7 +382,7 @@ if local is not None:
     fi
   } >> "$env_file"
   set_output "$output_file" enabled true
-  printf 'sccache R2 backend enabled in %s mode\n' "${values[0]}"
+  printf 'sccache R2 backend enabled in %s mode\n' "$config_mode"
 }
 
 if [[ $# -lt 1 ]]; then
