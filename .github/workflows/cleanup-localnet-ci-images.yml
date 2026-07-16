@@ -1,7 +1,7 @@
 name: Cleanup Localnet CI Images
 
 # PR-specific images are retained long enough for GitHub's workflow rerun
-# window, then removed from the private CI package. Public release images live
+# window, then removed from the CI-only package. Public release images live
 # in subtensor-localnet and are deliberately outside this workflow's scope.
 on:
   schedule:

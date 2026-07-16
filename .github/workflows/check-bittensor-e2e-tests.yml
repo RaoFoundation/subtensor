@@ -3,7 +3,7 @@ name: Bittensor E2E Test
 permissions:
   pull-requests: write
   contents: read
-  # Push/pull the per-PR localnet image through a private, CI-only GHCR package.
+  # Push/pull the per-PR localnet image through a separate, CI-only GHCR package.
   # Fork PRs never reach the image jobs (they need the trusted-pr gate), so
   # this is non-fork only.
   packages: write
@@ -52,10 +52,10 @@ env:
   CARGO_TERM_COLOR: always
   VERBOSE: ${{ github.event.inputs.verbose }}
   # The Rust SDK e2e harness reads LOCALNET_IMAGE from the environment. Test
-  # jobs retag the private image to this compatibility name locally; it is
+  # jobs retag the CI image to this compatibility name locally; it is
   # never pushed.
   LOCALNET_IMAGE: ghcr.io/raofoundation/subtensor-localnet:ci
-  # Per-commit tag in the private CI package: built once, pulled by every test
+  # Per-commit tag in the CI-only package: built once, pulled by every test
   # job. Keep these transport artifacts out of the public release package.
   LOCALNET_IMAGE_CI: ghcr.io/raofoundation/subtensor-localnet-ci:ci-${{ github.event.pull_request.head.sha || github.sha }}
 
