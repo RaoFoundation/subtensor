@@ -41,13 +41,8 @@
   min-height: 1.7em;
 }
 
-/* Addressed lines — the #L12 (:target, no-JS fallback) or #L12-L34 (.bt-hl,
-   set by LineRangeHighlight) the URL points at. Red, so a doc link saying
-   "this is the code" lands on something unmistakable. */
-.bt-code .line:target,
-.bt-code .line.bt-hl {
-  background: rgba(209, 81, 104, 0.12);
-  box-shadow: inset 2px 0 0 rgb(209, 81, 104);
+.bt-code .line:target {
+  background: var(--bt-hover);
 }
 
 /* Line-number gutter: an empty anchor whose number is a counter in ::before,
@@ -71,8 +66,7 @@
   opacity: 1;
 }
 
-.bt-code .line:target > .bt-ln,
-.bt-code .line.bt-hl > .bt-ln {
-  color: rgb(209, 81, 104);
+.bt-code .line:target > .bt-ln {
+  color: var(--bt-fg);
   opacity: 1;
 }
