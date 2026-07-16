@@ -69,8 +69,8 @@ jobs:
           select_full_matrix() {
             {
               echo 'shield=true'
-              echo 'state_count=5'
-              echo 'state_matrix={"include":[{"test":"zombienet_evm","binary":"fast"},{"test":"zombienet_staking","binary":"fast"},{"test":"zombienet_coldkey_swap","binary":"fast"},{"test":"dev","binary":"release"},{"test":"zombienet_subnets","binary":"fast"}]}'
+              echo 'state_count=6'
+              echo 'state_matrix={"include":[{"test":"zombienet_evm_a","binary":"fast"},{"test":"zombienet_evm_b","binary":"fast"},{"test":"zombienet_staking","binary":"fast"},{"test":"zombienet_coldkey_swap","binary":"fast"},{"test":"dev","binary":"release"},{"test":"zombienet_subnets","binary":"fast"}]}'
               echo 'build_count=2'
               echo 'build_matrix={"include":[{"variant":"release","flags":""},{"variant":"fast","flags":"--features fast-runtime"}]}'
             } >> "$GITHUB_OUTPUT"
@@ -178,7 +178,8 @@ jobs:
           if-no-files-found: error
 
   # State-focused suites do not exercise multi-validator consensus. They use a
-  # single immediately-finalized node; Shield retains the production-like
+  # single immediately-finalized node; the two EVM entries split six measured
+  # test files without changing coverage. Shield retains the production-like
   # multi-node topology below. Three workers here plus four Shield workers peak
   # at seven self-hosted runners while the E2E phase is active.
   run-e2e-tests:

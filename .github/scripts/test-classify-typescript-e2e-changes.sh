@@ -69,7 +69,7 @@ grep -qx 'docs/moved.rs' "$paths"
 grep -qx 'pallets/subtensor/src/staking.rs' "$paths"
 : > "$output"
 "$classifier" "$output" < "$paths"
-assert_value state_count 5
+assert_value state_count 6
 assert_value shield true
 
 if printf '%s\n' '[{"filename":"README.md"}]' | "$extractor" 2 >/dev/null 2>&1; then
@@ -79,7 +79,8 @@ fi
 
 classify ts-tests/suites/zombienet_evm/precompile.test.ts
 assert_value evm true
-assert_value state_count 1
+assert_value state_count 2
+assert_value state_matrix '{"include":[{"test":"zombienet_evm_a","binary":"fast"},{"test":"zombienet_evm_b","binary":"fast"}]}'
 assert_value shield false
 assert_value build_count 1
 assert_value build_matrix '{"include":[{"variant":"fast","flags":"--features fast-runtime"}]}'
@@ -93,7 +94,7 @@ assert_value coldkey_swap true
 assert_value dev true
 assert_value subnets true
 assert_value shield true
-assert_value state_count 5
+assert_value state_count 6
 assert_value build_count 2
 
 classify pallets/subtensor/src/subnets/registration.rs
@@ -103,7 +104,7 @@ assert_value staking true
 assert_value coldkey_swap true
 assert_value dev true
 assert_value shield true
-assert_value state_count 5
+assert_value state_count 6
 assert_value build_count 2
 
 classify pallets/subtensor/src/swap/swap_stake.rs
@@ -113,13 +114,13 @@ assert_value coldkey_swap true
 assert_value dev true
 assert_value subnets true
 assert_value shield true
-assert_value state_count 5
+assert_value state_count 6
 assert_value build_count 2
 
 classify precompiles/subtensor/src/lib.rs
 assert_value evm true
 assert_value dev false
-assert_value state_count 1
+assert_value state_count 2
 assert_value build_count 1
 assert_value build_matrix '{"include":[{"variant":"fast","flags":"--features fast-runtime"}]}'
 
@@ -156,7 +157,7 @@ assert_value build_count 0
 
 classify pallets/subtensor/src/epoch/run_epoch.rs
 assert_value e2e true
-assert_value state_count 5
+assert_value state_count 6
 assert_value shield true
 assert_value build_count 2
 
@@ -176,7 +177,7 @@ assert_value build_matrix '{"include":[{"variant":"release","flags":""}]}'
 "$classifier" --all "$output"
 assert_selected_builds_available
 assert_value e2e true
-assert_value state_count 5
+assert_value state_count 6
 assert_value shield true
 assert_value build_count 2
 assert_value build_matrix '{"include":[{"variant":"release","flags":""},{"variant":"fast","flags":"--features fast-runtime"}]}'

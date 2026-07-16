@@ -315,6 +315,82 @@
                 }
             ]
         }, {
+            "name": "zombienet_evm_a",
+            "timeout": 600000,
+            "testFileDir": ["suites/zombienet_evm"],
+            "include": [
+                "suites/zombienet_evm/00-evm-substrate-transfer.test.ts",
+                "suites/zombienet_evm/01-contract-deploy-call.test.ts",
+                "suites/zombienet_evm/04-edge-cases.test.ts"
+            ],
+            "runScripts": [
+                "generate-types.sh",
+                "generate-ink-types.sh",
+                "build-spec.sh"
+            ],
+            "foundation": {
+                "type": "zombie",
+                "zombieSpec": {
+                    "configPath": "./configs/zombie_single_node.json",
+                    "skipBlockCheck": []
+                }
+            },
+            "vitestArgs": {
+                "bail": 1
+            },
+            "connections": [
+                {
+                    "name": "Node",
+                    "type": "papi",
+                    "endpoints": ["ws://127.0.0.1:9947"],
+                    "descriptor": "subtensor"
+                },
+                {
+                    "name": "EVM",
+                    "type": "ethers",
+                    "endpoints": ["http://127.0.0.1:9947"],
+                    "descriptor": "evm"
+                }
+            ]
+        }, {
+            "name": "zombienet_evm_b",
+            "timeout": 600000,
+            "testFileDir": ["suites/zombienet_evm"],
+            "include": [
+                "suites/zombienet_evm/02-precompile-gas.test.ts",
+                "suites/zombienet_evm/03-wasm-contract.test.ts",
+                "suites/zombienet_evm/05-direct-call-precompile.test.ts"
+            ],
+            "runScripts": [
+                "generate-types.sh",
+                "generate-ink-types.sh",
+                "build-spec.sh"
+            ],
+            "foundation": {
+                "type": "zombie",
+                "zombieSpec": {
+                    "configPath": "./configs/zombie_single_node.json",
+                    "skipBlockCheck": []
+                }
+            },
+            "vitestArgs": {
+                "bail": 1
+            },
+            "connections": [
+                {
+                    "name": "Node",
+                    "type": "papi",
+                    "endpoints": ["ws://127.0.0.1:9947"],
+                    "descriptor": "subtensor"
+                },
+                {
+                    "name": "EVM",
+                    "type": "ethers",
+                    "endpoints": ["http://127.0.0.1:9947"],
+                    "descriptor": "evm"
+                }
+            ]
+        }, {
             "name": "zombienet_subnets",
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_subnets"],

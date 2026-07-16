@@ -10,6 +10,11 @@ const shieldSpec = JSON.parse(readFileSync(join(tsTestsDir, "configs/zombie_exte
 const e2eWorkflow = readFileSync(join(tsTestsDir, "..", ".github/workflows/typescript-e2e.yml"), "utf8");
 const environments = new Map(config.environments.map((environment) => [environment.name, environment]));
 
+const evmFiles = readdirSync(join(tsTestsDir, "suites/zombienet_evm"))
+    .filter((file) => file.endsWith(".test.ts"))
+    .map((file) => `suites/zombienet_evm/${file}`)
+    .sort();
+const evmShardNames = ["zombienet_evm_a", "zombienet_evm_b"];
 const shieldFiles = readdirSync(join(tsTestsDir, "suites/zombienet_shield"))
     .filter((file) => file.endsWith(".test.ts"))
     .map((file) => `suites/zombienet_shield/${file}`)
@@ -97,6 +102,37 @@ if (JSON.stringify(sortedIncludes) !== JSON.stringify(shieldFiles)) {
     throw new Error(`Shield shard coverage mismatch; missing=[${missing.join(", ")}] unknown=[${unknown.join(", ")}]`);
 }
 
+const evmShardIncludes = evmShardNames.map((name) => {
+    const includes = environments.get(name)?.include ?? [];
+    if (includes.length === 0) {
+        throw new Error(`${name} must include at least one EVM test`);
+    }
+    return includes;
+});
+const evmIncludes = evmShardIncludes.flat();
+const duplicateEvmFiles = evmIncludes.filter((file, index) => evmIncludes.indexOf(file) !== index);
+if (duplicateEvmFiles.length > 0) {
+    throw new Error(`EVM tests assigned to multiple shards: ${[...new Set(duplicateEvmFiles)].join(", ")}`);
+}
+const sortedEvmIncludes = [...evmIncludes].sort();
+if (!isDeepStrictEqual(sortedEvmIncludes, evmFiles)) {
+    const missing = evmFiles.filter((file) => !sortedEvmIncludes.includes(file));
+    const unknown = sortedEvmIncludes.filter((file) => !evmFiles.includes(file));
+    throw new Error(`EVM shard coverage mismatch; missing=[${missing.join(", ")}] unknown=[${unknown.join(", ")}]`);
+}
+
+const canonicalEvmEnvironment = environments.get("zombienet_evm");
+if (!canonicalEvmEnvironment) {
+    throw new Error("Missing Moonwall environment: zombienet_evm");
+}
+const sharedEvmSettings = ({ name: _name, include: _include, ...settings }) => settings;
+const canonicalEvmSettings = sharedEvmSettings(canonicalEvmEnvironment);
+for (const name of evmShardNames) {
+    if (!isDeepStrictEqual(sharedEvmSettings(environments.get(name)), canonicalEvmSettings)) {
+        throw new Error(`${name} settings must match zombienet_evm except for name and include`);
+    }
+}
+
 const singleNodeConfig = "./configs/zombie_single_node.json";
 const singleNodes = singleNodeSpec.relaychain?.nodes ?? [];
 if (
@@ -107,7 +143,13 @@ if (
     throw new Error("Single-node state spec must contain one validator using --sealing=100");
 }
 
-for (const name of ["zombienet_staking", "zombienet_coldkey_swap", "zombienet_evm", "zombienet_subnets"]) {
+for (const name of [
+    "zombienet_staking",
+    "zombienet_coldkey_swap",
+    "zombienet_evm",
+    ...evmShardNames,
+    "zombienet_subnets",
+]) {
     const configPath = environments.get(name)?.foundation?.zombieSpec?.configPath;
     if (configPath !== singleNodeConfig) {
         throw new Error(`${name} must use ${singleNodeConfig}; found ${configPath ?? "no config"}`);
@@ -161,5 +203,5 @@ for (const name of ["zombienet_shield", ...shieldShardNames]) {
 }
 
 console.log(
-    `Validated ${shieldFiles.length} Shield files across ${shieldShardNames.length} production-runtime shards, ${shieldShardNames.length + 1} multi-node Shield environments, and four single-node state suites.`
+    `Validated ${shieldFiles.length} Shield files across ${shieldShardNames.length} production-runtime shards, ${evmFiles.length} EVM files across ${evmShardNames.length} shards, ${shieldShardNames.length + 1} multi-node Shield environments, and six single-node state environments.`
 );

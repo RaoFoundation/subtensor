@@ -88,7 +88,10 @@ else
 fi
 
 state_entries=()
-[[ "$evm" != true ]] || state_entries+=('{"test":"zombienet_evm","binary":"fast"}')
+if [[ "$evm" == true ]]; then
+  state_entries+=('{"test":"zombienet_evm_a","binary":"fast"}')
+  state_entries+=('{"test":"zombienet_evm_b","binary":"fast"}')
+fi
 [[ "$staking" != true ]] || state_entries+=('{"test":"zombienet_staking","binary":"fast"}')
 [[ "$coldkey_swap" != true ]] || state_entries+=('{"test":"zombienet_coldkey_swap","binary":"fast"}')
 [[ "$dev" != true ]] || state_entries+=('{"test":"dev","binary":"release"}')
