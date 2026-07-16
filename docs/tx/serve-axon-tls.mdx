@@ -13,9 +13,9 @@ handshake, and running any TLS endpoint is up to the caller. Signed by
 the hotkey, which must be registered on the subnet. Use plain
 `serve_axon` when peers do not need a published key.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.serve_axon_tls` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.serve_axon_tls` |
 
 ## Parameters
 
@@ -52,21 +52,61 @@ btcli tx serve-axon-tls \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.ServeAxonTls(netuid=1, ip="...", port=0, certificate="...")
+intent = bt.ServeAxonTls(netuid=1, ip="...", port=0, certificate="...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("serve_axon_tls", {...}, wallet)
+result = sub.execute_tool("serve_axon_tls", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.serve_axon_tls` — [`pallets/subtensor/src/macros/dispatches.rs#L716`](/code/pallets/subtensor/src/macros/dispatches.rs#L716):
+
+```rust
+#[pallet::call_index(40)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon_tls(), DispatchClass::Normal, Pays::No))]
+pub fn serve_axon_tls(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    version: u32,
+    ip: u128,
+    port: u16,
+    ip_type: u8,
+    protocol: u8,
+    placeholder1: u8,
+    placeholder2: u8,
+    certificate: Vec<u8>,
+) -> DispatchResult {
+    Self::do_serve_axon(
+        origin,
+        netuid,
+        version,
+        ip,
+        port,
+        ip_type,
+        protocol,
+        placeholder1,
+        placeholder2,
+        Some(certificate),
+    )
+}
+```
+
+Delegates to [`do_serve_axon`](/code/pallets/subtensor/src/subnets/serving.rs#L42).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

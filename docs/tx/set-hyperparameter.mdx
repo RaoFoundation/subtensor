@@ -17,9 +17,9 @@ on-chain integer or a human form that is converted for you. Some
 parameters are rate-limited by the chain, so a quick follow-up change can
 fail. Read current values back with the `subnet_hyperparameters` read.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | AdminUtils | `AdminUtils.sudo_set_tempo`, `AdminUtils.sudo_set_immunity_period`, `AdminUtils.sudo_set_min_allowed_weights`, `AdminUtils.sudo_set_weights_version_key`, `AdminUtils.sudo_set_activity_cutoff_factor`, `AdminUtils.sudo_set_min_burn`, `AdminUtils.sudo_set_max_burn`, `AdminUtils.sudo_set_bonds_moving_average`, `AdminUtils.sudo_set_bonds_penalty`, `AdminUtils.sudo_set_serving_rate_limit`, `AdminUtils.sudo_set_commit_reveal_weights_interval`, `AdminUtils.sudo_set_max_allowed_uids`, `AdminUtils.sudo_set_burn_increase_mult`, `AdminUtils.sudo_set_burn_half_life`, `AdminUtils.sudo_set_adjustment_alpha`, `AdminUtils.sudo_set_rho`, `AdminUtils.sudo_set_max_difficulty`, `AdminUtils.sudo_set_alpha_sigmoid_steepness`, `AdminUtils.sudo_set_min_childkey_take_per_subnet`, `AdminUtils.sudo_set_owner_immune_neuron_limit`, `AdminUtils.sudo_set_alpha_values`, `AdminUtils.sudo_set_commit_reveal_weights_enabled`, `AdminUtils.sudo_set_liquid_alpha_enabled`, `AdminUtils.sudo_set_network_pow_registration_allowed`, `AdminUtils.sudo_set_yuma3_enabled`, `AdminUtils.sudo_set_bonds_reset_enabled`, `AdminUtils.sudo_set_toggle_transfer`, `AdminUtils.sudo_set_owner_cut_enabled`, `AdminUtils.sudo_set_owner_cut_auto_lock_enabled` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | subnet owner | AdminUtils | `AdminUtils.sudo_set_tempo`, `AdminUtils.sudo_set_immunity_period`, `AdminUtils.sudo_set_min_allowed_weights`, `AdminUtils.sudo_set_weights_version_key`, `AdminUtils.sudo_set_activity_cutoff_factor`, `AdminUtils.sudo_set_min_burn`, `AdminUtils.sudo_set_max_burn`, `AdminUtils.sudo_set_bonds_moving_average`, `AdminUtils.sudo_set_bonds_penalty`, `AdminUtils.sudo_set_serving_rate_limit`, `AdminUtils.sudo_set_commit_reveal_weights_interval`, `AdminUtils.sudo_set_max_allowed_uids`, `AdminUtils.sudo_set_burn_increase_mult`, `AdminUtils.sudo_set_burn_half_life`, `AdminUtils.sudo_set_adjustment_alpha`, `AdminUtils.sudo_set_rho`, `AdminUtils.sudo_set_max_difficulty`, `AdminUtils.sudo_set_alpha_sigmoid_steepness`, `AdminUtils.sudo_set_min_childkey_take_per_subnet`, `AdminUtils.sudo_set_owner_immune_neuron_limit`, `AdminUtils.sudo_set_alpha_values`, `AdminUtils.sudo_set_commit_reveal_weights_enabled`, `AdminUtils.sudo_set_liquid_alpha_enabled`, `AdminUtils.sudo_set_network_pow_registration_allowed`, `AdminUtils.sudo_set_yuma3_enabled`, `AdminUtils.sudo_set_bonds_reset_enabled`, `AdminUtils.sudo_set_toggle_transfer`, `AdminUtils.sudo_set_owner_cut_enabled`, `AdminUtils.sudo_set_owner_cut_auto_lock_enabled` |
 
 ## Parameters
 
@@ -51,21 +51,59 @@ btcli tx set-hyperparameter \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetHyperparameter(netuid=1, name="...", value="...")
+intent = bt.SetHyperparameter(netuid=1, name="...", value="...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_hyperparameter", {...}, wallet)
+result = sub.execute_tool("set_hyperparameter", {...}, wallet)
 ```
+
+## On-chain implementation
+
+| Chain call | Source |
+| --- | --- |
+| `AdminUtils.sudo_set_tempo` | [`pallets/admin-utils/src/lib.rs#L1020`](/code/pallets/admin-utils/src/lib.rs#L1020) |
+| `AdminUtils.sudo_set_immunity_period` | [`pallets/admin-utils/src/lib.rs#L459`](/code/pallets/admin-utils/src/lib.rs#L459) |
+| `AdminUtils.sudo_set_min_allowed_weights` | [`pallets/admin-utils/src/lib.rs#L492`](/code/pallets/admin-utils/src/lib.rs#L492) |
+| `AdminUtils.sudo_set_weights_version_key` | [`pallets/admin-utils/src/lib.rs#L341`](/code/pallets/admin-utils/src/lib.rs#L341) |
+| `AdminUtils.sudo_set_activity_cutoff_factor` | [`pallets/admin-utils/src/lib.rs#L664`](/code/pallets/admin-utils/src/lib.rs#L664) |
+| `AdminUtils.sudo_set_min_burn` | [`pallets/admin-utils/src/lib.rs#L749`](/code/pallets/admin-utils/src/lib.rs#L749) |
+| `AdminUtils.sudo_set_max_burn` | [`pallets/admin-utils/src/lib.rs#L788`](/code/pallets/admin-utils/src/lib.rs#L788) |
+| `AdminUtils.sudo_set_bonds_moving_average` | [`pallets/admin-utils/src/lib.rs#L880`](/code/pallets/admin-utils/src/lib.rs#L880) |
+| `AdminUtils.sudo_set_bonds_penalty` | [`pallets/admin-utils/src/lib.rs#L919`](/code/pallets/admin-utils/src/lib.rs#L919) |
+| `AdminUtils.sudo_set_serving_rate_limit` | [`pallets/admin-utils/src/lib.rs#L258`](/code/pallets/admin-utils/src/lib.rs#L258) |
+| `AdminUtils.sudo_set_commit_reveal_weights_interval` | [`pallets/admin-utils/src/lib.rs#L1368`](/code/pallets/admin-utils/src/lib.rs#L1368) |
+| `AdminUtils.sudo_set_max_allowed_uids` | [`pallets/admin-utils/src/lib.rs#L525`](/code/pallets/admin-utils/src/lib.rs#L525) |
+| `AdminUtils.sudo_set_burn_increase_mult` | [`pallets/admin-utils/src/lib.rs#L2176`](/code/pallets/admin-utils/src/lib.rs#L2176) |
+| `AdminUtils.sudo_set_burn_half_life` | [`pallets/admin-utils/src/lib.rs#L2128`](/code/pallets/admin-utils/src/lib.rs#L2128) |
+| `AdminUtils.sudo_set_adjustment_alpha` | [`pallets/admin-utils/src/lib.rs#L428`](/code/pallets/admin-utils/src/lib.rs#L428) |
+| `AdminUtils.sudo_set_rho` | [`pallets/admin-utils/src/lib.rs#L591`](/code/pallets/admin-utils/src/lib.rs#L591) |
+| `AdminUtils.sudo_set_max_difficulty` | [`pallets/admin-utils/src/lib.rs#L308`](/code/pallets/admin-utils/src/lib.rs#L308) |
+| `AdminUtils.sudo_set_alpha_sigmoid_steepness` | [`pallets/admin-utils/src/lib.rs#L1623`](/code/pallets/admin-utils/src/lib.rs#L1623) |
+| `AdminUtils.sudo_set_min_childkey_take_per_subnet` | [`pallets/admin-utils/src/lib.rs#L1192`](/code/pallets/admin-utils/src/lib.rs#L1192) |
+| `AdminUtils.sudo_set_owner_immune_neuron_limit` | [`pallets/admin-utils/src/lib.rs#L1809`](/code/pallets/admin-utils/src/lib.rs#L1809) |
+| `AdminUtils.sudo_set_alpha_values` | [`pallets/admin-utils/src/lib.rs#L1293`](/code/pallets/admin-utils/src/lib.rs#L1293) |
+| `AdminUtils.sudo_set_commit_reveal_weights_enabled` | [`pallets/admin-utils/src/lib.rs#L1231`](/code/pallets/admin-utils/src/lib.rs#L1231) |
+| `AdminUtils.sudo_set_liquid_alpha_enabled` | [`pallets/admin-utils/src/lib.rs#L1269`](/code/pallets/admin-utils/src/lib.rs#L1269) |
+| `AdminUtils.sudo_set_network_pow_registration_allowed` | [`pallets/admin-utils/src/lib.rs#L709`](/code/pallets/admin-utils/src/lib.rs#L709) |
+| `AdminUtils.sudo_set_yuma3_enabled` | [`pallets/admin-utils/src/lib.rs#L1668`](/code/pallets/admin-utils/src/lib.rs#L1668) |
+| `AdminUtils.sudo_set_bonds_reset_enabled` | [`pallets/admin-utils/src/lib.rs#L1702`](/code/pallets/admin-utils/src/lib.rs#L1702) |
+| `AdminUtils.sudo_set_toggle_transfer` | [`pallets/admin-utils/src/lib.rs#L1459`](/code/pallets/admin-utils/src/lib.rs#L1459) |
+| `AdminUtils.sudo_set_owner_cut_enabled` | [`pallets/admin-utils/src/lib.rs#L2226`](/code/pallets/admin-utils/src/lib.rs#L2226) |
+| `AdminUtils.sudo_set_owner_cut_auto_lock_enabled` | [`pallets/admin-utils/src/lib.rs#L2256`](/code/pallets/admin-utils/src/lib.rs#L2256) |
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

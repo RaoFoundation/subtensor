@@ -11,9 +11,9 @@ the creator may finalize, and only once the cap has been reached. After
 finalization the crowdloan can no longer be updated, refunded, or
 dissolved.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.finalize` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.finalize` |
 
 ## Parameters
 
@@ -39,21 +39,98 @@ btcli tx finalize-crowdloan \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.FinalizeCrowdloan(crowdloan_id=0)
+intent = bt.FinalizeCrowdloan(crowdloan_id=0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("finalize_crowdloan", {...}, wallet)
+result = sub.execute_tool("finalize_crowdloan", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.finalize` — [`pallets/crowdloan/src/lib.rs#L611`](/code/pallets/crowdloan/src/lib.rs#L611):
+
+```rust
+#[pallet::call_index(3)]
+#[pallet::weight(T::WeightInfo::finalize())]
+pub fn finalize(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+
+    // Ensure the origin is the creator of the crowdloan and the crowdloan has raised the cap
+    // and is not finalized.
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+    ensure!(crowdloan.raised == crowdloan.cap, Error::<T>::CapNotRaised);
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+    ensure!(
+        CurrentCrowdloanId::<T>::get().is_none(),
+        Error::<T>::AlreadyFinalizing
+    );
+
+    crowdloan.finalized = true;
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    match (&crowdloan.call, &crowdloan.target_address) {
+        (Some(call), None) => {
+            // Set the current crowdloan id so the dispatched call
+            // can access it temporarily
+            CurrentCrowdloanId::<T>::put(crowdloan_id);
+
+            // Retrieve the call from the preimage storage
+            let stored_call = match T::Preimages::peek(call) {
+                Ok((call, _)) => call,
+                Err(_) => {
+                    // If the call is not found, we drop it from the preimage storage
+                    // because it's not needed anymore
+                    T::Preimages::drop(call);
+                    return Err(Error::<T>::CallUnavailable)?;
+                }
+            };
+
+            // Dispatch the call with creator origin
+            stored_call
+                .dispatch(frame_system::RawOrigin::Signed(who).into())
+                .map(|_| ())
+                .map_err(|e| e.error)?;
+
+            // Clear the current crowdloan id
+            CurrentCrowdloanId::<T>::kill();
+        }
+        (None, Some(target_address)) => {
+            CurrencyOf::<T>::transfer(
+                &crowdloan.funds_account,
+                target_address,
+                crowdloan.raised,
+                Preservation::Expendable,
+            )?;
+        }
+        (_, _) => {
+            return Err(Error::<T>::InvalidFinalizationConfig)?;
+        }
+    }
+
+    Self::deposit_event(Event::<T>::Finalized { crowdloan_id });
+
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

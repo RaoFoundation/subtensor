@@ -24,17 +24,19 @@ btcli query stake-for-coldkeys --coldkeys <array> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.staking.stake_for_coldkeys(coldkey_ss58s=[...])
+sub = bt.Subtensor()
+result = sub.staking.stake_for_coldkeys(coldkey_ss58s=[...])
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("stake_for_coldkeys", coldkey_ss58s=[...])
+result = sub.read("stake_for_coldkeys", coldkey_ss58s=[...])
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

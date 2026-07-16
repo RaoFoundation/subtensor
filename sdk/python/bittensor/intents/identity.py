@@ -79,6 +79,7 @@ class SetSubnetIdentity(Intent):
 
     op = "set_subnet_identity"
     signer = "coldkey"
+    origin = "subnet_owner"
     wraps = (("SubtensorModule", "set_subnet_identity"),)
 
     netuid: int = field(

@@ -12,9 +12,9 @@ inner call is given as an intent op name plus its arguments and must hash
 to exactly what was announced. Fails if the delay has not elapsed or no
 matching announcement exists.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.proxy_announced` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.proxy_announced` |
 
 ## Parameters
 
@@ -50,21 +50,68 @@ btcli tx execute-proxy-announced \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.ExecuteProxyAnnounced(delegate_ss58="5F...", real_ss58="5F...", inner_op="...", inner_args={...})
+intent = bt.ExecuteProxyAnnounced(delegate_ss58="5F...", real_ss58="5F...", inner_op="...", inner_args={...})
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("execute_proxy_announced", {...}, wallet)
+result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L549`](/code/pallets/proxy/src/lib.rs#L549):
+
+```rust
+        #[pallet::call_index(9)]
+        #[pallet::weight({
+			let di = call.get_dispatch_info();
+			(T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+				 // AccountData for inner call origin accountdata.
+				.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+				.saturating_add(di.call_weight),
+			DispatchClass::Normal)
+		})]
+        pub fn proxy_announced(
+            origin: OriginFor<T>,
+            delegate: AccountIdLookupOf<T>,
+            real: AccountIdLookupOf<T>,
+            force_proxy_type: Option<T::ProxyType>,
+            call: Box<<T as Config>::RuntimeCall>,
+        ) -> DispatchResult {
+            ensure_signed(origin)?;
+            let delegate = T::Lookup::lookup(delegate)?;
+            let real = T::Lookup::lookup(real)?;
+            let def = Self::find_proxy(&real, &delegate, force_proxy_type)?;
+
+            let call_hash = T::CallHasher::hash_of(&call);
+            let now = T::BlockNumberProvider::current_block_number();
+            Self::edit_announcements(&delegate, |ann| {
+                ann.real != real
+                    || ann.call_hash != call_hash
+                    || now.saturating_sub(ann.height) < def.delay
+            })
+            .map_err(|_| Error::<T>::Unannounced)?;
+
+            Self::do_proxy(def, real, *call);
+
+            Ok(())
+        }
+```
+
+Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1085).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

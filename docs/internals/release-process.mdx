@@ -53,10 +53,12 @@ Human approval lives in GitHub **environment settings**, not workflow code:
 
 Deploys to devnet and testnet are direct `setCode` transactions via the CI
 deploy key. After the on-chain `spec_version` is verified, the train moves the
-corresponding network mirror branch. That branch push builds the exact deployed
-commit and updates `ghcr.io/raofoundation/subtensor:devnet` or `:testnet`; it
-does not move `:latest`. The smoke suite then validates the live network while
-the independent image build runs.
+corresponding network mirror branch. That branch push triggers both Docker
+publishers from the exact deployed commit, updating the matching `:devnet` or
+`:testnet` tag in `ghcr.io/raofoundation/subtensor` and
+`ghcr.io/raofoundation/subtensor-localnet`. It does not move either package's
+`:latest` tag. The smoke suite then validates the live network while the
+independent image builds run.
 
 ### The mainnet multisig ceremony
 
@@ -90,7 +92,9 @@ mainnet*, not what was merged.
 The watcher explicitly dispatches `docker.yml` and `docker-localnet.yml`
 because releases created with the default `GITHUB_TOKEN` do not emit another
 workflow event. The production build publishes both the immutable release tag
-and `:latest`; the localnet build does the same in its separate package.
+and `:latest`. The localnet build publishes the immutable release tag in its
+separate package; localnet `:latest` remains an alias for the current `:main`
+branch image, while `:devnet` and `:testnet` follow their respective branches.
 
 ## Hotfixes
 

@@ -15,9 +15,9 @@ Calling again overwrites the whole identity (empty fields clear their
 previous values); the chain enforces length limits on each field. Purely
 cosmetic: no effect on balances, stake, or permissions.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_identity` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_identity` |
 
 ## Parameters
 
@@ -49,21 +49,57 @@ btcli tx set-identity \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetIdentity(name="...")
+intent = bt.SetIdentity(name="...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_identity", {...}, wallet)
+result = sub.execute_tool("set_identity", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1134`](/code/pallets/subtensor/src/macros/dispatches.rs#L1134):
+
+```rust
+#[pallet::call_index(68)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_identity())]
+pub fn set_identity(
+    origin: OriginFor<T>,
+    name: Vec<u8>,
+    url: Vec<u8>,
+    github_repo: Vec<u8>,
+    image: Vec<u8>,
+    discord: Vec<u8>,
+    description: Vec<u8>,
+    additional: Vec<u8>,
+) -> DispatchResult {
+    Self::do_set_identity(
+        origin,
+        name,
+        url,
+        github_repo,
+        image,
+        discord,
+        description,
+        additional,
+    )
+}
+```
+
+Delegates to [`do_set_identity`](/code/pallets/subtensor/src/utils/identity.rs#L27).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

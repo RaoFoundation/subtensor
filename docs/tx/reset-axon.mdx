@@ -11,9 +11,9 @@ not removed. Signed by the hotkey. Use this when taking a miner offline or
 before moving it, then publish the new address with `serve_axon` when it
 is back up.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.serve_axon` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.serve_axon` |
 
 ## Parameters
 
@@ -39,21 +39,60 @@ btcli tx reset-axon \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.ResetAxon(netuid=1)
+intent = bt.ResetAxon(netuid=1)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("reset_axon", {...}, wallet)
+result = sub.execute_tool("reset_axon", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.serve_axon` — [`pallets/subtensor/src/macros/dispatches.rs#L650`](/code/pallets/subtensor/src/macros/dispatches.rs#L650):
+
+```rust
+#[pallet::call_index(4)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon(), DispatchClass::Normal, Pays::No))]
+pub fn serve_axon(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    version: u32,
+    ip: u128,
+    port: u16,
+    ip_type: u8,
+    protocol: u8,
+    placeholder1: u8,
+    placeholder2: u8,
+) -> DispatchResult {
+    Self::do_serve_axon(
+        origin,
+        netuid,
+        version,
+        ip,
+        port,
+        ip_type,
+        protocol,
+        placeholder1,
+        placeholder2,
+        None,
+    )
+}
+```
+
+Delegates to [`do_serve_axon`](/code/pallets/subtensor/src/subnets/serving.rs#L42).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

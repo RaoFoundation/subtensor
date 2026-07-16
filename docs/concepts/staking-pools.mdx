@@ -118,7 +118,7 @@ There is no interval where the order is both public and pending.
 
 ```python
 await client.submit_shielded(
-    sub.AddStakeLimit(hotkey_ss58="5F...", netuid=1, amount_tao=5_000,
+    bt.AddStakeLimit(hotkey_ss58="5F...", netuid=1, amount_tao=5_000,
                       limit_price_rao=int(spot["price_rao"] * 1.01),
                       allow_partial=False),
     wallet,

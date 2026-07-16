@@ -25,6 +25,14 @@ if TYPE_CHECKING:
 
 Signer = Literal["coldkey", "hotkey"]
 
+# Dispatch privilege the chain's call filter accepts before pallet logic runs.
+# This is *not* a full application-role model: "signed" only means a signed
+# extrinsic origin — the pallet may still require a registered hotkey, the
+# stake beneficiary, the subnet owner, etc. "subnet_owner" / "root" are the
+# cases the SDK elevates in docs and (for root) wraps with Sudo.sudo at
+# execute time. Finer roles belong in each intent's docstring / field help.
+Origin = Literal["signed", "subnet_owner", "root"]
+
 # Field annotations are strings here (PEP 563 / `from __future__ import annotations`),
 # so this maps by annotation name.
 _JSON_TYPES: dict[str, str] = {
@@ -108,6 +116,16 @@ class Intent(ABC):
 
     op: ClassVar[str]
     signer: ClassVar[Signer] = "coldkey"
+    # Extrinsic-origin privilege (not a full app-role model): "signed" (any
+    # signed account — pallet checks may still require a hotkey, beneficiary,
+    # owner, …), "subnet_owner" (owner coldkey of the touched netuid), or
+    # "root" (chain sudo key / sudo multisig; Executor wraps Sudo.sudo).
+    # Surfaced in the tool catalog, CLI help, pre-sign plan, and docs.
+    origin: ClassVar[Origin] = "signed"
+    # The registered read that confirms this intent's effect after inclusion
+    # (e.g. "subnet_emission_enabled"). Optional, but every root intent should
+    # declare one: a privileged write with no paired verify is a docs bug.
+    verify: ClassVar[Optional[str]] = None
     # The chain call(s) this intent wraps, as (pallet, call_function) pairs. Used by
     # the codegen coverage gate to prove every chain call has a deliberate status.
     wraps: ClassVar[tuple[tuple[str, str], ...]] = ()

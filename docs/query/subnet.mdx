@@ -23,17 +23,19 @@ btcli query subnet --netuid <integer> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.subnets.subnet(netuid=1)
+sub = bt.Subtensor()
+result = sub.subnets.subnet(netuid=1)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("subnet", netuid=1)
+result = sub.read("subnet", netuid=1)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

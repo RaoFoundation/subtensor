@@ -127,9 +127,9 @@ btcli query proxies --coldkey safe --json     # same read, machine-readable
 ```
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("test") as client:
+async with bt.Subtensor("test") as client:
     delegations = await client.balances.proxies(coldkey_ss58="5F...safe")
 ```
 
@@ -168,8 +168,8 @@ from bittensor.wallet import Wallet
 
 ops = Wallet(name="ops")
 
-async with sub.Client("test") as client:
-    intent = sub.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=25)
+async with bt.Subtensor("test") as client:
+    intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=25)
     result = await client.execute(intent, ops, proxy_for="5F...safe")
     if not result.success:
         print(result.error.code, result.error.remediation)
@@ -197,8 +197,8 @@ the CLI, or `submit_call` in Python:
 ```python
 ops = Wallet(name="ops")
 
-async with sub.Client("test") as client:
-    call = sub.calls.Balances.transfer_keep_alive(
+async with bt.Subtensor("test") as client:
+    call = bt.calls.Balances.transfer_keep_alive(
         dest="5DevPayee...",
         value=10 * 10**9,               # raw calls take rao (1 TAO = 1e9 rao)
     )
@@ -206,7 +206,7 @@ async with sub.Client("test") as client:
     call_hash = "0x" + bytes(composed.call_hash).hex()
 
     await client.submit_call(
-        sub.calls.Proxy.announce(real="5F...safe", call_hash=call_hash), ops
+        bt.calls.Proxy.announce(real="5F...safe", call_hash=call_hash), ops
     )
 ```
 
@@ -224,7 +224,7 @@ btcli proxy execute \
 
 (the same operation as the
 [`execute-proxy-announced`](/docs/tx/execute-proxy-announced) intent, also
-reachable as `btcli tx execute-proxy-announced` or `sub.ExecuteProxyAnnounced`
+reachable as `btcli tx execute-proxy-announced` or `bt.ExecuteProxyAnnounced`
 in Python). Executing before the delay elapses fails with `Unannounced`.
 
 **Monitor and veto.** A delay only protects you if you *watch* — check
@@ -233,8 +233,8 @@ window is only forensic. Announcements are keyed by delegate in the
 `Proxy.Announcements` storage map:
 
 ```python
-async with sub.Client("test") as client:
-    for delegate, value in await client.query_map(sub.storage.Proxy.Announcements):
+async with bt.Subtensor("test") as client:
+    for delegate, value in await client.query_map(bt.storage.Proxy.Announcements):
         announcements, _deposit = value
         for ann in announcements:
             if str(ann["real"]) == "5F...safe":

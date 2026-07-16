@@ -16,9 +16,9 @@ takeover while governance investigates; only root can unfreeze. Use
 `clear_coldkey_swap_announcement` instead to withdraw an announcement
 you made yourself.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.dispute_coldkey_swap` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.dispute_coldkey_swap` |
 
 ## Parameters
 
@@ -40,21 +40,52 @@ btcli tx dispute-coldkey-swap -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.DisputeColdkeySwap()
+intent = bt.DisputeColdkeySwap()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("dispute_coldkey_swap", {...}, wallet)
+result = sub.execute_tool("dispute_coldkey_swap", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.dispute_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2075`](/code/pallets/subtensor/src/macros/dispatches.rs#L2075):
+
+```rust
+#[pallet::call_index(127)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dispute_coldkey_swap())]
+pub fn dispute_coldkey_swap(origin: OriginFor<T>) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+
+    ensure!(
+        ColdkeySwapAnnouncements::<T>::contains_key(&coldkey),
+        Error::<T>::ColdkeySwapAnnouncementNotFound
+    );
+    ensure!(
+        !ColdkeySwapDisputes::<T>::contains_key(&coldkey),
+        Error::<T>::ColdkeySwapAlreadyDisputed
+    );
+
+    let now = <frame_system::Pallet<T>>::block_number();
+    ColdkeySwapDisputes::<T>::insert(&coldkey, now);
+
+    Self::deposit_event(Event::ColdkeySwapDisputed { coldkey });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

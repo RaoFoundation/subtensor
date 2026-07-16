@@ -14,9 +14,9 @@ Ownership stays with the signing coldkey — use `transfer_stake` to hand
 the position to another coldkey, or `swap_stake` when only the subnet
 changes.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.move_stake` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.move_stake` |
 
 ## Parameters
 
@@ -54,21 +54,53 @@ btcli tx move-stake \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=0, dest_hotkey_ss58="5F...", dest_netuid=0, amount_alpha=1.0)
+intent = bt.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=0, dest_hotkey_ss58="5F...", dest_netuid=0, amount_alpha=1.0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("move_stake", {...}, wallet)
+result = sub.execute_tool("move_stake", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1271`](/code/pallets/subtensor/src/macros/dispatches.rs#L1271):
+
+```rust
+#[pallet::call_index(85)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
+pub fn move_stake(
+    origin: OriginFor<T>,
+    origin_hotkey: T::AccountId,
+    destination_hotkey: T::AccountId,
+    origin_netuid: NetUid,
+    destination_netuid: NetUid,
+    alpha_amount: AlphaBalance,
+) -> DispatchResult {
+    Self::do_move_stake(
+        origin,
+        origin_hotkey,
+        destination_hotkey,
+        origin_netuid,
+        destination_netuid,
+        alpha_amount,
+    )
+}
+```
+
+Delegates to [`do_move_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L30).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

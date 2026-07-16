@@ -12,9 +12,9 @@ keeps alpha on the listed `subnets` while swapping the rest. The setting
 is per-coldkey and persists until changed again; it does not move anything
 already claimed. Read it back with the `root_claim_type` read.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_root_claim_type` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_root_claim_type` |
 
 ## Parameters
 
@@ -39,21 +39,51 @@ btcli tx set-root-claim-type -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetRootClaimType()
+intent = bt.SetRootClaimType()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_root_claim_type", {...}, wallet)
+result = sub.execute_tool("set_root_claim_type", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_root_claim_type` — [`pallets/subtensor/src/macros/dispatches.rs#L1937`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937):
+
+```rust
+#[pallet::call_index(122)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_root_claim_type())]
+pub fn set_root_claim_type(
+    origin: OriginFor<T>,
+    new_root_claim_type: RootClaimTypeEnum,
+) -> DispatchResult {
+    let coldkey: T::AccountId = ensure_signed(origin)?;
+
+    if let RootClaimTypeEnum::KeepSubnets { subnets } = &new_root_claim_type {
+        ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
+    }
+
+    Self::maybe_add_coldkey_index(&coldkey);
+
+    Self::change_root_claim_type(&coldkey, new_root_claim_type);
+    Ok(())
+}
+```
+
+Delegates to [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L389), [`change_root_claim_type`](/code/pallets/subtensor/src/staking/claim_root.rs#L450).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

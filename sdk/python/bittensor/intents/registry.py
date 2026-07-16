@@ -55,6 +55,8 @@ def list_tools() -> list[dict[str, Any]]:
                 "summary": description.split("\n")[0],
                 "description": description,
                 "signer": cls.signer,
+                "origin": cls.origin,
+                "verify": cls.verify,
                 "input_schema": cls.json_schema(),
             }
         )

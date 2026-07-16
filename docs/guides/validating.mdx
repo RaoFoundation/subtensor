@@ -76,13 +76,28 @@ minimum weight count) and submits via whichever path the subnet runs — plain
 weights when commit-reveal is off, or a timelock-encrypted commit
 (auto-revealed by the chain) when it is on.
 
-`SetWeights` takes the scores in either shape — a `{uid: weight}` mapping
-(preferred) or parallel `uids`/`weights` lists:
+The simplest form is one call:
 
 ```python
-intent = sub.SetWeights(netuid=1, weights={0: 0.1, 1: 0.7, 2: 0.2})
+import bittensor as bt
 
-intent = sub.SetWeights(                        # same submission, parallel lists
+bt.set_weights(1, {0: 0.1, 1: 0.7, 2: 0.2}, wallet="my_coldkey", hotkey="my_hotkey")
+```
+
+Blocking, and everything handled: it connects on first use (the connection is
+reused across calls, so a scoring loop redials nothing), conforms the weights,
+picks the plaintext or commit-reveal path, preflights registration and the
+rate limit, signs with the hotkey, retries transient pool rejections, and
+**raises** on failure so a loop can't fail silently.
+
+For plan previews, policies, proxies, or async code, use the intent through a
+client. `SetWeights` takes the scores in either shape — a `{uid: weight}`
+mapping (preferred) or parallel `uids`/`weights` lists:
+
+```python
+intent = bt.SetWeights(netuid=1, weights={0: 0.1, 1: 0.7, 2: 0.2})
+
+intent = bt.SetWeights(                        # same submission, parallel lists
     netuid=1,
     uids=[0, 1, 2],
     weights=[0.1, 0.7, 0.2],
@@ -99,7 +114,7 @@ On subnets running multiple [mechanisms](/docs/guides/subnets#mechanisms), pass
 `mechid=` to score one mechanism (default 0 — for most subnets the only one):
 
 ```python
-intent = sub.SetWeights(netuid=1, mechid=1, weights={0: 0.4, 3: 0.6})
+intent = bt.SetWeights(netuid=1, mechid=1, weights={0: 0.4, 3: 0.6})
 ```
 
 On the CLI, the dedicated `btcli weights` group and the generated
@@ -181,11 +196,11 @@ Commit-reveal is a per-subnet toggle — check it with
 with [`reveal-period`](/docs/query/reveal-period). `set-weights` picks the
 right path automatically.
 
-**Forcing the commit path.** `sub.CommitWeights` /
+**Forcing the commit path.** `bt.CommitWeights` /
 [`btcli weights commit`](/docs/tx/commit-weights) always submits a timelocked
 commit, even on subnets that would accept plain weights — same inputs and
 preflight as `SetWeights`, just the path pinned. The counterpart `reveal`
-(`sub.RevealWeights` / [`btcli weights reveal`](/docs/tx/reveal-weights))
+(`bt.RevealWeights` / [`btcli weights reveal`](/docs/tx/reveal-weights))
 exists only for the **legacy salt-based** commit flow: it must reproduce the
 exact committed uids, weights, salt, and version key, and is never needed for
 timelocked commits, which the chain reveals on its own.

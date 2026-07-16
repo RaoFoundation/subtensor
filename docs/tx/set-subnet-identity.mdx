@@ -13,9 +13,9 @@ clear their previous values); the chain enforces length limits on each
 field. Purely cosmetic — for the token ticker use `update_symbol`, and
 for economics use `set_hyperparameter`.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_subnet_identity` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | subnet owner | SubtensorModule | `SubtensorModule.set_subnet_identity` |
 
 ## Parameters
 
@@ -51,21 +51,61 @@ btcli tx set-subnet-identity \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetSubnetIdentity(netuid=1, subnet_name="...")
+intent = bt.SetSubnetIdentity(netuid=1, subnet_name="...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_subnet_identity", {...}, wallet)
+result = sub.execute_tool("set_subnet_identity", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_subnet_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1169`](/code/pallets/subtensor/src/macros/dispatches.rs#L1169):
+
+```rust
+#[pallet::call_index(78)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_subnet_identity())]
+pub fn set_subnet_identity(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    subnet_name: Vec<u8>,
+    github_repo: Vec<u8>,
+    subnet_contact: Vec<u8>,
+    subnet_url: Vec<u8>,
+    discord: Vec<u8>,
+    description: Vec<u8>,
+    logo_url: Vec<u8>,
+    additional: Vec<u8>,
+) -> DispatchResult {
+    Self::do_set_subnet_identity(
+        origin,
+        netuid,
+        subnet_name,
+        github_repo,
+        subnet_contact,
+        subnet_url,
+        discord,
+        description,
+        logo_url,
+        additional,
+    )
+}
+```
+
+Delegates to [`do_set_subnet_identity`](/code/pallets/subtensor/src/utils/identity.rs#L98).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

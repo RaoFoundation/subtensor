@@ -6,7 +6,7 @@ description: Complete mapping from the legacy bittensor SDK (v10) and bittensor-
 Bittensor 11 replaces two packages — the `bittensor` SDK (v10.x) and the
 separate `bittensor-cli` (v9.x, the old `btcli`) — with one package that
 contains both. The API is not a rename of the old one: the `Subtensor` class
-and its ~165 methods are gone, replaced by a small `Client` with typed reads
+and its ~165 methods are gone, replaced by a small client with typed reads
 and a catalog of **intents** executed through one `plan`/`execute` pipeline.
 This page maps every commonly scripted old call and CLI command to its v11
 equivalent.
@@ -23,7 +23,7 @@ equivalent.
    [Chain and runtime changes](#chain-and-runtime-changes) — these change
    behavior, not just names.
 4. Verify against the live catalogs rather than guessing:
-   `sub.intents.list_tools()` and `sub.reads.list_reads()` in Python,
+   `bt.intents.list_tools()` and `bt.reads.list_reads()` in Python,
    `btcli tools` and `btcli query --help` on the CLI, or the generated
    references under [Transactions](/docs/tx) and [Queries](/docs/query).
 5. Preview every rewritten mutation with `client.plan(...)` or `--dry-run`
@@ -106,36 +106,34 @@ if not response.success:
 New (v11):
 
 ```python
-import asyncio
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
-async def main():
-    wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-    async with sub.Client("finney") as client:
-        balance = await client.balances.get("5F...")
-        result = await client.execute(
-            sub.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10),
-            wallet,
-        )
-        if not result.success:
-            print(result.error.code, result.error.remediation)
+wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
+sub = bt.Subtensor()          # defaults to finney; no close() needed
 
-asyncio.run(main())
+balance = sub.balances.get("5F...")
+result = sub.execute(
+    bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10),
+    wallet,
+)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
 The three structural changes:
 
-1. **One client, no method zoo.** `Subtensor` / `AsyncSubtensor` become
-   `sub.Client` (async) or `sub.SyncClient` (blocking, same surface). Every
-   read is a typed method on a category namespace (`client.subnets`,
-   `client.staking`, `client.delegation`, `client.prices`, ... — with
-   autocomplete and signature help), is also dispatchable by name
-   (`client.read("uid", hotkey_ss58=..., netuid=...)`), and anything else is
-   reachable through generic accessors (`client.query(sub.storage...)`). See
+1. **One client, no method zoo.** `bt.Subtensor` keeps its name but is a new
+   class: one entry point that is blocking when used directly and async when
+   awaited (`async with bt.Subtensor() as client:`) — `AsyncSubtensor` is
+   gone. The ~165 v10 methods are replaced by typed reads on category
+   namespaces (`sub.subnets`, `sub.staking`, `sub.delegation`, `sub.prices`,
+   ... — with autocomplete and signature help), dispatchable by name too
+   (`sub.read("uid", hotkey_ss58=..., netuid=...)`), and anything else is
+   reachable through generic accessors (`sub.query(bt.storage...)`). See
    [The client](/docs/concepts/client).
 2. **Transactions are intents.** Every mutation is a small dataclass
-   (`sub.Transfer`, `sub.AddStake`, `sub.SetWeights`, ...) executed through
+   (`bt.Transfer`, `bt.AddStake`, `bt.SetWeights`, ...) executed through
    `client.plan(intent, wallet)` / `client.execute(intent, wallet)`. See
    [The transaction model](/docs/concepts/transactions).
 3. **Results are data.** `ExtrinsicResponse` becomes `ExtrinsicResult` with a
@@ -145,13 +143,13 @@ The three structural changes:
 
 | v10 | v11 |
 | --- | --- |
-| `bt.Subtensor(network="finney")` | `sub.SyncClient("finney")` (blocking) |
-| `bt.AsyncSubtensor(...)` + `await sub.initialize()` | `async with sub.Client("finney") as client:` |
-| `get_async_subtensor(network=...)` | `await sub.Client(...).connect()` |
+| `bt.Subtensor(network="finney")` | `bt.Subtensor()` (blocking, finney is the default) |
+| `bt.AsyncSubtensor(...)` + `await bt.initialize()` | `async with bt.Subtensor() as client:` |
+| `get_async_subtensor(network=...)` | `await bt.Subtensor(...)` |
 | `Subtensor(config=config)` | gone — pass arguments directly |
 | `Subtensor(..., mock=True)` / `MockSubtensor` | gone — test against a [local node](/docs/guides/local-development) |
-| `fallback_endpoints=`, `archive_endpoints=`, `retry_forever=` | same names on `Client` / `SyncClient` |
-| `subtensor.close()` | `client.close()` / context manager |
+| `fallback_endpoints=`, `archive_endpoints=`, `retry_forever=` | same names on `Subtensor` |
+| `subtensor.close()` | optional — automatic on garbage collection / process exit |
 
 Network names `finney`, `test`, `archive`, `local` resolve to the same
 endpoints as before, and any `ws://` / `wss://` URL is accepted directly. The
@@ -202,9 +200,9 @@ parameter names the old methods used. Results that used to be raw u16/u64
 integers come back normalized (weights and bonds as 0..1 floats, balances as
 `Balance`).
 Anything without a named read is reachable through the generic accessors —
-`client.query(sub.storage.Pallet.Item, [params])`,
-`client.query_map(...)`, `client.constant(sub.constants...)`,
-`client.runtime(sub.runtime_api...)` — which cover the entire runtime
+`client.query(bt.storage.Pallet.Item, [params])`,
+`client.query_map(...)`, `client.constant(bt.constants...)`,
+`client.runtime(bt.runtime_api...)` — which cover the entire runtime
 surface, replacing `query_subtensor`, `query_module`, `query_map`,
 `query_map_subtensor`, `query_constant`, `query_runtime_api`, and
 `state_call`.
@@ -284,7 +282,7 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | `get_timestamp(block)` | `await client.timestamp(block)` |
 | `wait_for_block(block)` | `await client.wait_for_block(block)` (plus `wait_for_timestamp`, `wait_for_epoch`) |
 | `tx_rate_limit()` / `is_fast_blocks()` | `client.chain.tx_rate_limit()` / `client.is_fast_blocks()` |
-| `last_drand_round()` | `sub.timelock.current_round()` |
+| `last_drand_round()` | `bt.timelock.current_round()` |
 | `get_proxies_for_real_account(ss58)` | `client.balances.proxies(coldkey_ss58=...)` |
 | `get_coldkey_swap_announcement(ss58)` | `client.balances.coldkey_swap_announcement(coldkey_ss58=...)` |
 | `get_crowdloans()` / `get_crowdloan_by_id` / `get_crowdloan_contributions` | `client.leasing.crowdloans()` / `crowdloan(...)` / `crowdloan_contributors(...)` |
@@ -329,7 +327,7 @@ field on the record. If you need the undecoded wire record, call the runtime
 API directly:
 
 ```python
-await client.runtime(sub.runtime_api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
+await client.runtime(bt.runtime_api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
 ```
 
 ## Transactions
@@ -346,50 +344,50 @@ a limit price).
 
 | v10 method | v11 intent |
 | --- | --- |
-| `transfer(wallet, destination_ss58, amount)` | `sub.Transfer(dest_ss58=..., amount_tao=...)` |
-| `transfer(..., transfer_all=True)` | `sub.TransferAll(dest_ss58=...)` |
-| `add_stake(wallet, netuid, hotkey_ss58, amount)` | `sub.AddStake(hotkey_ss58=..., netuid=..., amount_tao=...)` |
-| `add_stake(..., safe_staking=True, rate_tolerance=...)` | `sub.AddStakeLimit(..., limit_price_rao=..., allow_partial=...)` |
-| `unstake(wallet, netuid, hotkey_ss58, amount)` | `sub.RemoveStake(hotkey_ss58=..., netuid=..., amount_alpha=...)` (accepts `"all"`) |
-| `unstake(..., safe_unstaking=True)` | `sub.RemoveStakeLimit(...)` |
-| `unstake_all(wallet, netuid, hotkey_ss58)` | `sub.UnstakeAll(hotkey_ss58=...)` / `sub.UnstakeAllAlpha(...)` |
-| `add_stake_multiple` / `unstake_multiple` | `sub.Batch(intents=[...])` |
-| `move_stake(...)` | `sub.MoveStake(origin_hotkey_ss58, origin_netuid, dest_hotkey_ss58, dest_netuid, amount_alpha)` |
-| `swap_stake(...)` | `sub.SwapStake(hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
-| `transfer_stake(...)` | `sub.TransferStake(dest_coldkey_ss58, hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
-| `set_auto_stake(...)` | `sub.SetAutoStake(netuid=..., hotkey_ss58=...)` |
-| `lock_stake` / `move_lock` / `set_perpetual_lock` | `sub.LockStake` / `sub.MoveLock` / `sub.SetPerpetualLock` |
-| `burned_register(wallet, netuid)` / `register(...)` | `sub.BurnedRegister(netuid=..., hotkey_ss58=None)` |
-| `register_subnet(wallet)` | `sub.RegisterSubnet()` |
-| `root_register(wallet)` | `sub.RootRegister()` |
-| `start_call(wallet, netuid)` | `sub.StartCall(netuid=...)` |
-| `serve_axon(netuid, axon: Axon)` | `sub.ServeAxon(netuid=..., ip=..., port=...)` — no `Axon` object; TLS via `sub.ServeAxonTls` |
-| `set_weights(wallet, netuid, uids, weights, mechid)` | `sub.SetWeights(netuid=..., weights={uid: w} or uids=[...], weights=[...], mechid=0)` |
-| `commit_weights` / `reveal_weights` | `sub.CommitWeights` / `sub.RevealWeights` (reveal only for legacy salt commits) |
-| `set_delegate_take(wallet, hotkey_ss58, take)` | `sub.SetTake(take=...)` — **unit change, see below** |
-| `set_children(wallet, netuid, hotkey_ss58, children)` | `sub.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
-| `set_subnet_identity(...)` | `sub.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
-| identity via extrinsics | `sub.SetIdentity(name=..., url=..., ...)` |
-| `claim_root(wallet, netuids)` | `sub.ClaimRoot(subnets=[...])` |
-| `set_root_claim_type(wallet, type)` | `sub.SetRootClaimType(claim_type="Swap"/"Keep"/"KeepSubnets")` |
-| `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`sub.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
+| `transfer(wallet, destination_ss58, amount)` | `bt.Transfer(dest_ss58=..., amount_tao=...)` |
+| `transfer(..., transfer_all=True)` | `bt.TransferAll(dest_ss58=...)` |
+| `add_stake(wallet, netuid, hotkey_ss58, amount)` | `bt.AddStake(hotkey_ss58=..., netuid=..., amount_tao=...)` |
+| `add_stake(..., safe_staking=True, rate_tolerance=...)` | `bt.AddStakeLimit(..., limit_price_rao=..., allow_partial=...)` |
+| `unstake(wallet, netuid, hotkey_ss58, amount)` | `bt.RemoveStake(hotkey_ss58=..., netuid=..., amount_alpha=...)` (accepts `"all"`) |
+| `unstake(..., safe_unstaking=True)` | `bt.RemoveStakeLimit(...)` |
+| `unstake_all(wallet, netuid, hotkey_ss58)` | `bt.UnstakeAll(hotkey_ss58=...)` / `bt.UnstakeAllAlpha(...)` |
+| `add_stake_multiple` / `unstake_multiple` | `bt.Batch(intents=[...])` |
+| `move_stake(...)` | `bt.MoveStake(origin_hotkey_ss58, origin_netuid, dest_hotkey_ss58, dest_netuid, amount_alpha)` |
+| `swap_stake(...)` | `bt.SwapStake(hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
+| `transfer_stake(...)` | `bt.TransferStake(dest_coldkey_ss58, hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
+| `set_auto_stake(...)` | `bt.SetAutoStake(netuid=..., hotkey_ss58=...)` |
+| `lock_stake` / `move_lock` / `set_perpetual_lock` | `bt.LockStake` / `bt.MoveLock` / `bt.SetPerpetualLock` |
+| `burned_register(wallet, netuid)` / `register(...)` | `bt.BurnedRegister(netuid=..., hotkey_ss58=None)` |
+| `register_subnet(wallet)` | `bt.RegisterSubnet()` |
+| `root_register(wallet)` | `bt.RootRegister()` |
+| `start_call(wallet, netuid)` | `bt.StartCall(netuid=...)` |
+| `serve_axon(netuid, axon: Axon)` | `bt.ServeAxon(netuid=..., ip=..., port=...)` — no `Axon` object; TLS via `bt.ServeAxonTls` |
+| `set_weights(wallet, netuid, uids, weights, mechid)` | `bt.SetWeights(netuid=..., weights={uid: w} or uids=[...], weights=[...], mechid=0)` |
+| `commit_weights` / `reveal_weights` | `bt.CommitWeights` / `bt.RevealWeights` (reveal only for legacy salt commits) |
+| `set_delegate_take(wallet, hotkey_ss58, take)` | `bt.SetTake(take=...)` — **unit change, see below** |
+| `set_children(wallet, netuid, hotkey_ss58, children)` | `bt.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
+| `set_subnet_identity(...)` | `bt.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
+| identity via extrinsics | `bt.SetIdentity(name=..., url=..., ...)` |
+| `claim_root(wallet, netuids)` | `bt.ClaimRoot(subnets=[...])` |
+| `set_root_claim_type(wallet, type)` | `bt.SetRootClaimType(claim_type="Swap"/"Keep"/"KeepSubnets")` |
+| `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`bt.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
 | `proxy(wallet, real_ss58, type, call)` | `client.execute(intent, wallet, proxy_for=real_ss58)` |
 | `announce_coldkey_swap` / `swap_coldkey_announced` / `dispute_coldkey_swap` / `clear_coldkey_swap_announcement` | same-name intents |
-| crowdloan methods | same-name intents (`sub.CreateCrowdloan`, `sub.ContributeCrowdloan`, ...) |
-| `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(sub.calls.Commitments.set_commitment(...), wallet)` |
-| hyperparameters (was CLI-only `sudo set`) | `sub.SetHyperparameter(netuid=..., name=..., value=...)` |
+| crowdloan methods | same-name intents (`bt.CreateCrowdloan`, `bt.ContributeCrowdloan`, ...) |
+| `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(bt.calls.Commitments.set_commitment(...), wallet)` |
+| hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` |
 | `add_liquidity` / `modify_liquidity` / `remove_liquidity` | removed (feature retired on chain) |
 | `mev_submit_encrypted(wallet, call)` | `client.submit_shielded(intent, wallet)`, or the default shielding on stake intents |
-| `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(sub.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |
+| `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(bt.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |
 | `bittensor.core.extrinsics.*` functions | gone — intents or `submit_call` |
 
 Dynamic dispatch (the old pattern of calling methods by name) becomes
-`sub.intents.build(op, args_dict)` or
+`bt.intents.build(op, args_dict)` or
 `client.execute_tool(op, args_dict, wallet)` — see [For agents](/docs/agents).
 
 New in v11, worth adopting during migration: `client.plan(intent, wallet)`
 previews fee, effects, and warnings without submitting, and a
-`sub.Policy(max_spend_tao=..., allowed_netuids=[...])` on the client
+`bt.Policy(max_spend_tao=..., allowed_netuids=[...])` on the client
 hard-bounds what any execution may do.
 
 ## Weights, children, and take
@@ -397,7 +395,7 @@ hard-bounds what any execution may do.
 Three call families changed **units**, not just names:
 
 - **Weights** are easier: pass floats (any scale — only proportions matter)
-  or a `{uid: weight}` dict to `sub.SetWeights`; clipping, normalization, and
+  or a `{uid: weight}` dict to `bt.SetWeights`; clipping, normalization, and
   u16 quantization happen internally
   (`bittensor.intents.normalize` is the canonical implementation).
   `bittensor.utils.weight_utils` (`process_weights_for_netuid`,
@@ -410,8 +408,8 @@ Three call families changed **units**, not just names:
 - **Take** still accepts the float 0–1 form (`take=0.18`); a plain integer
   is the raw u16 proportion (`take=11796`), following the hyperparameter
   value rules (a decimal point marks the human form). `set_delegate_take`'s
-  auto-direction behavior is preserved by `sub.SetTake`; `sub.IncreaseTake` /
-  `sub.DecreaseTake` pin the direction.
+  auto-direction behavior is preserved by `bt.SetTake`; `bt.IncreaseTake` /
+  `bt.DecreaseTake` pin the direction.
 - **Children proportions** likewise accept floats 0–1
   (`children=[[0.5, "5F...child"]]`); a plain integer is the raw u64 share
   of `u64::MAX`.
@@ -422,7 +420,7 @@ Three call families changed **units**, not just names:
 v11 ([Money](/docs/concepts/money)):
 
 - Every `Balance` carries a `netuid` (0 = TAO). Arithmetic or comparison
-  across units raises `sub.UnitMismatchError` (was
+  across units raises `bt.UnitMismatchError` (was
   `BalanceUnitMismatchError`); comparing with a bare `float` raises
   `TypeError`.
 - `.tao` on an alpha balance **raises** instead of returning a number. Use
@@ -430,7 +428,7 @@ v11 ([Money](/docs/concepts/money)):
   `stake-value-for-coldkey` read to value alpha in TAO.
 - `Balance.from_tao(amount)` no longer takes a netuid;
   `Balance.from_alpha(amount, netuid=...)` is the alpha constructor.
-  Shorthands: `sub.tao(1.5)`, `sub.alpha(2.5, 42)`, `sub.rao(1_500_000_000)`.
+  Shorthands: `bt.tao(1.5)`, `bt.alpha(2.5, 42)`, `bt.rao(1_500_000_000)`.
 - Intent amount fields are unit-named (`amount_tao`, `amount_alpha`,
   `limit_price_rao`) and accept `int | float | str | Decimal | Balance` —
   the strict "must be a Balance object" rule from v10 is relaxed because the
@@ -452,7 +450,7 @@ wallet.create_new_coldkey(...), wallet.regenerate_coldkey(...)
 Differences: `bt.Wallet(config=...)` and `Wallet.add_args` are gone (pass
 name/hotkey/path directly); `bt.Keypair` / `bt.Keyfile` are no longer
 top-level exports (`bittensor.keyfiles.Keyfile` exists; keypairs come from
-the wallet). Convenience helpers live in `sub.wallets`
+the wallet). Convenience helpers live in `bt.wallets`
 (`create`, `regen_coldkey`, `list_wallets`, `sign_message`,
 `verify_message`, ...). Non-interactive unlock: `BT_WALLET_PASSWORD` or
 `BT_WALLET_PASSWORD_FILE` ([wallets](/docs/concepts/wallets#non-interactive-unlock)).
@@ -466,7 +464,7 @@ three layers, and each has a v11 answer:
 
 | Old stack | v11 |
 | --- | --- |
-| hotkey signing + verification (`dendrite.preprocess_synapse_for_request`, `axon.default_verify`) | `sub.http_auth.sign` / `sub.http_auth.verify` — [Signed requests](/docs/guides/signed-requests) |
+| hotkey signing + verification (`dendrite.preprocess_synapse_for_request`, `axon.default_verify`) | `bt.http_auth.sign` / `bt.http_auth.verify` — [Signed requests](/docs/guides/signed-requests) |
 | `Axon` (FastAPI server, lifecycle, middleware) | your own server; FastAPI recipe in the guide |
 | `Dendrite` (aiohttp client, fan-out) | your own client; httpx recipe in the guide |
 | `Synapse` subclasses (shared request schema) | your own request/response models — signing covers raw bytes, so any schema works |
@@ -475,8 +473,8 @@ three layers, and each has a v11 answer:
 | `StreamingSynapse` | SSE / websockets in your framework |
 | `Tensor` | serialize with your ML library's own tools |
 
-The chain-side operations remain — publish your endpoint with `sub.ServeAxon`
-(see [Mining](/docs/guides/mining)), set weights with `sub.SetWeights` (see
+The chain-side operations remain — publish your endpoint with `bt.ServeAxon`
+(see [Mining](/docs/guides/mining)), set weights with `bt.SetWeights` (see
 [Validating](/docs/guides/validating)). The identity layer —
 hotkey-signed HTTP requests, replacing the old `bt_header_*` scheme with a
 cleaner cross-language wire format (btauth/1) — ships in the SDK as pure
@@ -492,10 +490,10 @@ the legacy v10 header format (recipe in the guide).
 | `.extrinsic_fee` | `.fee` |
 | `.extrinsic_receipt` | `.block_hash`, `.extrinsic_id`, `.events`, `.explorer_url` |
 | `.data` (uid, reveal_round, ...) | `.data` (same idea) |
-| `.error` (a Python exception) | `.error` — `ChainError` with `.name`, `.code` (`sub.ErrorCode`), `.remediation`, plus `.description` / `.docs_url` when the name is classified |
+| `.error` (a Python exception) | `.error` — `ChainError` with `.name`, `.code` (`bt.ErrorCode`), `.remediation`, plus `.description` / `.docs_url` when the name is classified |
 | `raise_error=True` kwarg | `result.raise_for_failure()` |
 | typed exceptions (`StakeError`, `NotRegisteredError`, `TxRateLimitExceeded`, ...) | branch on `result.error.code`: `ErrorCode.INSUFFICIENT_BALANCE`, `RATE_LIMITED`, `NOT_REGISTERED`, `SUBNET_NOT_EXISTS`, ... ([Errors](/docs/errors)) |
-| `BalanceTypeError` / `BalanceUnitMismatchError` | `TypeError` / `sub.UnitMismatchError` |
+| `BalanceTypeError` / `BalanceUnitMismatchError` | `TypeError` / `bt.UnitMismatchError` |
 
 Prefer `.code` over matching `.name` or message strings. SubtensorModule renamed
 `InsufficientBalance` → `InsufficientTaoBalance` (same error index) and added
@@ -508,8 +506,8 @@ may still emit `InsufficientBalance`. `btcli explain <Name>` and
 result = await client.execute(intent, wallet)
 if not result.success:
     match result.error.code:
-        case sub.ErrorCode.RATE_LIMITED: ...        # wait and retry
-        case sub.ErrorCode.INSUFFICIENT_BALANCE: ...
+        case bt.ErrorCode.RATE_LIMITED: ...        # wait and retry
+        case bt.ErrorCode.INSUFFICIENT_BALANCE: ...
         case _: log(result.error.remediation)
 ```
 
@@ -584,7 +582,7 @@ the upgrade. Full narrative:
   points: they charge a fee and return success without changing state. Use the
   AdminUtils calls to update these values. The live inactivity window is
   `activity_cutoff_factor` (per-mille of tempo); absolute `activity_cutoff` is
-  derived / legacy. Set via `sub.SetHyperparameter` /
+  derived / legacy. Set via `bt.SetHyperparameter` /
   `btcli sudo set --name activity_cutoff_factor|tempo`.
 - **Hyperparams read API.** Prefer `get_subnet_hyperparams_v3` (name→value);
   v1/v2 are deprecated. The SDK read already uses v3.
@@ -697,10 +695,11 @@ explains any error code.
    pinned `bittensor>=11` (the CLI is included). In live environments,
    uninstall the old packages *before* upgrading
    ([why](#upgrading-an-existing-environment)).
-2. Swap `bt.Subtensor` / `bt.AsyncSubtensor` for `sub.SyncClient` /
-   `sub.Client`; move `block=`-pinned reads onto `client.at(block)`.
+2. Keep `bt.Subtensor(...)` — the name survives, blocking as before (async
+   when awaited; `bt.AsyncSubtensor` is gone) — but every method on it
+   changed; move `block=`-pinned reads onto `sub.at(block)`.
 3. Rewrite reads using the tables above; anything unmapped goes through
-   `client.query(sub.storage...)`. Prefer hyperparams v3 for custom RPC
+   `client.query(bt.storage...)`. Prefer hyperparams v3 for custom RPC
    clients.
 4. Rewrite each transaction as an intent + `client.execute`; take values and
    child proportions keep working as 0–1 floats (plain integers mean the raw
@@ -720,7 +719,7 @@ explains any error code.
    (`--wallet.name` → `-w`, `--json-output` → `--json`,
    `--no-prompt` → `--yes`).
 9. If the script served an axon or queried miners with a dendrite, rebuild
-   that layer on your own HTTP stack with `sub.http_auth` for the hotkey
+   that layer on your own HTTP stack with `bt.http_auth` for the hotkey
    signing ([Signed requests](/docs/guides/signed-requests)); only its chain
    calls move to this SDK's client.
 10. Apply the [chain and runtime changes](#chain-and-runtime-changes): audit

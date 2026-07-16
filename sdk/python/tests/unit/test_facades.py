@@ -113,6 +113,6 @@ def test_sync_client_constructs_offline():
     client = SyncClient("finney")
     try:
         assert client.network == "finney"
-        assert client._connected is False
+        assert client._state["connected"] is False
     finally:
         client.close()

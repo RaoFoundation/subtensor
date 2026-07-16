@@ -11,9 +11,9 @@ creation: spawner, type, index, plus the block height and extrinsic index
 of the `create_pure_proxy` call. Irreversible — any funds left in the
 account become permanently inaccessible, so empty it first.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.kill_pure` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.kill_pure` |
 
 ## Parameters
 
@@ -43,21 +43,63 @@ btcli tx kill-pure-proxy \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.KillPureProxy(spawner_ss58="5F...")
+intent = bt.KillPureProxy(spawner_ss58="5F...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("kill_pure_proxy", {...}, wallet)
+result = sub.execute_tool("kill_pure_proxy", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L384`](/code/pallets/proxy/src/lib.rs#L384):
+
+```rust
+#[pallet::call_index(5)]
+#[pallet::weight(T::WeightInfo::kill_pure(T::MaxProxies::get()))]
+pub fn kill_pure(
+    origin: OriginFor<T>,
+    spawner: AccountIdLookupOf<T>,
+    proxy_type: T::ProxyType,
+    index: u16,
+    #[pallet::compact] height: BlockNumberFor<T>,
+    #[pallet::compact] ext_index: u32,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let spawner = T::Lookup::lookup(spawner)?;
+
+    let when = (height, ext_index);
+    let proxy = Self::pure_account(&spawner, &proxy_type, index, Some(when))?;
+    ensure!(proxy == who, Error::<T>::NoPermission);
+
+    let (_, deposit) = Proxies::<T>::take(&who);
+    T::Currency::unreserve(&spawner, deposit);
+
+    Self::deposit_event(Event::PureKilled {
+        pure: who,
+        spawner,
+        proxy_type,
+        disambiguation_index: index,
+    });
+
+    Ok(())
+}
+```
+
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L907).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

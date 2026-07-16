@@ -2,21 +2,23 @@
 
 Quick start:
 
+    import bittensor as bt
+
+    sub = bt.Subtensor()                 # defaults to finney; connects lazily
+    print(sub.balances.get("5F...coldkey"))
+
+No ``close()`` needed — the connection is cleaned up automatically. The same
+class is the async client when awaited:
+
     import asyncio
-    import bittensor as sub
+    import bittensor as bt
 
     async def main():
-        async with sub.Client("finney") as client:
+        async with bt.Subtensor() as client:      # or: client = await bt.Subtensor()
             bal = await client.balances.get("5F...coldkey")
             print(bal)
 
     asyncio.run(main())
-
-Synchronous:
-
-    client = sub.SyncClient("finney")
-    print(client.balances.get("5F...coldkey"))
-    client.close()
 
 Logging:
 
@@ -38,6 +40,7 @@ from . import evm, http_auth, intents, reads, timelock, wallets
 from ._generated import calls, constants, storage
 from ._generated import runtime_apis as runtime_api
 from ._substrate import RpcSubstrate, Substrate
+from ._subtensor import Subtensor, close_shared_clients, set_weights
 from ._transport.contract import SigningContext, UnsignedExtrinsic
 from .balance import Balance, UnitMismatchError, alpha, rao, tao
 from .client import BlockHeader, BlockInfo, Client, EpochEvent
@@ -107,6 +110,9 @@ _INTENT_EXPORTS = {cls.__name__: cls for cls in _INTENT_REGISTRY.values()}
 globals().update(_INTENT_EXPORTS)
 
 __all__ = [
+    "Subtensor",
+    "set_weights",
+    "close_shared_clients",
     "Client",
     "SyncClient",
     # The chain-access contract and its production (websocket RPC) backend.
@@ -213,11 +219,15 @@ _NO_NEURON_STACK = (
 )
 
 _REMOVED_V10_HINTS = {
-    "Subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
-    "subtensor": "use bittensor.SyncClient (blocking) or bittensor.Client (async)",
-    "AsyncSubtensor": "use `async with bittensor.Client(network) as client:`",
-    "async_subtensor": "use `async with bittensor.Client(network) as client:`",
-    "get_async_subtensor": "use `await bittensor.Client(network).connect()`",
+    # The lowercase v10 alias. The class is back (one class: blocking used
+    # directly, async when awaited) but only under its capitalized name.
+    "subtensor": "use bittensor.Subtensor (blocking directly, async when awaited)",
+    "AsyncSubtensor": (
+        "use `async with bittensor.Subtensor(network) as client:` "
+        "or `await bittensor.Subtensor(network)`"
+    ),
+    "async_subtensor": "use `async with bittensor.Subtensor(network) as client:`",
+    "get_async_subtensor": "use `await bittensor.Subtensor(network)`",
     "MockSubtensor": "removed — test against a local node instead",
     "axon": _NO_NEURON_STACK,
     "Axon": _NO_NEURON_STACK,

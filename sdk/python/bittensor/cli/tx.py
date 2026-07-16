@@ -155,6 +155,17 @@ def _placeholder(annotation: str) -> Optional[str]:
     return None
 
 
+def _list_note(annotation: str) -> Optional[str]:
+    """Input-shape cue for typed list options (e.g. ``list[int]`` netuids).
+
+    Bare ``list`` fields (pairs like set_children) document their own JSON
+    shape in the field help, so they carry no generic note.
+    """
+    if _base_annotation(annotation).startswith("list["):
+        return "Comma-separated values (e.g. 1,2) or a JSON list."
+    return None
+
+
 def _unit_help(field_name: str) -> Optional[str]:
     """Spell out the unit for money-typed intent fields (``*_tao``/``*_alpha``/``*_rao``)."""
     if field_name.endswith("_tao"):
@@ -167,6 +178,31 @@ def _unit_help(field_name: str) -> Optional[str]:
     if field_name.endswith("_rao"):
         return "Amount in rao (1 TAO = 1e9 rao)."
     return None
+
+
+def _privilege_note(intent_cls: type[Intent]) -> Optional[str]:
+    """The "Requires:" doc line for privileged intents (root / subnet owner)."""
+    if intent_cls.origin == "root":
+        return (
+            "Requires: the chain sudo key. The call is submitted wrapped in "
+            "Sudo.sudo; if root is a multisig, use the multisig flow "
+            "(btcli multisig) to dispatch the built call."
+        )
+    if intent_cls.origin == "subnet_owner":
+        return "Requires: the subnet's owner coldkey."
+    return None
+
+
+def _command_doc(intent_cls: type[Intent]) -> str:
+    """The intent's docstring plus generated privilege / verify footers, so the
+    required key and the post-submission check are visible on --help."""
+    parts = [intent_cls.describe()]
+    note = _privilege_note(intent_cls)
+    if note:
+        parts.append(note)
+    if intent_cls.verify:
+        parts.append(f"Verify afterwards: btcli query {intent_cls.verify.replace('_', '-')}")
+    return "\n\n".join(part for part in parts if part)
 
 
 def _make_command(intent_cls: type[Intent]):
@@ -267,7 +303,11 @@ def _make_command(intent_cls: type[Intent]):
         # The field's declared help (metadata["help"], shared with the JSON
         # schema) says what the parameter *means*; the suffix heuristics add
         # what shapes it *accepts* (ss58/name resolution, money units).
-        input_note = ss58_param_help(f.name) if f.name.endswith("_ss58") else _unit_help(f.name)
+        input_note = (
+            ss58_param_help(f.name)
+            if f.name.endswith("_ss58")
+            else _unit_help(f.name) or _list_note(str(f.type))
+        )
         declared = intent_cls.field_help(f.name)
         help_text = " ".join(part for part in (declared, input_note) if part) or None
         if allows_all:
@@ -347,7 +387,9 @@ def _make_command(intent_cls: type[Intent]):
     command.__annotations__ = annotations
     # Full docstring: typer shows the first line in command listings and the
     # whole text on the command's own --help, so implications aren't lost.
-    command.__doc__ = intent_cls.describe()
+    # Privileged intents also carry a generated "Requires:" footer, and intents
+    # with a paired verify read a "Verify afterwards:" one.
+    command.__doc__ = _command_doc(intent_cls)
     return command
 
 
@@ -363,12 +405,26 @@ def _pallet(intent_cls: type[Intent]) -> str:
     return intent_cls.wraps[0][0] if intent_cls.wraps else "Other"
 
 
+def _help_panel(intent_cls: type[Intent]) -> str:
+    """The --help panel an intent lists under: pallet for plain signed intents,
+    with the required privilege made explicit for the others (root intents get
+    their own panel; subnet-owner intents keep the pallet with a marker)."""
+    if intent_cls.origin == "root":
+        return "Root (chain sudo)"
+    if intent_cls.origin == "subnet_owner":
+        return f"{_pallet(intent_cls)} — subnet owner"
+    return _pallet(intent_cls)
+
+
 def build_tx_app() -> typer.Typer:
     """Assemble the `tx` group with one generated subcommand per registered intent,
-    grouped in --help by the pallet each intent dispatches to."""
+    grouped in --help by the pallet each intent dispatches to (privileged intents
+    are grouped by the origin the chain demands instead)."""
     app = typer.Typer(no_args_is_help=True, help="Submit transactions (generated from intents).")
-    for op, intent_cls in sorted(REGISTRY.items(), key=lambda item: (_pallet(item[1]), item[0])):
-        app.command(op.replace("_", "-"), rich_help_panel=_pallet(intent_cls))(
+    for op, intent_cls in sorted(
+        REGISTRY.items(), key=lambda item: (_help_panel(item[1]), item[0])
+    ):
+        app.command(op.replace("_", "-"), rich_help_panel=_help_panel(intent_cls))(
             _make_command(intent_cls)
         )
     return app

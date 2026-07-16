@@ -24,17 +24,19 @@ btcli query quote-stake --netuid <integer> --amount-tao <number> --json
 
 ## Python
 
-Typed namespace method (autocomplete, signature help):
+Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await client.prices.quote_stake(netuid=1, amount_tao=1.0)
+sub = bt.Subtensor()
+result = sub.prices.quote_stake(netuid=1, amount_tao=1.0)
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await client.read("quote_stake", netuid=1, amount_tao=1.0)
+result = sub.read("quote_stake", netuid=1, amount_tao=1.0)
 ```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`.

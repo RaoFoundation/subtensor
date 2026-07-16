@@ -37,6 +37,7 @@
     "max-weight-limit",
     "min-allowed-weights",
     "reveal-period",
+    "subnet-emission-enabled",
     "weights-rate-limit",
     "---Identity & commitments---",
     "commitment",

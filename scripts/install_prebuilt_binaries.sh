@@ -47,8 +47,12 @@ for RUNTIME in fast-runtime non-fast-runtime; do
 #  echo "::endgroup::"
 
   mkdir -p /build/target/${RUNTIME}/release/wbuild/node-subtensor-runtime
-  cp -v /build/build/ci_target/${RUNTIME}/${BUILD_TRIPLE}/release/node-subtensor \
-        /build/target/${RUNTIME}/release/node-subtensor
-  cp -v /build/build/ci_target/${RUNTIME}/${BUILD_TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
-        /build/target/${RUNTIME}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+  # GitHub artifact downloads do not preserve executable mode bits. Install
+  # with explicit modes so packaging is independent of artifact transport.
+  install -v -m 0755 \
+    /build/build/ci_target/${RUNTIME}/${BUILD_TRIPLE}/release/node-subtensor \
+    /build/target/${RUNTIME}/release/node-subtensor
+  install -v -m 0644 \
+    /build/build/ci_target/${RUNTIME}/${BUILD_TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
+    /build/target/${RUNTIME}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
 done

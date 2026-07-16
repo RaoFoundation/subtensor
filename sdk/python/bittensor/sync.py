@@ -13,7 +13,9 @@ offline — e.g. in tests, or with an injected fake ``substrate``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
+import weakref
 from typing import Any, Callable, Iterator, Optional
 
 from ._substrate import Substrate
@@ -24,6 +26,38 @@ from .settings import DEFAULT_NETWORK
 from .snapshot import Snapshot
 
 _NAMESPACES = tuple(NAMESPACES)
+
+
+def _teardown_sync(loop: "_Loop", client: Client, state: dict) -> None:
+    """One teardown path for explicit ``close()`` and the GC finalizer.
+
+    Always shuts the loop down, even when ``client.close()`` raises — otherwise
+    a failed substrate close would leave the background thread running with no
+    finalizer left to clean it up.
+    """
+    if loop.is_shutdown:
+        return
+    try:
+        # The cycle collector can run this on any thread — including the loop's
+        # own (it allocates constantly). Blocking on the loop from its own thread
+        # would deadlock; just stop the loop and let the daemon thread drop the
+        # socket with it.
+        if state.get("connected") and not loop.owns_current_thread:
+            with contextlib.suppress(Exception):
+                loop.call(client.close(), timeout=5)
+            state["connected"] = False
+    finally:
+        loop.shutdown()
+
+
+def _finalize_sync(loop: "_Loop", client: Client, state: dict) -> None:
+    """GC/exit fallback for a SyncClient that was never close()d.
+
+    Runs via ``weakref.finalize`` (so also at interpreter exit, before threads
+    die). Receives only the internals — never the SyncClient itself, which
+    would keep it alive forever.
+    """
+    _teardown_sync(loop, client, state)
 
 
 class _Loop:
@@ -41,18 +75,25 @@ class _Loop:
     def is_shutdown(self) -> bool:
         return self._shutdown
 
-    def call(self, coro) -> Any:
+    @property
+    def owns_current_thread(self) -> bool:
+        """Whether the caller is already ON the loop thread — where blocking on
+        ``call`` (or joining the thread) would deadlock."""
+        return threading.current_thread() is self._thread
+
+    def call(self, coro, timeout: Optional[float] = None) -> Any:
         if self._shutdown:
             # A stopped loop never runs the coroutine, so .result() would
             # hang forever; fail loudly instead.
             coro.close()
             raise RuntimeError("SyncClient is closed; its event loop has shut down")
-        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
 
     def shutdown(self) -> None:
         self._shutdown = True
         self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
+        if not self.owns_current_thread:
+            self._thread.join(timeout=5)
 
 
 class _SyncNamespace:
@@ -139,6 +180,22 @@ class SyncSnapshot:
 
 
 class SyncClient:
+    # Explicit so type checkers see the same namespace surface as ``Client``
+    # (a loop of setattr alone is invisible to them).
+    balances: _SyncNamespace
+    chain: _SyncNamespace
+    delegation: _SyncNamespace
+    epochs: _SyncNamespace
+    hyperparameters: _SyncNamespace
+    identity: _SyncNamespace
+    leasing: _SyncNamespace
+    locks: _SyncNamespace
+    neurons: _SyncNamespace
+    prices: _SyncNamespace
+    staking: _SyncNamespace
+    subnets: _SyncNamespace
+    weights: _SyncNamespace
+
     def __init__(
         self,
         network: str = DEFAULT_NETWORK,
@@ -149,7 +206,6 @@ class SyncClient:
         retry_forever: bool = False,
         substrate: Optional[Substrate] = None,
     ):
-        self._loop = _Loop()
         self._client = Client(
             network,
             policy=policy,
@@ -160,30 +216,79 @@ class SyncClient:
         )
         self.network = self._client.network
         self.endpoint = self._client.endpoint
-        self._connected = False
-        for ns in _NAMESPACES:
-            setattr(self, ns, _SyncNamespace(getattr(self._client, ns), self._call))
+        # Shared with the GC finalizer, which must not hold the instance itself.
+        self._state = {"connected": False}
+        # The loop thread is lazy: nothing is spawned until the first blocking
+        # call, so construction (and async use by the Subtensor subclass) stays
+        # completely cold.
+        self._loop_thread: Optional[_Loop] = None
+        self._finalizer: Optional[weakref.finalize] = None
+        # Keep in sync with namespaces.NAMESPACES / Client (explicit so type
+        # checkers see each attribute; a setattr loop is invisible to them).
+        self.balances = _SyncNamespace(self._client.balances, self._call)
+        self.chain = _SyncNamespace(self._client.chain, self._call)
+        self.delegation = _SyncNamespace(self._client.delegation, self._call)
+        self.epochs = _SyncNamespace(self._client.epochs, self._call)
+        self.hyperparameters = _SyncNamespace(self._client.hyperparameters, self._call)
+        self.identity = _SyncNamespace(self._client.identity, self._call)
+        self.leasing = _SyncNamespace(self._client.leasing, self._call)
+        self.locks = _SyncNamespace(self._client.locks, self._call)
+        self.neurons = _SyncNamespace(self._client.neurons, self._call)
+        self.prices = _SyncNamespace(self._client.prices, self._call)
+        self.staking = _SyncNamespace(self._client.staking, self._call)
+        self.subnets = _SyncNamespace(self._client.subnets, self._call)
+        self.weights = _SyncNamespace(self._client.weights, self._call)
 
     # Lifecycle ----------------------------------------------------------------
 
+    def _ensure_loop(self) -> _Loop:
+        """The private event loop, started on first blocking use (with the GC
+        finalizer that makes ``close()`` optional). Overridden by ``Subtensor``
+        to lock the instance into blocking mode."""
+        if self._loop_thread is None:
+            self._loop_thread = _Loop()
+            self._finalizer = weakref.finalize(
+                self, _finalize_sync, self._loop_thread, self._client, self._state
+            )
+        return self._loop_thread
+
+    @property
+    def _loop(self) -> _Loop:
+        return self._ensure_loop()
+
     def connect(self) -> "SyncClient":
         """Open the connection. Idempotent; also runs implicitly on first use."""
-        if not self._connected:
+        if not self._state["connected"]:
             self._loop.call(self._client.connect())
-            self._connected = True
+            self._state["connected"] = True
         return self
 
     def _call(self, coro) -> Any:
         """The facade's single choke point: connect on first use, then block on
         the coroutine in the background loop."""
-        self.connect()
-        return self._loop.call(coro)
+        try:
+            self.connect()
+            loop = self._loop
+        except BaseException:
+            coro.close()  # never ran; avoid the un-awaited coroutine warning
+            raise
+        return loop.call(coro)
 
     def close(self) -> None:
-        if self._connected:
-            self._loop.call(self._client.close())
-            self._connected = False
-        self._loop.shutdown()
+        """Deterministic teardown. Optional: garbage collection (or process
+        exit) triggers the same cleanup for clients that are never closed."""
+        loop = self._loop_thread
+        finalizer = self._finalizer
+        self._finalizer = None
+        try:
+            # Teardown first — never detach the finalizer before the loop is
+            # stopped, or a failed substrate close leaves a live thread with
+            # no cleanup path.
+            if loop is not None:
+                _teardown_sync(loop, self._client, self._state)
+        finally:
+            if finalizer is not None:
+                finalizer.detach()
 
     def __enter__(self) -> "SyncClient":
         return self.connect()

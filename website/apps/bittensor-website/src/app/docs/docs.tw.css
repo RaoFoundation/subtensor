@@ -10,6 +10,7 @@
 @import 'tailwindcss/utilities.css' source(none);
 
 @source './';
+@source '../code';
 @source '../../components';
 @source '../../lib';
 @source '../../../../../../docs';
@@ -117,6 +118,12 @@
 .bt-docs :focus-visible {
   outline: 1px solid var(--bt-fg);
   outline-offset: 2px;
+}
+
+/* The sidebar search input signals focus with its caret and the underline on
+   its wrapper; the global ring would draw a box around it on every keystroke. */
+.bt-docs .bt-search-input:focus-visible {
+  outline: none;
 }
 
 .bt-docs ::selection {

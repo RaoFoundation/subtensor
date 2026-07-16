@@ -257,7 +257,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",
-        "sudo_set_subnet_emission_enabled",
         "sudo_set_subnet_limit",
         "sudo_set_subnet_moving_alpha",
         "sudo_set_subnet_owner_cut",
@@ -294,6 +293,7 @@ RAW_ONLY: dict[str, set[str]] = {
 def check_coverage() -> int:
     from bittensor._generated import calls as generated_calls
     from bittensor.intents import REGISTRY
+    from bittensor.reads import REGISTRY as READS
 
     wrapped = {pair for cls in REGISTRY.values() for pair in cls.wraps}
     problems: list[str] = []
@@ -311,6 +311,16 @@ def check_coverage() -> int:
             problems.append(f"{pallet}: raw-only entries no longer on chain: {stale}")
         if both:
             problems.append(f"{pallet}: listed raw-only but also wrapped: {both}")
+
+    # Verify integrity: a declared verify must name a registered read, and a
+    # root-origin write with no paired verify read is a docs bug.
+    for op, intent_cls in sorted(REGISTRY.items()):
+        if intent_cls.verify is not None and intent_cls.verify not in READS:
+            problems.append(
+                f"{op}: verify names {intent_cls.verify!r}, which is not a registered read"
+            )
+        if intent_cls.origin == "root" and intent_cls.verify is None:
+            problems.append(f"{op}: origin is 'root' but no verify read is declared")
 
     if problems:
         for p in problems:

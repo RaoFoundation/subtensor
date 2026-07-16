@@ -340,6 +340,15 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "subnet.",
         short="subnet started (staking + emissions)",
     ),
+    "subnet_emission_enabled": Hyperparam(
+        "bool",
+        "Root-controlled pool-side TAO emission switch. False means the subnet "
+        "earns no TAO emission share — the pool-side alpha_in/tao_in/excess_tao "
+        "chain-buy paths are zeroed — even when subnet_is_active is true. Only "
+        "root (the chain sudo key) can flip it, via the "
+        "set_subnet_emission_enabled intent.",
+        short="root switch for TAO emission share",
+    ),
     "user_liquidity_enabled": Hyperparam(
         "bool",
         "Legacy swap-v3 flag for user-provided liquidity positions; always "
@@ -410,6 +419,7 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "burn_increase_mult": st.SubtensorModule.BurnIncreaseMult,
     "burn_half_life": st.SubtensorModule.BurnHalfLife,
     "yuma3_enabled": st.SubtensorModule.Yuma3On,
+    "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,
     "transfers_enabled": st.SubtensorModule.TransferToggle,
     "owner_cut_enabled": st.SubtensorModule.OwnerCutEnabled,

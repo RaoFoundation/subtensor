@@ -20,23 +20,23 @@ without custom encoders. Each intent knows its chain call, its signer
 [Transactions](/docs/tx), one page each.
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
+intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
 ```
 
 Or build one by op name from a plain dict — how agents and tools do it:
 
 ```python
-intent = sub.intents.build("add_stake", {"hotkey_ss58": "5F...", "netuid": 1, "amount_tao": 10})
+intent = bt.intents.build("add_stake", {"hotkey_ss58": "5F...", "netuid": 1, "amount_tao": 10})
 ```
 
 ## Plan: preview everything
 
 ```python
-async with sub.Client("finney") as client:
+async with bt.Subtensor() as client:
     plan = await client.plan(intent, wallet)
     plan.fee         # estimated fee (Balance)
     plan.effects     # ["stake 10 TAO to 5F... on subnet 1", ...]
@@ -66,13 +66,13 @@ A `Policy` bounds what any execution may do. Violations raise `PolicyError` at
 execute time and appear in every plan:
 
 ```python
-policy = sub.Policy(
+policy = bt.Policy(
     max_fee_tao=0.1,
     max_spend_tao=5.0,
     allowed_netuids=[1, 2],
     allow_raw_calls=False,   # default: raw submit_call is refused
 )
-async with sub.Client("finney", policy=policy) as client:
+async with bt.Subtensor("finney", policy=policy) as client:
     ...
 ```
 
@@ -87,7 +87,7 @@ Failures come back as data, not prose. The `error` on a failed
 [`ErrorCode`](/docs/errors) to branch on, and a remediation hint:
 
 ```python
-result = await client.execute(sub.BurnedRegister(netuid=999), wallet)
+result = await client.execute(bt.BurnedRegister(netuid=999), wallet)
 if not result.success:
     print(result.error.name)         # "SubnetNotExists"
     print(result.error.code)         # ErrorCode.SUBNET_NOT_EXISTS

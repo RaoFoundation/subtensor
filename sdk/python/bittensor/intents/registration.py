@@ -130,6 +130,7 @@ class StartCall(Intent):
 
     op = "start_call"
     signer = "coldkey"
+    origin = "subnet_owner"
     wraps = (("SubtensorModule", "start_call"),)
 
     netuid: int = field(metadata={"help": "Subnet to activate; the signer must be its owner."})

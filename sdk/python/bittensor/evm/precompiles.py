@@ -142,6 +142,12 @@ PRECOMPILES: dict[str, Precompile] = {
             "Validator voting power (stake EMA) per subnet: per-hotkey, totals, tracking state.",
         ),
         Precompile(
+            "balance",
+            2062,
+            "balance.json",
+            "Read native free TAO balance for any ss58 coldkey (getFreeBalance(bytes32) -> rao).",
+        ),
+        Precompile(
             "ed25519-verify",
             1026,
             "ed25519Verify.json",

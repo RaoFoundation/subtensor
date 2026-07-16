@@ -15,9 +15,9 @@ and per interval (three times `target_registrations_per_interval`);
 hitting either cap fails until the window passes. Use
 `burned_register` for ordinary subnets.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.root_register` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.root_register` |
 
 ## Parameters
 
@@ -41,21 +41,39 @@ btcli tx root-register -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.RootRegister()
+intent = bt.RootRegister()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("root_register", {...}, wallet)
+result = sub.execute_tool("root_register", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L819`](/code/pallets/subtensor/src/macros/dispatches.rs#L819):
+
+```rust
+#[pallet::call_index(62)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
+pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_root_register(origin, hotkey)
+}
+```
+
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

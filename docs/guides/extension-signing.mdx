@@ -120,14 +120,14 @@ The same signer is available to the SDK. An `ExtensionSigner` stands in for
 the wallet in `plan` and `execute`:
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.extension import connect_extension_signer, ensure_bridge
 
 url = await ensure_bridge()                    # starts the bridge, opens the browser flow
 signer = await connect_extension_signer(url)   # prompts for the account on the terminal
 
-async with sub.Client("finney") as client:
-    intent = sub.Transfer(dest_ss58="5F...", amount_tao=1.0)
+async with bt.Subtensor() as client:
+    intent = bt.Transfer(dest_ss58="5F...", amount_tao=1.0)
     result = await client.execute(intent, signer)   # extension popup asks to sign
 
 await signer.close()

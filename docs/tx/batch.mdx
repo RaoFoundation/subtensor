@@ -14,9 +14,9 @@ one signer — an extrinsic has a single signature — and batches cannot
 contain other batches. Spend limits and policy checks aggregate across
 every child, and the transaction plan lists each child's effects.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Utility | `Utility.batch_all` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Utility | `Utility.batch_all` |
 
 ## Parameters
 
@@ -42,21 +42,87 @@ btcli tx batch \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.Batch(intents=[...])
+intent = bt.Batch(intents=[...])
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("batch", {...}, wallet)
+result = sub.execute_tool("batch", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L314):
+
+```rust
+        #[pallet::call_index(2)]
+        #[pallet::weight({
+			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch_all(calls.len() as u32));
+			(dispatch_weight, DispatchClass::Normal, pays)
+		})]
+        pub fn batch_all(
+            origin: OriginFor<T>,
+            calls: Vec<<T as Config>::RuntimeCall>,
+        ) -> DispatchResultWithPostInfo {
+            // Do not allow the `None` origin.
+            if ensure_none(origin.clone()).is_ok() {
+                return Err(BadOrigin.into());
+            }
+
+            let is_root = ensure_root(origin.clone()).is_ok();
+            let calls_len = calls.len();
+            ensure!(
+                calls_len <= Self::batched_calls_limit() as usize,
+                Error::<T>::TooManyCalls
+            );
+
+            // Track the actual weight of each of the batch calls.
+            let mut weight = Weight::zero();
+            for (index, call) in calls.into_iter().enumerate() {
+                let info = call.get_dispatch_info();
+                // If origin is root, bypass any dispatch filter; root can call anything.
+                let result = if is_root {
+                    call.dispatch_bypass_filter(origin.clone())
+                } else {
+                    let mut filtered_origin = origin.clone();
+                    // Don't allow users to nest `batch_all` calls.
+                    filtered_origin.add_filter(
+                        move |c: &<T as frame_system::Config>::RuntimeCall| {
+                            let c = <T as Config>::RuntimeCall::from_ref(c);
+                            !matches!(c.is_sub_type(), Some(Call::batch_all { .. }))
+                        },
+                    );
+                    call.dispatch(filtered_origin)
+                };
+                // Add the weight of this call.
+                weight = weight.saturating_add(extract_actual_weight(&result, &info));
+                result.map_err(|mut err| {
+                    // Take the weight of this function itself into account.
+                    let base_weight = T::WeightInfo::batch_all(index.saturating_add(1) as u32);
+                    // Return the actual used weight + base_weight of this call.
+                    err.post_info = Some(base_weight.saturating_add(weight)).into();
+                    err
+                })?;
+                Self::deposit_event(Event::ItemCompleted);
+            }
+            Self::deposit_event(Event::BatchCompleted);
+            let base_weight = T::WeightInfo::batch_all(calls_len as u32);
+            Ok(Some(base_weight.saturating_add(weight)).into())
+        }
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

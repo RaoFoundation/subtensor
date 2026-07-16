@@ -10,9 +10,9 @@ deposits are returned. Careful if this account spawned pure proxies — they
 are controlled *through* delegations, so removing everything can strand them
 permanently (there is no key to recover a pure proxy with).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.remove_proxies` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.remove_proxies` |
 
 ## Parameters
 
@@ -34,21 +34,41 @@ btcli tx remove-proxies -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.RemoveProxies()
+intent = bt.RemoveProxies()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("remove_proxies", {...}, wallet)
+result = sub.execute_tool("remove_proxies", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.remove_proxies` — [`pallets/proxy/src/lib.rs#L306`](/code/pallets/proxy/src/lib.rs#L306):
+
+```rust
+#[pallet::call_index(3)]
+#[pallet::weight(T::WeightInfo::remove_proxies(T::MaxProxies::get()))]
+pub fn remove_proxies(origin: OriginFor<T>) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    Self::remove_all_proxy_delegates(&who);
+    Ok(())
+}
+```
+
+Delegates to [`remove_all_proxy_delegates`](/code/pallets/proxy/src/lib.rs#L1143).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

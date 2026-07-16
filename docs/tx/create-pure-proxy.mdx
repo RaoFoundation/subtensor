@@ -13,9 +13,9 @@ creation block and extrinsic index (shown in the result): `kill_pure_proxy`
 needs them to close the account later. Losing the spawner key means losing
 the pure proxy and anything it holds.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Proxy | `Proxy.create_pure` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.create_pure` |
 
 ## Parameters
 
@@ -41,21 +41,69 @@ btcli tx create-pure-proxy -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.CreatePureProxy()
+intent = bt.CreatePureProxy()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("create_pure_proxy", {...}, wallet)
+result = sub.execute_tool("create_pure_proxy", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L332`](/code/pallets/proxy/src/lib.rs#L332):
+
+```rust
+#[pallet::call_index(4)]
+#[pallet::weight(T::WeightInfo::create_pure(T::MaxProxies::get()))]
+pub fn create_pure(
+    origin: OriginFor<T>,
+    proxy_type: T::ProxyType,
+    delay: BlockNumberFor<T>,
+    index: u16,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+
+    let pure = Self::pure_account(&who, &proxy_type, index, None)?;
+    ensure!(!Proxies::<T>::contains_key(&pure), Error::<T>::Duplicate);
+
+    let proxy_def = ProxyDefinition {
+        delegate: who.clone(),
+        proxy_type: proxy_type.clone(),
+        delay,
+    };
+    let bounded_proxies: BoundedVec<_, T::MaxProxies> = vec![proxy_def]
+        .try_into()
+        .map_err(|_| Error::<T>::TooMany)?;
+
+    let deposit = T::ProxyDepositBase::get().saturating_add(T::ProxyDepositFactor::get());
+    T::Currency::reserve(&who, deposit)?;
+
+    Proxies::<T>::insert(&pure, (bounded_proxies, deposit));
+    Self::deposit_event(Event::PureCreated {
+        pure,
+        who,
+        proxy_type,
+        disambiguation_index: index,
+    });
+
+    Ok(())
+}
+```
+
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L907).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -339,6 +339,7 @@ index `2053` → `0x…0805`):
 | proxy | 2059 | `0x80b` | Proxy delegations. |
 | address-mapping | 2060 | `0x80c` | On-chain h160 → mirror bytes32. |
 | voting-power | 2061 | `0x80d` | Validator voting power (stake EMA) per subnet. |
+| balance | 2062 | `0x80e` | Free TAO balance for any ss58 coldkey. |
 | ed25519-verify | 1026 | `0x402` | Verify ed25519 (prove ss58 ownership). |
 | sr25519-verify | 1027 | `0x403` | Verify sr25519. |
 
@@ -358,7 +359,7 @@ Examples: [RaoFoundation/evm-bittensor](https://github.com/RaoFoundation/evm-bit
 The same layer lives in `bittensor.evm` (included in the base install):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.evm import h160_to_ss58, association_proof
 from bittensor.evm.keys import create_evm_key, unlock_evm_key
 from bittensor.evm.precompiles import encode_call, get_precompile

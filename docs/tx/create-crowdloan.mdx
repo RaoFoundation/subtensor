@@ -17,9 +17,9 @@ returns contributions with `refund_crowdloan` (contributors may also
 `withdraw_crowdloan` themselves) and then `dissolve_crowdloan` to
 recover the deposit.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.create` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.create` |
 
 ## Parameters
 
@@ -56,21 +56,127 @@ btcli tx create-crowdloan \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.CreateCrowdloan(deposit_tao=1.0, min_contribution_tao=1.0, cap_tao=1.0, end=0)
+intent = bt.CreateCrowdloan(deposit_tao=1.0, min_contribution_tao=1.0, cap_tao=1.0, end=0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("create_crowdloan", {...}, wallet)
+result = sub.execute_tool("create_crowdloan", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.create` — [`pallets/crowdloan/src/lib.rs#L341`](/code/pallets/crowdloan/src/lib.rs#L341):
+
+```rust
+        #[pallet::call_index(0)]
+        #[pallet::weight({
+			let di = call.as_ref().map(|c| c.get_dispatch_info());
+			let inner_call_weight = match di {
+				Some(di) => di.call_weight,
+				None => Weight::zero(),
+			};
+			let base_weight = T::WeightInfo::create();
+			(base_weight.saturating_add(inner_call_weight), Pays::Yes)
+		})]
+        pub fn create(
+            origin: OriginFor<T>,
+            #[pallet::compact] deposit: BalanceOf<T>,
+            #[pallet::compact] min_contribution: BalanceOf<T>,
+            #[pallet::compact] cap: BalanceOf<T>,
+            #[pallet::compact] end: BlockNumberFor<T>,
+            call: Option<Box<<T as Config>::RuntimeCall>>,
+            target_address: Option<T::AccountId>,
+        ) -> DispatchResult {
+            let creator = ensure_signed(origin)?;
+            let now = frame_system::Pallet::<T>::block_number();
+
+            // Ensure the deposit is at least the minimum deposit, cap is greater than deposit
+            // and the minimum contribution is greater than the absolute minimum contribution.
+            ensure!(
+                deposit >= T::MinimumDeposit::get(),
+                Error::<T>::DepositTooLow
+            );
+            ensure!(cap > deposit, Error::<T>::CapTooLow);
+            ensure!(
+                min_contribution >= T::AbsoluteMinimumContribution::get(),
+                Error::<T>::MinimumContributionTooLow
+            );
+            ensure!(
+                call.is_some() != target_address.is_some(),
+                Error::<T>::InvalidFinalizationConfig
+            );
+
+            Self::ensure_valid_end(now, end)?;
+
+            // Ensure the creator has enough balance to pay the initial deposit
+            ensure!(
+                CurrencyOf::<T>::balance(&creator) >= deposit,
+                Error::<T>::InsufficientBalance
+            );
+
+            let crowdloan_id = NextCrowdloanId::<T>::get();
+            let next_crowdloan_id = crowdloan_id.checked_add(1).ok_or(Error::<T>::Overflow)?;
+            NextCrowdloanId::<T>::put(next_crowdloan_id);
+
+            // Derive the funds account and keep track of it
+            let funds_account = Self::funds_account(crowdloan_id);
+            frame_system::Pallet::<T>::inc_providers(&funds_account);
+
+            // If the call is provided, bound it and store it in the preimage storage
+            let call = if let Some(call) = call {
+                Some(T::Preimages::bound(*call)?)
+            } else {
+                None
+            };
+
+            let crowdloan = CrowdloanInfo {
+                creator: creator.clone(),
+                deposit,
+                min_contribution,
+                end,
+                cap,
+                funds_account,
+                raised: deposit,
+                target_address,
+                call,
+                finalized: false,
+                contributors_count: 1,
+            };
+            Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+            // Transfer the deposit to the funds account
+            CurrencyOf::<T>::transfer(
+                &creator,
+                &crowdloan.funds_account,
+                deposit,
+                Preservation::Expendable,
+            )?;
+
+            Contributions::<T>::insert(crowdloan_id, &creator, deposit);
+
+            Self::deposit_event(Event::<T>::Created {
+                crowdloan_id,
+                creator,
+                end,
+                cap,
+            });
+
+            Ok(())
+        }
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

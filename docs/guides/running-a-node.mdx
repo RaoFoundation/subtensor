@@ -172,9 +172,9 @@ btcli query block-info --block 0 --network ws://127.0.0.1:9944
 ```
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("ws://127.0.0.1:9944") as client:
+async with bt.Subtensor("ws://127.0.0.1:9944") as client:
     print(await client.block())
 ```
 

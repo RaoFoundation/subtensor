@@ -104,9 +104,9 @@ wrong member list, and funds sent there would belong to a different account.
 In Python, the same derivation:
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("test") as client:
+async with bt.Subtensor("test") as client:
     ms = await client.multisig(
         ["5Grw...alice", "5FHn...bob", "5DAA...carol"],
         threshold=2,
@@ -342,16 +342,16 @@ with the identical call; the approval that reaches the threshold executes it
 and returns the inner call's events:
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
-async with sub.Client("test") as client:
+async with bt.Subtensor("test") as client:
     ms = await client.multisig(
         ["5Grw...alice", "5FHn...bob", "5DAA...carol"],
         threshold=2,
     )
 
-    call = sub.calls.Balances.transfer_keep_alive(
+    call = bt.calls.Balances.transfer_keep_alive(
         dest="5DevPayee...",
         value=10 * 10**9,          # raw calls take rao (1 TAO = 1e9 rao)
     )
@@ -368,7 +368,7 @@ For the intent-shaped flow (human-unit arguments, `plan` preview, explicit
 timepoints), the `Multisig*` intents mirror the CLI exactly:
 
 ```python
-intent = sub.MultisigExecute(
+intent = bt.MultisigExecute(
     threshold=2,
     other_signatories=["5FHn...bob", "5DAA...carol"],
     call={"op": "transfer", "dest_ss58": "5DevPayee...", "amount_tao": 10},
@@ -378,7 +378,7 @@ plan = await client.plan(intent, wallet)      # fee, effects — nothing submitt
 result = await client.execute(intent, wallet)
 ```
 
-`sub.MultisigApprove`, `sub.MultisigCancel`, and `sub.MultisigThreshold1` are
+`bt.MultisigApprove`, `bt.MultisigCancel`, and `bt.MultisigThreshold1` are
 the other three, and the executing approval surfaces `multisig_call_hash` and
 `multisig_call_data` in `result.data`. Inspect pending state with the read:
 

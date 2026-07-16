@@ -13,9 +13,9 @@ not need to know the current value. Signed by the coldkey that owns the
 hotkey. If the move is upward it inherits the increase path's constraints
 (take maximum and rate limit on increases).
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.increase_take`, `SubtensorModule.decrease_take` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.increase_take`, `SubtensorModule.decrease_take` |
 
 ## Parameters
 
@@ -42,21 +42,59 @@ btcli tx set-take \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetTake(take="...")
+intent = bt.SetTake(take="...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_take", {...}, wallet)
+result = sub.execute_tool("set_take", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.increase_take` — [`pallets/subtensor/src/macros/dispatches.rs#L533`](/code/pallets/subtensor/src/macros/dispatches.rs#L533):
+
+```rust
+#[pallet::call_index(66)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::increase_take(), DispatchClass::Normal, Pays::Yes))]
+pub fn increase_take(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    take: PerU16,
+) -> DispatchResult {
+    Self::do_increase_take(origin, hotkey, take)
+}
+```
+
+Delegates to [`do_increase_take`](/code/pallets/subtensor/src/staking/increase_take.rs#L27).
+
+`SubtensorModule.decrease_take` — [`pallets/subtensor/src/macros/dispatches.rs#L500`](/code/pallets/subtensor/src/macros/dispatches.rs#L500):
+
+```rust
+#[pallet::call_index(65)]
+#[pallet::weight((<T as crate::pallet::Config>::WeightInfo::decrease_take(), DispatchClass::Normal, Pays::Yes))]
+pub fn decrease_take(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    take: PerU16,
+) -> DispatchResult {
+    Self::do_decrease_take(origin, hotkey, take)
+}
+```
+
+Delegates to [`do_decrease_take`](/code/pallets/subtensor/src/staking/decrease_take.rs#L25).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

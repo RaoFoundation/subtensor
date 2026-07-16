@@ -3,6 +3,7 @@ import { defineConfig, defineDocs, frontmatterSchema, metaSchema } from 'fumadoc
 // for the legacy react-markdown pages.
 import rehypeKatex from 'rehype-katex-v7';
 import remarkMath from 'remark-math-v6';
+import { btDark, btLight } from './src/lib/shiki-themes';
 
 // The schemas must come from fumadocs-mdx (bundled zod 4 types), not
 // fumadocs-core/source/schema: fumadocs-core's declarations resolve this
@@ -23,38 +24,6 @@ export const docs = defineDocs({
   },
 });
 
-// Two-tone monochrome code themes: ink for code, mute for the parts you skim
-// past (comments, strings, punctuation) — the last color on the site removed.
-function monochromeTheme(name: string, type: 'light' | 'dark', ink: string, mute: string) {
-  return {
-    name,
-    type,
-    colors: {
-      'editor.background': 'transparent',
-      'editor.foreground': ink,
-    },
-    tokenColors: [
-      { settings: { foreground: ink } },
-      {
-        scope: ['comment', 'punctuation.definition.comment'],
-        settings: { foreground: mute, fontStyle: 'italic' },
-      },
-      {
-        scope: ['string', 'string.quoted', 'constant.numeric', 'constant.language'],
-        settings: { foreground: mute },
-      },
-      {
-        scope: ['keyword', 'storage.type', 'storage.modifier', 'keyword.control'],
-        settings: { foreground: ink, fontStyle: 'bold' },
-      },
-      {
-        scope: ['punctuation', 'meta.brace'],
-        settings: { foreground: mute },
-      },
-    ],
-  };
-}
-
 export default defineConfig({
   mdxOptions: {
     remarkPlugins: [remarkMath],
@@ -63,8 +32,8 @@ export default defineConfig({
     rehypePlugins: (v) => [rehypeKatex, ...v],
     rehypeCodeOptions: {
       themes: {
-        light: monochromeTheme('bt-light', 'light', '#292929', '#8a8a8a'),
-        dark: monochromeTheme('bt-dark', 'dark', '#ebebeb', '#7d7d7d'),
+        light: btLight,
+        dark: btDark,
       },
     },
   },

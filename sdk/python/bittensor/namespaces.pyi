@@ -188,6 +188,9 @@ class Hyperparameters(_ReadNamespace):
     async def reveal_period(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Commit-reveal reveal window, in epochs, for a subnet."""
 
+    async def subnet_emission_enabled(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
+        """Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). When 0, the subnet earns no TAO emission share even while subnet_is_active is true; only root can flip it (see the set_subnet_emission_enabled intent)."""
+
     async def weights_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Blocks a hotkey must wait between weight sets on a subnet."""
 
@@ -467,7 +470,7 @@ class Subnets(_ReadNamespace):
     async def token_symbols(self, *, block: Optional[int] = None) -> dict[int, str]:
         """Chain-registered token symbol of every subnet, keyed by netuid.
 
-        `Client.connect` runs this automatically (through a disk cache) and
+        Connecting runs this automatically (through a disk cache) and
         installs the result as the connection's display symbols, so balances
         decoded by that client render with each subnet's real symbol.
         """

@@ -64,6 +64,7 @@ from .registration import (
     SwapHotkey,
 )
 from .registry import REGISTRY, build, list_tools, register
+from .root import SetSubnetEmissionEnabled
 from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus
 from .staking import (
     AddStake,
@@ -144,6 +145,7 @@ __all__ = [
     "SetMechanismCount",
     "SetPerpetualLock",
     "SetRootClaimType",
+    "SetSubnetEmissionEnabled",
     "SetSubnetIdentity",
     "SetTake",
     "SetWeights",

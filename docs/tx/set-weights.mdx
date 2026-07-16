@@ -20,9 +20,9 @@ owner is exempt), and `version_key` must not be older than the subnet's
 required version. Prefer this over `commit_weights`/`reveal_weights`
 unless you specifically need to force one path.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `hotkey` | SubtensorModule | `SubtensorModule.set_mechanism_weights`, `SubtensorModule.commit_timelocked_mechanism_weights` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_mechanism_weights`, `SubtensorModule.commit_timelocked_mechanism_weights` |
 
 ## Parameters
 
@@ -52,21 +52,80 @@ btcli tx set-weights \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetWeights(netuid=1)
+intent = bt.SetWeights(netuid=1)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_weights", {...}, wallet)
+result = sub.execute_tool("set_weights", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L132`](/code/pallets/subtensor/src/macros/dispatches.rs#L132):
+
+```rust
+#[pallet::call_index(119)]
+#[pallet::weight((Weight::from_parts(15_540_000_000, 0)
+.saturating_add(T::DbWeight::get().reads(4111))
+.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+pub fn set_mechanism_weights(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    mecid: MechId,
+    dests: Vec<u16>,
+    weights: Vec<u16>,
+    version_key: u64,
+) -> DispatchResult {
+    if Self::get_commit_reveal_weights_enabled(netuid) {
+        Err(Error::<T>::CommitRevealEnabled.into())
+    } else {
+        Self::do_set_mechanism_weights(origin, netuid, mecid, dests, weights, version_key)
+    }
+}
+```
+
+Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L607), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L916).
+
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L1869`](/code/pallets/subtensor/src/macros/dispatches.rs#L1869):
+
+```rust
+        #[pallet::call_index(118)]
+        #[pallet::weight((Weight::from_parts(84_020_000, 0)
+		.saturating_add(T::DbWeight::get().reads(9_u64))
+		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        pub fn commit_timelocked_mechanism_weights(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mecid: MechId,
+            commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+            reveal_round: u64,
+            commit_reveal_version: u16,
+        ) -> DispatchResult {
+            Self::do_commit_timelocked_mechanism_weights(
+                origin,
+                netuid,
+                mecid,
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            )
+        }
+```
+
+Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L263).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

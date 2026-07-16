@@ -15,9 +15,9 @@ the subnet owner or root) are silently skipped while the transaction
 still succeeds. Unclaimed dividends simply keep accruing — there is no
 deadline — but each call pays out only the subnets listed.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.claim_root` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.claim_root` |
 
 ## Parameters
 
@@ -43,21 +43,53 @@ btcli tx claim-root \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.ClaimRoot(subnets=[...])
+intent = bt.ClaimRoot(subnets=[...])
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("claim_root", {...}, wallet)
+result = sub.execute_tool("claim_root", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1910`](/code/pallets/subtensor/src/macros/dispatches.rs#L1910):
+
+```rust
+#[pallet::call_index(121)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
+pub fn claim_root(
+    origin: OriginFor<T>,
+    subnets: BTreeSet<NetUid>,
+) -> DispatchResultWithPostInfo {
+    let coldkey: T::AccountId = ensure_signed(origin)?;
+
+    ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
+    ensure!(
+        subnets.len() <= MAX_SUBNET_CLAIMS,
+        Error::<T>::InvalidSubnetNumber
+    );
+
+    Self::maybe_add_coldkey_index(&coldkey);
+
+    let weight = Self::do_root_claim(coldkey, Some(subnets))?;
+    Ok((Some(weight), Pays::Yes).into())
+}
+```
+
+Delegates to [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L389), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L355).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

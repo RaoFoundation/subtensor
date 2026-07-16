@@ -21,9 +21,9 @@ emission additionally stays off until root enables the subnet's
 emission-enabled flag. This is a major, expensive commitment — check the
 current cost before sending.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.register_network` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.register_network` |
 
 ## Parameters
 
@@ -47,21 +47,39 @@ btcli tx register-subnet -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.RegisterSubnet()
+intent = bt.RegisterSubnet()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("register_subnet", {...}, wallet)
+result = sub.execute_tool("register_subnet", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.register_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1016`](/code/pallets/subtensor/src/macros/dispatches.rs#L1016):
+
+```rust
+#[pallet::call_index(59)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network())]
+pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_register_network(origin, &hotkey, 1, None)
+}
+```
+
+Delegates to [`do_register_network`](/code/pallets/subtensor/src/subnets/subnet.rs#L142).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

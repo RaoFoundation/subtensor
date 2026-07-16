@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import functools
 import inspect
 import json
+import re
 import shutil
 import sys
 import tempfile
+import textwrap
 from dataclasses import MISSING, fields
 from pathlib import Path
 
@@ -177,11 +180,205 @@ def params_table(schema: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --- On-chain implementation ------------------------------------------------
+#
+# Each intent declares the chain call(s) it wraps; the pages link (and quote)
+# the actual dispatchable from the Rust source, served by the site's /code
+# viewer. Extraction is deterministic over the checkout, so --check also
+# catches docs whose line anchors drifted after a Rust change.
+
+REPO_ROOT = APP_DIR.parents[2]
+
+# Runtime pallet name (as used in Intent.wraps) -> in-repo crate directory.
+PALLET_DIRS = {
+    "SubtensorModule": "pallets/subtensor",
+    "AdminUtils": "pallets/admin-utils",
+    "Crowdloan": "pallets/crowdloan",
+    "Proxy": "pallets/proxy",
+    "Utility": "pallets/utility",
+}
+
+# Pallets wrapped by intents but implemented outside this repository's
+# pallets/ tree — the section says so instead of linking.
+UPSTREAM_PALLETS = {
+    "Balances": "Substrate's `pallet_balances`",
+    "Multisig": "Substrate's `pallet_multisig`",
+    "Sudo": "Substrate's `pallet_sudo`",
+    "EVM": "Frontier's `pallet_evm` (vendored under `vendor/frontier`)",
+}
+
+# Mirrors the /code corpus exclusions (src/lib/code.ts).
+_EXCLUDED_RUST = {"tests.rs", "mock.rs", "benchmarks.rs", "benchmarking.rs"}
+
+
+@functools.lru_cache(maxsize=None)
+def pallet_sources(pallet_dir: str) -> tuple[tuple[str, list[str]], ...]:
+    """(repo-relative path, lines) for each non-test source file of a crate."""
+    out = []
+    for path in sorted((REPO_ROOT / pallet_dir / "src").rglob("*.rs")):
+        if "tests" in path.parts or path.name in _EXCLUDED_RUST:
+            continue
+        rel = str(path.relative_to(REPO_ROOT))
+        out.append((rel, path.read_text().splitlines()))
+    return tuple(out)
+
+
+def find_dispatchable(pallet_dir: str, call: str) -> dict | None:
+    """Locate `pub fn <call>` guarded by #[pallet::call_index]; return its
+    file, 1-based line numbers, and the snippet from the attribute down to
+    the closing brace."""
+    fn_re = re.compile(rf"\s*pub fn {re.escape(call)}\s*\(")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if not fn_re.match(line):
+                continue
+            # The attribute block above the fn; require call_index so plain
+            # helpers with the same name never match. Intermediate lines may
+            # be multi-line attributes (e.g. a weight tuple), so only another
+            # function boundary invalidates the match.
+            start = None
+            for j in range(i - 1, max(0, i - 15) - 1, -1):
+                if "#[pallet::call_index" in lines[j]:
+                    start = j
+                    break
+                stripped = lines[j].strip()
+                if "pub fn " in stripped or stripped == "}":
+                    break
+            if start is None:
+                continue
+            depth = 0
+            opened = False
+            end = i
+            for k in range(i, len(lines)):
+                depth += lines[k].count("{") - lines[k].count("}")
+                opened = opened or "{" in lines[k]
+                if opened and depth <= 0:
+                    end = k
+                    break
+            snippet = textwrap.dedent("\n".join(lines[start : end + 1]))
+            return {
+                "path": rel,
+                "line": start + 1,
+                "fn_line": i + 1,
+                "body": lines[i : end + 1],
+                "snippet": snippet,
+            }
+    return None
+
+
+def find_fn(pallet_dir: str, name: str) -> tuple[str, int] | None:
+    """First `pub fn <name>` in the crate (any impl block), as (path, line)."""
+    fn_re = re.compile(rf"\s*pub(?:\(\w+\))? fn {re.escape(name)}\s*[(<]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if fn_re.match(line):
+                return rel, i + 1
+    return None
+
+
+def delegate_links(pallet_dir: str, dispatchable: dict, call: str) -> list[str]:
+    """Markdown links to the `Self::…` functions the dispatchable delegates
+    to, in call order — the pointer past the thin wrapper into the logic."""
+    links = []
+    seen = set()
+    for line in dispatchable["body"]:
+        for name in re.findall(r"Self::(\w+)\s*\(", line):
+            if name in seen or name == call:
+                continue
+            seen.add(name)
+            found = find_fn(pallet_dir, name)
+            if found:
+                path, lineno = found
+                links.append(f"[`{name}`](/code/{path}#L{lineno})")
+    return links[:3]
+
+
+def implementation_section(cls) -> str:
+    if not cls.wraps:
+        return ""
+    parts = ["## On-chain implementation\n"]
+    in_repo = [(p, c) for p, c in cls.wraps if p in PALLET_DIRS]
+
+    # An intent fanning out over many calls (set_hyperparameter) gets a link
+    # table; quoting dozens of near-identical dispatchables helps nobody.
+    if len(in_repo) > 3:
+        parts.append("| Chain call | Source |")
+        parts.append("| --- | --- |")
+        for pallet, call in in_repo:
+            found = find_dispatchable(PALLET_DIRS[pallet], call)
+            if found is None:
+                raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            parts.append(
+                f"| `{pallet}.{call}` | "
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}) |"
+            )
+        parts.append("")
+    else:
+        for pallet, call in cls.wraps:
+            if pallet in UPSTREAM_PALLETS:
+                parts.append(
+                    f"`{pallet}.{call}` is implemented by {UPSTREAM_PALLETS[pallet]}, "
+                    "outside this repository's pallets.\n"
+                )
+                continue
+            found = find_dispatchable(PALLET_DIRS[pallet], call)
+            if found is None:
+                raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            parts.append(
+                f"`{pallet}.{call}` — "
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}):\n"
+            )
+            parts.append(f"```rust\n{found['snippet']}\n```\n")
+            links = delegate_links(PALLET_DIRS[pallet], found, call)
+            if links:
+                parts.append(f"Delegates to {', '.join(links)}.\n")
+
+    parts.append(
+        "Every file is browsable under [/code](/code) exactly as built into "
+        "the runtime, or as plain text under `/code/raw/<path>` "
+        "(index: [`/code/index.json`](/code/index.json)).\n"
+    )
+    return "\n" + "\n".join(parts)
+
+
 # --- Intent (tx) pages -----------------------------------------------------
+
+# `Intent.origin` classvar -> the human phrasing the docs show for it.
+# "signed" is the extrinsic origin only — many calls still require a specific
+# hotkey, beneficiary, or other pallet role (see each intent's body).
+ORIGIN_LABELS = {
+    "signed": "signed account (pallet role may apply)",
+    "subnet_owner": "subnet owner",
+    "root": "root (chain sudo)",
+}
 
 
 def intent_pallet(cls) -> str:
     return cls.wraps[0][0] if cls.wraps else "Other"
+
+
+def verify_section(cls) -> str:
+    """A "Verify" section linking to the read that confirms the intent's
+    effect (``cls.verify``), when the intent declares one."""
+    if not cls.verify:
+        return ""
+    name = kebab(cls.verify)
+    spec = READS.get(cls.verify)
+    if spec is not None:
+        cli_parts, _ = read_cli_invocation(spec)
+        cmd = " ".join(cli_parts) + " --json"
+    else:
+        cmd = f"btcli query {name} --json"
+    return f"""
+## Verify
+
+After inclusion, confirm the effect with the
+[`{name}`](/docs/query/{name}) read:
+
+```bash
+{cmd}
+```
+"""
 
 
 def intent_page(op: str, cls) -> str:
@@ -205,10 +402,10 @@ def intent_page(op: str, cls) -> str:
     return f"""{frontmatter(kebab(op), summary)}
 {body}
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `{cls.signer}` | {intent_pallet(cls)} | {wraps} |
-
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `{cls.signer}` | {ORIGIN_LABELS[cls.origin]} | {intent_pallet(cls)} | {wraps} |
+{verify_section(cls)}
 ## Parameters
 
 {params_table(schema)}
@@ -228,25 +425,27 @@ submitting), then submit:
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.{class_name}({py_args})
+intent = bt.{class_name}({py_args})
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("{op}", {{...}}, wallet)
+result = sub.execute_tool("{op}", {{...}}, wallet)
 ```
-"""
+{implementation_section(cls)}"""
 
 
 def intent_index() -> str:
@@ -262,18 +461,19 @@ def intent_index() -> str:
         header,
         "Every mutation is an **intent**: preview it with `plan` / `--dry-run`, "
         "submit it with `execute`. Each CLI command below is `btcli tx <name>`; "
-        "each Python class is `sub.<ClassName>`. The machine-readable catalog of all "
+        "each Python class is `bt.<ClassName>`. The machine-readable catalog of all "
         "of these (with JSON schemas) is at [`/catalog/intents.json`](/catalog/intents.json) "
-        "or via `btcli tools` / `sub.intents.list_tools()`.\n",
+        "or via `btcli tools` / `bt.intents.list_tools()`.\n",
     ]
     for pallet in sorted(groups):
         parts.append(f"## {pallet}\n")
-        parts.append("| Operation | Signer | Summary |")
-        parts.append("| --- | --- | --- |")
+        parts.append("| Operation | Signer | Origin | Summary |")
+        parts.append("| --- | --- | --- | --- |")
         for op, cls in groups[pallet]:
             summary = cls.describe().split("\n")[0]
             parts.append(
-                f"| [`{kebab(op)}`](/docs/tx/{kebab(op)}) | {cls.signer} | {cell(summary)} |"
+                f"| [`{kebab(op)}`](/docs/tx/{kebab(op)}) | {cls.signer} | "
+                f"{ORIGIN_LABELS[cls.origin]} | {cell(summary)} |"
             )
         parts.append("")
     return "\n".join(parts)
@@ -321,24 +521,11 @@ def namespace_shadowed(spec) -> bool:
 
 
 def namespace_call(spec, py_kwargs: list[str]) -> str:
-    return f"client.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
+    return f"sub.{namespace_attr(spec)}.{spec.name}({', '.join(py_kwargs)})"
 
 
-def read_page(spec) -> str:
-    body = mdx_escape(body_after_summary(spec.doc))
-    if spec.params:
-        lines = [
-            "| Parameter | Type | Description |",
-            "| --- | --- | --- |",
-        ]
-        for name, jtype in spec.params.items():
-            lines.append(
-                f"| `{name}` | {jtype} | {cell(spec.param_docs.get(name, ''))} |"
-            )
-        table = "\n".join(lines) + "\n"
-    else:
-        table = "This read takes no parameters.\n"
-
+def read_cli_invocation(spec) -> tuple[list[str], list[str]]:
+    """The ``btcli query`` command parts and Python kwarg placeholders for a read."""
     cli_parts = [f"btcli query {kebab(spec.name)}"]
     py_kwargs = []
     for name, jtype in spec.params.items():
@@ -357,32 +544,53 @@ def read_page(spec) -> str:
             cli_parts.append(f"--{kebab(name)} <{jtype}>")
             py_value = _JSON_PY_PLACEHOLDER.get(jtype, "...")
         py_kwargs.append(f"{name}={py_value}")
+    return cli_parts, py_kwargs
 
-    read_call = f"client.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
+
+def read_page(spec) -> str:
+    body = mdx_escape(body_after_summary(spec.doc))
+    if spec.params:
+        lines = [
+            "| Parameter | Type | Description |",
+            "| --- | --- | --- |",
+        ]
+        for name, jtype in spec.params.items():
+            lines.append(
+                f"| `{name}` | {jtype} | {cell(spec.param_docs.get(name, ''))} |"
+            )
+        table = "\n".join(lines) + "\n"
+    else:
+        table = "This read takes no parameters.\n"
+
+    cli_parts, py_kwargs = read_cli_invocation(spec)
+
+    read_call = f"sub.read({', '.join([json.dumps(spec.name), *py_kwargs])})"
     if namespace_shadowed(spec):
         # A curated method with different semantics owns this name on the
         # namespace, so the page documents the name-dispatch form only.
         python_section = f"""```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await {read_call}
+sub = bt.Subtensor()
+result = {read_call}
 ```"""
     else:
-        python_section = f"""Typed namespace method (autocomplete, signature help):
+        python_section = f"""Namespace method (autocomplete, signature help):
 
 ```python
-import bittensor as sub
+import bittensor as bt
 
-async with sub.Client("finney") as client:
-    result = await {namespace_call(spec, py_kwargs)}
+sub = bt.Subtensor()
+result = {namespace_call(spec, py_kwargs)}
 ```
 
 Or dispatch by name, as an agent would:
 
 ```python
-result = await {read_call}
-```"""
+result = {read_call}
+```
+
+Async is the same surface awaited: `async with bt.Subtensor() as client:`."""
 
     return f"""{frontmatter(kebab(spec.name), spec.summary)}
 {body}
@@ -418,12 +626,13 @@ def read_index() -> str:
         "Reads are free, unsigned, and safe to call at any time. Each CLI command "
         "is `btcli query <name>` (add `--json` for machine-readable output). In "
         "Python every read is a typed method on its category's namespace — "
-        "`await client.subnets.subnet_registration_cost()`, "
-        "`await client.delegation.delegates()` — with autocomplete and signature "
-        "help; `await client.read(\"<name>\", ...)` dispatches the same read by "
+        "`sub.subnets.subnet_registration_cost()`, "
+        "`sub.delegation.delegates()` on `sub = bt.Subtensor()` (awaited on the "
+        "async client) — with autocomplete and signature "
+        "help; `sub.read(\"<name>\", ...)` dispatches the same read by "
         "name. The machine-readable catalog is at "
         "[`/catalog/reads.json`](/catalog/reads.json) or via "
-        "`sub.reads.list_reads()`.\n",
+        "`bt.reads.list_reads()`.\n",
     ]
     for category in sorted(groups):
         parts.append(f"## {category}\n")
@@ -704,7 +913,7 @@ def write_catalogs(catalog_root: Path) -> None:
         r["docs_url"] = f"/docs/query/{kebab(r['name'])}"
         spec = READS[r["name"]]
         if not namespace_shadowed(spec):
-            r["python"] = f"client.{namespace_attr(spec)}.{spec.name}(...)"
+            r["python"] = f"sub.{namespace_attr(spec)}.{spec.name}(...)"
     errors = {
         "codes": {
             code.value: {

@@ -38,7 +38,7 @@ btcli tx add-stake --hotkey 5F... --netuid 1 --amount-tao 100 -w my_coldkey
 ```
 
 ```python
-intent = sub.AddStake(hotkey_ss58="5F...", netuid=1, amount_tao=100)
+intent = bt.AddStake(hotkey_ss58="5F...", netuid=1, amount_tao=100)
 await client.execute(intent, wallet)
 ```
 
@@ -53,7 +53,7 @@ quote the entry:
 
 ```python
 quote = await client.prices.quote_unstake(netuid=1, amount_alpha=50)  # TAO out, fee, slippage
-await client.execute(sub.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha="all"), wallet)
+await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha="all"), wallet)
 ```
 
 `"all"` resolves to the full position at build time — only the remove-stake
@@ -67,7 +67,7 @@ the pool mechanics):
 
 ```python
 spot = await client.prices.alpha_price(netuid=1)
-intent = sub.AddStakeLimit(
+intent = bt.AddStakeLimit(
     hotkey_ss58="5F...", netuid=1, amount_tao=100,
     limit_price_rao=int(spot["price_rao"] * 1.02),  # accept at most 2% above spot
     allow_partial=False,
@@ -89,7 +89,7 @@ changes.
   position away).
 
 ```python
-intent = sub.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=1,
+intent = bt.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=1,
                        dest_hotkey_ss58="5G...", dest_netuid=1, amount_alpha=25)
 await client.execute(intent, wallet)
 ```

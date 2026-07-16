@@ -13,9 +13,9 @@ that are not already owned: if the hotkey already belongs to a coldkey the
 call succeeds but is silently a no-op — it does not error, and it does not
 take over the hotkey.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.try_associate_hotkey` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.try_associate_hotkey` |
 
 ## Parameters
 
@@ -39,21 +39,43 @@ btcli tx associate-hotkey -w my_coldkey
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.AssociateHotkey()
+intent = bt.AssociateHotkey()
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("associate_hotkey", {...}, wallet)
+result = sub.execute_tool("associate_hotkey", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.try_associate_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1535`](/code/pallets/subtensor/src/macros/dispatches.rs#L1535):
+
+```rust
+#[pallet::call_index(91)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey())]
+pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    let coldkey = ensure_signed(origin)?;
+
+    Self::do_try_associate_hotkey(&coldkey, &hotkey)?;
+
+    Ok(())
+}
+```
+
+Delegates to [`do_try_associate_hotkey`](/code/pallets/subtensor/src/staking/account.rs#L4).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

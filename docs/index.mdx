@@ -24,6 +24,7 @@ perform every user-facing operation on the chain.
 
 <Cards>
   <Card title="Quickstart" href="/docs/quickstart" description="Install, connect, first query, first transaction — in five minutes." />
+  <Card title="The SDK" href="/docs/sdk" description="The five core primitives — Subtensor, Wallet, Balance, intents, results — on one page." />
   <Card title="For agents" href="/docs/agents" description="How an agent discovers, previews, and safely executes any chain operation." />
   <Card title="Transactions" href="/docs/tx" description="Every state-changing operation, one page each, generated from the SDK." />
   <Card title="Queries" href="/docs/query" description="Every chain read, one page each, generated from the SDK." />
@@ -52,4 +53,4 @@ If you are an agent (or building one), you never need to scrape these pages:
 - [`/catalog/intents.json`](/catalog/intents.json) — every transaction with its JSON schema, signer, and summary.
 - [`/catalog/reads.json`](/catalog/reads.json) — every query with parameters and docs.
 - [`/catalog/errors.json`](/catalog/errors.json) — every error code with remediation, and the full chain-error classification.
-- The same catalogs, live from the tool itself: `btcli tools` on the CLI, `sub.intents.list_tools()` in Python.
+- The same catalogs, live from the tool itself: `btcli tools` on the CLI, `bt.intents.list_tools()` in Python.

@@ -44,3 +44,11 @@ _hyperparam(
     st.SubtensorModule.RevealPeriodEpochs,
     "Commit-reveal reveal window, in epochs, for a subnet.",
 )
+_hyperparam(
+    "subnet_emission_enabled",
+    st.SubtensorModule.SubnetEmissionEnabled,
+    "Root-controlled pool-side TAO emission flag for a subnet (1 = enabled). "
+    "When 0, the subnet earns no TAO emission share even while "
+    "subnet_is_active is true; only root can flip it (see the "
+    "set_subnet_emission_enabled intent).",
+)

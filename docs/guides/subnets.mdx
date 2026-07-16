@@ -83,11 +83,27 @@ btcli tx start-call --netuid 42 -w my_coldkey
 Check the schedule with
 [`subnet-start-schedule`](/docs/query/subnet-start-schedule).
 
-`start-call` enables the subnet's token and starts its epochs, but the
-subnet's share of network TAO emission is a separate root-controlled switch:
-new subnets register with emission disabled, and only root (via
-`sudo_set_subnet_emission_enabled`) turns it on. Until then the subnet earns
-no TAO emission share.
+### Turning a subnet on: active vs emission-enabled
+
+"On" is two independent flags, held by two different parties:
+
+- **Want the subnet live — staking, alpha trading, epochs?** That is the
+  owner's one-shot [`start-call`](/docs/tx/start-call) (btcli's `sudo start`),
+  tracked by
+  [`subnet_is_active`](/docs/hyperparameters/subnet-is-active).
+- **Want the subnet to receive its TAO emission share — pool injections and
+  chain buys?** That is root's switch,
+  [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled),
+  flipped with `btcli tx set-subnet-emission-enabled`. New subnets register
+  with it off, and owners cannot set it.
+
+A subnet can be fully active with emissions off: trading and epochs run, but
+no TAO flows into its pool until root flips the switch. Verify both flags:
+
+```bash
+btcli sudo get --netuid 42 --name subnet_is_active
+btcli query subnet-emission-enabled --netuid 42
+```
 
 ## The subnet economy
 

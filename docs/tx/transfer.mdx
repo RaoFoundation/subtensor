@@ -14,9 +14,9 @@ balance. With `keep_alive` (the default) the transfer refuses to drop
 the sender below the existential deposit; disable it only when
 intentionally emptying the account.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Balances | `Balances.transfer_keep_alive`, `Balances.transfer_allow_death`, `Balances.transfer_all` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Balances | `Balances.transfer_keep_alive`, `Balances.transfer_allow_death`, `Balances.transfer_all` |
 
 ## Parameters
 
@@ -46,21 +46,33 @@ btcli tx transfer \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.Transfer(dest_ss58="5F...", amount_tao=1.0)
+intent = bt.Transfer(dest_ss58="5F...", amount_tao=1.0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("transfer", {...}, wallet)
+result = sub.execute_tool("transfer", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Balances.transfer_keep_alive` is implemented by Substrate's `pallet_balances`, outside this repository's pallets.
+
+`Balances.transfer_allow_death` is implemented by Substrate's `pallet_balances`, outside this repository's pallets.
+
+`Balances.transfer_all` is implemented by Substrate's `pallet_balances`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

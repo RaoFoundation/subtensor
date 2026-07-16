@@ -345,15 +345,15 @@ pip install -U bittensor`}
           </p>
           <pre className={styles.code_block}>
             {`import asyncio
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 async def main():
     wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-    async with sub.Client("finney") as client:
+    async with bt.Subtensor() as client:
         balance = await client.balances.get("5F...coldkey")
 
-        intent = sub.Transfer(dest_ss58="5F...dest", amount_tao=1.5)
+        intent = bt.Transfer(dest_ss58="5F...dest", amount_tao=1.5)
         plan = await client.plan(intent, wallet)      # fee and effects; nothing submitted
         result = await client.execute(intent, wallet)
         if not result.success:
@@ -494,7 +494,7 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             The entire stack — SDK, CLI, documentation, and this website — is designed to be
             driven by AI agents as well as humans. Every operation is discoverable at runtime
             with a JSON schema (<strong>btcli tools</strong> on the CLI,{' '}
-            <strong>sub.intents.list_tools()</strong> in Python) and can be executed by name
+            <strong>bt.intents.list_tools()</strong> in Python) and can be executed by name
             from a plain dictionary, validated against that schema. Every mutation can be
             previewed before it spends anything, every failure returns a machine-readable code
             with a remediation hint, and a Policy can hard-bound what an agent&apos;s session

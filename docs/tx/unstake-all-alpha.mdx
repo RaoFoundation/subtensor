@@ -14,9 +14,9 @@ Use it to consolidate onto root while keeping funds staked; use
 at the current price with no limit protection, so large positions can
 incur slippage.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.unstake_all_alpha` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.unstake_all_alpha` |
 
 ## Parameters
 
@@ -42,21 +42,39 @@ btcli tx unstake-all-alpha \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.UnstakeAllAlpha(hotkey_ss58="5F...")
+intent = bt.UnstakeAllAlpha(hotkey_ss58="5F...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("unstake_all_alpha", {...}, wallet)
+result = sub.execute_tool("unstake_all_alpha", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1250`](/code/pallets/subtensor/src/macros/dispatches.rs#L1250):
+
+```rust
+#[pallet::call_index(84)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
+pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
+    Self::do_unstake_all_alpha(origin, hotkey)
+}
+```
+
+Delegates to [`do_unstake_all_alpha`](/code/pallets/subtensor/src/staking/remove_stake.rs#L188).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

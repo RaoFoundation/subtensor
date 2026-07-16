@@ -11,9 +11,9 @@ chain's minimum/maximum crowdloan duration (roughly 7 to 60 days)
 measured from now. Only the creator may change it, and only while the
 loan has not been finalized.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | Crowdloan | `Crowdloan.update_end` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.update_end` |
 
 ## Parameters
 
@@ -42,21 +42,59 @@ btcli tx update-crowdloan-end \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.UpdateCrowdloanEnd(crowdloan_id=0, new_end=0)
+intent = bt.UpdateCrowdloanEnd(crowdloan_id=0, new_end=0)
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("update_crowdloan_end", {...}, wallet)
+result = sub.execute_tool("update_crowdloan_end", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`Crowdloan.update_end` — [`pallets/crowdloan/src/lib.rs#L863`](/code/pallets/crowdloan/src/lib.rs#L863):
+
+```rust
+#[pallet::call_index(7)]
+#[pallet::weight(T::WeightInfo::update_end())]
+pub fn update_end(
+    origin: OriginFor<T>,
+    #[pallet::compact] crowdloan_id: CrowdloanId,
+    #[pallet::compact] new_end: BlockNumberFor<T>,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let now = frame_system::Pallet::<T>::block_number();
+
+    let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+    ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
+
+    // Only the creator can update the min contribution.
+    ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
+
+    Self::ensure_valid_end(now, new_end)?;
+
+    crowdloan.end = new_end;
+    Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
+
+    Self::deposit_event(Event::<T>::EndUpdated {
+        crowdloan_id,
+        new_end,
+    });
+    Ok(())
+}
+```
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

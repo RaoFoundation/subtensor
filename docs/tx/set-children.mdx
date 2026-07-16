@@ -24,9 +24,9 @@ bipartite); and the parent hotkey needs a minimum own stake
 effect after a chain-defined cooldown, except on subnets whose subtoken
 is not yet enabled, where they apply immediately.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.set_children` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_children` |
 
 ## Parameters
 
@@ -56,21 +56,47 @@ btcli tx set-children \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.SetChildren(netuid=1, children=[...])
+intent = bt.SetChildren(netuid=1, children=[...])
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("set_children", {...}, wallet)
+result = sub.execute_tool("set_children", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1093`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093):
+
+```rust
+        #[pallet::call_index(67)]
+        #[pallet::weight((Weight::from_parts(119_000_000, 0)
+		.saturating_add(T::DbWeight::get().reads(6))
+		.saturating_add(T::DbWeight::get().writes(31)), DispatchClass::Normal, Pays::Yes))]
+        pub fn set_children(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            netuid: NetUid,
+            children: Vec<(u64, T::AccountId)>,
+        ) -> DispatchResultWithPostInfo {
+            Self::do_schedule_children(origin, hotkey, netuid, children)?;
+            Ok(().into())
+        }
+```
+
+Delegates to [`do_schedule_children`](/code/pallets/subtensor/src/staking/set_children.rs#L475).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

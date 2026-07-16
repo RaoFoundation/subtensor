@@ -21,9 +21,9 @@ pending announcement can be cancelled with
 `clear_coldkey_swap_announcement`, and the legitimate holder can freeze
 an unauthorized one with `dispute_coldkey_swap`.
 
-| Signer | Pallet | Wraps |
-| --- | --- | --- |
-| `coldkey` | SubtensorModule | `SubtensorModule.announce_coldkey_swap` |
+| Signer | Origin | Pallet | Wraps |
+| --- | --- | --- | --- |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.announce_coldkey_swap` |
 
 ## Parameters
 
@@ -49,21 +49,63 @@ btcli tx announce-coldkey-swap \
 ## Python
 
 ```python
-import bittensor as sub
+import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = sub.AnnounceColdkeySwap(new_coldkey_ss58="5F...")
+intent = bt.AnnounceColdkeySwap(new_coldkey_ss58="5F...")
 
-async with sub.Client("finney") as client:
-    plan = await client.plan(intent, wallet)   # fee, effects, policy — no submission
-    result = await client.execute(intent, wallet)
-    if not result.success:
-        print(result.error.code, result.error.remediation)
+sub = bt.Subtensor()
+plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code, result.error.remediation)
 ```
 
-Or build it by op name, as an agent would:
+(`bt.Subtensor` is also the async client — `async with bt.Subtensor() as client:`
+— see [The client](/docs/concepts/client).) Or build the intent by op name, as
+an agent would:
 
 ```python
-await client.execute_tool("announce_coldkey_swap", {...}, wallet)
+result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 ```
+
+## On-chain implementation
+
+`SubtensorModule.announce_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2006`](/code/pallets/subtensor/src/macros/dispatches.rs#L2006):
+
+```rust
+#[pallet::call_index(125)]
+#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::announce_coldkey_swap())]
+pub fn announce_coldkey_swap(
+    origin: OriginFor<T>,
+    new_coldkey_hash: T::Hash,
+) -> DispatchResult {
+    let who = ensure_signed(origin)?;
+    let now = <frame_system::Pallet<T>>::block_number();
+
+    if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
+        let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
+        let min_when = when.saturating_add(reannouncement_delay);
+        ensure!(now >= min_when, Error::<T>::ColdkeySwapReannouncedTooEarly);
+    } else {
+        // Only charge the swap cost on the first announcement
+        let swap_cost = Self::get_key_swap_cost();
+        Self::charge_swap_cost(&who, swap_cost)?;
+    }
+
+    let delay = ColdkeySwapAnnouncementDelay::<T>::get();
+    let when = now.saturating_add(delay);
+    ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
+
+    Self::deposit_event(Event::ColdkeySwapAnnounced {
+        who,
+        new_coldkey_hash,
+    });
+    Ok(())
+}
+```
+
+Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L827), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L52).
+
+Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
