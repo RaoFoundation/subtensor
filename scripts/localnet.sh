@@ -62,6 +62,37 @@ SPEC_PATH="${SCRIPT_DIR}/specs/"
 FULL_PATH="$SPEC_PATH$CHAIN.json"
 PID_FILE="${LOCALNET_PID_FILE:-/tmp/subtensor-localnet.pids}"
 
+terminate_pids() {
+  local pids=("$@")
+  local any_running pid
+
+  [ "${#pids[@]}" -gt 0 ] || return 0
+
+  for pid in "${pids[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+
+  # Give node databases time to close cleanly before forcing termination.
+  for _ in {1..30}; do
+    any_running=0
+    for pid in "${pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        any_running=1
+        break
+      fi
+    done
+    [ "$any_running" -eq 1 ] || break
+    sleep 1
+  done
+
+  for pid in "${pids[@]}"; do
+    kill -KILL "$pid" 2>/dev/null || true
+    # Only children of this shell can be reaped; stale recorded PIDs simply
+    # make wait return non-zero, which is intentionally ignored.
+    wait "$pid" 2>/dev/null || true
+  done
+}
+
 stop_recorded_nodes() {
   [ -f "$PID_FILE" ] || return 0
 
@@ -75,7 +106,6 @@ stop_recorded_nodes() {
     # signal a reused PID when it is still one of our node processes.
     if kill -0 "$pid" 2>/dev/null \
       && ps -p "$pid" -o comm= 2>/dev/null | grep -q 'node-subtensor'; then
-      kill -TERM "$pid" 2>/dev/null || true
       recorded_pids+=("$pid")
     fi
   done <"$PID_FILE"
@@ -86,22 +116,8 @@ stop_recorded_nodes() {
   fi
 
   # Never purge a database while a node from the previous run still has it
-  # open. Give recorded nodes time to close, then force only those exact PIDs.
-  for _ in {1..30}; do
-    any_running=0
-    for pid in "${recorded_pids[@]}"; do
-      if kill -0 "$pid" 2>/dev/null; then
-        any_running=1
-        break
-      fi
-    done
-    [ "$any_running" -eq 1 ] || break
-    sleep 1
-  done
-  for pid in "${recorded_pids[@]}"; do
-    kill -KILL "$pid" 2>/dev/null || true
-  done
-
+  # open. Terminate only the validated PIDs before touching chain state.
+  terminate_pids "${recorded_pids[@]}"
   rm -f "$PID_FILE"
 }
 
@@ -167,27 +183,7 @@ if [ $BUILD_ONLY -eq 0 ]; then
     SHUTDOWN_STARTED=1
     trap - EXIT INT TERM
 
-    for pid in "${NODE_PIDS[@]}"; do
-      kill -TERM "$pid" 2>/dev/null || true
-    done
-
-    # Give the databases time to close cleanly before forcing termination.
-    for _ in {1..30}; do
-      any_running=0
-      for pid in "${NODE_PIDS[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-          any_running=1
-          break
-        fi
-      done
-      [ "$any_running" -eq 1 ] || break
-      sleep 1
-    done
-
-    for pid in "${NODE_PIDS[@]}"; do
-      kill -KILL "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
-    done
+    terminate_pids "${NODE_PIDS[@]}"
     rm -f "$PID_FILE"
   }
 
