@@ -486,13 +486,19 @@ def upgrade_sign(
         if signer_address in approvals:
             return None, sudo_layer
         others = uh.sorted_other_signatories(sudo_signatories, signer_address)
+        # Outer sudo max_weight must cover the finalizing call's real weight
+        # (~65B/21k for a 2MB setCode); FINALIZE_WEIGHT is only the *inner*
+        # as_multi argument and is too low here (MaxWeightTooLow).
+        max_weight = await uh.sudo_layer_max_weight(
+            client, finalizing, app_ctx.wallet().coldkeypub
+        )
         if sudo_layer is None:
             call = calls.Multisig.approve_as_multi(
                 threshold=sudo_threshold,
                 other_signatories=others,
                 maybe_timepoint=None,
                 call_hash=finalizing.call_hash,
-                max_weight=uh.FINALIZE_WEIGHT,
+                max_weight=max_weight,
             )
         elif len(approvals) < sudo_threshold - 1:
             call = calls.Multisig.approve_as_multi(
@@ -500,7 +506,7 @@ def upgrade_sign(
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
                 call_hash=finalizing.call_hash,
-                max_weight=uh.FINALIZE_WEIGHT,
+                max_weight=max_weight,
             )
         else:
             call = calls.Multisig.as_multi(
@@ -508,7 +514,7 @@ def upgrade_sign(
                 other_signatories=others,
                 maybe_timepoint=sudo_layer["timepoint"],
                 call=finalizing,
-                max_weight=uh.FINALIZE_WEIGHT,
+                max_weight=max_weight,
             )
         result = await client.submit_call(
             call, signing, signer="coldkey", wait_for_finalization=False

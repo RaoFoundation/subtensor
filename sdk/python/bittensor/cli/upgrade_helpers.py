@@ -41,9 +41,12 @@ SUDO_PROXY_TYPE = "SudoUncheckedSetCode"
 # Weight literals of the CI deployment pipeline (.github/scripts/deploy).
 # PROPOSAL_WEIGHT is an argument of the proposed call itself
 # (sudoUncheckedWeight) — changing it changes the call hash CI registered.
-# FINALIZE_WEIGHT is an argument of the finalizing as_multi call, whose hash
-# the sudo multisig operates on, so every triumvirate approval must repeat it
-# exactly. Both must stay in lockstep with propose-upgrade-multisig.js /
+# FINALIZE_WEIGHT is an argument of the *inner* finalizing as_multi (deployment
+# multisig → setCode). It is baked into the call the sudo multisig signs, so
+# every triumvirate approval must repeat it exactly. It is NOT the max_weight
+# of the outer sudo-layer as_multi — that must be estimated at sign time from
+# the finalizing call's real dispatch weight (a 2MB setCode blob exceeds these
+# numbers). Keep in lockstep with propose-upgrade-multisig.js /
 # approve-upgrade-multisig.js.
 PROPOSAL_WEIGHT = {"ref_time": 50_000_000_000, "proof_size": 0}
 FINALIZE_WEIGHT = {"ref_time": 60_000_000_000, "proof_size": 10_000}
@@ -443,6 +446,16 @@ async def compose_finalizing_call(
             max_weight=FINALIZE_WEIGHT,
         )
     )
+
+
+async def sudo_layer_max_weight(client, finalizing_call, keypair) -> dict[str, int]:
+    """``max_weight`` for the outer sudo Multisig approval / execution.
+
+    Must be ≥ the finalizing call's real dispatch weight (``payment_queryInfo``).
+    Distinct from ``FINALIZE_WEIGHT``, which is an *argument of* that call and
+    cannot change without invalidating the sudo-layer call hash.
+    """
+    return await client._substrate.estimate_weight(finalizing_call, keypair)
 
 
 def sorted_other_signatories(signatories: list[str], self_address: str) -> list[str]:
