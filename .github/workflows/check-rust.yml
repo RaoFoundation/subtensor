@@ -121,7 +121,9 @@ jobs:
   warnings:
     name: no cargo check warnings
     needs: [trusted-pr, changes]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    # Clippy already denies warnings across the workspace and all targets on
+    # PRs. Retain this narrower cargo-check policy gate on main and manual runs.
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
@@ -243,7 +245,9 @@ jobs:
   fix:
     name: cargo fix leaves no diff
     needs: [trusted-pr, changes]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+    # This is a mechanical cleanup policy, not test coverage. Keep it as a
+    # post-merge/manual guard without spending PR critical-path capacity.
+    if: github.event_name != 'pull_request'
     # Compile-bound, same reasoning as clippy.
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:

@@ -2,6 +2,8 @@ name: Typescript E2E Tests
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 concurrency:
   group: typescript-e2e-${{ github.ref }}
@@ -29,10 +31,23 @@ jobs:
     name: detect e2e-relevant changes
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       e2e: ${{ steps.filter.outputs.e2e }}
+      shield: ${{ steps.filter.outputs.shield }}
+      state_count: ${{ steps.filter.outputs.state_count }}
+      state_matrix: ${{ steps.filter.outputs.state_matrix }}
     steps:
+      # Only the small classifier is checked out on a GitHub-hosted runner.
+      # Fork PRs still cannot pass the self-hosted runner trust gate below.
+      - name: Check out E2E classifier
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          sparse-checkout: |
+            .github/scripts/classify-typescript-e2e-changes.sh
+          path: .trusted-e2e-filter
+
       # Plain gh-api file listing instead of a marketplace action: the org's
       # Actions allowlist rejects unlisted third-party actions (startup_failure).
       - name: Filter changed paths
@@ -40,18 +55,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
-          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          # SDK-only lockfile movement is covered by SDK checks; do not run
-          # zombienet unless chain/runtime or ts-tests inputs changed.
-          pattern='^(ts-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.toml|build\.rs|rust-toolchain\.toml)$|^\.github/(workflows/typescript-e2e\.yml|actions/(run-typescript-e2e|rust-setup|sccache-setup)/|scripts/sccache-(configure|report)\.sh$)'
-          if grep -qE "$pattern" <<< "$files"; then
-            echo "e2e=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "no e2e-relevant paths changed"
-            echo "e2e=false" >> "$GITHUB_OUTPUT"
+          classifier=.trusted-e2e-filter/.github/scripts/classify-typescript-e2e-changes.sh
+
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            "$classifier" --all "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename'); then
+            echo "changed-file lookup failed; running the full E2E matrix" >&2
+            "$classifier" --all "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          observed=$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [[ "$observed" != "$EXPECTED_CHANGED_FILES" ]]; then
+            echo "changed-file list incomplete ($observed/$EXPECTED_CHANGED_FILES); running the full E2E matrix" >&2
+            "$classifier" --all "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "$files" | "$classifier" "$GITHUB_OUTPUT"
 
   typescript-formatting:
     runs-on: ubuntu-latest
@@ -71,6 +98,9 @@ jobs:
 
       - name: Validate E2E configuration
         run: node ts-tests/scripts/validate-e2e-config.mjs
+
+      - name: Test E2E suite routing
+        run: .github/scripts/test-classify-typescript-e2e-changes.sh
 
       - name: Install e2e dependencies
         working-directory: ts-tests
@@ -131,25 +161,15 @@ jobs:
   # multi-node topology below. Two workers here plus three Shield workers peak
   # at five self-hosted runners while the E2E phase is active.
   run-e2e-tests:
-    needs: [trusted-pr, build]
+    needs: [trusted-pr, changes, build]
+    if: needs.changes.outputs.state_count != '0'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
       max-parallel: 2
-      matrix:
-        include:
-          - test: zombienet_evm
-            binary: fast
-          - test: zombienet_staking
-            binary: fast
-          - test: zombienet_coldkey_swap
-            binary: fast
-          - test: dev
-            binary: release
-          - test: zombienet_subnets
-            binary: fast
+      matrix: ${{ fromJSON(needs.changes.outputs.state_matrix) }}
 
     name: "typescript-e2e-${{ matrix.test }}"
 
@@ -167,7 +187,8 @@ jobs:
   # mortality, so preserve its six-node release topology and parallelize only
   # by running measured-time-balanced file groups on independent networks.
   run-shield-tests:
-    needs: [trusted-pr, build]
+    needs: [trusted-pr, changes, build]
+    if: needs.changes.outputs.shield == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     strategy:

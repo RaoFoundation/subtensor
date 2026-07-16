@@ -70,36 +70,6 @@ jobs:
           bash -n .github/scripts/benchmark-sccache-paired.sh
           bash -n .github/scripts/benchmark-artifact-cache.sh
 
-  prewarm-exact-runtime:
-    name: prewarm exact Rust keys
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.repo.fork == false
-    runs-on: [self-hosted, fireactions-turbo-8]
-    environment:
-      name: sccache-writer
-      deployment: false
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    env:
-      SKIP_WASM_BUILD: 1
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Configure protected direct-R2 writer
-        uses: ./.github/actions/rust-setup
-        with:
-          cache-key: exact-runtime-prewarm
-          sccache-credential-mode: writer
-          sccache-local-tier: disabled
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
-
-      - name: Populate exact keys and verify the second clean check hits R2
-        run: .github/scripts/prewarm-exact-runtime.sh
-
   benchmark-sccache-paired:
     if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
     runs-on: [self-hosted, fireactions-turbo-8]
