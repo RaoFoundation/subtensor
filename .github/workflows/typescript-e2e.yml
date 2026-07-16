@@ -158,7 +158,9 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           cache-key: e2e-${{ matrix.variant }}
-          fast-linker: "false"
+          # Native E2E builds can use the same mold configuration as Runtime
+          # and the scheduled compiler-cache warmer. Cross builds disable it.
+          fast-linker: "true"
           sccache-credential-mode: auto
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
