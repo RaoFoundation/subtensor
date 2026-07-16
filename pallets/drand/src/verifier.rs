@@ -93,6 +93,17 @@ impl Verifier for QuicknetVerifier {
 
         let g2 = G2AffineOpt::generator();
 
+        // The BLS pairing check only validates that `signature` is a valid
+        // signature for the round number.  It does NOT verify that the
+        // `randomness` field was derived from the signature as drand specifies
+        // (randomness = sha256(signature)).  Without this second check, an
+        // attacker can submit a real signature with a forged `randomness` and
+        // bias the pallet's published randomness.
+        let expected_randomness: [u8; 32] = Sha256::digest(pulse.signature.into_inner().as_slice()).into();
+        if pulse.randomness.as_slice() != expected_randomness.as_slice() {
+            return Ok(false);
+        }
+
         Ok(bls12_381::fast_pairing_opt(
             signature.0,
             g2,

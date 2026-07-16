@@ -141,6 +141,61 @@ fn it_rejects_invalid_pulse_due_to_bad_signature() {
 }
 
 #[test]
+fn audit_probe_forged_randomness_rejected() {
+    // A valid BLS signature alone does NOT prove the `randomness` field was
+    // derived from it as drand specifies (randomness = sha256(signature)).
+    // Without the verifier's second check, an attacker can pair a real signature
+    // with a forged randomness and have the pallet store and publish the forged
+    // value. The verifier now returns Ok(false) on the mismatch, so write_pulse
+    // skips storing the forged pulse entirely (the call still succeeds; it is
+    // the absence of storage that proves rejection).
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        let info: BeaconInfoResponse = serde_json::from_str(DRAND_INFO_RESPONSE).unwrap();
+        let config_payload = BeaconConfigurationPayload {
+            block_number,
+            config: info.clone().try_into_beacon_config().unwrap(),
+            public: alice.public(),
+        };
+        assert_ok!(Drand::set_beacon_config(
+            RuntimeOrigin::root(),
+            config_payload,
+            None,
+        ));
+
+        // Seed a baseline so round 1000 is the legitimate next round (== last + 1);
+        // this isolates the test to the randomness check alone.
+        LastStoredRound::<Test>::put(ROUND_NUMBER - 1);
+        OldestStoredRound::<Test>::put(ROUND_NUMBER - 1);
+
+        let response: DrandResponseBody = serde_json::from_str(DRAND_PULSE).unwrap();
+        let mut pulse = response.try_into_pulse().unwrap();
+        // Forge the randomness while keeping the real (BLS-valid) signature.
+        pulse.randomness = BoundedVec::try_from(vec![0x42; 32]).unwrap();
+
+        let pulses_payload = PulsesPayload {
+            pulses: vec![pulse.clone()],
+            block_number,
+            public: alice.public(),
+        };
+
+        // Dispatch reaches the verifier (its only call site). The forged
+        // randomness makes it return Ok(false), so the pulse is not stored.
+        assert_ok!(Drand::write_pulse(
+            RuntimeOrigin::none(),
+            pulses_payload,
+            None,
+        ));
+        assert!(Pulses::<Test>::get(ROUND_NUMBER).is_none());
+        // No state advanced for the rejected pulse.
+        assert_eq!(LastStoredRound::<Test>::get(), ROUND_NUMBER - 1);
+    });
+}
+
+#[test]
 fn it_rejects_pulses_with_non_incremental_round_numbers() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
