@@ -94,7 +94,11 @@ jobs:
             enable_all
             exit 0
           fi
-          pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp)
+          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then
+            echo "::warning::PR file listing failed; enabling every check."
+            enable_all
+            exit 0
+          fi
           fetched_files=$(jq '[.[][]] | length' <<< "$pages")
           if [[ "$fetched_files" -ne "$CHANGED_FILES" ]]; then
             echo "::warning::PR file listing was incomplete ($fetched_files/$CHANGED_FILES); enabling every check."

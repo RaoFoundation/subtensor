@@ -70,4 +70,9 @@ grep -Fq 'gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"' "$ru
 grep -Fq '"$(jq -er '\''.digest'\'' "$metadata")"' "$runtime_workflow"
 grep -Fq '"$(jq -er '\''.size_in_bytes'\'' "$metadata")"' "$runtime_workflow"
 
+# A transient Files API outage must fail closed by selecting the full matrix,
+# not fail the classifier before required aggregate contexts can be reported.
+grep -Fq 'if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then' "$runtime_workflow"
+grep -Fq '::warning::PR file listing failed; enabling every check.' "$runtime_workflow"
+
 echo "runtime change filter tests passed"
