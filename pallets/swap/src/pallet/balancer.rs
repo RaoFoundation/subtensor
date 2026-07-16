@@ -195,7 +195,10 @@ impl Balancer {
                 result
             };
         }
-        U64F64::saturating_from_num(0)
+        // Fallback to 1 (not 0): a zero exponent would imply e=0, (1-e)=1,
+        // paying out the entire reserve for a trivial input.  Returning 1 makes
+        // the swap produce zero output and fail safely instead.
+        U64F64::saturating_from_num(1)
     }
 
     /// Calculates exponent of (x / (x + ∆x)) ^ (w_base/w_quote)

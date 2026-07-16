@@ -237,9 +237,11 @@ impl<T: Config> Pallet<T> {
             } else {
                 // Should persist changes
 
-                // Check if reserves are overused
+                // Check if reserves are overused.  Using <= (not <) so a full-reserve
+                // payout (which can only happen when exp_scaled returns zero, which it
+                // no longer does after the fallback-to-1 fix) is also caught.
                 if let Ok(ref swap_result) = result
-                    && reserve < swap_result.amount_paid_out
+                    && reserve <= swap_result.amount_paid_out
                 {
                     return TransactionOutcome::Commit(Err(
                         Error::<T>::InsufficientLiquidity.into()

@@ -815,6 +815,41 @@ fn test_convert_deltas() {
 }
 
 #[test]
+fn audit_probe_exp_scaled_stays_within_unit_interval() {
+    // Fuzz e in (0, 1]: for both swap directions the exponent (x / (x + dx))^w
+    // must never exceed 1.  Before the fix the precision-overflow fallback in
+    // `exp_scaled` returned 0, which collapses (1 - e) to 1 and would pay out the
+    // entire reserve for a trivial input; the fallback now returns 1, keeping
+    // every result inside the unit interval alongside the existing `.min(1)`
+    // clamp on the non-overflow path.
+    new_test_ext().execute_with(|| {
+        let weights = [0.1_f64, 0.3, 0.5, 0.7, 0.9];
+        let reserves = [1_u64, 10, 1_000, 1_000_000, 1_000_000_000_000];
+        let deltas = [1_u64, 10, 1_000, 1_000_000, 1_000_000_000_000];
+        let one = U64F64::from_num(1);
+        for &w in &weights {
+            let w_quote_pt = Perquintill::from_rational(
+                (w * 1_000_000_000_f64) as u128,
+                1_000_000_000_u128,
+            );
+            let bal = Balancer::new(w_quote_pt).unwrap();
+            for &r in &reserves {
+                for &d in &deltas {
+                    assert!(
+                        bal.exp_base_quote(r, d) <= one,
+                        "sell exponent exceeded 1: w={w} reserve={r} delta={d}"
+                    );
+                    assert!(
+                        bal.exp_quote_base(r, d) <= one,
+                        "buy exponent exceeded 1: w={w} reserve={r} delta={d}"
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn test_rollback_works() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
