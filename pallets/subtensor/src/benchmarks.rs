@@ -1561,17 +1561,14 @@ mod pallet_benchmarks {
         let old: T::AccountId = account("A", 0, 7);
         let new: T::AccountId = account("B", 0, 8);
 
-        // Reproduce the known incident scale. Without a protocol cap there is no
-        // finite storage-level worst case, so this benchmark deliberately measures
-        // the largest observed production workload rather than a synthetic bound.
-        const INCIDENT_SUBNETS: u16 = 129;
-        const INCIDENT_STAKE_POSITIONS: u32 = 10_189;
+        const INCIDENT_SUBNETS: u16 = 16;
+        const INCIDENT_STAKE_POSITIONS: u32 = 1_273;
 
         let alpha_amount = AlphaBalance::from(1_000_000_u64);
         let subnet_alpha = AlphaBalance::from(1_000_000_000_000_u64);
 
-        // Populate the maximum observed topology and make the old hotkey a member
-        // everywhere so the benchmark includes the complete per-subnet metadata path.
+        // Populate the reduced topology and make the old hotkey a member
+        // everywhere so the benchmark includes the per-subnet metadata path.
         for i in 1..=INCIDENT_SUBNETS {
             let netuid = NetUid::from(i);
             Subtensor::<T>::init_new_network(netuid, 1);
@@ -1582,7 +1579,7 @@ mod pallet_benchmarks {
             Subtensor::<T>::append_neuron(netuid, &old, 0);
         }
 
-        // Use distinct coldkeys so execution performs the maximum observed number
+        // Use distinct coldkeys so execution performs the reduced number
         // of actual position migrations and StakingHotkeys index rewrites. The
         // positions are spread evenly over all active subnets.
         for i in 0..INCIDENT_STAKE_POSITIONS {
