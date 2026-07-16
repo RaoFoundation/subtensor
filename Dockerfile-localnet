@@ -47,7 +47,15 @@ LABEL com.bittensor.image.authors="operations@bittensor.com" \
   com.bittensor.image.vendor="Rao Foundation" \
   com.bittensor.image.title="raofoundation/subtensor-localnet" \
   com.bittensor.image.description="Bittensor Subtensor local development network" \
-  com.bittensor.image.documentation="https://bittensor.com/docs"
+  com.bittensor.image.documentation="https://bittensor.com/docs" \
+  org.opencontainers.image.authors="operations@bittensor.com" \
+  org.opencontainers.image.vendor="Rao Foundation" \
+  org.opencontainers.image.title="Subtensor Localnet" \
+  org.opencontainers.image.description="Subtensor local development network for CI and local testing" \
+  org.opencontainers.image.source="https://github.com/RaoFoundation/subtensor" \
+  org.opencontainers.image.url="https://github.com/RaoFoundation/subtensor/pkgs/container/subtensor-localnet" \
+  org.opencontainers.image.documentation="https://github.com/RaoFoundation/subtensor/blob/main/docs/guides/local-development.mdx" \
+  org.opencontainers.image.licenses="Apache-2.0"
 
 RUN set -eu; \
   if [ "${TARGETARCH}" = "arm64" ]; then \
