@@ -35,6 +35,9 @@ on:
       - "!pallets/*/src/tests/**"
       - "!pallets/*/src/tests.rs"
       - "!pallets/*/src/mock.rs"
+      - "!chain-extensions/src/tests.rs"
+      - "!chain-extensions/src/mock.rs"
+      - "!precompiles/src/mock.rs"
 
 concurrency:
   group: check-docker-${{ github.ref }}

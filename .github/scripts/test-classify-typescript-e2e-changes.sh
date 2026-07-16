@@ -138,6 +138,10 @@ classify pallets/shield/src/tests.rs pallets/drand/src/mock.rs
 assert_value e2e false
 assert_value build_count 0
 
+classify chain-extensions/src/tests.rs chain-extensions/src/mock.rs precompiles/src/mock.rs
+assert_value e2e false
+assert_value build_count 0
+
 classify pallets/subtensor/src/migrations/migrate_staking.rs
 assert_value e2e false
 assert_value build_count 0
@@ -197,6 +201,18 @@ for directory in "$repo_root"/pallets/*/src/tests; do
   lib=${directory%/tests}/lib.rs
   if ! assert_cfg_test_module "$lib" tests; then
     echo "classifier-ignored directory is not cfg(test)-gated: ${directory#"$repo_root"/}" >&2
+    exit 1
+  fi
+done
+for file in \
+  "$repo_root"/chain-extensions/src/mock.rs \
+  "$repo_root"/chain-extensions/src/tests.rs \
+  "$repo_root"/precompiles/src/mock.rs; do
+  module=${file##*/}
+  module=${module%.rs}
+  lib=${file%/*}/lib.rs
+  if ! assert_cfg_test_module "$lib" "$module"; then
+    echo "classifier-ignored path is not cfg(test)-gated: ${file#"$repo_root"/}" >&2
     exit 1
   fi
 done
