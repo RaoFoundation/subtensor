@@ -189,35 +189,22 @@ def params_table(schema: dict) -> str:
 
 REPO_ROOT = APP_DIR.parents[2]
 
-# Runtime pallet name (as used in Intent.wraps, storage containers, and the
-# chain error catalog) -> in-repo crate directory.
+# Runtime pallet name (as used in Intent.wraps) -> in-repo crate directory.
 PALLET_DIRS = {
     "SubtensorModule": "pallets/subtensor",
     "AdminUtils": "pallets/admin-utils",
-    "Commitments": "pallets/commitments",
     "Crowdloan": "pallets/crowdloan",
-    "Drand": "pallets/drand",
-    "LimitOrders": "pallets/limit-orders",
-    "MevShield": "pallets/shield",
     "Proxy": "pallets/proxy",
-    "Swap": "pallets/swap",
     "Utility": "pallets/utility",
 }
 
-# Pallets referenced by intents, reads, or errors but implemented outside this
-# repository's pallets/ tree — pages say so instead of linking.
+# Pallets wrapped by intents but implemented outside this repository's
+# pallets/ tree — the section says so instead of linking.
 UPSTREAM_PALLETS = {
     "Balances": "Substrate's `pallet_balances`",
-    "Contracts": "Substrate's `pallet_contracts`",
-    "Ethereum": "Frontier's `pallet_ethereum` (vendored under `vendor/frontier`)",
-    "EVM": "Frontier's `pallet_evm` (vendored under `vendor/frontier`)",
-    "Grandpa": "Substrate's `pallet_grandpa`",
     "Multisig": "Substrate's `pallet_multisig`",
-    "Preimage": "Substrate's `pallet_preimage`",
-    "SafeMode": "Substrate's `pallet_safe_mode`",
-    "Scheduler": "Substrate's `pallet_scheduler`",
     "Sudo": "Substrate's `pallet_sudo`",
-    "System": "Substrate's `frame_system`",
+    "EVM": "Frontier's `pallet_evm` (vendored under `vendor/frontier`)",
 }
 
 # Mirrors the /code corpus exclusions (src/lib/code.ts).
@@ -273,7 +260,6 @@ def find_dispatchable(pallet_dir: str, call: str) -> dict | None:
                 "path": rel,
                 "line": start + 1,
                 "fn_line": i + 1,
-                "end_line": end + 1,
                 "body": lines[i : end + 1],
                 "snippet": snippet,
             }
@@ -288,12 +274,6 @@ def find_fn(pallet_dir: str, name: str) -> tuple[str, int] | None:
             if fn_re.match(line):
                 return rel, i + 1
     return None
-
-
-def range_anchor(found: dict) -> str:
-    """#L<start>-L<end> covering the quoted snippet (attribute line through
-    the closing brace) — the /code viewer highlights the whole range."""
-    return f"#L{found['line']}-L{found['end_line']}"
 
 
 def delegate_links(pallet_dir: str, dispatchable: dict, call: str) -> list[str]:
@@ -328,10 +308,9 @@ def implementation_section(cls) -> str:
             found = find_dispatchable(PALLET_DIRS[pallet], call)
             if found is None:
                 raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
-            anchor = range_anchor(found)
             parts.append(
                 f"| `{pallet}.{call}` | "
-                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}{anchor}) |"
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}) |"
             )
         parts.append("")
     else:
@@ -345,10 +324,9 @@ def implementation_section(cls) -> str:
             found = find_dispatchable(PALLET_DIRS[pallet], call)
             if found is None:
                 raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
-            anchor = range_anchor(found)
             parts.append(
                 f"`{pallet}.{call}` — "
-                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}{anchor}):\n"
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}):\n"
             )
             parts.append(f"```rust\n{found['snippet']}\n```\n")
             links = delegate_links(PALLET_DIRS[pallet], found, call)

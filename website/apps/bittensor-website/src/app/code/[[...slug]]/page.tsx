@@ -14,7 +14,6 @@ import {
 } from '@/lib/code';
 import { btDark, btLight } from '@/lib/shiki-themes';
 import { chainRepoUrl, codeRoute, siteUrl } from '@/lib/shared';
-import { LineRangeHighlight } from '../line-highlight';
 
 // The corpus is enumerated at build time; anything outside it is a 404, so no
 // request ever touches the filesystem.
@@ -91,10 +90,7 @@ function DirectoryPage({ dirPath }: { dirPath: string }) {
           <a href="/code/index.json" className="underline underline-offset-2">
             /code/index.json
           </a>
-          . Append <code className="font-mono text-[0.8125em]">#L12</code> or{' '}
-          <code className="font-mono text-[0.8125em]">#L12-L34</code> to a file
-          URL to highlight a line or range — click a line number to anchor,
-          shift-click another to extend.
+          .
         </p>
       )}
       <div className="mt-8 border-t border-line">
@@ -206,7 +202,6 @@ async function FilePage({ filePath }: { filePath: string }) {
         className="bt-code bt-scroll mt-6"
         dangerouslySetInnerHTML={{ __html: html }}
       />
-      <LineRangeHighlight />
     </div>
   );
 }
