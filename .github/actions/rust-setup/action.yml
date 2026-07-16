@@ -32,7 +32,15 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Detect preprovisioned Fireactions toolchain
+      id: runner-image
+      shell: bash
+      env:
+        RUST_SETUP_COMPONENTS: ${{ inputs.components }}
+      run: .github/scripts/rust-setup-preflight.sh "$GITHUB_OUTPUT"
+
     - name: Install system dependencies
+      if: steps.runner-image.outputs.system_ready != 'true'
       shell: bash
       run: |
         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
@@ -42,7 +50,17 @@ runs:
           python3 python3-dev \
           ${{ inputs.extra-packages }}
 
+    - name: Install extra system dependencies
+      if: steps.runner-image.outputs.system_ready == 'true' && inputs.extra-packages != ''
+      shell: bash
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+          -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+          ${{ inputs.extra-packages }}
+
     - name: Install Rust (stable)
+      if: steps.runner-image.outputs.toolchain_ready != 'true'
       uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
         components: ${{ inputs.components }}

@@ -8,6 +8,8 @@ on:
       - ".github/scripts/sccache-configure.sh"
       - ".github/scripts/sccache-config.py"
       - ".github/scripts/test-sccache-configure.sh"
+      - ".github/scripts/rust-setup-preflight.sh"
+      - ".github/scripts/test-rust-setup-preflight.sh"
       - ".github/scripts/sccache-report.sh"
       - ".github/scripts/test-sccache-report.sh"
       - ".github/scripts/download-artifact.sh"
@@ -56,6 +58,7 @@ jobs:
 
       - name: Test fail-open and writer event gates
         run: |
+          .github/scripts/test-rust-setup-preflight.sh
           .github/scripts/test-sccache-configure.sh
           .github/scripts/test-sccache-report.sh
 
