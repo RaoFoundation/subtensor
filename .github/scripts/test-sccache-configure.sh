@@ -201,7 +201,34 @@ export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr.log"
 assert_contains "$tmp/output" 'available=true'
 assert_contains "$tmp/config.json" '"mode":"writer"'
+assert_contains "$tmp/config.json" '"local":'
+SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/auto-pr-activate.log"
+assert_contains "$tmp/env" 'SCCACHE_BACKEND=r2'
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=true'
+assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN=webdav,s3'
+
+write_metadata
+reset_outputs
+write_pr_event RaoFoundation/subtensor false
+export SCCACHE_LOCAL_TIER_MODE=disabled
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+"$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr-local-disabled.log"
+assert_contains "$tmp/output" 'available=true'
+assert_contains "$tmp/config.json" '"mode":"writer"'
 assert_not_contains "$tmp/config.json" '"local":'
+
+write_metadata
+reset_outputs
+write_pr_event RaoFoundation/subtensor false
+export MOCK_MMDS_FAIL=true
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+"$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr-local-unavailable.log"
+assert_contains "$tmp/output" 'available=true'
+assert_contains "$tmp/config.json" '"mode":"writer"'
+assert_not_contains "$tmp/config.json" '"local":'
+assert_contains "$tmp/auto-pr-local-unavailable.log" 'using direct R2'
 
 for reader_case in fork dependabot malformed target missing-credentials partial-credentials malformed-credentials; do
   reset_outputs
