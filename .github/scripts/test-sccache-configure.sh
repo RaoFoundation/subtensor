@@ -201,6 +201,7 @@ export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr.log"
 assert_contains "$tmp/output" 'available=true'
 assert_contains "$tmp/config.json" '"mode":"writer"'
+assert_not_contains "$tmp/config.json" '"local":'
 
 for reader_case in fork dependabot malformed target missing-credentials partial-credentials malformed-credentials; do
   reset_outputs
@@ -251,10 +252,22 @@ assert_contains "$tmp/output" 'available=true'
 grep -v '^::add-mask::' "$tmp/writer-main.log" > "$tmp/writer-main-public.log"
 assert_not_contains "$tmp/writer-main-public.log" 'writer-access-key-test'
 assert_not_contains "$tmp/writer-main-public.log" 'writer-secret-key-test'
+assert_not_contains "$tmp/config.json" '"local":'
 SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/writer-activate.log"
 assert_contains "$tmp/output" 'enabled=true'
 assert_contains "$tmp/env" 'SCCACHE_BACKEND=r2'
 assert_contains "$tmp/env" 'RUSTC_WRAPPER=sccache'
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
+assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
+
+reset_outputs
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+export GITHUB_EVENT_NAME=push
+export GITHUB_REF=refs/heads/main
+export SCCACHE_LOCAL_TIER_MODE=invalid
+"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-invalid-local.log"
+assert_contains "$tmp/output" 'available=false'
 
 for untrusted_branch in bittensor-core-exploration codex/subtensor-r2-sccache; do
   for untrusted_event in push workflow_dispatch; do

@@ -126,35 +126,6 @@ prepare_reader() {
   fi
 }
 
-attach_local_metadata() {
-  local config_file="$1"
-  local local_mode="${SCCACHE_LOCAL_TIER_MODE:-auto}"
-  local token_url="${MMDS_TOKEN_URL:-$MMDS_TOKEN_URL_DEFAULT}"
-  local metadata_url="${MMDS_METADATA_URL:-$MMDS_METADATA_URL_DEFAULT}"
-  local metadata_file="${config_file}.mmds"
-  local token
-
-  [[ "$local_mode" == auto || "$local_mode" == disabled ]] || return 1
-  [[ "$local_mode" == auto ]] || return 0
-  if ! token="$(curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
-    --request PUT --header 'X-Metadata-Token-TTL-Seconds: 60' "$token_url" 2>/dev/null)"; then
-    warning "local sccache tier unavailable to trusted writer; using direct R2"
-    return 0
-  fi
-  if ! curl --fail --silent --show-error --connect-timeout 1 --max-time 3 \
-    --header "X-Metadata-Token: $token" --header 'Accept: application/json' \
-    --output "$metadata_file" "$metadata_url" 2>/dev/null; then
-    warning "local sccache metadata unavailable to trusted writer; using direct R2"
-    rm -f "$metadata_file"
-    return 0
-  fi
-  if ! "$SCCACHE_CONFIG_TOOL" attach-local \
-    "$config_file" "$metadata_file" 2>/dev/null; then
-    warning "local sccache metadata failed validation; using direct R2"
-  fi
-  rm -f "$metadata_file"
-}
-
 prepare_writer() {
   local config_file="$1"
   local output_file="$2"
@@ -169,12 +140,16 @@ prepare_writer() {
   if [[ "$AWS_ACCESS_KEY_ID" == *$'\n'* || "$AWS_SECRET_ACCESS_KEY" == *$'\n'* ]]; then
     disable_prepare "$config_file" "$output_file" "protected writer credentials are malformed"
   fi
+  case "${SCCACHE_LOCAL_TIER_MODE:-auto}" in
+    auto|disabled) ;;
+    *) disable_prepare "$config_file" "$output_file" "invalid local tier mode" ;;
+  esac
 
+  # Keep protected writer credentials on the direct R2 path. The host-local
+  # reader tier is only materialized from the MMDS reader contract above.
   if ! "$SCCACHE_CONFIG_TOOL" write-writer "$config_file" 2>/dev/null; then
     disable_prepare "$config_file" "$output_file" "writer configuration could not be materialized"
   fi
-  attach_local_metadata "$config_file" ||
-    disable_prepare "$config_file" "$output_file" "invalid local tier mode"
 }
 
 writer_source_is_trusted() {

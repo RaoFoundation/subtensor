@@ -133,19 +133,6 @@ def write_writer(path: Path) -> None:
     atomic_write(path, values)
 
 
-def attach_local(path: Path, metadata_path: Path) -> None:
-    values = load_object(path)
-    mode = values.get("mode")
-    if mode not in {"reader", "writer"}:
-        raise ConfigError("invalid mode")
-    validate_r2(values, mode)
-    metadata = load_object(metadata_path)
-    values["local"] = validate_local(
-        metadata.get("local"), credential_source=metadata
-    )
-    atomic_write(path, values)
-
-
 def credential_values(path: Path) -> list[str]:
     values = load_object(path)
     mode = values.get("mode")
@@ -237,8 +224,6 @@ def main(argv: list[str]) -> int:
         normalize_reader(Path(arguments[0]), arguments[1])
     elif command == "write-writer" and len(arguments) == 1:
         write_writer(Path(arguments[0]))
-    elif command == "attach-local" and len(arguments) == 2:
-        attach_local(Path(arguments[0]), Path(arguments[1]))
     elif command == "credentials" and len(arguments) == 1:
         for value in credential_values(Path(arguments[0])):
             print(value)
