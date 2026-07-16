@@ -31,6 +31,11 @@ on:
       - ".github/actions/build-production-binary/**"
       - ".github/actions/rust-setup/**"
       - ".github/workflows/check-docker.yml"
+      # These modules are compiled only by Rust tests. Check Rust owns them;
+      # they cannot change the production binary copied into the image.
+      - "!pallets/*/src/tests/**"
+      - "!pallets/*/src/tests.rs"
+      - "!pallets/*/src/mock.rs"
 
 concurrency:
   group: check-docker-${{ github.ref }}
