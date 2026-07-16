@@ -59,6 +59,13 @@ def _is_sudo_call(call: Any) -> bool:
     return module == "Sudo" and function == "sudo"
 
 
+async def _wrap_root_call(substrate: Substrate, intent: Intent, call: Any) -> Any:
+    """Nest root-origin intents in ``Sudo.sudo`` so privilege matches ``execute``."""
+    if intent.origin == "root" and not _is_sudo_call(call):
+        return await substrate.compose(generated_calls.Sudo.sudo(call=call))
+    return call
+
+
 def _coerce_addresses(intent: Intent) -> Intent:
     """Normalize the intent's ``*_ss58`` / ``*_ss58s`` fields: a ``Wallet``,
     keypair, or signer passed where an address string is expected becomes its
@@ -174,8 +181,7 @@ class Executor:
         # Root intents declare privilege via ``origin``; wrap here so metadata
         # and execution cannot drift (an intent that forgets Sudo.sudo still
         # dispatches as root, and docs stay authoritative).
-        if intent.origin == "root" and not _is_sudo_call(call):
-            call = await self.substrate.compose(generated_calls.Sudo.sudo(call=call))
+        call = await _wrap_root_call(self.substrate, intent, call)
         pub = self._public_keypair(wallet, intent.signer)
         signer_address = pub.ss58_address
         # The account whose state the call actually touches.
@@ -313,6 +319,9 @@ class Executor:
         intent = _coerce_addresses(intent)
         built = await intent.build(self.substrate, wallet)
         call = built.call if isinstance(built, BuiltCall) else built
+        # Same root wrapping as ``plan``/``execute``: the decrypted inner
+        # extrinsic must dispatch ``Sudo.sudo``, not the bare AdminUtils call.
+        call = await _wrap_root_call(self.substrate, intent, call)
         fee = None
         active = self._active_policy(policy)
         if active is not None and active.max_fee_tao is not None:

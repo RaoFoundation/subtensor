@@ -243,6 +243,48 @@ class TestExecuteFlow:
         assert result.success
         assert substrate.last_call.module == "Balances"
 
+    @pytest.mark.asyncio
+    async def test_submit_shielded_wraps_root_in_sudo(
+        self, client: Client, substrate: FakeSubstrate, wallet, monkeypatch
+    ):
+        """Root intents must encrypt ``Sudo.sudo(...)``, not the bare inner call.
+
+        Without the wrap, MevShield decrypts and dispatches e.g.
+        ``AdminUtils.sudo_set_subnet_emission_enabled`` under a signed origin
+        and the chain rejects with ``BadOrigin``.
+        """
+        from bittensor.intents.root import SetSubnetEmissionEnabled
+
+        substrate.mev_key = b"\x01" * 32
+        monkeypatch.setattr(
+            "bittensor.executor._core.encrypt_mlkem768",
+            lambda pubkey, plaintext, include_key_hash=True: b"ciphertext",
+        )
+        signed: list = []
+        original_sign = substrate.sign_extrinsic
+
+        async def capture_sign(call, keypair, *, nonce, period):
+            signed.append(call)
+            return await original_sign(call, keypair, nonce=nonce, period=period)
+
+        monkeypatch.setattr(substrate, "sign_extrinsic", capture_sign)
+
+        result = await client.submit_shielded(
+            SetSubnetEmissionEnabled(netuids=[1], enabled=True), wallet
+        )
+        assert result.success
+        assert result.data.get("shielded") is True
+        assert len(signed) == 1
+        inner = signed[0]
+        assert (inner.module, inner.function) == ("Sudo", "sudo")
+        nested = inner.params["call"]
+        assert (nested.module, nested.function) == (
+            "AdminUtils",
+            "sudo_set_subnet_emission_enabled",
+        )
+        outer = substrate.last_call
+        assert (outer.module, outer.function) == ("MevShield", "submit_encrypted")
+
 
 class TestStakingMoneyUnits:
     """Unit-tagged amounts at the staking intent boundary: a correctly tagged
