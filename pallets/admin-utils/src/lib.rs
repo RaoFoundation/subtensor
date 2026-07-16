@@ -181,6 +181,8 @@ pub mod pallet {
         AddressMapping,
         /// Voting power precompile
         VotingPower,
+        /// Account balance precompile
+        AccountBalance,
     }
 
     #[pallet::type_value]

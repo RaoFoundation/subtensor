@@ -7,6 +7,7 @@ use core::marker::PhantomData;
 use crate::extensions::*;
 pub use address_mapping::AddressMappingPrecompile;
 pub use alpha::AlphaPrecompile;
+pub use balance::BalancePrecompile;
 pub use balance_transfer::BalanceTransferPrecompile;
 pub use crowdloan::CrowdloanPrecompile;
 pub use ed25519::Ed25519Verify;
@@ -44,6 +45,7 @@ pub use voting_power::VotingPowerPrecompile;
 
 mod address_mapping;
 mod alpha;
+mod balance;
 mod balance_transfer;
 mod crowdloan;
 mod ed25519;
@@ -93,7 +95,7 @@ where
         + IsSubType<pallet_shield::Call<R>>
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
-    <R as pallet_balances::Config>::Balance: TryFrom<U256>,
+    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     fn default() -> Self {
@@ -130,14 +132,14 @@ where
         + IsSubType<pallet_shield::Call<R>>
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
-    <R as pallet_balances::Config>::Balance: TryFrom<U256>,
+    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     pub fn new() -> Self {
         Self(Default::default())
     }
 
-    pub fn used_addresses() -> [H160; 27] {
+    pub fn used_addresses() -> [H160; 28] {
         [
             hash(1),
             hash(2),
@@ -166,6 +168,7 @@ where
             hash(VotingPowerPrecompile::<R>::INDEX),
             hash(ProxyPrecompile::<R>::INDEX),
             hash(AddressMappingPrecompile::<R>::INDEX),
+            hash(BalancePrecompile::<R>::INDEX),
         ]
     }
 }
@@ -201,7 +204,7 @@ where
     <<R as frame_system::Config>::RuntimeCall as Dispatchable>::RuntimeOrigin:
         From<Option<pallet_evm::AccountIdOf<R>>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
-    <R as pallet_balances::Config>::Balance: TryFrom<U256>,
+    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
@@ -273,6 +276,9 @@ where
                     handle,
                     PrecompileEnum::AddressMapping,
                 )
+            }
+            a if a == hash(BalancePrecompile::<R>::INDEX) => {
+                BalancePrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::AccountBalance)
             }
             _ => None,
         }
