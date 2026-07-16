@@ -118,6 +118,30 @@ jobs:
         if: always()
         run: .github/scripts/sccache-report.sh "Clippy ${{ matrix.features.name }} compiler cache"
 
+  # GitHub evaluates a matrix job's job-level `if` before expanding the
+  # matrix. On a non-Rust PR, the skipped `clippy` job above therefore reports
+  # one literal context named `cargo clippy (${{ matrix.features.name }})`
+  # instead of the two concrete contexts required by branch protection. Emit
+  # those exact contexts from cheap hosted jobs without checking out or
+  # executing PR-controlled code. These conditions are mutually exclusive
+  # with the real Clippy matrix above, so Rust-relevant PRs retain full lint
+  # coverage and never receive a no-op success in its place.
+  clippy-not-required:
+    name: cargo clippy (${{ matrix.features.name }})
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.rust != 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - name: default
+          - name: all
+    steps:
+      - name: Clippy not required
+        run: echo "No Rust-relevant paths changed; Clippy is not required."
+
   warnings:
     name: no cargo check warnings
     needs: [trusted-pr, changes]
