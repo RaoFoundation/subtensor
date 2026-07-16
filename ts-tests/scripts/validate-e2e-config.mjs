@@ -54,6 +54,11 @@ const shieldShardIncludes = shieldShardNames.map((name) => {
 const shieldIncludes = shieldShardIncludes.flat();
 const productionTimingFile = "suites/zombienet_shield/03-timing.test.ts";
 const shieldDefaultVitestArgs = { bail: 1 };
+const shieldBasicVitestArgs = {
+    ...shieldDefaultVitestArgs,
+    sequence: { concurrent: true },
+    maxConcurrency: 6,
+};
 const productionTimingVitestArgs = {
     ...shieldDefaultVitestArgs,
     sequence: { concurrent: true },
@@ -68,10 +73,14 @@ for (const [index, includes] of shieldShardIncludes.entries()) {
         throw new Error(`${productionTimingFile} must be the only file in one release-runtime shard`);
     }
     const environment = environments.get(name);
-    const expectedVitestArgs = containsProductionTiming ? productionTimingVitestArgs : shieldDefaultVitestArgs;
+    const expectedVitestArgs = containsProductionTiming
+        ? productionTimingVitestArgs
+        : name === "zombienet_shield_a"
+          ? shieldBasicVitestArgs
+          : shieldDefaultVitestArgs;
     if (!isDeepStrictEqual(environment?.vitestArgs, expectedVitestArgs)) {
         throw new Error(
-            `${name} must ${containsProductionTiming ? "run its isolated timing cases concurrently" : "not enable test concurrency"}`
+            `${name} must ${containsProductionTiming || name === "zombienet_shield_a" ? "run its state-isolated cases concurrently" : "not enable test concurrency"}`
         );
     }
 }
