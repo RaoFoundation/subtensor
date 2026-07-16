@@ -21,9 +21,12 @@ generated CLI ``query`` command, and a typed namespace method
 
 from __future__ import annotations
 
+import functools
 import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Union
+
+from ..signing import as_ss58
 
 
 @dataclass(frozen=True)
@@ -92,10 +95,38 @@ def read(
         unknown = set(param_docs or {}) - set(params or {})
         if unknown:
             raise ValueError(f"param_docs for unknown params of read {name!r}: {sorted(unknown)}")
-        REGISTRY[name] = ReadSpec(name, doc, params or {}, fn, category, param_docs or {}, render)
-        return fn
+        registered = _coercing(fn, params or {})
+        REGISTRY[name] = ReadSpec(
+            name, doc, params or {}, registered, category, param_docs or {}, render
+        )
+        return registered
 
     return decorate
+
+
+def _coercing(fn: Callable[..., Awaitable[Any]], params: dict[str, str]):
+    """Wrap a read so its ``*_ss58`` parameters also accept key-bearing objects
+    (a ``Wallet``, keypair, or signer — normalized by :func:`~bittensor.signing.as_ss58`).
+    Reads without address parameters are registered untouched."""
+    ss58_params = [p for p in params if "_ss58" in p]
+    if not ss58_params:
+        return fn
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    async def wrapped(*args, **kwargs):
+        bound = sig.bind_partial(*args, **kwargs)
+        for p in ss58_params:
+            value = bound.arguments.get(p)
+            if value is None or isinstance(value, str):
+                continue
+            if isinstance(value, (list, tuple)):
+                bound.arguments[p] = [as_ss58(item, p) for item in value]
+            else:
+                bound.arguments[p] = as_ss58(value, p)
+        return await fn(*bound.args, **bound.kwargs)
+
+    return wrapped
 
 
 async def dispatch(view, name: str, params: dict[str, Any]) -> Any:

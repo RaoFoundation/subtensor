@@ -9,6 +9,7 @@ adds the submission (and refuses if policy is violated).
 from __future__ import annotations
 
 import asyncio
+from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -26,7 +27,7 @@ from .intents.base import BuiltCall
 from .intents.proxy import check_proxy_type
 from .result import ChainError, ExtrinsicResult, PolicyError, chain_error_from_dispatch
 from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
-from .signing import WalletLike, public_view, resolve_signer
+from .signing import WalletLike, as_ss58, as_wallet, public_view, resolve_signer
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -41,6 +42,27 @@ _TRANSIENT_SUBSTRINGS = (
 def _is_transient(result: ExtrinsicResult) -> bool:
     message = (result.message or "").lower()
     return any(needle in message for needle in _TRANSIENT_SUBSTRINGS)
+
+
+def _coerce_addresses(intent: Intent) -> Intent:
+    """Normalize the intent's ``*_ss58`` / ``*_ss58s`` fields: a ``Wallet``,
+    keypair, or signer passed where an address string is expected becomes its
+    ss58 address (hotkey fields take the wallet's hotkey, others its coldkey).
+    Returns a new intent only when something needed coercing."""
+    changes = {}
+    for field in dataclass_fields(intent):
+        value = getattr(intent, field.name)
+        if value is None or isinstance(value, str):
+            continue
+        if field.name.endswith("_ss58"):
+            coerced = as_ss58(value, field.name)
+            if coerced is not value:
+                changes[field.name] = coerced
+        elif field.name.endswith("_ss58s") and isinstance(value, (list, tuple)):
+            coerced_list = [as_ss58(item, field.name) for item in value]
+            if any(a is not b for a, b in zip(coerced_list, value)):
+                changes[field.name] = coerced_list
+    return replace(intent, **changes) if changes else intent
 
 
 def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
@@ -145,6 +167,8 @@ class Executor:
         ``proxy_for``) signs. ``proxy_type`` optionally forces the exact proxy
         type to match (``force_proxy_type``).
         """
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
         built = await intent.build(self.substrate, wallet)
         if isinstance(built, BuiltCall):
             call, extras = built.call, built.extras
@@ -280,6 +304,8 @@ class Executor:
         ``max_fee_tao`` is checked against the inner call's estimated fee (the
         outer carrier extrinsic pays its own small fee on top).
         """
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
         built = await intent.build(self.substrate, wallet)
         call = built.call if isinstance(built, BuiltCall) else built
         fee = None

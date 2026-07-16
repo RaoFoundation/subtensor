@@ -27,7 +27,11 @@ def _public_only(keypair: Keypair) -> Keypair:
 
 
 class Wallet:
-    """A named wallet directory under ``~/.bittensor/wallets/<name>/``."""
+    """A named wallet directory under ``~/.bittensor/wallets/<name>/``.
+
+    ``Wallet("cold/hot")`` is shorthand for ``Wallet("cold", "hot")`` — the
+    same ``WALLET/HOTKEY`` form the CLI accepts.
+    """
 
     def __init__(
         self,
@@ -35,6 +39,13 @@ class Wallet:
         hotkey: str = "default",
         path: str = DEFAULT_WALLET_PATH,
     ) -> None:
+        if "/" in name:
+            if hotkey != "default":
+                raise ValueError(
+                    "give the hotkey either in the name ('cold/hot') or as the "
+                    "hotkey= argument, not both"
+                )
+            name, _, hotkey = name.partition("/")
         self.name = name
         self.path = path
         self.hotkey_str = hotkey

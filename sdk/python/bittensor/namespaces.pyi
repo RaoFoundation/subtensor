@@ -470,7 +470,7 @@ class Subnets(_ReadNamespace):
     async def token_symbols(self, *, block: Optional[int] = None) -> dict[int, str]:
         """Chain-registered token symbol of every subnet, keyed by netuid.
 
-        `Client.connect` runs this automatically (through a disk cache) and
+        Connecting runs this automatically (through a disk cache) and
         installs the result as the connection's display symbols, so balances
         decoded by that client render with each subnet's real symbol.
         """

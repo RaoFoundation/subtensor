@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "quickstart",
+    "sdk",
     "agents",
     "cli",
     "concepts",
