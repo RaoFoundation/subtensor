@@ -181,14 +181,17 @@ fn test_rejects_multi_subnet_alpha_fee_deduction() {
                 1.into(),
             )
         );
-        assert_eq!(
+        // After the fix, multi-subnet alpha fee deduction is rejected outright
+        // with InvalidTransaction::Payment instead of a silent zero-fee Ok that
+        // would let a validate->dispatch state change skip payment entirely.
+        assert!(matches!(
             <TransactionFeeHandler<Test> as AlphaFeeHandler<Test>>::withdraw_in_alpha(
                 &sn.coldkey,
                 &alpha_vec,
                 1.into(),
             ),
-            Ok((0.into(), 0.into(), NetUid::ROOT))
-        );
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Payment))
+        ));
 
         let alpha_after_0 = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &sn.hotkeys[0],

@@ -163,7 +163,10 @@ where
         tao_amount: TaoBalance,
     ) -> Result<(AlphaBalance, TaoBalance, NetUid), TransactionValidityError> {
         if alpha_vec.len() != 1 {
-            return Ok((0.into(), 0.into(), NetUid::ROOT));
+            // Reject multi-subnet alpha fee deduction, consistent with
+            // `can_withdraw_in_alpha`.  A zero-fee Ok here would let a
+            // validate→dispatch state change skip payment.
+            return Err(InvalidTransaction::Payment.into());
         }
 
         if let Some((hotkey, netuid)) = alpha_vec.first() {
