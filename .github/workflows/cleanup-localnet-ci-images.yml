@@ -20,42 +20,16 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     env:
-      PACKAGE_NAME: subtensor-localnet-ci
       RETENTION_DAYS: 30
     steps:
+      - name: Check out cleanup policy
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate cleanup policy
+        run: ./.github/scripts/test-cleanup-localnet-ci-images.sh
+
       - name: Delete expired CI image versions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PACKAGE_OWNER: ${{ github.repository_owner }}
-        run: |
-          set -euo pipefail
-
-          versions="$RUNNER_TEMP/localnet-ci-versions.json"
-          candidates="$RUNNER_TEMP/localnet-ci-candidates.jsonl"
-          cutoff="$(date -u -d "$RETENTION_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
-
-          gh api --paginate \
-            "/orgs/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME/versions?per_page=100" \
-            | jq -s 'add // []' > "$versions"
-
-          jq -c --arg cutoff "$cutoff" '
-            .[]
-            | select(.created_at < $cutoff)
-            | select(
-                (.metadata.container.tags | length) == 0
-                or all(.metadata.container.tags[]; test("^ci-[0-9a-f]{40}$"))
-              )
-          ' "$versions" > "$candidates"
-
-          deleted=0
-          while IFS= read -r version; do
-            id="$(jq -r '.id' <<< "$version")"
-            tags="$(jq -r '.metadata.container.tags | join(",")' <<< "$version")"
-            created_at="$(jq -r '.created_at' <<< "$version")"
-            echo "Deleting version $id (tags=${tags:-untagged}, created=$created_at)"
-            gh api --method DELETE \
-              "/orgs/$PACKAGE_OWNER/packages/container/$PACKAGE_NAME/versions/$id"
-            deleted=$((deleted + 1))
-          done < "$candidates"
-
-          echo "Deleted $deleted expired $PACKAGE_NAME image version(s)."
+        run: ./.github/scripts/cleanup-localnet-ci-images.sh

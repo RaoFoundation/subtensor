@@ -267,13 +267,6 @@ jobs:
             ${{ env.image }}:sha-${{ needs.setup.outputs.sha }}
             ${{ needs.setup.outputs.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}
           labels: |
-            org.opencontainers.image.title=Subtensor Localnet
-            org.opencontainers.image.description=Subtensor local development network for CI and local testing
-            org.opencontainers.image.source=https://github.com/RaoFoundation/subtensor
-            org.opencontainers.image.url=https://github.com/RaoFoundation/subtensor/pkgs/container/subtensor-localnet
-            org.opencontainers.image.documentation=https://github.com/RaoFoundation/subtensor/blob/main/docs/guides/local-development.mdx
-            org.opencontainers.image.licenses=Apache-2.0
-            org.opencontainers.image.vendor=Rao Foundation
             org.opencontainers.image.revision=${{ needs.setup.outputs.sha }}
             org.opencontainers.image.version=${{ needs.setup.outputs.tag }}
 

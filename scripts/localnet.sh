@@ -80,6 +80,11 @@ stop_recorded_nodes() {
     fi
   done <"$PID_FILE"
 
+  if [ "${#recorded_pids[@]}" -eq 0 ]; then
+    rm -f "$PID_FILE"
+    return 0
+  fi
+
   # Never purge a database while a node from the previous run still has it
   # open. Give recorded nodes time to close, then force only those exact PIDs.
   for _ in {1..30}; do
@@ -193,6 +198,26 @@ if [ $BUILD_ONLY -eq 0 ]; then
     exit 143
   }
 
+  wait_for_node_exit() {
+    local active_pids pid
+
+    # Bash 3.2 (the system Bash on macOS) has no `wait -n`. The job table is
+    # portable across every supported Bash version and lets us identify and
+    # reap whichever authority exits first.
+    while true; do
+      # `jobs -p` retains completed jobs in some non-interactive shells. Union
+      # running and stopped jobs instead, so only truly exited children vanish.
+      active_pids="$(jobs -pr; jobs -ps)"
+      for pid in "${NODE_PIDS[@]}"; do
+        if ! grep -qx "$pid" <<<"$active_pids"; then
+          wait "$pid"
+          return $?
+        fi
+      done
+      sleep 1
+    done
+  }
+
   one_start=(
     "$NODE_BINARY"
     --base-path /tmp/one
@@ -267,14 +292,8 @@ if [ $BUILD_ONLY -eq 0 ]; then
   NODE_PIDS+=("$!")
   printf '%s\n' "${NODE_PIDS[@]}" >"$PID_FILE"
 
-  # Modern container Bash supports wait -n, which makes the container fail
-  # promptly if any node exits. Retain a portable fallback for macOS Bash 3.2.
   set +e
-  if help wait 2>&1 | grep -q -- '-n'; then
-    wait -n "${NODE_PIDS[@]}"
-  else
-    wait "${NODE_PIDS[0]}"
-  fi
+  wait_for_node_exit
   node_status=$?
   set -e
 

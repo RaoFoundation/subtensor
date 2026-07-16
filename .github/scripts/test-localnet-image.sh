@@ -110,11 +110,12 @@ assert_rpc "$standard_container" 9944
 assert_rpc "$standard_container" 9945
 docker stop --time 40 "$standard_container" >/dev/null
 
-# The entrypoint supervises all three authorities. If one dies, the container
-# must fail instead of silently leaving CI connected to a partial network.
+# The entrypoint supervises all three authorities. Kill the newest process
+# (authority three), proving supervision is not accidentally limited to the
+# first child.
 docker run -d --name "$failure_container" "$image" True >/dev/null
 wait_healthy "$failure_container"
-docker exec "$failure_container" pkill -TERM -o node-subtensor
+docker exec "$failure_container" pkill -TERM -n node-subtensor
 for _ in {1..30}; do
   if [[ "$(docker inspect --format '{{.State.Running}}' "$failure_container")" == false ]]; then
     break
