@@ -485,8 +485,6 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       use_snapshot: ${{ steps.plan.outputs.use_snapshot }}
       artifact_id: ${{ steps.plan.outputs.artifact_id }}
-      artifact_digest: ${{ steps.plan.outputs.artifact_digest }}
-      artifact_size_bytes: ${{ steps.plan.outputs.artifact_size_bytes }}
       run_id: ${{ steps.plan.outputs.run_id }}
     steps:
       - name: Check out trusted snapshot selector
@@ -541,8 +539,6 @@ jobs:
             echo 'use_snapshot=true' >> "$GITHUB_OUTPUT"
             sed -n \
               -e 's/^artifact-id=/artifact_id=/p' \
-              -e 's/^artifact-digest=/artifact_digest=/p' \
-              -e 's/^artifact-size-bytes=/artifact_size_bytes=/p' \
               -e 's/^run-id=/run_id=/p' \
               "$selection" >> "$GITHUB_OUTPUT"
             echo "trusted snapshot available; pinning one artifact for parallel clone phases"
@@ -597,18 +593,42 @@ jobs:
         with:
           node-version: 20
 
+      # The trusted base selector pins provenance and the immutable artifact
+      # ID. Read integrity metadata for that exact ID here so rollout remains
+      # compatible with base revisions that predate digest/size outputs.
+      - name: Validate pinned mainnet snapshot metadata
+        if: needs.clone-plan.outputs.use_snapshot == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.clone-plan.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/pinned-mainnet-snapshot.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$metadata"
+          jq -e --arg id "$ARTIFACT_ID" '
+            (.id | tostring) == $id and
+            .name == "mainnet-snapshot" and
+            .expired == false and
+            (.size_in_bytes | type) == "number" and .size_in_bytes > 0 and
+            (.digest | type) == "string" and
+            (.digest | test("^sha256:[0-9a-f]{64}$"))
+          ' "$metadata" > /dev/null
+
       - name: Download selected mainnet clone snapshot
         id: download-clone-snapshot
         if: needs.clone-plan.outputs.use_snapshot == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          ARTIFACT_ID: ${{ needs.clone-plan.outputs.artifact_id }}
         run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/pinned-mainnet-snapshot.json"
           .github/scripts/download-artifact.sh \
-            "${{ needs.clone-plan.outputs.artifact_id }}" \
+            "$ARTIFACT_ID" \
             mainnet-snapshot \
-            "${{ needs.clone-plan.outputs.artifact_digest }}" \
-            "${{ needs.clone-plan.outputs.artifact_size_bytes }}" \
+            "$(jq -er '.digest' "$metadata")" \
+            "$(jq -er '.size_in_bytes' "$metadata")" \
             /tmp/mainnet-snapshot "$GITHUB_OUTPUT"
 
       - name: Restore mainnet clone snapshot

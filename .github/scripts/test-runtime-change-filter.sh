@@ -58,6 +58,9 @@ grep -Fq "needs.clone-plan.outputs.matrix || '{\"phase\":[\"combined\"]}'" "$run
 grep -Fq "CLONE_REGRESSION_PHASE: pristine" "$runtime_workflow"
 grep -Fq "CLONE_REGRESSION_PHASE: remaining" "$runtime_workflow"
 grep -Fq 'artifact_id: ${{ steps.plan.outputs.artifact_id }}' "$runtime_workflow"
-grep -Fq '"${{ needs.clone-plan.outputs.artifact_id }}"' "$runtime_workflow"
+grep -Fq 'ARTIFACT_ID: ${{ needs.clone-plan.outputs.artifact_id }}' "$runtime_workflow"
+grep -Fq 'gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"' "$runtime_workflow"
+grep -Fq '"$(jq -er '\''.digest'\'' "$metadata")"' "$runtime_workflow"
+grep -Fq '"$(jq -er '\''.size_in_bytes'\'' "$metadata")"' "$runtime_workflow"
 
 echo "runtime change filter tests passed"
