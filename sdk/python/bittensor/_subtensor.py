@@ -75,8 +75,7 @@ class Subtensor(SyncClient):
     def close(self) -> None:
         if self._mode == "async":
             raise BittensorError(
-                "This Subtensor is async; close the awaited client with "
-                "`await client.close()`."
+                "This Subtensor is async; close the awaited client with `await client.close()`."
             )
         if self._mode == "blocking":
             super().close()

@@ -69,7 +69,7 @@ result = sub.execute_tool("register_leased_network", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1682`](/code/pallets/subtensor/src/macros/dispatches.rs#L1682):
+`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1688`](/code/pallets/subtensor/src/macros/dispatches.rs#L1688):
 
 ```rust
 #[pallet::call_index(110)]
@@ -83,6 +83,6 @@ pub fn register_leased_network(
 }
 ```
 
-Delegates to [`do_register_leased_network`](/code/pallets/subtensor/src/subnets/leasing.rs#L69).
+Delegates to [`do_register_leased_network`](/code/pallets/subtensor/src/subnets/leasing.rs#L70).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

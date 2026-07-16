@@ -64,7 +64,7 @@ result = sub.execute_tool("terminate_lease", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1705`](/code/pallets/subtensor/src/macros/dispatches.rs#L1705):
+`SubtensorModule.terminate_lease` — [`pallets/subtensor/src/macros/dispatches.rs#L1711`](/code/pallets/subtensor/src/macros/dispatches.rs#L1711):
 
 ```rust
 #[pallet::call_index(111)]
@@ -78,6 +78,6 @@ pub fn terminate_lease(
 }
 ```
 
-Delegates to [`do_terminate_lease`](/code/pallets/subtensor/src/subnets/leasing.rs#L182).
+Delegates to [`do_terminate_lease`](/code/pallets/subtensor/src/subnets/leasing.rs#L181).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

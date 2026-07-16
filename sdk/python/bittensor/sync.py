@@ -238,6 +238,7 @@ class SyncClient:
         self.staking = _SyncNamespace(self._client.staking, self._call)
         self.subnets = _SyncNamespace(self._client.subnets, self._call)
         self.weights = _SyncNamespace(self._client.weights, self._call)
+
     # Lifecycle ----------------------------------------------------------------
 
     def _ensure_loop(self) -> _Loop:

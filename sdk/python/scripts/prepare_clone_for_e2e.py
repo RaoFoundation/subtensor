@@ -69,13 +69,9 @@ async def main(endpoint: str) -> None:
         await _sudo(
             client,
             alice,
-            bt.calls.AdminUtils.sudo_set_subnet_limit(
-                max_subnets=total_networks + SUBNET_HEADROOM
-            ),
+            bt.calls.AdminUtils.sudo_set_subnet_limit(max_subnets=total_networks + SUBNET_HEADROOM),
         )
-        await _sudo(
-            client, alice, bt.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1)
-        )
+        await _sudo(client, alice, bt.calls.AdminUtils.sudo_set_lock_reduction_interval(interval=1))
         await _sudo(
             client,
             alice,
