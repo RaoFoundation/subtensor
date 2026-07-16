@@ -38,10 +38,18 @@ jobs:
         run: |
           # The pinned runner image provides this exact binary. Old images and
           # hosted runners keep the normal Cargo install fallback.
-          if cargo-audit --version 2>/dev/null | grep -Fq 'cargo-audit 0.22.2'; then
-            echo "Using preinstalled cargo-audit 0.22.2"
+          contract=/etc/fireactions-runner-image/image-contract.env
+          system_bin=/usr/local/bin/cargo-audit
+          if [[ -r "$contract" ]] && \
+              grep -Fxq 'CARGO_AUDIT_VERSION=0.22.2' "$contract" && \
+              [[ -x "$system_bin" ]] && \
+              "$system_bin" --version 2>/dev/null | grep -Fq 'cargo-audit 0.22.2'; then
+            # rust-cache restores $HOME/.cargo/bin ahead of /usr/local/bin.
+            # Replace any cached copy with the verified image binary.
+            install -m 0755 "$system_bin" "$HOME/.cargo/bin/cargo-audit"
+            echo "Using verified runner-image cargo-audit 0.22.2"
           else
-            cargo install --locked cargo-audit --version 0.22.2
+            cargo install --force --locked cargo-audit --version 0.22.2
           fi
 
       - name: cargo audit

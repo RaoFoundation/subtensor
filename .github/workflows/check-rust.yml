@@ -194,7 +194,14 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Install cargo-nextest
         run: |
-          if ! cargo-nextest --version 2>/dev/null | grep -Fq 'cargo-nextest 0.9.140 '; then
+          contract=/etc/fireactions-runner-image/image-contract.env
+          system_bin=/usr/local/bin/cargo-nextest
+          if [[ -r "$contract" ]] && \
+              grep -Fxq 'CARGO_NEXTEST_VERSION=0.9.140' "$contract" && \
+              [[ -x "$system_bin" ]] && \
+              "$system_bin" --version 2>/dev/null | grep -Fq 'cargo-nextest 0.9.140 '; then
+            install -m 0755 "$system_bin" "$HOME/.cargo/bin/cargo-nextest"
+          else
             curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$HOME/.cargo/bin"
           fi
           cargo nextest --version
@@ -257,7 +264,14 @@ jobs:
           node-version: 22
       - name: Install wasm-pack
         run: |
-          if ! wasm-pack --version 2>/dev/null | grep -Fq 'wasm-pack 0.13.1'; then
+          contract=/etc/fireactions-runner-image/image-contract.env
+          system_bin=/usr/local/bin/wasm-pack
+          if [[ -r "$contract" ]] && \
+              grep -Fxq 'WASM_PACK_VERSION=0.13.1' "$contract" && \
+              [[ -x "$system_bin" ]] && \
+              "$system_bin" --version 2>/dev/null | grep -Fq 'wasm-pack 0.13.1'; then
+            install -m 0755 "$system_bin" "$HOME/.cargo/bin/wasm-pack"
+          else
             curl -LsSf https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
               | tar zxf - --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-pack'
           fi
@@ -317,7 +331,14 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: Install and run zepter
         run: |
-          if ! zepter --version 2>/dev/null | grep -Fq '1.88.1'; then
+          contract=/etc/fireactions-runner-image/image-contract.env
+          system_bin=/usr/local/bin/zepter
+          if [[ -r "$contract" ]] && \
+              grep -Fxq 'ZEPTER_VERSION=1.88.1' "$contract" && \
+              [[ -x "$system_bin" ]] && \
+              "$system_bin" --version 2>/dev/null | grep -Fq '1.88.1'; then
+            install -m 0755 "$system_bin" "$HOME/.cargo/bin/zepter"
+          else
             cargo install --locked -q zepter
           fi
           zepter run check

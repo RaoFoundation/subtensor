@@ -51,9 +51,11 @@ runs:
       run: |
         contract=/etc/fireactions-runner-image/image-contract.env
         revision=64b5bb4d3d34de062552b9a2093affe77b4ad16a
+        system_bin=/usr/local/bin/cross
         if [[ -r "$contract" ]] && \
             grep -Fxq "CROSS_SOURCE_REVISION=$revision" "$contract" && \
-            command -v cross >/dev/null 2>&1 && cross --version; then
+            [[ -x "$system_bin" ]] && "$system_bin" --version; then
+          install -m 0755 "$system_bin" "$HOME/.cargo/bin/cross"
           echo "Using preinstalled cross from $revision"
         else
           cargo install cross \
