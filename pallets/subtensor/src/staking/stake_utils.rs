@@ -550,7 +550,11 @@ impl<T: Config> Pallet<T> {
         amount: AlphaBalance,
     ) {
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
-        alpha_share_pool.update_value_for_all(amount.to_u64() as i64);
+        // Guard against u64→i64 overflow: a value > i64::MAX would wrap negative
+        // and invert the stake direction.  Saturating at i64::MAX is safe because
+        // alpha total supply cannot realistically exceed 9.22e18.
+        let amount_i64 = i64::try_from(amount.to_u64()).unwrap_or(i64::MAX);
+        alpha_share_pool.update_value_for_all(amount_i64);
     }
 
     /// Decrease hotkey stake on a subnet.
@@ -564,7 +568,8 @@ impl<T: Config> Pallet<T> {
     ///
     pub fn decrease_stake_for_hotkey_on_subnet(hotkey: &T::AccountId, netuid: NetUid, amount: u64) {
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
-        alpha_share_pool.update_value_for_all((amount as i64).neg());
+        let amount_i64 = i64::try_from(amount).unwrap_or(i64::MAX);
+        alpha_share_pool.update_value_for_all(amount_i64.neg());
     }
 
     /// Buys shares in the hotkey on a given subnet
@@ -593,7 +598,8 @@ impl<T: Config> Pallet<T> {
 
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
         // We expect to add a positive amount here.
-        let amount = amount.to_u64() as i64;
+        // Guard against u64→i64 overflow (see increase_stake_for_hotkey_on_subnet).
+        let amount = i64::try_from(amount.to_u64()).unwrap_or(i64::MAX);
         alpha_share_pool.update_value_for_one(coldkey, amount);
     }
 
@@ -603,7 +609,7 @@ impl<T: Config> Pallet<T> {
         amount: AlphaBalance,
     ) -> bool {
         let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
-        let amount = amount.to_u64() as i64;
+        let amount = i64::try_from(amount.to_u64()).unwrap_or(i64::MAX);
         alpha_share_pool.sim_update_value_for_one(amount)
     }
 
@@ -630,7 +636,8 @@ impl<T: Config> Pallet<T> {
         if let Ok(value) = alpha_share_pool.try_get_value(coldkey)
             && value >= amount
         {
-            alpha_share_pool.update_value_for_one(coldkey, (amount as i64).neg());
+            let amount_i64 = i64::try_from(amount).unwrap_or(i64::MAX);
+            alpha_share_pool.update_value_for_one(coldkey, amount_i64.neg());
         }
     }
 
