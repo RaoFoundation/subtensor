@@ -205,9 +205,9 @@ jobs:
           test: ${{ matrix.test }}
 
   # Shield validates consensus, key rotation, timing, and transaction
-  # mortality, so every shard retains the six-node topology. Functional
-  # per-block behavior runs against the 250 ms fast runtime; the timing shard
-  # keeps the production 12 s runtime for its wall-clock boundary assertions.
+  # mortality, so every shard retains the six-node topology and production
+  # slot duration. A 250 ms runtime outruns the asynchronous key-rotation
+  # pipeline and can finalize a wrapper without unshielding its inner call.
   run-shield-tests:
     needs: [trusted-pr, changes, build]
     if: needs.changes.outputs.shield == 'true'
@@ -218,13 +218,13 @@ jobs:
       matrix:
         include:
           - test: zombienet_shield_a
-            binary: fast
+            binary: release
           - test: zombienet_shield_b
             binary: release
           - test: zombienet_shield_c
-            binary: fast
+            binary: release
           - test: zombienet_shield_d
-            binary: fast
+            binary: release
     name: "typescript-e2e-${{ matrix.test }}"
     steps:
       - name: Check-out repository

@@ -16,10 +16,10 @@ const shieldFiles = readdirSync(join(tsTestsDir, "suites/zombienet_shield"))
     .sort();
 const shieldShardNames = ["zombienet_shield_a", "zombienet_shield_b", "zombienet_shield_c", "zombienet_shield_d"];
 const expectedShieldBinaries = new Map([
-    ["zombienet_shield_a", "fast"],
+    ["zombienet_shield_a", "release"],
     ["zombienet_shield_b", "release"],
-    ["zombienet_shield_c", "fast"],
-    ["zombienet_shield_d", "fast"],
+    ["zombienet_shield_c", "release"],
+    ["zombienet_shield_d", "release"],
 ]);
 const shieldJob = e2eWorkflow.match(/\n {2}run-shield-tests:\n(?<body>[\s\S]*?)\n {2}shield-result:\n/)?.groups?.body;
 if (!shieldJob) {
@@ -66,9 +66,6 @@ for (const [index, includes] of shieldShardIncludes.entries()) {
     const containsProductionTiming = includes.includes(productionTimingFile);
     if (containsProductionTiming && (binary !== "release" || includes.length !== 1)) {
         throw new Error(`${productionTimingFile} must be the only file in one release-runtime shard`);
-    }
-    if (!containsProductionTiming && binary !== "fast") {
-        throw new Error(`${name} has no production timing test and must use the fast runtime`);
     }
     const environment = environments.get(name);
     const expectedVitestArgs = containsProductionTiming ? productionTimingVitestArgs : shieldDefaultVitestArgs;
@@ -155,5 +152,5 @@ for (const name of ["zombienet_shield", ...shieldShardNames]) {
 }
 
 console.log(
-    `Validated ${shieldFiles.length} Shield files across ${shieldShardNames.length} mixed-runtime shards, ${shieldShardNames.length + 1} multi-node Shield environments, and four single-node state suites.`
+    `Validated ${shieldFiles.length} Shield files across ${shieldShardNames.length} production-runtime shards, ${shieldShardNames.length + 1} multi-node Shield environments, and four single-node state suites.`
 );

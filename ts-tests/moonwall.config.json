@@ -103,7 +103,7 @@
         {
             "name": "zombienet_shield_a",
             "timeout": 600000,
-            "envVars": ["SHIELD_RUNTIME=fast"],
+            "envVars": ["SHIELD_RUNTIME=release"],
             "testFileDir": ["suites/zombienet_shield"],
             "include": [
                 "suites/zombienet_shield/00.01-basic.test.ts"
@@ -179,7 +179,7 @@
         {
             "name": "zombienet_shield_c",
             "timeout": 600000,
-            "envVars": ["SHIELD_RUNTIME=fast"],
+            "envVars": ["SHIELD_RUNTIME=release"],
             "testFileDir": ["suites/zombienet_shield"],
             "include": [
                 "suites/zombienet_shield/00.00-basic.test.ts",
@@ -217,7 +217,7 @@
         {
             "name": "zombienet_shield_d",
             "timeout": 600000,
-            "envVars": ["SHIELD_RUNTIME=fast"],
+            "envVars": ["SHIELD_RUNTIME=release"],
             "testFileDir": ["suites/zombienet_shield"],
             "include": [
                 "suites/zombienet_shield/02-edge-cases.test.ts",
