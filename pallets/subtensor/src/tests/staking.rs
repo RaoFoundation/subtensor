@@ -6004,3 +6004,71 @@ fn test_sharepool_dataops_try_get_value_returns_err_on_non_existing_v2() {
         assert!(maybe_actual_value.is_err());
     });
 }
+
+// Tests for the u64->i64 cast guard in stake_utils.
+// Before the fix, `AlphaBalance(u64)` values > i64::MAX were passed as `amount as i64`,
+// wrapping negative and silently decreasing (or, at i64::MIN, panicking on `.neg()`).
+// After the fix, `i64::try_from().unwrap_or(i64::MAX)` saturates at i64::MAX instead.
+
+/// H2 (happy path): a normal amount far below i64::MAX passes through `try_from`
+/// successfully and increases stake.
+#[test]
+fn test_stake_i64_cast_guard_happy_path() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(435445);
+        let hotkey = U256::from(54544);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        register_ok_neuron(netuid, hotkey, coldkey, 192213123);
+
+        let initial = AlphaBalance::from(1_000_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, initial);
+        let stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&hotkey, netuid);
+
+        // A value well within i64::MAX: the try_from succeeds and stake increases.
+        let normal_amount = AlphaBalance::from(1_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(
+            &hotkey,
+            netuid,
+            normal_amount,
+        );
+
+        let stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&hotkey, netuid);
+        assert!(stake_after > stake_before);
+    });
+}
+
+/// M1 (overflow guard): a value just above i64::MAX would wrap to i64::MIN via
+/// `as i64`, and `i64::MIN.neg()` panics inside `update_value_for_all` in debug
+/// mode.  With the guard, `try_from` fails and the call saturates at i64::MAX,
+/// avoiding the panic and increasing stake rather than decreasing it.
+#[test]
+fn test_stake_i64_cast_guard_prevents_negate_overflow_panic() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let coldkey = U256::from(435445);
+        let hotkey = U256::from(54544);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        register_ok_neuron(netuid, hotkey, coldkey, 192213123);
+
+        // Give the hotkey some initial stake so the share pool is non-empty.
+        let initial = AlphaBalance::from(1_000_000_000_u64);
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, initial);
+
+        // i64::MAX as u64 + 1 == 0x8000_0000_0000_0000, which is i64::MIN when
+        // reinterpreted as i64.  Without the guard, `i64::MIN.neg()` panics.
+        let overflow_amount = AlphaBalance::from(i64::MAX as u64 + 1);
+        SubtensorModule::increase_stake_for_hotkey_on_subnet(
+            &hotkey,
+            netuid,
+            overflow_amount,
+        );
+
+        // If we reached here, the guard prevented the panic.  The stake should
+        // have increased (saturated at i64::MAX), not decreased.
+        let stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&hotkey, netuid);
+        assert!(stake_after > initial);
+    });
+}
