@@ -4,10 +4,11 @@
 
 use core::{marker::PhantomData, num::NonZeroU64};
 
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use fp_evm::{Context, PrecompileResult};
 use frame_support::{
     PalletId, derive_impl, parameter_types,
-    traits::{Everything, PrivilegeCmp},
+    traits::{Everything, PrivilegeCmp, VariantCount, VariantCountOf},
     weights::Weight,
 };
 use frame_system::{EnsureRoot, limits};
@@ -16,9 +17,10 @@ use pallet_evm::{
     PrecompileHandle, PrecompileSet, SubstrateBalance,
 };
 use precompile_utils::testing::MockHandle;
+use scale_info::TypeInfo;
 use sp_core::{ConstU64, H160, H256, U256, crypto::AccountId32};
 use sp_runtime::{
-    BuildStorage, KeyTypeId, Perbill, Percent,
+    BuildStorage, KeyTypeId, Perbill, Percent, RuntimeDebug,
     testing::TestXt,
     traits::{BlakeTwo256, ConstU32, IdentityLookup},
 };
@@ -30,6 +32,28 @@ use crate::PrecompileExt;
 pub(crate) type AccountId = AccountId32;
 pub(crate) type Block = frame_system::mocking::MockBlock<Runtime>;
 pub(crate) type UncheckedExtrinsic = TestXt<RuntimeCall, ()>;
+
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    MaxEncodedLen,
+    TypeInfo,
+    RuntimeDebug,
+)]
+pub enum TestBalanceStatus {
+    Test,
+}
+
+impl VariantCount for TestBalanceStatus {
+    const VARIANT_COUNT: u32 = 1;
+}
 
 frame_support::construct_runtime!(
     pub enum Runtime {
@@ -194,10 +218,11 @@ impl pallet_balances::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
-    type ReserveIdentifier = [u8; 8];
-    type FreezeIdentifier = ();
-    type MaxFreezes = ();
-    type RuntimeHoldReason = ();
+    type ReserveIdentifier = TestBalanceStatus;
+    type RuntimeHoldReason = TestBalanceStatus;
+    type RuntimeFreezeReason = TestBalanceStatus;
+    type FreezeIdentifier = TestBalanceStatus;
+    type MaxFreezes = VariantCountOf<TestBalanceStatus>;
 }
 
 impl pallet_alpha_assets::Config for Runtime {}

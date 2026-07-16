@@ -13,6 +13,8 @@ name: Release Train
 # is force-updated to the deployed commit, so those branches always contain
 # the code running on the respective chain. The `mainnet` branch is updated
 # by watch-mainnet-release.yml once the multisig executes on chain.
+# Moving a network mirror triggers both Docker publishers, updating the
+# matching tags in the regular `subtensor` and `subtensor-localnet` packages.
 # Those branches are locked by the "network-branch-mirrors (CI only)"
 # repository ruleset; the only bypass actor is the network-branch-mirror-ci
 # deploy key (secret MIRROR_DEPLOY_KEY), so the mirror pushes go over SSH.
@@ -172,9 +174,10 @@ jobs:
           [ "$chain" = "${{ needs.build.outputs.spec_version }}" ] || { echo "devnet still on $chain"; exit 1; }
 
       # Mirror: the devnet branch always points at the code now running on
-      # devnet. The branch is ruleset-locked; only the mirror deploy key may
-      # update it, so the push goes over SSH. Force push because deploys are
-      # not fast-forwards of the previous mirror.
+      # devnet. Its push event publishes both regular and localnet :devnet
+      # images from this exact commit. The branch is ruleset-locked; only the
+      # mirror deploy key may update it, so the push goes over SSH. Force push
+      # because deploys are not fast-forwards of the previous mirror.
       - name: Point devnet branch at deployed commit
         if: steps.guard.outputs.should_deploy == 'true'
         env:
