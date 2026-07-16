@@ -80,7 +80,7 @@ else
       # back to the complete matrix rather than guessing. In particular,
       # subtensor staking, subnet, and swap code is exercised across several
       # nominally separate suites, so all production changes there stay full.
-      ts-tests/*|common/*|node/*|pallets/*|primitives/*|runtime/*|support/*|chain-extensions/*|src/*|vendor/*|Cargo.toml|build.rs|rust-toolchain.toml|.github/workflows/typescript-e2e.yml|.github/actions/run-typescript-e2e/*|.github/actions/rust-setup/*|.github/actions/sccache-setup/*|.github/scripts/sccache-configure.sh|.github/scripts/sccache-config.py|.github/scripts/sccache-report.sh|.github/scripts/classify-typescript-e2e-changes.sh|.github/scripts/extract-pull-file-paths.sh|.github/scripts/test-classify-typescript-e2e-changes.sh)
+      ts-tests/*|common/*|node/*|pallets/*|primitives/*|runtime/*|support/*|chain-extensions/*|src/*|vendor/*|Cargo.toml|Cargo.lock|build.rs|rust-toolchain.toml|.github/workflows/typescript-e2e.yml|.github/actions/run-typescript-e2e/*|.github/actions/rust-setup/*|.github/actions/sccache-setup/*|.github/scripts/sccache-configure.sh|.github/scripts/sccache-config.py|.github/scripts/sccache-report.sh|.github/scripts/classify-typescript-e2e-changes.sh|.github/scripts/extract-pull-file-paths.sh|.github/scripts/test-classify-typescript-e2e-changes.sh)
         enable_all
         ;;
     esac

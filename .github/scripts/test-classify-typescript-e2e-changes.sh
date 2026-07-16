@@ -52,11 +52,18 @@ assert_selected_builds_available() {
   fi
 }
 
-classify README.md Cargo.lock
+classify README.md
 assert_value e2e false
 assert_value state_count 0
 assert_value build_count 0
 assert_value build_matrix '{"include":[]}'
+
+classify Cargo.lock
+assert_value e2e true
+assert_value evm true
+assert_value state_count 6
+assert_value shield true
+assert_value build_count 2
 
 # GitHub reports only the destination as filename for a rename. Preserve the
 # previous path so moving production code out of a covered tree cannot bypass
@@ -237,10 +244,15 @@ fi
 grep -Fq 'ref: ${{ github.event_name == '\''pull_request'\'' && github.event.pull_request.base.sha || github.sha }}' "$workflow"
 grep -Fq 'if [[ ! -x "$classifier" || ! -x "$extractor" ]]; then' "$workflow"
 grep -Fq "echo 'shield=$(value shield)'" "$workflow"
+grep -Fq "echo 'evm=$(value evm)'" "$workflow"
 grep -Fq "echo 'state_count=$(value state_count)'" "$workflow"
 grep -Fq "echo 'state_matrix=$(value state_matrix)'" "$workflow"
 grep -Fq "echo 'build_count=$(value build_count)'" "$workflow"
 grep -Fq "echo 'build_matrix=$(value build_matrix)'" "$workflow"
 grep -Fq 'name: typescript-e2e-zombienet_evm' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build, run-e2e-tests]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build, run-shield-tests]' "$workflow"
+grep -Fq 'EVM_SELECTED: ${{ needs.changes.outputs.evm }}' "$workflow"
+grep -Fq 'SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}' "$workflow"
 
 echo "typescript E2E change classifier tests passed"

@@ -34,6 +34,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      evm: ${{ steps.filter.outputs.evm }}
       shield: ${{ steps.filter.outputs.shield }}
       state_count: ${{ steps.filter.outputs.state_count }}
       state_matrix: ${{ steps.filter.outputs.state_matrix }}
@@ -68,6 +69,7 @@ jobs:
 
           select_full_matrix() {
             {
+              echo 'evm=true'
               echo 'shield=true'
               echo 'state_count=6'
               echo 'state_matrix={"include":[{"test":"zombienet_evm_a","binary":"fast"},{"test":"zombienet_evm_b","binary":"fast"},{"test":"zombienet_staking","binary":"fast"},{"test":"zombienet_coldkey_swap","binary":"fast"},{"test":"dev","binary":"release"},{"test":"zombienet_subnets","binary":"fast"}]}'
@@ -211,16 +213,33 @@ jobs:
   evm-result:
     name: typescript-e2e-zombienet_evm
     if: always()
-    needs: [build, run-e2e-tests]
+    needs: [trusted-pr, changes, build, run-e2e-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check EVM shard prerequisites
         env:
+          TRUSTED_RESULT: ${{ needs.trusted-pr.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          EVM_SELECTED: ${{ needs.changes.outputs.evm }}
           BUILD_RESULT: ${{ needs.build.result }}
           STATE_RESULT: ${{ needs.run-e2e-tests.result }}
         run: |
-          if [[ "$BUILD_RESULT" == "failure" || "$BUILD_RESULT" == "cancelled" || \
-                "$STATE_RESULT" == "failure" || "$STATE_RESULT" == "cancelled" ]]; then
+          if [[ "$TRUSTED_RESULT" != "success" || "$CHANGES_RESULT" != "success" ]]; then
+            echo "EVM E2E routing failed: trusted=$TRUSTED_RESULT changes=$CHANGES_RESULT" >&2
+            exit 1
+          fi
+          case "$EVM_SELECTED" in
+            false)
+              echo "EVM E2E was intentionally skipped by trusted path routing."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "EVM E2E routing produced an invalid selection: '$EVM_SELECTED'" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$BUILD_RESULT" != "success" || "$STATE_RESULT" != "success" ]]; then
             echo "EVM E2E prerequisites failed: build=$BUILD_RESULT state-shards=$STATE_RESULT" >&2
             exit 1
           fi
@@ -260,16 +279,33 @@ jobs:
   shield-result:
     name: typescript-e2e-zombienet_shield
     if: always()
-    needs: [build, run-shield-tests]
+    needs: [trusted-pr, changes, build, run-shield-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check Shield shard results
         env:
+          TRUSTED_RESULT: ${{ needs.trusted-pr.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}
           BUILD_RESULT: ${{ needs.build.result }}
           SHIELD_RESULT: ${{ needs.run-shield-tests.result }}
         run: |
-          if [[ "$BUILD_RESULT" == "failure" || "$BUILD_RESULT" == "cancelled" || \
-                "$SHIELD_RESULT" == "failure" || "$SHIELD_RESULT" == "cancelled" ]]; then
+          if [[ "$TRUSTED_RESULT" != "success" || "$CHANGES_RESULT" != "success" ]]; then
+            echo "Shield E2E routing failed: trusted=$TRUSTED_RESULT changes=$CHANGES_RESULT" >&2
+            exit 1
+          fi
+          case "$SHIELD_SELECTED" in
+            false)
+              echo "Shield E2E was intentionally skipped by trusted path routing."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "Shield E2E routing produced an invalid selection: '$SHIELD_SELECTED'" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$BUILD_RESULT" != "success" || "$SHIELD_RESULT" != "success" ]]; then
             echo "Shield E2E prerequisites failed: build=$BUILD_RESULT shards=$SHIELD_RESULT" >&2
             exit 1
           fi
