@@ -1972,3 +1972,53 @@ fn ghsa_2026_014_childkey_take_not_migrated_on_hotkey_swap() {
         );
     });
 }
+
+#[test]
+fn hotkey_swap_has_no_hard_position_cap() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let owner = U256::from(3);
+        let netuid = NetUid::from(1);
+        let alpha = AlphaBalance::from(1_u64);
+
+        add_network(netuid, 1, 0);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000_u64));
+        Owner::<Test>::insert(old_hotkey, owner);
+        OwnedHotkeys::<Test>::insert(owner, vec![old_hotkey]);
+        add_balance_to_coldkey_account(
+            &owner,
+            SubtensorModule::get_key_swap_cost().saturating_add(ExistentialDeposit::get()),
+        );
+
+        // This is deliberately one more than the removed 1,024-position cap.
+        for index in 0..=1_024_u64 {
+            let coldkey = U256::from(10_000_u64.saturating_add(index));
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old_hotkey,
+                &coldkey,
+                netuid,
+                alpha,
+            );
+        }
+
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(owner),
+            &old_hotkey,
+            &new_hotkey,
+            None,
+            false,
+        ));
+
+        let first_staker = U256::from(10_000_u64);
+        assert_eq!(Owner::<Test>::get(new_hotkey), owner);
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &new_hotkey,
+                &first_staker,
+                netuid,
+            ),
+            alpha
+        );
+    });
+}
