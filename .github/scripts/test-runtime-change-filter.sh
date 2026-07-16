@@ -26,6 +26,7 @@ python_only=$'runtime=false\ndocs=false\npython_sdk=true\nsdk_drift=false\nsnaps
 assert_classification README.md "$all_false"
 assert_classification .github/actions/rust-setup/action.yml "$runtime_only"
 assert_classification .github/actions/sccache-setup/action.yml "$runtime_only"
+assert_classification .github/scripts/sccache-report.sh "$runtime_only"
 assert_classification .github/scripts/classify-runtime-changes.sh "$runtime_and_snapshot_only"
 assert_classification .github/scripts/test-runtime-change-filter.sh "$runtime_and_snapshot_only"
 assert_classification .github/scripts/prewarm-exact-runtime.sh "$runtime_and_snapshot_only"

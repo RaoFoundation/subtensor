@@ -167,6 +167,10 @@ jobs:
       - name: Build runtime wasm (production, try-runtime feature)
         run: cargo build --profile production -p node-subtensor-runtime --features try-runtime -q --locked
 
+      - name: Report try-runtime compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Try-runtime wasm compiler cache"
+
       - name: Upload try-runtime wasm
         uses: actions/upload-artifact@v4
         with:
@@ -214,15 +218,14 @@ jobs:
           started=$(date -u +%s)
           cargo build --release -p node-subtensor
           seconds=$(($(date -u +%s) - started))
-          sccache --show-stats | tee "$RUNNER_TEMP/sccache-node-release.txt"
           {
             echo "### Release node compile"
             echo "- Wall time: ${seconds}s"
-            echo "- Host-local tier: ${SCCACHE_LOCAL_TIER:-false}"
-            echo '```text'
-            cat "$RUNNER_TEMP/sccache-node-release.txt"
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report release-node compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Release node compiler cache"
 
       - name: Upload release node + runtime wasm
         uses: actions/upload-artifact@v4

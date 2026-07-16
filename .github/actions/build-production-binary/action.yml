@@ -108,3 +108,8 @@ runs:
 
         install -Dm0755 "$binary" "build/ci_target/${ARCH}/node-subtensor"
         echo "Staged $ARCH binary: $(du -h "build/ci_target/${ARCH}/node-subtensor" | cut -f1)"
+
+    - name: Report production compiler cache
+      if: always()
+      shell: bash
+      run: .github/scripts/sccache-report.sh "Production ${{ inputs.arch }} compiler cache"

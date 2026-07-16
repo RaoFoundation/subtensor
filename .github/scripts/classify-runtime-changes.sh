@@ -26,7 +26,7 @@ while IFS= read -r path; do
     clones/*|website/apps/bittensor-website/scripts/*)
       runtime=true
       ;;
-    .github/workflows/runtime-checks.yml|.github/workflows/refresh-mainnet-snapshot.yml|.github/actions/rust-setup/*|.github/actions/sccache-setup/*|.github/scripts/sccache-configure.sh)
+    .github/workflows/runtime-checks.yml|.github/workflows/refresh-mainnet-snapshot.yml|.github/actions/rust-setup/*|.github/actions/sccache-setup/*|.github/scripts/sccache-configure.sh|.github/scripts/sccache-report.sh)
       runtime=true
       ;;
     .github/scripts/classify-runtime-changes.sh|.github/scripts/test-runtime-change-filter.sh|.github/scripts/snapshot-artifact.sh|.github/scripts/test-snapshot-artifact.sh|.github/scripts/download-artifact.sh|.github/scripts/test-download-artifact.sh|.github/scripts/r2-artifact-mirror.py|.github/scripts/test-r2-artifact-mirror.py|.github/scripts/publish-artifact-mirror.sh|.github/scripts/prewarm-exact-runtime.sh|.github/scripts/test-prewarm-exact-runtime.sh|.github/scripts/benchmark-sccache-paired.sh|.github/scripts/benchmark-artifact-cache.sh)

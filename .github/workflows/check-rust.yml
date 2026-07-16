@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py|-wasm)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/(rust-setup|sccache-setup)/|scripts/sccache-configure\.sh$)'
+          pattern='^(common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^sdk/bittensor-core(-py|-wasm)?/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml|zepter\.yaml)$|^\.github/(workflows/check-rust\.yml|actions/(rust-setup|sccache-setup)/|scripts/sccache-(configure|report)\.sh$)'
           if grep -qE "$pattern" <<< "$files"; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
           else
@@ -114,6 +114,9 @@ jobs:
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets ${{ matrix.features.flags }} -- -D warnings
+      - name: Report clippy compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Clippy ${{ matrix.features.name }} compiler cache"
 
   warnings:
     name: no cargo check warnings
@@ -140,6 +143,9 @@ jobs:
           # RUSTFLAGS: -D warnings promotes warnings to errors, so cargo's
           # exit code alone fails the job on any warning.
           cargo check
+      - name: Report warnings-check compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Warnings check compiler cache"
 
   test:
     name: cargo test
@@ -172,6 +178,9 @@ jobs:
         run: cargo nextest run --workspace --all-features
       - name: cargo test --doc --workspace --all-features
         run: cargo test --doc --workspace --all-features
+      - name: Report test compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Cargo test compiler cache"
 
   # The browser seam: bittensor-core without its `host` feature must keep
   # compiling for wasm32 (the future wasm-bindgen/TS binding target). This
@@ -227,6 +236,9 @@ jobs:
         run: |
           wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node
           node sdk/bittensor-core-wasm/tests/smoke.mjs
+      - name: Report wasm compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Bittensor core wasm compiler cache"
 
   fix:
     name: cargo fix leaves no diff
@@ -251,6 +263,9 @@ jobs:
         run: |
           cargo fix --workspace
           git diff --exit-code || { echo "'cargo fix --workspace' produced changes; apply them locally."; exit 1; }
+      - name: Report cargo-fix compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Cargo fix compiler cache"
 
   zepter:
     name: zepter feature propagation
