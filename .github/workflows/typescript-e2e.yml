@@ -72,7 +72,7 @@ jobs:
               echo 'state_count=5'
               echo 'state_matrix={"include":[{"test":"zombienet_evm","binary":"fast"},{"test":"zombienet_staking","binary":"fast"},{"test":"zombienet_coldkey_swap","binary":"fast"},{"test":"dev","binary":"release"},{"test":"zombienet_subnets","binary":"fast"}]}'
               echo 'build_count=2'
-              echo 'build_matrix={"include":[{"variant":"fast","flags":"--features fast-runtime"},{"variant":"release","flags":""}]}'
+              echo 'build_matrix={"include":[{"variant":"release","flags":""},{"variant":"fast","flags":"--features fast-runtime"}]}'
             } >> "$GITHUB_OUTPUT"
           }
 

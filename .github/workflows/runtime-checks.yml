@@ -469,6 +469,88 @@ jobs:
           uv run python -m codegen.check --coverage
           uv run python -m codegen.check --names
 
+  # Decide whether the clone regressions can fan out over the immutable
+  # snapshot. Fresh-state diagnostics and a missing trusted snapshot retain
+  # the single-job live-scrape path, avoiding duplicate archive RPC load.
+  # Execute the selector from the trusted base revision so a PR cannot choose
+  # the smaller matrix by modifying its own routing helper.
+  clone-plan:
+    name: plan clone regression execution
+    needs: changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      use_snapshot: ${{ steps.plan.outputs.use_snapshot }}
+      artifact_id: ${{ steps.plan.outputs.artifact_id }}
+      artifact_digest: ${{ steps.plan.outputs.artifact_digest }}
+      artifact_size_bytes: ${{ steps.plan.outputs.artifact_size_bytes }}
+      run_id: ${{ steps.plan.outputs.run_id }}
+    steps:
+      - name: Check out trusted snapshot selector
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: .github/scripts/snapshot-artifact.sh
+          sparse-checkout-cone-mode: false
+          path: .trusted-clone-plan
+          persist-credentials: false
+
+      - name: Select parallel or combined execution
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNTIME_RELEVANT: ${{ needs.changes.outputs.runtime }}
+          FRESH_CLONE: ${{ contains(github.event.pull_request.labels.*.name, 'fresh-mainnet-clone') }}
+        run: |
+          set -euo pipefail
+          combined() {
+            echo 'matrix={"phase":["combined"]}' >> "$GITHUB_OUTPUT"
+            echo 'use_snapshot=false' >> "$GITHUB_OUTPUT"
+          }
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request && "$RUNTIME_RELEVANT" != true ]]; then
+            combined
+            exit 0
+          fi
+          if [[ "$FRESH_CLONE" == true ]]; then
+            echo "fresh-mainnet-clone requested; retaining one live scrape"
+            combined
+            exit 0
+          fi
+
+          selector=.trusted-clone-plan/.github/scripts/snapshot-artifact.sh
+          if [[ ! -x "$selector" ]]; then
+            echo "trusted snapshot selector unavailable; retaining one live scrape"
+            combined
+            exit 0
+          fi
+
+          selection=$(mktemp)
+          trap 'rm -f "$selection"' EXIT
+          if "$selector" select \
+              mainnet-snapshot \
+              "${{ github.event.repository.default_branch }}" \
+              "${{ github.repository_id }}" \
+              .github/workflows/refresh-mainnet-snapshot.yml \
+              168 "$selection" optional &&
+             grep -qx 'found=true' "$selection"; then
+            echo 'matrix={"phase":["pristine","remaining"]}' >> "$GITHUB_OUTPUT"
+            echo 'use_snapshot=true' >> "$GITHUB_OUTPUT"
+            sed -n \
+              -e 's/^artifact-id=/artifact_id=/p' \
+              -e 's/^artifact-digest=/artifact_digest=/p' \
+              -e 's/^artifact-size-bytes=/artifact_size_bytes=/p' \
+              -e 's/^run-id=/run_id=/p' \
+              "$selection" >> "$GITHUB_OUTPUT"
+            echo "trusted snapshot available; pinning one artifact for parallel clone phases"
+          else
+            echo "trusted snapshot unavailable; retaining one live scrape"
+            combined
+          fi
+
   # For every PR: sudo-upgrade a local clone of mainnet with the proposed
   # runtime, then run the clone regression suite and the SDK metadata drift
   # gate against the upgraded chain. (Chain-facing SDK e2e coverage lives in
@@ -479,15 +561,13 @@ jobs:
   # label is set). Auto-skips (via the `build-node-release` need) when the PR touches
   # nothing runtime-relevant.
   #
-  # Interval sealing advances runtime time by one 12-second slot every 250ms,
-  # so the block-driven regressions can run sequentially on one runner. The
-  # issuance-invariant test gets a pristine clone; the already-downloaded
-  # checkpoint is then restored locally for the remaining tests, before
-  # forceSetBalance-based fixtures make the issuance mirrors diverge. This
-  # avoids four runners and four downloads without sharing destructive state.
+  # Interval sealing advances runtime time by one 12-second slot every 250ms.
+  # With a trusted snapshot available, the pristine issuance invariant and
+  # the state-mutating remaining regressions restore independent copies and
+  # run in parallel. A live scrape retains the combined sequential path.
   clone-upgrade:
-    name: clone-upgrade
-    needs: [trusted-pr, changes, build-node-release]
+    name: clone-upgrade (${{ matrix.phase }})
+    needs: [trusted-pr, changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
@@ -495,6 +575,11 @@ jobs:
       contents: read
       # Cross-run artifact download (the nightly mainnet snapshot).
       actions: read
+    strategy:
+      fail-fast: false
+      # Missing planner output falls back to the complete sequential suite;
+      # it must never create an empty matrix that silently skips coverage.
+      matrix: ${{ fromJSON(needs.clone-plan.outputs.matrix || '{"phase":["combined"]}') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -512,71 +597,41 @@ jobs:
         with:
           node-version: 20
 
-      - name: Select mainnet clone snapshot
-        id: clone-snapshot
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'fresh-mainnet-clone') }}
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          .github/scripts/snapshot-artifact.sh select \
-            mainnet-snapshot \
-            "${{ github.event.repository.default_branch }}" \
-            "${{ github.repository_id }}" \
-            .github/workflows/refresh-mainnet-snapshot.yml \
-            168 "$GITHUB_OUTPUT" optional
-
       - name: Download selected mainnet clone snapshot
         id: download-clone-snapshot
-        if: steps.clone-snapshot.outputs.found == 'true'
-        continue-on-error: true
+        if: needs.clone-plan.outputs.use_snapshot == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         run: |
           .github/scripts/download-artifact.sh \
-            "${{ steps.clone-snapshot.outputs.artifact-id }}" \
+            "${{ needs.clone-plan.outputs.artifact_id }}" \
             mainnet-snapshot \
-            "${{ steps.clone-snapshot.outputs.artifact-digest }}" \
-            "${{ steps.clone-snapshot.outputs.artifact-size-bytes }}" \
+            "${{ needs.clone-plan.outputs.artifact_digest }}" \
+            "${{ needs.clone-plan.outputs.artifact_size_bytes }}" \
             /tmp/mainnet-snapshot "$GITHUB_OUTPUT"
 
       - name: Restore mainnet clone snapshot
         id: restore-clone-snapshot
-        if: steps.download-clone-snapshot.outcome == 'success'
-        continue-on-error: true
+        if: needs.clone-plan.outputs.use_snapshot == 'true'
         run: |
           set -euo pipefail
           checkpoint=/tmp/mainnet-snapshot/mainnet-snapshot.tar.gz
           ./clones/scripts/local-clone-checkpoint.sh restore "$checkpoint"
-          echo "Restored artifact ${{ steps.clone-snapshot.outputs.artifact-id }} from run ${{ steps.clone-snapshot.outputs.run-id }}."
+          echo "Restored artifact ${{ needs.clone-plan.outputs.artifact_id }} from run ${{ needs.clone-plan.outputs.run_id }}."
           {
             echo "### Mainnet clone snapshot"
             echo "- Download source: ${{ steps.download-clone-snapshot.outputs.source }}"
             echo "- Download and extraction: ${{ steps.download-clone-snapshot.outputs.seconds }}s"
-            echo "- Artifact: ${{ steps.clone-snapshot.outputs.artifact-id }}"
+            echo "- Artifact: ${{ needs.clone-plan.outputs.artifact_id }}"
           } >> "$GITHUB_STEP_SUMMARY"
           # Tells start-local-clone.sh to keep the pre-initialized database
           # instead of wiping it and re-running genesis init.
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
           echo "CLONE_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
 
-      - name: Fall back after an unusable clone snapshot
-        if: >-
-          steps.clone-snapshot.outputs.found == 'true' &&
-          (steps.download-clone-snapshot.outcome != 'success' ||
-           steps.restore-clone-snapshot.outcome != 'success')
-        run: |
-          echo "::warning::selected clone snapshot was unusable; falling back to a live mainnet scrape"
-          ./clones/scripts/local-clone-checkpoint.sh clear
-          rm -rf /tmp/mainnet-snapshot
-
-      - name: Fall back after clone snapshot lookup failure
-        if: steps.clone-snapshot.outcome == 'failure'
-        run: echo "::warning::clone snapshot lookup failed; falling back to a live mainnet scrape"
-
       - name: Create mainnet clone
+        if: needs.clone-plan.outputs.use_snapshot != 'true'
         # No-op when the snapshot restored the chainspec; otherwise scrapes
         # mainnet state live (first run, expired snapshot, or the
         # fresh-mainnet-clone label). The live scrape's warp sync sometimes
@@ -598,7 +653,7 @@ jobs:
           exit 1
 
       - name: Prepare a reusable checkpoint after live fallback
-        if: steps.restore-clone-snapshot.outcome != 'success'
+        if: needs.clone-plan.outputs.use_snapshot != 'true'
         run: |
           set -euo pipefail
           ./clones/scripts/start-local-clone-and-wait.sh manual
@@ -611,10 +666,12 @@ jobs:
         working-directory: clones/js-tests
         run: npm ci
 
-      - name: Start isolated issuance clone
+      - name: Start pristine issuance clone
+        if: matrix.phase == 'pristine' || matrix.phase == 'combined'
         run: ./clones/scripts/start-local-clone-and-wait.sh accelerated
 
-      - name: Sudo-upgrade issuance clone with proposed runtime
+      - name: Sudo-upgrade pristine clone with proposed runtime
+        if: matrix.phase == 'pristine' || matrix.phase == 'combined'
         working-directory: clones/js-tests
         run: |
           # Right after genesis the node occasionally rejects the first
@@ -624,30 +681,37 @@ jobs:
           npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
 
       - name: Run isolated issuance regression
+        if: matrix.phase == 'pristine' || matrix.phase == 'combined'
         working-directory: clones/js-tests
         env:
           CLONE_REGRESSION_PHASE: pristine
           CLONE_REGRESSION_TIMEOUT_MS: 1800000
         run: npm run test:clone-regressions
 
-      - name: Stop isolated issuance clone
+      - name: Stop pristine issuance clone
+        if: matrix.phase == 'combined'
         run: ./clones/scripts/stop-local-clone.sh
 
       - name: Restore pristine clone for remaining regressions
+        if: matrix.phase == 'combined'
         run: ./clones/scripts/local-clone-checkpoint.sh restore "$CLONE_CHECKPOINT"
 
       - name: Start regression clone
+        if: matrix.phase == 'remaining' || matrix.phase == 'combined'
         run: ./clones/scripts/start-local-clone-and-wait.sh accelerated
 
       - name: Sudo-upgrade regression clone with proposed runtime
+        if: matrix.phase == 'remaining' || matrix.phase == 'combined'
         working-directory: clones/js-tests
         run: npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
 
       - name: Run clone smoke tests
+        if: matrix.phase == 'remaining' || matrix.phase == 'combined'
         working-directory: clones/js-tests
         run: npm test
 
       - name: Run remaining clone regression tests
+        if: matrix.phase == 'remaining' || matrix.phase == 'combined'
         working-directory: clones/js-tests
         env:
           CLONE_REGRESSION_PHASE: remaining
@@ -655,18 +719,24 @@ jobs:
         run: npm run test:clone-regressions
 
       - name: Install uv
-        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
+        if: >-
+          (matrix.phase == 'remaining' || matrix.phase == 'combined') &&
+          (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true')
         run: |
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Sync SDK environment
-        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
+        if: >-
+          (matrix.phase == 'remaining' || matrix.phase == 'combined') &&
+          (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true')
         working-directory: sdk/python
         run: uv sync --locked --all-extras --dev
 
       - name: Metadata drift gate (committed _generated vs upgraded clone)
-        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true' }}
+        if: >-
+          (matrix.phase == 'remaining' || matrix.phase == 'combined') &&
+          (github.event_name != 'pull_request' || needs.changes.outputs.sdk_drift == 'true')
         working-directory: sdk/python
         run: uv run python -m codegen.check --drift ${{ env.WS_ENDPOINT }}
 

@@ -4,6 +4,7 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 classifier="$script_dir/classify-runtime-changes.sh"
+runtime_workflow="$script_dir/../workflows/runtime-checks.yml"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -24,6 +25,9 @@ docs_and_python=$'runtime=false\ndocs=true\npython_sdk=true\nsdk_drift=false\nsn
 python_only=$'runtime=false\ndocs=false\npython_sdk=true\nsdk_drift=false\nsnapshot_ci=false'
 
 assert_classification README.md "$all_false"
+assert_classification pallets/subtensor/src/tests/staking.rs "$all_false"
+assert_classification pallets/shield/src/tests.rs "$all_false"
+assert_classification pallets/drand/src/mock.rs "$all_false"
 assert_classification .github/actions/rust-setup/action.yml "$runtime_only"
 assert_classification .github/actions/sccache-setup/action.yml "$runtime_only"
 assert_classification .github/scripts/sccache-report.sh "$runtime_only"
@@ -43,5 +47,17 @@ assert_classification Cargo.lock "$python_only"
 assert_classification rust-toolchain.toml "$runtime_and_sdk"
 assert_classification $'README.md\nsdk/python/example.py' "$docs_and_python"
 assert_classification $'README.md\nnode/src/renamed-service.rs' "$runtime_and_sdk"
+
+# The snapshot-backed clone split must remain fail-closed: both independent
+# phases run when a trusted artifact exists, while planner/fresh-state fallback
+# preserves the complete sequential suite. These are static workflow contract
+# checks; snapshot selection itself is exercised by test-snapshot-artifact.sh.
+grep -Fq 'matrix={"phase":["pristine","remaining"]}' "$runtime_workflow"
+grep -Fq 'matrix={"phase":["combined"]}' "$runtime_workflow"
+grep -Fq "needs.clone-plan.outputs.matrix || '{\"phase\":[\"combined\"]}'" "$runtime_workflow"
+grep -Fq "CLONE_REGRESSION_PHASE: pristine" "$runtime_workflow"
+grep -Fq "CLONE_REGRESSION_PHASE: remaining" "$runtime_workflow"
+grep -Fq 'artifact_id: ${{ steps.plan.outputs.artifact_id }}' "$runtime_workflow"
+grep -Fq '"${{ needs.clone-plan.outputs.artifact_id }}"' "$runtime_workflow"
 
 echo "runtime change filter tests passed"

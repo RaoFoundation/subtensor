@@ -19,6 +19,11 @@ snapshot_ci=false
 # the Rust SDK e2e workflow; they should not force clone-upgrade or SDK drift.
 while IFS= read -r path; do
   case "$path" in
+    # Rust test modules are compiled and executed by Check Rust. They cannot
+    # change the production node or runtime wasm consumed by this workflow, so
+    # rebuilding and sudo-upgrading a mainnet clone adds no coverage.
+    pallets/*/src/tests/*|pallets/*/src/tests.rs|pallets/*/src/mock.rs)
+      ;;
     common/*|node/*|pallets/*|precompiles/*|primitives/*|runtime/*|support/*|chain-extensions/*|src/*|vendor/*|Cargo.toml|build.rs|rust-toolchain.toml)
       runtime=true
       sdk_drift=true

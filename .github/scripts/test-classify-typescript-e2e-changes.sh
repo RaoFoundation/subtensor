@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$script_dir/../.." && pwd)
 classifier="$script_dir/classify-typescript-e2e-changes.sh"
 extractor="$script_dir/extract-pull-file-paths.sh"
 workflow="$script_dir/../workflows/typescript-e2e.yml"
@@ -117,9 +118,10 @@ assert_value build_count 2
 
 classify precompiles/subtensor/src/lib.rs
 assert_value evm true
-assert_value dev true
-assert_value state_count 2
-assert_value build_count 2
+assert_value dev false
+assert_value state_count 1
+assert_value build_count 1
+assert_value build_matrix '{"include":[{"variant":"fast","flags":"--features fast-runtime"}]}'
 
 classify pallets/shield/src/lib.rs
 assert_value shield true
@@ -129,6 +131,14 @@ assert_value build_count 1
 assert_value build_matrix '{"include":[{"variant":"release","flags":""}]}'
 
 classify pallets/subtensor/src/tests/staking.rs
+assert_value e2e false
+assert_value build_count 0
+
+classify pallets/shield/src/tests.rs pallets/drand/src/mock.rs
+assert_value e2e false
+assert_value build_count 0
+
+classify pallets/subtensor/src/migrations/migrate_staking.rs
 assert_value e2e false
 assert_value build_count 0
 
@@ -157,7 +167,39 @@ assert_value e2e true
 assert_value state_count 5
 assert_value shield true
 assert_value build_count 2
-assert_value build_matrix '{"include":[{"variant":"fast","flags":"--features fast-runtime"},{"variant":"release","flags":""}]}'
+assert_value build_matrix '{"include":[{"variant":"release","flags":""},{"variant":"fast","flags":"--features fast-runtime"}]}'
+
+# Both the E2E and Runtime classifiers treat these conventional Rust paths as
+# unit-test-only. Fail this routing contract if a future pallet introduces one
+# without a file- or module-level cfg(test) gate.
+assert_cfg_test_module() {
+  local lib="$1" module="$2"
+  MODULE="$module" perl -0777 -e '
+    my $module = quotemeta($ENV{MODULE});
+    my $source = <>;
+    my $pattern = qr/#\[cfg\(test\)\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+$module\s*;/s;
+    exit($source =~ $pattern ? 0 : 1);
+  ' "$lib"
+}
+
+shopt -s nullglob
+for file in "$repo_root"/pallets/*/src/mock.rs "$repo_root"/pallets/*/src/tests.rs; do
+  module=${file##*/}
+  module=${module%.rs}
+  lib=${file%/*}/lib.rs
+  if ! grep -Eq '^[[:space:]]*#!\[cfg\(test\)\][[:space:]]*$' "$file" &&
+     ! assert_cfg_test_module "$lib" "$module"; then
+    echo "classifier-ignored path is not cfg(test)-gated: ${file#"$repo_root"/}" >&2
+    exit 1
+  fi
+done
+for directory in "$repo_root"/pallets/*/src/tests; do
+  lib=${directory%/tests}/lib.rs
+  if ! assert_cfg_test_module "$lib" tests; then
+    echo "classifier-ignored directory is not cfg(test)-gated: ${directory#"$repo_root"/}" >&2
+    exit 1
+  fi
+done
 
 # The pull-request routing decision must execute base-branch code. The inline
 # bootstrap fallback is unavoidable while this PR introduces the scripts, so

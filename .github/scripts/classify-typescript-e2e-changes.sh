@@ -57,13 +57,18 @@ else
         ;;
 
       # Rust unit-test-only edits cannot change the node exercised by E2E.
-      pallets/subtensor/src/tests/*|pallets/*/src/tests/*)
+      pallets/*/src/tests/*|pallets/*/src/tests.rs|pallets/*/src/mock.rs)
+        ;;
+
+      # Fresh-genesis E2E networks never execute on-runtime-upgrade hooks.
+      # Migration changes are covered by the cached try-runtime replays and
+      # the sudo-upgraded mainnet clone instead.
+      pallets/subtensor/src/migrations/*)
         ;;
 
       # These isolated production areas have tightly owned E2E coverage.
       precompiles/*)
         evm=true
-        dev=true
         ;;
       pallets/shield/*|pallets/limit-orders/*)
         shield=true
@@ -99,12 +104,14 @@ state_matrix+=']}'
 build_entries=()
 # Derive required binaries from the selected suites. This is intentionally not
 # another path map: adding a fast or release suite above automatically requests
-# the artifact that suite consumes.
-if [[ "$evm" == true || "$staking" == true || "$coldkey_swap" == true || "$subnets" == true ]]; then
-  build_entries+=('{"variant":"fast","flags":"--features fast-runtime"}')
-fi
+# the artifact that suite consumes. Put release first because Shield is the
+# full matrix's longest downstream path; under runner contention this gives
+# the critical build first chance at an available worker.
 if [[ "$dev" == true || "$shield" == true ]]; then
   build_entries+=('{"variant":"release","flags":""}')
+fi
+if [[ "$evm" == true || "$staking" == true || "$coldkey_swap" == true || "$subnets" == true ]]; then
+  build_entries+=('{"variant":"fast","flags":"--features fast-runtime"}')
 fi
 
 build_matrix='{"include":['
