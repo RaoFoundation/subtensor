@@ -23,6 +23,15 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v432',
+    date: 'July 2026',
+    title: 'The V432 Upgrade',
+    summary:
+      'Follow-on after v431: privilege-aware SDK intents and docs, nested sudo/proxy/multisig ' +
+      'failure reporting, root emission controls, and the localnet publication digest fix.',
+    href: '/releases/v432-upgrade',
+  },
+  {
     tag: 'v431',
     date: 'July 2026',
     title: 'The V431 Upgrade',
