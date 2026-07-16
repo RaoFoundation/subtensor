@@ -215,6 +215,7 @@ impl<T: Config> Pallet<T> {
             SubnetLeaseShares::<T>::clear_prefix(lease_id, T::MaxContributors::get(), None);
         AccumulatedLeaseDividends::<T>::remove(lease_id);
         SubnetLeases::<T>::remove(lease_id);
+        SubnetUidToLeaseId::<T>::remove(lease.netuid);
 
         // Remove the beneficiary proxy
         T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, &lease.beneficiary)?;
@@ -397,7 +398,7 @@ impl<T: frame_system::Config> SubnetLeasingWeightInfo<T> {
             .saturating_add(Weight::from_parts(912_993, 0).saturating_mul(k.into()))
             .saturating_add(T::DbWeight::get().reads(4_u64))
             .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(k.into())))
-            .saturating_add(T::DbWeight::get().writes(6_u64))
+            .saturating_add(T::DbWeight::get().writes(7_u64))
             .saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(k.into())))
             .saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
     }
