@@ -3,7 +3,7 @@ name: Typescript E2E Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [staging, main]
 
 concurrency:
   group: typescript-e2e-${{ github.ref }}
@@ -34,10 +34,11 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      e2e: ${{ steps.filter.outputs.e2e }}
       shield: ${{ steps.filter.outputs.shield }}
       state_count: ${{ steps.filter.outputs.state_count }}
       state_matrix: ${{ steps.filter.outputs.state_matrix }}
+      build_count: ${{ steps.filter.outputs.build_count }}
+      build_matrix: ${{ steps.filter.outputs.build_matrix }}
     steps:
       # Only the small classifier is checked out on a GitHub-hosted runner.
       # Fork PRs still cannot pass the self-hosted runner trust gate below.
@@ -111,22 +112,19 @@ jobs:
           cd ts-tests
           pnpm run fmt
 
-  # Build the node binary in both variants and share as artifacts.
+  # Build each variant required by the selected suites exactly once and share
+  # it as an artifact. Ambiguous/shared changes select every suite and therefore
+  # still build both production release and fast-runtime binaries.
   build:
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
       name: sccache-writer
       deployment: false
     needs: [trusted-pr, changes]
-    if: needs.changes.outputs.e2e == 'true'
+    if: needs.changes.outputs.build_count != '0'
     timeout-minutes: 60
     strategy:
-      matrix:
-        include:
-          - variant: release
-            flags: ""
-          - variant: fast
-            flags: "--features fast-runtime"
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
     env:
       RUST_BACKTRACE: full
     steps:

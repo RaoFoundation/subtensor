@@ -60,8 +60,7 @@ else
       pallets/subtensor/src/tests/*|pallets/*/src/tests/*)
         ;;
 
-      # These production areas have tightly owned E2E coverage. Include
-      # adjacent suites where their setup depends on the same state.
+      # These isolated production areas have tightly owned E2E coverage.
       precompiles/*)
         evm=true
         dev=true
@@ -70,23 +69,12 @@ else
         shield=true
         dev=true
         ;;
-      pallets/subtensor/src/staking/*)
-        staking=true
-        coldkey_swap=true
-        ;;
-      pallets/subtensor/src/subnets/*)
-        subnets=true
-        staking=true
-        coldkey_swap=true
-        ;;
-      pallets/subtensor/src/swap/*|pallets/subtensor/src/guards/check_coldkey_swap.rs)
-        staking=true
-        coldkey_swap=true
-        ;;
 
       # Shared test infrastructure and chain/runtime inputs can affect any
       # suite. Unknown paths inside an E2E-relevant tree deliberately fall
-      # back to the complete matrix rather than guessing.
+      # back to the complete matrix rather than guessing. In particular,
+      # subtensor staking, subnet, and swap code is exercised across several
+      # nominally separate suites, so all production changes there stay full.
       ts-tests/*|common/*|node/*|pallets/*|primitives/*|runtime/*|support/*|chain-extensions/*|src/*|vendor/*|Cargo.toml|build.rs|rust-toolchain.toml|.github/workflows/typescript-e2e.yml|.github/actions/run-typescript-e2e/*|.github/actions/rust-setup/*|.github/actions/sccache-setup/*|.github/scripts/sccache-configure.sh|.github/scripts/sccache-report.sh|.github/scripts/classify-typescript-e2e-changes.sh|.github/scripts/test-classify-typescript-e2e-changes.sh)
         enable_all
         ;;
@@ -108,10 +96,26 @@ if (( ${#state_entries[@]} > 0 )); then
 fi
 state_matrix+=']}'
 
-e2e=false
-if (( ${#state_entries[@]} > 0 )) || [[ "$shield" == true ]]; then
-  e2e=true
+build_entries=()
+# Derive required binaries from the selected suites. This is intentionally not
+# another path map: adding a fast or release suite above automatically requests
+# the artifact that suite consumes.
+if [[ "$evm" == true || "$staking" == true || "$coldkey_swap" == true || "$subnets" == true ]]; then
+  build_entries+=('{"variant":"fast","flags":"--features fast-runtime"}')
 fi
+if [[ "$dev" == true || "$shield" == true ]]; then
+  build_entries+=('{"variant":"release","flags":""}')
+fi
+
+build_matrix='{"include":['
+if (( ${#build_entries[@]} > 0 )); then
+  joined=$(IFS=,; echo "${build_entries[*]}")
+  build_matrix+="$joined"
+fi
+build_matrix+=']}'
+
+e2e=false
+(( ${#build_entries[@]} == 0 )) || e2e=true
 
 {
   echo "e2e=$e2e"
@@ -123,4 +127,6 @@ fi
   echo "shield=$shield"
   echo "state_count=${#state_entries[@]}"
   echo "state_matrix=$state_matrix"
+  echo "build_count=${#build_entries[@]}"
+  echo "build_matrix=$build_matrix"
 } >> "$output_file"
