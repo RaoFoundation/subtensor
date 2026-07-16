@@ -538,6 +538,10 @@ impl<T: Config> Pallet<T> {
 
             match registration.info.fields.is_empty() {
                 true => {
+                    // Unreserve the deposit before dropping the Registration: the
+                    // only tracking record of reserved funds is being removed, so
+                    // failing to release here would permanently lock the deposit.
+                    let _ = T::Currency::unreserve(&who, registration.deposit);
                     <CommitmentOf<T>>::remove(netuid, &who);
                     total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
 
@@ -587,6 +591,13 @@ impl<T: Config> Pallet<T> {
 
     pub fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         let write_weight = T::DbWeight::get().writes(1);
+
+        // Unreserve deposits before clearing commitment storage: `clear_prefix`
+        // drops every Registration without releasing the funds that were reserved
+        // in `set_commitment`, which would permanently lock them.
+        for (who, reg) in CommitmentOf::<T>::iter_prefix(netuid) {
+            let _ = T::Currency::unreserve(&who, reg.deposit);
+        }
 
         let result = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             CommitmentOf::<T>::clear_prefix(netuid, limit, None)

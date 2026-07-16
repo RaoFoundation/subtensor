@@ -491,6 +491,42 @@ fn reveal_timelocked_commitment_single_field_entry_is_removed_after_reveal() {
     });
 }
 
+#[test]
+fn audit_probe_reveal_removal_leaves_deposit_reserved() {
+    new_test_ext().execute_with(|| {
+        let who = 555;
+        let netuid = NetUid::from(777);
+        let reveal_round = 1000;
+        let deposit = TaoBalance::from(100);
+        Balances::make_free_balance_be(&who, 1_000.into());
+        assert_ok!(Balances::reserve(&who, deposit));
+
+        let timelock = Data::TimelockEncrypted {
+            encrypted: BoundedVec::try_from(vec![1_u8]).unwrap(),
+            reveal_round,
+        };
+        let registration = Registration::<TaoBalance, TestMaxFields, u64> {
+            deposit,
+            info: CommitmentInfo {
+                fields: BoundedVec::try_from(vec![timelock]).unwrap(),
+            },
+            block: 1,
+        };
+        CommitmentOf::<Test>::insert(netuid, who, registration);
+        TimelockedIndex::<Test>::mutate(|index| {
+            index.insert((netuid, who));
+        });
+        let signature = hex::decode(DRAND_QUICKNET_SIG_HEX).unwrap();
+        insert_drand_pulse(reveal_round, &signature);
+
+        assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+
+        assert!(CommitmentOf::<Test>::get(netuid, who).is_none());
+        // After the fix: the deposit is unreserved when the Registration is removed.
+        assert_eq!(Balances::reserved_balance(who), 0u64.into());
+    });
+}
+
 #[allow(clippy::indexing_slicing)]
 #[test]
 fn reveal_timelocked_multiple_fields_only_correct_ones_removed() {
