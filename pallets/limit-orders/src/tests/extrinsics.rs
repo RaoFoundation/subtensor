@@ -2636,6 +2636,75 @@ fn execute_batched_orders_limitbuy_and_stoploss_offset_coexist_buy_dominant() {
     });
 }
 
+/// In a buy-dominant batch the counter-side sells are settled at `current_price`
+/// rather than through the pool swap, so the pool's price-limit check never
+/// inspects them.  A StopLoss with a tight `max_slippage` derives a floor above
+/// that spot price; without the per-order slippage recheck the seller would be
+/// filled below their floor.  The batch is rejected with `SlippageTooHigh` so the
+/// order stays retryable, mirroring the single-order path.
+#[test]
+fn execute_batched_orders_buy_dominant_rejects_sell_below_slippage_floor() {
+    new_test_ext().execute_with(|| {
+        // Price = 1.0, scaled = 1_000_000_000.
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        MockSwap::set_buy_alpha_return(900);
+
+        // Alice + Bob LimitBuy dominate the batch (net side = Buy).
+        MockSwap::set_tao_balance(alice(), 600);
+        MockSwap::set_tao_balance(bob(), 400);
+        MockSwap::set_alpha_balance(dave(), alice(), netuid(), 100);
+
+        let alice_order = make_signed_order_with_slippage(
+            AccountKeyring::Alice,
+            bob(),
+            netuid(),
+            OrderType::LimitBuy,
+            600,
+            1_000_000_000, // 1.0 in x10^9 scale; scaled=1_000_000_000 <= 1_000_000_000 holds
+            FAR_FUTURE,
+            Perbill::zero(),
+            fee_recipient(),
+            Some(Perbill::from_percent(2)),
+        );
+        let bob_order = make_signed_order_with_slippage(
+            AccountKeyring::Bob,
+            bob(),
+            netuid(),
+            OrderType::LimitBuy,
+            400,
+            1_000_000_000, // 1.0 in x10^9 scale; scaled=1_000_000_000 <= 1_000_000_000 holds
+            FAR_FUTURE,
+            Perbill::zero(),
+            fee_recipient(),
+            Some(Perbill::from_percent(1)),
+        );
+        // Dave StopLoss: limit = 2.0 (scaled 1_000_000_000 <= 2_000_000_000 holds),
+        // 25% slippage -> floor = 1_500_000_000, above the 1_000_000_000 spot price.
+        let dave_stoploss = make_signed_order_with_slippage(
+            AccountKeyring::Dave,
+            alice(),
+            netuid(),
+            OrderType::StopLoss,
+            100,
+            2_000_000_000, // 2.0 in x10^9 scale; scaled=1_000_000_000 <= 2_000_000_000 holds
+            FAR_FUTURE,
+            Perbill::zero(),
+            fee_recipient(),
+            Some(Perbill::from_percent(25)), // floor = 1_500_000_000 > spot 1_000_000_000
+        );
+
+        assert_noop!(
+            LimitOrders::execute_batched_orders(
+                RuntimeOrigin::signed(charlie()),
+                netuid(),
+                bounded(vec![alice_order, bob_order, dave_stoploss]),
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+    });
+}
+
 /// StopLoss with a narrow slippage sets an effective floor above the current market price,
 /// making the pool swap impossible and failing the entire batch.
 ///

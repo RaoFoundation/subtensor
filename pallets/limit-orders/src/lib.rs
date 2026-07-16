@@ -357,6 +357,11 @@ pub mod pallet {
         /// delivering any output (conservation), and the order stays retryable in a
         /// differently-composed batch.
         ZeroShareInBatch,
+        /// A sell order's individual slippage floor (derived from `limit_price` and
+        /// `max_slippage`) was breached by the current execution price.  The whole
+        /// batch is rejected so the order stays retryable, matching the single-order
+        /// path which rejects the same condition and keeps the order open.
+        SlippageTooHigh,
     }
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -1171,6 +1176,21 @@ pub mod pallet {
             let mut sell_fees: Vec<(T::AccountId, u64)> = Vec::new();
 
             for e in sells.iter() {
+                // Per-order slippage recheck: in a buy-dominant batch, sellers are
+                // paid at `current_price` rather than through the pool swap.  Verify
+                // that the execution price meets each seller's individual floor
+                // (`effective_swap_limit`), mirroring the single-order path which
+                // rejects the same condition and keeps the order retryable.
+                if net_side == &OrderSide::Buy && e.effective_swap_limit > 0 {
+                    let scaled_price = current_price
+                        .saturating_mul(U64F64::from_num(1_000_000_000u64))
+                        .saturating_to_num::<u64>();
+                    ensure!(
+                        scaled_price >= e.effective_swap_limit,
+                        Error::<T>::SlippageTooHigh
+                    );
+                }
+
                 let sell_tao_equiv = Self::alpha_to_tao(e.net as u128, current_price);
                 let gross_share: u64 = if total_sell_tao_equiv > 0 {
                     total_tao
