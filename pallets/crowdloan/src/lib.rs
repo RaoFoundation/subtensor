@@ -457,11 +457,16 @@ pub mod pallet {
                 Error::<T>::ContributionTooLow
             );
 
-            // Ensure the crowdloan has not reached the maximum number of contributors
-            ensure!(
-                crowdloan.contributors_count < T::MaxContributors::get(),
-                Error::<T>::MaxContributorsReached
-            );
+            // Ensure the crowdloan has not reached the maximum number of
+            // contributors.  Existing contributors topping up are not counted
+            // against the limit, preventing a griefing attack where
+            // MaxContributors sockpuppets freeze the crowloan below its goal.
+            if Contributions::<T>::get(crowdloan_id, &contributor).is_none() {
+                ensure!(
+                    crowdloan.contributors_count < T::MaxContributors::get(),
+                    Error::<T>::MaxContributorsReached
+                );
+            }
 
             // Compute how much room is left before the crowdloan reaches its cap.
             let left_to_raise = crowdloan
@@ -909,8 +914,11 @@ pub mod pallet {
             // Only the creator can update the cap.
             ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
 
-            // The new cap should be greater than the actual raised amount.
-            ensure!(new_cap >= crowdloan.raised, Error::<T>::CapTooLow);
+            // The new cap must be at least the current cap (cap can only be
+            // raised, never lowered).  Allowing a creator to lower the cap to
+            // the already-raised amount would let them finalize early and
+            // redirect all contributions.
+            ensure!(new_cap >= crowdloan.cap, Error::<T>::CapTooLow);
 
             crowdloan.cap = new_cap;
             Crowdloans::<T>::insert(crowdloan_id, &crowdloan);

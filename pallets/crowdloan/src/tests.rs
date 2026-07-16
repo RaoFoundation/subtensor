@@ -1015,12 +1015,76 @@ fn test_contribute_fails_if_max_contributors_has_been_reached() {
                 ));
             }
 
-            // try to contribute
-            let contributor: AccountOf<Test> = U256::from(10);
+            // Account 11 is a genuinely new contributor; once MaxContributors is
+            // reached (creator counts as contributor #1 plus accounts 2..=10) a
+            // new contributor is rejected. Reusing account 10 would no longer
+            // fail here, since under the fix an existing contributor may top up
+            // past the limit.
+            let contributor: AccountOf<Test> = U256::from(11);
             assert_err!(
                 Crowdloan::contribute(RuntimeOrigin::signed(contributor), crowdloan_id, amount),
                 pallet_crowdloan::Error::<Test>::MaxContributorsReached
             );
+        });
+}
+
+#[test]
+fn audit_probe_existing_contributor_can_top_up_at_limit() {
+    // After the fix, an existing contributor is not counted against
+    // MaxContributors, so they can still raise their stake even once the limit
+    // is reached. Under the old code this top-up would fail with
+    // MaxContributorsReached.
+    TestState::default()
+        .with_balance(U256::from(1), 100.into())
+        .with_balance(U256::from(2), 100.into())
+        .with_balance(U256::from(3), 100.into())
+        .with_balance(U256::from(4), 100.into())
+        .with_balance(U256::from(5), 100.into())
+        .with_balance(U256::from(6), 100.into())
+        .with_balance(U256::from(7), 100.into())
+        .with_balance(U256::from(8), 100.into())
+        .with_balance(U256::from(9), 100.into())
+        .with_balance(U256::from(10), 100.into())
+        .build_and_execute(|| {
+            // create a crowdloan
+            let creator: AccountOf<Test> = U256::from(1);
+            let initial_deposit: BalanceOf<Test> = 50.into();
+            let min_contribution: BalanceOf<Test> = 10.into();
+            let cap: BalanceOf<Test> = 1000.into();
+            let end: BlockNumberFor<Test> = 50;
+
+            assert_ok!(Crowdloan::create(
+                RuntimeOrigin::signed(creator),
+                initial_deposit,
+                min_contribution,
+                cap,
+                end,
+                Some(noop_call()),
+                None
+            ));
+
+            // run some blocks
+            run_to_block(10);
+
+            // The creator counts as contributor #1, so accounts 2..=10 fill the
+            // crowdloan to MaxContributors (10).
+            let crowdloan_id: CrowdloanId = 0;
+            let amount: BalanceOf<Test> = 20.into();
+            for i in 2..=10 {
+                assert_ok!(Crowdloan::contribute(
+                    RuntimeOrigin::signed(U256::from(i)),
+                    crowdloan_id,
+                    amount
+                ));
+            }
+
+            // Account 2 already contributed; topping up must succeed even though
+            // the contributor limit has been reached.
+            assert_ok!(Crowdloan::contribute(
+                RuntimeOrigin::signed(U256::from(2)),
+                crowdloan_id,
+                amount
+            ));
         });
 }
 
@@ -3197,6 +3261,45 @@ fn test_update_cap_fails_if_new_cap_is_too_low() {
             assert_err!(
                 Crowdloan::update_cap(RuntimeOrigin::signed(creator), crowdloan_id, new_cap),
                 pallet_crowdloan::Error::<Test>::CapTooLow
+            );
+        });
+}
+
+#[test]
+fn audit_probe_cap_cannot_be_lowered() {
+    TestState::default()
+        .with_balance(U256::from(1), 200.into())
+        .with_balance(U256::from(2), 200.into())
+        .build_and_execute(|| {
+            let creator: AccountOf<Test> = U256::from(1);
+            let contributor: AccountOf<Test> = U256::from(2);
+            let target: AccountOf<Test> = U256::from(42);
+            let crowdloan_id: CrowdloanId = 0;
+
+            assert_ok!(Crowdloan::create(
+                RuntimeOrigin::signed(creator),
+                50.into(),
+                10.into(),
+                200.into(),
+                100,
+                None,
+                Some(target),
+            ));
+            assert_ok!(Crowdloan::contribute(
+                RuntimeOrigin::signed(contributor),
+                crowdloan_id,
+                50.into(),
+            ));
+
+            // Lowering the cap from 200 to 100 is now rejected: the cap can
+            // only be raised, preventing a creator from finalizing early.
+            assert_noop!(
+                Crowdloan::update_cap(
+                    RuntimeOrigin::signed(creator),
+                    crowdloan_id,
+                    100.into(),
+                ),
+                Error::<Test>::CapTooLow
             );
         });
 }
