@@ -159,9 +159,10 @@ jobs:
           path: build/
           if-no-files-found: error
 
-  # Package each native architecture before publishing. The amd64 runner also
-  # exercises the public compatibility contract: True/False, both RPC ports,
-  # graceful stop, health, and --no-purge persistence.
+  # Package and test each native architecture before pushing that exact image.
+  # The amd64 runner also exercises the public compatibility contract:
+  # True/False, both RPC ports, graceful stop, health, and --no-purge
+  # persistence.
   validate-image:
     name: Image smoke test • ${{ matrix.platform.arch }}
     needs: [setup, artifacts]
@@ -189,8 +190,9 @@ jobs:
           path: build/
           merge-multiple: true
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Determine image name
+        # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor.
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-localnet" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -203,11 +205,14 @@ jobs:
           target: subtensor-localnet-prebuilt
           platforms: linux/${{ matrix.platform.arch }}
           load: true
-          tags: subtensor-localnet-check:${{ matrix.platform.arch }}
+          tags: ${{ env.image }}:sha-${{ needs.setup.outputs.sha }}-${{ matrix.platform.arch }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.setup.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.setup.outputs.tag }}
 
       - name: Verify architecture and bundled binaries
         env:
-          IMAGE: subtensor-localnet-check:${{ matrix.platform.arch }}
+          IMAGE: ${{ env.image }}:sha-${{ needs.setup.outputs.sha }}-${{ matrix.platform.arch }}
         run: |
           test "$(docker image inspect "$IMAGE" --format '{{.Architecture}}')" = "${{ matrix.platform.arch }}"
           test "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.title"}}')" = "Subtensor Localnet"
@@ -219,27 +224,26 @@ jobs:
 
       - name: Exercise localnet compatibility contract
         if: ${{ matrix.platform.arch == 'amd64' }}
-        run: ./.github/scripts/test-localnet-image.sh subtensor-localnet-check:amd64
+        run: ./.github/scripts/test-localnet-image.sh "$image:sha-${{ needs.setup.outputs.sha }}-amd64"
 
-  # Collect all binaries and publish one multi-architecture image.
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tested platform image
+        env:
+          IMAGE: ${{ env.image }}:sha-${{ needs.setup.outputs.sha }}-${{ matrix.platform.arch }}
+        run: docker push "$IMAGE"
+
+  # Publish a multi-architecture manifest composed only of the platform images
+  # that passed the smoke tests above.
   docker:
-    needs: [setup, artifacts, validate-image]
+    needs: [setup, validate-image]
     runs-on: [self-hosted, fireactions-turbo-8]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.setup.outputs.sha }}
-
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v5
-        with:
-          pattern: binaries-*
-          path: build/
-          merge-multiple: true
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -254,27 +258,27 @@ jobs:
         # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor.
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-localnet" >> "$GITHUB_ENV"
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile-localnet
-          target: subtensor-localnet-prebuilt
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.image }}:${{ needs.setup.outputs.tag }}
-            ${{ env.image }}:sha-${{ needs.setup.outputs.sha }}
-            ${{ needs.setup.outputs.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}
-          labels: |
-            org.opencontainers.image.revision=${{ needs.setup.outputs.sha }}
-            org.opencontainers.image.version=${{ needs.setup.outputs.tag }}
-          # GHCR reads multi-architecture package metadata from the OCI index,
-          # while Dockerfile labels live on each platform image config.
-          annotations: |
-            index:org.opencontainers.image.description=Subtensor local development network for CI and local testing
-            index:org.opencontainers.image.source=https://github.com/RaoFoundation/subtensor
-            index:org.opencontainers.image.licenses=Apache-2.0
+      - name: Publish tested image manifest
+        env:
+          TAG: ${{ needs.setup.outputs.tag }}
+          SHA: ${{ needs.setup.outputs.sha }}
+          PUBLISH_LATEST: ${{ needs.setup.outputs.latest_tag }}
+        run: |
+          tags=(
+            --tag "$image:$TAG"
+            --tag "$image:sha-$SHA"
+          )
+          if [ "$PUBLISH_LATEST" = true ]; then
+            tags+=(--tag "$image:latest")
+          fi
+
+          docker buildx imagetools create \
+            "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.description=Subtensor local development network for CI and local testing" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/RaoFoundation/subtensor" \
+            --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+            "$image:sha-$SHA-amd64" \
+            "$image:sha-$SHA-arm64"
 
   # CI consumers pull anonymously. A successful authenticated push is not
   # sufficient: fail if package visibility regresses to private.

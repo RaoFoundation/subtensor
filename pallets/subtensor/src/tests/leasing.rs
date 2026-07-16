@@ -33,7 +33,7 @@ fn test_register_leased_network_works() {
             emissions_share,
             Some(end_block),
         )
-        .expect("leased network registration should succeed");
+        .unwrap_or_else(|error| panic!("leased network registration failed: {error:?}"));
 
         let contributors_count = 1 + contributions.len() as u32;
         assert_eq!(
@@ -274,7 +274,8 @@ fn test_terminate_lease_works() {
     });
 
     // Commit the lease setup so clear_prefix reports the same backend removals as on-chain.
-    ext.commit_all().expect("lease setup should commit");
+    ext.commit_all()
+        .unwrap_or_else(|error| panic!("lease setup failed to commit: {error:?}"));
 
     ext.execute_with(|| {
 
@@ -296,7 +297,7 @@ fn test_terminate_lease_works() {
             lease_id,
             hotkey,
         )
-        .expect("lease termination should succeed");
+        .unwrap_or_else(|error| panic!("lease termination failed: {error:?}"));
 
         let contributors_count = 1 + contributions.len() as u32;
         assert_eq!(
