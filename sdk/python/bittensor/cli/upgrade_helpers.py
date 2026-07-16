@@ -46,7 +46,10 @@ SUDO_PROXY_TYPE = "SudoUncheckedSetCode"
 # exactly. Both must stay in lockstep with propose-upgrade-multisig.js /
 # approve-upgrade-multisig.js.
 PROPOSAL_WEIGHT = {"ref_time": 50_000_000_000, "proof_size": 0}
-FINALIZE_WEIGHT = {"ref_time": 60_000_000_000, "proof_size": 10_000}
+# Must cover the proxy+setCode proposal's declared weight (v432 measured
+# ~50.5B ref_time / ~13.4k proof_size). Too-low proof_size fails the
+# deployment as_multi with MaxWeightTooLow *after* the outer sudo approval.
+FINALIZE_WEIGHT = {"ref_time": 80_000_000_000, "proof_size": 50_000}
 
 _MAX_FETCH_BYTES = 64 * 1024 * 1024
 _FETCH_TIMEOUT = 60.0

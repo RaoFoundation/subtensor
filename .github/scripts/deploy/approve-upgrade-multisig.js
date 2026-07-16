@@ -156,7 +156,7 @@ async function main(sudoSignatories, sudoThreshold) {
     [ciKeyAddress], // 2. List of other signatories in lexicographic order
     deployTimepoint, // 3. Timepoint (null for the first submission)
     call, // 4. The call to be executed (proxy call of runtime upgrade)
-    { refTime: 60_000_000_000, proofSize: 10_000 } // 5. Maximum weight as an object
+    { refTime: 80_000_000_000, proofSize: 50_000 } // 5. Maximum weight as an object
   );
 
   // Write to file
