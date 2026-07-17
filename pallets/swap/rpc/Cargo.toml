@@ -1,5 +1,6 @@
 [package]
 name = "pallet-subtensor-swap-rpc"
+publish = false
 version = "1.0.0"
 description = "RPC interface for the Swap pallet"
 edition.workspace = true

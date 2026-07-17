@@ -1,5 +1,6 @@
 [package]
 name = "pallet-subtensor-swap"
+publish = false
 version = "0.1.0"
 edition.workspace = true
 

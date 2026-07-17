@@ -1,5 +1,6 @@
 [package]
 name = "pallet-subtensor-proxy"
+publish = false
 version = "40.1.0"
 authors = ["Bittensor Nucleus Team"]
 edition.workspace = true
