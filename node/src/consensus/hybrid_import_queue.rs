@@ -16,20 +16,17 @@ use sc_consensus::{BasicQueue, DefaultImportQueue};
 use sc_consensus_aura::AuraVerifier;
 use sc_consensus_aura::CheckForEquivocation;
 use sc_consensus_aura::CompatibilityMode;
-use sc_consensus_babe::BabeBlockImport;
 use sc_consensus_babe::BabeLink;
 use sc_consensus_babe::BabeVerifier;
 use sc_consensus_babe::Epoch;
 use sc_consensus_epochs::SharedEpochChanges;
 use sc_consensus_slots::InherentDataProviderExt;
 use sc_telemetry::TelemetryHandle;
-use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_api::ApiExt;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
 use sp_blockchain::HeaderMetadata;
-use sp_consensus::SelectChain;
 use sp_consensus::error::Error as ConsensusError;
 use sp_consensus_aura::AuraApi;
 use sp_consensus_aura::sr25519::AuthorityId as AuraAuthorityId;
@@ -47,30 +44,29 @@ use substrate_prometheus_endpoint::Registry;
 
 /// `BlockImport` implementations that supports importing both Aura and Babe blocks.
 #[derive(Clone)]
-pub struct HybridBlockImport {
+pub struct HybridBlockImport<BI>
+where
+    BI: BlockImport<Block, Error = ConsensusError> + Send + Sync,
+{
     inner_aura: ConditionalEVMBlockImport<
         Block,
         GrandpaBlockImport,
         FrontierBlockImport<Block, GrandpaBlockImport, FullClient>,
     >,
-    inner_babe: ConditionalEVMBlockImport<
-        Block,
-        BabeBlockImport<Block, FullClient, GrandpaBlockImport>,
-        FrontierBlockImport<
-            Block,
-            BabeBlockImport<Block, FullClient, GrandpaBlockImport>,
-            FullClient,
-        >,
-    >,
+    inner_babe: ConditionalEVMBlockImport<Block, BI, FrontierBlockImport<Block, BI, FullClient>>,
     babe_link: BabeLink<Block>,
     client: Arc<FullClient>,
 }
 
-impl HybridBlockImport {
+impl<BI> HybridBlockImport<BI>
+where
+    BI: BlockImport<Block, Error = ConsensusError> + Clone + Send + Sync,
+{
     pub fn new(
         client: Arc<FullClient>,
         grandpa_block_import: GrandpaBlockImport,
-        babe_config: BabeConfiguration,
+        babe_import: BI,
+        babe_link: BabeLink<Block>,
         skip_history_backfill: bool,
     ) -> Self {
         let inner_aura = ConditionalEVMBlockImport::new(
@@ -78,14 +74,6 @@ impl HybridBlockImport {
             FrontierBlockImport::new(grandpa_block_import.clone(), client.clone()),
             skip_history_backfill,
         );
-
-        #[allow(clippy::expect_used)]
-        let (babe_import, babe_link) = sc_consensus_babe::block_import(
-            babe_config,
-            grandpa_block_import.clone(),
-            client.clone(),
-        )
-        .expect("Failed to create Babe block_import");
 
         let inner_babe = ConditionalEVMBlockImport::new(
             babe_import.clone(),
@@ -107,7 +95,10 @@ impl HybridBlockImport {
 }
 
 #[async_trait::async_trait]
-impl BlockImport<Block> for HybridBlockImport {
+impl<BI> BlockImport<Block> for HybridBlockImport<BI>
+where
+    BI: BlockImport<Block, Error = ConsensusError> + Clone + Send + Sync,
+{
     type Error = ConsensusError;
 
     async fn check_block(
@@ -139,19 +130,18 @@ impl BlockImport<Block> for HybridBlockImport {
 }
 
 /// `Verifier` implementation that supports verifying both Aura and Babe blocks.
-struct HybridVerifier<B: BlockT, C, CIDP, N, SC> {
-    inner_aura: AuraVerifier<C, AuraAuthorityPair, CIDP, N>,
-    inner_babe: BabeVerifier<B, C, SC, CIDP>,
+struct HybridVerifier<B: BlockT, C, CIDP> {
+    inner_aura: AuraVerifier<C, AuraAuthorityPair, CIDP, B>,
+    inner_babe: BabeVerifier<B, C>,
 }
 
-impl<B: BlockT, C, CIDP, N, SC> HybridVerifier<B, C, CIDP, N, SC>
+impl<B: BlockT, C, CIDP> HybridVerifier<B, C, CIDP>
 where
     CIDP: CreateInherentDataProviders<B, ()> + Send + Sync + Clone,
     CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
     C: ProvideRuntimeApi<B> + Send + Sync + sc_client_api::backend::AuxStore,
     C::Api: BlockBuilderApi<B> + BabeApi<B> + AuraApi<B, AuraAuthorityId> + ApiExt<B>,
     C: HeaderBackend<B> + HeaderMetadata<B, Error = sp_blockchain::Error>,
-    SC: SelectChain<B> + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -159,11 +149,9 @@ where
         create_inherent_data_providers: CIDP,
         telemetry: Option<TelemetryHandle>,
         check_for_equivocation: CheckForEquivocation,
-        compatibility_mode: sc_consensus_aura::CompatibilityMode<N>,
-        select_chain: SC,
+        compatibility_mode: sc_consensus_aura::CompatibilityMode<NumberFor<B>>,
         babe_config: BabeConfiguration,
         epoch_changes: SharedEpochChanges<B, Epoch>,
-        offchain_tx_pool_factory: OffchainTransactionPoolFactory<B>,
     ) -> Self {
         let aura_params = sc_consensus_aura::BuildVerifierParams::<C, CIDP, _> {
             client: client.clone(),
@@ -173,16 +161,14 @@ where
             compatibility_mode,
         };
         let inner_aura =
-            sc_consensus_aura::build_verifier::<AuraAuthorityPair, C, CIDP, N>(aura_params);
+            sc_consensus_aura::build_verifier::<AuraAuthorityPair, C, CIDP, B>(aura_params);
 
         let inner_babe = BabeVerifier::new(
-            client.clone(),
-            select_chain,
-            create_inherent_data_providers,
+            client,
+            babe_config.slot_duration(),
             babe_config,
             epoch_changes,
             telemetry,
-            offchain_tx_pool_factory,
         );
 
         HybridVerifier {
@@ -193,14 +179,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<B: BlockT, C, CIDP, SC> Verifier<B> for HybridVerifier<B, C, CIDP, NumberFor<B>, SC>
+impl<B: BlockT, C, CIDP> Verifier<B> for HybridVerifier<B, C, CIDP>
 where
     C: ProvideRuntimeApi<B> + Send + Sync + sc_client_api::backend::AuxStore,
     C::Api: BlockBuilderApi<B> + BabeApi<B> + AuraApi<B, AuraAuthorityId> + ApiExt<B>,
     C: HeaderBackend<B> + HeaderMetadata<B, Error = sp_blockchain::Error>,
     CIDP: CreateInherentDataProviders<B, ()> + Send + Sync + Clone,
     CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
-    SC: SelectChain<B> + 'static,
 {
     async fn verify(&self, block: BlockImportParams<B>) -> Result<BlockImportParams<B>, String> {
         let number: NumberFor<B> = *block.post_header().number();
@@ -214,7 +199,7 @@ where
 }
 
 /// Parameters for our [`import_queue`].
-pub struct HybridImportQueueParams<'a, Block: BlockT, I, C, S, CIDP, SC> {
+pub struct HybridImportQueueParams<'a, Block: BlockT, I, C, S, CIDP> {
     /// The block import to use.
     pub block_import: I,
     /// The justification import.
@@ -235,19 +220,15 @@ pub struct HybridImportQueueParams<'a, Block: BlockT, I, C, S, CIDP, SC> {
     ///
     /// If in doubt, use `Default::default()`.
     pub compatibility_mode: CompatibilityMode<NumberFor<Block>>,
-    /// SelectChain strategy to use.
-    pub select_chain: SC,
     /// The configuration for the BABE consensus algorithm.
     pub babe_config: BabeConfiguration,
     /// The epoch changes for the BABE consensus algorithm.
     pub epoch_changes: SharedEpochChanges<Block, Epoch>,
-    /// The offchain transaction pool factory.
-    pub offchain_tx_pool_factory: OffchainTransactionPoolFactory<Block>,
 }
 
 /// Start a hybrid import queue that supports importing both Aura and Babe blocks.
-pub fn import_queue<B, I, C, S, CIDP, SC>(
-    params: HybridImportQueueParams<B, I, C, S, CIDP, SC>,
+pub fn import_queue<B, I, C, S, CIDP>(
+    params: HybridImportQueueParams<B, I, C, S, CIDP>,
 ) -> Result<DefaultImportQueue<B>, sp_consensus::Error>
 where
     B: BlockT,
@@ -265,18 +246,15 @@ where
     S: sp_core::traits::SpawnEssentialNamed,
     CIDP: CreateInherentDataProviders<B, ()> + Sync + Send + Clone + 'static,
     CIDP::InherentDataProviders: InherentDataProviderExt + Send + Sync,
-    SC: SelectChain<B> + 'static,
 {
-    let verifier = HybridVerifier::<B, C, CIDP, NumberFor<B>, SC>::new(
+    let verifier = HybridVerifier::<B, C, CIDP>::new(
         params.client,
         params.create_inherent_data_providers,
         params.telemetry,
         params.check_for_equivocation,
         params.compatibility_mode,
-        params.select_chain,
         params.babe_config,
         params.epoch_changes,
-        params.offchain_tx_pool_factory,
     );
 
     Ok(BasicQueue::new(

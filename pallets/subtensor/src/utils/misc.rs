@@ -157,8 +157,7 @@ impl<T: Config> Pallet<T> {
     // ========================
     pub fn get_current_block_as_u64() -> u64 {
         TryInto::try_into(<frame_system::Pallet<T>>::block_number())
-            .ok()
-            .expect("blockchain will not exceed 2^64 blocks; QED.")
+            .unwrap_or_else(|_| panic!("blockchain will not exceed 2^64 blocks; QED."))
     }
 
     // ==============================

@@ -8,13 +8,12 @@
 use super::mock::*;
 use crate::*;
 use frame_support::testing_prelude::*;
-use sp_core::{H160, Pair, U256, blake2_256, ecdsa, keccak_256};
+use sp_core::{H160, Pair, U256, ecdsa};
+use sp_crypto_hashing::{blake2_256, keccak_256};
 use std::convert::AsRef;
 
 fn public_to_evm_key(pubkey: &ecdsa::Public) -> H160 {
     use libsecp256k1::PublicKey;
-    use sp_core::keccak_256;
-
     let secp_pub = PublicKey::parse_compressed(&pubkey.0).expect("Invalid pubkey");
     let uncompressed = secp_pub.serialize(); // 65 bytes: 0x04 + X + Y
     let hash = keccak_256(&uncompressed[1..]); // drop 0x04

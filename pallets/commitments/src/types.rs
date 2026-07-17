@@ -17,17 +17,14 @@
 
 use codec::{Codec, Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{
-    BoundedVec, CloneNoBound, PartialEqNoBound, RuntimeDebugNoBound,
+    BoundedVec, CloneNoBound, DebugNoBound, PartialEqNoBound,
     traits::{ConstU32, Get},
 };
 use scale_info::{
     Path, Type, TypeInfo,
     build::{Fields, Variants},
 };
-use sp_runtime::{
-    RuntimeDebug,
-    traits::{AppendZerosInput, AtLeast32BitUnsigned},
-};
+use sp_runtime::traits::{AppendZerosInput, AtLeast32BitUnsigned};
 use sp_std::{fmt::Debug, iter::once, prelude::*};
 use subtensor_macros::freeze_struct;
 
@@ -38,9 +35,10 @@ use subtensor_macros::freeze_struct;
 /// - A timelock-encrypted blob with a reveal round
 /// - A reset flag (`ResetBondsFlag`)
 ///   Can also be `None`.
-#[derive(Clone, Eq, PartialEq, RuntimeDebug, DecodeWithMemTracking, MaxEncodedLen)]
+#[derive(Clone, Default, Eq, PartialEq, Debug, DecodeWithMemTracking, MaxEncodedLen)]
 pub enum Data {
     /// No data here.
+    #[default]
     None,
     /// The data is stored directly (up to 128 bytes).
     Raw(BoundedVec<u8, ConstU32<128>>),
@@ -356,13 +354,7 @@ impl TypeInfo for Data {
     }
 }
 
-impl Default for Data {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-#[freeze_struct("5ca4adbb4d2a2b20")]
+#[freeze_struct("c236d81fa00063bf")]
 #[derive(
     CloneNoBound,
     Encode,
@@ -371,7 +363,7 @@ impl Default for Data {
     Eq,
     MaxEncodedLen,
     PartialEqNoBound,
-    RuntimeDebugNoBound,
+    DebugNoBound,
     TypeInfo,
 )]
 #[codec(mel_bound())]
@@ -408,10 +400,8 @@ pub struct UsageTracker {
 ///
 /// NOTE: This is stored separately primarily to facilitate the addition of extra fields in a
 /// backwards compatible way through a specialized `Decode` impl.
-#[freeze_struct("632f12850e51c420")]
-#[derive(
-    CloneNoBound, Encode, Eq, MaxEncodedLen, PartialEqNoBound, RuntimeDebugNoBound, TypeInfo,
-)]
+#[freeze_struct("8afc71a336adf4f7")]
+#[derive(CloneNoBound, DebugNoBound, Encode, Eq, MaxEncodedLen, PartialEqNoBound, TypeInfo)]
 #[codec(mel_bound())]
 #[scale_info(skip_type_params(MaxFields))]
 pub struct Registration<

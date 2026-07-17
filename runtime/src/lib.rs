@@ -135,7 +135,7 @@ impl frame_system::offchain::SigningTypes for Runtime {
 pub struct FindAuraAuthors;
 impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
     fn find_current_author() -> Option<AuraId> {
-        let slot = Aura::current_slot_from_digests()?;
+        let slot = pallet_aura::CurrentSlot::<Runtime>::get();
         let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
         let author_index = *slot % authorities.len() as u64;
 
@@ -143,7 +143,7 @@ impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
     }
 
     fn find_next_next_author() -> Option<AuraId> {
-        let slot = Aura::current_slot_from_digests()?.checked_add(2)?;
+        let slot = pallet_aura::CurrentSlot::<Runtime>::get().checked_add(2)?;
         let authorities = pallet_aura::Authorities::<Runtime>::get().into_inner();
         let author_index = slot % authorities.len() as u64;
 
@@ -265,8 +265,13 @@ parameter_types! {
             MAXIMUM_BLOCK_WEIGHT,
             NORMAL_DISPATCH_RATIO,
         );
-    pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
-        ::max_with_normal_ratio(10 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+    pub BlockLength: frame_system::limits::BlockLength =
+        frame_system::limits::BlockLength::builder()
+            .max_length(10 * 1024 * 1024)
+            .modify_max_length_for_class(frame_support::dispatch::DispatchClass::Normal, |max| {
+                *max = NORMAL_DISPATCH_RATIO * *max;
+            })
+            .build();
     pub const SS58Prefix: u8 = 42;
 }
 
@@ -1588,7 +1593,7 @@ impl_runtime_apis! {
             VERSION
         }
 
-        fn execute_block(block: Block) {
+        fn execute_block(block: <Block as BlockT>::LazyBlock) {
             Executive::execute_block(block);
         }
 
@@ -1625,7 +1630,7 @@ impl_runtime_apis! {
         }
 
         fn check_inherents(
-            block: Block,
+            block: <Block as BlockT>::LazyBlock,
             data: sp_inherents::InherentData,
         ) -> sp_inherents::CheckInherentsResult {
             data.check_extrinsics(&block)
@@ -1688,8 +1693,11 @@ impl_runtime_apis! {
     }
 
     impl sp_session::SessionKeys<Block> for Runtime {
-        fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-            opaque::SessionKeys::generate(seed)
+        fn generate_session_keys(
+            owner: Vec<u8>,
+            seed: Option<Vec<u8>>,
+        ) -> sp_session::OpaqueGeneratedSessionKeys {
+            opaque::SessionKeys::generate(&owner, seed).into()
         }
 
         fn decode_session_keys(
@@ -2174,14 +2182,15 @@ impl_runtime_apis! {
 
         #[allow(clippy::expect_used)]
         fn execute_block(
-            block: Block,
+            block: <Block as BlockT>::LazyBlock,
             state_root_check: bool,
             signature_check: bool,
-            select: frame_try_runtime::TryStateSelect
+            select: frame_try_runtime::TryStateSelect,
         ) -> Weight {
             // NOTE: intentional unwrap: we don't want to propagate the error backwards, and want to
             // have a backtrace here.
-            Executive::try_execute_block(block, state_root_check, signature_check, select).expect("execute-block failed")
+            Executive::try_execute_block(block, state_root_check, signature_check, select)
+                .expect("execute-block failed")
         }
     }
 

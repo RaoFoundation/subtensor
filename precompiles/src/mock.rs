@@ -20,7 +20,7 @@ use precompile_utils::testing::MockHandle;
 use scale_info::TypeInfo;
 use sp_core::{ConstU64, H160, H256, U256, crypto::AccountId32};
 use sp_runtime::{
-    BuildStorage, KeyTypeId, Perbill, Percent, RuntimeDebug,
+    BuildStorage, Debug, KeyTypeId, Perbill, Percent,
     testing::TestXt,
     traits::{BlakeTwo256, ConstU32, IdentityLookup},
 };
@@ -45,7 +45,7 @@ pub(crate) type UncheckedExtrinsic = TestXt<RuntimeCall, ()>;
     PartialOrd,
     MaxEncodedLen,
     TypeInfo,
-    RuntimeDebug,
+    Debug,
 )]
 pub enum TestBalanceStatus {
     Test,

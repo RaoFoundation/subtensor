@@ -10,7 +10,7 @@
 // checks above them.
 #![allow(clippy::indexing_slicing)]
 
-use sp_core::hashing::{blake2_128, blake2_256, twox_128, twox_64};
+use sp_crypto_hashing::{blake2_128, blake2_256, twox_128, twox_64};
 
 use crate::codec::decode::Cursor;
 use crate::codec::value::Value;
@@ -27,7 +27,7 @@ pub fn hash_param(hasher: &str, data: &[u8]) -> Result<Vec<u8>, CoreError> {
             out.extend_from_slice(data);
             out
         }
-        "Twox256" => sp_core::hashing::twox_256(data).to_vec(),
+        "Twox256" => sp_crypto_hashing::twox_256(data).to_vec(),
         "Twox128" => twox_128(data).to_vec(),
         "Twox64Concat" => {
             let mut out = twox_64(data).to_vec();

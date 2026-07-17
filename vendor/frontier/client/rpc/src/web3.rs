@@ -23,7 +23,7 @@ use jsonrpsee::core::RpcResult;
 // Substrate
 use sp_api::{Core, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
-use sp_core::keccak_256;
+use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Block as BlockT;
 // Frontier
 use fc_rpc_core::{types::Bytes, Web3ApiServer};

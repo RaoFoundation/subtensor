@@ -11,13 +11,12 @@ use subtensor_runtime_common::{AuthorshipInfo, TaoBalance};
 
 fn new_test_ext() -> sp_io::TestExternalities {
     sp_tracing::try_init_simple();
-    let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig {
+    let ext: sp_io::TestExternalities = RuntimeGenesisConfig {
         ..Default::default()
     }
     .build_storage()
     .unwrap()
     .into();
-    ext.execute_with(|| frame_system::Pallet::<Runtime>::set_block_number(1));
     ext
 }
 

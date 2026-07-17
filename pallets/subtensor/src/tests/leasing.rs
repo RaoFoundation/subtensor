@@ -606,14 +606,12 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
                 .ceil()
                 .to_num::<u64>();
         assert_eq!(contributor1_alpha_delta, expected_contributor1_alpha.into());
-        assert_eq!(
-            System::events()[3].event,
-            RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
+        assert!(System::events().iter().any(|record| record.event
+            == RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: contributions[0].0.into(),
                 alpha: expected_contributor1_alpha.into(),
-            },)
-        );
+            },)));
 
         let expected_contributor2_alpha =
             SubnetLeaseShares::<Test>::get(lease_id, contributions[1].0)
@@ -621,27 +619,23 @@ fn test_distribute_lease_network_dividends_multiple_contributors_works() {
                 .ceil()
                 .to_num::<u64>();
         assert_eq!(contributor2_alpha_delta, expected_contributor2_alpha.into());
-        assert_eq!(
-            System::events()[6].event,
-            RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
+        assert!(System::events().iter().any(|record| record.event
+            == RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: contributions[1].0.into(),
                 alpha: expected_contributor2_alpha.into(),
-            },)
-        );
+            },)));
 
         // The beneficiary should have received the remaining dividends
         let expected_beneficiary_alpha = distributed_alpha.to_u64()
             - (expected_contributor1_alpha + expected_contributor2_alpha);
         assert_eq!(beneficiary_alpha_delta, expected_beneficiary_alpha.into());
-        assert_eq!(
-            System::events()[9].event,
-            RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
+        assert!(System::events().iter().any(|record| record.event
+            == RuntimeEvent::SubtensorModule(Event::SubnetLeaseDividendsDistributed {
                 lease_id,
                 contributor: beneficiary.into(),
                 alpha: expected_beneficiary_alpha.into(),
-            },)
-        );
+            },)));
 
         // Ensure nothing was accumulated for later distribution
         assert_eq!(

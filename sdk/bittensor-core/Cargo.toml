@@ -44,6 +44,7 @@ sodiumoxide = { version = "0.2", default-features = false, features = ["std"], o
 # build for wasm32; without std sp-core swaps in the pure-Rust k256. serde is
 # needed either way for the ss58 codec.
 sp-core = { workspace = true, features = ["full_crypto", "serde"] }
+sp-crypto-hashing = { workspace = true }
 zeroize = "1"
 
 # timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the

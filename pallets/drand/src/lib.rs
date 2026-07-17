@@ -32,6 +32,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 // Many errors are transformed throughout the pallet.
 #![allow(clippy::manual_inspect)]
+#![allow(clippy::let_unit_value)]
+// stable2606 deprecates ValidateUnsigned ahead of its planned 2027 removal.
+#![allow(deprecated)]
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -49,7 +52,7 @@ use frame_system::{
 };
 use scale_info::prelude::cmp;
 use sha2::{Digest, Sha256};
-use sp_core::blake2_256;
+use sp_crypto_hashing::blake2_256;
 use sp_runtime::{
     KeyTypeId, Saturating,
     traits::{Hash, One},

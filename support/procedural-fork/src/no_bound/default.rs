@@ -36,7 +36,7 @@ pub fn derive_default_no_bound(input: proc_macro::TokenStream) -> proc_macro::To
                     }
                 });
 
-                quote!(Self { #( #fields, )* })
+                quote!(#name { #( #fields, )* })
             }
             Fields::Unnamed(unnamed) => {
                 let fields = unnamed.unnamed.iter().map(|field| {
@@ -45,10 +45,10 @@ pub fn derive_default_no_bound(input: proc_macro::TokenStream) -> proc_macro::To
                     }
                 });
 
-                quote!(Self( #( #fields, )* ))
+                quote!(#name( #( #fields, )* ))
             }
             Fields::Unit => {
-                quote!(Self)
+                quote!(#name)
             }
         },
         Data::Enum(enum_) => {
@@ -106,7 +106,7 @@ pub fn derive_default_no_bound(input: proc_macro::TokenStream) -> proc_macro::To
 
                     let variant_ident = &default_variant.ident;
 
-                    let fully_qualified_variant_path = quote!(Self::#variant_ident);
+                    let fully_qualified_variant_path = quote!(#name::#variant_ident);
 
                     match &default_variant.fields {
                         Fields::Named(named) => {

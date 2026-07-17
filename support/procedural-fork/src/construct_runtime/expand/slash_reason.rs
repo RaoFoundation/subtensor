@@ -53,7 +53,7 @@ pub fn expand_outer_slash_reason(pallet_decls: &[Pallet], scrate: &TokenStream) 
             Copy, Clone, Eq, PartialEq,
             #scrate::__private::codec::Encode, #scrate::__private::codec::Decode, #scrate::__private::codec::MaxEncodedLen,
             #scrate::__private::scale_info::TypeInfo,
-            #scrate::__private::RuntimeDebug,
+            #scrate::__private::Debug,
         )]
         pub enum RuntimeSlashReason {
             #( #slash_reason_variants )*

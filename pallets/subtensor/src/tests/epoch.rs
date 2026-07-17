@@ -100,7 +100,7 @@ fn distribute_nodes(
         (validators, servers) = (0..network_n as u16)
             .collect::<Vec<u16>>()
             .iter()
-            .partition(|&i| *i as usize % (network_n / validators_n) == 0);
+            .partition(|&i| (*i as usize).is_multiple_of(network_n / validators_n));
     } else if interleave == 2 {
         // random interleaving
         let mut permuted_uids: Vec<u16> = (0..network_n as u16).collect();
@@ -1490,8 +1490,8 @@ fn test_active_stake() {
             SubtensorModule::get_emission_for_uid(netuid, 0),
             274999999.into()
         ); // Note E = 0.5 * 0.55 * 1_000_000_000 = 275_000_000 (discrepancy)
-        for server in ((n / 2) as usize)..n as usize {
-            assert_eq!(bonds[0][server], I32F32::from_num(65_535)); // floor(0.55*(2^16-1))/(2^16-1), then max-upscale
+        for bond in bonds[0].iter().take(n as usize).skip((n / 2) as usize) {
+            assert_eq!(*bond, I32F32::from_num(65_535)); // floor(0.55*(2^16-1))/(2^16-1), then max-upscale
         }
         for validator in 1..(n / 2) {
             assert_eq!(
@@ -1502,8 +1502,12 @@ fn test_active_stake() {
                 SubtensorModule::get_emission_for_uid(netuid, validator),
                 224999999.into()
             ); // Note E = 0.5 * 0.45 * 1_000_000_000 = 225_000_000 (discrepancy)
-            for server in ((n / 2) as usize)..n as usize {
-                assert_eq!(bonds[validator as usize][server], I32F32::from_num(53619));
+            for bond in bonds[validator as usize]
+                .iter()
+                .take(n as usize)
+                .skip((n / 2) as usize)
+            {
+                assert_eq!(*bond, I32F32::from_num(53619));
                 // floor(0.45*(2^16-1))/(2^16-1), then max-upscale
             }
         }
@@ -1554,16 +1558,16 @@ fn test_active_stake() {
             SubtensorModule::get_emission_for_uid(netuid, 0),
             272501132.into()
         ); // Note E = 0.5 * (0.55 * 0.9 + 0.5 * 0.1) * 1_000_000_000 = 272_500_000 (discrepancy)
-        for server in ((n / 2) as usize)..n as usize {
-            assert_eq!(bonds[0][server], I32F32::from_num(65_535)); // floor((0.55 * 0.9 + 0.5 * 0.1)*(2^16-1))/(2^16-1), then max-upscale
+        for bond in bonds[0].iter().take(n as usize).skip((n / 2) as usize) {
+            assert_eq!(*bond, I32F32::from_num(65_535)); // floor((0.55 * 0.9 + 0.5 * 0.1)*(2^16-1))/(2^16-1), then max-upscale
         }
         assert_eq!(SubtensorModule::get_dividends_for_uid(netuid, 1), 29818); // Note D = floor((0.45 * 0.9 + 0.5 * 0.1) * 65_535)
         assert_eq!(
             SubtensorModule::get_emission_for_uid(netuid, 1),
             227498866.into()
         ); // Note E = 0.5 * (0.45 * 0.9 + 0.5 * 0.1) * 1_000_000_000 = 227_500_000 (discrepancy)
-        for server in ((n / 2) as usize)..n as usize {
-            assert_eq!(bonds[1][server], I32F32::from_num(54712)); // floor((0.45 * 0.9 + 0.5 * 0.1)/(0.55 * 0.9 + 0.5 * 0.1)*(2^16-1))
+        for bond in bonds[1].iter().take(n as usize).skip((n / 2) as usize) {
+            assert_eq!(*bond, I32F32::from_num(54712)); // floor((0.45 * 0.9 + 0.5 * 0.1)/(0.55 * 0.9 + 0.5 * 0.1)*(2^16-1))
         }
     });
 }

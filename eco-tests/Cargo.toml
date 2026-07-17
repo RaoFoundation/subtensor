@@ -18,27 +18,27 @@ unwrap-used = "deny"
 useless_conversion = "allow"
 
 [dependencies]
-# Keep `time` at a floor with the stack-exhaustion fix (GHSA-r6v5-fh4h-64xc); the old
-# =0.3.36 pin for the tracing-subscriber E0119 conflict is resolved by tracing-subscriber >= 0.3.20.
+# Keep `time` at a floor with the stack-exhaustion fix (GHSA-r6v5-fh4h-64xc).
+# stable2606's `sp-tracing` pins tracing-subscriber 0.3.19 exactly.
 time = { version = "0.3.47", default-features = false }
 pallet-subtensor = { path = "../pallets/subtensor", default-features = false, features = ["std"] }
 pallet-alpha-assets = { path = "../pallets/alpha-assets", default-features = false, features = ["std"] }
-frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-frame-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-sp-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-sp-io = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-sp-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-sp-std = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
+frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+frame-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+sp-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+sp-io = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+sp-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+sp-std = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "std"] }
 scale-info = { version = "2.11.2", default-features = false, features = ["derive", "std"] }
-pallet-balances = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-pallet-scheduler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
-pallet-preimage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
+pallet-balances = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+pallet-scheduler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
+pallet-preimage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
 pallet-drand = { path = "../pallets/drand", default-features = false, features = ["std"] }
 pallet-subtensor-swap = { path = "../pallets/swap", default-features = false, features = ["std"] }
 pallet-subtensor-swap-runtime-api = { path = "../pallets/swap/runtime-api", default-features = false, features = ["std"] }
 subtensor-custom-rpc-runtime-api = { path = "../pallets/subtensor/runtime-api", default-features = false, features = ["std"] }
-sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
+sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
 pallet-crowdloan = { path = "../pallets/crowdloan", default-features = false, features = ["std"] }
 pallet-subtensor-proxy = { path = "../pallets/proxy", default-features = false, features = ["std"] }
 pallet-subtensor-utility = { path = "../pallets/utility", default-features = false, features = ["std"] }
@@ -50,10 +50,10 @@ substrate-fixed = { git = "https://github.com/encointer/substrate-fixed.git", ta
 safe-math = { path = "../primitives/safe-math", default-features = false, features = ["std"] }
 log = { version = "0.4.21", default-features = false, features = ["std"] }
 approx = "0.5"
-sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false, features = ["std"] }
+sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false, features = ["std"] }
 tracing = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
+tracing-subscriber = { version = "=0.3.19", features = ["fmt", "env-filter"] }
 rand = { version = "0.10.0", default-features = false, features = ["std", "thread_rng"] }
 hex-literal = "0.4.1"
 

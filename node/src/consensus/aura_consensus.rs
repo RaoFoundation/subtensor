@@ -153,13 +153,6 @@ impl ConsensusMechanism for AuraConsensus {
                   grandpa_block_import: GrandpaBlockImport,
                   transaction_pool: Arc<TransactionPoolHandle<Block, FullClient>>| {
                 let expected_babe_config = get_expected_babe_configuration(&*client)?;
-                let conditional_block_import = HybridBlockImport::new(
-                    client.clone(),
-                    grandpa_block_import.clone(),
-                    expected_babe_config.clone(),
-                    skip_history_backfill,
-                );
-
                 let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
                 let create_inherent_data_providers = move |_, ()| async move {
                     let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
@@ -170,6 +163,24 @@ impl ConsensusMechanism for AuraConsensus {
 						);
                     Ok((slot, timestamp))
                 };
+                let select_chain = sc_consensus::LongestChain::new(backend.clone());
+                let offchain_tx_pool_factory =
+                    OffchainTransactionPoolFactory::new(transaction_pool);
+                let (babe_import, babe_link) = sc_consensus_babe::block_import(
+                    expected_babe_config.clone(),
+                    grandpa_block_import.clone(),
+                    client.clone(),
+                    create_inherent_data_providers,
+                    select_chain,
+                    offchain_tx_pool_factory,
+                )?;
+                let conditional_block_import = HybridBlockImport::new(
+                    client.clone(),
+                    grandpa_block_import.clone(),
+                    babe_import,
+                    babe_link,
+                    skip_history_backfill,
+                );
 
                 // Aura needs the hybrid import queue, because it needs to
                 // 1. Validate the first Babe block it encounters before switching into Babe
@@ -187,12 +198,8 @@ impl ConsensusMechanism for AuraConsensus {
                         check_for_equivocation: Default::default(),
                         telemetry,
                         compatibility_mode: sc_consensus_aura::CompatibilityMode::None,
-                        select_chain: sc_consensus::LongestChain::new(backend.clone()),
                         babe_config: expected_babe_config,
                         epoch_changes: conditional_block_import.babe_link().epoch_changes().clone(),
-                        offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(
-                            transaction_pool,
-                        ),
                     },
                 )
                 .map_err::<sc_service::Error, _>(Into::into)?;

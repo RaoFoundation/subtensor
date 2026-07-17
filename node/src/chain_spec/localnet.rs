@@ -119,7 +119,7 @@ fn localnet_genesis(
     serde_json::json!({
         "balances": { "balances": balances },
         "aura": {
-            "authorities": initial_authorities.iter().map(|x| (x.0.clone())).collect::<Vec<_>>()
+            "authorities": initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>()
         },
         "grandpa": {
             "authorities": initial_authorities

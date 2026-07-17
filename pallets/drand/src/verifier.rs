@@ -23,7 +23,8 @@ use crate::{
     types::{BeaconConfiguration, Pulse, RoundNumber},
 };
 use alloc::{format, string::String, vec::Vec};
-use ark_ec::{AffineRepr, hashing::HashToCurve};
+use ark_ec::hashing::HashToCurve;
+use ark_ec_v5::AffineRepr;
 use ark_serialize::CanonicalSerialize;
 use codec::Decode;
 use sha2::{Digest, Sha256};

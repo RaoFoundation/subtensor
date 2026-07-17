@@ -16,6 +16,8 @@
 // limitations under the License.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+// stable2606 retains this legacy hook until the scheduled ValidateUnsigned removal.
+#![allow(deprecated)]
 #![warn(unused_crate_dependencies)]
 
 mod checked_extrinsic;

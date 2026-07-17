@@ -199,8 +199,8 @@ pub struct Pulse {
 
 /// Payload used by to hold the pulse
 /// data required to submit a transaction.
-#[freeze_struct("d56228e0330b6598")]
-#[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+#[freeze_struct("7bc8788d055c45e3")]
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
 pub struct PulsesPayload<Public, BlockNumber> {
     pub block_number: BlockNumber,
     pub pulses: Vec<Pulse>,

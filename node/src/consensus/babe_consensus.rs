@@ -179,19 +179,7 @@ impl ConsensusMechanism for BabeConsensus {
                     ));
                 }
 
-                let (babe_import, babe_link) = sc_consensus_babe::block_import(
-                    configuration,
-                    grandpa_block_import.clone(),
-                    client.clone(),
-                )?;
-
-                let conditional_block_import = ConditionalEVMBlockImport::new(
-                    babe_import.clone(),
-                    FrontierBlockImport::new(babe_import.clone(), client.clone()),
-                    skip_history_backfill,
-                );
-
-                let slot_duration = babe_link.config().slot_duration();
+                let slot_duration = configuration.slot_duration();
                 let create_inherent_data_providers = move |_, ()| async move {
                     let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
                     let slot =
@@ -201,6 +189,20 @@ impl ConsensusMechanism for BabeConsensus {
 						);
                     Ok((slot, timestamp))
                 };
+                let (babe_import, babe_link) = sc_consensus_babe::block_import(
+                    configuration,
+                    grandpa_block_import.clone(),
+                    client.clone(),
+                    create_inherent_data_providers,
+                    sc_consensus::LongestChain::new(backend),
+                    OffchainTransactionPoolFactory::new(transaction_pool),
+                )?;
+
+                let conditional_block_import = ConditionalEVMBlockImport::new(
+                    babe_import.clone(),
+                    FrontierBlockImport::new(babe_import.clone(), client.clone()),
+                    skip_history_backfill,
+                );
 
                 let (import_queue, babe_worker_handle) =
                     sc_consensus_babe::import_queue(sc_consensus_babe::ImportQueueParams {
@@ -208,14 +210,10 @@ impl ConsensusMechanism for BabeConsensus {
                         block_import: conditional_block_import.clone(),
                         justification_import: Some(Box::new(grandpa_block_import)),
                         client,
-                        select_chain: sc_consensus::LongestChain::new(backend.clone()),
-                        create_inherent_data_providers,
+                        slot_duration,
                         spawner: &task_manager.spawn_essential_handle(),
                         registry: config.prometheus_registry(),
                         telemetry,
-                        offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(
-                            transaction_pool,
-                        ),
                     })?;
 
                 self.babe_link = Some(babe_link);

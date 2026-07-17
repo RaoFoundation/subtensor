@@ -17,7 +17,7 @@ use bittensor_core::codec::Value;
 use bittensor_core::keys::{public_key_from_ss58, ss58_from_public, Keypair, CRYPTO_SR25519};
 use bittensor_core::transaction::{Executor, IntentCall, SignerRole, Spend, Wallet};
 use bittensor_core::CoreError;
-use sp_core::hashing::blake2_256;
+use sp_crypto_hashing::blake2_256;
 
 pub const RAO_PER_TAO: u128 = 1_000_000_000;
 const DEFAULT_IMAGE: &str = "ghcr.io/raofoundation/subtensor-localnet:monorepo-sdk";

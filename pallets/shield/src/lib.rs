@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-use alloc::vec;
 use chacha20poly1305::{
     KeyInit, XChaCha20Poly1305, XNonce,
     aead::{Aead, Payload},
@@ -19,8 +18,9 @@ use ml_kem::{
     kem::{Decapsulate, DecapsulationKey},
 };
 use sp_io::hashing::twox_128;
-use sp_runtime::traits::{Applyable, Block as BlockT, Checkable, Hash};
-use sp_runtime::traits::{Dispatchable, Saturating};
+use sp_runtime::traits::{
+    Block as BlockT, Checkable, Dispatchable, ExtrinsicCall, Hash, Saturating,
+};
 use stp_shield::{
     INHERENT_IDENTIFIER, InherentType, LOG_TARGET, MLKEM768_ENC_KEY_LEN, ShieldEncKey,
     ShieldedTransaction,
@@ -48,9 +48,6 @@ pub use extension::CheckShieldedTxValidity;
 type MigrationKeyMaxLen = ConstU32<128>;
 
 type ExtrinsicOf<Block> = <Block as BlockT>::Extrinsic;
-type CheckedOf<T, Context> = <T as Checkable<Context>>::Checked;
-type ApplyableCallOf<T> = <T as Applyable>::Call;
-
 const MAX_EXTRINSIC_DEPTH: u32 = 8;
 
 /// Weight for `store_encrypted`, intentionally set higher than the benchmark
@@ -581,9 +578,8 @@ impl<T: Config> Pallet<T> {
         uxt: ExtrinsicOf<Block>,
     ) -> Option<ShieldedTransaction>
     where
-        Block::Extrinsic: Checkable<Context>,
-        CheckedOf<Block::Extrinsic, Context>: Applyable,
-        ApplyableCallOf<CheckedOf<Block::Extrinsic, Context>>: IsSubType<Call<T>>,
+        Block::Extrinsic: Checkable<Context> + ExtrinsicCall,
+        <Block::Extrinsic as ExtrinsicCall>::Call: IsSubType<Call<T>>,
     {
         // Prevent stack overflows by limiting the depth of the extrinsic.
         let encoded = uxt.encode();
@@ -596,20 +592,21 @@ impl<T: Config> Pallet<T> {
         )
         .ok()?;
 
-        // Verify that the signature is correct.
-        let xt = ExtrinsicOf::<Block>::check(uxt, &Context::default())
+        let Some(Call::submit_encrypted { ciphertext }) =
+            IsSubType::<Call<T>>::is_sub_type(ExtrinsicCall::call(&uxt))
+        else {
+            return None;
+        };
+        let shielded = ShieldedTransaction::parse(ciphertext)?;
+
+        // Verify that the signature is correct before accepting the parsed transaction.
+        ExtrinsicOf::<Block>::check(uxt, &Context::default())
             .inspect_err(
                 |e| log::debug!(target: LOG_TARGET, "Failed to check shielded extrinsic: {:?}", e),
             )
             .ok()?;
-        let call = xt.call();
 
-        let Some(Call::submit_encrypted { ciphertext }) = IsSubType::<Call<T>>::is_sub_type(call)
-        else {
-            return None;
-        };
-
-        ShieldedTransaction::parse(ciphertext)
+        Some(shielded)
     }
 
     pub fn is_shielded_using_current_key(key_hash: &[u8; 16]) -> bool {

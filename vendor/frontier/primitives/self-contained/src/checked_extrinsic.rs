@@ -21,18 +21,18 @@ use sp_runtime::{
 	generic::ExtrinsicFormat,
 	traits::{
 		transaction_extension::TransactionExtension, Applyable, AsTransactionAuthorizedOrigin,
-		DispatchInfoOf, DispatchTransaction, Dispatchable, MaybeDisplay, Member,
+		DispatchInfoOf, DispatchTransaction, Dispatchable, MaybeDisplay, Member, Pipeline,
 		PostDispatchInfoOf, ValidateUnsigned,
 	},
 	transaction_validity::{
 		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
 	},
-	RuntimeDebug,
+	Debug,
 };
 
 use crate::SelfContainedCall;
 
-#[derive(Clone, Eq, PartialEq, RuntimeDebug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub enum CheckedSignature<AccountId, Extension, SelfContainedSignedInfo> {
 	GenericDelegated(ExtrinsicFormat<AccountId, Extension>),
 	SelfContained(SelfContainedSignedInfo),
@@ -41,7 +41,7 @@ pub enum CheckedSignature<AccountId, Extension, SelfContainedSignedInfo> {
 /// Definition of something that the external world might want to say; its
 /// existence implies that it has been checked and is good, particularly with
 /// regards to the signature.
-#[derive(Clone, Eq, PartialEq, RuntimeDebug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct CheckedExtrinsic<AccountId, Call, Extension, SelfContainedSignedInfo> {
 	/// Who this purports to be from and the number of extrinsics have come before
 	/// from the same signer, if anyone (note this is not a signature).
@@ -94,16 +94,9 @@ where
 						.validate_only(origin, &self.function, info, len, source, 0)
 						.map(|x| x.0)
 				}
-				ExtrinsicFormat::General(extension_version, ref extension) => extension
-					.validate_only(
-						None.into(),
-						&self.function,
-						info,
-						len,
-						source,
-						*extension_version,
-					)
-					.map(|x| x.0),
+				ExtrinsicFormat::General(ref extension) => {
+					extension.validate_only(None.into(), &self.function, info, len, source)
+				}
 			},
 			SelfContained(signed_info) => self
 				.function
@@ -137,8 +130,9 @@ where
 				ExtrinsicFormat::Signed(signer, extension) => {
 					extension.dispatch_transaction(Some(signer).into(), self.function, info, len, 0)
 				}
-				ExtrinsicFormat::General(extension_version, extension) => extension
-					.dispatch_transaction(None.into(), self.function, info, len, extension_version),
+				ExtrinsicFormat::General(extension) => {
+					extension.dispatch_transaction(None.into(), self.function, info, len)
+				}
 			},
 			CheckedSignature::SelfContained(signed_info) => {
 				// If pre-dispatch fail, the block must be considered invalid
@@ -163,9 +157,5 @@ where
 				Ok(res)
 			}
 		}
-	}
-
-	fn call(&self) -> &Self::Call {
-		&self.function
 	}
 }

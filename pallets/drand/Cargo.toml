@@ -25,6 +25,7 @@ frame-benchmarking = { workspace = true, optional = true }
 frame-support.workspace = true
 frame-system.workspace = true
 sp-core.workspace = true
+sp-crypto-hashing.workspace = true
 sp-io.workspace = true
 sp-runtime.workspace = true
 sp-std.workspace = true
@@ -37,6 +38,8 @@ ark-ec.workspace = true
 ark-std.workspace = true
 ark-crypto-primitives = { workspace = true, features = ["r1cs", "snark"] }
 ark-scale = { workspace = true, features = ["hazmat"] }
+ark-ec-v5 = { package = "ark-ec", version = "0.5.0", default-features = false }
+ark-std-v5 = { package = "ark-std", version = "0.5.0", default-features = false }
 w3f-bls.workspace = true
 sp-keyring.workspace = true
 subtensor-macros.workspace = true
@@ -56,6 +59,7 @@ std = [
 	"frame-system/std",
 	"scale-info/std",
 	"sp-core/std",
+	"sp-crypto-hashing/std",
 	"sp-std/std",
 	"sp-io/std",
 	"sp-keystore/std",
@@ -72,6 +76,8 @@ std = [
 	"ark-std/std",
 	"ark-crypto-primitives/std",
 	"ark-scale/std",
+	"ark-ec-v5/std",
+	"ark-std-v5/std",
 	"w3f-bls/std",
 	"tle/std",
 	"anyhow/std",

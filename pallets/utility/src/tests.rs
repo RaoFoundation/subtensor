@@ -39,6 +39,7 @@ use sp_runtime::{
     traits::{BadOrigin, Dispatchable},
 };
 
+#[allow(dead_code)]
 type BlockNumber = u64;
 
 // example module to test behaviors.

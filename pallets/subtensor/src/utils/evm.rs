@@ -3,7 +3,8 @@ use alloc::string::ToString;
 use frame_support::ensure;
 use frame_system::ensure_signed;
 
-use sp_core::{H160, ecdsa::Signature, hashing::keccak_256};
+use sp_core::{H160, ecdsa::Signature};
+use sp_crypto_hashing::keccak_256;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::vec::Vec;
 use subtensor_runtime_common::NetUid;

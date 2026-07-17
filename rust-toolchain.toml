@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.89" # rustc 1.89.0 (29483883e 2025-08-04)
+channel = "1.93.0" # stable2606 / polkadot-v1.24.0 CI toolchain
 components = [
 	"cargo",
 	"clippy",

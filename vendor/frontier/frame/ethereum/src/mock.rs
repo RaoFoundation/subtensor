@@ -25,7 +25,8 @@ use ethereum::{
 use rlp::RlpStream;
 // Substrate
 use frame_support::{derive_impl, parameter_types, traits::FindAuthor, ConsensusEngineId};
-use sp_core::{hashing::keccak_256, H160, H256, U256};
+use sp_core::{H160, H256, U256};
+use sp_io::hashing::keccak_256;
 use sp_runtime::{
 	traits::{Dispatchable, IdentityLookup},
 	AccountId32, BuildStorage,

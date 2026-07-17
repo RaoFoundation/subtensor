@@ -33,7 +33,7 @@ pub fn derive_clone_no_bound(input: proc_macro::TokenStream) -> proc_macro::Toke
                     )
                 });
 
-                quote::quote!( Self { #( #fields, )* } )
+                quote::quote!( #name { #( #fields, )* } )
             }
             syn::Fields::Unnamed(unnamed) => {
                 let fields = unnamed
@@ -47,10 +47,10 @@ pub fn derive_clone_no_bound(input: proc_macro::TokenStream) -> proc_macro::Toke
                         )
                     });
 
-                quote::quote!( Self ( #( #fields, )* ) )
+                quote::quote!( #name ( #( #fields, )* ) )
             }
             syn::Fields::Unit => {
-                quote::quote!(Self)
+                quote::quote!(#name)
             }
         },
         syn::Data::Enum(enum_) => {
@@ -65,7 +65,7 @@ pub fn derive_clone_no_bound(input: proc_macro::TokenStream) -> proc_macro::Toke
                             )
                         });
                         quote::quote!(
-                            Self::#ident { #( ref #captured, )* } => Self::#ident { #( #cloned, )*}
+                            #name::#ident { #( ref #captured, )* } => #name::#ident { #( #cloned, )*}
                         )
                     }
                     syn::Fields::Unnamed(unnamed) => {
@@ -80,10 +80,10 @@ pub fn derive_clone_no_bound(input: proc_macro::TokenStream) -> proc_macro::Toke
                             )
                         });
                         quote::quote!(
-                            Self::#ident ( #( ref #captured, )* ) => Self::#ident ( #( #cloned, )*)
+                            #name::#ident ( #( ref #captured, )* ) => #name::#ident ( #( #cloned, )*)
                         )
                     }
-                    syn::Fields::Unit => quote::quote!( Self::#ident => Self::#ident ),
+                    syn::Fields::Unit => quote::quote!( #name::#ident => #name::#ident ),
                 }
             });
 

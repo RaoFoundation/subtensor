@@ -11,7 +11,8 @@ use pallet_evm::{
 };
 use precompile_utils::EvmResult;
 use precompile_utils::prelude::RuntimeHelper;
-use sp_core::{H160, U256, blake2_256};
+use sp_core::{H160, U256};
+use sp_crypto_hashing::blake2_256;
 use sp_runtime::traits::{Dispatchable, ExtensionPostDispatchWeightHandler};
 use sp_std::vec::Vec;
 use subtensor_runtime_common::with_evm_context;

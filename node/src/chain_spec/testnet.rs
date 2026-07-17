@@ -119,7 +119,7 @@ fn testnet_genesis(
             "balances": vec![(root_key.clone(), 1_000_000_000_000u128)],
         },
         "aura": {
-            "authorities": initial_authorities.iter().map(|x| (x.0.clone())).collect::<Vec<_>>(),
+            "authorities": initial_authorities.iter().map(|x| x.0.clone()).collect::<Vec<_>>(),
         },
         "grandpa": {
             "authorities": initial_authorities

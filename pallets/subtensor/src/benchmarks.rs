@@ -1,5 +1,9 @@
 //! Subtensor pallet benchmarking.
-#![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::expect_used,
+    clippy::unwrap_used
+)]
 #![cfg(feature = "runtime-benchmarks")]
 
 use crate::Pallet as Subtensor;

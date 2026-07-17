@@ -228,15 +228,7 @@ fn dissolve_two_stakers_pro_rata_distribution() {
         let prod2 = (a2 as u128) * (pot as u128);
         let share1 = (prod1 / total) as u64;
         let share2 = (prod2 / total) as u64;
-        let mut distributed = share1 + share2;
         let mut rem = [(s1_cold, prod1 % total), (s2_cold, prod2 % total)];
-        if distributed < pot {
-            rem.sort_by_key(|&(_c, r)| core::cmp::Reverse(r));
-            let leftover = pot - distributed;
-            for _ in 0..leftover as usize {
-                distributed += 1;
-            }
-        }
         // Recompute exact expected shares using the same logic
         let mut expected1 = share1;
         let mut expected2 = share2;

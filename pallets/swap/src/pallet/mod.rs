@@ -291,7 +291,7 @@ mod pallet {
 pub struct TickIndex(i32);
 
 /// Struct representing a liquidity position ID, DEPRECATED
-#[freeze_struct("e695cd6455c3f0cb")]
+#[freeze_struct("c8df1b174a78d321")]
 #[derive(
     Clone,
     Copy,
@@ -302,7 +302,7 @@ pub struct TickIndex(i32);
     Eq,
     MaxEncodedLen,
     PartialEq,
-    RuntimeDebug,
+    Debug,
     TypeInfo,
 )]
 pub struct PositionId(u128);

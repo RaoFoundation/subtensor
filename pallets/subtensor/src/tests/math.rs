@@ -365,7 +365,7 @@ fn test_math_vec_to_fixed() {
 // Reshape vector to matrix with specified number of rows, cast to I32F32.
 pub fn vec_to_mat_fixed(vector: &[f32], rows: usize, transpose: bool) -> Vec<Vec<I32F32>> {
     assert!(
-        vector.len() % rows == 0,
+        vector.len().is_multiple_of(rows),
         "Vector of len {:?} cannot reshape to {rows} rows.",
         vector.len()
     );
@@ -418,7 +418,7 @@ fn vec_to_sparse_mat_fixed(
     transpose: bool,
 ) -> Vec<Vec<(u16, I32F32)>> {
     assert!(
-        vector.len() % rows == 0,
+        vector.len().is_multiple_of(rows),
         "Vector of len {:?} cannot reshape to {rows} rows.",
         vector.len()
     );

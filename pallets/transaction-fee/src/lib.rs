@@ -6,10 +6,7 @@ use frame_support::{
     storage::{TransactionOutcome, with_transaction},
     traits::{
         Imbalance, IsSubType, OnUnbalanced,
-        fungible::{
-            Balanced, Credit, Debt, DecreaseIssuance, Imbalance as FungibleImbalance,
-            IncreaseIssuance, Inspect,
-        },
+        fungible::{Balanced, Credit, Debt, Inspect},
         tokens::{Precision, WithdrawConsequence},
     },
     weights::{WeightToFeeCoefficient, WeightToFeeCoefficients, WeightToFeePolynomial},
@@ -27,8 +24,7 @@ use sp_runtime::{
 
 // Pallets
 use pallet_subtensor::Call as SubtensorCall;
-use pallet_transaction_payment::Config as PTPConfig;
-use pallet_transaction_payment::OnChargeTransaction;
+use pallet_transaction_payment::{Config as PTPConfig, OnChargeTransaction, TxCreditHold};
 use subtensor_swap_interface::SwapHandler;
 
 // Misc
@@ -89,11 +85,7 @@ impl<T> Default for TransactionFeeHandler<T> {
     }
 }
 
-type BalancesImbalanceOf<T> = FungibleImbalance<
-    <T as pallet_balances::Config>::Balance,
-    DecreaseIssuance<AccountIdOf<T>, pallet_balances::Pallet<T>>,
-    IncreaseIssuance<AccountIdOf<T>, pallet_balances::Pallet<T>>,
->;
+type BalancesImbalanceOf<T> = Credit<AccountIdOf<T>, pallet_balances::Pallet<T>>;
 
 impl<T> OnUnbalanced<BalancesImbalanceOf<T>> for TransactionFeeHandler<T>
 where
@@ -241,6 +233,12 @@ pub enum WithdrawnFee<T: frame_system::Config, F: Balanced<AccountIdOf<T>>> {
 /// FRAME pallet
 ///
 pub struct SubtensorTxFeeHandler<F, OU>(PhantomData<(F, OU)>);
+
+impl<T: PTPConfig, F, OU> TxCreditHold<T> for SubtensorTxFeeHandler<F, OU> {
+    // This custom adapter keeps its withdrawn fee in `LiquidityInfo` and does not expose a
+    // transaction-fee credit to other pallets.
+    type Credit = ();
+}
 
 pub struct SubtensorEvmFeeHandler<F, OU>(PhantomData<(F, OU)>);
 

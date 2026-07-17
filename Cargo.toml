@@ -79,8 +79,8 @@ subtensor-runtime-common = { default-features = false, path = "common" }
 subtensor-swap-interface = { default-features = false, path = "primitives/swap-interface" }
 subtensor-transaction-fee = { default-features = false, path = "pallets/transaction-fee" }
 subtensor-chain-extensions = { default-features = false, path = "chain-extensions" }
-stp-shield = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-stc-shield = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+stp-shield = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+stc-shield = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
 ed25519-dalek = { version = "2.1.0", default-features = false }
 async-trait = "0.1"
@@ -108,7 +108,7 @@ serde_with = { version = "3.14.0", default-features = false }
 smallvec = "1.13.2"
 tracing = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "=0.3.20" }
+tracing-subscriber = { version = "=0.3.19" }
 litep2p = { git = "https://github.com/paritytech/litep2p", tag = "v0.7.0", default-features = false }
 syn = { version = "2.0.106", default-features = false }
 quote = { version = "1", default-features = false }
@@ -136,126 +136,127 @@ num_enum = { version = "0.7.4", default-features = false }
 environmental = { version = "1.1.4", default-features = false }
 tokio = { version = "1.38", default-features = false }
 
-frame = { package = "polkadot-sdk-frame", git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-executive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-system-rpc-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-system-benchmarking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-try-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-benchmarking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-benchmarking-cli = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-frame-metadata-hash-extension = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+frame = { package = "polkadot-sdk-frame", git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-executive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-system-rpc-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-system-benchmarking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-try-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-benchmarking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-benchmarking-cli = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+frame-metadata-hash-extension = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 frame-metadata = { version = "23.0.0", default-features = false }
 
 pallet-subtensor-proxy = { path = "pallets/proxy", default-features = false }
 pallet-subtensor-utility = { path = "pallets/utility", default-features = false }
-pallet-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-balances = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-insecure-randomness-collective-flip = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-multisig = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-preimage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-safe-mode = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-scheduler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-sudo = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-timestamp = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-transaction-payment = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-transaction-payment-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-root-testing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-contracts = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+pallet-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-balances = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-insecure-randomness-collective-flip = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-multisig = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-preimage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-safe-mode = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-scheduler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-sudo = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-timestamp = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-transaction-payment = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-transaction-payment-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-root-testing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-contracts = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
 # NPoS
-frame-election-provider-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-authority-discovery = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-authorship = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-bags-list = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-election-provider-multi-phase = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-fast-unstake = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-nomination-pools = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-nomination-pools-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-session = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-staking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-staking-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-staking-reward-fn = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-staking-reward-curve = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-pallet-offences = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+frame-election-provider-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-authority-discovery = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-authorship = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-bags-list = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-election-provider-multi-phase = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-fast-unstake = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-nomination-pools = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-nomination-pools-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-session = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-staking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-staking-runtime-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-staking-reward-fn = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-staking-reward-curve = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+pallet-offences = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
-sc-basic-authorship = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-cli = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-client-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-babe-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-grandpa-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-epochs = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-chain-spec-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-chain-spec = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-executor = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-network = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-offchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-rpc-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-service = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-telemetry = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-transaction-pool-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-consensus-manual-seal = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sc-network-sync = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+sc-basic-authorship = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-cli = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-client-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-babe-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-grandpa-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-epochs = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-chain-spec-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-chain-spec = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-executor = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-network = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-offchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-rpc-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-service = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-telemetry = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-transaction-pool-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-consensus-manual-seal = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sc-network-sync = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
-sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-authority-discovery = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-arithmetic = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-block-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-blockchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-staking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-npos-elections = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-consensus-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-genesis-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-inherents = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-io = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-keyring = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-offchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-session = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-std = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-storage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-timestamp = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-version = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-weights = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-crypto-hashing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-application-crypto = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-debug-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-externalities = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-runtime-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-authority-discovery = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-arithmetic = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-block-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-blockchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-staking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-npos-elections = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-consensus-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-genesis-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-inherents = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-io = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-keyring = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-offchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-session = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-std = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-storage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-timestamp = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-version = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-weights = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-crypto-hashing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-application-crypto = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-debug-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-externalities = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-runtime-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
-substrate-build-script-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+substrate-build-script-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 substrate-fixed = { git = "https://github.com/encointer/substrate-fixed.git", tag = "v0.6.0", default-features = false }
-substrate-frame-rpc-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-substrate-wasm-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-substrate-prometheus-endpoint = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+substrate-frame-rpc-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+substrate-wasm-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+substrate-prometheus-endpoint = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
-polkadot-sdk = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+polkadot-sdk = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
-runtime-common = { package = "polkadot-runtime-common", git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+runtime-common = { package = "polkadot-runtime-common", git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 
 # Frontier
 # Vendored via `git subtree` from RaoFoundation/frontier
 # (branch polkadot-stable2506-2-otf-get-call-indices-metadata, rev d553a1155).
+# Its SDK dependencies are redirected to the stable2606 Rao fork below.
 # Update with:
 #   git subtree pull --prefix vendor/frontier https://github.com/RaoFoundation/frontier <rev> --squash
 fp-evm = { path = "vendor/frontier/primitives/evm", default-features = false }
@@ -290,11 +291,11 @@ pallet-hotfix-sufficients = { path = "vendor/frontier/frame/hotfix-sufficients",
 
 #DRAND
 pallet-drand = { path = "pallets/drand", default-features = false }
-sp-crypto-ec-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
-sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7", default-features = false }
+sp-crypto-ec-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
+sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0", default-features = false }
 w3f-bls = { path = "vendor/w3f-bls", default-features = false }
 ark-crypto-primitives = { version = "0.4.0", default-features = false }
-ark-scale = { version = "0.0.11", default-features = false }
+ark-scale = { version = "0.0.13", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false }
 ark-serialize = { version = "0.4.0", default-features = false }
 ark-ff = { version = "0.4.0", default-features = false }
@@ -332,114 +333,114 @@ w3f-bls = { path = "vendor/w3f-bls" }
 zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
 zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe5d35d982f6afefb5d7e4e69f5f18" }
 
-# The RaoFoundation/frontier fork still pins polkadot-sdk to the
-# github.com/opentensor/polkadot-sdk remote at the same rev this workspace
-# consumes from github.com/RaoFoundation/polkadot-sdk. Cargo treats the two
-# git URLs as distinct sources, producing duplicate frame-system / frame-support
+# The exactly-vendored RaoFoundation/frontier revision still names the
+# github.com/opentensor/polkadot-sdk remote and its historical SDK revision.
+# Cargo treats that and github.com/RaoFoundation/polkadot-sdk as distinct
+# git sources, producing duplicate frame-system / frame-support
 # / sp-* crates. That duplication makes T::AccountId ambiguous across two
 # identical-but-distinct frame_system copies in any pallet that depends on both
 # (e.g. pallet-admin-utils via pallet-evm-chain-id), breaking the benchmark
 # build. Redirect the frontier-side polkadot-sdk crates to the RaoFoundation
-# remote at the same rev so the whole graph resolves to a single copy.
+# remote at the stable2606 rev so the whole graph resolves to a single copy.
 [patch."https://github.com/opentensor/polkadot-sdk"]
-binary-merkle-tree = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-cumulus-primitives-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-cumulus-primitives-storage-weight-reclaim = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-fork-tree = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-frame-benchmarking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-frame-support-procedural = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-frame-support-procedural-tools = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-frame-support-procedural-tools-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-frame-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-polkadot-core-primitives = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-polkadot-parachain-primitives = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-polkadot-primitives = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-allocator = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-block-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-chain-spec = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-chain-spec-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-client-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-client-db = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-consensus-epochs = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-executor = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-executor-common = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-executor-polkavm = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-executor-wasmtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-informant = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-mixnet = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-network = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-network-common = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-network-light = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-network-sync = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-network-transactions = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-network-types = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-rpc-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-rpc-server = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-rpc-spec-v2 = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-service = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-state-db = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-sysinfo = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-telemetry = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-tracing-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-transaction-pool-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sc-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-api-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-application-crypto = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-arithmetic = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-authority-discovery = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-block-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-blockchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-consensus-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-crypto-hashing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-crypto-hashing-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-database = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-debug-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-externalities = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-genesis-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-inherents = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-io = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-maybe-compressed-blob = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-metadata-ir = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-mixnet = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-offchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-panic-handler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-runtime-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-runtime-interface-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-session = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-staking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-state-machine = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-statement-store = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-std = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-storage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-timestamp = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-transaction-storage-proof = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-trie = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-version = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-version-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-wasm-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-sp-weights = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-staging-xcm = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-substrate-bip39 = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-substrate-prometheus-endpoint = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
-xcm-procedural = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "7cc54bf2d50ae3921d718736dfeb0de9468539c7" }
+binary-merkle-tree = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+cumulus-primitives-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+cumulus-primitives-storage-weight-reclaim = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+fork-tree = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+frame-benchmarking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+frame-support = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+frame-support-procedural = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+frame-support-procedural-tools = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+frame-support-procedural-tools-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+frame-system = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+polkadot-core-primitives = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+polkadot-parachain-primitives = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+polkadot-primitives = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-allocator = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-block-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-chain-spec = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-chain-spec-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-client-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-client-db = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-consensus-epochs = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-executor = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-executor-common = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-executor-polkavm = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-executor-wasmtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-informant = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-mixnet = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-network = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-network-common = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-network-light = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-network-sync = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-network-transactions = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-network-types = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-rpc-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-rpc-server = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-rpc-spec-v2 = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-service = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-state-db = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-sysinfo = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-telemetry = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-tracing-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-transaction-pool-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sc-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-api = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-api-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-application-crypto = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-arithmetic = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-authority-discovery = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-block-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-blockchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-consensus = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-consensus-aura = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-consensus-babe = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-consensus-grandpa = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-consensus-slots = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-core = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-crypto-hashing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-crypto-hashing-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-database = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-debug-derive = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-externalities = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-genesis-builder = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-inherents = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-io = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-maybe-compressed-blob = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-metadata-ir = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-mixnet = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-offchain = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-panic-handler = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-rpc = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-runtime = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-runtime-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-runtime-interface-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-session = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-staking = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-state-machine = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-statement-store = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-std = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-storage = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-timestamp = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-transaction-pool = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-transaction-storage-proof = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-trie = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-version = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-version-proc-macro = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-wasm-interface = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+sp-weights = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+staging-xcm = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+substrate-bip39 = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+substrate-prometheus-endpoint = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }
+xcm-procedural = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "2e59052583d6d70060f2781e79b7004d7a3055a0" }

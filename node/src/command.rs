@@ -13,10 +13,7 @@ use crate::consensus::AuraConsensus;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, parser::ValueSource};
 use node_subtensor_runtime::Block;
 use sc_cli::SubstrateCli;
-use sc_service::{
-    Configuration,
-    config::{ExecutorConfiguration, RpcConfiguration},
-};
+use sc_service::Configuration;
 
 impl SubstrateCli for Cli {
     fn impl_name() -> String {
@@ -364,7 +361,10 @@ fn start_aura_service(
 fn customise_config(arg_matches: &ArgMatches, config: Configuration) -> Configuration {
     let cli = Cli::from_arg_matches(arg_matches).expect("Bad arg_matches");
 
-    let mut config = override_default_heap_pages(config, 60_000);
+    // Keep the SDK's default heap strategy. `default_heap_pages` is interpreted as
+    // extra pages by stable2606; the historical 60,000-page override can therefore
+    // make a compiled runtime attempt to pre-grow beyond wasm32's memory limit.
+    let mut config = config;
 
     // If the operator did **not** supply `--rpc-rate-limit`, disable the limiter.
     if cli.run.rpc_params.rpc_rate_limit.is_none() {
@@ -386,57 +386,4 @@ fn customise_config(arg_matches: &ArgMatches, config: Configuration) -> Configur
     };
 
     config
-}
-
-/// Override default heap pages
-fn override_default_heap_pages(config: Configuration, pages: u64) -> Configuration {
-    Configuration {
-        impl_name: config.impl_name,
-        impl_version: config.impl_version,
-        role: config.role,
-        tokio_handle: config.tokio_handle,
-        transaction_pool: config.transaction_pool,
-        network: config.network,
-        keystore: config.keystore,
-        database: config.database,
-        trie_cache_maximum_size: config.trie_cache_maximum_size,
-        warm_up_trie_cache: config.warm_up_trie_cache,
-        state_pruning: config.state_pruning,
-        blocks_pruning: config.blocks_pruning,
-        chain_spec: config.chain_spec,
-        wasm_runtime_overrides: config.wasm_runtime_overrides,
-        prometheus_config: config.prometheus_config,
-        telemetry_endpoints: config.telemetry_endpoints,
-        offchain_worker: config.offchain_worker,
-        force_authoring: config.force_authoring,
-        disable_grandpa: config.disable_grandpa,
-        dev_key_seed: config.dev_key_seed,
-        tracing_targets: config.tracing_targets,
-        tracing_receiver: config.tracing_receiver,
-        announce_block: config.announce_block,
-        data_path: config.data_path,
-        base_path: config.base_path,
-        executor: ExecutorConfiguration {
-            default_heap_pages: Some(pages),
-            wasm_method: config.executor.wasm_method,
-            max_runtime_instances: config.executor.max_runtime_instances,
-            runtime_cache_size: config.executor.runtime_cache_size,
-        },
-        rpc: RpcConfiguration {
-            addr: config.rpc.addr,
-            max_connections: config.rpc.max_connections,
-            cors: config.rpc.cors,
-            methods: config.rpc.methods,
-            max_request_size: config.rpc.max_request_size,
-            max_response_size: config.rpc.max_response_size,
-            id_provider: config.rpc.id_provider,
-            max_subs_per_conn: config.rpc.max_subs_per_conn,
-            port: config.rpc.port,
-            message_buffer_capacity: config.rpc.message_buffer_capacity,
-            batch_config: config.rpc.batch_config,
-            rate_limit: config.rpc.rate_limit,
-            rate_limit_whitelisted_ips: config.rpc.rate_limit_whitelisted_ips,
-            rate_limit_trust_proxy_headers: config.rpc.rate_limit_trust_proxy_headers,
-        },
-    }
 }
