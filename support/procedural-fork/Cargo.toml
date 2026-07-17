@@ -1,5 +1,6 @@
 [package]
 name = "procedural-fork"
+publish = false
 version = "1.10.0-rc3"
 edition.workspace = true
 
