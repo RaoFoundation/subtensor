@@ -56,12 +56,14 @@ jobs:
           if [ "${{ inputs.production }}" = "true" ]; then
             npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
             npx --yes vercel build --prod --token "$VERCEL_TOKEN"
-            npx --yes vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
+            # --archive=tgz: the prebuilt output exceeds Vercel's 15k-file
+            # upload limit (the generated docs tree alone is >30k files).
+            npx --yes vercel deploy --prebuilt --prod --archive=tgz --token "$VERCEL_TOKEN"
             echo "Deployed to https://$DOCS_DOMAIN (production)" >> $GITHUB_STEP_SUMMARY
           else
             npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
             npx --yes vercel build --token "$VERCEL_TOKEN"
-            url=$(npx --yes vercel deploy --prebuilt --token "$VERCEL_TOKEN")
+            url=$(npx --yes vercel deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
             echo "Deployed: $url"
             # `vercel alias set` only accepts domains in the team-level domain
             # registry; staging.$DOCS_DOMAIN is attached (and verified) at the

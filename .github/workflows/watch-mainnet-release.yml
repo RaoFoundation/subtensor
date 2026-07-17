@@ -367,4 +367,6 @@ jobs:
         run: |
           npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
           npx --yes vercel build --prod --token "$VERCEL_TOKEN"
-          npx --yes vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
+          # --archive=tgz: the prebuilt output exceeds Vercel's 15k-file
+          # upload limit (the generated docs tree alone is >30k files).
+          npx --yes vercel deploy --prebuilt --prod --archive=tgz --token "$VERCEL_TOKEN"
