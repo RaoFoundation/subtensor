@@ -33,6 +33,8 @@ assert_classification .github/workflows/refresh-mainnet-snapshot.yml "$runtime_a
 assert_classification .github/workflows/runtime-checks.yml "$runtime_and_snapshot"
 assert_classification website/apps/bittensor-website/scripts/generate-metadata.mjs "$runtime_and_docs"
 assert_classification sdk/bittensor-core/src/lib.rs "$python_only"
+assert_classification .github/scripts/prepare-sdk-dist.py "$python_only"
+assert_classification .github/scripts/test_prepare_sdk_dist.py "$python_only"
 assert_classification Cargo.lock "$python_only"
 assert_classification rust-toolchain.toml "$runtime_and_sdk"
 assert_classification $'README.md\nsdk/python/example.py' "$docs_and_python"
