@@ -126,6 +126,12 @@ impl<E: EngineBLS> SignatureAggregatorAssumingPoP<E> {
         self.aggregated_auxiliary_public_key.0 += publickey_in_signature_group.0;
     }
 
+    /// Returns the aggergated public key.
+    ///
+    pub fn aggregated_publickey(&self) -> PublicKey<E> {
+        self.aggregated_publickey
+    }
+
     // /// Aggregage BLS signatures assuming they have proofs-of-possession
     // /// TODO this function should return Result refusing to aggregate messages
     // /// different than the message the aggregator is initiated at

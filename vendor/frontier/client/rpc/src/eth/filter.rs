@@ -31,7 +31,7 @@ use sc_client_api::backend::{Backend, StorageProvider};
 use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
-use sp_core::hashing::keccak_256;
+use sp_io::hashing::keccak_256;
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, NumberFor, One, Saturating, UniqueSaturatedInto},

@@ -220,7 +220,7 @@ where
             a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
             a if a == hash(9) => Some(Bn128Add::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
-            a if a == hash(1024) => Some(Sha3FIPS256::<R, ()>::execute(handle)),
+            a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
             a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
             a if a == hash(Ed25519Verify::<R::AccountId>::INDEX) => {
                 Some(Ed25519Verify::<R::AccountId>::execute(handle))

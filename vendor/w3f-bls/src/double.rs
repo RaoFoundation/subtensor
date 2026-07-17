@@ -170,7 +170,7 @@ impl<'a, E: EngineBLS> Signed for &'a DoubleSignedMessage<E> {
     }
 }
 
-/// Serialization for DoublePublickey
+/// Serialization for DoubleSignature
 impl<E: EngineBLS> SerializableToBytes for DoubleSignature<E> {
     const SERIALIZED_BYTES_SIZE: usize = E::SIGNATURE_SERIALIZED_SIZE + 2 * E::SECRET_KEY_SIZE;
 }

@@ -1,9 +1,3 @@
-# Vendored fork of https://github.com/w3f/bls (was github.com/RaoFoundation/bls,
-# branch fix-no-std, commit 4ac443d11a6c9fdebe329d113702ad7387ba1688): upstream
-# 0.1.3 plus one patch removing std usage from double_pop.rs so the crate builds
-# for the runtime's no-std targets. Consumed by pallets/drand, the runtime, and
-# sdk/bittensor-core via the workspace dep and the [patch.crates-io] entry in
-# the root Cargo.toml. Keep diffs against upstream minimal.
 [package]
 authors = ["Jack Grigg <str4d@i2pmail.org>", "Jeff Burdges <burdges@gnunet.org>", "Syed Hosseini <syed@riseup.net>"]
 description = "Aggregate BLS-like signatures"
@@ -12,7 +6,7 @@ homepage = "https://github.com/w3f/bls"
 license = "MIT/Apache-2.0"
 name = "w3f-bls"
 repository = "https://github.com/w3f/bls"
-version = "0.1.3"
+version = "0.1.9"
 edition = "2018"
 
 [dependencies]

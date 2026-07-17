@@ -128,10 +128,12 @@ pub use engine::*;
 pub use double::{
     DoublePublicKey, DoublePublicKeyScheme, DoubleSignature, PublicKeyInSignatureGroup,
 };
-pub use double_pop::BLSPoP;
+pub use double_pop::{NuggetBLSPoP, NuggetBLSnCPPoP};
 pub use schnorr_pop::SchnorrProof;
 pub use serialize::SerializableToBytes;
 pub use single::{Keypair, KeypairVT, PublicKey, SecretKey, SecretKeyVT, Signature, SignedMessage};
+
+use alloc::vec::Vec;
 
 /// Internal message hash size.  
 ///
@@ -139,14 +141,56 @@ pub use single::{Keypair, KeypairVT, PublicKey, SecretKey, SecretKeyVT, Signatur
 /// find messages with the same hash.
 const MESSAGE_SIZE: usize = 32;
 
+/// Ciphersuite standards from BLS signature draft IETF proposal
+const PROOF_OF_POSSESSION_ID: &'static [u8] = b"BLS_POP_";
+const NORMAL_MESSAGE_SIGNATURE_ID: &'static [u8] = b"BLS_SIG_";
+
+const NORMAL_MESSAGE_SIGNATURE_ASSUMING_POP: &'static [u8] = b"POP_";
+const NORMAL_MESSAGE_SIGNATURE_BASIC: &'static [u8] = b"NUL_";
+const POP_MESSAGE: &'static [u8] = b"POP_";
+
 type MessageDigest = [u8; MESSAGE_SIZE];
 /// Internal message hash type.  Short for frequent rehashing
 /// by `HashMap`, etc.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Message(pub MessageDigest, pub alloc::vec::Vec<u8>);
+pub struct Message(pub MessageDigest, pub alloc::vec::Vec<u8>, MessageType);
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+enum MessageType {
+    ProofOfPossession,
+    NormalAssumingPoP,
+    NormalBasic,
+}
 
 impl Message {
     pub fn new(context: &[u8], message: &[u8]) -> Message {
+        let msg_hash = Self::compute_internal_hash(context, message);
+        Message(
+            msg_hash,
+            [context, message].concat(),
+            MessageType::NormalBasic,
+        )
+    }
+
+    pub fn new_assuming_pop(context: &[u8], message: &[u8]) -> Message {
+        let msg_hash = Self::compute_internal_hash(context, message);
+        Message(
+            msg_hash,
+            [context, message].concat(),
+            MessageType::NormalAssumingPoP,
+        )
+    }
+
+    pub fn new_pop_message(context: &[u8], message: &[u8]) -> Message {
+        let msg_hash = Self::compute_internal_hash(context, message);
+        Message(
+            msg_hash,
+            [context, message].concat(),
+            MessageType::ProofOfPossession,
+        )
+    }
+
+    fn compute_internal_hash(context: &[u8], message: &[u8]) -> [u8; MESSAGE_SIZE] {
         use sha3::{
             digest::{ExtendableOutput, Update, XofReader},
             Shake128,
@@ -156,16 +200,39 @@ impl Message {
         let l = message.len() as u64;
         h.update(&l.to_le_bytes());
         h.update(message);
-        // let mut t = ::merlin::Transcript::new(context);
-        // t.append_message(b"", message);
-        let mut msg = [0u8; MESSAGE_SIZE];
-        h.finalize_xof().read(&mut msg[..]);
-        // t.challenge_bytes(b"", &mut msg);
-        Message(msg, [context, message].concat())
+
+        let mut msg_hash = [0u8; MESSAGE_SIZE];
+        h.finalize_xof().read(&mut msg_hash[..]);
+
+        msg_hash
+    }
+
+    /// generate ciphersuite string added to the context according to
+    /// BLS Signature draft proposal to IETF
+    fn cipher_suite<E: EngineBLS>(&self) -> Vec<u8> {
+        let id = match self.2 {
+            MessageType::ProofOfPossession => PROOF_OF_POSSESSION_ID,
+            _ => NORMAL_MESSAGE_SIGNATURE_ID,
+        };
+
+        let h2c_suite_id = [
+            E::CURVE_NAME,
+            E::SIG_GROUP_NAME,
+            E::CIPHER_SUIT_DOMAIN_SEPARATION,
+        ]
+        .concat();
+
+        let sc_tag = match self.2 {
+            MessageType::ProofOfPossession => POP_MESSAGE,
+            MessageType::NormalAssumingPoP => NORMAL_MESSAGE_SIGNATURE_ASSUMING_POP,
+            _ => NORMAL_MESSAGE_SIGNATURE_BASIC,
+        };
+
+        [id, &h2c_suite_id[..], sc_tag].concat()
     }
 
     pub fn hash_to_signature_curve<E: EngineBLS>(&self) -> E::SignatureGroup {
-        E::hash_to_signature_curve(&self.1[..])
+        E::hash_to_signature_curve(&[&self.cipher_suite::<E>()[..], &self.1[..]].concat()[..])
     }
 }
 
@@ -224,7 +291,6 @@ where
     E: EngineBLS,
     H: DynDigest + Default + Clone,
 {
-    const POP_DOMAIN_SEPARATION_TAG: &'static [u8];
     fn verify(&self, public_key_of_prover: &PV) -> bool;
 }
 

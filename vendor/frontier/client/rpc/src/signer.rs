@@ -20,7 +20,7 @@ use ethereum::{eip2930, legacy, TransactionV3 as EthereumTransaction};
 use ethereum_types::{H160, H256};
 use jsonrpsee::types::ErrorObjectOwned;
 // Substrate
-use sp_core::hashing::keccak_256;
+use sp_io::hashing::keccak_256;
 // Frontier
 use fc_rpc_core::types::TransactionMessage;
 

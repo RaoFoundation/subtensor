@@ -220,7 +220,7 @@ where
 			.into_iter()
 			.filter_map(|tx| {
 				let pubkey = match public_key(&tx) {
-					Ok(pk) => H160::from(H256::from(sp_core::hashing::keccak_256(&pk))),
+					Ok(pk) => H160::from(H256::from(sp_io::hashing::keccak_256(&pk))),
 					Err(_err) => {
 						// Skip transactions with invalid public keys
 						return None;

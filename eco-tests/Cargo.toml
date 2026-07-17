@@ -18,8 +18,7 @@ unwrap-used = "deny"
 useless_conversion = "allow"
 
 [dependencies]
-# Keep `time` at a floor with the stack-exhaustion fix (GHSA-r6v5-fh4h-64xc); the old
-# =0.3.36 pin for the tracing-subscriber E0119 conflict is resolved by tracing-subscriber >= 0.3.20.
+# Keep `time` at a floor with the stack-exhaustion fix (GHSA-r6v5-fh4h-64xc).
 time = { version = "0.3.47", default-features = false }
 pallet-subtensor = { path = "../pallets/subtensor", default-features = false, features = ["std"] }
 pallet-alpha-assets = { path = "../pallets/alpha-assets", default-features = false, features = ["std"] }
@@ -53,9 +52,10 @@ approx = "0.5"
 sp-tracing = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "d093659e72bd8edaa0192bd0a726bd3ad3e12686", default-features = false, features = ["std"] }
 tracing = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter"] }
+# Polkadot SDK stable2606 pins this exact release through sp-tracing.
+tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
 rand = { version = "0.10.0", default-features = false, features = ["std", "thread_rng"] }
 hex-literal = "0.4.1"
 
 [patch.crates-io]
-w3f-bls = { git = "https://github.com/RaoFoundation/bls", rev = "0972366fd481b0c000ecd29350108bdeac6f8ae9" }
+w3f-bls = { path = "../vendor/w3f-bls" }

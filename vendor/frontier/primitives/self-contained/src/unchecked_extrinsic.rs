@@ -19,16 +19,17 @@ use frame_support::{
 	dispatch::{DispatchInfo, GetDispatchInfo},
 	traits::{InherentBuilder, SignedTransactionBuilder},
 };
-use scale_codec::{Decode, DecodeWithMemTracking, Encode};
+use scale_codec::{Decode, DecodeWithMemTracking, Encode, Error as CodecError};
 use scale_info::TypeInfo;
 use sp_runtime::{
 	generic::{self, Preamble},
 	traits::{
-		self, Checkable, Dispatchable, ExtrinsicCall, ExtrinsicLike, ExtrinsicMetadata,
-		IdentifyAccount, MaybeDisplay, Member, TransactionExtension,
+		self, Checkable, Dispatchable, ExtensionVariant, ExtrinsicCall, ExtrinsicLike,
+		ExtrinsicMetadata, IdentifyAccount, InvalidVersion, LazyExtrinsic, MaybeDisplay, Member,
+		TransactionExtension,
 	},
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	OpaqueExtrinsic, RuntimeDebug,
+	Debug, OpaqueExtrinsic,
 };
 
 use crate::{CheckedExtrinsic, CheckedSignature, SelfContainedCall};
@@ -42,7 +43,7 @@ use crate::{CheckedExtrinsic, CheckedSignature, SelfContainedCall};
 	Encode,
 	Decode,
 	DecodeWithMemTracking,
-	RuntimeDebug,
+	Debug,
 	TypeInfo
 )]
 pub struct UncheckedExtrinsic<Address, Call, Signature, Extension>(
@@ -153,7 +154,7 @@ where
 {
 	const VERSIONS: &'static [u8] =
 		generic::UncheckedExtrinsic::<Address, Call, Signature, Extension>::VERSIONS;
-	type TransactionExtensions = Extension;
+	type TransactionExtensionPipelines = ExtensionVariant<Extension, InvalidVersion>;
 }
 
 impl<Address, Call, Signature, Extension> ExtrinsicCall
@@ -168,6 +169,10 @@ where
 
 	fn call(&self) -> &Self::Call {
 		&self.0.function
+	}
+
+	fn into_call(self) -> Self::Call {
+		self.0.function
 	}
 }
 
@@ -198,8 +203,13 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<'a, Address: Decode, Signature: Decode, Call, Extension> serde::Deserialize<'a>
-	for UncheckedExtrinsic<Address, Call, Signature, Extension>
+impl<
+		'a,
+		Address: Decode + DecodeWithMemTracking,
+		Signature: Decode + DecodeWithMemTracking,
+		Call,
+		Extension,
+	> serde::Deserialize<'a> for UncheckedExtrinsic<Address, Call, Signature, Extension>
 where
 	Call: Decode + Dispatchable + DecodeWithMemTracking,
 	Extension: Decode + TransactionExtension<Call>,
@@ -267,5 +277,15 @@ impl<Address, Call, Signature, Extension>
 {
 	fn from(utx: generic::UncheckedExtrinsic<Address, Call, Signature, Extension>) -> Self {
 		Self(utx)
+	}
+}
+
+impl<Address, Call, Signature, Extension> LazyExtrinsic
+	for UncheckedExtrinsic<Address, Call, Signature, Extension>
+where
+	generic::UncheckedExtrinsic<Address, Call, Signature, Extension>: LazyExtrinsic,
+{
+	fn decode_unprefixed(data: &[u8]) -> Result<Self, CodecError> {
+		Ok(Self(LazyExtrinsic::decode_unprefixed(data)?))
 	}
 }

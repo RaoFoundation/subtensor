@@ -254,42 +254,47 @@ polkadot-sdk = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev 
 runtime-common = { package = "polkadot-runtime-common", git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "d093659e72bd8edaa0192bd0a726bd3ad3e12686", default-features = false }
 
 # Frontier
-# current frontier branch is frontier-stable2606-otf-patches
-fp-evm = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fp-rpc = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fp-self-contained = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fp-account = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-storage = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-db = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-consensus = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fp-consensus = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fp-dynamic-fee = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-api = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-rpc = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-rpc-core = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-aura = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-babe = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-fc-mapping-sync = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-precompile-utils = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
+# Vendored Frontier base: RaoFoundation/frontier commit
+# d553a11551333c2457d9e64d6d912e2210a4ca26. Polkadot stable2606 compatibility
+# changes are ported from frontier-stable2606-otf-patches through commit
+# 93d0b345fdb4bf1342d61b002369f6b0be8ebf46.
+fp-evm = { path = "vendor/frontier/primitives/evm", default-features = false }
+fp-rpc = { path = "vendor/frontier/primitives/rpc", default-features = false }
+fp-self-contained = { path = "vendor/frontier/primitives/self-contained", default-features = false }
+fp-account = { path = "vendor/frontier/primitives/account", default-features = false }
+fc-storage = { path = "vendor/frontier/client/storage", default-features = false }
+fc-db = { path = "vendor/frontier/client/db", default-features = false }
+fc-consensus = { path = "vendor/frontier/client/consensus", default-features = false }
+fp-consensus = { path = "vendor/frontier/primitives/consensus", default-features = false }
+fp-dynamic-fee = { path = "vendor/frontier/primitives/dynamic-fee", default-features = false }
+fc-api = { path = "vendor/frontier/client/api", default-features = false }
+fc-rpc = { path = "vendor/frontier/client/rpc", default-features = false }
+fc-rpc-core = { path = "vendor/frontier/client/rpc-core", default-features = false }
+fc-aura = { path = "vendor/frontier/client/aura", default-features = false }
+fc-babe = { path = "vendor/frontier/client/babe", default-features = false }
+fc-mapping-sync = { path = "vendor/frontier/client/mapping-sync", default-features = false }
+precompile-utils = { path = "vendor/frontier/precompiles", default-features = false }
 
 # Frontier FRAME
-pallet-base-fee = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-dynamic-fee = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-ethereum = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm-precompile-dispatch = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm-chain-id = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm-precompile-modexp = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm-precompile-sha3fips = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm-precompile-simple = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-evm-precompile-bn128 = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
-pallet-hotfix-sufficients = { git = "https://github.com/RaoFoundation/frontier.git", rev = "93d0b345fdb4bf1342d61b002369f6b0be8ebf46", default-features = false }
+pallet-base-fee = { path = "vendor/frontier/frame/base-fee", default-features = false }
+pallet-dynamic-fee = { path = "vendor/frontier/frame/dynamic-fee", default-features = false }
+pallet-ethereum = { path = "vendor/frontier/frame/ethereum", default-features = false }
+pallet-evm = { path = "vendor/frontier/frame/evm", default-features = false }
+pallet-evm-precompile-dispatch = { path = "vendor/frontier/frame/evm/precompile/dispatch", default-features = false }
+pallet-evm-chain-id = { path = "vendor/frontier/frame/evm-chain-id", default-features = false }
+pallet-evm-precompile-modexp = { path = "vendor/frontier/frame/evm/precompile/modexp", default-features = false }
+pallet-evm-precompile-sha3fips = { path = "vendor/frontier/frame/evm/precompile/sha3fips", default-features = false }
+pallet-evm-precompile-simple = { path = "vendor/frontier/frame/evm/precompile/simple", default-features = false }
+pallet-evm-precompile-bn128 = { path = "vendor/frontier/frame/evm/precompile/bn128", default-features = false }
+pallet-hotfix-sufficients = { path = "vendor/frontier/frame/hotfix-sufficients", default-features = false }
 
 #DRAND
 pallet-drand = { path = "pallets/drand", default-features = false }
 sp-crypto-ec-utils = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "d093659e72bd8edaa0192bd0a726bd3ad3e12686", default-features = false }
 sp-keystore = { git = "https://github.com/RaoFoundation/polkadot-sdk.git", rev = "d093659e72bd8edaa0192bd0a726bd3ad3e12686", default-features = false }
-w3f-bls = { git = "https://github.com/RaoFoundation/bls", rev = "0972366fd481b0c000ecd29350108bdeac6f8ae9", default-features = false }
+# Vendored from RaoFoundation/bls commit
+# 0972366fd481b0c000ecd29350108bdeac6f8ae9 (w3f-bls 0.1.9).
+w3f-bls = { path = "vendor/w3f-bls", default-features = false }
 ark-crypto-primitives = { version = "0.4.0", default-features = false }
 ark-scale = { version = "0.0.11", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false }
@@ -326,6 +331,6 @@ default = []
 pow-faucet = []
 
 [patch.crates-io]
-w3f-bls = { git = "https://github.com/RaoFoundation/bls", rev = "0972366fd481b0c000ecd29350108bdeac6f8ae9" }
+w3f-bls = { path = "vendor/w3f-bls" }
 zstd-sys = { git = "https://github.com/gztensor/zstd-sys" }
 zstd-safe = { git = "https://github.com/gztensor/zstd-safe", rev = "42cc34ef6abe5d35d982f6afefb5d7e4e69f5f18" }

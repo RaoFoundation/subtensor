@@ -40,8 +40,8 @@ use sc_transaction_pool_api::TransactionPool;
 use sp_api::{CallApiAt, ProvideRuntimeApi};
 use sp_block_builder::BlockBuilder as BlockBuilderApi;
 use sp_blockchain::HeaderBackend;
-use sp_core::hashing::keccak_256;
 use sp_inherents::CreateInherentDataProviders;
+use sp_io::hashing::keccak_256;
 use sp_runtime::traits::{Block as BlockT, UniqueSaturatedInto};
 // Frontier
 use fc_rpc_core::{types::*, EthApiServer};
