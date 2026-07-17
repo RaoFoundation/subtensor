@@ -1,7 +1,10 @@
+import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+
+import { decodeRuntimeWasm } from "./extract-runtime-wasm.mjs";
 
 const tsTestsDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const config = JSON.parse(readFileSync(join(tsTestsDir, "moonwall.config.json"), "utf8"));
@@ -9,6 +12,16 @@ const singleNodeSpec = JSON.parse(readFileSync(join(tsTestsDir, "configs/zombie_
 const shieldSpec = JSON.parse(readFileSync(join(tsTestsDir, "configs/zombie_extended.json"), "utf8"));
 const e2eWorkflow = readFileSync(join(tsTestsDir, "..", ".github/workflows/typescript-e2e.yml"), "utf8");
 const environments = new Map(config.environments.map((environment) => [environment.name, environment]));
+
+assert.deepEqual(
+    [...decodeRuntimeWasm({ genesis: { raw: { top: { "0x3a636f6465": "0x0061736d" } } } })],
+    [0, 97, 115, 109]
+);
+assert.throws(() => decodeRuntimeWasm({}), /missing a valid/);
+assert.throws(
+    () => decodeRuntimeWasm({ genesis: { raw: { top: { "0x3a636f6465": "0xnot-hex" } } } }),
+    /missing a valid/
+);
 
 const evmFiles = readdirSync(join(tsTestsDir, "suites/zombienet_evm"))
     .filter((file) => file.endsWith(".test.ts"))
@@ -136,6 +149,16 @@ if (
     !singleNodeSpec.relaychain?.default_args?.includes("--sealing=100")
 ) {
     throw new Error("Single-node state spec must contain one validator using --sealing=100");
+}
+
+const descriptorScripts = ["build-spec.sh", "generate-types-from-chain-spec.sh"];
+for (const environment of config.environments.filter(({ foundation }) => foundation?.type === "zombie")) {
+    if (!isDeepStrictEqual(environment.runScripts?.slice(0, 2), descriptorScripts)) {
+        throw new Error(`${environment.name} must build its chain spec before generating exact-runtime descriptors`);
+    }
+}
+if (!isDeepStrictEqual(environments.get("dev")?.runScripts, ["generate-types.sh"])) {
+    throw new Error("dev must retain live-node descriptor generation");
 }
 
 for (const name of [

@@ -46,8 +46,8 @@
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_staking"],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -72,8 +72,8 @@
             "envVars": ["SHIELD_RUNTIME=release"],
             "testFileDir": ["suites/zombienet_shield"],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -109,8 +109,8 @@
                 "suites/zombienet_shield/00.01-basic.test.ts"
             ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -150,8 +150,8 @@
                 "suites/zombienet_shield/03-timing.test.ts"
             ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -190,8 +190,8 @@
                 "suites/zombienet_shield/01-scaling.test.ts"
             ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -232,8 +232,8 @@
                 "suites/zombienet_shield/04-mortality.test.ts"
             ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -269,8 +269,8 @@
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_coldkey_swap"],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -294,9 +294,9 @@
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_evm"],
             "runScripts": [
-                "generate-types.sh",
-                "generate-ink-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh",
+                "generate-ink-types.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -332,9 +332,9 @@
                 "suites/zombienet_evm/04-edge-cases.test.ts"
             ],
             "runScripts": [
-                "generate-types.sh",
-                "generate-ink-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh",
+                "generate-ink-types.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -370,9 +370,9 @@
                 "suites/zombienet_evm/05-direct-call-precompile.test.ts"
             ],
             "runScripts": [
-                "generate-types.sh",
-                "generate-ink-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh",
+                "generate-ink-types.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -403,8 +403,8 @@
             "timeout": 600000,
             "testFileDir": ["suites/zombienet_subnets"],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
