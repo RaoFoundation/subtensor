@@ -1,8 +1,8 @@
 //! Drand quicknet timelock encryption (absorbed from `bittensor-drand`).
 //!
 //! Lives in the monorepo so the epoch-schedule simulation always matches the
-//! chain: `tle` and `w3f-bls` inherit the workspace pins, so ciphertexts
-//! never drift from what pallet-drand can decrypt.
+//! chain: `tle` inherits the workspace pin, so ciphertexts never drift from
+//! what pallet-drand can decrypt.
 
 // Client-side code: arithmetic on locally validated values is the norm here,
 // and this crate never runs inside the runtime.
@@ -24,12 +24,11 @@ use sha2::Digest;
 use std::time::{SystemTime, UNIX_EPOCH};
 use subtensor_macros::freeze_struct;
 use tle::{
-    curves::drand::TinyBLS381,
+    block_ciphers::AESGCMBlockCipherProvider,
+    engines::{drand::TinyBLS381, EngineBLS},
     ibe::fullident::Identity,
-    stream_ciphers::AESGCMStreamCipherProvider,
     tlock::{tld, tle, TLECiphertext},
 };
-use w3f_bls::EngineBLS;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use web_time::{SystemTime, UNIX_EPOCH};
 
@@ -98,12 +97,12 @@ pub fn encrypt_and_compress(
         hasher.update(reveal_round.to_be_bytes());
         hasher.finalize().to_vec()
     };
-    let identity = Identity::new(b"", vec![message]);
+    let identity = Identity::new(b"", &message);
 
     // Encrypt payload
     let mut esk = [0u8; 32];
     OsRng.fill_bytes(&mut esk);
-    let ct = tle::<TinyBLS381, AESGCMStreamCipherProvider, OsRng>(
+    let ct = tle::<TinyBLS381, AESGCMBlockCipherProvider, OsRng>(
         pub_key,
         esk,
         serialized_data,
@@ -131,7 +130,7 @@ pub fn decrypt_and_decompress(
     let sign = <TinyBLS381 as EngineBLS>::SignatureGroup::deserialize_compressed(signature_bytes)
         .map_err(|e| tl_err(format!("Signature deserialization error: {e:?}")))?;
 
-    tld::<TinyBLS381, AESGCMStreamCipherProvider>(ciphertext, sign)
+    tld::<TinyBLS381, AESGCMBlockCipherProvider>(ciphertext, sign)
         .map_err(|e| tl_err(format!("Error decrypting ciphertext: {e:?}")))
 }
 
@@ -322,15 +321,12 @@ mod tests {
     fn test_encrypt_and_decrypt_static_key() {
         let message = b"hello, bittensor!";
         let reveal_round = 17200000;
+        let signature_hex =
+            "9672ff8379fd8339523ab38b8c79637b92dca07988352f7a2c1abd3ec8b4672a2f7a61ca8984b4051b7c9fc66c6ee4db";
 
         let encrypted =
             encrypt_and_compress(message, reveal_round).expect("Encryption should succeed");
-
-        let signature_hex = get_reveal_round_signature(Some(reveal_round), false)
-            .expect("Should get signature")
-            .expect("Signature should not be None");
-
-        let signature_bytes = hex::decode(&signature_hex).expect("Hex decoding failed");
+        let signature_bytes = hex::decode(signature_hex).expect("Hex decoding failed");
 
         let decrypted = decrypt_and_decompress(&encrypted, &signature_bytes)
             .expect("Decryption should succeed");

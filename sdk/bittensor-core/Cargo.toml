@@ -46,10 +46,10 @@ sodiumoxide = { version = "0.2", default-features = false, features = ["std"], o
 sp-core = { workspace = true, features = ["full_crypto", "serde"] }
 zeroize = "1"
 
-# timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the
-# workspace pins (the ideal-lab5 rev and the vendored no-std fork in
-# vendor/w3f-bls) so ciphertexts never drift from what pallet-drand can decrypt.
-ark-serialize = { version = "0.4.0", features = ["derive"], default-features = false }
+# timelock (absorbed from bittensor-drand). The pinned timelock revision uses
+# its own Arkworks 0.5 drand engine; keep the serialization trait on that same
+# major version so its public-key, signature, and ciphertext types decode.
+ark-serialize = { version = "0.5.0", features = ["derive"], default-features = false }
 codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "max-encoded-len"] }
 rand_core = "0.6.4"
 # blocking: the timelock surface is synchronous (asyncio stays in Python per
@@ -57,18 +57,18 @@ rand_core = "0.6.4"
 # tokio dependency is needed here.
 reqwest = { version = "0.12.15", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"], optional = true }
 tle = { workspace = true, features = ["std"] }
-w3f-bls = { workspace = true, features = ["std"] }
 
 # mlkem
 chacha20poly1305 = "0.10"
 ml-kem = "0.2.1"
 twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"] }
 
-# digest (RFC-0078 merkleized metadata). frame-metadata inherits the workspace
-# pin so the digest is computed over the same metadata types the runtime bakes
-# its RUNTIME_METADATA_HASH with.
+# Keep the SDK and merkleized-metadata on the stable2606 frame-metadata type.
 frame-metadata = { workspace = true, features = ["current", "decode", "std"] }
 merkleized-metadata = "0.5.1"
+
+# Hashing helpers moved out of sp-core in stable2606.
+sp-crypto-hashing.workspace = true
 
 # runtime + codec (the portable-registry engine). serde: the corpus recorder
 # walks the registry as plain JSON. rayon: bulk decode fans out across

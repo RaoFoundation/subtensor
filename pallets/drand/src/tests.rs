@@ -235,7 +235,7 @@ fn write_pulse_rejects_round_skip() {
 
         // Round 1000 is NOT last(998) + 1, so it must be rejected.
         assert_noop!(
-            Drand::write_pulse(RuntimeOrigin::none(), pulses_payload, signature),
+            Drand::write_pulse(RawOrigin::Authorized.into(), pulses_payload, signature),
             Error::<Test>::InvalidRoundNumber,
         );
 
@@ -279,7 +279,7 @@ fn write_pulse_accepts_consecutive_round() {
         };
 
         assert_ok!(Drand::write_pulse(
-            RuntimeOrigin::none(),
+            RawOrigin::Authorized.into(),
             pulses_payload,
             signature
         ));

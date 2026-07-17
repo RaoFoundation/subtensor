@@ -70,7 +70,7 @@ pub fn ss58_from_public(public_key: [u8; 32], ss58_format: u16) -> String {
     };
     buf[7 + prefix_len..7 + prefix_len + 32].copy_from_slice(&public_key);
     let body_end = 7 + prefix_len + 32;
-    let checksum = sp_core::hashing::blake2_512(&buf[..body_end]);
+    let checksum = sp_crypto_hashing::blake2_512(&buf[..body_end]);
     buf[body_end] = checksum[0];
     buf[body_end + 1] = checksum[1];
     base58::base58_encode(&buf[7..body_end + 2])

@@ -6,7 +6,7 @@
 #![allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
 use scale_info::{form::PortableForm, TypeDef, Variant};
-use sp_core::hashing::blake2_256;
+use sp_crypto_hashing::blake2_256;
 
 use crate::codec::decode::{compact_u128, Cursor};
 use crate::codec::encode::compact;

@@ -696,7 +696,7 @@ impl Runtime {
             ]));
         }
         let call_bytes = &cursor.data[start..cursor.offset];
-        let call_hash = sp_core::hashing::blake2_256(call_bytes);
+        let call_hash = sp_crypto_hashing::blake2_256(call_bytes);
         Ok(Value::record(vec![
             (
                 "call_index".into(),

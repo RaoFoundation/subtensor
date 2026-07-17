@@ -553,7 +553,7 @@ fn test_coldkey_swap_announcement_flow() {
     assert_success(&funded);
 
     let hash = bittensor_core::keys::public_key_from_ss58(&new_cold)
-        .map(|public| sp_core::hashing::blake2_256(&public))
+        .map(|public| sp_crypto_hashing::blake2_256(&public))
         .expect("new coldkey public key");
     let announce = IntentCall::new(
         "announce_coldkey_swap",
