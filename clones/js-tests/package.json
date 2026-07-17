@@ -16,6 +16,7 @@
     "test:locks-conviction": "tsx tests/test-locks-conviction.ts",
     "test:lock-dust-cleanup": "tsx tests/test-lock-dust-cleanup.ts",
     "test:subnet-account-balances": "tsx tests/test-subnet-account-balances.ts",
+    "test:mainnet-subnet-dissolutions": "tsx tests/test-mainnet-subnet-dissolutions.ts",
     "test:mainnet-lock-conviction": "tsx tests/mainnet-lock-conviction-read.ts",
     "test:mainnet-hotkey-conviction-increases": "tsx tests/mainnet-hotkey-conviction-increases.ts",
     "test:alpha-deprecated-stake-histogram": "tsx tests/test-alpha-deprecated-stake-histogram.ts",
