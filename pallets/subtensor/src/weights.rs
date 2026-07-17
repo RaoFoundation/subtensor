@@ -176,6 +176,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetVolume` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetVolume` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Consensus` (r:1 w:1)
@@ -208,8 +210,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RAORecycledForRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
 	/// Proof: `SubtensorModule::Bonds` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NeuronCertificates` (r:0 w:1)
@@ -226,10 +226,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `289875`
 		//  Estimated: `926940`
-		// Minimum execution time: 5_063_278_000 picoseconds.
-		Weight::from_parts(5_096_851_000, 926940)
-			.saturating_add(T::DbWeight::get().reads(810_u64))
-			.saturating_add(T::DbWeight::get().writes(292_u64))
+		// Minimum execution time: 5_404_824_000 picoseconds.
+		Weight::from_parts(5_426_768_000, 926940)
+			.saturating_add(T::DbWeight::get().reads(811_u64))
+			.saturating_add(T::DbWeight::get().writes(291_u64))
 	}
 	/// Storage: `SubtensorModule::CommitRevealWeightsEnabled` (r:1 w:0)
 	/// Proof: `SubtensorModule::CommitRevealWeightsEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -431,6 +431,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetVolume` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetVolume` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Consensus` (r:1 w:1)
@@ -463,8 +465,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RAORecycledForRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
 	/// Proof: `SubtensorModule::Bonds` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NeuronCertificates` (r:0 w:1)
@@ -481,10 +481,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `289433`
 		//  Estimated: `926498`
-		// Minimum execution time: 5_086_489_000 picoseconds.
-		Weight::from_parts(5_115_953_000, 926498)
-			.saturating_add(T::DbWeight::get().reads(810_u64))
-			.saturating_add(T::DbWeight::get().writes(292_u64))
+		// Minimum execution time: 5_463_443_000 picoseconds.
+		Weight::from_parts(5_489_312_000, 926498)
+			.saturating_add(T::DbWeight::get().reads(811_u64))
+			.saturating_add(T::DbWeight::get().writes(291_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -514,6 +514,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalHotkeyAlpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Emission` (r:1 w:1)
@@ -538,8 +540,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::LastUpdate` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Delegates` (r:1 w:1)
 	/// Proof: `SubtensorModule::Delegates` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::BlockAtRegistration` (r:0 w:1)
 	/// Proof: `SubtensorModule::BlockAtRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
@@ -556,10 +556,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `29210`
 		//  Estimated: `191075`
-		// Minimum execution time: 999_591_000 picoseconds.
-		Weight::from_parts(1_009_189_000, 191075)
-			.saturating_add(T::DbWeight::get().reads(218_u64))
-			.saturating_add(T::DbWeight::get().writes(89_u64))
+		// Minimum execution time: 1_054_603_000 picoseconds.
+		Weight::from_parts(1_063_306_000, 191075)
+			.saturating_add(T::DbWeight::get().reads(219_u64))
+			.saturating_add(T::DbWeight::get().writes(88_u64))
 	}
 	/// Storage: `SubtensorModule::Owner` (r:1 w:1)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -1119,18 +1119,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetMovingPrice` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MinerBurned` (r:128 w:2)
 	/// Proof: `SubtensorModule::MinerBurned` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetEmissionEnabled` (r:128 w:0)
+	/// Proof: `SubtensorModule::SubnetEmissionEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerAlphaReservoir` (r:128 w:128)
+	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::SubnetTAO` (r:129 w:127)
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::TaoWeight` (r:1 w:0)
-	/// Proof: `SubtensorModule::TaoWeight` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetEmissionEnabled` (r:128 w:0)
-	/// Proof: `SubtensorModule::SubnetEmissionEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:128 w:128)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::TaoWeight` (r:1 w:0)
+	/// Proof: `SubtensorModule::TaoWeight` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerTaoReservoir` (r:128 w:128)
+	/// Proof: `Swap::BalancerTaoReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:127 w:127)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::TotalStake` (r:1 w:1)
@@ -1153,6 +1157,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::PendingValidatorEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::PendingRootAlphaDivs` (r:128 w:128)
 	/// Proof: `SubtensorModule::PendingRootAlphaDivs` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:2 w:0)
+	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:2 w:0)
 	/// Proof: `SubtensorModule::MechanismEmissionSplit` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:2 w:0)
@@ -1279,10 +1285,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `35625320`
 		//  Estimated: `38160710`
-		// Minimum execution time: 148_201_572_000 picoseconds.
-		Weight::from_parts(150_671_474_000, 38160710)
-			.saturating_add(T::DbWeight::get().reads(13668_u64))
-			.saturating_add(T::DbWeight::get().writes(6808_u64))
+		// Minimum execution time: 163_391_001_000 picoseconds.
+		Weight::from_parts(165_779_408_000, 38160710)
+			.saturating_add(T::DbWeight::get().reads(13926_u64))
+			.saturating_add(T::DbWeight::get().writes(7064_u64))
 	}
 
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -2386,6 +2392,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Proxy::Proxies` (`max_values`: None, `max_size`: Some(789), added: 3264, mode: `MaxEncodedLen`)
 	/// Storage: `Proxy::RealPaysFee` (r:0 w:1)
 	/// Proof: `Proxy::RealPaysFee` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:0 w:1)
+	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:0 w:1)
@@ -2397,13 +2405,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1501 + k * (53 ±0)`
 		//  Estimated: `6148 + k * (2529 ±0)`
-		// Minimum execution time: 93_937_000 picoseconds.
-		Weight::from_parts(105_218_882, 6148)
-			// Standard Error: 8_896
-			.saturating_add(Weight::from_parts(1_559_042, 0).saturating_mul(k.into()))
+		// Minimum execution time: 91_358_000 picoseconds.
+		Weight::from_parts(82_525_645, 6148)
+			// Standard Error: 3_747
+			.saturating_add(Weight::from_parts(1_611_298, 0).saturating_mul(k.into()))
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(k.into())))
-			.saturating_add(T::DbWeight::get().writes(7_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(k.into())))
 			.saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
 	}
@@ -3086,10 +3094,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `SubtensorModule::Owner` (r:2 w:2)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:4 w:7)
-	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::TxRateLimit` (r:1 w:0)
-	/// Proof: `SubtensorModule::TxRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::IsNetworkMember` (r:4098 w:8194)
 	/// Proof: `SubtensorModule::IsNetworkMember` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimable` (r:2 w:2)
@@ -3098,6 +3102,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalHotkeyAlpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimed` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Alpha` (r:8193 w:0)
+	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaV2` (r:8193 w:8192)
+	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:2 w:5)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:4098 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ChildKeys` (r:8194 w:8194)
@@ -3106,10 +3116,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::LastHotkeySwapOnNetuid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Alpha` (r:8193 w:0)
-	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:8193 w:8192)
-	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:4097 w:0)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::HotkeyLock` (r:4097 w:0)
@@ -3162,10 +3168,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `542010`
 		//  Estimated: `20823150`
-		// Minimum execution time: 30_447_435_728_000 picoseconds.
-		Weight::from_parts(30_814_425_962_000, 20823150)
-			.saturating_add(T::DbWeight::get().reads(147494_u64))
-			.saturating_add(T::DbWeight::get().writes(77847_u64))
+		// Minimum execution time: 1_092_077_951_000 picoseconds.
+		Weight::from_parts(1_105_184_606_000, 20823150)
+			.saturating_add(T::DbWeight::get().reads(147491_u64))
+			.saturating_add(T::DbWeight::get().writes(77845_u64))
 	}
 	/// Storage: `SubtensorModule::MinChildkeyTake` (r:0 w:1)
 	/// Proof: `SubtensorModule::MinChildkeyTake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -3189,6 +3195,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerTaoReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerTaoReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `Swap::BalancerAlphaReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::DissolveCleanupQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::DissolveCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalNetworks` (r:1 w:1)
@@ -3199,15 +3209,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `964`
-		//  Estimated: `4429`
-		// Minimum execution time: 63_954_000 picoseconds.
-		Weight::from_parts(65_217_000, 4429)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+		//  Measured:  `1080`
+		//  Estimated: `4545`
+		// Minimum execution time: 81_403_000 picoseconds.
+		Weight::from_parts(85_029_000, 4545)
+			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerTaoReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerTaoReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `Swap::BalancerAlphaReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::DissolveCleanupQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::DissolveCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalNetworks` (r:1 w:1)
@@ -3218,12 +3232,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn root_dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `964`
-		//  Estimated: `4429`
-		// Minimum execution time: 63_434_000 picoseconds.
-		Weight::from_parts(65_447_000, 4429)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+		//  Measured:  `1080`
+		//  Estimated: `4545`
+		// Minimum execution time: 82_835_000 picoseconds.
+		Weight::from_parts(84_698_000, 4545)
+			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
 	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -3359,18 +3373,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Swap::PalSwapInitialized` (r:1 w:1)
-	/// Proof: `Swap::PalSwapInitialized` (`max_values`: None, `max_size`: Some(11), added: 2486, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:1)
-	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::FeeRate` (r:1 w:0)
 	/// Proof: `Swap::FeeRate` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:1)
+	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::PalSwapInitialized` (r:1 w:1)
+	/// Proof: `Swap::PalSwapInitialized` (`max_values`: None, `max_size`: Some(11), added: 2486, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalStake` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetVolume` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetVolume` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Consensus` (r:1 w:1)
@@ -3403,8 +3419,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RAORecycledForRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
 	/// Proof: `SubtensorModule::Bonds` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NeuronCertificates` (r:0 w:1)
@@ -3421,10 +3435,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `289952`
 		//  Estimated: `927017`
-		// Minimum execution time: 5_088_812_000 picoseconds.
-		Weight::from_parts(5_115_231_000, 927017)
-			.saturating_add(T::DbWeight::get().reads(810_u64))
-			.saturating_add(T::DbWeight::get().writes(292_u64))
+		// Minimum execution time: 5_428_541_000 picoseconds.
+		Weight::from_parts(5_489_983_000, 927017)
+			.saturating_add(T::DbWeight::get().reads(811_u64))
+			.saturating_add(T::DbWeight::get().writes(291_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -3524,6 +3538,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetVolume` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetVolume` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Consensus` (r:1 w:1)
@@ -3556,8 +3572,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RAORecycledForRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
 	/// Proof: `SubtensorModule::Bonds` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NeuronCertificates` (r:0 w:1)
@@ -3574,10 +3588,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `289875`
 		//  Estimated: `926940`
-		// Minimum execution time: 5_063_278_000 picoseconds.
-		Weight::from_parts(5_096_851_000, 926940)
-			.saturating_add(RocksDbWeight::get().reads(810_u64))
-			.saturating_add(RocksDbWeight::get().writes(292_u64))
+		// Minimum execution time: 5_404_824_000 picoseconds.
+		Weight::from_parts(5_426_768_000, 926940)
+			.saturating_add(RocksDbWeight::get().reads(811_u64))
+			.saturating_add(RocksDbWeight::get().writes(291_u64))
 	}
 	/// Storage: `SubtensorModule::CommitRevealWeightsEnabled` (r:1 w:0)
 	/// Proof: `SubtensorModule::CommitRevealWeightsEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -3779,6 +3793,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetVolume` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetVolume` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Consensus` (r:1 w:1)
@@ -3811,8 +3827,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RAORecycledForRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
 	/// Proof: `SubtensorModule::Bonds` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NeuronCertificates` (r:0 w:1)
@@ -3829,10 +3843,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `289433`
 		//  Estimated: `926498`
-		// Minimum execution time: 5_086_489_000 picoseconds.
-		Weight::from_parts(5_115_953_000, 926498)
-			.saturating_add(RocksDbWeight::get().reads(810_u64))
-			.saturating_add(RocksDbWeight::get().writes(292_u64))
+		// Minimum execution time: 5_463_443_000 picoseconds.
+		Weight::from_parts(5_489_312_000, 926498)
+			.saturating_add(RocksDbWeight::get().reads(811_u64))
+			.saturating_add(RocksDbWeight::get().writes(291_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -3862,6 +3876,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalHotkeyAlpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Emission` (r:1 w:1)
@@ -3886,8 +3902,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::LastUpdate` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Delegates` (r:1 w:1)
 	/// Proof: `SubtensorModule::Delegates` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::BlockAtRegistration` (r:0 w:1)
 	/// Proof: `SubtensorModule::BlockAtRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
@@ -3904,10 +3918,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `29210`
 		//  Estimated: `191075`
-		// Minimum execution time: 999_591_000 picoseconds.
-		Weight::from_parts(1_009_189_000, 191075)
-			.saturating_add(RocksDbWeight::get().reads(218_u64))
-			.saturating_add(RocksDbWeight::get().writes(89_u64))
+		// Minimum execution time: 1_054_603_000 picoseconds.
+		Weight::from_parts(1_063_306_000, 191075)
+			.saturating_add(RocksDbWeight::get().reads(219_u64))
+			.saturating_add(RocksDbWeight::get().writes(88_u64))
 	}
 	/// Storage: `SubtensorModule::Owner` (r:1 w:1)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4467,18 +4481,22 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetMovingPrice` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MinerBurned` (r:128 w:2)
 	/// Proof: `SubtensorModule::MinerBurned` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetEmissionEnabled` (r:128 w:0)
+	/// Proof: `SubtensorModule::SubnetEmissionEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:128 w:127)
 	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerAlphaReservoir` (r:128 w:128)
+	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::SubnetTAO` (r:129 w:127)
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::TaoWeight` (r:1 w:0)
-	/// Proof: `SubtensorModule::TaoWeight` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetEmissionEnabled` (r:128 w:0)
-	/// Proof: `SubtensorModule::SubnetEmissionEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::SwapBalancer` (r:128 w:128)
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::TaoWeight` (r:1 w:0)
+	/// Proof: `SubtensorModule::TaoWeight` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerTaoReservoir` (r:128 w:128)
+	/// Proof: `Swap::BalancerTaoReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:127 w:127)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::TotalStake` (r:1 w:1)
@@ -4501,6 +4519,8 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::PendingValidatorEmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::PendingRootAlphaDivs` (r:128 w:128)
 	/// Proof: `SubtensorModule::PendingRootAlphaDivs` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:2 w:0)
+	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:2 w:0)
 	/// Proof: `SubtensorModule::MechanismEmissionSplit` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:2 w:0)
@@ -4627,10 +4647,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `35625320`
 		//  Estimated: `38160710`
-		// Minimum execution time: 148_201_572_000 picoseconds.
-		Weight::from_parts(150_671_474_000, 38160710)
-			.saturating_add(RocksDbWeight::get().reads(13668_u64))
-			.saturating_add(RocksDbWeight::get().writes(6808_u64))
+		// Minimum execution time: 163_391_001_000 picoseconds.
+		Weight::from_parts(165_779_408_000, 38160710)
+			.saturating_add(RocksDbWeight::get().reads(13926_u64))
+			.saturating_add(RocksDbWeight::get().writes(7064_u64))
 	}
 
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -5734,6 +5754,8 @@ impl WeightInfo for () {
 	/// Proof: `Proxy::Proxies` (`max_values`: None, `max_size`: Some(789), added: 3264, mode: `MaxEncodedLen`)
 	/// Storage: `Proxy::RealPaysFee` (r:0 w:1)
 	/// Proof: `Proxy::RealPaysFee` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:0 w:1)
+	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:0 w:1)
@@ -5745,13 +5767,13 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `1501 + k * (53 ±0)`
 		//  Estimated: `6148 + k * (2529 ±0)`
-		// Minimum execution time: 93_937_000 picoseconds.
-		Weight::from_parts(105_218_882, 6148)
-			// Standard Error: 8_896
-			.saturating_add(Weight::from_parts(1_559_042, 0).saturating_mul(k.into()))
+		// Minimum execution time: 91_358_000 picoseconds.
+		Weight::from_parts(82_525_645, 6148)
+			// Standard Error: 3_747
+			.saturating_add(Weight::from_parts(1_611_298, 0).saturating_mul(k.into()))
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(k.into())))
-			.saturating_add(RocksDbWeight::get().writes(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(k.into())))
 			.saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
 	}
@@ -6434,10 +6456,6 @@ impl WeightInfo for () {
 	}
 	/// Storage: `SubtensorModule::Owner` (r:2 w:2)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:4 w:7)
-	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::TxRateLimit` (r:1 w:0)
-	/// Proof: `SubtensorModule::TxRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::IsNetworkMember` (r:4098 w:8194)
 	/// Proof: `SubtensorModule::IsNetworkMember` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimable` (r:2 w:2)
@@ -6446,6 +6464,12 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalHotkeyAlpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimed` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Alpha` (r:8193 w:0)
+	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AlphaV2` (r:8193 w:8192)
+	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:2 w:5)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:4098 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ChildKeys` (r:8194 w:8194)
@@ -6454,10 +6478,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::LastHotkeySwapOnNetuid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::Alpha` (r:8193 w:0)
-	/// Proof: `SubtensorModule::Alpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AlphaV2` (r:8193 w:8192)
-	/// Proof: `SubtensorModule::AlphaV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:4097 w:0)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::HotkeyLock` (r:4097 w:0)
@@ -6510,10 +6530,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `542010`
 		//  Estimated: `20823150`
-		// Minimum execution time: 30_447_435_728_000 picoseconds.
-		Weight::from_parts(30_814_425_962_000, 20823150)
-			.saturating_add(RocksDbWeight::get().reads(147494_u64))
-			.saturating_add(RocksDbWeight::get().writes(77847_u64))
+		// Minimum execution time: 1_092_077_951_000 picoseconds.
+		Weight::from_parts(1_105_184_606_000, 20823150)
+			.saturating_add(RocksDbWeight::get().reads(147491_u64))
+			.saturating_add(RocksDbWeight::get().writes(77845_u64))
 	}
 	/// Storage: `SubtensorModule::MinChildkeyTake` (r:0 w:1)
 	/// Proof: `SubtensorModule::MinChildkeyTake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -6537,6 +6557,10 @@ impl WeightInfo for () {
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerTaoReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerTaoReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `Swap::BalancerAlphaReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::DissolveCleanupQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::DissolveCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalNetworks` (r:1 w:1)
@@ -6547,15 +6571,19 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `964`
-		//  Estimated: `4429`
-		// Minimum execution time: 63_954_000 picoseconds.
-		Weight::from_parts(65_217_000, 4429)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+		//  Measured:  `1080`
+		//  Estimated: `4545`
+		// Minimum execution time: 81_403_000 picoseconds.
+		Weight::from_parts(85_029_000, 4545)
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::BalancerTaoReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerTaoReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
+	/// Storage: `Swap::BalancerAlphaReservoir` (r:1 w:1)
+	/// Proof: `Swap::BalancerAlphaReservoir` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::DissolveCleanupQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::DissolveCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalNetworks` (r:1 w:1)
@@ -6566,12 +6594,12 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn root_dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `964`
-		//  Estimated: `4429`
-		// Minimum execution time: 63_434_000 picoseconds.
-		Weight::from_parts(65_447_000, 4429)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+		//  Measured:  `1080`
+		//  Estimated: `4545`
+		// Minimum execution time: 82_835_000 picoseconds.
+		Weight::from_parts(84_698_000, 4545)
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
 	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6707,18 +6735,20 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetAlphaIn` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetAlphaIn` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Swap::PalSwapInitialized` (r:1 w:1)
-	/// Proof: `Swap::PalSwapInitialized` (`max_values`: None, `max_size`: Some(11), added: 2486, mode: `MaxEncodedLen`)
-	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:1)
-	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Swap::FeeRate` (r:1 w:0)
 	/// Proof: `Swap::FeeRate` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:1)
+	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Swap::PalSwapInitialized` (r:1 w:1)
+	/// Proof: `Swap::PalSwapInitialized` (`max_values`: None, `max_size`: Some(11), added: 2486, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::SubnetAlphaOut` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetAlphaOut` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalStake` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetVolume` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetVolume` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:1 w:0)
+	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Active` (r:1 w:1)
 	/// Proof: `SubtensorModule::Active` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Consensus` (r:1 w:1)
@@ -6751,8 +6781,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RAORecycledForRegistration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTaoFlow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetTaoFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::AssociatedEvmAddress` (r:0 w:1)
-	/// Proof: `SubtensorModule::AssociatedEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Bonds` (r:0 w:1)
 	/// Proof: `SubtensorModule::Bonds` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NeuronCertificates` (r:0 w:1)
@@ -6769,10 +6797,10 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `289952`
 		//  Estimated: `927017`
-		// Minimum execution time: 5_088_812_000 picoseconds.
-		Weight::from_parts(5_115_231_000, 927017)
-			.saturating_add(RocksDbWeight::get().reads(810_u64))
-			.saturating_add(RocksDbWeight::get().writes(292_u64))
+		// Minimum execution time: 5_428_541_000 picoseconds.
+		Weight::from_parts(5_489_983_000, 927017)
+			.saturating_add(RocksDbWeight::get().reads(811_u64))
+			.saturating_add(RocksDbWeight::get().writes(291_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
