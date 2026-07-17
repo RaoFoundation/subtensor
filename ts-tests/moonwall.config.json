@@ -201,7 +201,11 @@
                 }
             },
             "vitestArgs": {
-                "bail": 1
+                "bail": 1,
+                "sequence": {
+                    "concurrent": true
+                },
+                "maxConcurrency": 6
             },
             "connections": [
                 {
@@ -239,7 +243,11 @@
                 }
             },
             "vitestArgs": {
-                "bail": 1
+                "bail": 1,
+                "sequence": {
+                    "concurrent": true
+                },
+                "maxConcurrency": 3
             },
             "connections": [
                 {

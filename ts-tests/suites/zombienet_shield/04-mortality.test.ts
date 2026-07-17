@@ -36,13 +36,13 @@ describeSuite({
         let apiFull: TypedApi<typeof subtensor>;
         let clientFull: PolkadotClient;
 
-        let alice: KeyringPair;
-        let bob: KeyringPair;
+        let mortalitySender: KeyringPair;
+        let mortalityRecipient: KeyringPair;
 
         beforeAll(async () => {
             const keyring = new Keyring({ type: "sr25519" });
-            alice = keyring.addFromUri("//Alice");
-            bob = keyring.addFromUri("//Bob");
+            mortalitySender = keyring.addFromUri("//Eve");
+            mortalityRecipient = keyring.addFromUri("//Ferdie");
 
             apiAuthority = context.papi("Node").getTypedApi(subtensor);
 
@@ -64,13 +64,13 @@ describeSuite({
                 const nextKey = await getNextKey(apiAuthority);
                 expect(nextKey).toBeDefined();
 
-                const balanceBefore = await getBalance(apiFull, bob.address);
+                const balanceBefore = await getBalance(apiFull, mortalityRecipient.address);
 
-                const nonce = await getAccountNonce(apiFull, alice.address);
+                const nonce = await getAccountNonce(apiFull, mortalitySender.address);
                 const innerTxHex = await apiFull.tx.Balances.transfer_keep_alive({
-                    dest: MultiAddress.Id(bob.address),
+                    dest: MultiAddress.Id(mortalityRecipient.address),
                     value: 1_000_000_000n,
-                }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
+                }).sign(getSignerFromKeypair(mortalitySender), { nonce: nonce + 1 });
 
                 // Encrypt with valid key, then tamper the key_hash so no proposer will include it.
                 const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), nextKey);
@@ -84,7 +84,7 @@ describeSuite({
                 // Sign with short mortality (must be ≤ MAX_SHIELD_ERA_PERIOD=8 to pass
                 // CheckMortality validation). The tx enters the pool but no proposer
                 // will include it (tampered key_hash doesn't match PendingKey).
-                const signedHex = await tx.sign(getSignerFromKeypair(alice), {
+                const signedHex = await tx.sign(getSignerFromKeypair(mortalitySender), {
                     nonce,
                     mortality: { mortal: true, period: 8 },
                 });
@@ -133,7 +133,7 @@ describeSuite({
                 expect(evicted).toBe(true);
 
                 // The inner transfer should NOT have executed.
-                const balanceAfter = await getBalance(apiFull, bob.address);
+                const balanceAfter = await getBalance(apiFull, mortalityRecipient.address);
                 expect(balanceAfter).toBe(balanceBefore);
             },
         });
