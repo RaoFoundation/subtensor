@@ -20,11 +20,56 @@ env:
   RUST_BACKTRACE: full
 
 jobs:
+  ubuntu24-canary-e2e-build:
+    name: Ubuntu 24 canary E2E build (${{ matrix.variant }})
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/ubuntu24-canary-probe'
+    runs-on: [self-hosted, fireactions-ubuntu24-canary]
+    environment:
+      name: sccache-reader
+      deployment: false
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: release
+            flags: ""
+          - variant: fast
+            flags: "--features fast-runtime"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Record canary platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          echo "runner_os=$PRETTY_NAME"
+          gcc --version | head -1
+          rustc --version
+          grep -E '^(IMAGE_BASE|RUST_CI_TOOLCHAIN)=' /etc/fireactions-runner-image/image-contract.env
+
+      - name: Set up Rust build environment
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: e2e-${{ matrix.variant }}
+          fast-linker: "false"
+          sccache-credential-mode: reader
+
+      - name: Build node-subtensor (${{ matrix.variant }})
+        run: cargo build --profile release ${{ matrix.flags }} -p node-subtensor
+
+      - name: Report ${{ matrix.variant }} compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Ubuntu 24 canary E2E ${{ matrix.variant }} compiler cache"
+
   # Fork PRs must not run on self-hosted runners — checkout executes untrusted
   # code from the fork head (RCE risk on persistent org hardware).
   trusted-pr:
     name: Trusted PR source (non-fork)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    if: >-
+      github.ref_name != 'codex/ubuntu24-canary-probe' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
     runs-on: ubuntu-latest
     steps:
       - run: echo "Non-fork PR; self-hosted runners may execute checkout."
@@ -37,6 +82,7 @@ jobs:
   # the changed-file list from the API, so no untrusted code is executed.
   changes:
     name: detect rust changes
+    if: github.ref_name != 'codex/ubuntu24-canary-probe'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
