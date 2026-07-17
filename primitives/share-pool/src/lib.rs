@@ -1431,7 +1431,7 @@ mod tests {
             }
 
             let done_outer = checked.load(Ordering::Relaxed);
-			if done_outer.is_multiple_of(progress_step) {
+            if done_outer.is_multiple_of(progress_step) {
                 let invalid = skipped_invalid_sf.load(Ordering::Relaxed);
                 let non_finite = skipped_non_finite.load(Ordering::Relaxed);
                 log::debug!(
