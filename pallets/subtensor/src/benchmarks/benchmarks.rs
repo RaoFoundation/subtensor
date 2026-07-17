@@ -2569,13 +2569,13 @@ mod pallet_benchmarks {
     #[benchmark]
     fn sudo_set_min_childkey_take() {
         #[extrinsic_call]
-        _(RawOrigin::Root, u16::MIN);
+        _(RawOrigin::Root, PerU16::from_parts(u16::MIN));
     }
 
     #[benchmark]
     fn sudo_set_max_childkey_take() {
         #[extrinsic_call]
-        _(RawOrigin::Root, u16::MAX);
+        _(RawOrigin::Root, PerU16::from_parts(u16::MAX));
     }
 
     #[benchmark]
