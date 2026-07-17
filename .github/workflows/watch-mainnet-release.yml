@@ -238,6 +238,19 @@ jobs:
         with:
           ref: ${{ needs.check.outputs.sha }}
 
+      # One-time v432 recovery: the deployed commit was tagged with the SDK
+      # version still at its 11.0.0.dev0 placeholder, so building it as-is
+      # cannot produce the intended stable release. Stamp 11.0.0 before the
+      # build. Scoped to the exact released commit so this is inert for every
+      # other release; remove once v432 is published.
+      - name: Stamp stable SDK version (v432 recovery)
+        if: needs.check.outputs.spec_version == '432' && needs.check.outputs.sha == '8586e65ec279644a6837cf25b12333064c77474e'
+        run: |
+          sed -i '0,/^version = ".*"/s//version = "11.0.0"/' sdk/python/pyproject.toml
+          grep -qx 'version = "11.0.0"' sdk/python/pyproject.toml \
+            || { echo "failed to stamp sdk/python/pyproject.toml"; exit 1; }
+          echo "bittensor version stamped to 11.0.0"
+
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/0.11.28/install.sh | sh
@@ -253,6 +266,24 @@ jobs:
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
+
+      # Second half of the v432 recovery: refuse to publish anything but the
+      # intended stable artifacts, so a failed stamp can never leak
+      # 11.0.0.dev0 to PyPI.
+      - name: Verify stable artifacts (v432 recovery)
+        if: needs.check.outputs.spec_version == '432' && needs.check.outputs.sha == '8586e65ec279644a6837cf25b12333064c77474e'
+        run: |
+          ls -la dist
+          test -f dist/bittensor-11.0.0-py3-none-any.whl
+          test -f dist/bittensor-11.0.0.tar.gz
+          compgen -G 'dist/bittensor_core-0.1.0-*.whl' >/dev/null
+          test -f dist/bittensor_core-0.1.0.tar.gz
+          for f in dist/*; do
+            # *0rc* not *rc*: "aarch64" in wheel platform tags contains "rc"
+            case "$f" in
+              *dev*|*0rc*) echo "unexpected pre-release artifact: $f"; exit 1 ;;
+            esac
+          done
 
       # PEP 740 provenance: sign every dist with this job's OIDC identity.
       # Must happen here, not in build-core-wheels.yml — PyPI only accepts
