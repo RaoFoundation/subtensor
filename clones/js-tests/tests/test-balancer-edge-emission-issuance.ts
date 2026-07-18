@@ -126,16 +126,22 @@ async function findEmissionSubnet() {
     if ((await api.query.subtensorModule.networksAdded(netuid)).isFalse) continue;
     if ((await api.query.subtensorModule.subnetEmissionEnabled(netuid)).isFalse) continue;
 
-    const [tao, alpha] = await Promise.all([
+    const [tao, alpha, taoInEmission] = await Promise.all([
       api.query.subtensorModule.subnetTAO(netuid),
       api.query.subtensorModule.subnetAlphaIn(netuid),
+      api.query.subtensorModule.subnetTaoInEmission(netuid),
     ]);
-    if (tao.toBigInt() > 0n && alpha.toBigInt() > 0n) {
+    // SubnetEmissionEnabled alone does not guarantee TAO input: a subnet with
+    // MinerBurned=1 receives a zero share. The edge scenarios need a subnet
+    // that is observably receiving TAO before their balancer state is forced.
+    if (tao.toBigInt() > 0n && alpha.toBigInt() > 0n && taoInEmission.toBigInt() > 0n) {
       return netuid;
     }
   }
 
-  throw new Error("no initialized emission-enabled subnet with non-zero TAO and alpha reserves found");
+  throw new Error(
+    "no initialized emission-enabled subnet with non-zero TAO/alpha reserves and TAO input emission found"
+  );
 }
 
 async function runEdgeWeightScenario(netuid, quoteWeight, label) {
