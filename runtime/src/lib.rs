@@ -178,9 +178,44 @@ where
     type RuntimeCall = RuntimeCall;
 }
 
-impl frame_system::offchain::CreateBare<pallet_drand::Call<Runtime>> for Runtime {
-    fn create_bare(call: Self::RuntimeCall) -> Self::Extrinsic {
-        UncheckedExtrinsic::new_bare(call)
+impl<C> frame_system::offchain::CreateTransaction<C> for Runtime
+where
+    RuntimeCall: From<C>,
+{
+    type Extension = TxExtension;
+
+    fn create_transaction(call: RuntimeCall, extension: Self::Extension) -> Self::Extrinsic {
+        fp_self_contained::UncheckedExtrinsic(generic::UncheckedExtrinsic::new_transaction(
+            call, extension,
+        ))
+    }
+}
+
+impl<C> frame_system::offchain::CreateAuthorizedTransaction<C> for Runtime
+where
+    RuntimeCall: From<C>,
+{
+    fn create_extension() -> Self::Extension {
+        (
+            (
+                frame_system::AuthorizeCall::<Runtime>::new(),
+                frame_system::CheckNonZeroSender::<Runtime>::new(),
+                frame_system::CheckSpecVersion::<Runtime>::new(),
+                frame_system::CheckTxVersion::<Runtime>::new(),
+                frame_system::CheckGenesis::<Runtime>::new(),
+                check_mortality::CheckMortality::<Runtime>::from(generic::Era::Immortal),
+                check_nonce::CheckNonce::<Runtime>::from(0),
+                frame_system::CheckWeight::<Runtime>::new(),
+            ),
+            (
+                ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
+                SudoTransactionExtension::<Runtime>::new(),
+                pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
+                pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
+                pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+            ),
+            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+        )
     }
 }
 
@@ -1469,6 +1504,7 @@ pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 // The extensions to the basic transaction logic.
 pub type SystemTxExtension = (
+    frame_system::AuthorizeCall<Runtime>,
     frame_system::CheckNonZeroSender<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
     frame_system::CheckTxVersion<Runtime>,

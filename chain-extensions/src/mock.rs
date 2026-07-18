@@ -29,6 +29,7 @@ use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
 use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, Saturating, TaoBalance};
 
 type Block = frame_system::mocking::MockBlock<Test>;
+type TxExtension = frame_system::AuthorizeCall<Test>;
 
 frame_support::construct_runtime!(
     pub enum Test
@@ -621,7 +622,7 @@ impl frame_system::offchain::SigningTypes for Test {
     type Signature = test_crypto::Signature;
 }
 
-pub type UncheckedExtrinsic = sp_runtime::testing::TestXt<RuntimeCall, ()>;
+pub type UncheckedExtrinsic = sp_runtime::testing::TestXt<RuntimeCall, TxExtension>;
 
 impl<LocalCall> frame_system::offchain::CreateTransactionBase<LocalCall> for Test
 where
@@ -629,6 +630,26 @@ where
 {
     type Extrinsic = UncheckedExtrinsic;
     type RuntimeCall = RuntimeCall;
+}
+
+impl<LocalCall> frame_system::offchain::CreateTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    type Extension = TxExtension;
+
+    fn create_transaction(call: RuntimeCall, extension: Self::Extension) -> Self::Extrinsic {
+        UncheckedExtrinsic::new_transaction(call, extension)
+    }
+}
+
+impl<LocalCall> frame_system::offchain::CreateAuthorizedTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    fn create_extension() -> Self::Extension {
+        TxExtension::new()
+    }
 }
 
 impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test

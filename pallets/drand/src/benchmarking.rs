@@ -73,7 +73,7 @@ mod benchmarks {
         };
 
         #[extrinsic_call]
-        write_pulse(RawOrigin::None, pulses_payload.clone(), None);
+        write_pulse(RawOrigin::Authorized, pulses_payload.clone(), None);
 
         // Check that the pulse has been stored
         assert_eq!(Pulses::<T>::get(p.round), Some(p));

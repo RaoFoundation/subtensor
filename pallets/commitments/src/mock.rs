@@ -9,14 +9,14 @@ use frame_support::{
 use sp_core::H256;
 use sp_runtime::{
     BuildStorage,
-    testing::Header,
     traits::{BlakeTwo256, ConstU16, IdentityLookup},
 };
 use subtensor_runtime_common::{ConstTao, TaoBalance};
 
-pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
+type TxExtension = frame_system::AuthorizeCall<Test>;
+pub type Block = frame_system::mocking::MockBlock<Test, test_crypto::Signature, TxExtension>;
 pub type UncheckedExtrinsic =
-    sp_runtime::generic::UncheckedExtrinsic<AccountId, RuntimeCall, test_crypto::Signature, ()>;
+    frame_system::mocking::MockUncheckedExtrinsic<Test, test_crypto::Signature, TxExtension>;
 
 frame_support::construct_runtime!(
     pub enum Test
@@ -27,8 +27,6 @@ frame_support::construct_runtime!(
         Drand: pallet_drand = 4,
     }
 );
-
-pub type AccountId = u64;
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
@@ -167,6 +165,26 @@ where
 {
     type Extrinsic = UncheckedExtrinsic;
     type RuntimeCall = RuntimeCall;
+}
+
+impl<LocalCall> frame_system::offchain::CreateTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    type Extension = TxExtension;
+
+    fn create_transaction(call: RuntimeCall, extension: Self::Extension) -> Self::Extrinsic {
+        UncheckedExtrinsic::new_transaction(call, extension)
+    }
+}
+
+impl<LocalCall> frame_system::offchain::CreateAuthorizedTransaction<LocalCall> for Test
+where
+    RuntimeCall: From<LocalCall>,
+{
+    fn create_extension() -> Self::Extension {
+        TxExtension::new()
+    }
 }
 
 impl<LocalCall> frame_system::offchain::CreateBare<LocalCall> for Test
