@@ -442,6 +442,7 @@ fn patch_raw_spec(spec: &mut Value, validators: &[&'static str]) -> CloneResult<
     // each subnet's first epoch firing within its first `tempo` blocks.
     remove_by_prefix(top, &storage_key("SubtensorModule", "LastEpochBlock"));
     remove_by_prefix(top, &storage_key("SubtensorModule", "PendingEpochAt"));
+    top.remove(&storage_key("Drand", "NextUnsignedAt"));
 
     set_validator_balances(top, validators);
 
@@ -562,6 +563,7 @@ mod tests {
         );
         top.insert(format!("{}abcd", storage_prefix("Session")), json!("0x05"));
         top.insert(storage_key("Balances", "TotalIssuance"), json!("0x06"));
+        top.insert(storage_key("Drand", "NextUnsignedAt"), json!("0x07"));
 
         json!({
             "genesis": { "raw": { "top": top } },
@@ -646,6 +648,7 @@ mod tests {
             top.keys()
                 .all(|k| !k.starts_with(&storage_prefix("Session")))
         );
+        assert!(!top.contains_key(&storage_key("Drand", "NextUnsignedAt")));
 
         assert_eq!(spec.get("chainType"), Some(&json!("Local")));
         assert_eq!(spec.get("bootNodes"), Some(&json!([])));
