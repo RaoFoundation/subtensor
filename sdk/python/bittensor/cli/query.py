@@ -16,6 +16,7 @@ import typer
 
 from ..balance import Balance
 from ..reads import REGISTRY, Grouped, Matrix
+from ..settings import query_docs_url
 from . import globals as g
 from .context import address_cli_name, ctx_of, ss58_param_help
 from .output import Output
@@ -146,7 +147,9 @@ def _make_command(name: str, spec):
         params.append(p)
     command.__signature__ = inspect.Signature(params)
     command.__annotations__ = annotations
-    command.__doc__ = spec.doc
+    # The docs page also lists the storage items / runtime APIs the read hits,
+    # with source links into the chain code.
+    command.__doc__ = f"{spec.doc}\n\nDocs: {query_docs_url(spec.name)}"
     return command
 
 

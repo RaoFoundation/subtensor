@@ -16,7 +16,7 @@ this over plain `remove_stake` when exiting large positions.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.remove_stake_limit` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1458-L1476) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("remove_stake_limit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1460`](/code/pallets/subtensor/src/macros/dispatches.rs#L1460):
+`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1460`](/code/pallets/subtensor/src/macros/dispatches.rs#L1458-L1476):
 
 ```rust
 #[pallet::call_index(89)]

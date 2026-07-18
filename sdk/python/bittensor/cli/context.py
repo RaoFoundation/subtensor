@@ -21,7 +21,8 @@ from .. import wallets
 from ..client import Client
 from ..extension.client import BridgeError
 from ..ledger import LedgerError, LedgerSigner
-from ..result import BittensorError, ExtrinsicResult
+from ..result import BittensorError, ChainError, ErrorCode, ExtrinsicResult, PolicyError
+from ..settings import error_docs_url
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import Output
@@ -574,7 +575,23 @@ class AppContext:
         try:
             return asyncio.run(_main())
         except (BittensorError, ValueError) as error:
-            self.output.error(str(error))
+            # A raised ChainError carries the same diagnostics a failed
+            # ExtrinsicResult would (remediation, docs page with source links)
+            # — print them instead of the bare message.
+            if isinstance(error, ChainError):
+                self.output.error(
+                    str(error),
+                    note=f"the chain rejected the call with `{error.name}`" if error.name else None,
+                    help=error.remediation,
+                    see=error.docs_url,
+                )
+            elif isinstance(error, PolicyError):
+                self.output.error(
+                    str(error),
+                    see=error_docs_url(ErrorCode.POLICY_VIOLATION.value),
+                )
+            else:
+                self.output.error(str(error))
             raise typer.Exit(1)
         except BridgeError as error:
             self.output.error(str(error))

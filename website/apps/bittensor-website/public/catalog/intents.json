@@ -6,6 +6,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "add_proxy"
+      ]
+    ],
+    "docs_url": "/docs/tx/add-proxy",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -29,7 +36,16 @@
     },
     "cli": "btcli tx add-proxy --delegate <ss58|name>",
     "python_class": "AddProxy",
-    "docs_url": "/docs/tx/add-proxy"
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "add_proxy",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 267,
+        "end_line": 276,
+        "url": "/code/pallets/proxy/src/lib.rs#L265-L276"
+      }
+    ]
   },
   {
     "name": "add_stake",
@@ -38,6 +54,17 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "add_stake"
+      ],
+      [
+        "SubtensorModule",
+        "add_stake_limit"
+      ]
+    ],
+    "docs_url": "/docs/tx/add-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -80,7 +107,24 @@
     },
     "cli": "btcli tx add-stake --hotkey <ss58|name> --netuid <int> --amount-tao <amount|all>",
     "python_class": "AddStake",
-    "docs_url": "/docs/tx/add-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "add_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 569,
+        "end_line": 576,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L567-L576"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "add_stake_limit",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1407,
+        "end_line": 1424,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1405-L1424"
+      }
+    ]
   },
   {
     "name": "add_stake_limit",
@@ -89,6 +133,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "add_stake_limit"
+      ]
+    ],
+    "docs_url": "/docs/tx/add-stake-limit",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -132,7 +183,16 @@
     },
     "cli": "btcli tx add-stake-limit --hotkey <ss58|name> --netuid <int> --amount-tao <amount|all> --limit-price-rao <int>",
     "python_class": "AddStakeLimit",
-    "docs_url": "/docs/tx/add-stake-limit"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "add_stake_limit",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1407,
+        "end_line": 1424,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1405-L1424"
+      }
+    ]
   },
   {
     "name": "announce_coldkey_swap",
@@ -141,6 +201,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "announce_coldkey_swap"
+      ]
+    ],
+    "docs_url": "/docs/tx/announce-coldkey-swap",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -156,7 +223,16 @@
     },
     "cli": "btcli tx announce-coldkey-swap --new-coldkey <ss58|name>",
     "python_class": "AnnounceColdkeySwap",
-    "docs_url": "/docs/tx/announce-coldkey-swap"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "announce_coldkey_swap",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2006,
+        "end_line": 2032,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2004-L2032"
+      }
+    ]
   },
   {
     "name": "associate_evm_key",
@@ -165,6 +241,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "associate_evm_key"
+      ]
+    ],
+    "docs_url": "/docs/tx/associate-evm-key",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -195,7 +278,16 @@
     },
     "cli": "btcli tx associate-evm-key --netuid <int> --evm-key <value> --block-number <int> --signature <value>",
     "python_class": "AssociateEvmKey",
-    "docs_url": "/docs/tx/associate-evm-key"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "associate_evm_key",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1593,
+        "end_line": 1601,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1587-L1601"
+      }
+    ]
   },
   {
     "name": "associate_hotkey",
@@ -204,6 +296,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "try_associate_hotkey"
+      ]
+    ],
+    "docs_url": "/docs/tx/associate-hotkey",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -217,7 +316,16 @@
     },
     "cli": "btcli tx associate-hotkey",
     "python_class": "AssociateHotkey",
-    "docs_url": "/docs/tx/associate-hotkey"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "try_associate_hotkey",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1535,
+        "end_line": 1541,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1533-L1541"
+      }
+    ]
   },
   {
     "name": "batch",
@@ -226,6 +334,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Utility",
+        "batch_all"
+      ]
+    ],
+    "docs_url": "/docs/tx/batch",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -241,7 +356,16 @@
     },
     "cli": "btcli tx batch --intents <a,b,c>",
     "python_class": "Batch",
-    "docs_url": "/docs/tx/batch"
+    "sources": [
+      {
+        "pallet": "Utility",
+        "call": "batch_all",
+        "path": "pallets/utility/src/lib.rs",
+        "line": 314,
+        "end_line": 362,
+        "url": "/code/pallets/utility/src/lib.rs#L308-L362"
+      }
+    ]
   },
   {
     "name": "burned_register",
@@ -250,6 +374,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "burned_register"
+      ]
+    ],
+    "docs_url": "/docs/tx/burned-register",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -269,7 +400,16 @@
     },
     "cli": "btcli tx burned-register --netuid <int>",
     "python_class": "BurnedRegister",
-    "docs_url": "/docs/tx/burned-register"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "burned_register",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 826,
+        "end_line": 832,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L824-L832"
+      }
+    ]
   },
   {
     "name": "claim_root",
@@ -278,6 +418,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "claim_root"
+      ]
+    ],
+    "docs_url": "/docs/tx/claim-root",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -296,7 +443,16 @@
     },
     "cli": "btcli tx claim-root --subnets <a,b,c>",
     "python_class": "ClaimRoot",
-    "docs_url": "/docs/tx/claim-root"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "claim_root",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1910,
+        "end_line": 1926,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1908-L1926"
+      }
+    ]
   },
   {
     "name": "clear_coldkey_swap_announcement",
@@ -305,6 +461,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "clear_coldkey_swap_announcement"
+      ]
+    ],
+    "docs_url": "/docs/tx/clear-coldkey-swap-announcement",
     "input_schema": {
       "type": "object",
       "properties": {},
@@ -313,7 +476,16 @@
     },
     "cli": "btcli tx clear-coldkey-swap-announcement",
     "python_class": "ClearColdkeySwapAnnouncement",
-    "docs_url": "/docs/tx/clear-coldkey-swap-announcement"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "clear_coldkey_swap_announcement",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2213,
+        "end_line": 2228,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2209-L2228"
+      }
+    ]
   },
   {
     "name": "commit_weights",
@@ -322,6 +494,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "commit_timelocked_mechanism_weights"
+      ]
+    ],
+    "docs_url": "/docs/tx/commit-weights",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -363,7 +542,16 @@
     },
     "cli": "btcli tx commit-weights --netuid <int>",
     "python_class": "CommitWeights",
-    "docs_url": "/docs/tx/commit-weights"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_timelocked_mechanism_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1869,
+        "end_line": 1885,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1865-L1885"
+      }
+    ]
   },
   {
     "name": "contribute_crowdloan",
@@ -372,6 +560,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "contribute"
+      ]
+    ],
+    "docs_url": "/docs/tx/contribute-crowdloan",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -401,7 +596,16 @@
     },
     "cli": "btcli tx contribute-crowdloan --crowdloan-id <int> --amount-tao <amount|all>",
     "python_class": "ContributeCrowdloan",
-    "docs_url": "/docs/tx/contribute-crowdloan"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "contribute",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 440,
+        "end_line": 536,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L438-L536"
+      }
+    ]
   },
   {
     "name": "create_crowdloan",
@@ -410,6 +614,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "create"
+      ]
+    ],
+    "docs_url": "/docs/tx/create-crowdloan",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -475,7 +686,16 @@
     },
     "cli": "btcli tx create-crowdloan --deposit-tao <amount|all> --min-contribution-tao <amount|all> --cap-tao <amount|all> --end <int>",
     "python_class": "CreateCrowdloan",
-    "docs_url": "/docs/tx/create-crowdloan"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "create",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 341,
+        "end_line": 425,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L331-L425"
+      }
+    ]
   },
   {
     "name": "create_pure_proxy",
@@ -484,6 +704,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "create_pure"
+      ]
+    ],
+    "docs_url": "/docs/tx/create-pure-proxy",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -505,7 +732,16 @@
     },
     "cli": "btcli tx create-pure-proxy",
     "python_class": "CreatePureProxy",
-    "docs_url": "/docs/tx/create-pure-proxy"
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "create_pure",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 332,
+        "end_line": 364,
+        "url": "/code/pallets/proxy/src/lib.rs#L330-L364"
+      }
+    ]
   },
   {
     "name": "decrease_take",
@@ -514,6 +750,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "decrease_take"
+      ]
+    ],
+    "docs_url": "/docs/tx/decrease-take",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -537,7 +780,16 @@
     },
     "cli": "btcli tx decrease-take --take <value>",
     "python_class": "DecreaseTake",
-    "docs_url": "/docs/tx/decrease-take"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "decrease_take",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 500,
+        "end_line": 506,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L498-L506"
+      }
+    ]
   },
   {
     "name": "dispute_coldkey_swap",
@@ -546,6 +798,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "dispute_coldkey_swap"
+      ]
+    ],
+    "docs_url": "/docs/tx/dispute-coldkey-swap",
     "input_schema": {
       "type": "object",
       "properties": {},
@@ -554,7 +813,16 @@
     },
     "cli": "btcli tx dispute-coldkey-swap",
     "python_class": "DisputeColdkeySwap",
-    "docs_url": "/docs/tx/dispute-coldkey-swap"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "dispute_coldkey_swap",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2075,
+        "end_line": 2092,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2073-L2092"
+      }
+    ]
   },
   {
     "name": "dissolve_crowdloan",
@@ -563,6 +831,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "dissolve"
+      ]
+    ],
+    "docs_url": "/docs/tx/dissolve-crowdloan",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -578,7 +853,16 @@
     },
     "cli": "btcli tx dissolve-crowdloan --crowdloan-id <int>",
     "python_class": "DissolveCrowdloan",
-    "docs_url": "/docs/tx/dissolve-crowdloan"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "dissolve",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 763,
+        "end_line": 805,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L761-L805"
+      }
+    ]
   },
   {
     "name": "evm_withdraw",
@@ -587,6 +871,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "EVM",
+        "withdraw"
+      ]
+    ],
+    "docs_url": "/docs/tx/evm-withdraw",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -610,8 +901,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx evm-withdraw --amount-tao <amount|all>",
-    "python_class": "EvmWithdraw",
-    "docs_url": "/docs/tx/evm-withdraw"
+    "python_class": "EvmWithdraw"
   },
   {
     "name": "execute_proxy_announced",
@@ -620,6 +910,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "proxy_announced"
+      ]
+    ],
+    "docs_url": "/docs/tx/execute-proxy-announced",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -654,7 +951,16 @@
     },
     "cli": "btcli tx execute-proxy-announced --delegate <ss58|name> --real <ss58|name> --inner-op <value> --inner-args '<json>'",
     "python_class": "ExecuteProxyAnnounced",
-    "docs_url": "/docs/tx/execute-proxy-announced"
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "proxy_announced",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 549,
+        "end_line": 573,
+        "url": "/code/pallets/proxy/src/lib.rs#L540-L573"
+      }
+    ]
   },
   {
     "name": "finalize_crowdloan",
@@ -663,6 +969,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "finalize"
+      ]
+    ],
+    "docs_url": "/docs/tx/finalize-crowdloan",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -678,7 +991,16 @@
     },
     "cli": "btcli tx finalize-crowdloan --crowdloan-id <int>",
     "python_class": "FinalizeCrowdloan",
-    "docs_url": "/docs/tx/finalize-crowdloan"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "finalize",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 611,
+        "end_line": 674,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L609-L674"
+      }
+    ]
   },
   {
     "name": "fund_evm_key",
@@ -687,6 +1009,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Balances",
+        "transfer_keep_alive"
+      ]
+    ],
+    "docs_url": "/docs/tx/fund-evm-key",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -721,8 +1050,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx fund-evm-key --evm-address <value> --amount-tao <amount|all>",
-    "python_class": "FundEvmKey",
-    "docs_url": "/docs/tx/fund-evm-key"
+    "python_class": "FundEvmKey"
   },
   {
     "name": "increase_take",
@@ -731,6 +1059,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "increase_take"
+      ]
+    ],
+    "docs_url": "/docs/tx/increase-take",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -754,7 +1089,16 @@
     },
     "cli": "btcli tx increase-take --take <value>",
     "python_class": "IncreaseTake",
-    "docs_url": "/docs/tx/increase-take"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "increase_take",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 533,
+        "end_line": 539,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L531-L539"
+      }
+    ]
   },
   {
     "name": "kill_pure_proxy",
@@ -763,6 +1107,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "kill_pure"
+      ]
+    ],
+    "docs_url": "/docs/tx/kill-pure-proxy",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -794,7 +1145,16 @@
     },
     "cli": "btcli tx kill-pure-proxy --spawner <ss58|name>",
     "python_class": "KillPureProxy",
-    "docs_url": "/docs/tx/kill-pure-proxy"
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "kill_pure",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 384,
+        "end_line": 410,
+        "url": "/code/pallets/proxy/src/lib.rs#L382-L410"
+      }
+    ]
   },
   {
     "name": "lock_stake",
@@ -803,6 +1163,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "lock_stake"
+      ]
+    ],
+    "docs_url": "/docs/tx/lock-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -836,7 +1203,16 @@
     },
     "cli": "btcli tx lock-stake --netuid <int> --amount-alpha <amount|all>",
     "python_class": "LockStake",
-    "docs_url": "/docs/tx/lock-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "lock_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2291,
+        "end_line": 2299,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2289-L2299"
+      }
+    ]
   },
   {
     "name": "move_lock",
@@ -845,6 +1221,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "move_lock"
+      ]
+    ],
+    "docs_url": "/docs/tx/move-lock",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -865,7 +1248,16 @@
     },
     "cli": "btcli tx move-lock --netuid <int> --destination-hotkey <ss58|name>",
     "python_class": "MoveLock",
-    "docs_url": "/docs/tx/move-lock"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "move_lock",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2315,
+        "end_line": 2322,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2313-L2322"
+      }
+    ]
   },
   {
     "name": "move_stake",
@@ -874,6 +1266,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "move_stake"
+      ]
+    ],
+    "docs_url": "/docs/tx/move-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -918,7 +1317,16 @@
     },
     "cli": "btcli tx move-stake --origin-hotkey <ss58|name> --origin-netuid <int> --dest-hotkey <ss58|name> --dest-netuid <int> --amount-alpha <amount|all>",
     "python_class": "MoveStake",
-    "docs_url": "/docs/tx/move-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "move_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1271,
+        "end_line": 1287,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1269-L1287"
+      }
+    ]
   },
   {
     "name": "multisig_approve",
@@ -927,6 +1335,17 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Multisig",
+        "as_multi"
+      ],
+      [
+        "Multisig",
+        "approve_as_multi"
+      ]
+    ],
+    "docs_url": "/docs/tx/multisig-approve",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -955,8 +1374,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-approve --threshold <int> --other-signatories <a,b,c> --call '<json>'",
-    "python_class": "MultisigApprove",
-    "docs_url": "/docs/tx/multisig-approve"
+    "python_class": "MultisigApprove"
   },
   {
     "name": "multisig_cancel",
@@ -965,6 +1383,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Multisig",
+        "cancel_as_multi"
+      ]
+    ],
+    "docs_url": "/docs/tx/multisig-cancel",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -994,8 +1419,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-cancel --threshold <int> --other-signatories <a,b,c> --call '<json>' --timepoint '<json>'",
-    "python_class": "MultisigCancel",
-    "docs_url": "/docs/tx/multisig-cancel"
+    "python_class": "MultisigCancel"
   },
   {
     "name": "multisig_execute",
@@ -1004,6 +1428,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Multisig",
+        "as_multi"
+      ]
+    ],
+    "docs_url": "/docs/tx/multisig-execute",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1032,8 +1463,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-execute --threshold <int> --other-signatories <a,b,c> --call '<json>'",
-    "python_class": "MultisigExecute",
-    "docs_url": "/docs/tx/multisig-execute"
+    "python_class": "MultisigExecute"
   },
   {
     "name": "multisig_threshold_1",
@@ -1042,6 +1472,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Multisig",
+        "as_multi_threshold_1"
+      ]
+    ],
+    "docs_url": "/docs/tx/multisig-threshold-1",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1061,8 +1498,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-threshold-1 --other-signatories <a,b,c> --call '<json>'",
-    "python_class": "MultisigThreshold1",
-    "docs_url": "/docs/tx/multisig-threshold-1"
+    "python_class": "MultisigThreshold1"
   },
   {
     "name": "refund_crowdloan",
@@ -1071,6 +1507,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "refund"
+      ]
+    ],
+    "docs_url": "/docs/tx/refund-crowdloan",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1086,7 +1529,16 @@
     },
     "cli": "btcli tx refund-crowdloan --crowdloan-id <int>",
     "python_class": "RefundCrowdloan",
-    "docs_url": "/docs/tx/refund-crowdloan"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "refund",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 688,
+        "end_line": 750,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L686-L750"
+      }
+    ]
   },
   {
     "name": "register_leased_network",
@@ -1095,6 +1547,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "register_leased_network"
+      ]
+    ],
+    "docs_url": "/docs/tx/register-leased-network",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1114,7 +1573,16 @@
     },
     "cli": "btcli tx register-leased-network --emissions-share <int>",
     "python_class": "RegisterLeasedNetwork",
-    "docs_url": "/docs/tx/register-leased-network"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "register_leased_network",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1688,
+        "end_line": 1694,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1686-L1694"
+      }
+    ]
   },
   {
     "name": "register_subnet",
@@ -1123,6 +1591,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "register_network"
+      ]
+    ],
+    "docs_url": "/docs/tx/register-subnet",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1136,7 +1611,16 @@
     },
     "cli": "btcli tx register-subnet",
     "python_class": "RegisterSubnet",
-    "docs_url": "/docs/tx/register-subnet"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "register_network",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1016,
+        "end_line": 1018,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1014-L1018"
+      }
+    ]
   },
   {
     "name": "remove_proxies",
@@ -1145,6 +1629,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "remove_proxies"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-proxies",
     "input_schema": {
       "type": "object",
       "properties": {},
@@ -1153,7 +1644,16 @@
     },
     "cli": "btcli tx remove-proxies",
     "python_class": "RemoveProxies",
-    "docs_url": "/docs/tx/remove-proxies"
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "remove_proxies",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 306,
+        "end_line": 310,
+        "url": "/code/pallets/proxy/src/lib.rs#L304-L310"
+      }
+    ]
   },
   {
     "name": "remove_proxy",
@@ -1162,6 +1662,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Proxy",
+        "remove_proxy"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-proxy",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1185,7 +1692,16 @@
     },
     "cli": "btcli tx remove-proxy --delegate <ss58|name>",
     "python_class": "RemoveProxy",
-    "docs_url": "/docs/tx/remove-proxy"
+    "sources": [
+      {
+        "pallet": "Proxy",
+        "call": "remove_proxy",
+        "path": "pallets/proxy/src/lib.rs",
+        "line": 287,
+        "end_line": 296,
+        "url": "/code/pallets/proxy/src/lib.rs#L285-L296"
+      }
+    ]
   },
   {
     "name": "remove_stake",
@@ -1194,6 +1710,17 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "remove_stake"
+      ],
+      [
+        "SubtensorModule",
+        "remove_stake_limit"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1242,7 +1769,24 @@
     },
     "cli": "btcli tx remove-stake --hotkey <ss58|name> --netuid <int> --amount-alpha <amount|all>",
     "python_class": "RemoveStake",
-    "docs_url": "/docs/tx/remove-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "remove_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 603,
+        "end_line": 610,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L601-L610"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "remove_stake_limit",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1460,
+        "end_line": 1476,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1458-L1476"
+      }
+    ]
   },
   {
     "name": "remove_stake_limit",
@@ -1251,6 +1795,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "remove_stake_limit"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-stake-limit",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1300,7 +1851,16 @@
     },
     "cli": "btcli tx remove-stake-limit --hotkey <ss58|name> --netuid <int> --amount-alpha <amount|all> --limit-price-rao <int>",
     "python_class": "RemoveStakeLimit",
-    "docs_url": "/docs/tx/remove-stake-limit"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "remove_stake_limit",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1460,
+        "end_line": 1476,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1458-L1476"
+      }
+    ]
   },
   {
     "name": "reset_axon",
@@ -1309,6 +1869,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "serve_axon"
+      ]
+    ],
+    "docs_url": "/docs/tx/reset-axon",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1324,7 +1891,16 @@
     },
     "cli": "btcli tx reset-axon --netuid <int>",
     "python_class": "ResetAxon",
-    "docs_url": "/docs/tx/reset-axon"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "serve_axon",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 650,
+        "end_line": 673,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L648-L673"
+      }
+    ]
   },
   {
     "name": "reveal_weights",
@@ -1333,6 +1909,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "reveal_weights"
+      ]
+    ],
+    "docs_url": "/docs/tx/reveal-weights",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1376,7 +1959,16 @@
     },
     "cli": "btcli tx reveal-weights --netuid <int> --uids <a,b,c> --weights <a,b,c> --salt <a,b,c>",
     "python_class": "RevealWeights",
-    "docs_url": "/docs/tx/reveal-weights"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "reveal_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 281,
+        "end_line": 290,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L279-L290"
+      }
+    ]
   },
   {
     "name": "root_register",
@@ -1385,6 +1977,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "root_register"
+      ]
+    ],
+    "docs_url": "/docs/tx/root-register",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1398,7 +1997,16 @@
     },
     "cli": "btcli tx root-register",
     "python_class": "RootRegister",
-    "docs_url": "/docs/tx/root-register"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "root_register",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 819,
+        "end_line": 821,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L817-L821"
+      }
+    ]
   },
   {
     "name": "serve_axon",
@@ -1407,6 +2015,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "serve_axon"
+      ]
+    ],
+    "docs_url": "/docs/tx/serve-axon",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1440,7 +2055,16 @@
     },
     "cli": "btcli tx serve-axon --netuid <int> --ip <value> --port <int>",
     "python_class": "ServeAxon",
-    "docs_url": "/docs/tx/serve-axon"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "serve_axon",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 650,
+        "end_line": 673,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L648-L673"
+      }
+    ]
   },
   {
     "name": "serve_axon_tls",
@@ -1449,6 +2073,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "serve_axon_tls"
+      ]
+    ],
+    "docs_url": "/docs/tx/serve-axon-tls",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1487,7 +2118,16 @@
     },
     "cli": "btcli tx serve-axon-tls --netuid <int> --ip <value> --port <int> --certificate <value>",
     "python_class": "ServeAxonTls",
-    "docs_url": "/docs/tx/serve-axon-tls"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "serve_axon_tls",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 716,
+        "end_line": 740,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L714-L740"
+      }
+    ]
   },
   {
     "name": "serve_prometheus",
@@ -1496,6 +2136,13 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "serve_prometheus"
+      ]
+    ],
+    "docs_url": "/docs/tx/serve-prometheus",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1525,7 +2172,16 @@
     },
     "cli": "btcli tx serve-prometheus --netuid <int> --ip <value> --port <int>",
     "python_class": "ServePrometheus",
-    "docs_url": "/docs/tx/serve-prometheus"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "serve_prometheus",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 758,
+        "end_line": 767,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L756-L767"
+      }
+    ]
   },
   {
     "name": "set_auto_stake",
@@ -1534,6 +2190,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_coldkey_auto_stake_hotkey"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-auto-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1553,7 +2216,16 @@
     },
     "cli": "btcli tx set-auto-stake --netuid <int>",
     "python_class": "SetAutoStake",
-    "docs_url": "/docs/tx/set-auto-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_coldkey_auto_stake_hotkey",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1801,
+        "end_line": 1841,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1799-L1841"
+      }
+    ]
   },
   {
     "name": "set_childkey_take",
@@ -1562,6 +2234,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_childkey_take"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-childkey-take",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1590,7 +2269,16 @@
     },
     "cli": "btcli tx set-childkey-take --netuid <int> --take <value>",
     "python_class": "SetChildkeyTake",
-    "docs_url": "/docs/tx/set-childkey-take"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_childkey_take",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 935,
+        "end_line": 945,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L933-L945"
+      }
+    ]
   },
   {
     "name": "set_children",
@@ -1599,6 +2287,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_children"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-children",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1623,7 +2318,16 @@
     },
     "cli": "btcli tx set-children --netuid <int> --children <a,b,c>",
     "python_class": "SetChildren",
-    "docs_url": "/docs/tx/set-children"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_children",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1093,
+        "end_line": 1101,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1089-L1101"
+      }
+    ]
   },
   {
     "name": "set_crowdloan_max_contribution",
@@ -1632,6 +2336,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "set_max_contribution"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-crowdloan-max-contribution",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1660,7 +2371,16 @@
     },
     "cli": "btcli tx set-crowdloan-max-contribution --crowdloan-id <int>",
     "python_class": "SetCrowdloanMaxContribution",
-    "docs_url": "/docs/tx/set-crowdloan-max-contribution"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "set_max_contribution",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 935,
+        "end_line": 967,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L933-L967"
+      }
+    ]
   },
   {
     "name": "set_hyperparameter",
@@ -1669,6 +2389,125 @@
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": null,
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_set_tempo"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_immunity_period"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_min_allowed_weights"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_weights_version_key"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_activity_cutoff_factor"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_min_burn"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_max_burn"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_bonds_moving_average"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_bonds_penalty"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_serving_rate_limit"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_commit_reveal_weights_interval"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_max_allowed_uids"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_burn_increase_mult"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_burn_half_life"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_adjustment_alpha"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_rho"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_max_difficulty"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_alpha_sigmoid_steepness"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_min_childkey_take_per_subnet"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_owner_immune_neuron_limit"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_alpha_values"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_commit_reveal_weights_enabled"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_liquid_alpha_enabled"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_network_pow_registration_allowed"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_yuma3_enabled"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_bonds_reset_enabled"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_toggle_transfer"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_owner_cut_enabled"
+      ],
+      [
+        "AdminUtils",
+        "sudo_set_owner_cut_auto_lock_enabled"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-hyperparameter",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1698,7 +2537,240 @@
     },
     "cli": "btcli tx set-hyperparameter --netuid <int> --name <value> --value <value>",
     "python_class": "SetHyperparameter",
-    "docs_url": "/docs/tx/set-hyperparameter"
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_tempo",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1020,
+        "end_line": 1024,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1009-L1024"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_immunity_period",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 459,
+        "end_line": 485,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L457-L485"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_min_allowed_weights",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 492,
+        "end_line": 518,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L490-L518"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_weights_version_key",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 341,
+        "end_line": 369,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L339-L369"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_activity_cutoff_factor",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 664,
+        "end_line": 678,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L662-L678"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_min_burn",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 749,
+        "end_line": 781,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L747-L781"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_max_burn",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 788,
+        "end_line": 820,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L786-L820"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_bonds_moving_average",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 880,
+        "end_line": 912,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L878-L912"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_bonds_penalty",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 919,
+        "end_line": 943,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L917-L943"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_serving_rate_limit",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 258,
+        "end_line": 277,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L256-L277"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_reveal_weights_interval",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1368,
+        "end_line": 1395,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1366-L1395"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_max_allowed_uids",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 525,
+        "end_line": 568,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L523-L568"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_burn_increase_mult",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 2176,
+        "end_line": 2214,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2168-L2214"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_burn_half_life",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 2128,
+        "end_line": 2164,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2120-L2164"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_adjustment_alpha",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 428,
+        "end_line": 452,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L423-L452"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_rho",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 591,
+        "end_line": 611,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L589-L611"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_max_difficulty",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 308,
+        "end_line": 334,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L306-L334"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_alpha_sigmoid_steepness",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1623,
+        "end_line": 1655,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1621-L1655"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_min_childkey_take_per_subnet",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1192,
+        "end_line": 1224,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1190-L1224"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_owner_immune_neuron_limit",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1809,
+        "end_line": 1827,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1807-L1827"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_alpha_values",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1293,
+        "end_line": 1316,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1291-L1316"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_commit_reveal_weights_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1231,
+        "end_line": 1256,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1229-L1256"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_liquid_alpha_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1269,
+        "end_line": 1288,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1267-L1288"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_network_pow_registration_allowed",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 709,
+        "end_line": 715,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L704-L715"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_yuma3_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1668,
+        "end_line": 1689,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1666-L1689"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_bonds_reset_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1702,
+        "end_line": 1723,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1700-L1723"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_toggle_transfer",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1459,
+        "end_line": 1479,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1457-L1479"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_owner_cut_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 2226,
+        "end_line": 2244,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2218-L2244"
+      },
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_owner_cut_auto_lock_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 2256,
+        "end_line": 2274,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2248-L2274"
+      }
+    ]
   },
   {
     "name": "set_identity",
@@ -1707,6 +2779,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_identity"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-identity",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1746,7 +2825,16 @@
     },
     "cli": "btcli tx set-identity --name <value>",
     "python_class": "SetIdentity",
-    "docs_url": "/docs/tx/set-identity"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_identity",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1134,
+        "end_line": 1154,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1132-L1154"
+      }
+    ]
   },
   {
     "name": "set_mechanism_count",
@@ -1755,6 +2843,13 @@
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": null,
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_set_mechanism_count"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-mechanism-count",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1775,7 +2870,16 @@
     },
     "cli": "btcli tx set-mechanism-count --netuid <int> --mechanism-count <int>",
     "python_class": "SetMechanismCount",
-    "docs_url": "/docs/tx/set-mechanism-count"
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_mechanism_count",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1873,
+        "end_line": 1893,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1869-L1893"
+      }
+    ]
   },
   {
     "name": "set_perpetual_lock",
@@ -1784,6 +2888,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_perpetual_lock"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-perpetual-lock",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1804,7 +2915,16 @@
     },
     "cli": "btcli tx set-perpetual-lock --netuid <int> --enabled/--no-enabled",
     "python_class": "SetPerpetualLock",
-    "docs_url": "/docs/tx/set-perpetual-lock"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_perpetual_lock",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2331,
+        "end_line": 2338,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2329-L2338"
+      }
+    ]
   },
   {
     "name": "set_root_claim_type",
@@ -1813,6 +2933,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_root_claim_type"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-root-claim-type",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1830,7 +2957,16 @@
     },
     "cli": "btcli tx set-root-claim-type",
     "python_class": "SetRootClaimType",
-    "docs_url": "/docs/tx/set-root-claim-type"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_root_claim_type",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1937,
+        "end_line": 1951,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1935-L1951"
+      }
+    ]
   },
   {
     "name": "set_subnet_emission_enabled",
@@ -1839,6 +2975,17 @@
     "signer": "coldkey",
     "origin": "root",
     "verify": "subnet_emission_enabled",
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_set_subnet_emission_enabled"
+      ],
+      [
+        "Sudo",
+        "sudo"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-subnet-emission-enabled",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1862,7 +3009,16 @@
     },
     "cli": "btcli tx set-subnet-emission-enabled --netuids <a,b,c> --enabled/--no-enabled",
     "python_class": "SetSubnetEmissionEnabled",
-    "docs_url": "/docs/tx/set-subnet-emission-enabled"
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_set_subnet_emission_enabled",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 2284,
+        "end_line": 2302,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2282-L2302"
+      }
+    ]
   },
   {
     "name": "set_subnet_identity",
@@ -1871,6 +3027,13 @@
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_subnet_identity"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-subnet-identity",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1919,7 +3082,16 @@
     },
     "cli": "btcli tx set-subnet-identity --netuid <int> --subnet-name <value>",
     "python_class": "SetSubnetIdentity",
-    "docs_url": "/docs/tx/set-subnet-identity"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_subnet_identity",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1169,
+        "end_line": 1193,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1167-L1193"
+      }
+    ]
   },
   {
     "name": "set_take",
@@ -1928,6 +3100,17 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "increase_take"
+      ],
+      [
+        "SubtensorModule",
+        "decrease_take"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-take",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1951,7 +3134,24 @@
     },
     "cli": "btcli tx set-take --take <value>",
     "python_class": "SetTake",
-    "docs_url": "/docs/tx/set-take"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "increase_take",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 533,
+        "end_line": 539,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L531-L539"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "decrease_take",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 500,
+        "end_line": 506,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L498-L506"
+      }
+    ]
   },
   {
     "name": "set_weights",
@@ -1960,6 +3160,17 @@
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_mechanism_weights"
+      ],
+      [
+        "SubtensorModule",
+        "commit_timelocked_mechanism_weights"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-weights",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -1997,7 +3208,24 @@
     },
     "cli": "btcli tx set-weights --netuid <int>",
     "python_class": "SetWeights",
-    "docs_url": "/docs/tx/set-weights"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_mechanism_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 132,
+        "end_line": 145,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L128-L145"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "commit_timelocked_mechanism_weights",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1869,
+        "end_line": 1885,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1865-L1885"
+      }
+    ]
   },
   {
     "name": "stake_burn",
@@ -2006,6 +3234,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "add_stake_burn"
+      ]
+    ],
+    "docs_url": "/docs/tx/stake-burn",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2044,7 +3279,16 @@
     },
     "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount|all> --limit-price <int>",
     "python_class": "StakeBurn",
-    "docs_url": "/docs/tx/stake-burn"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "add_stake_burn",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2195,
+        "end_line": 2203,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2193-L2203"
+      }
+    ]
   },
   {
     "name": "start_call",
@@ -2053,6 +3297,13 @@
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "start_call"
+      ]
+    ],
+    "docs_url": "/docs/tx/start-call",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2068,7 +3319,16 @@
     },
     "cli": "btcli tx start-call --netuid <int>",
     "python_class": "StartCall",
-    "docs_url": "/docs/tx/start-call"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "start_call",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1553,
+        "end_line": 1556,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1551-L1556"
+      }
+    ]
   },
   {
     "name": "swap_coldkey_announced",
@@ -2077,6 +3337,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "swap_coldkey_announced"
+      ]
+    ],
+    "docs_url": "/docs/tx/swap-coldkey-announced",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2092,7 +3359,16 @@
     },
     "cli": "btcli tx swap-coldkey-announced --new-coldkey <ss58|name>",
     "python_class": "SwapColdkeyAnnounced",
-    "docs_url": "/docs/tx/swap-coldkey-announced"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "swap_coldkey_announced",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2044,
+        "end_line": 2064,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2042-L2064"
+      }
+    ]
   },
   {
     "name": "swap_hotkey",
@@ -2101,6 +3377,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "swap_hotkey"
+      ]
+    ],
+    "docs_url": "/docs/tx/swap-hotkey",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2124,7 +3407,16 @@
     },
     "cli": "btcli tx swap-hotkey --new-hotkey <ss58|name>",
     "python_class": "SwapHotkey",
-    "docs_url": "/docs/tx/swap-hotkey"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "swap_hotkey",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 850,
+        "end_line": 857,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L844-L857"
+      }
+    ]
   },
   {
     "name": "swap_stake",
@@ -2133,6 +3425,17 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "swap_stake"
+      ],
+      [
+        "SubtensorModule",
+        "swap_stake_limit"
+      ]
+    ],
+    "docs_url": "/docs/tx/swap-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2180,7 +3483,24 @@
     },
     "cli": "btcli tx swap-stake --hotkey <ss58|name> --origin-netuid <int> --dest-netuid <int> --amount-alpha <amount|all>",
     "python_class": "SwapStake",
-    "docs_url": "/docs/tx/swap-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "swap_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1357,
+        "end_line": 1371,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1355-L1371"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "swap_stake_limit",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1505,
+        "end_line": 1523,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1503-L1523"
+      }
+    ]
   },
   {
     "name": "terminate_lease",
@@ -2189,6 +3509,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "terminate_lease"
+      ]
+    ],
+    "docs_url": "/docs/tx/terminate-lease",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2208,7 +3535,16 @@
     },
     "cli": "btcli tx terminate-lease --lease-id <int>",
     "python_class": "TerminateLease",
-    "docs_url": "/docs/tx/terminate-lease"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "terminate_lease",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1711,
+        "end_line": 1717,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1709-L1717"
+      }
+    ]
   },
   {
     "name": "transfer",
@@ -2217,6 +3553,21 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Balances",
+        "transfer_keep_alive"
+      ],
+      [
+        "Balances",
+        "transfer_allow_death"
+      ],
+      [
+        "Balances",
+        "transfer_all"
+      ]
+    ],
+    "docs_url": "/docs/tx/transfer",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2255,8 +3606,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx transfer --dest <ss58|name> --amount-tao <amount|all>",
-    "python_class": "Transfer",
-    "docs_url": "/docs/tx/transfer"
+    "python_class": "Transfer"
   },
   {
     "name": "transfer_all",
@@ -2265,6 +3615,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Balances",
+        "transfer_all"
+      ]
+    ],
+    "docs_url": "/docs/tx/transfer-all",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2283,8 +3640,7 @@
       "additionalProperties": false
     },
     "cli": "btcli tx transfer-all --dest <ss58|name>",
-    "python_class": "TransferAll",
-    "docs_url": "/docs/tx/transfer-all"
+    "python_class": "TransferAll"
   },
   {
     "name": "transfer_stake",
@@ -2293,6 +3649,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "transfer_stake"
+      ]
+    ],
+    "docs_url": "/docs/tx/transfer-stake",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2337,7 +3700,16 @@
     },
     "cli": "btcli tx transfer-stake --dest-coldkey <ss58|name> --hotkey <ss58|name> --origin-netuid <int> --dest-netuid <int> --amount-alpha <amount|all>",
     "python_class": "TransferStake",
-    "docs_url": "/docs/tx/transfer-stake"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "transfer_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1315,
+        "end_line": 1331,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1313-L1331"
+      }
+    ]
   },
   {
     "name": "trim_subnet",
@@ -2346,6 +3718,13 @@
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": null,
+    "wraps": [
+      [
+        "AdminUtils",
+        "sudo_trim_to_max_allowed_uids"
+      ]
+    ],
+    "docs_url": "/docs/tx/trim-subnet",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2366,7 +3745,16 @@
     },
     "cli": "btcli tx trim-subnet --netuid <int> --max-n <int>",
     "python_class": "TrimSubnet",
-    "docs_url": "/docs/tx/trim-subnet"
+    "sources": [
+      {
+        "pallet": "AdminUtils",
+        "call": "sudo_trim_to_max_allowed_uids",
+        "path": "pallets/admin-utils/src/lib.rs",
+        "line": 1929,
+        "end_line": 1949,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1927-L1949"
+      }
+    ]
   },
   {
     "name": "unstake_all",
@@ -2375,6 +3763,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "unstake_all"
+      ]
+    ],
+    "docs_url": "/docs/tx/unstake-all",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2390,7 +3785,16 @@
     },
     "cli": "btcli tx unstake-all --hotkey <ss58|name>",
     "python_class": "UnstakeAll",
-    "docs_url": "/docs/tx/unstake-all"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "unstake_all",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1226,
+        "end_line": 1228,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1224-L1228"
+      }
+    ]
   },
   {
     "name": "unstake_all_alpha",
@@ -2399,6 +3803,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "unstake_all_alpha"
+      ]
+    ],
+    "docs_url": "/docs/tx/unstake-all-alpha",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2414,7 +3825,16 @@
     },
     "cli": "btcli tx unstake-all-alpha --hotkey <ss58|name>",
     "python_class": "UnstakeAllAlpha",
-    "docs_url": "/docs/tx/unstake-all-alpha"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "unstake_all_alpha",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1250,
+        "end_line": 1252,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1248-L1252"
+      }
+    ]
   },
   {
     "name": "update_crowdloan_cap",
@@ -2423,6 +3843,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "update_cap"
+      ]
+    ],
+    "docs_url": "/docs/tx/update-crowdloan-cap",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2452,7 +3879,16 @@
     },
     "cli": "btcli tx update-crowdloan-cap --crowdloan-id <int> --new-cap-tao <amount|all>",
     "python_class": "UpdateCrowdloanCap",
-    "docs_url": "/docs/tx/update-crowdloan-cap"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "update_cap",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 898,
+        "end_line": 923,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L896-L923"
+      }
+    ]
   },
   {
     "name": "update_crowdloan_end",
@@ -2461,6 +3897,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "update_end"
+      ]
+    ],
+    "docs_url": "/docs/tx/update-crowdloan-end",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2481,7 +3924,16 @@
     },
     "cli": "btcli tx update-crowdloan-end --crowdloan-id <int> --new-end <int>",
     "python_class": "UpdateCrowdloanEnd",
-    "docs_url": "/docs/tx/update-crowdloan-end"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "update_end",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 863,
+        "end_line": 887,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L861-L887"
+      }
+    ]
   },
   {
     "name": "update_crowdloan_min_contribution",
@@ -2490,6 +3942,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "update_min_contribution"
+      ]
+    ],
+    "docs_url": "/docs/tx/update-crowdloan-min-contribution",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2519,7 +3978,16 @@
     },
     "cli": "btcli tx update-crowdloan-min-contribution --crowdloan-id <int> --new-min-contribution-tao <amount|all>",
     "python_class": "UpdateCrowdloanMinContribution",
-    "docs_url": "/docs/tx/update-crowdloan-min-contribution"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "update_min_contribution",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 819,
+        "end_line": 852,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L817-L852"
+      }
+    ]
   },
   {
     "name": "update_symbol",
@@ -2528,6 +3996,13 @@
     "signer": "coldkey",
     "origin": "subnet_owner",
     "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "update_symbol"
+      ]
+    ],
+    "docs_url": "/docs/tx/update-symbol",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2548,7 +4023,16 @@
     },
     "cli": "btcli tx update-symbol --netuid <int> --symbol <value>",
     "python_class": "UpdateSymbol",
-    "docs_url": "/docs/tx/update-symbol"
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "update_symbol",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1736,
+        "end_line": 1751,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1734-L1751"
+      }
+    ]
   },
   {
     "name": "withdraw_crowdloan",
@@ -2557,6 +4041,13 @@
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
+    "wraps": [
+      [
+        "Crowdloan",
+        "withdraw"
+      ]
+    ],
+    "docs_url": "/docs/tx/withdraw-crowdloan",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -2572,6 +4063,15 @@
     },
     "cli": "btcli tx withdraw-crowdloan --crowdloan-id <int>",
     "python_class": "WithdrawCrowdloan",
-    "docs_url": "/docs/tx/withdraw-crowdloan"
+    "sources": [
+      {
+        "pallet": "Crowdloan",
+        "call": "withdraw",
+        "path": "pallets/crowdloan/src/lib.rs",
+        "line": 548,
+        "end_line": 592,
+        "url": "/code/pallets/crowdloan/src/lib.rs#L546-L592"
+      }
+    ]
   }
 ]

@@ -32,6 +32,7 @@ from ..settings import (
     explorer_account_url,
     explorer_extrinsic_url,
     explorer_subnet_url,
+    tx_docs_url,
 )
 from . import multisig_helpers as ms_helpers
 
@@ -1365,6 +1366,9 @@ class Output:
             )
         if not plan.ok:
             self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+        # The docs page carries parameters, verify reads, and the on-chain
+        # implementation with source links.
+        self._sub_diag("see", tx_docs_url(plan.op), console=self._out)
 
     def multisig_followup(self, followup: dict[str, Any], *, suppress_decode: bool = False) -> None:
         """Render co-signer instructions after a multisig approval.

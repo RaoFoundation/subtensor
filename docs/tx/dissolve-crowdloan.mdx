@@ -14,7 +14,7 @@ outstanding fails — refund first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.dissolve` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.dissolve`](/code/pallets/crowdloan/src/lib.rs#L761-L805) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("dissolve_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.dissolve` — [`pallets/crowdloan/src/lib.rs#L763`](/code/pallets/crowdloan/src/lib.rs#L763):
+`Crowdloan.dissolve` — [`pallets/crowdloan/src/lib.rs#L763`](/code/pallets/crowdloan/src/lib.rs#L761-L805):
 
 ```rust
 #[pallet::call_index(5)]

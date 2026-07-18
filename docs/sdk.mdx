@@ -30,7 +30,7 @@ lazily on the first call, cleaned up automatically, no `close()` — and
 awaited it is the async client:
 
 ```python
-sub.block()                                     # blocking
+sub.block                                       # blocking
 
 client = await bt.Subtensor()                   # async, same surface awaited
 async with bt.Subtensor() as client: ...        # scoped async

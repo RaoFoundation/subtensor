@@ -14,11 +14,15 @@ TAO flowing into its pool.
 
 ## How it works
 
-Storage is `SubnetEmissionEnabled` in `pallets/subtensor/src/lib.rs`. New
-subnets register with it **false** (`do_register_network` in
-`pallets/subtensor/src/subnets/subnet.rs`), so a freshly created subnet earns
-no TAO emission share until root turns it on. Each coinbase run skips the
-pool-side terms for disabled subnets and clears any stale per-block TAO-side
+Storage is
+[`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L1394) in
+`pallets/subtensor/src/lib.rs`. New
+subnets register with it **false**
+([`do_register_network`](/code/pallets/subtensor/src/subnets/subnet.rs#L142-L268)
+in `pallets/subtensor/src/subnets/subnet.rs`), so a freshly created subnet earns
+no TAO emission share until root turns it on. Each coinbase run
+[skips the pool-side terms for disabled subnets](/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L48-L70)
+and clears any stale per-block TAO-side
 emission storage.
 
 This is not the same flag as [`subnet_is_active`](/docs/hyperparameters/subnet-is-active).

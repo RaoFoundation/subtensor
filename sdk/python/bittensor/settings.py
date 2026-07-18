@@ -117,6 +117,19 @@ def chain_error_docs_url(name: str) -> str:
     return f"{DOCS_URL}/errors/chain/{name}"
 
 
+def tx_docs_url(op: str) -> str:
+    """Docs page for a transaction intent (e.g. add_stake). The page carries
+    the parameters, CLI/Python forms, and the on-chain implementation with
+    source links."""
+    return f"{DOCS_URL}/tx/{op.replace('_', '-')}"
+
+
+def query_docs_url(name: str) -> str:
+    """Docs page for a read (e.g. subnet_hyperparameters), including the
+    storage items and runtime APIs it hits with source links."""
+    return f"{DOCS_URL}/query/{name.replace('_', '-')}"
+
+
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``
 # is the on-chain extrinsic identifier "block_number-index" (index zero-padded
 # to 4 digits), the format both taostats and taomarketcap use. taomarketcap is

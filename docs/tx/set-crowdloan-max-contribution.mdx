@@ -11,7 +11,7 @@ creator may change it, and only while the loan has not been finalized.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.set_max_contribution` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.set_max_contribution`](/code/pallets/crowdloan/src/lib.rs#L933-L967) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("set_crowdloan_max_contribution", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.set_max_contribution` — [`pallets/crowdloan/src/lib.rs#L935`](/code/pallets/crowdloan/src/lib.rs#L935):
+`Crowdloan.set_max_contribution` — [`pallets/crowdloan/src/lib.rs#L935`](/code/pallets/crowdloan/src/lib.rs#L933-L967):
 
 ```rust
 #[pallet::call_index(9)]

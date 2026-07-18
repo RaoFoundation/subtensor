@@ -1,0 +1,29 @@
+<svg width="668" height="459" viewBox="0 0 668 459" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="668" height="459" fill="#f8f9fa"/>
+  <rect x="0" y="0" width="56" height="459" fill="#f1f3f4"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#9aa0a6">
+    <text x="40" y="52" text-anchor="end">1</text>
+    <text x="40" y="84" text-anchor="end">2</text>
+    <text x="40" y="116" text-anchor="end">3</text>
+    <text x="40" y="148" text-anchor="end">4</text>
+    <text x="40" y="180" text-anchor="end">5</text>
+    <text x="40" y="212" text-anchor="end">6</text>
+    <text x="40" y="244" text-anchor="end">7</text>
+    <text x="40" y="276" text-anchor="end">8</text>
+    <text x="40" y="308" text-anchor="end">9</text>
+    <text x="40" y="340" text-anchor="end">10</text>
+  </g>
+  <rect x="56" y="164" width="612" height="32" fill="rgba(209, 81, 104, 0.10)"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">
+    <text x="76" y="52" fill="#7c7c7c">impl&lt;T: Config&gt; Pallet&lt;T&gt; {</text>
+    <text x="76" y="84" fill="#a8a8a8">    /// Run the epoch for a subnet.</text>
+    <text x="76" y="116" fill="#7c7c7c">    pub fn should_run_epoch(netuid: NetUid,</text>
+    <text x="76" y="148" fill="#7c7c7c">        current_block: u64) -&gt; bool {</text>
+    <text x="76" y="180" fill="#d15168">        let tempo = Self::get_tempo(netuid);</text>
+    <text x="76" y="212" fill="#7c7c7c">        if tempo == 0 { return false; }</text>
+    <text x="76" y="244" fill="#7c7c7c">        let last = LastEpochBlock::&lt;T&gt;::get(netuid);</text>
+    <text x="76" y="276" fill="#7c7c7c">        current_block.saturating_sub(last)</text>
+    <text x="76" y="308" fill="#7c7c7c">            &gt;= tempo as u64</text>
+    <text x="76" y="340" fill="#7c7c7c">    }</text>
+  </g>
+</svg>

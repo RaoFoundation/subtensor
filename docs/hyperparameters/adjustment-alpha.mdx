@@ -12,20 +12,25 @@ listing; on the current chain it is inert.
 
 ## How it works
 
-The value lives in `AdjustmentAlpha` storage as a u64 fraction where
+The value lives in
+[`AdjustmentAlpha`](/code/pallets/subtensor/src/lib.rs#L2117) storage as a u64
+fraction where
 `u64::MAX` encodes 1.0. The mainnet default is **0**
-(`SubtensorInitialAdjustmentAlpha` in `runtime/src/lib.rs`) — in the legacy
+([`SubtensorInitialAdjustmentAlpha`](/code/runtime/src/lib.rs#L798) in
+`runtime/src/lib.rs`) — in the legacy
 formula `next = alpha × current + (1 − alpha) × proposed`, zero meant no
 weight on the previous value, i.e. no smoothing at all.
 
 In the current runtime the legacy interval controller is gone, and **nothing
 reads this value** outside of the RPC/metagraph views: registration pricing is
-handled per block in `pallets/subtensor/src/subnets/registration.rs`, where
+[handled per block](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)
+in `pallets/subtensor/src/subnets/registration.rs`, where
 each registration bumps the burn by
 [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) and decay with
 half-life [`burn_half_life`](/docs/hyperparameters/burn-half-life) pulls it
 back toward [`min_burn`](/docs/hyperparameters/min-burn). The setter
-(`sudo_set_adjustment_alpha` in `pallets/admin-utils/src/lib.rs`) remains
+([`sudo_set_adjustment_alpha`](/code/pallets/admin-utils/src/lib.rs#L428-L452)
+in `pallets/admin-utils/src/lib.rs`) remains
 callable by the subnet owner, subject only to the owner rate limit and admin
 freeze window — but setting it changes nothing about how registrations are
 priced.

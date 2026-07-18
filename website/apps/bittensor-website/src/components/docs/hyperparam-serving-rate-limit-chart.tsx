@@ -44,7 +44,21 @@ export function HyperparamServingRateLimitChart() {
   return (
     <ExplainerPanel
       title="serve_axon rate limit timeline"
-      caption="One miner's serve_axon attempts on a block timeline. Solid ticks are accepted; short dashed ticks land inside the shaded cooldown that follows each accepted serve and fail with ServingRateLimitExceeded. The first-ever serve always passes, and a limit of 0 disables the check entirely."
+      caption={
+        <>
+          One miner&apos;s serve_axon attempts on a block timeline. Solid ticks are accepted;
+          short dashed ticks land inside the shaded cooldown that follows each accepted serve
+          and fail with ServingRateLimitExceeded. The first-ever serve always passes, and a
+          limit of 0 disables{' '}
+          <a
+            href="/code/pallets/subtensor/src/subnets/serving.rs#L165-L173"
+            className="underline"
+          >
+            the check
+          </a>{' '}
+          entirely.
+        </>
+      }
     >
       <div className="relative h-20">
         {rateLimit > 0 &&

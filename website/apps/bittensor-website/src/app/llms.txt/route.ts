@@ -14,7 +14,7 @@ function codeSection(): string {
       (commit ? `, at commit ${commit}.` : '.'),
     '',
     `- [Index of every file (JSON)](${codeRoute}/index.json)`,
-    `- Browse: ${codeRoute}/<repo-path> with #L<n> line anchors, e.g. ${codeRoute}/pallets/subtensor/src/coinbase/run_coinbase.rs`,
+    `- Browse: ${codeRoute}/<repo-path> with #L<n> or #L<n>-L<m> line anchors, e.g. ${codeRoute}/pallets/subtensor/src/coinbase/run_coinbase.rs`,
     `- Plain text: ${codeRoute}/raw/<repo-path>`,
     `- Roots: ${CODE_ROOTS.join(', ')}`,
     '',

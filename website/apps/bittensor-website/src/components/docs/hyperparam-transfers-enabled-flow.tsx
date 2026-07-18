@@ -83,7 +83,20 @@ export function HyperparamTransfersEnabledFlow() {
   return (
     <ExplainerPanel
       title="Stake flow under transfers_enabled"
-      caption="transfer_stake moves alpha to a different coldkey and is the only path that checks TransferToggle: with the toggle off it fails with TransferDisallowed. Moving stake between hotkeys under the same coldkey (move_stake, swap_stake) never consults the flag, and neither does staking or unstaking — the stake is pinned to its coldkey, not trapped."
+      caption={
+        <>
+          <a
+            href="/code/pallets/subtensor/src/macros/dispatches.rs#L1315-L1331"
+            className="underline"
+          >
+            transfer_stake
+          </a>{' '}
+          moves alpha to a different coldkey and is the only path that checks TransferToggle:
+          with the toggle off it fails with TransferDisallowed. Moving stake between hotkeys
+          under the same coldkey (move_stake, swap_stake) never consults the flag, and neither
+          does staking or unstaking — the stake is pinned to its coldkey, not trapped.
+        </>
+      }
     >
       <div className="flex items-stretch gap-6">
         {coldkeyColumn('coldkey A', stakeA)}

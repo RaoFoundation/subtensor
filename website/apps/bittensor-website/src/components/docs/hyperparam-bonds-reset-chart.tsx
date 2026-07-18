@@ -119,7 +119,20 @@ export function HyperparamBondsResetChart() {
   return (
     <ExplainerPanel
       title="bonds_reset_enabled: bonds wiped at a metadata commit"
-      caption="A validator keeps endorsing one miner, so its bond accrues via the EMA B(t) = alpha × ΔB + (1 − alpha) × B(t−1). When the miner commits metadata and the flag is on, do_reset_bonds erases every bond pointing at it (run_epoch.rs) and the EMA rebuilds from zero; when off, the commit changes nothing."
+      caption={
+        <>
+          A validator keeps endorsing one miner, so its bond accrues via the EMA B(t) = alpha
+          × ΔB + (1 − alpha) × B(t−1). When the miner commits metadata and the flag is on,{' '}
+          <a
+            href="/code/pallets/subtensor/src/epoch/run_epoch.rs#L1611-L1643"
+            className="underline"
+          >
+            do_reset_bonds
+          </a>{' '}
+          erases every bond pointing at it (run_epoch.rs) and the EMA rebuilds from zero; when
+          off, the commit changes nothing.
+        </>
+      }
     >
       <div className="h-52">
         <Line data={data} options={options} />

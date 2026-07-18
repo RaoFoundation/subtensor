@@ -12,7 +12,7 @@ never guessed from the environment.
 import bittensor as bt
 
 sub = bt.Subtensor()               # defaults to finney; connects lazily
-print(sub.block())                 # blocking; no close() needed
+print(sub.block)                   # blocking; no close() needed
 
 client = await bt.Subtensor()      # the same class, awaited: the async client
 print(await client.block())

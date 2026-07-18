@@ -13,14 +13,20 @@ not a setting.
 ## How it works
 
 Under swap v3, `EnabledUserLiquidity` in the Swap pallet controlled per-subnet
-access to user LP calls (`add_liquidity`, `remove_liquidity`,
-`modify_position`). The balancer migration
-(`pallets/swap/src/pallet/migrations/migrate_swapv3_to_balancer.rs`) deleted
+access to user LP calls
+([`add_liquidity`](/code/pallets/swap/src/pallet/mod.rs#L226-L235),
+[`remove_liquidity`](/code/pallets/swap/src/pallet/mod.rs#L240-L247),
+[`modify_position`](/code/pallets/swap/src/pallet/mod.rs#L253-L261)). The
+balancer migration
+([`pallets/swap/src/pallet/migrations/migrate_swapv3_to_balancer.rs`](/code/pallets/swap/src/pallet/migrations/migrate_swapv3_to_balancer.rs))
+deleted
 that storage outright, and each of those extrinsics — along with the
-`toggle_user_liquidity` call that flipped the flag — now fails immediately
+[`toggle_user_liquidity`](/code/pallets/swap/src/pallet/mod.rs#L215-L221)
+call that flipped the flag — now fails immediately
 with `Deprecated` (`pallets/swap/src/pallet/mod.rs`).
 
-The hyperparameter getter reflects this: `get_subnet_hyperparams_v3`
+The hyperparameter getter reflects this:
+[`get_subnet_hyperparams_v3`](/code/pallets/subtensor/src/rpc_info/subnet_info.rs#L468-L631)
 (`pallets/subtensor/src/rpc_info/subnet_info.rs`) reports a literal `false`
 with no storage read behind it. There is nothing to enable and no one who can
 enable it.

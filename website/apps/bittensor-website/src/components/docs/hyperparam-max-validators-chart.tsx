@@ -177,7 +177,20 @@ export function HyperparamMaxValidatorsChart() {
   return (
     <ExplainerPanel
       title="max_validators permit line"
-      caption="Neurons sorted by stake weight; every epoch is_topk_nonzero (run_epoch.rs) grants permits to the top max_validators non-zero-stake neurons. Solid bars hold a permit; faded bars past the line have their weights discarded and stake masked from consensus. Slide the cap to move the line."
+      caption={
+        <>
+          Neurons sorted by stake weight; every epoch{' '}
+          <a
+            href="/code/pallets/subtensor/src/epoch/math.rs#L227-L241"
+            className="underline"
+          >
+            is_topk_nonzero (epoch/math.rs)
+          </a>{' '}
+          grants permits to the top max_validators non-zero-stake neurons. Solid bars hold a
+          permit; faded bars past the line have their weights discarded and stake masked from
+          consensus. Slide the cap to move the line.
+        </>
+      }
     >
       <div className="h-52">
         <Bar data={data} options={options} plugins={[annotationPlugin]} />

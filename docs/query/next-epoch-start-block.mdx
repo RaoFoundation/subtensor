@@ -42,3 +42,9 @@ result = sub.read("next_epoch_start_block", netuid=1)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`SubnetInfoRuntimeApi.get_next_epoch_start_block`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1156-L1170)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

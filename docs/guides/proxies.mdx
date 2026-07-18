@@ -34,7 +34,9 @@ The real account signs [`add-proxy`](/docs/tx/add-proxy) once, naming a
 delegate, a proxy type, and a delay. From then on the delegate submits
 ordinary calls wrapped in `Proxy.proxy(real, ...)` — the CLI flag for this is
 `--proxy-for`, the SDK keyword is `proxy_for=` — and the runtime checks each
-call against the delegation's type before dispatching it *as the real
+call against the delegation's type
+([`proxy_type_filter`](/code/runtime/src/proxy_filters/mod.rs#L108-L129))
+before dispatching it *as the real
 account*. Bookkeeping is paid with reserved deposits (returned on removal),
 not fees.
 
@@ -51,13 +53,13 @@ Prefer the narrowest type that covers the job:
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
 * **Staking** — stake add / remove / move / swap / unstake-all and their
-  limit variants, plus `set_root_claim_type`. Its allowlist does *not*
-  include `Utility.batch_all`, so batched staking through a Staking proxy
+  limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). Its allowlist does *not*
+  include [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L314-L362), so batched staking through a Staking proxy
   fails with `CallFiltered` — use NonTransfer for batched staking.
-* **Registration** — neuron registration (`burned_register`, `register`,
-  `register_limit`).
-* **ChildKeys** — `set_children` and `set_childkey_take`;
-  **RootClaim** — `claim_root` only.
+* **Registration** — neuron registration ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832), [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814),
+  [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
+* **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
+  **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1910-L1926) only.
 * **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
@@ -175,7 +177,7 @@ async with bt.Subtensor("test") as client:
         print(result.error.code, result.error.remediation)
 ```
 
-A call outside the delegation's scope fails with `Unproxyable` /
+A call outside the delegation's scope fails with [`Unproxyable`](/code/pallets/proxy/src/lib.rs#L785) /
 `CallFiltered` — the runtime filter, not the CLI, is what enforces the scope.
 
 ## Step 4 — delayed proxies: announce, wait, execute, veto
@@ -225,7 +227,7 @@ btcli proxy execute \
 (the same operation as the
 [`execute-proxy-announced`](/docs/tx/execute-proxy-announced) intent, also
 reachable as `btcli tx execute-proxy-announced` or `bt.ExecuteProxyAnnounced`
-in Python). Executing before the delay elapses fails with `Unannounced`.
+in Python). Executing before the delay elapses fails with [`Unannounced`](/code/pallets/proxy/src/lib.rs#L791).
 
 **Monitor and veto.** A delay only protects you if you *watch* — check
 pending announcements on a schedule shorter than the delay, otherwise the
@@ -380,14 +382,14 @@ beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
 
 ## Troubleshooting
 
-* `NotProxy` — no delegation matches; check `btcli proxy list` and that
+* [`NotProxy`](/code/pallets/proxy/src/lib.rs#L783) — no delegation matches; check `btcli proxy list` and that
   you're signing with the delegate (`-w`) and naming the real account
   (`--proxy-for`), not the reverse.
 * `Unproxyable` / `CallFiltered` — the call is outside the delegation's proxy
   type (remember `Staking` excludes `batch_all`).
 * `Unannounced` — a delayed delegation executed without announcing, before
   the delay elapsed, or with parameters that don't hash to the announcement.
-* `Duplicate` — a delegation with the same (delegate, type, delay) already
+* [`Duplicate`](/code/pallets/proxy/src/lib.rs#L787) — a delegation with the same (delegate, type, delay) already
   exists.
-* `TooMany` — over the 20-proxy or 75-announcement cap; remove unused
+* [`TooMany`](/code/pallets/proxy/src/lib.rs#L779) — over the 20-proxy or 75-announcement cap; remove unused
   entries.

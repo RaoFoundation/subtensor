@@ -22,7 +22,7 @@ reserve (`InsufficientLiquidity`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.add_stake`, `SubtensorModule.add_stake_limit` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L567-L576), [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1405-L1424) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("add_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L569`](/code/pallets/subtensor/src/macros/dispatches.rs#L569):
+`SubtensorModule.add_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L569`](/code/pallets/subtensor/src/macros/dispatches.rs#L567-L576):
 
 ```rust
 #[pallet::call_index(2)]
@@ -96,7 +96,7 @@ pub fn add_stake(
 
 Delegates to [`do_add_stake`](/code/pallets/subtensor/src/staking/add_stake.rs#L30).
 
-`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1407`](/code/pallets/subtensor/src/macros/dispatches.rs#L1407):
+`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1407`](/code/pallets/subtensor/src/macros/dispatches.rs#L1405-L1424):
 
 ```rust
 #[pallet::call_index(88)]

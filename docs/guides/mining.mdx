@@ -56,12 +56,16 @@ a different one.
 Registration is continuous — there are no registration windows. Admission is
 governed entirely by a dynamic burn price:
 
-- The price **decays over time**, halving every `BurnHalfLife` blocks
+- The price **decays over time**
+  ([`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)),
+  halving every [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L2726) blocks
   (default 360, about one tempo; owner-settable).
-- Each successful registration **multiplies the price** by `BurnIncreaseMult`
+- Each successful registration **multiplies the price**
+  ([`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L517-L541))
+  by [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L2731)
   (default 1.26), so a registration rush gets expensive fast.
-- The price is clamped between `MinBurn` (default 500,000 rao = 0.0005 TAO)
-  and `MaxBurn` (default 100 TAO). All three are per-subnet hyperparameters.
+- The price is clamped between [`MinBurn`](/code/pallets/subtensor/src/lib.rs#L2135) (default 500,000 rao = 0.0005 TAO)
+  and [`MaxBurn`](/code/pallets/subtensor/src/lib.rs#L2140) (default 100 TAO). All three are per-subnet hyperparameters.
 
 <RegistrationBurnTimeline />
 

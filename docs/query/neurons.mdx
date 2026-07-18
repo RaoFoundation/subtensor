@@ -41,3 +41,10 @@ result = sub.read("neurons", netuid=1, lite=True)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`NeuronInfoRuntimeApi.get_neurons_lite`](/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L209-L225)
+- Runtime API [`NeuronInfoRuntimeApi.get_neurons`](/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L58-L74)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

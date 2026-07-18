@@ -583,6 +583,10 @@ class Client:
         """Current chain block number."""
         return await self._substrate.block_number()
 
+    async def spec_version(self) -> int:
+        """The connected runtime's ``spec_version`` (at the chain head)."""
+        return await self._substrate.spec_version()
+
     async def at(self, block: Optional[int] = None) -> Snapshot:
         """A read-only view pinned to ``block`` (defaults to the current head).
 

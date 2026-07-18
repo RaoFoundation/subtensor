@@ -303,3 +303,8 @@
   width: 51.376cqw;
   height: 6.001cqw;
 }
+
+.card[data-id='chainsource'] .rightLogo {
+  width: 44.25cqw;
+  height: 6.001cqw;
+}

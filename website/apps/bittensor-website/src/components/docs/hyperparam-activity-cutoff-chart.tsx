@@ -186,7 +186,20 @@ export function HyperparamActivityCutoffChart() {
   return (
     <ExplainerPanel
       title="activity_cutoff inactivity mask"
-      caption="Each bar is how long a validator has gone without setting weights. run_epoch.rs marks a neuron inactive when last_update + activity_cutoff < current_block: bars past the dashed line fade out — their stake is masked from the active-stake vector and they earn no dividends until they set weights again."
+      caption={
+        <>
+          Each bar is how long a validator has gone without setting weights.{' '}
+          <a
+            href="/code/pallets/subtensor/src/epoch/run_epoch.rs#L183-L198"
+            className="underline"
+          >
+            run_epoch.rs
+          </a>{' '}
+          marks a neuron inactive when last_update + activity_cutoff &lt; current_block: bars
+          past the dashed line fade out — their stake is masked from the active-stake vector
+          and they earn no dividends until they set weights again.
+        </>
+      }
     >
       <div className="h-52">
         <Chart type="bar" data={data} options={options} plugins={[annotationPlugin]} />

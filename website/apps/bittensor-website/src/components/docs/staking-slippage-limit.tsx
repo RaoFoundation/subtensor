@@ -292,7 +292,15 @@ export function StakingSlippageLimit() {
     <ExplainerPanel
       title="Limit-price slippage protection"
       tag="add_stake_limit · balancer pool"
-      caption="add_stake_limit stops filling once the pool price reaches your limit (pallets/swap/src/pallet/balancer.rs): the maximum TAO that fits is ∆y = y·((p′/p)^w1 − 1)."
+      caption={
+        <>
+          add_stake_limit stops filling once the pool price reaches your limit (
+          <a href="/code/pallets/swap/src/pallet/balancer.rs#L18-L22" className="underline">
+            pallets/swap/src/pallet/balancer.rs
+          </a>
+          ): the maximum TAO that fits is ∆y = y·((p′/p)^w1 − 1).
+        </>
+      }
     >
       {/* Chart */}
       <div className="h-72">

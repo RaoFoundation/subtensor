@@ -12,7 +12,7 @@ runtime change against everything it might break.
 | Directory | What it is |
 |-----------|------------|
 | `pallets/` | The FRAME pallets — the chain's business logic. `pallets/subtensor/` is the core (staking, subnets, emissions, consensus); others include `swap` (liquidity), `admin-utils`, `commitments`, `crowdloan`, `drand`, `limit-orders`, `proxy`, `shield`, `transaction-fee`, `utility` |
-| `runtime/` | Composes the pallets into the actual runtime (`construct_runtime!`), plus migrations, runtime APIs, and the `spec_version` (`runtime/src/lib.rs`) — bump it to ship a release |
+| `runtime/` | Composes the pallets into the actual runtime (`construct_runtime!`), plus migrations, runtime APIs, and the [`spec_version`](/code/runtime/src/lib.rs#L238) (`runtime/src/lib.rs`) — bump it to ship a release |
 | `node/` | The node binary: networking, RPC, chain specs for each network (`node/src/chain_spec/`), and the `build-patched-spec` subcommand used by [mainnet clone testing](/docs/internals/mainnet-clone) |
 | `precompiles/` | EVM precompiles exposing substrate functionality (staking, balance transfers, …) to EVM contracts |
 | `chain-extensions/` | ink!/wasm contract chain extensions — the substrate-side counterpart of `ink-contract/` (see [Wasm contracts](/docs/internals/wasm-contracts)) |

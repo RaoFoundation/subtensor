@@ -15,7 +15,7 @@ illiquid until you switch back to decaying and the lock runs off.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_perpetual_lock` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_perpetual_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2329-L2338) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("set_perpetual_lock", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_perpetual_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2331`](/code/pallets/subtensor/src/macros/dispatches.rs#L2331):
+`SubtensorModule.set_perpetual_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2331`](/code/pallets/subtensor/src/macros/dispatches.rs#L2329-L2338):
 
 ```rust
 #[pallet::call_index(138)]

@@ -46,3 +46,17 @@ result = sub.read("subnet_convictions", netuid=1)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`SubtensorModule.HotkeyLock`](/code/pallets/subtensor/src/lib.rs#L1592)
+- Storage [`SubtensorModule.DecayingHotkeyLock`](/code/pallets/subtensor/src/lib.rs#L1604)
+- Storage [`SubtensorModule.OwnerLock`](/code/pallets/subtensor/src/lib.rs#L1616)
+- Storage [`SubtensorModule.DecayingOwnerLock`](/code/pallets/subtensor/src/lib.rs#L1620)
+- Storage [`SubtensorModule.SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib.rs#L1988)
+- Storage [`SubtensorModule.SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424)
+- Storage [`SubtensorModule.UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658)
+- Storage [`SubtensorModule.MaturityRate`](/code/pallets/subtensor/src/lib.rs#L1654)
+- Storage [`SubtensorModule.NetworkRegisteredAt`](/code/pallets/subtensor/src/lib.rs#L1922)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

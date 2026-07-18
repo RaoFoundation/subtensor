@@ -18,7 +18,7 @@ owners.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.transfer_stake` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1313-L1331) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("transfer_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1315`](/code/pallets/subtensor/src/macros/dispatches.rs#L1315):
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1315`](/code/pallets/subtensor/src/macros/dispatches.rs#L1313-L1331):
 
 ```rust
 #[pallet::call_index(86)]

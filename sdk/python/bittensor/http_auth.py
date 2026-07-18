@@ -36,8 +36,8 @@ multi-process servers).
 The wire format is deliberately language-neutral — sha256 over the raw body
 bytes, a newline-joined signed payload, sr25519/ed25519 signatures — so
 miners and validators in other languages interoperate from the spec alone.
-See the signed-requests guide (/docs/guides/signed-requests) for the
-normative spec, framework recipes, and golden test vectors.
+See the signed-requests guide (https://www.bittensor.com/docs/guides/signed-requests)
+for the normative spec, framework recipes, and golden test vectors.
 """
 
 from __future__ import annotations

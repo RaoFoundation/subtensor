@@ -17,7 +17,7 @@ back with the `auto_stake` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_coldkey_auto_stake_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1799-L1841) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("set_auto_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1801`](/code/pallets/subtensor/src/macros/dispatches.rs#L1801):
+`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1801`](/code/pallets/subtensor/src/macros/dispatches.rs#L1799-L1841):
 
 ```rust
 #[pallet::call_index(114)]

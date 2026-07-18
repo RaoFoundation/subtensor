@@ -12,7 +12,7 @@ to the signer. Check current delegations with `btcli query proxies`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.remove_proxy` |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.remove_proxy`](/code/pallets/proxy/src/lib.rs#L285-L296) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("remove_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.remove_proxy` — [`pallets/proxy/src/lib.rs#L287`](/code/pallets/proxy/src/lib.rs#L287):
+`Proxy.remove_proxy` — [`pallets/proxy/src/lib.rs#L287`](/code/pallets/proxy/src/lib.rs#L285-L296):
 
 ```rust
 #[pallet::call_index(2)]

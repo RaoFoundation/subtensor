@@ -242,7 +242,18 @@ export function StakingPoolSwapDemo() {
     <ExplainerPanel
       title="Staking pool swap"
       tag="balancer pool"
-      caption="Each subnet's stake operations swap through a weighted pool of TAO and alpha (pallets/swap/src/pallet/balancer.rs): buying alpha pays ∆x = x·(1 − (y/(y+∆y))^(w2/w1)), so the effective price drifts away from spot p = (w1·y)/(w2·x) as trade size grows. A ≈0.05% fee (FeeRate 33/65535) is taken from the input side before the swap and paid to the block author. Alpha reserve is derived so spot is 0.05 τ/α."
+      caption={
+        <>
+          Each subnet&apos;s stake operations swap through a weighted pool of TAO and alpha (
+          <a href="/code/pallets/swap/src/pallet/balancer.rs#L9-L22" className="underline">
+            pallets/swap/src/pallet/balancer.rs
+          </a>
+          ): buying alpha pays ∆x = x·(1 − (y/(y+∆y))^(w2/w1)), so the effective price drifts
+          away from spot p = (w1·y)/(w2·x) as trade size grows. A ≈0.05% fee (FeeRate 33/65535)
+          is taken from the input side before the swap and paid to the block author. Alpha
+          reserve is derived so spot is 0.05 τ/α.
+        </>
+      }
     >
       {/* Chart */}
       <div className="h-72">
