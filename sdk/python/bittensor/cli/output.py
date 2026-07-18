@@ -82,7 +82,7 @@ _THEME = Theme(
 )
 
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
-_URL_PATTERN = r"https?://[^\s)\]]+"
+_URL_RE = re.compile(r"https?://[^\s)\]]+")
 
 # An ss58 address embedded in a larger string (generic substrate addresses
 # start with '5'; base58 alphabet, no 0/O/I/l).
@@ -113,8 +113,18 @@ def _diagnostic(text: str) -> str:
     return text
 
 
+def _linkify_urls(text: Text) -> Text:
+    """Underline every URL in ``text`` and attach it as an OSC-8 hyperlink so
+    terminals render it clickable even when wrapping breaks plain detection."""
+    for match in _URL_RE.finditer(text.plain):
+        url = match.group(0)
+        text.stylize(f"{STYLE_URL} link {url}", match.start(), match.end())
+    return text
+
+
 def _prose(text: str) -> Text:
-    """Style a sentence: `backticked commands` emphasized, URLs underlined."""
+    """Style a sentence: `backticked commands` emphasized, URLs underlined
+    and hyperlinked."""
     out = Text()
     pos = 0
     for match in _BACKTICK_RE.finditer(text):
@@ -122,8 +132,7 @@ def _prose(text: str) -> Text:
         out.append(match.group(1), style=STYLE_COMMAND)
         pos = match.end()
     out.append(text[pos:])
-    out.highlight_regex(_URL_PATTERN, style=STYLE_URL)
-    return out
+    return _linkify_urls(out)
 
 
 _ADDRESS_KEYS = {"address", "ss58", "multisig", "signer", "coldkeypub", "hotkeypub"}
@@ -273,10 +282,9 @@ class Output:
         return out
 
     def _linked_text(self, value: str, style: str, kind: Optional[str] = None) -> Text:
-        """Text for ``value`` with any embedded ss58 spans and netuid references
-        hyperlinked to their explorer pages. ``kind`` forces hotkey/coldkey;
-        otherwise each address's registered kind is used (unregistered addresses
-        stay plain)."""
+        """Text for ``value`` with any embedded ss58 spans, netuid references,
+        and URLs hyperlinked. ``kind`` forces hotkey/coldkey; otherwise each
+        address's registered kind is used (unregistered addresses stay plain)."""
         spans: list[tuple[int, int, str]] = []
         for match in _SS58_RE.finditer(value):
             url = self.account_url(match.group(0), kind)
@@ -287,6 +295,10 @@ class Output:
             if url:
                 # Link the "4 (Targon)" span, not the "netuid"/"subnet" word.
                 spans.append((match.start("id"), match.end(), url))
+        for match in _URL_RE.finditer(value):
+            # A literal URL links to itself (OSC-8), so it stays clickable
+            # even when column padding or wrapping breaks plain detection.
+            spans.append((match.start(), match.end(), match.group(0)))
         spans.sort()
         out = Text()
         pos = 0
@@ -595,7 +607,11 @@ class Output:
                 *(
                     self.subnet_text(cell)
                     if columns[i].endswith("netuid") and str(cell).isdigit()
-                    else str(cell)
+                    else (
+                        _linkify_urls(Text(str(cell)))
+                        if _URL_RE.search(str(cell))
+                        else str(cell)
+                    )
                     for i, cell in enumerate(row)
                 )
             )
