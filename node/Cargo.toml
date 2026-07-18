@@ -76,6 +76,10 @@ pallet-drand.workspace = true
 sp-crypto-ec-utils = { workspace = true, default-features = true, features = [
 	"bls12-381",
 ] }
+sp-runtime-interface = { workspace = true, default-features = true }
+ark-bls12-381 = { workspace = true, features = ["curve", "std"] }
+ark-ec = { workspace = true, features = ["std"] }
+ark-scale-v4 = { package = "ark-scale", version = "0.0.12", features = ["hazmat", "std"] }
 sp-keystore.workspace = true
 polkadot-sdk = { workspace = true, features = [
 	"cumulus-primitives-proof-size-hostfunction",

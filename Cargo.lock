@@ -975,6 +975,20 @@ dependencies = [
 
 [[package]]
 name = "ark-scale"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f69c00b3b529be29528a6f2fd5fa7b1790f8bed81b9cdca17e326538545a179"
+dependencies = [
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
+ "parity-scale-codec",
+ "scale-info",
+]
+
+[[package]]
+name = "ark-scale"
 version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985c81a9c7b23a72f62b7b20686d5326d2a9956806f37de9ee35cb1238faf0c0"
@@ -8901,6 +8915,9 @@ checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 name = "node-subtensor"
 version = "4.0.0-dev"
 dependencies = [
+ "ark-bls12-381 0.4.0",
+ "ark-ec 0.4.2",
+ "ark-scale 0.0.12",
  "async-trait",
  "clap",
  "fc-api",
@@ -8981,6 +8998,7 @@ dependencies = [
  "sp-keystore",
  "sp-offchain",
  "sp-runtime",
+ "sp-runtime-interface",
  "sp-session",
  "sp-timestamp",
  "sp-transaction-pool",
@@ -10371,7 +10389,7 @@ dependencies = [
  "ark-ec 0.4.2",
  "ark-ec 0.5.0",
  "ark-ff 0.4.2",
- "ark-scale",
+ "ark-scale 0.0.13",
  "ark-serialize 0.4.2",
  "ark-std 0.4.0",
  "ark-std 0.5.0",
@@ -18544,7 +18562,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-pallas",
  "ark-pallas-ext",
- "ark-scale",
+ "ark-scale 0.0.13",
  "ark-vesta",
  "ark-vesta-ext",
  "sp-runtime-interface",
@@ -20989,7 +21007,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "225eaa083192400abfe78838e3089c539a361e0dd9b6884f61b5c6237676ec01"
 dependencies = [
- "ark-scale",
+ "ark-scale 0.0.13",
  "ark-serialize 0.5.0",
  "ark-vrf 0.1.1",
  "bounded-collections 0.1.9",
