@@ -16,7 +16,7 @@ commit-reveal setting.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L1865-L1885) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L1850-L1868) |
 
 ## Parameters
 
@@ -70,30 +70,28 @@ result = sub.execute_tool("commit_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L1869`](/code/pallets/subtensor/src/macros/dispatches.rs#L1865-L1885):
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L1852`](/code/pallets/subtensor/src/macros/dispatches.rs#L1850-L1868):
 
 ```rust
-        #[pallet::call_index(118)]
-        #[pallet::weight((Weight::from_parts(84_020_000, 0)
-		.saturating_add(T::DbWeight::get().reads(9_u64))
-		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
-        pub fn commit_timelocked_mechanism_weights(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            mecid: MechId,
-            commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
-            reveal_round: u64,
-            commit_reveal_version: u16,
-        ) -> DispatchResult {
-            Self::do_commit_timelocked_mechanism_weights(
-                origin,
-                netuid,
-                mecid,
-                commit,
-                reveal_round,
-                commit_reveal_version,
-            )
-        }
+#[pallet::call_index(118)]
+#[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+pub fn commit_timelocked_mechanism_weights(
+    origin: OriginFor<T>,
+    netuid: NetUid,
+    mecid: MechId,
+    commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
+    reveal_round: u64,
+    commit_reveal_version: u16,
+) -> DispatchResult {
+    Self::do_commit_timelocked_mechanism_weights(
+        origin,
+        netuid,
+        mecid,
+        commit,
+        reveal_round,
+        commit_reveal_version,
+    )
+}
 ```
 
 Delegates to [`do_commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L263).

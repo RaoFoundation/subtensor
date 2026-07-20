@@ -18,7 +18,7 @@ you made yourself.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.dispute_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2073-L2092) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.dispute_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2054-L2073) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("dispute_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.dispute_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2075`](/code/pallets/subtensor/src/macros/dispatches.rs#L2073-L2092):
+`SubtensorModule.dispute_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2056`](/code/pallets/subtensor/src/macros/dispatches.rs#L2054-L2073):
 
 ```rust
 #[pallet::call_index(127)]

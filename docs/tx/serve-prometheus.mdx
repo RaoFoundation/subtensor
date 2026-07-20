@@ -13,7 +13,7 @@ data — running the metrics server is up to the caller.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.serve_prometheus`](/code/pallets/subtensor/src/macros/dispatches.rs#L756-L767) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.serve_prometheus`](/code/pallets/subtensor/src/macros/dispatches.rs#L748-L759) |
 
 ## Parameters
 
@@ -69,7 +69,7 @@ result = sub.execute_tool("serve_prometheus", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.serve_prometheus` — [`pallets/subtensor/src/macros/dispatches.rs#L758`](/code/pallets/subtensor/src/macros/dispatches.rs#L756-L767):
+`SubtensorModule.serve_prometheus` — [`pallets/subtensor/src/macros/dispatches.rs#L750`](/code/pallets/subtensor/src/macros/dispatches.rs#L748-L759):
 
 ```rust
 #[pallet::call_index(5)]
