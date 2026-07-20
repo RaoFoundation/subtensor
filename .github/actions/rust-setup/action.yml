@@ -1,6 +1,6 @@
 name: "Rust setup"
 description: >-
-  Common prologue for Rust jobs: system dependencies, stable toolchain,
+  Common prologue for Rust jobs: system dependencies, repository toolchain,
   shared R2 sccache, and Cargo registry/git caching.
 
 inputs:
@@ -25,11 +25,22 @@ inputs:
   sccache-writer-secret-access-key:
     description: "Protected writer secret; used only for an authorized source"
     default: ""
+  sccache-local-tier:
+    description: "auto to use a validated Fireactions host cache, or disabled for direct R2"
+    default: "auto"
 
 runs:
   using: "composite"
   steps:
+    - name: Detect preprovisioned Fireactions toolchain
+      id: runner-image
+      shell: bash
+      env:
+        RUST_SETUP_COMPONENTS: ${{ inputs.components }}
+      run: .github/scripts/rust-setup-preflight.sh "$GITHUB_OUTPUT"
+
     - name: Install system dependencies
+      if: steps.runner-image.outputs.system_ready != 'true'
       shell: bash
       run: |
         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
@@ -39,10 +50,27 @@ runs:
           python3 python3-dev \
           ${{ inputs.extra-packages }}
 
-    - name: Install Rust (stable)
+    - name: Install extra system dependencies
+      if: steps.runner-image.outputs.system_ready == 'true' && inputs.extra-packages != ''
+      shell: bash
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
+          -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+          ${{ inputs.extra-packages }}
+
+    - name: Bootstrap rustup when absent
+      if: >-
+        steps.runner-image.outputs.toolchain_ready != 'true' &&
+        steps.runner-image.outputs.rustup_ready != 'true'
       uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-      with:
-        components: ${{ inputs.components }}
+
+    - name: Install repository Rust toolchain on image miss
+      if: steps.runner-image.outputs.toolchain_ready != 'true'
+      shell: bash
+      env:
+        RUST_SETUP_COMPONENTS: ${{ inputs.components }}
+      run: .github/scripts/install-rust-toolchain.sh "$RUST_SETUP_COMPONENTS"
 
     - name: Fast linker
       if: inputs.fast-linker == 'true'
@@ -52,7 +80,11 @@ runs:
         # links dozens of test binaries. Guarded so a runner image without
         # the mold package falls back to the default linker instead of
         # failing every Rust job at setup.
-        if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mold; then
+        # The production runner image already carries mold. Avoid consulting
+        # apt (whose package lists are intentionally removed from the image)
+        # when the linker is ready, while retaining the old-runner fallback.
+        if command -v mold >/dev/null 2>&1 || \
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mold; then
           mkdir -p "$HOME/.cargo"
           cat >> "$HOME/.cargo/config.toml" <<'EOF'
         [target.x86_64-unknown-linux-gnu]
@@ -89,5 +121,6 @@ runs:
       uses: ./.github/actions/sccache-setup
       with:
         credential-mode: ${{ inputs.sccache-credential-mode }}
+        local-tier: ${{ inputs.sccache-local-tier }}
         writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
         writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}

@@ -1,5 +1,5 @@
 name: Run TypeScript E2E suite
-description: Download a prebuilt node and run one Moonwall environment.
+description: Download a prebuilt node and run one or two isolated Moonwall environments.
 
 inputs:
   binary:
@@ -8,6 +8,10 @@ inputs:
   test:
     description: Moonwall environment to run.
     required: true
+  additional-test:
+    description: Optional second Moonwall environment to run after the first one exits.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -41,12 +45,24 @@ runs:
       if: inputs.test == 'dev'
       shell: bash
       run: |
-        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+        if ! command -v lsof >/dev/null 2>&1; then
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+        fi
 
     - name: Run tests
       shell: bash
       working-directory: ts-tests
       env:
         MOONWALL_TEST: ${{ inputs.test }}
-      run: pnpm moonwall test "$MOONWALL_TEST"
+        MOONWALL_ADDITIONAL_TEST: ${{ inputs.additional-test }}
+      run: |
+        # The checked-in Moonwall file contains only canonical environments.
+        # Generate shard environments from the data manifest in this disposable
+        # checkout so local and CI topology cannot drift.
+        node scripts/e2e-shard-plan.mjs materialize moonwall.config.json e2e-shards.json
+        pnpm moonwall test "$MOONWALL_TEST"
+        if [[ -n "$MOONWALL_ADDITIONAL_TEST" ]]; then
+          echo "Starting isolated follow-up environment: $MOONWALL_ADDITIONAL_TEST"
+          pnpm moonwall test "$MOONWALL_ADDITIONAL_TEST"
+        fi

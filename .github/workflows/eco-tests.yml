@@ -43,19 +43,56 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
-          files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
-          pattern='^(eco-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^\.github/(workflows/eco-tests\.yml|actions/(rust-setup|sccache-setup)/|scripts/sccache-configure\.sh$)'
-          if grep -qE "$pattern" <<< "$files"; then
+          select_rust() {
             echo "rust=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "no eco-tests-relevant paths changed"
-            echo "rust=false" >> "$GITHUB_OUTPUT"
+          }
+
+          if ! pages=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --slurp); then
+            echo "::warning::PR file listing failed; running eco-tests."
+            select_rust
+            exit 0
+          fi
+          if ! fetched_files=$(jq -er '[.[][]] | length' <<< "$pages"); then
+            echo "::warning::PR file response was invalid; running eco-tests."
+            select_rust
+            exit 0
+          fi
+          if [[ "$fetched_files" -ne "$EXPECTED_CHANGED_FILES" ]]; then
+            echo "::warning::PR file listing was incomplete ($fetched_files/$EXPECTED_CHANGED_FILES); running eco-tests."
+            select_rust
+            exit 0
           fi
 
+          # Check both sides of renames. A production file moved to a nominally
+          # safe directory must still exercise the crate that previously used it.
+          if ! files=$(jq -er '
+            if all(.[][];
+              type == "object" and
+              (.filename | type == "string" and length > 0) and
+              ((has("previous_filename") | not) or (.previous_filename | type == "string"))
+            )
+            then .[][] | .filename, (.previous_filename // empty)
+            else error("invalid pull-file entry")
+            end
+          ' <<< "$pages"); then
+            echo "::warning::PR file paths were invalid; running eco-tests."
+            select_rust
+            exit 0
+          fi
+          pattern='^(eco-tests|common|node|pallets|precompiles|primitives|runtime|support|chain-extensions|src|vendor)/|^\.cargo/|^(Cargo\.(toml|lock)|build\.rs|rust-toolchain\.toml)$|^\.github/(workflows/eco-tests\.yml|actions/(rust-setup|sccache-setup)/|scripts/(rust-setup-preflight|install-rust-toolchain|sccache-configure)\.sh$|scripts/(sccache-config|sccache-report)\.(py|sh)$)'
+          if grep -qE "$pattern" <<< "$files"; then
+            select_rust
+            exit 0
+          fi
+
+          echo "no eco-tests-relevant paths changed"
+          echo "rust=false" >> "$GITHUB_OUTPUT"
+
   eco-tests:
-    name: cargo test (eco-tests)
+    name: run cargo test (eco-tests)
     needs: [trusted-pr, changes]
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
@@ -78,3 +115,36 @@ jobs:
       - name: cargo test
         working-directory: eco-tests
         run: cargo test
+
+  # Keep the required context fail-closed. If planning or the trusted-runner
+  # guard fails, the real job is skipped; GitHub otherwise treats that skipped
+  # required job as satisfied. This hosted fan-in distinguishes an intentional
+  # non-Rust skip from a missing test run.
+  eco-tests-gate:
+    name: cargo test (eco-tests)
+    needs: [trusted-pr, changes, eco-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Evaluate eco-test result
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TRUSTED: ${{ needs.trusted-pr.result }}
+          CHANGES: ${{ needs.changes.result }}
+          RUST_RELEVANT: ${{ needs.changes.outputs.rust }}
+          TEST_RESULT: ${{ needs.eco-tests.result }}
+        run: |
+          echo "event=$EVENT_NAME trusted=$TRUSTED changes=$CHANGES rust=$RUST_RELEVANT test=$TEST_RESULT"
+          if [ "$CHANGES" != success ]; then
+            exit 1
+          fi
+          if [ "$EVENT_NAME" != pull_request ]; then
+            [ "$TEST_RESULT" = success ]
+            exit
+          fi
+          case "$RUST_RELEVANT" in
+            false) [ "$TEST_RESULT" = skipped ] ;;
+            true) [ "$TRUSTED" = success ] && [ "$TEST_RESULT" = success ] ;;
+            *) echo "invalid eco-test selection: '$RUST_RELEVANT'" >&2; exit 1 ;;
+          esac
