@@ -702,5 +702,24 @@ mod events {
             /// Whether this coldkey rejects incoming locked alpha.
             enabled: bool,
         },
+
+        /// Stake has been transferred from one coldkey to another, landing on a
+        /// different hotkey (and optionally a different subnet).
+        StakeAndHotkeyTransferred {
+            /// The coldkey the stake left.
+            origin_coldkey: T::AccountId,
+            /// The coldkey that now owns the stake.
+            destination_coldkey: T::AccountId,
+            /// The hotkey the stake left.
+            origin_hotkey: T::AccountId,
+            /// The hotkey the stake landed on.
+            destination_hotkey: T::AccountId,
+            /// The subnet the stake left.
+            origin_netuid: NetUid,
+            /// The subnet the stake landed on.
+            destination_netuid: NetUid,
+            /// The TAO-equivalent amount moved.
+            amount: TaoBalance,
+        },
     }
 }

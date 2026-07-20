@@ -2349,5 +2349,57 @@ mod dispatches {
             Self::deposit_event(Event::RejectLockedAlphaUpdated { coldkey, enabled });
             Ok(())
         }
+
+        /// Transfers a specified amount of stake from one coldkey to another, landing it
+        /// on a different hotkey, optionally across subnets.
+        ///
+        /// This is `transfer_stake` generalized to a destination hotkey: it transfers
+        /// ownership of the position and re-delegates it in one atomic call. Use
+        /// `transfer_stake` when the hotkey stays the same, and `move_stake` when only
+        /// the hotkey changes (ownership stays with the signing coldkey).
+        ///
+        /// # Arguments
+        /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
+        /// * `destination_coldkey`: The coldkey to which the stake is transferred.
+        /// * `origin_hotkey`: The hotkey the stake currently sits on.
+        /// * `destination_hotkey`: The hotkey the stake lands on.
+        /// * `origin_netuid`: The network/subnet ID to move stake from.
+        /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
+        /// * `alpha_amount`: The amount of stake to transfer.
+        ///
+        /// # Errors
+        /// * `BadOrigin`: The transaction is not signed.
+        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
+        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
+        /// * `HotKeyAccountNotExists`: The `origin_hotkey` or `destination_hotkey` account does not exist.
+        /// * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, origin_hotkey, origin_netuid)` position has less stake than `alpha_amount`.
+        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
+        /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
+        /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
+        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        ///
+        /// # Events
+        /// May emit a `StakeAndHotkeyTransferred` event on success.
+        #[pallet::call_index(143)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey())]
+        pub fn transfer_stake_and_hotkey(
+            origin: OriginFor<T>,
+            destination_coldkey: T::AccountId,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            alpha_amount: AlphaBalance,
+        ) -> DispatchResult {
+            Self::do_transfer_stake_and_hotkey(
+                origin,
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                origin_netuid,
+                destination_netuid,
+                alpha_amount,
+            )
+        }
     }
 }

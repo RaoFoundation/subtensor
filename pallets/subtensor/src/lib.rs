@@ -1049,6 +1049,12 @@ pub mod pallet {
         T::InitialMinStake::get().into()
     }
 
+    /// Default minimum stake transfer amount.
+    #[pallet::type_value]
+    pub fn DefaultMinTransfer<T: Config>() -> TaoBalance {
+        T::InitialMinTransfer::get().into()
+    }
+
     /// Default unicode vector for tau symbol.
     #[pallet::type_value]
     pub fn DefaultUnicodeVecU8<T: Config>() -> Vec<u8> {

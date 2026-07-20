@@ -311,7 +311,10 @@ call_filter_group!(
 // Moving staked value to another coldkey — the stake analogue of a transfer.
 call_filter_group!(
     StakeTransferCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake),]
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake_and_hotkey),
+    ]
 );
 
 // Permissionless proof-of-work registration (costs no TAO).
@@ -611,6 +614,8 @@ call_filter_group!(SmallTransferCalls, [
     RuntimeCall::Balances(BalancesCall::transfer_allow_death)
         where value < SMALL_TRANSFER_LIMIT,
     RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake)
+        where alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
+    RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake_and_hotkey)
         where alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
 ]);
 

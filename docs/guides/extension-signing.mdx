@@ -40,21 +40,23 @@ What happens:
    approve it. This authorization is remembered by the extension, but the
    popup appears on the first run.
 3. Back in the terminal, pick the signing account from the list of accounts
-   the extension exposes.
-4. The plan is shown and you confirm, exactly as with a local wallet
-   (`--dry-run` previews without signing anything).
-5. The extension pops up once more with the transaction to review and sign.
-   Approve it there, and the CLI submits the signed extrinsic and reports the
-   result.
+   the extension exposes — first run only; afterwards the choice is reused
+   silently.
+4. The transaction summary is printed and the extension pops up with the
+   same transaction to review. The popup **is** the confirmation — there is
+   no separate terminal prompt to bounce back for. Approve it there, and the
+   CLI submits the signed extrinsic and reports the result (`--dry-run`
+   still previews without signing anything).
 
 Keep the bridge tab open while the command runs. Each command starts a fresh
 bridge session, so a stale tab from an earlier run cannot sign anything.
 
 ## Choosing the account
 
-With several accounts authorized, the CLI prompts with a numbered picker and
-remembers your choice (as `signer_address` in the config), preselecting it
-next time. To skip the prompt:
+With several accounts authorized, the CLI prompts with a numbered picker
+once and remembers your choice (as `signer_address` in the config); later
+commands reuse it without asking, going straight to the extension popup. To
+pick a different account:
 
 ```bash
 btcli tx transfer ... --signer extension --signer-address 5F...   # pin one account
@@ -95,6 +97,14 @@ It is safe by construction: the bridge binds to localhost only, Python clients
 must present a token written to `~/.bittensor/extension_bridge.token`
 (readable only by your user), and the page URL is scoped to one session so a
 leftover tab from an earlier run cannot reconnect.
+
+The bridge page shows every connected extension (name, version, account
+count), and each has a toggle: switch an extension off to hide its accounts
+from btcli entirely — useful when several wallets are installed and only one
+should ever sign. The choice is remembered across sessions, and during
+signing the page names the extension the popup belongs to ("Approve in
+talisman"). `--extension-source` does the same filtering from the CLI side
+for one command.
 
 The bridge starts automatically with `--signer extension`; the `btcli
 extension` group manages it when needed:

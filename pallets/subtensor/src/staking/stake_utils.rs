@@ -1021,9 +1021,9 @@ impl<T: Config> Pallet<T> {
             .saturating_to_num::<u64>()
             .into();
 
-        // Ensure tao_equivalent is above DefaultMinStake
+        // Ensure tao_equivalent is above the minimum transfer amount
         ensure!(
-            tao_equivalent >= DefaultMinStake::<T>::get(),
+            tao_equivalent >= DefaultMinTransfer::<T>::get(),
             Error::<T>::AmountTooLow
         );
 
@@ -1309,14 +1309,18 @@ impl<T: Config> Pallet<T> {
         // If origin and destination netuid are different, do the swap-related checks
         if origin_netuid != destination_netuid {
             // Ensure that the stake amount to be removed is above the minimum in tao equivalent.
+            // Transfers (check_transfer_toggle == true) have their own minimum, detached from
+            // the staking minimum used by moves and swaps.
+            let min_amount = if check_transfer_toggle {
+                DefaultMinTransfer::<T>::get()
+            } else {
+                DefaultMinStake::<T>::get()
+            };
             let order = GetTaoForAlpha::<T>::with_amount(alpha_amount);
             let tao_equivalent = T::SwapInterface::sim_swap(origin_netuid.into(), order)
                 .map(|res| res.amount_paid_out)
                 .map_err(|_| Error::<T>::InsufficientLiquidity)?;
-            ensure!(
-                tao_equivalent > DefaultMinStake::<T>::get(),
-                Error::<T>::AmountTooLow
-            );
+            ensure!(tao_equivalent > min_amount, Error::<T>::AmountTooLow);
 
             // Ensure that if partial execution is not allowed, the amount will not cause
             // slippage over desired

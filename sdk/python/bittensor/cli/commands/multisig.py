@@ -62,7 +62,7 @@ def multisig_add(
 
     The entry is stored in the local multisig book; the on-chain multisig
     address is derived from the resolved signer set and threshold and shown
-    in the result, alongside whether it matches the chain's sudo key.
+    in the result.
     """
     app_ctx: AppContext = ctx_of(ctx)
     if name is None:
@@ -113,17 +113,16 @@ def multisig_add(
         coldkey_exists = True
     except Exception:
         pass
-    app_ctx.output.detail(
-        "saved multisig",
-        {
-            "entry": entry,
-            "path": str(cfg.multisigs_path()),
-            "multisig_address": address,
-            "chain_sudo_key": sudo_key,
-            "matches_sudo": address == sudo_key,
-            "coldkey_wallet_also_exists": coldkey_exists,
-        },
-    )
+    detail = {
+        "entry": entry,
+        "path": str(cfg.multisigs_path()),
+        "multisig_address": address,
+        "coldkey_wallet_also_exists": coldkey_exists,
+    }
+    # Only worth mentioning in the rare case this multisig governs the chain.
+    if address == str(sudo_key):
+        detail["is_chain_sudo_key"] = True
+    app_ctx.output.detail("saved multisig", detail)
 
 
 @app.command("list")
@@ -159,16 +158,14 @@ def multisig_show(
         return ms.address, sudo_key
 
     address, sudo_key = app_ctx.run(derive)
-    app_ctx.output.detail(
-        name,
-        {
-            "threshold": entry["threshold"],
-            "signatories": signatories,
-            "multisig_address": address,
-            "chain_sudo_key": sudo_key,
-            "matches_sudo": address == sudo_key,
-        },
-    )
+    detail = {
+        "threshold": entry["threshold"],
+        "signatories": signatories,
+        "multisig_address": address,
+    }
+    if address == str(sudo_key):
+        detail["is_chain_sudo_key"] = True
+    app_ctx.output.detail(name, detail)
 
 
 @app.command("remove")

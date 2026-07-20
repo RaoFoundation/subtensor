@@ -86,7 +86,8 @@ changes.
   subnet).
 - [`swap-stake`](/docs/tx/swap-stake) — same hotkey, different subnet.
 - [`transfer-stake`](/docs/tx/transfer-stake) — different coldkey (gives the
-  position away).
+  position away). Pass `--dest-hotkey` to land it on a different hotkey in
+  the same call.
 
 ```python
 intent = bt.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=1,

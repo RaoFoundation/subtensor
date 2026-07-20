@@ -8,6 +8,14 @@ const nextConfig = {
 
   async redirects() {
     return [
+      // spec.bittensor.com: the Polkadot Vault onboarding shortcut — lands on
+      // the guide section hosting the one-time chain-specs QR.
+      {
+        source: '/:path*',
+        has: [{type: 'host', value: 'spec.bittensor.com'}],
+        destination: 'https://www.bittensor.com/docs/guides/vault',
+        permanent: false,
+      },
       {
         source: '/documentation/:path*',
         destination: '/docs',

@@ -32,7 +32,8 @@ Prefer the narrowest type that covers the job:
 - **Any** — everything the account can do, including transfers. Avoid.
 - **NonTransfer** — everything *except* balance transfers, stake transfers,
   and coldkey swaps. Notably it can manage the account's other proxies.
-- **Transfer** — balance transfers and `transfer_stake` only.
+- **Transfer** — balance transfers and stake transfers (`transfer_stake` /
+  `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
 - **Staking** — stake operations only: add / remove / move / swap /

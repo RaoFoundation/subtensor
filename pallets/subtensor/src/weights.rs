@@ -65,6 +65,7 @@ pub trait WeightInfo {
 	fn remove_stake_limit() -> Weight;
 	fn swap_stake_limit() -> Weight;
 	fn transfer_stake() -> Weight;
+	fn transfer_stake_and_hotkey() -> Weight;
 	fn swap_stake() -> Weight;
 	fn batch_commit_weights() -> Weight;
 	fn batch_set_weights() -> Weight;
@@ -1645,6 +1646,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(228_018_000, 7928)
 			.saturating_add(T::DbWeight::get().reads(18_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
+	}
+	// Mirrors `transfer_stake` (same storage footprint plus the destination
+	// hotkey's accounting) until the benchmark run regenerates this file.
+	fn transfer_stake_and_hotkey() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1988`
+		//  Estimated: `7928`
+		// Minimum execution time: 226_044_000 picoseconds.
+		Weight::from_parts(228_018_000, 7928)
+			.saturating_add(T::DbWeight::get().reads(20_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5007,6 +5019,17 @@ impl WeightInfo for () {
 		Weight::from_parts(228_018_000, 7928)
 			.saturating_add(RocksDbWeight::get().reads(18_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
+	}
+	// Mirrors `transfer_stake` (same storage footprint plus the destination
+	// hotkey's accounting) until the benchmark run regenerates this file.
+	fn transfer_stake_and_hotkey() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1988`
+		//  Estimated: `7928`
+		// Minimum execution time: 226_044_000 picoseconds.
+		Weight::from_parts(228_018_000, 7928)
+			.saturating_add(RocksDbWeight::get().reads(20_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)

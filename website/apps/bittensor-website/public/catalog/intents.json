@@ -3645,7 +3645,7 @@
   {
     "name": "transfer_stake",
     "summary": "Transfer stake ownership to another coldkey.",
-    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey but can land on a different\nsubnet, swapping through both pools (with slippage) when the netuids\ndiffer. Fails with `TransferDisallowed` when the subnet owner has\ndisabled stake transfers on the origin or destination subnet. A\nspend-cap policy treats this as an unbounded spend and blocks it until\nthe cap is raised. Use `move_stake` to re-delegate without changing\nowners.",
+    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey by default; pass a destination\nhotkey to re-delegate it in the same call (dispatched as\n`transfer_stake_and_hotkey`). It can also land on a different subnet,\nswapping through both pools (with slippage) when the netuids differ. Fails\nwith `TransferDisallowed` when the subnet owner has disabled stake\ntransfers on the origin or destination subnet. A spend-cap policy treats\nthis as an unbounded spend and blocks it until the cap is raised. Use\n`move_stake` to re-delegate without changing owners.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3653,6 +3653,10 @@
       [
         "SubtensorModule",
         "transfer_stake"
+      ],
+      [
+        "SubtensorModule",
+        "transfer_stake_and_hotkey"
       ]
     ],
     "docs_url": "/docs/tx/transfer-stake",
@@ -3687,6 +3691,10 @@
             }
           ],
           "description": "How much of the position to hand over (an explicit amount; ``all`` is not accepted)."
+        },
+        "dest_hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the stake lands on. Defaults to the origin hotkey (the position stays with the same validator)."
         }
       },
       "required": [
@@ -3708,6 +3716,14 @@
         "line": 1301,
         "end_line": 1317,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1299-L1317"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "transfer_stake_and_hotkey",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2385,
+        "end_line": 2403,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2383-L2403"
       }
     ]
   },

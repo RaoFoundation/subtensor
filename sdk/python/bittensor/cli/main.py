@@ -237,14 +237,16 @@ def main_callback(
     signer_backend: Optional[str] = typer.Option(
         None,
         "--signer",
-        help="Signing backend: wallet (default) or extension.",
+        help="Signing backend: wallet (default), extension, ledger, or vault "
+        "(Polkadot Vault via QR).",
         rich_help_panel=g.PANEL_EXTENSION,
     ),
     signer_address: Optional[str] = typer.Option(
         None,
         "--signer-address",
         envvar="BT_SIGNER_ADDRESS",
-        help="Extension account ss58 address (optional; last-used account is the default).",
+        help="External signer account ss58 address (extension: last-used account is the "
+        "default; vault: falls back to the wallet's coldkeypub).",
         rich_help_panel=g.PANEL_EXTENSION,
     ),
     extension_source: Optional[str] = typer.Option(

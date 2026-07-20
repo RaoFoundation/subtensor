@@ -89,6 +89,7 @@ from .signing import (
 from .snapshot import Snapshot
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
+from .vault import VaultError, VaultSigner
 from .wallet import Wallet
 from .wallets import (
     CRYPTO_ED25519,
@@ -202,6 +203,9 @@ __all__ = [
     # Ledger hardware signing (Polkadot generic app, RFC-0078 clear-signing)
     "LedgerSigner",
     "LedgerError",
+    # Polkadot Vault air-gapped signing (UOS QR round-trip)
+    "VaultSigner",
+    "VaultError",
     "CRYPTO_ED25519",
     "CRYPTO_SR25519",
     "DEFAULT_CRYPTO_TYPE",

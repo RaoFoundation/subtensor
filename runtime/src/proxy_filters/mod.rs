@@ -457,6 +457,7 @@ mod tests {
                 "Balances::transfer_allow_death",
                 "Balances::transfer_all",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
@@ -465,6 +466,7 @@ mod tests {
                 "Balances::transfer_keep_alive",
                 "Balances::transfer_allow_death",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(

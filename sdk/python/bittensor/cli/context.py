@@ -23,6 +23,7 @@ from ..extension.client import BridgeError
 from ..ledger import LedgerError, LedgerSigner
 from ..result import BittensorError, ChainError, ErrorCode, ExtrinsicResult, PolicyError
 from ..settings import error_docs_url
+from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import Output
@@ -92,6 +93,7 @@ class AppContext:
     _extension_selection: Optional[object] = None
     _extension_bridge_ws_url: Optional[str] = None
     _ledger_signer: Optional[object] = None
+    _vault_signer: Optional[VaultSigner] = None
 
     def reset_extension_session(self) -> None:
         self._extension_selection = None
@@ -107,11 +109,14 @@ class AppContext:
     def uses_ledger_signer(self) -> bool:
         return (self.signer_backend or "").strip().lower() == "ledger"
 
+    def uses_vault_signer(self) -> bool:
+        return (self.signer_backend or "").strip().lower() == "vault"
+
     def uses_external_signer(self) -> bool:
-        """The signing key lives outside the local wallet files (extension or
-        Ledger), so wallet confirmation and wallet-derived addressing don't
-        apply."""
-        return self.uses_extension_signer() or self.uses_ledger_signer()
+        """The signing key lives outside the local wallet files (extension,
+        Ledger, or Polkadot Vault), so wallet confirmation and wallet-derived
+        addressing don't apply."""
+        return self.uses_extension_signer() or self.uses_ledger_signer() or self.uses_vault_signer()
 
     def ledger_signer(self):
         """Connect to the Ledger (once per invocation) and return the signer.
@@ -128,6 +133,45 @@ class AppContext:
                 )
             self._ledger_signer = signer
         return self._ledger_signer
+
+    def vault_signer(self) -> VaultSigner:
+        """The Polkadot Vault (QR) signer for this invocation (built once).
+
+        The signing address is ``--signer-address`` (raw ss58 or an
+        address-book name), else the persisted ``signer_address`` config
+        value, falling back to the configured wallet's coldkeypub — a
+        pubkey-only wallet is the natural companion to a Vault-held key.
+        Nothing opens until the transport actually asks for a signature.
+        """
+        if self._vault_signer is None:
+            address = self.signer_address or cfg.get("signer_address")
+            if address and not is_bittensor_address(address):
+                address = cfg.get_address(address) or address
+            if not address:
+                try:
+                    address = self.wallet().coldkeypub.ss58_address
+                except Exception:
+                    self.output.error(
+                        "the vault signer needs an account address",
+                        help="pass --signer-address <ss58>, or configure a wallet whose "
+                        "coldkeypub matches the key held in Polkadot Vault",
+                    )
+                    raise typer.Exit(2)
+            if not is_bittensor_address(address):
+                self.output.error(f"--signer-address {address!r} is not a valid ss58 address")
+                raise typer.Exit(2)
+            signer = VaultSigner(
+                address,
+                browser=self._extension_browser_choice(),
+                # Same heuristic as the extension bridge: only pop a browser
+                # tab for a human at a terminal.
+                open_browser=not self.output.quiet and sys.stderr.isatty(),
+                on_status=self.output.message,
+            )
+            if not self.output.quiet and not self.output.json_mode:
+                self.output.message(f"using Polkadot Vault account {address}")
+            self._vault_signer = signer
+        return self._vault_signer
 
     async def extension_signer(self, *, pick_account: bool = False):
         """Connect to the bridge and return an extension-backed signer."""
@@ -171,8 +215,14 @@ class AppContext:
             )
             if not self.output.quiet and not self.output.json_mode:
                 picked = self._extension_selection.account
+                reused = pinned_address is None and picked.address == saved_address
                 self.output.message(
                     f"using extension account {picked.name} ({picked.address}, {picked.source})"
+                    + (
+                        " [dim]— saved default; pass --signer-address to switch[/dim]"
+                        if reused
+                        else ""
+                    )
                 )
         elif self._extension_bridge_ws_url is None:
             self._extension_bridge_ws_url = await ensure_bridge(
@@ -192,15 +242,24 @@ class AppContext:
 
     async def resolve_signing_wallet(self, role: str = "coldkey", *, pick_account: bool = False):
         """Return the configured signer for ``role`` (local wallet, extension,
-        or Ledger).
+        Ledger, or Polkadot Vault).
 
         With an external backend the selected account *is* the signing key for
         either role — for hotkey intents, pick the account holding the hotkey.
         """
+        backend = (self.signer_backend or "wallet").strip().lower()
+        if backend not in ("wallet", "extension", "ledger", "vault"):
+            self.output.error(
+                f"unknown signing backend {self.signer_backend!r}",
+                help="--signer takes wallet, extension, ledger, or vault",
+            )
+            raise typer.Exit(2)
         if self.uses_extension_signer():
             return await self.extension_signer(pick_account=pick_account)
         if self.uses_ledger_signer():
             return self.ledger_signer()
+        if self.uses_vault_signer():
+            return self.vault_signer()
         return self.signer(role)
 
     def signer(self, role: str = "coldkey"):
@@ -419,6 +478,9 @@ class AppContext:
 
         if self.uses_extension_signer():
             self.reset_extension_session()
+        if self.uses_vault_signer():
+            # Display-only context for the vault page ("what am I signing?").
+            self.vault_signer().summary = summary
 
         async def _plan(client):
             signer = await self.resolve_signing_wallet(intent.signer, pick_account=True)
@@ -448,8 +510,15 @@ class AppContext:
                 await signer.close()
 
             self.run(_prepare)
-
-        self.confirm(f"{summary}?")
+            # The extension popup is the approval surface: it shows this same
+            # transaction and requires an explicit approve/reject there, so a
+            # terminal prompt would only bounce the user between windows.
+            self.output.message(summary)
+            self.output.message(
+                "[dim]approve or reject the request in the wallet extension popup[/dim]"
+            )
+        else:
+            self.confirm(f"{summary}?")
 
         async def _execute(client):
             use_shield = shield
@@ -468,6 +537,18 @@ class AppContext:
                 )
                 use_shield = False
             signer = await self.resolve_signing_wallet(intent.signer)
+            if use_shield and self.uses_vault_signer():
+                # Shielded signing runs against an 8-block (~96 s) era, and
+                # a shielded submission means two QR scans (the shielded
+                # transaction, then its encrypted carrier). Warm the page and
+                # the user up first so the countdown starts when they're
+                # ready, not while they're finding their phone.
+                signer.two_stage = True
+                self.output.message(
+                    "MEV-shielded vault signing: two scans, ~90 seconds total — "
+                    "have the phone unlocked with Vault's scanner open"
+                )
+                await signer.warm_up()
             result = None
             try:
                 if use_shield:
@@ -486,7 +567,7 @@ class AppContext:
                     await self._attach_multisig_followup(client, intent, result)
                 return result
             finally:
-                if self.uses_extension_signer() and hasattr(signer, "report_transaction_result"):
+                if hasattr(signer, "report_transaction_result"):
                     with contextlib.suppress(Exception):
                         await signer.report_transaction_result(
                             bool(result is not None and result.success)

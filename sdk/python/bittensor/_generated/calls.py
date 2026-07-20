@@ -566,6 +566,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'transfer_stake', {'destination_coldkey': destination_coldkey, 'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
+    def transfer_stake_and_hotkey(destination_coldkey: 'AccountId32', origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
+        'Transfers a specified amount of stake from one coldkey to another, landing it on a different hotkey, optionally across subnets.  This is `transfer_stake` generalized to a destination hotkey: it transfers ownership of the position and re-delegates it in one atomic call. Use `transfer_stake` when the hotkey stays the same, and `move_stake` when only the hotkey changes (ownership stays with the signing coldkey).  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `origin_hotkey`: The hotkey the stake currently sits on. * `destination_hotkey`: The hotkey the stake lands on. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer.'
+        return Call('SubtensorModule', 'transfer_stake_and_hotkey', {'destination_coldkey': destination_coldkey, 'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
+
+    @staticmethod
     def trigger_epoch(netuid: 'NetUid') -> Call:
         'Owner-side `trigger_epoch`. Schedules an epoch to fire after `AdminFreezeWindow` blocks. Rate-limited via the existing `OwnerHyperparamUpdate` pattern.'
         return Call('SubtensorModule', 'trigger_epoch', {'netuid': netuid})

@@ -1119,6 +1119,59 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn transfer_stake_and_hotkey() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let dest: T::AccountId = account("B", 0, 2);
+        let hot: T::AccountId = account("A", 0, 1);
+        let dest_hot: T::AccountId = account("C", 0, 3);
+        let netuid = NetUid::from(1);
+
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+
+        let reg_fee = Subtensor::<T>::get_burn(netuid);
+        let stake_tao = DefaultMinStake::<T>::get().saturating_mul(10.into());
+        let deposit = reg_fee.saturating_mul(2.into()).saturating_add(stake_tao);
+        add_balance_to_coldkey_account::<T>(&coldkey, deposit.into());
+        add_lock::<T>(&coldkey, netuid);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            netuid,
+            hot.clone()
+        ));
+
+        set_reserves::<T>(netuid, deposit, AlphaBalance::from(deposit.to_u64()));
+        TotalStake::<T>::set(deposit);
+
+        assert_ok!(Subtensor::<T>::add_stake_limit(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            hot.clone(),
+            netuid,
+            stake_tao,
+            TaoBalance::MAX,
+            false
+        ));
+
+        let alpha_to_transfer =
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &coldkey, netuid);
+
+        let _ = Subtensor::<T>::create_account_if_non_existent(&dest, &dest_hot);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            dest.clone(),
+            hot.clone(),
+            dest_hot.clone(),
+            netuid,
+            netuid,
+            alpha_to_transfer,
+        );
+    }
+
+    #[benchmark]
     fn swap_stake() {
         let coldkey: T::AccountId = whitelisted_caller();
         let hot: T::AccountId = account("A", 0, 9);

@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v434',
+    date: 'July 2026',
+    title: 'The V434 Upgrade',
+    summary:
+      'One-call stake transfer to a new coldkey and hotkey, a dedicated stake-transfer ' +
+      'minimum, air-gapped signing with Polkadot Vault, and fully benchmarked extrinsic ' +
+      'weights.',
+    href: '/releases/v434-upgrade',
+  },
+  {
     tag: 'v432',
     date: 'July 2026',
     title: 'The V432 Upgrade',
