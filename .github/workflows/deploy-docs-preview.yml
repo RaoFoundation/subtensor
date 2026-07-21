@@ -6,11 +6,10 @@ name: Deploy Docs Preview
 #
 # Credential boundary (skeptic HIGH a2b93918):
 #   - The job that checks out PR HEAD never receives VERCEL_TOKEN or GoDaddy
-#     secrets. It builds with yarn and assembles a local Vercel prebuilt
-#     output using only project/org identifiers (not the deploy token).
-#   - The deploy token is used only in jobs that do not check out PR HEAD and
-#     do not run yarn / vercel build — they upload an already-built
-#     `.vercel/output` with a pinned CLI.
+#     secrets. It builds with yarn and runs `vercel build` using project
+#     settings pulled from the trusted base ref in a separate job.
+#   - The deploy token is used only in jobs that do not check out PR HEAD
+#     (base-only pull-settings, or artifact-only deploy/publish).
 
 on:
   pull_request:
@@ -25,21 +24,62 @@ permissions:
   pull-requests: write
 
 jobs:
-  build:
-    name: Build PR docs preview
+  # Trusted tree only: fetch Vercel project settings with the deploy token.
+  # Never checks out PR HEAD, so a malicious package.json cannot see the token.
+  pull-settings:
+    name: Pull Vercel project settings
     if: >
       github.event.action != 'closed' &&
       !github.event.pull_request.head.repo.fork &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, fireactions-turbo-8]
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: vercel pull (base ref)
+        # Same as deploy-docs.yml: project rootDirectory is
+        # website/apps/bittensor-website relative to the repo root.
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync(".vercel/project.json", JSON.stringify({
+              projectId: process.env.VERCEL_PROJECT_ID,
+              orgId: process.env.VERCEL_ORG_ID,
+            }));
+          '
+          npx --yes vercel@41.0.0 pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          # Preview env files are not needed for `vercel build` assembly and
+          # must not leak into the untrusted build job.
+          rm -f .vercel/.env.preview.local .vercel/.env.*.local
+
+      - name: Upload project settings
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-vercel-settings-${{ github.event.pull_request.number }}
+          path: .vercel/project.json
+          retention-days: 1
+
+  build:
+    name: Build PR docs preview
+    needs: pull-settings
+    runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
       group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    # Identifiers only (repo vars, not the deploy token). The token never
-    # enters this job.
-    env:
-      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
+    # No deploy token. Project settings arrive as an artifact from base.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,21 +99,16 @@ jobs:
           yarn install --immutable
           yarn turbo run build --filter=@raofoundation/bittensor-website
 
+      - name: Download project settings
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-preview-vercel-settings-${{ github.event.pull_request.number }}
+          path: .vercel
+
       - name: Assemble Vercel prebuilt output (no deploy token)
-        working-directory: website/apps/bittensor-website
         run: |
           set -euo pipefail
-          mkdir -p .vercel
-          node -e '
-            const fs = require("fs");
-            const projectId = process.env.VERCEL_PROJECT_ID;
-            const orgId = process.env.VERCEL_ORG_ID;
-            if (!projectId || !orgId) {
-              console.error("VERCEL_PROJECT_ID / VERCEL_ORG_ID required");
-              process.exit(1);
-            }
-            fs.writeFileSync(".vercel/project.json", JSON.stringify({ projectId, orgId }));
-          '
+          test -f .vercel/project.json
           # Local assemble only — do not pass --token.
           npx --yes vercel@41.0.0 build
 
@@ -81,7 +116,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docs-preview-vercel-${{ github.event.pull_request.number }}
-          path: website/apps/bittensor-website/.vercel/output
+          path: .vercel/output
           retention-days: 1
 
   deploy:
