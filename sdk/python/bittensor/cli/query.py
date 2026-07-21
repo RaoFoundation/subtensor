@@ -16,6 +16,7 @@ import typer
 
 from ..balance import Balance
 from ..reads import REGISTRY, Grouped, Matrix
+from ..settings import query_docs_url
 from . import globals as g
 from .context import address_cli_name, ctx_of, ss58_param_help
 from .output import Output
@@ -56,6 +57,7 @@ def _records_table(output: Output, name: str, records: list[dict]) -> None:
 
 def _make_command(name: str, spec):
     array_params = [p for p, t in spec.params.items() if t == "array"]
+    fetch_params = inspect.signature(spec.fetch).parameters
 
     def command(ctx: typer.Context, **kwargs: Any) -> None:
         g.apply(ctx, kwargs)
@@ -63,8 +65,20 @@ def _make_command(name: str, spec):
         for pname in array_params:  # comma-separated on the CLI
             kwargs[pname] = [part.strip() for part in str(kwargs[pname]).split(",")]
         for pname in spec.params:
-            if pname.endswith("_ss58"):
-                kwargs[pname] = app_ctx.resolve_address(pname, kwargs.get(pname))
+            if not pname.endswith("_ss58"):
+                continue
+            raw = kwargs.get(pname)
+            # Reads that declare an explicit default (e.g. coldkey_ss58=None →
+            # look up the hotkey owner) must keep None; only force the wallet
+            # fallback when the param is required and merely omitted on the CLI.
+            if (
+                raw is None
+                and pname in ("hotkey_ss58", "coldkey_ss58")
+                and pname in fetch_params
+                and fetch_params[pname].default is not inspect.Parameter.empty
+            ):
+                continue
+            kwargs[pname] = app_ctx.resolve_address(pname, raw)
         result = app_ctx.run(lambda client: client.read(name, **kwargs))
         payload = _jsonable(result)
         output = app_ctx.output
@@ -101,7 +115,6 @@ def _make_command(name: str, spec):
         inspect.Parameter("ctx", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=typer.Context)
     ]
     annotations: dict[str, Any] = {"ctx": typer.Context}
-    fetch_params = inspect.signature(spec.fetch).parameters
     for pname, ptype in spec.params.items():
         cli_name = (
             address_cli_name(pname)
@@ -111,25 +124,37 @@ def _make_command(name: str, spec):
         # Own-key params may be omitted (fall back to the configured wallet);
         # all *_ss58 params also accept local wallet/hotkey names.
         wallet_defaulted = pname in ("hotkey_ss58", "coldkey_ss58")
-        # Declared meaning first, then the input-shape note (ss58 resolution,
-        # comma-separated lists) — same composition as the tx commands.
-        input_note = ss58_param_help(pname) if pname.endswith("_ss58") else None
-        if ptype == "array":
-            input_note = f"{input_note} Comma-separated." if input_note else "Comma-separated list."
-        declared = spec.param_docs.get(pname)
-        help_text = " ".join(part for part in (declared, input_note) if part) or None
         base_type = _TYPES.get(ptype, str)
         # A default on the fetch function (e.g. mechid=0) makes the option optional.
         fetch_default = (
             fetch_params[pname].default if pname in fetch_params else inspect.Parameter.empty
         )
-        if wallet_defaulted:
+        has_fetch_default = fetch_default is not inspect.Parameter.empty
+        # Declared meaning first, then the input-shape note (ss58 resolution,
+        # comma-separated lists) — same composition as the tx commands. Skip the
+        # wallet-default sentence when the read declares its own default
+        # (e.g. coldkey_ss58=None → hotkey owner).
+        if pname.endswith("_ss58"):
+            input_note = ss58_param_help(pname)
+            if has_fetch_default and pname in ("hotkey_ss58", "coldkey_ss58"):
+                input_note = input_note.split(" Defaults to your wallet")[0]
+        else:
+            input_note = None
+        if ptype == "array":
+            input_note = f"{input_note} Comma-separated." if input_note else "Comma-separated list."
+        declared = spec.param_docs.get(pname)
+        help_text = " ".join(part for part in (declared, input_note) if part) or None
+        # Optional coldkey_ss58=None (owner lookup) is not a wallet default —
+        # keep the option optional without implying the signing wallet coldkey.
+        if wallet_defaulted and not has_fetch_default:
             option_default: Any = None
-        elif fetch_default is not inspect.Parameter.empty:
+            annotations[pname] = Optional[base_type]
+        elif has_fetch_default:
             option_default = fetch_default
+            annotations[pname] = Optional[base_type]
         else:
             option_default = ...
-        annotations[pname] = Optional[base_type] if wallet_defaulted else base_type
+            annotations[pname] = base_type
         # Bool options get a negated twin (--flag/--no-flag) so default-True
         # fields (e.g. lite) can be turned off — same pattern as `tx.py`.
         flag_name = f"{cli_name}/--no-{cli_name[2:]}" if ptype == "boolean" else cli_name
@@ -146,7 +171,9 @@ def _make_command(name: str, spec):
         params.append(p)
     command.__signature__ = inspect.Signature(params)
     command.__annotations__ = annotations
-    command.__doc__ = spec.doc
+    # The docs page also lists the storage items / runtime APIs the read hits,
+    # with source links into the chain code.
+    command.__doc__ = f"{spec.doc}\n\nDocs: {query_docs_url(spec.name)}"
     return command
 
 

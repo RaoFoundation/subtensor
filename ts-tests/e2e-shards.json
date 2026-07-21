@@ -1,0 +1,90 @@
+{
+    "version": 1,
+    "suites": {
+        "evm": {
+            "shards": [
+                {
+                    "name": "zombienet_evm_a",
+                    "files": ["suites/zombienet_evm/01-contract-deploy-call.test.ts"]
+                },
+                {
+                    "name": "zombienet_evm_b",
+                    "files": [
+                        "suites/zombienet_evm/03-wasm-contract.test.ts",
+                        "suites/zombienet_evm/00-evm-substrate-transfer.test.ts",
+                        "suites/zombienet_evm/04-edge-cases.test.ts"
+                    ]
+                },
+                {
+                    "name": "zombienet_evm_c",
+                    "files": [
+                        "suites/zombienet_evm/05-direct-call-precompile.test.ts",
+                        "suites/zombienet_evm/02-precompile-gas.test.ts"
+                    ]
+                }
+            ]
+        },
+        "staking": {
+            "shards": [
+                {
+                    "name": "zombienet_staking_a",
+                    "files": [
+                        "suites/zombienet_staking/01-add-stake-limit.test.ts",
+                        "suites/zombienet_staking/02.00-claim-root.test.ts",
+                        "suites/zombienet_staking/02.01-claim-root.test.ts",
+                        "suites/zombienet_staking/02.04-claim-root-hotkey-swap.test.ts",
+                        "suites/zombienet_staking/04-remove-stake.test.ts",
+                        "suites/zombienet_staking/06-remove-stake-limit.test.ts",
+                        "suites/zombienet_staking/08-swap-stake-limit.test.ts"
+                    ]
+                },
+                {
+                    "name": "zombienet_staking_b",
+                    "files": [
+                        "suites/zombienet_staking/00-add-stake.test.ts",
+                        "suites/zombienet_staking/02.02-claim-root.test.ts",
+                        "suites/zombienet_staking/02.03-claim-root.test.ts",
+                        "suites/zombienet_staking/03-move-stake.test.ts",
+                        "suites/zombienet_staking/05-remove-stake-full-limit.test.ts",
+                        "suites/zombienet_staking/07-swap-stake.test.ts",
+                        "suites/zombienet_staking/09-transfer-stake.test.ts",
+                        "suites/zombienet_staking/10-unstake-all.test.ts",
+                        "suites/zombienet_staking/11-unstake-all-alpha.test.ts"
+                    ]
+                }
+            ]
+        },
+        "shield": {
+            "shards": [
+                {
+                    "name": "zombienet_shield_a",
+                    "files": ["suites/zombienet_shield/00.01-basic.test.ts"],
+                    "maxConcurrency": 6
+                },
+                {
+                    "name": "zombienet_shield_b",
+                    "files": ["suites/zombienet_shield/03-timing.test.ts"],
+                    "maxConcurrency": 4
+                },
+                {
+                    "name": "zombienet_shield_c",
+                    "files": [
+                        "suites/zombienet_shield/00.00-basic.test.ts",
+                        "suites/zombienet_shield/01-scaling.test.ts"
+                    ],
+                    "maxConcurrency": 6
+                },
+                {
+                    "name": "zombienet_shield_d",
+                    "files": ["suites/zombienet_shield/02-edge-cases.test.ts"],
+                    "maxConcurrency": 2
+                },
+                {
+                    "name": "zombienet_shield_e",
+                    "files": ["suites/zombienet_shield/04-mortality.test.ts"],
+                    "maxConcurrency": 1
+                }
+            ]
+        }
+    }
+}

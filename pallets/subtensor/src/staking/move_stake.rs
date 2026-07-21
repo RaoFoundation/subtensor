@@ -159,6 +159,81 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Transfers stake from one coldkey to another, landing it on a different hotkey,
+    /// optionally moving from one subnet to another.
+    ///
+    /// This is `do_transfer_stake` generalized to a destination hotkey: it transfers
+    /// ownership of the position (like `transfer_stake`) and re-delegates it (like
+    /// `move_stake`) in one atomic operation.
+    ///
+    /// # Arguments
+    /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
+    /// * `destination_coldkey`: The account ID of the coldkey to which the stake is being transferred.
+    /// * `origin_hotkey`: The account ID of the hotkey the stake currently sits on.
+    /// * `destination_hotkey`: The account ID of the hotkey the stake lands on.
+    /// * `origin_netuid`: The network ID (subnet) from which the stake is being transferred.
+    /// * `destination_netuid`: The network ID (subnet) to which the stake is being transferred.
+    /// * `alpha_amount`: The amount of stake to transfer.
+    ///
+    /// # Returns
+    /// * `DispatchResult`: Indicates success or failure.
+    ///
+    /// # Errors
+    /// This function will return an error if:
+    /// * The transaction is not signed by the `origin_coldkey`.
+    /// * The subnet (`origin_netuid` or `destination_netuid`) does not exist.
+    /// * The `origin_hotkey` or `destination_hotkey` does not exist.
+    /// * The `(origin_coldkey, origin_hotkey, origin_netuid)` does not have enough stake for `alpha_amount`.
+    /// * The amount to be transferred is below the minimum stake requirement.
+    /// * Transfers are disabled on the origin or destination subnet.
+    /// * There is a failure in staking or unstaking logic.
+    ///
+    /// # Events
+    /// Emits a `StakeAndHotkeyTransferred` event upon successful completion of the transfer.
+    pub fn do_transfer_stake_and_hotkey(
+        origin: OriginFor<T>,
+        destination_coldkey: T::AccountId,
+        origin_hotkey: T::AccountId,
+        destination_hotkey: T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+    ) -> dispatch::DispatchResult {
+        // Ensure the extrinsic is signed by the origin_coldkey.
+        let coldkey = ensure_signed(origin)?;
+
+        // Validate input and move stake
+        let tao_moved = Self::transition_stake_internal(
+            &coldkey,
+            &destination_coldkey,
+            &origin_hotkey,
+            &destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            None,
+            None,
+            true,
+        )?;
+
+        // Emit an event for logging/monitoring.
+        log::debug!(
+            "StakeAndHotkeyTransferred(origin_coldkey: {coldkey:?}, destination_coldkey: {destination_coldkey:?}, origin_hotkey: {origin_hotkey:?}, destination_hotkey: {destination_hotkey:?}, origin_netuid: {origin_netuid:?}, destination_netuid: {destination_netuid:?}, amount: {tao_moved:?})"
+        );
+        Self::deposit_event(Event::StakeAndHotkeyTransferred {
+            origin_coldkey: coldkey,
+            destination_coldkey,
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            amount: tao_moved,
+        });
+
+        // Return success.
+        Ok(())
+    }
+
     /// Swaps a specified amount of stake for the same `(coldkey, hotkey)` pair from one subnet
     /// (`origin_netuid`) to another (`destination_netuid`).
     ///
@@ -359,7 +434,12 @@ impl<T: Config> Pallet<T> {
             // Stake the unstaked amount into the destination.
             // Because of the fee, the tao_unstaked may be too low if initial stake is low. In that case,
             // do not restake.
-            if tao_unstaked >= DefaultMinStake::<T>::get() {
+            let restake_min = if check_transfer_toggle {
+                DefaultMinTransfer::<T>::get()
+            } else {
+                DefaultMinStake::<T>::get()
+            };
+            if tao_unstaked >= restake_min {
                 // If the coldkey is not the owner, make the hotkey a delegate.
                 if Self::get_owning_coldkey_for_hotkey(destination_hotkey) != *destination_coldkey {
                     Self::maybe_become_delegate(destination_hotkey);

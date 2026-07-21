@@ -4,7 +4,11 @@ set -euo pipefail
 # Auto-discover benchmarked pallets.
 #
 # Finds all pallets under pallets/ that have both:
-# - src/benchmarking.rs (or src/benchmarks.rs)
+# - a benchmark module at one of:
+#   - src/benchmarking.rs
+#   - src/benchmarks.rs
+#   - src/benchmarks/benchmarks.rs
+#   - src/benchmarks/mod.rs
 # - src/weights.rs
 #
 # Then filters that list to pallets actually registered in runtime/src/lib.rs
@@ -35,7 +39,20 @@ RUNTIME_BENCHMARKS="$(
 
 for dir in "$ROOT_DIR"/pallets/*/; do
     [ -f "$dir/src/weights.rs" ] || continue
-    [ -f "$dir/src/benchmarking.rs" ] || [ -f "$dir/src/benchmarks.rs" ] || continue
+
+    has_benchmarks=0
+    for benchmark_file in \
+        "$dir/src/benchmarking.rs" \
+        "$dir/src/benchmarks.rs" \
+        "$dir/src/benchmarks/benchmarks.rs" \
+        "$dir/src/benchmarks/mod.rs"
+    do
+        if [ -f "$benchmark_file" ]; then
+            has_benchmarks=1
+            break
+        fi
+    done
+    [ "$has_benchmarks" -eq 1 ] || continue
 
     name="$(
         awk -F '"' '/^name[[:space:]]*=/ { print $2; exit }' "$dir/Cargo.toml" \

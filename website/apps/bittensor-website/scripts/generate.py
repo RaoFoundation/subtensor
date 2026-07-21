@@ -77,6 +77,20 @@ def frontmatter(title: str, description: str) -> str:
     )
 
 
+def docs_markdown_url(docs_url: str) -> str:
+    """Agent-fetchable markdown for a `/docs/...` page URL."""
+    if docs_url == "/docs" or docs_url == "/docs/":
+        return "/llms.mdx/docs/content.md"
+    if not docs_url.startswith("/docs/"):
+        raise ValueError(f"expected /docs/... path, got {docs_url!r}")
+    return f"/llms.mdx{docs_url}/content.md"
+
+
+def with_code_urls(path: str, url: str) -> dict[str, str]:
+    """HTML viewer URL plus plain-text raw URL for the same file."""
+    return {"url": url, "raw_url": f"/code/raw/{path}"}
+
+
 def kebab(name: str) -> str:
     return name.replace("_", "-")
 
@@ -189,22 +203,35 @@ def params_table(schema: dict) -> str:
 
 REPO_ROOT = APP_DIR.parents[2]
 
-# Runtime pallet name (as used in Intent.wraps) -> in-repo crate directory.
+# Runtime pallet name (as used in Intent.wraps, storage containers, and the
+# chain error catalog) -> in-repo crate directory.
 PALLET_DIRS = {
     "SubtensorModule": "pallets/subtensor",
     "AdminUtils": "pallets/admin-utils",
+    "Commitments": "pallets/commitments",
     "Crowdloan": "pallets/crowdloan",
+    "Drand": "pallets/drand",
+    "LimitOrders": "pallets/limit-orders",
+    "MevShield": "pallets/shield",
     "Proxy": "pallets/proxy",
+    "Swap": "pallets/swap",
     "Utility": "pallets/utility",
 }
 
-# Pallets wrapped by intents but implemented outside this repository's
-# pallets/ tree — the section says so instead of linking.
+# Pallets referenced by intents, reads, or errors but implemented outside this
+# repository's pallets/ tree — pages say so instead of linking.
 UPSTREAM_PALLETS = {
     "Balances": "Substrate's `pallet_balances`",
-    "Multisig": "Substrate's `pallet_multisig`",
-    "Sudo": "Substrate's `pallet_sudo`",
+    "Contracts": "Substrate's `pallet_contracts`",
+    "Ethereum": "Frontier's `pallet_ethereum` (vendored under `vendor/frontier`)",
     "EVM": "Frontier's `pallet_evm` (vendored under `vendor/frontier`)",
+    "Grandpa": "Substrate's `pallet_grandpa`",
+    "Multisig": "Substrate's `pallet_multisig`",
+    "Preimage": "Substrate's `pallet_preimage`",
+    "SafeMode": "Substrate's `pallet_safe_mode`",
+    "Scheduler": "Substrate's `pallet_scheduler`",
+    "Sudo": "Substrate's `pallet_sudo`",
+    "System": "Substrate's `frame_system`",
 }
 
 # Mirrors the /code corpus exclusions (src/lib/code.ts).
@@ -221,6 +248,19 @@ def pallet_sources(pallet_dir: str) -> tuple[tuple[str, list[str]], ...]:
         rel = str(path.relative_to(REPO_ROOT))
         out.append((rel, path.read_text().splitlines()))
     return tuple(out)
+
+
+def brace_block_end(lines: list[str], start: int) -> int:
+    """0-based index of the line closing the brace block opened at/after
+    `start` (returns `start` when no block opens)."""
+    depth = 0
+    opened = False
+    for k in range(start, len(lines)):
+        depth += lines[k].count("{") - lines[k].count("}")
+        opened = opened or "{" in lines[k]
+        if opened and depth <= 0:
+            return k
+    return start
 
 
 def find_dispatchable(pallet_dir: str, call: str) -> dict | None:
@@ -246,20 +286,13 @@ def find_dispatchable(pallet_dir: str, call: str) -> dict | None:
                     break
             if start is None:
                 continue
-            depth = 0
-            opened = False
-            end = i
-            for k in range(i, len(lines)):
-                depth += lines[k].count("{") - lines[k].count("}")
-                opened = opened or "{" in lines[k]
-                if opened and depth <= 0:
-                    end = k
-                    break
+            end = brace_block_end(lines, i)
             snippet = textwrap.dedent("\n".join(lines[start : end + 1]))
             return {
                 "path": rel,
                 "line": start + 1,
                 "fn_line": i + 1,
+                "end_line": end + 1,
                 "body": lines[i : end + 1],
                 "snippet": snippet,
             }
@@ -274,6 +307,208 @@ def find_fn(pallet_dir: str, name: str) -> tuple[str, int] | None:
             if fn_re.match(line):
                 return rel, i + 1
     return None
+
+
+def range_anchor(found: dict) -> str:
+    """#L<start>-L<end> covering the quoted snippet (attribute line through
+    the closing brace) — the /code viewer highlights the whole range."""
+    return f"#L{found['line']}-L{found['end_line']}"
+
+
+@functools.lru_cache(maxsize=None)
+def find_storage_item(pallet: str, name: str) -> tuple[str, int] | None:
+    """Declaration of a #[pallet::storage] item, as (path, 1-based line of
+    the `pub type` line). Only attribute/comment lines may sit between the
+    storage attribute and the type alias."""
+    pallet_dir = PALLET_DIRS.get(pallet)
+    if pallet_dir is None:
+        return None
+    ty_re = re.compile(rf"\s*pub(?:\(\w+\))?\s+type\s+{re.escape(name)}\s*[<=]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if not ty_re.match(line):
+                continue
+            for j in range(i - 1, max(0, i - 12) - 1, -1):
+                stripped = lines[j].strip()
+                if stripped.startswith("#[pallet::storage"):
+                    return rel, i + 1
+                if not (
+                    stripped.startswith("#[")
+                    or stripped.startswith("//")
+                    or stripped.endswith("]")
+                    or stripped == ""
+                ):
+                    break
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def find_error_variant(pallet: str, name: str) -> tuple[str, int] | None:
+    """Declaration line of a #[pallet::error] enum variant, as (path, line)."""
+    pallet_dir = PALLET_DIRS.get(pallet)
+    if pallet_dir is None:
+        return None
+    var_re = re.compile(rf"\s*{re.escape(name)}\s*[,(=]")
+    for rel, lines in pallet_sources(pallet_dir):
+        for i, line in enumerate(lines):
+            if "#[pallet::error]" not in line:
+                continue
+            k = i
+            while k < len(lines) and "enum Error" not in lines[k]:
+                k += 1
+            if k == len(lines):
+                continue
+            end = brace_block_end(lines, k)
+            for m in range(k + 1, end + 1):
+                if var_re.match(lines[m]):
+                    return rel, m + 1
+    return None
+
+
+# Crates searched for runtime-API implementations, in preference order: the
+# rpc_info modules carry the real logic; runtime/src/lib.rs only has the
+# impl_runtime_apis! glue and is the fallback.
+_RUNTIME_API_DIRS = ("pallets/subtensor", "pallets/swap", "runtime")
+
+
+@functools.lru_cache(maxsize=None)
+def find_runtime_api_fn(method: str) -> dict | None:
+    """Implementation of a runtime-API method, as {path, line, end_line} of
+    the function body (searched across the rpc crates, then the runtime)."""
+    fn_re = re.compile(rf"\s*(?:pub(?:\(\w+\))? )?fn {re.escape(method)}\s*[(<]")
+    for pallet_dir in _RUNTIME_API_DIRS:
+        for rel, lines in pallet_sources(pallet_dir):
+            for i, line in enumerate(lines):
+                if fn_re.match(line):
+                    end = brace_block_end(lines, i)
+                    return {"path": rel, "line": i + 1, "end_line": end + 1}
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def find_runtime_constant(name: str) -> tuple[str, int] | None:
+    """`pub const <name>` in the runtime's parameter_types, as (path, line)."""
+    const_re = re.compile(rf"\s*pub const {re.escape(name)}\s*[:=]")
+    for rel, lines in pallet_sources("runtime"):
+        for i, line in enumerate(lines):
+            if const_re.match(line):
+                return rel, i + 1
+    return None
+
+
+# --- Read (query) chain targets ----------------------------------------------
+#
+# Reads reference their chain surface through the generated descriptor modules
+# (`st.Pallet.Item`, `api.Api.method`, `constants.Pallet.Name`); scraping the
+# fetch source for those references yields the storage items, runtime-API
+# methods, and constants each read touches — resolved into /code links the
+# same way tx pages resolve dispatchables.
+
+_ST_REF_RE = re.compile(r"\bst\.(\w+)\.(\w+)")
+_API_REF_RE = re.compile(r"\bapi\.(\w+)\.(\w+)")
+_CONST_REF_RE = re.compile(r"\bconstants\.(\w+)\.(\w+)")
+
+
+def _closure_targets(fetch) -> list[tuple[str, str, str]]:
+    """(kind, container, name) for descriptor values captured in a fetch
+    closure — how factory-made reads (scalar_read) carry their storage item."""
+    kinds = {"storage": "storage", "runtime_apis": "runtime", "constants": "constant"}
+    out = []
+    for cell in fetch.__closure__ or ():
+        value = cell.cell_contents
+        module = type(value).__module__.rsplit(".", 1)[-1]
+        if module in kinds and hasattr(value, "container") and hasattr(value, "name"):
+            out.append((kinds[module], value.container, value.name))
+    return out
+
+
+def read_targets(spec) -> list[dict]:
+    """Chain-side targets of a read, in first-use order, resolved into the
+    /code corpus where possible. Each dict has kind/container/name and, when
+    resolved, path/line(/end_line)/url."""
+    try:
+        src = inspect.getsource(spec.fetch)
+    except (OSError, TypeError):
+        src = ""
+    scraped = []
+    for kind, pattern in (
+        ("storage", _ST_REF_RE),
+        ("runtime", _API_REF_RE),
+        ("constant", _CONST_REF_RE),
+    ):
+        scraped.extend((kind, container, name) for container, name in pattern.findall(src))
+    out: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for kind, container, name in [*scraped, *_closure_targets(spec.fetch)]:
+        key = (kind, container, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        target: dict = {"kind": kind, "container": container, "name": name}
+        if kind == "storage":
+            found = find_storage_item(container, name)
+            if found:
+                path, line = found
+                target.update(
+                    path=path,
+                    line=line,
+                    **with_code_urls(path, f"/code/{path}#L{line}"),
+                )
+        elif kind == "runtime":
+            fn = find_runtime_api_fn(name)
+            if fn:
+                path = fn["path"]
+                target.update(
+                    path=path,
+                    line=fn["line"],
+                    end_line=fn["end_line"],
+                    **with_code_urls(
+                        path, f"/code/{path}#L{fn['line']}-L{fn['end_line']}"
+                    ),
+                )
+        else:
+            found = find_runtime_constant(name)
+            if found:
+                path, line = found
+                target.update(
+                    path=path,
+                    line=line,
+                    **with_code_urls(path, f"/code/{path}#L{line}"),
+                )
+        out.append(target)
+    return out
+
+
+def read_implementation_section(spec) -> str:
+    """An "On-chain implementation" section listing the storage items,
+    runtime-API methods, and constants a read touches, linked into /code.
+    Reads served entirely by the client view layer get no section."""
+    targets = read_targets(spec)
+    if not targets:
+        return ""
+    kind_labels = {
+        "storage": "Storage",
+        "runtime": "Runtime API",
+        "constant": "Constant",
+    }
+    lines = ["\n## On-chain implementation\n"]
+    for t in targets:
+        label = kind_labels[t["kind"]]
+        full = f"{t['container']}.{t['name']}"
+        if "url" in t:
+            lines.append(f"- {label} [`{full}`]({t['url']})")
+        elif t["container"] in UPSTREAM_PALLETS:
+            lines.append(
+                f"- {label} `{full}` — implemented by {UPSTREAM_PALLETS[t['container']]}, "
+                "outside this repository's pallets."
+            )
+        else:
+            lines.append(f"- {label} `{full}`")
+    lines.append(
+        "\nEvery file is browsable under [/code](/code) exactly as built into "
+        "the runtime.\n"
+    )
+    return "\n".join(lines)
 
 
 def delegate_links(pallet_dir: str, dispatchable: dict, call: str) -> list[str]:
@@ -308,9 +543,10 @@ def implementation_section(cls) -> str:
             found = find_dispatchable(PALLET_DIRS[pallet], call)
             if found is None:
                 raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            anchor = range_anchor(found)
             parts.append(
                 f"| `{pallet}.{call}` | "
-                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}) |"
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}{anchor}) |"
             )
         parts.append("")
     else:
@@ -324,9 +560,10 @@ def implementation_section(cls) -> str:
             found = find_dispatchable(PALLET_DIRS[pallet], call)
             if found is None:
                 raise RuntimeError(f"dispatchable {pallet}.{call} not found in Rust source")
+            anchor = range_anchor(found)
             parts.append(
                 f"`{pallet}.{call}` — "
-                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}#L{found['fn_line']}):\n"
+                f"[`{found['path']}#L{found['fn_line']}`](/code/{found['path']}{anchor}):\n"
             )
             parts.append(f"```rust\n{found['snippet']}\n```\n")
             links = delegate_links(PALLET_DIRS[pallet], found, call)
@@ -381,6 +618,15 @@ After inclusion, confirm the effect with the
 """
 
 
+def wrap_link(pallet: str, call: str) -> str:
+    """`Pallet.call` linked to its dispatchable in /code when in-repo."""
+    if pallet in PALLET_DIRS:
+        found = find_dispatchable(PALLET_DIRS[pallet], call)
+        if found:
+            return f"[`{pallet}.{call}`](/code/{found['path']}{range_anchor(found)})"
+    return f"`{pallet}.{call}`"
+
+
 def intent_page(op: str, cls) -> str:
     description = cls.describe()
     summary = description.split("\n")[0]
@@ -388,7 +634,7 @@ def intent_page(op: str, cls) -> str:
     props = schema.get("properties", {})
     required = [n for n in schema.get("required", []) if n in props]
 
-    wraps = ", ".join(f"`{p}.{c}`" for p, c in cls.wraps) or "—"
+    wraps = ", ".join(wrap_link(p, c) for p, c in cls.wraps) or "—"
     body = mdx_escape(body_after_summary(description))
 
     cli_parts = [f"btcli tx {kebab(op)}"]
@@ -609,7 +855,7 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`."""
 ## Python
 
 {python_section}
-"""
+{read_implementation_section(spec)}"""
 
 
 def read_index() -> str:
@@ -793,6 +1039,16 @@ def chain_error_page(name: str, code) -> str:
         f"[`{code.value}`](/docs/errors/{kebab(code.value)}).\n"
     )
 
+    # The declaration site(s) in the chain source, for in-repo pallets.
+    sources = []
+    for pallet in pallets:
+        found = find_error_variant(pallet, name)
+        if found:
+            path, line = found
+            sources.append(f"[`{path}#L{line}`](/code/{path}#L{line})")
+    if sources:
+        parts.append(f"Declared at {', '.join(sources)}.\n")
+
     parts.append("## Remediation\n")
     parts.append(mdx_escape(remediation) + "\n")
 
@@ -866,16 +1122,24 @@ def hyperparameters_index() -> str:
         "[`set_hyperparameter`](/docs/tx/set-hyperparameter) intent). Raw on-chain "
         "integers are primary; where a parameter is a fixed-point fraction or a rao "
         "amount, the value also accepts the human form with a decimal point. "
-        "Each parameter has its own explainer page.\n",
-        "| Hyperparameter | Unit | Owner-settable | What it controls |",
-        "| --- | --- | --- | --- |",
+        "Each parameter has its own explainer page; the source column links "
+        "the on-chain storage declaration.\n",
+        "| Hyperparameter | Unit | Owner-settable | What it controls | Source |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for name, meta in hyperparams.HYPERPARAMS.items():
         settable = "yes" if name in OWNER_HYPERPARAMETERS else "root only"
         unit = UNIT_LABELS[hyperparams.kind_of(name)]
+        source = "—"
+        item = hyperparams.STORAGE_ITEMS.get(name)
+        if item is not None:
+            found = find_storage_item(item.container, item.name)
+            if found:
+                path, line = found
+                source = f"[`{item.name}`](/code/{path}#L{line})"
         parts.append(
             f"| [`{name}`](/docs/hyperparameters/{kebab(name)}) | {unit} | "
-            f"{settable} | {cell(meta.short)} |"
+            f"{settable} | {cell(meta.short)} | {source} |"
         )
     parts.append("")
     return "\n".join(parts)
@@ -901,35 +1165,102 @@ def intent_examples(op: str, cls) -> dict:
     return {"cli": cli.strip(), "python_class": cls.__name__}
 
 
+def intent_sources(cls) -> list[dict]:
+    """Resolved /code locations for the dispatchables an intent wraps."""
+    sources = []
+    for pallet, call in cls.wraps:
+        if pallet not in PALLET_DIRS:
+            continue
+        found = find_dispatchable(PALLET_DIRS[pallet], call)
+        if found is None:
+            continue
+        path = found["path"]
+        sources.append(
+            {
+                "pallet": pallet,
+                "call": call,
+                "path": path,
+                "line": found["fn_line"],
+                "end_line": found["end_line"],
+                **with_code_urls(path, f"/code/{path}{range_anchor(found)}"),
+            }
+        )
+    return sources
+
+
+def chain_error_sources(name: str) -> list[dict]:
+    """Resolved /code declaration sites for a chain error name."""
+    sources = []
+    for pallet in CHAIN_ERROR_PALLETS.get(name, []):
+        found = find_error_variant(pallet, name)
+        if found is None:
+            continue
+        path, line = found
+        sources.append(
+            {
+                "pallet": pallet,
+                "path": path,
+                "line": line,
+                **with_code_urls(path, f"/code/{path}#L{line}"),
+            }
+        )
+    return sources
+
+
 def write_catalogs(catalog_root: Path) -> None:
     catalog_root.mkdir(parents=True, exist_ok=True)
     tools = list_tools()
     by_op = {t["name"]: t for t in tools}
     for op, cls in INTENTS.items():
         by_op[op].update(intent_examples(op, cls))
-        by_op[op]["docs_url"] = f"/docs/tx/{kebab(op)}"
+        docs_url = f"/docs/tx/{kebab(op)}"
+        by_op[op]["docs_url"] = docs_url
+        by_op[op]["markdown_url"] = docs_markdown_url(docs_url)
+        by_op[op]["wraps"] = [list(pair) for pair in cls.wraps]
+        sources = intent_sources(cls)
+        if sources:
+            by_op[op]["sources"] = sources
     reads = list_reads()
     for r in reads:
-        r["docs_url"] = f"/docs/query/{kebab(r['name'])}"
+        docs_url = f"/docs/query/{kebab(r['name'])}"
+        r["docs_url"] = docs_url
+        r["markdown_url"] = docs_markdown_url(docs_url)
         spec = READS[r["name"]]
         if not namespace_shadowed(spec):
             r["python"] = f"sub.{namespace_attr(spec)}.{spec.name}(...)"
+        hits = read_targets(spec)
+        if hits:
+            r["hits"] = hits
+    codes = {}
+    for code in error_map.ErrorCode:
+        docs_url = f"/docs/errors/{kebab(code.value)}"
+        codes[code.value] = {
+            "remediation": result.REMEDIATION[code],
+            "docs_url": docs_url,
+            "markdown_url": docs_markdown_url(docs_url),
+        }
+    chain_errors = {}
+    for n, c in sorted(error_map.NAME_TO_CODE.items()):
+        docs_url = f"/docs/errors/chain/{n}"
+        entry = {
+            "code": c.value,
+            "description": error_descriptions.DESCRIPTIONS[n],
+            "docs_url": docs_url,
+            "markdown_url": docs_markdown_url(docs_url),
+            "pallets": CHAIN_ERROR_PALLETS.get(n, []),
+        }
+        sources = chain_error_sources(n)
+        if sources:
+            entry["sources"] = sources
+        chain_errors[n] = entry
     errors = {
-        "codes": {
-            code.value: {
-                "remediation": result.REMEDIATION[code],
-                "docs_url": f"/docs/errors/{kebab(code.value)}",
-            }
-            for code in error_map.ErrorCode
-        },
-        "chain_errors": {
-            n: {
-                "code": c.value,
-                "description": error_descriptions.DESCRIPTIONS[n],
-                "docs_url": f"/docs/errors/chain/{n}",
-            }
-            for n, c in sorted(error_map.NAME_TO_CODE.items())
-        },
+        "note": (
+            "Semantic ErrorCode values are under `codes` (snake_case keys). "
+            "Exact on-chain error names are under `chain_errors` (CamelCase keys). "
+            "Each entry has `docs_url` (HTML page) and `markdown_url` (raw markdown)."
+        ),
+        "codes": codes,
+        "chain_errors": chain_errors,
     }
     (catalog_root / "intents.json").write_text(json.dumps(tools, indent=2) + "\n")
     (catalog_root / "reads.json").write_text(json.dumps(reads, indent=2) + "\n")

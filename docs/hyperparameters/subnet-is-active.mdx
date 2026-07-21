@@ -12,9 +12,11 @@ line between "registered" and "launched."
 
 ## How it works
 
-The value is the `SubtokenEnabled` storage map in
+The value is the
+[`SubtokenEnabled`](/code/pallets/subtensor/src/lib.rs#L2214) storage map in
 `pallets/subtensor/src/lib.rs` — "is subtoken trading enabled" — which
-defaults to **false** for a newly registered subnet. `do_start_call`
+defaults to **false** for a newly registered subnet.
+[`do_start_call`](/code/pallets/subtensor/src/subnets/subnet.rs#L531-L556)
 (`pallets/subtensor/src/subnets/subnet.rs`) sets it to true, records the
 subnet's first emission block, and can only be called by the subnet owner
 once `StartCallDelay` blocks have passed since registration (the
@@ -23,21 +25,28 @@ earliest block).
 
 While the flag is false:
 
-- **All staking paths are closed.** `ensure_subtoken_enabled` guards
+- **All staking paths are closed.**
+  [`ensure_subtoken_enabled`](/code/pallets/subtensor/src/lib.rs#L2826-L2832)
+  guards
   add/remove stake, limit orders, and alpha recycle/burn, and both the origin
   and destination subnets are checked on move/swap/transfer
   (`pallets/subtensor/src/staking/stake_utils.rs`). Every one of them fails
-  with `SubtokenDisabled`.
-- **No emissions.** `get_subnets_to_emit_to`
+  with [`SubtokenDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L212).
+- **No emissions.**
+  [`get_subnets_to_emit_to`](/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L21-L32)
   (`pallets/subtensor/src/coinbase/subnet_emissions.rs`) only emits to
   subnets with the flag on, a first-emission block set, and
   [`registration_allowed`](/docs/hyperparameters/registration-allowed) true.
-- **Childkeys apply immediately.** `set_children` skips the pending-cooldown
-  schedule before start and applies at once
-  (`pallets/subtensor/src/staking/set_children.rs`).
+- **Childkeys apply immediately.**
+  [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101)
+  skips the pending-cooldown schedule before start and applies at once
+  ([`schedule_or_apply_ck`](/code/pallets/subtensor/src/staking/set_children.rs#L551-L585)
+  in `pallets/subtensor/src/staking/set_children.rs`).
 
 Dissolving a subnet removes the entry. Root can also force the flag either
-way with `sudo_set_subtoken_enabled` (AdminUtils), but in normal operation it
+way with
+[`sudo_set_subtoken_enabled`](/code/pallets/admin-utils/src/lib.rs#L1779-L1792)
+(AdminUtils), but in normal operation it
 is written exactly once, by `start-call`.
 
 ## Reading and setting

@@ -249,6 +249,12 @@ class Leasing(_ReadNamespace):
     _category = "Leases & crowdloans"
 
 
+class Collateral(_ReadNamespace):
+    """Miner registration collateral."""
+
+    _category = "Mining & collateral"
+
+
 class Locks(_ReadNamespace):
     """Stake locks and conviction."""
 
@@ -273,6 +279,7 @@ class Weights(_ReadNamespace):
 NAMESPACES: dict[str, type[_ReadNamespace]] = {
     "balances": Balances,
     "chain": Chain,
+    "collateral": Collateral,
     "delegation": Delegation,
     "epochs": Epochs,
     "hyperparameters": Hyperparameters,

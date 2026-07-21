@@ -11,7 +11,7 @@ change it, and only while the loan has not been finalized. Reaching the
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.update_cap` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.update_cap`](/code/pallets/crowdloan/src/lib.rs#L896-L923) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("update_crowdloan_cap", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.update_cap` — [`pallets/crowdloan/src/lib.rs#L898`](/code/pallets/crowdloan/src/lib.rs#L898):
+`Crowdloan.update_cap` — [`pallets/crowdloan/src/lib.rs#L898`](/code/pallets/crowdloan/src/lib.rs#L896-L923):
 
 ```rust
 #[pallet::call_index(8)]

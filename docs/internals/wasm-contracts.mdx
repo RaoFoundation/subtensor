@@ -74,7 +74,7 @@ Functions **1–14** dispatch with the **contract's own address** as the signed 
 </Callout>
 
 <Callout type="note">
-Functions **16** and **17** use the decoded argument order **`(hotkey, netuid, amount)`**, matching [`SubtensorChainExtension`](https://github.com/RaoFoundation/subtensor/blob/main/chain-extensions/src/lib.rs). If your ink! contract encoded **`(hotkey, amount, netuid)`** for those functions, **recompile and redeploy**; the runtime will decode the older layout incorrectly.
+Functions **16** and **17** use the decoded argument order **`(hotkey, netuid, amount)`**, matching [`SubtensorChainExtension`](/code/chain-extensions/src/lib.rs#L27). If your ink! contract encoded **`(hotkey, amount, netuid)`** for those functions, **recompile and redeploy**; the runtime will decode the older layout incorrectly.
 </Callout>
 
 Example usage in your ink! contract:

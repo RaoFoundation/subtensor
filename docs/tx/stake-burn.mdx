@@ -18,7 +18,7 @@ cap.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.add_stake_burn` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_burn`](/code/pallets/subtensor/src/macros/dispatches.rs#L2168-L2178) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("stake_burn", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2195`](/code/pallets/subtensor/src/macros/dispatches.rs#L2195):
+`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2170`](/code/pallets/subtensor/src/macros/dispatches.rs#L2168-L2178):
 
 ```rust
 #[pallet::call_index(132)]
@@ -90,6 +90,6 @@ pub fn add_stake_burn(
 }
 ```
 
-Delegates to [`do_add_stake_burn`](/code/pallets/subtensor/src/staking/recycle_alpha.rs#L129).
+Delegates to [`do_add_stake_burn`](/code/pallets/subtensor/src/staking/recycle_alpha.rs#L131).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

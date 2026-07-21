@@ -118,7 +118,7 @@ Validation reward $D_i = \sum_j B_{ij} \cdot I_j$ is the subnet validator's EMA 
 
 
 #### Subtensor epoch
-Subtensor blockchain nodes calculate consensus and rewards during each subnet [`epoch`](https://github.com/RaoFoundation/subtensor/blob/main/pallets/subtensor/src/epoch/run_epoch.rs) with associated code excerpts as follows. Production runs the sparse variant (`epoch_mechanism`, invoked per mechanism from coinbase); the dense excerpt below is the test-only analogue with identical math. The EMA-bond lines show the legacy branch — subnets with `Yuma3On` enabled compute bonds through the liquid-alpha path (`compute_bonds`) instead.
+Subtensor blockchain nodes calculate consensus and rewards during each subnet [`epoch`](/code/pallets/subtensor/src/epoch/run_epoch.rs) with associated code excerpts as follows. Production runs the sparse variant ([`epoch_mechanism`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L599-L1109), invoked per mechanism from coinbase); the dense excerpt below is the test-only analogue with identical math. The EMA-bond lines show the legacy branch — subnets with [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L2204) enabled compute bonds through the liquid-alpha path ([`compute_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1333-L1360)) instead.
 ```rust
 let mut weights: Vec<Vec<I32F32>> = Self::get_weights(netuid_index);  // Weight
 let consensus: Vec<I32F32> = weighted_median_col(&active_stake, &weights, kappa);  // Server consensus weight

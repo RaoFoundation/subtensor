@@ -95,6 +95,31 @@ pub trait WeightInfo {
 	fn sudo_trim_to_max_allowed_uids() -> Weight;
 	fn sudo_set_min_non_immune_uids() -> Weight;
 	fn sudo_set_max_epochs_per_block() -> Weight;
+	fn sudo_set_adjustment_alpha() -> Weight;
+	fn sudo_set_network_pow_registration_allowed() -> Weight;
+	fn sudo_set_subnet_owner_cut() -> Weight;
+	fn sudo_set_network_rate_limit() -> Weight;
+	fn sudo_set_network_immunity_period() -> Weight;
+	fn sudo_set_network_min_lock_cost() -> Weight;
+	fn sudo_set_subnet_limit() -> Weight;
+	fn sudo_set_lock_reduction_interval() -> Weight;
+	fn sudo_set_evm_chain_id() -> Weight;
+	fn sudo_set_recycle_or_burn() -> Weight;
+	fn sudo_set_ck_burn() -> Weight;
+	fn sudo_set_mechanism_count() -> Weight;
+	fn sudo_set_mechanism_emission_split() -> Weight;
+	fn sudo_set_tao_flow_cutoff() -> Weight;
+	fn sudo_set_tao_flow_normalization_exponent() -> Weight;
+	fn sudo_set_tao_flow_smoothing_factor() -> Weight;
+	fn sudo_set_net_tao_flow_enabled() -> Weight;
+	fn sudo_set_max_mechanism_count() -> Weight;
+	fn sudo_set_start_call_delay() -> Weight;
+	fn sudo_set_burn_half_life() -> Weight;
+	fn sudo_set_burn_increase_mult() -> Weight;
+	fn sudo_set_owner_cut_enabled() -> Weight;
+	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight;
+	fn sudo_set_collateral_lock_share() -> Weight;
+	fn sudo_set_collateral_drain_ratio() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
@@ -1076,6 +1101,377 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(5_740_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdjustmentAlpha` (r:0 w:1)
+	/// Proof: `SubtensorModule::AdjustmentAlpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_adjustment_alpha() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1002`
+		//  Estimated: `4467`
+		// Minimum execution time: 41_231_000 picoseconds.
+		Weight::from_parts(42_292_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	fn sudo_set_network_pow_registration_allowed() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_692_000 picoseconds.
+		Weight::from_parts(1_913_000, 0)
+	}
+	/// Storage: `SubtensorModule::SubnetOwnerCut` (r:0 w:1)
+	/// Proof: `SubtensorModule::SubnetOwnerCut` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_subnet_owner_cut() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_996_000 picoseconds.
+		Weight::from_parts(4_416_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkRateLimit` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_network_rate_limit() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_996_000 picoseconds.
+		Weight::from_parts(4_267_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_network_immunity_period() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_996_000 picoseconds.
+		Weight::from_parts(4_347_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkMinLockCost` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkMinLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_network_min_lock_cost() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_896_000 picoseconds.
+		Weight::from_parts(4_166_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetLimit` (r:0 w:1)
+	/// Proof: `SubtensorModule::SubnetLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_subnet_limit() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_896_000 picoseconds.
+		Weight::from_parts(4_246_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkLockReductionInterval` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkLockReductionInterval` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_lock_reduction_interval() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_925_000 picoseconds.
+		Weight::from_parts(4_257_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `EVMChainId::ChainId` (r:0 w:1)
+	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	fn sudo_set_evm_chain_id() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 2_655_000 picoseconds.
+		Weight::from_parts(2_875_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::RecycleOrBurn` (r:0 w:1)
+	/// Proof: `SubtensorModule::RecycleOrBurn` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_recycle_or_burn() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `899`
+		//  Estimated: `4364`
+		// Minimum execution time: 32_888_000 picoseconds.
+		Weight::from_parts(33_720_000, 4364)
+			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::CKBurn` (r:0 w:1)
+	/// Proof: `SubtensorModule::CKBurn` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_ck_burn() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_903_000 picoseconds.
+		Weight::from_parts(2_083_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaxMechanismCount` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaxMechanismCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaxAllowedUids` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaxAllowedUids` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismCountCurrent` (r:1 w:1)
+	/// Proof: `SubtensorModule::MechanismCountCurrent` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:0 w:1)
+	/// Proof: `SubtensorModule::MechanismEmissionSplit` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_mechanism_count() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1132`
+		//  Estimated: `4597`
+		// Minimum execution time: 51_307_000 picoseconds.
+		Weight::from_parts(52_768_000, 4597)
+			.saturating_add(T::DbWeight::get().reads(10_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismCountCurrent` (r:1 w:0)
+	/// Proof: `SubtensorModule::MechanismCountCurrent` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:0 w:1)
+	/// Proof: `SubtensorModule::MechanismEmissionSplit` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_mechanism_emission_split() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1039`
+		//  Estimated: `4504`
+		// Minimum execution time: 44_135_000 picoseconds.
+		Weight::from_parts(45_668_000, 4504)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::TaoFlowCutoff` (r:0 w:1)
+	/// Proof: `SubtensorModule::TaoFlowCutoff` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_tao_flow_cutoff() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_993_000 picoseconds.
+		Weight::from_parts(2_173_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::FlowNormExponent` (r:0 w:1)
+	/// Proof: `SubtensorModule::FlowNormExponent` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_tao_flow_normalization_exponent() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 2_083_000 picoseconds.
+		Weight::from_parts(2_204_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::FlowEmaSmoothingFactor` (r:0 w:1)
+	/// Proof: `SubtensorModule::FlowEmaSmoothingFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_tao_flow_smoothing_factor() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_943_000 picoseconds.
+		Weight::from_parts(2_093_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetTaoFlowEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetTaoFlowEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_net_tao_flow_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_952_000 picoseconds.
+		Weight::from_parts(2_073_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::MaxMechanismCount` (r:0 w:1)
+	/// Proof: `SubtensorModule::MaxMechanismCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_max_mechanism_count() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 2_674_000 picoseconds.
+		Weight::from_parts(2_835_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::StartCallDelay` (r:0 w:1)
+	/// Proof: `SubtensorModule::StartCallDelay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_start_call_delay() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 4_026_000 picoseconds.
+		Weight::from_parts(4_166_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::BurnHalfLife` (r:0 w:1)
+	/// Proof: `SubtensorModule::BurnHalfLife` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_burn_half_life() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1002`
+		//  Estimated: `4467`
+		// Minimum execution time: 41_282_000 picoseconds.
+		Weight::from_parts(42_653_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::BurnIncreaseMult` (r:0 w:1)
+	/// Proof: `SubtensorModule::BurnIncreaseMult` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_burn_increase_mult() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1002`
+		//  Estimated: `4467`
+		// Minimum execution time: 41_972_000 picoseconds.
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_lock_share() -> Weight {
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_drain_ratio() -> Weight {
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerCutEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::OwnerCutEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_owner_cut_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `975`
+		//  Estimated: `4440`
+		// Minimum execution time: 31_937_000 picoseconds.
+		Weight::from_parts(32_729_000, 4440)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerCutAutoLockEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::OwnerCutAutoLockEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `975`
+		//  Estimated: `4440`
+		// Minimum execution time: 31_918_000 picoseconds.
+		Weight::from_parts(32_919_000, 4440)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -2054,6 +2450,377 @@ impl WeightInfo for () {
 		//  Estimated: `0`
 		// Minimum execution time: 5_460_000 picoseconds.
 		Weight::from_parts(5_740_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdjustmentAlpha` (r:0 w:1)
+	/// Proof: `SubtensorModule::AdjustmentAlpha` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_adjustment_alpha() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1002`
+		//  Estimated: `4467`
+		// Minimum execution time: 41_231_000 picoseconds.
+		Weight::from_parts(42_292_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	fn sudo_set_network_pow_registration_allowed() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_692_000 picoseconds.
+		Weight::from_parts(1_913_000, 0)
+	}
+	/// Storage: `SubtensorModule::SubnetOwnerCut` (r:0 w:1)
+	/// Proof: `SubtensorModule::SubnetOwnerCut` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_subnet_owner_cut() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_996_000 picoseconds.
+		Weight::from_parts(4_416_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkRateLimit` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_network_rate_limit() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_996_000 picoseconds.
+		Weight::from_parts(4_267_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_network_immunity_period() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_996_000 picoseconds.
+		Weight::from_parts(4_347_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkMinLockCost` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkMinLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_network_min_lock_cost() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_896_000 picoseconds.
+		Weight::from_parts(4_166_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetLimit` (r:0 w:1)
+	/// Proof: `SubtensorModule::SubnetLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_subnet_limit() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_896_000 picoseconds.
+		Weight::from_parts(4_246_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetworkLockReductionInterval` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetworkLockReductionInterval` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_lock_reduction_interval() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 3_925_000 picoseconds.
+		Weight::from_parts(4_257_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `EVMChainId::ChainId` (r:0 w:1)
+	/// Proof: `EVMChainId::ChainId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	fn sudo_set_evm_chain_id() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 2_655_000 picoseconds.
+		Weight::from_parts(2_875_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::RecycleOrBurn` (r:0 w:1)
+	/// Proof: `SubtensorModule::RecycleOrBurn` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_recycle_or_burn() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `899`
+		//  Estimated: `4364`
+		// Minimum execution time: 32_888_000 picoseconds.
+		Weight::from_parts(33_720_000, 4364)
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::CKBurn` (r:0 w:1)
+	/// Proof: `SubtensorModule::CKBurn` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_ck_burn() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_903_000 picoseconds.
+		Weight::from_parts(2_083_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaxMechanismCount` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaxMechanismCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaxAllowedUids` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaxAllowedUids` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismCountCurrent` (r:1 w:1)
+	/// Proof: `SubtensorModule::MechanismCountCurrent` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:0 w:1)
+	/// Proof: `SubtensorModule::MechanismEmissionSplit` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_mechanism_count() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1132`
+		//  Estimated: `4597`
+		// Minimum execution time: 51_307_000 picoseconds.
+		Weight::from_parts(52_768_000, 4597)
+			.saturating_add(RocksDbWeight::get().reads(10_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismCountCurrent` (r:1 w:0)
+	/// Proof: `SubtensorModule::MechanismCountCurrent` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MechanismEmissionSplit` (r:0 w:1)
+	/// Proof: `SubtensorModule::MechanismEmissionSplit` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_mechanism_emission_split() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1039`
+		//  Estimated: `4504`
+		// Minimum execution time: 44_135_000 picoseconds.
+		Weight::from_parts(45_668_000, 4504)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::TaoFlowCutoff` (r:0 w:1)
+	/// Proof: `SubtensorModule::TaoFlowCutoff` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_tao_flow_cutoff() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_993_000 picoseconds.
+		Weight::from_parts(2_173_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::FlowNormExponent` (r:0 w:1)
+	/// Proof: `SubtensorModule::FlowNormExponent` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_tao_flow_normalization_exponent() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 2_083_000 picoseconds.
+		Weight::from_parts(2_204_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::FlowEmaSmoothingFactor` (r:0 w:1)
+	/// Proof: `SubtensorModule::FlowEmaSmoothingFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_tao_flow_smoothing_factor() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_943_000 picoseconds.
+		Weight::from_parts(2_093_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::NetTaoFlowEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::NetTaoFlowEnabled` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_net_tao_flow_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_952_000 picoseconds.
+		Weight::from_parts(2_073_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::MaxMechanismCount` (r:0 w:1)
+	/// Proof: `SubtensorModule::MaxMechanismCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_max_mechanism_count() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 2_674_000 picoseconds.
+		Weight::from_parts(2_835_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::StartCallDelay` (r:0 w:1)
+	/// Proof: `SubtensorModule::StartCallDelay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_start_call_delay() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 4_026_000 picoseconds.
+		Weight::from_parts(4_166_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::BurnHalfLife` (r:0 w:1)
+	/// Proof: `SubtensorModule::BurnHalfLife` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_burn_half_life() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1002`
+		//  Estimated: `4467`
+		// Minimum execution time: 41_282_000 picoseconds.
+		Weight::from_parts(42_653_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerHyperparamRateLimit` (r:1 w:0)
+	/// Proof: `SubtensorModule::OwnerHyperparamRateLimit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
+	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::BurnIncreaseMult` (r:0 w:1)
+	/// Proof: `SubtensorModule::BurnIncreaseMult` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_burn_increase_mult() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1002`
+		//  Estimated: `4467`
+		// Minimum execution time: 41_972_000 picoseconds.
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_lock_share() -> Weight {
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_drain_ratio() -> Weight {
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerCutEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::OwnerCutEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_owner_cut_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `975`
+		//  Estimated: `4440`
+		// Minimum execution time: 31_937_000 picoseconds.
+		Weight::from_parts(32_729_000, 4440)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::PendingEpochAt` (r:1 w:0)
+	/// Proof: `SubtensorModule::PendingEpochAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::LastEpochBlock` (r:1 w:0)
+	/// Proof: `SubtensorModule::LastEpochBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::AdminFreezeWindow` (r:1 w:0)
+	/// Proof: `SubtensorModule::AdminFreezeWindow` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerCutAutoLockEnabled` (r:0 w:1)
+	/// Proof: `SubtensorModule::OwnerCutAutoLockEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `975`
+		//  Estimated: `4440`
+		// Minimum execution time: 31_918_000 picoseconds.
+		Weight::from_parts(32_919_000, 4440)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 }

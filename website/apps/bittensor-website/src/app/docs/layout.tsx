@@ -1,6 +1,7 @@
 import React from 'react';
 import type {Metadata} from 'next';
 import {Header} from '@/app/components/Header/Header';
+import {DocsNetworkBanner} from '@/components/docs/docs-network-banner';
 import {SearchProvider} from '@/components/search';
 import {
   Sidebar,
@@ -27,6 +28,7 @@ export default function DocsLayout({children}: {children: React.ReactNode}) {
     <>
       <Header />
       <div className='bt-docs min-h-dvh'>
+        <DocsNetworkBanner />
         <SearchProvider>
           <SidebarProvider>
             <div className='flex items-center gap-5 px-5 py-2 md:hidden'>

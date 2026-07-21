@@ -26,7 +26,13 @@ from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall
 from .intents.proxy import check_proxy_type
-from .result import ChainError, ExtrinsicResult, PolicyError, chain_error_from_dispatch
+from .result import (
+    BittensorError,
+    ChainError,
+    ExtrinsicResult,
+    PolicyError,
+    chain_error_from_dispatch,
+)
 from .settings import DEFAULT_ERA_PERIOD, MEV_SHIELD_ERA_PERIOD
 from .signing import (
     WalletLike,
@@ -246,7 +252,23 @@ class Executor:
         the transaction pool rejects with a transient error such as a nonce race
         or "priority is too low". Chain-side dispatch failures are never retried —
         they would fail identically.
+
+        Intents with ``mev_shield_required`` (collateral AMM buys) are redirected
+        to :meth:`submit_shielded`; they cannot be submitted in the clear.
         """
+        if intent.mev_shield_required:
+            if proxy_for is not None:
+                raise BittensorError(
+                    f"{intent.op} must be submitted MEV-shielded and cannot "
+                    "wrap a proxied call; sign directly or use submit_shielded"
+                )
+            return await self.submit_shielded(
+                intent,
+                wallet,
+                policy=policy,
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=wait_for_finalization,
+            )
         plan = await self.plan(
             intent, wallet, policy=policy, proxy_for=proxy_for, proxy_type=proxy_type
         )

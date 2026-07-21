@@ -19,7 +19,7 @@ To attract delegation, publish who you are with
 [take](/docs/tx/set-take) — the fraction of staking emissions you keep before
 distributing the rest to nominators. Take increases are rate-limited and
 capped by the chain; [`set-take`](/docs/tx/set-take) dispatches whichever of
-`increase_take`/`decrease_take` reaches your target.
+[`increase_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L533-L539)/[`decrease_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L500-L506) reaches your target.
 
 Validators are also the gateway to a subnet: external applications can only
 query miners through a validator's registered hotkey, which is why validators
@@ -38,16 +38,16 @@ validators register broadly rather than on one subnet.
 
 Every epoch, the chain recomputes validator permits from the current stake
 distribution: the top **K** neurons by stake weight get one, where K is the
-`MaxAllowedValidators` hyperparameter (default 128; owner/root settable —
+[`MaxAllowedValidators`](/code/pallets/subtensor/src/lib.rs#L2072) hyperparameter (default 128; owner/root settable —
 read the live value via
 [`subnet-hyperparameters`](/docs/query/subnet-hyperparameters)). A chain-wide
-minimum stake weight (`StakeThreshold`) also applies: stake below it counts as
+minimum stake weight ([`StakeThreshold`](/code/pallets/subtensor/src/lib.rs#L2489)) also applies: stake below it counts as
 zero, and it doubles as the minimum stake to set weights at all. The runtime
 default is zero, but mainnet runs a non-zero threshold (around 1,000
 TAO-equivalent at the time of writing).
 
 Stake weight is not raw TAO. It is the alpha staked to your hotkey on that
-subnet, plus your TAO stake discounted by the global `TaoWeight` factor
+subnet, plus your TAO stake discounted by the global [`TaoWeight`](/code/pallets/subtensor/src/lib.rs#L1197) factor
 (governance-set; currently 0.18 on mainnet, against a runtime default of
 ~0.053) — so alpha counts far more than TAO.
 
@@ -136,15 +136,15 @@ chain would return, and the rate-limit error says how many blocks to wait.
 
 Chain-side rules to know:
 
-- Submissions are rate-limited per UID by `WeightsSetRateLimit` (default 100
+- Submissions are rate-limited per UID by [`WeightsSetRateLimit`](/code/pallets/subtensor/src/lib.rs#L2097) (default 100
   blocks between sets) — read it with
   [`weights-rate-limit`](/docs/query/weights-rate-limit).
 - Every submission carries a **weights version key**. If the subnet's stored
   version key is higher than yours, the call fails with
-  `IncorrectWeightVersionKey`. Subnet owners bump the key to force validators
+  [`IncorrectWeightVersionKey`](/code/pallets/subtensor/src/macros/errors.rs#L83). Subnet owners bump the key to force validators
   onto new subnet code — if you hit this error, update your subnet software.
 - Setting weights requires the same minimum stake (`StakeThreshold`) that
-  gates permits; below it the call fails with `NotEnoughStakeToSetWeights`.
+  gates permits; below it the call fails with [`NotEnoughStakeToSetWeights`](/code/pallets/subtensor/src/macros/errors.rs#L35).
 
 Timing reads: [`weights-rate-limit`](/docs/query/weights-rate-limit),
 [`blocks-since-last-update`](/docs/query/blocks-since-last-update),
@@ -204,6 +204,14 @@ preflight as `SetWeights`, just the path pinned. The counterpart `reveal`
 exists only for the **legacy salt-based** commit flow: it must reproduce the
 exact committed uids, weights, salt, and version key, and is never needed for
 timelocked commits, which the chain reveals on its own.
+
+## Scoring and collateral
+
+On subnets that opt into [miner collateral](/docs/guides/mining/collateral),
+validators enforce floors off chain: read
+[`collateral_locked`](/docs/query/metagraph) / [`subnet_collateral`](/docs/query/subnet-collateral)
+and simply stop scoring under-collateralized or misbehaving hotkeys. There is
+no on-chain slash — zero incentive stops the drain and strands the lock.
 
 ## Bonds and liquid alpha
 

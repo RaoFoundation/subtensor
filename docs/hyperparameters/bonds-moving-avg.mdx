@@ -13,11 +13,11 @@ Bonds are an exponential moving average over each validator–miner pair. Every 
 B(t) = alpha × ΔB + (1 − alpha) × B(t−1)
 ```
 
-where `alpha = 1 − bonds_moving_avg / 1,000,000` (`compute_ema_bonds_normal` in `pallets/subtensor/src/epoch/run_epoch.rs`). The default 900,000 gives alpha = 0.1: each epoch a bond moves 10% of the way toward the validator's instant bond. Higher values mean stickier bonds and slower dividend response; lower values make bonds chase current weights quickly, weakening the reward for early conviction.
+where `alpha = 1 − bonds_moving_avg / 1,000,000` ([`compute_ema_bonds_normal`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1297-L1320) in `pallets/subtensor/src/epoch/run_epoch.rs`). The default 900,000 gives alpha = 0.1: each epoch a bond moves 10% of the way toward the validator's instant bond. Higher values mean stickier bonds and slower dividend response; lower values make bonds chase current weights quickly, weakening the reward for early conviction.
 
-The flat rate applies on the classic consensus path, and also on the [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) path whenever [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) is off (`compute_disabled_liquid_alpha`). With liquid alpha on, the per-pair sigmoid rate replaces it entirely.
+The flat rate applies on the classic consensus path, and also on the [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) path whenever [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) is off ([`compute_disabled_liquid_alpha`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1567-L1577)). With liquid alpha on, the per-pair sigmoid rate replaces it entirely.
 
-Subnet owners can set at most 975,000 (`BondsMovingAverageMaxReached` in `pallets/admin-utils/src/lib.rs`); only root can go higher.
+Subnet owners can set at most 975,000 ([`BondsMovingAverageMaxReached`](/code/pallets/admin-utils/src/lib.rs#L133) in `pallets/admin-utils/src/lib.rs`); only root can go higher.
 
 <HyperparamLiquidAlpha focus="bonds_moving_avg" />
 

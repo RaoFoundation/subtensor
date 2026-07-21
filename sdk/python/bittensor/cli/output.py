@@ -25,6 +25,7 @@ from rich.tree import Tree
 
 from .. import config as cfg
 from ..balance import Balance
+from ..error_map import DISPATCH_ERRORS, NAME_TO_CODE
 from ..intents import Plan
 from ..result import ErrorCode, ExtrinsicResult
 from ..settings import (
@@ -32,6 +33,7 @@ from ..settings import (
     explorer_account_url,
     explorer_extrinsic_url,
     explorer_subnet_url,
+    tx_docs_url,
 )
 from . import multisig_helpers as ms_helpers
 
@@ -81,7 +83,7 @@ _THEME = Theme(
 )
 
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
-_URL_PATTERN = r"https?://[^\s)\]]+"
+_URL_RE = re.compile(r"https?://[^\s)\]]+")
 
 # An ss58 address embedded in a larger string (generic substrate addresses
 # start with '5'; base58 alphabet, no 0/O/I/l).
@@ -112,8 +114,18 @@ def _diagnostic(text: str) -> str:
     return text
 
 
+def _linkify_urls(text: Text) -> Text:
+    """Underline every URL in ``text`` and attach it as an OSC-8 hyperlink so
+    terminals render it clickable even when wrapping breaks plain detection."""
+    for match in _URL_RE.finditer(text.plain):
+        url = match.group(0)
+        text.stylize(f"{STYLE_URL} link {url}", match.start(), match.end())
+    return text
+
+
 def _prose(text: str) -> Text:
-    """Style a sentence: `backticked commands` emphasized, URLs underlined."""
+    """Style a sentence: `backticked commands` emphasized, URLs underlined
+    and hyperlinked."""
     out = Text()
     pos = 0
     for match in _BACKTICK_RE.finditer(text):
@@ -121,8 +133,7 @@ def _prose(text: str) -> Text:
         out.append(match.group(1), style=STYLE_COMMAND)
         pos = match.end()
     out.append(text[pos:])
-    out.highlight_regex(_URL_PATTERN, style=STYLE_URL)
-    return out
+    return _linkify_urls(out)
 
 
 _ADDRESS_KEYS = {"address", "ss58", "multisig", "signer", "coldkeypub", "hotkeypub"}
@@ -272,10 +283,9 @@ class Output:
         return out
 
     def _linked_text(self, value: str, style: str, kind: Optional[str] = None) -> Text:
-        """Text for ``value`` with any embedded ss58 spans and netuid references
-        hyperlinked to their explorer pages. ``kind`` forces hotkey/coldkey;
-        otherwise each address's registered kind is used (unregistered addresses
-        stay plain)."""
+        """Text for ``value`` with any embedded ss58 spans, netuid references,
+        and URLs hyperlinked. ``kind`` forces hotkey/coldkey; otherwise each
+        address's registered kind is used (unregistered addresses stay plain)."""
         spans: list[tuple[int, int, str]] = []
         for match in _SS58_RE.finditer(value):
             url = self.account_url(match.group(0), kind)
@@ -286,6 +296,10 @@ class Output:
             if url:
                 # Link the "4 (Targon)" span, not the "netuid"/"subnet" word.
                 spans.append((match.start("id"), match.end(), url))
+        for match in _URL_RE.finditer(value):
+            # A literal URL links to itself (OSC-8), so it stays clickable
+            # even when column padding or wrapping breaks plain detection.
+            spans.append((match.start(), match.end(), match.group(0)))
         spans.sort()
         out = Text()
         pos = 0
@@ -594,7 +608,9 @@ class Output:
                 *(
                     self.subnet_text(cell)
                     if columns[i].endswith("netuid") and str(cell).isdigit()
-                    else str(cell)
+                    else (
+                        _linkify_urls(Text(str(cell))) if _URL_RE.search(str(cell)) else str(cell)
+                    )
                     for i, cell in enumerate(row)
                 )
             )
@@ -1365,6 +1381,9 @@ class Output:
             )
         if not plan.ok:
             self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+        # The docs page carries parameters, verify reads, and the on-chain
+        # implementation with source links.
+        self._sub_diag("see", tx_docs_url(plan.op), console=self._out)
 
     def multisig_followup(self, followup: dict[str, Any], *, suppress_decode: bool = False) -> None:
         """Render co-signer instructions after a multisig approval.
@@ -1417,9 +1436,12 @@ class Output:
             ),
         }
         if followup.get("target"):
-            fields["target"] = followup.get("target") + (
-                " via Sudo.sudo" if followup.get("sudo") else ""
-            )
+            target = followup.get("target")
+            if followup.get("sudo"):
+                target += " via Sudo.sudo"
+            if followup.get("proxy_for"):
+                target += f" as {followup['proxy_for']} via proxy"
+            fields["target"] = target
         approval_labels = followup.get("approval_labels") or followup.get("approvals_so_far") or []
         if approval_labels:
             fields["approved_by"] = approval_labels
@@ -1559,7 +1581,7 @@ class Output:
             return
         if error.name:
             self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
-        if error.description:
+        if error.description and error.description != message:
             self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
         if error.docs_url:
@@ -1567,10 +1589,14 @@ class Output:
         if result.explorer_url:
             self._sub_diag("see", result.explorer_url)
         # The exact chain name gives the most specific explanation; the semantic
-        # code is the fallback when the failure never carried a module error.
-        explain_target = error.name or (
-            error.code.value if error.code is not ErrorCode.UNKNOWN else None
-        )
+        # code is the fallback when the failure never carried a name `btcli
+        # explain` can resolve (a pool rejection, an unclassified name).
+        if error.name and (error.name in NAME_TO_CODE or error.name in DISPATCH_ERRORS):
+            explain_target = error.name
+        elif error.code is not ErrorCode.UNKNOWN:
+            explain_target = error.code.value
+        else:
+            explain_target = None
         if explain_target:
             tail = _prose(
                 f"for more information about this error, run `btcli explain {explain_target}`"

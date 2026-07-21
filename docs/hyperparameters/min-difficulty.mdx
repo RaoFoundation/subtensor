@@ -13,18 +13,23 @@ minimum compute cost of a PoW slot; root/governance sets it.
 
 ## How it works
 
-Storage is `MinDifficulty` in `pallets/subtensor/src/lib.rs`, read and
-written by `get_min_difficulty` / `set_min_difficulty`
+Storage is [`MinDifficulty`](/code/pallets/subtensor/src/lib.rs#L2145) in
+`pallets/subtensor/src/lib.rs`, read and
+written by
+[`get_min_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L492-L494) /
+[`set_min_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L495-L498)
 (`pallets/subtensor/src/utils/misc.rs`). In the classic controller,
 difficulty was rescaled each adjustment interval by how far registrations
 ran over or under target, then clamped to the
 \[`min_difficulty`, `max_difficulty`\] band — so with quiet demand,
 difficulty decayed until it sat on this floor.
 
-The chain-wide migration `migrate_set_min_difficulty`
+The chain-wide migration
+[`migrate_set_min_difficulty`](/code/pallets/subtensor/src/migrations/migrate_set_min_difficulty.rs#L9-L53)
 (`pallets/subtensor/src/migrations/migrate_set_min_difficulty.rs`) set the
 floor to 10,000,000 on every subnet, matching the runtime default
-(`SubtensorInitialMinDifficulty` in `runtime/src/lib.rs`).
+([`SubtensorInitialMinDifficulty`](/code/runtime/src/lib.rs#L813) in
+`runtime/src/lib.rs`).
 
 Note that on the current runtime PoW registration is deprecated: the
 `register` extrinsic routes to burned registration and no controller
@@ -41,7 +46,9 @@ use the button) to see the `u64::MAX` disabled state:
 btcli sudo get --netuid N --name min_difficulty
 ```
 
-Root/governance only: `sudo_set_min_difficulty` in the AdminUtils pallet
+Root/governance only:
+[`sudo_set_min_difficulty`](/code/pallets/admin-utils/src/lib.rs#L284-L301)
+in the AdminUtils pallet
 requires the root origin and takes a raw u64. It is not settable by the
 subnet owner via `btcli sudo set`.
 

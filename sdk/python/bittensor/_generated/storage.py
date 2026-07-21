@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 432
+Spec version: 435
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -300,6 +300,10 @@ class SubtensorModule:
     MechanismEmissionSplit = Item('SubtensorModule', 'MechanismEmissionSplit', 'Vec<u16>')
     BurnHalfLife = Item('SubtensorModule', 'BurnHalfLife', 'u16')
     BurnIncreaseMult = Item('SubtensorModule', 'BurnIncreaseMult', 'FixedU128')
+    CollateralLockShare = Item('SubtensorModule', 'CollateralLockShare', 'u16')
+    CollateralDrainRatio = Item('SubtensorModule', 'CollateralDrainRatio', 'FixedU128')
+    MinerCollateral = Item('SubtensorModule', 'MinerCollateral', 'MinerCollateralState')
+    ColdkeyMinerCollateral = Item('SubtensorModule', 'ColdkeyMinerCollateral', 'AlphaBalance')
     AutoParentDelegationEnabled = Item('SubtensorModule', 'AutoParentDelegationEnabled', 'bool')
     HasMigrationRun = Item('SubtensorModule', 'HasMigrationRun', 'bool')
     PendingChildKeyCooldown = Item('SubtensorModule', 'PendingChildKeyCooldown', 'u64')

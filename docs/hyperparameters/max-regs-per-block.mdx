@@ -9,24 +9,30 @@ and demand spikes, at most this many UIDs can turn over per block, which
 protects existing neurons from being pruned en masse in a single block.
 Anyone scripting registrations should expect rejections beyond the cap;
 root/governance sets it, with a mainnet default of 1
-(`SubtensorInitialMaxRegistrationsPerBlock` in `runtime/src/lib.rs`).
+([`SubtensorInitialMaxRegistrationsPerBlock`](/code/runtime/src/lib.rs#L802)
+in `runtime/src/lib.rs`).
 
 ## How it works
 
 Each successful registration increments the `RegistrationsThisBlock`
-counter (`do_register`, step 11, in
+counter ([`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38-L132),
+step 11, in
 `pallets/subtensor/src/subnets/registration.rs`), and the counter is reset
-to zero every block by `update_registration_prices_for_networks` (same
-file), which runs in `on_initialize`.
+to zero every block by
+[`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)
+(same file), which runs in `on_initialize`.
 
 The cap is checked against that counter in two places:
 
-- Root registration: `do_root_register`
+- Root registration:
+  [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77-L188)
   (`pallets/subtensor/src/coinbase/root.rs`) fails with
-  `TooManyRegistrationsThisBlock` when the block's registrations reach
+  [`TooManyRegistrationsThisBlock`](/code/pallets/subtensor/src/macros/errors.rs#L61)
+  when the block's registrations reach
   `get_max_registrations_per_block`, and additionally caps the interval at
   3 × [`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval).
-- The registration validity helper `checked_allowed_register`
+- The registration validity helper
+  [`checked_allowed_register`](/code/pallets/subtensor/src/lib.rs#L2802-L2823)
   (`pallets/subtensor/src/lib.rs`) reports a subnet as closed for the
   block once the counter reaches the cap, alongside the
   [`registration_allowed`](/docs/hyperparameters/registration-allowed)
@@ -46,7 +52,9 @@ Drag the cap below to see how it slices bursts block by block:
 btcli sudo get --netuid N --name max_regs_per_block
 ```
 
-Root/governance only: `sudo_set_max_registrations_per_block` in the
+Root/governance only:
+[`sudo_set_max_registrations_per_block`](/code/pallets/admin-utils/src/lib.rs#L950-L970)
+in the
 AdminUtils pallet requires the root origin and takes a plain integer (u16).
 It is not settable by the subnet owner via `btcli sudo set`.
 

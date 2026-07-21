@@ -9,12 +9,14 @@ because whatever the owner does not take is redistributed to them.
 
 ## How it works
 
-The cut percentage itself is a **global, root-set** value (`SubnetOwnerCut`,
+The cut percentage itself is a **global, root-set** value
+([`SubnetOwnerCut`](/code/pallets/subtensor/src/lib.rs#L1780),
 11796/65535 ≈ 18%). This flag only decides, per subnet, whether the deduction
 happens at all. It defaults to **true**.
 
-Every block, when the chain accrues the subnet's `alpha_out`, it multiplies it
-by the cut percentage, subtracts that from the amount destined for
+Every block, when the chain accrues the subnet's `alpha_out`, it
+[multiplies it by the cut percentage](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L302-L312),
+subtracts that from the amount destined for
 participants, and accumulates it in a pending bucket. At the next epoch the
 pending cut is staked directly to the subnet owner's hotkey and coldkey, while
 the remainder goes through Yuma Consensus to miners, validators, and stakers

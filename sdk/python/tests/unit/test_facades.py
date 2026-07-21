@@ -82,6 +82,14 @@ def test_sync_facade_mirrors_async_surface(async_cls, sync_cls):
     for name, fn in surface.items():
         sync_fn = getattr(sync_cls, name, None)
         assert sync_fn is not None, f"{sync_cls.__name__} is missing {name!r}"
+        if isinstance(sync_fn, property):
+            # Zero-arg reads may surface as blocking properties (block,
+            # spec_version); a property cannot carry the async twin's params.
+            assert _param_names(fn) == [], (
+                f"{sync_cls.__name__}.{name} is a property but "
+                f"{async_cls.__name__}.{name} takes parameters"
+            )
+            continue
         assert not asyncio.iscoroutinefunction(sync_fn), (
             f"{sync_cls.__name__}.{name} must block, not return a coroutine"
         )

@@ -1,4 +1,5 @@
 use super::*;
+pub mod collateral;
 pub mod dissolution;
 pub mod leasing;
 pub mod mechanism;

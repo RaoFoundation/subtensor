@@ -18,7 +18,7 @@ salt-based commits — the timelocked path used by `set_weights` and
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.reveal_weights` |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("reveal_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L281`](/code/pallets/subtensor/src/macros/dispatches.rs#L281):
+`SubtensorModule.reveal_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L277`](/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286):
 
 ```rust
 #[pallet::call_index(97)]

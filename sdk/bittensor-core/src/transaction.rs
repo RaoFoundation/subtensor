@@ -561,6 +561,45 @@ impl IntentCall {
         )
     }
 
+    /// Transfer stake ownership to another coldkey, landing it on a different
+    /// hotkey. Like `transfer_stake`, the alpha value is not cheaply
+    /// TAO-bounded, so a spend cap must reject it.
+    pub fn transfer_stake_and_hotkey(
+        destination_coldkey: impl Into<String>,
+        origin_hotkey: impl Into<String>,
+        destination_hotkey: impl Into<String>,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount_alpha_rao: u128,
+    ) -> Self {
+        Self::trusted(
+            "transfer_stake_and_hotkey",
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "transfer_stake_and_hotkey",
+            Value::record(vec![
+                (
+                    "destination_coldkey".into(),
+                    Value::str(destination_coldkey),
+                ),
+                ("origin_hotkey".into(), Value::str(origin_hotkey)),
+                ("destination_hotkey".into(), Value::str(destination_hotkey)),
+                (
+                    "origin_netuid".into(),
+                    Value::Uint(u128::from(origin_netuid)),
+                ),
+                (
+                    "destination_netuid".into(),
+                    Value::Uint(u128::from(destination_netuid)),
+                ),
+                ("alpha_amount".into(), Value::Uint(amount_alpha_rao)),
+            ]),
+            Spend::Unbounded,
+            [origin_netuid, destination_netuid],
+            false,
+        )
+    }
+
     /// Unstake from every subnet on one hotkey.
     pub fn unstake_all(hotkey: impl Into<String>) -> Self {
         Self::trusted(

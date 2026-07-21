@@ -1,6 +1,11 @@
 //! Subtensor pallet benchmarking.
-#![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 #![cfg(feature = "runtime-benchmarks")]
+#![allow(deprecated)]
 
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
@@ -22,9 +27,11 @@ use sp_runtime::{
 };
 use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
 use sp_std::vec;
-use substrate_fixed::types::U64F64;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
+
+mod helpers;
 
 #[benchmarks(
     where
@@ -37,162 +44,21 @@ use subtensor_swap_interface::SwapHandler;
         OriginFor<T>: Clone + OriginTrait<AccountId = T::AccountId>,
 )]
 mod pallet_benchmarks {
+    use super::helpers::*;
     use super::*;
-
-    fn seed_swap_reserves<T: Config>(netuid: NetUid) {
-        let tao_reserve = TaoBalance::from(150_000_000_000_u64);
-        let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-        set_reserves::<T>(netuid, tao_reserve, alpha_in);
-    }
-
-    fn set_reserves<T: Config>(netuid: NetUid, tao_reserve: TaoBalance, alpha_in: AlphaBalance) {
-        SubnetTAO::<T>::insert(netuid, tao_reserve);
-        SubnetAlphaIn::<T>::insert(netuid, alpha_in);
-    }
-
-    fn benchmark_registration_burn() -> TaoBalance {
-        TaoBalance::from(1_000_000)
-    }
-
-    fn add_balance_to_coldkey_account<T: Config>(coldkey: &T::AccountId, tao: TaoBalance) {
-        let credit = Subtensor::<T>::mint_tao(tao);
-        let _ = Subtensor::<T>::spend_tao(coldkey, credit, tao).unwrap();
-    }
-
-    /// This helper funds an account with:
-    /// - 2x burn fee
-    /// - 100x DefaultMinStake
-    fn fund_for_registration<T: Config>(netuid: NetUid, who: &T::AccountId) {
-        let burn = Subtensor::<T>::get_burn(netuid);
-        let min_stake = DefaultMinStake::<T>::get();
-
-        let deposit = burn
-            .saturating_mul(2.into())
-            .saturating_add(min_stake.saturating_mul(100.into()));
-
-        add_balance_to_coldkey_account::<T>(who, deposit.into());
-    }
-
-    /// Add a zero lock to a random hotkey just so that the lock records exist
-    fn add_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
-        let hotkey: T::AccountId = account("RandomHotkey", 0, 999);
-        Lock::<T>::insert(
-            (coldkey, netuid, hotkey.clone()),
-            LockState {
-                locked_mass: AlphaBalance::ZERO,
-                conviction: U64F64::from_num(0),
-                last_update: 0,
-            },
-        );
-        HotkeyLock::<T>::insert(
-            netuid,
-            hotkey,
-            LockState {
-                locked_mass: AlphaBalance::ZERO,
-                conviction: U64F64::from_num(0),
-                last_update: 0,
-            },
-        );
-    }
-
-    fn set_benchmark_block_number<T: Config>(block_number: u64) {
-        let block_number: BlockNumberFor<T> = match block_number.try_into() {
-            Ok(block_number) => block_number,
-            Err(_) => panic!("benchmark block number must fit into BlockNumberFor<T>"),
-        };
-
-        frame_system::Pallet::<T>::set_block_number(block_number);
-    }
-
-    fn runtime_call<T: Config>(call: Call<T>) -> <T as frame_system::Config>::RuntimeCall {
-        <T as Config>::RuntimeCall::from(call).into()
-    }
-
-    fn setup_extension_neuron<T: Config>(netuid: NetUid, hotkey: &T::AccountId) {
-        Subtensor::<T>::init_new_network(netuid, 0);
-        Subtensor::<T>::set_max_allowed_uids(netuid, GLOBAL_MAX_SUBNET_COUNT);
-        Subtensor::<T>::append_neuron(netuid, hotkey, 0);
-    }
-
-    fn benchmark_evm_secret_key() -> libsecp256k1::SecretKey {
-        let seed = [42u8; 32];
-
-        match libsecp256k1::SecretKey::parse(&seed) {
-            Ok(secret_key) => secret_key,
-            Err(_) => panic!("benchmark EVM secret key must be valid"),
-        }
-    }
-
-    fn evm_key_from_secret_key(secret_key: &libsecp256k1::SecretKey) -> H160 {
-        let public_key = libsecp256k1::PublicKey::from_secret_key(secret_key);
-        let uncompressed = public_key.serialize();
-
-        let public_key_without_prefix = match uncompressed.get(1..) {
-            Some(public_key_without_prefix) => public_key_without_prefix,
-            None => panic!("uncompressed secp256k1 public key must contain a prefix byte"),
-        };
-
-        let hashed_public_key = sp_io::hashing::keccak_256(public_key_without_prefix);
-
-        let evm_key_bytes = match hashed_public_key.get(12..) {
-            Some(evm_key_bytes) => evm_key_bytes,
-            None => panic!("keccak256 hash must be 32 bytes"),
-        };
-
-        H160::from_slice(evm_key_bytes)
-    }
-
-    fn signature_for_associate_evm_key<T: Config>(
-        hotkey: &T::AccountId,
-        block_number: u64,
-        secret_key: &libsecp256k1::SecretKey,
-    ) -> ecdsa::Signature {
-        let block_hash = sp_io::hashing::keccak_256(block_number.encode().as_ref());
-
-        let mut message = hotkey.encode();
-        message.extend_from_slice(&block_hash);
-
-        let message_hash = Subtensor::<T>::hash_message_eip191(message);
-        let secp_message = libsecp256k1::Message::parse(&message_hash);
-
-        let (secp_signature, recovery_id) = libsecp256k1::sign(&secp_message, secret_key);
-
-        let mut signature = [0u8; 65];
-        let serialized_signature = secp_signature.serialize();
-
-        let signature_bytes = match signature.get_mut(..64) {
-            Some(signature_bytes) => signature_bytes,
-            None => panic!("benchmark ECDSA signature buffer must contain 64 signature bytes"),
-        };
-        signature_bytes.copy_from_slice(&serialized_signature);
-
-        let recovery_id_byte = match signature.get_mut(64) {
-            Some(recovery_id_byte) => recovery_id_byte,
-            None => panic!("benchmark ECDSA signature buffer must contain a recovery id byte"),
-        };
-        *recovery_id_byte = recovery_id.serialize();
-
-        ecdsa::Signature::from_raw(signature)
-    }
 
     #[benchmark]
     fn register() {
         let netuid = NetUid::from(1);
-        let tempo: u16 = 1;
-        let hotkey: T::AccountId = account("Alice", 0, 1);
-        let coldkey: T::AccountId = account("Test", 0, 2);
+        let hotkey: T::AccountId = account("register_hot", 0, 1);
+        let coldkey: T::AccountId = account("register_cold", 0, 2);
 
-        Subtensor::<T>::init_new_network(netuid, tempo);
-        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
-        SubtokenEnabled::<T>::insert(netuid, true);
-
-        Subtensor::<T>::set_network_registration_allowed(netuid, true);
-
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-        seed_swap_reserves::<T>(netuid);
-
+        setup_full_subnet_registration_benchmark::<T>(
+            netuid,
+            "register_existing_hot",
+            "register_existing_cold",
+        );
         fund_for_registration::<T>(netuid, &coldkey);
-        fund_for_registration::<T>(netuid, &hotkey);
         Subtensor::<T>::set_difficulty(netuid, 1);
 
         let block_number: u64 = Subtensor::<T>::get_current_block_as_u64();
@@ -390,16 +256,19 @@ mod pallet_benchmarks {
     #[benchmark]
     fn burned_register() {
         let netuid = NetUid::from(1);
-        let seed: u32 = 1;
-        let hotkey: T::AccountId = account("Alice", 0, seed);
-        let coldkey: T::AccountId = account("Test", 0, seed);
+        let hotkey: T::AccountId = account("burned_register_hot", 0, 1);
+        let coldkey: T::AccountId = account("burned_register_cold", 0, 1);
 
-        Subtensor::<T>::init_new_network(netuid, 1);
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-
-        let amount: u64 = 1_000_000;
-        add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
+        setup_full_subnet_registration_benchmark::<T>(
+            netuid,
+            "burned_register_existing_hot",
+            "burned_register_existing_cold",
+        );
+        // Worst case: collateral enabled, so the charge also stakes-and-locks the
+        // collateral share (AMM swap + share-pool + MinerCollateral write) rather
+        // than only burning.
+        CollateralLockShare::<T>::insert(netuid, MaxCollateralLockShare::<T>::get());
+        fund_for_registration::<T>(netuid, &coldkey);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), netuid, hotkey.clone());
@@ -407,31 +276,16 @@ mod pallet_benchmarks {
 
     #[benchmark]
     fn root_register() {
-        let netuid = NetUid::from(1);
-        let seed: u32 = 1;
-        let coldkey: T::AccountId = account("Test", 0, seed);
-        let hotkey: T::AccountId = account("Alice", 0, seed);
+        let coldkey: T::AccountId = account("root_register_cold", 0, 1);
+        let hotkey: T::AccountId = account("root_register_hot", 0, 1);
 
-        Subtensor::<T>::init_new_network(netuid, 1);
-        SubtokenEnabled::<T>::insert(netuid, true);
-        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-        Subtensor::<T>::set_network_registration_allowed(netuid, true);
-        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
-        assert_eq!(Subtensor::<T>::get_max_allowed_uids(netuid), 4096);
-        Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
-        Subtensor::<T>::set_network_registration_allowed(NetUid::ROOT, true);
-        FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
-        SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
-
-        let amount: u64 = 100_000_000_000_000;
-        seed_swap_reserves::<T>(netuid);
-        add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
-
-        assert_ok!(Subtensor::<T>::burned_register(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            netuid,
-            hotkey.clone()
-        ));
+        setup_full_root_registration_benchmark::<T>();
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            AlphaBalance::from(2_u64),
+        );
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
@@ -891,6 +745,15 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn block_step() {
+        setup_block_step_benchmark::<T>();
+
+        #[block]
+        {
+            assert_ok!(Subtensor::<T>::block_step());
+        }
+    }
+    #[benchmark]
     fn start_call() {
         let netuid = NetUid::from(1);
         let coldkey: T::AccountId = account("Test", 0, 1);
@@ -1256,6 +1119,142 @@ mod pallet_benchmarks {
             netuid,
             netuid,
             alpha_to_transfer,
+        );
+    }
+
+    #[benchmark]
+    fn transfer_stake_and_hotkey() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let dest: T::AccountId = account("B", 0, 2);
+        let hot: T::AccountId = account("A", 0, 1);
+        let dest_hot: T::AccountId = account("C", 0, 3);
+        let netuid = NetUid::from(1);
+
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+
+        let reg_fee = Subtensor::<T>::get_burn(netuid);
+        let stake_tao = DefaultMinStake::<T>::get().saturating_mul(10.into());
+        let deposit = reg_fee.saturating_mul(2.into()).saturating_add(stake_tao);
+        add_balance_to_coldkey_account::<T>(&coldkey, deposit.into());
+        add_lock::<T>(&coldkey, netuid);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            netuid,
+            hot.clone()
+        ));
+
+        set_reserves::<T>(netuid, deposit, AlphaBalance::from(deposit.to_u64()));
+        TotalStake::<T>::set(deposit);
+
+        assert_ok!(Subtensor::<T>::add_stake_limit(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            hot.clone(),
+            netuid,
+            stake_tao,
+            TaoBalance::MAX,
+            false
+        ));
+
+        let alpha_to_transfer =
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &coldkey, netuid);
+
+        let _ = Subtensor::<T>::create_account_if_non_existent(&dest, &dest_hot);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            dest.clone(),
+            hot.clone(),
+            dest_hot.clone(),
+            netuid,
+            netuid,
+            alpha_to_transfer,
+        );
+    }
+
+    #[benchmark]
+    fn add_collateral() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hot: T::AccountId = account("A", 0, 1);
+        let netuid = NetUid::from(1);
+
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+
+        let reg_fee = Subtensor::<T>::get_burn(netuid);
+        let collateral_tao = DefaultMinStake::<T>::get().saturating_mul(10.into());
+        let deposit = reg_fee
+            .saturating_mul(2.into())
+            .saturating_add(collateral_tao.saturating_mul(2.into()));
+        add_balance_to_coldkey_account::<T>(&coldkey, deposit.into());
+        add_lock::<T>(&coldkey, netuid);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            netuid,
+            hot.clone()
+        ));
+
+        set_reserves::<T>(netuid, deposit, AlphaBalance::from(deposit.to_u64()));
+        TotalStake::<T>::set(deposit);
+        // Moving price ≈ 1 so `tao` maps 1:1 into target alpha.
+        SubnetMovingPrice::<T>::insert(netuid, I96F32::from_num(1));
+
+        // Worst case: free stake covers only part of the target (lock-from-stake
+        // + buy shortfall), and an existing entry must be merged.
+        let already_locked = AlphaBalance::from(1_000u64);
+        let free_partial = AlphaBalance::from(u64::from(collateral_tao) / 2);
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &coldkey,
+            netuid,
+            free_partial.saturating_add(already_locked),
+        );
+        MinerCollateral::<T>::insert(
+            (netuid, &hot, &coldkey),
+            MinerCollateralState {
+                locked: already_locked,
+                drain_ratio: U64F64::saturating_from_num(1),
+                min_locked: already_locked,
+                earned: AlphaBalance::ZERO,
+            },
+        );
+        ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, already_locked);
+
+        // Bound at max so the measured path still exercises the buy leg;
+        // production callers pass spot × (1 + tolerance).
+        let limit_price = T::SwapInterface::max_price();
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            netuid,
+            hot.clone(),
+            collateral_tao,
+            limit_price,
+        );
+    }
+
+    #[benchmark]
+    fn set_min_collateral() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hot: T::AccountId = account("A", 0, 1);
+        let netuid = NetUid::from(1);
+
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let _ = Subtensor::<T>::create_account_if_non_existent(&coldkey, &hot);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            netuid,
+            hot.clone(),
+            AlphaBalance::from(1_000_000u64),
         );
     }
 
@@ -2099,24 +2098,6 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn dissolve_network() {
-        let netuid = NetUid::from(1);
-        let tempo: u16 = 1;
-        let coldkey: T::AccountId = account("Owner", 0, 1);
-
-        // Initialize network
-        Subtensor::<T>::init_new_network(netuid, tempo);
-
-        // Set network owner
-        SubnetOwner::<T>::insert(netuid, coldkey.clone());
-
-        #[extrinsic_call]
-        _(RawOrigin::Root, coldkey.clone(), netuid);
-
-        assert!(DissolveCleanupQueue::<T>::get().contains(&netuid));
-    }
-
-    #[benchmark]
     fn set_pending_childkey_cooldown() {
         let cooldown: u64 = 7200;
 
@@ -2471,6 +2452,420 @@ mod pallet_benchmarks {
         {
             assert_ok!(CheckEvmKeyAssociation::<T>::check(&hotkey, &call));
         }
+    }
+
+    #[benchmark]
+    fn set_mechanism_weights(n: Linear<1, 4096>) {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, uids, weight_values, _salt, version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, n);
+        Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, false);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            netuid,
+            mecid,
+            uids,
+            weight_values,
+            version_key,
+        );
+    }
+
+    #[benchmark]
+    fn commit_mechanism_weights() {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, uids, weight_values, _salt, version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+        let commit_hash: H256 =
+            BlakeTwo256::hash_of(&(hotkey.clone(), netuid, uids, weight_values, version_key));
+        let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        let mut commits = VecDeque::new();
+        for i in 0..9u8 {
+            commits.push_back((H256::repeat_byte(i + 1), 0, 0, 0));
+        }
+        WeightCommits::<T>::insert(netuid_index, &hotkey, commits);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            netuid,
+            mecid,
+            commit_hash,
+        );
+    }
+    #[benchmark]
+    fn reveal_mechanism_weights(n: Linear<1, 4096>) {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let netuid = NetUid::from(1);
+        let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        let version_key: u64 = 0;
+        let uid_count = n.clamp(1, 4096);
+
+        // Use a non-firing benchmark subnet. This mirrors the existing
+        // `reveal_weights` benchmark and removes the stateful scheduler
+        // look-ahead from this extrinsic benchmark's setup. The measured code is
+        // still the real reveal dispatch below; tempo is only used here to keep
+        // current_epoch_with_lookahead() pinned to SubnetEpochIndex.
+        Subtensor::<T>::init_new_network(netuid, 0);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+        Subtensor::<T>::set_max_allowed_uids(netuid, 4096);
+        Subtensor::<T>::set_max_registrations_per_block(netuid, 4096);
+        Subtensor::<T>::set_target_registrations_per_interval(netuid, 4096);
+        Subtensor::<T>::set_weights_set_rate_limit(netuid, 0);
+        Subtensor::<T>::set_stake_threshold(0);
+        Subtensor::<T>::set_commit_reveal_weights_enabled(netuid, true);
+        Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_000_u64),
+        );
+
+        let reveal_period = core::cmp::max(MIN_COMMIT_REVEAL_PEROIDS, 1_u64);
+        assert_ok!(Subtensor::<T>::set_reveal_period(netuid, reveal_period));
+
+        let mut uids = Vec::with_capacity(uid_count as usize);
+        let mut weight_values = Vec::with_capacity(uid_count as usize);
+        let mut signer_hotkey: Option<T::AccountId> = None;
+
+        for seed in 0..uid_count {
+            let hotkey: T::AccountId = account("mechanism_reveal_hot", seed, 1);
+            let coldkey: T::AccountId = account("mechanism_reveal_cold", seed, 2);
+
+            Burn::<T>::insert(netuid, benchmark_registration_burn());
+            RegistrationsThisInterval::<T>::insert(netuid, 0);
+            fund_for_registration::<T>(netuid, &coldkey);
+
+            assert_ok!(Subtensor::<T>::burned_register(
+                RawOrigin::Signed(coldkey.clone()).into(),
+                netuid,
+                hotkey.clone(),
+            ));
+
+            let uid = Subtensor::<T>::get_uid_for_net_and_hotkey(netuid, &hotkey).unwrap();
+            Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+
+            if signer_hotkey.is_none() {
+                signer_hotkey = Some(hotkey.clone());
+            }
+            uids.push(uid);
+            weight_values.push(uid.saturating_add(1));
+        }
+
+        let hotkey = signer_hotkey.expect("at least one benchmark neuron is registered");
+        let salt: Vec<u16> = vec![u16::MAX; uid_count as usize];
+        let commit_hash = Subtensor::<T>::get_commit_hash(
+            &hotkey,
+            netuid_index,
+            &uids,
+            &weight_values,
+            &salt,
+            version_key,
+        );
+
+        // Worst-case the successful CR-v2 reveal queue. The valid commit is at
+        // the back of the bounded 10-entry queue, so reveal scans and drains the
+        // maximum prefix. These commits are intentionally non-expired: expired
+        // front entries are a failure path for this dispatch when the provided
+        // hash is among the drained hashes.
+        let commit_epoch = 0_u64;
+        let commit_block = Subtensor::<T>::get_current_block_as_u64();
+        let mut commits = VecDeque::new();
+        for i in 0..9_u8 {
+            let mut dummy_hash = H256::repeat_byte(i.saturating_add(1));
+            if dummy_hash == commit_hash {
+                dummy_hash = H256::repeat_byte(i.saturating_add(11));
+            }
+            commits.push_back((dummy_hash, commit_epoch, commit_block, 0));
+        }
+        commits.push_back((commit_hash, commit_epoch, commit_block, 0));
+        WeightCommits::<T>::insert(netuid_index, &hotkey, commits);
+
+        // With tempo 0, should_run_epoch() is false and current_epoch_with_lookahead()
+        // equals SubnetEpochIndex. Put the subnet exactly in the reveal epoch.
+        LastEpochBlock::<T>::insert(netuid, 0);
+        BlocksSinceLastStep::<T>::insert(netuid, 0);
+        PendingEpochAt::<T>::insert(netuid, 0);
+        SubnetEpochIndex::<T>::insert(netuid, reveal_period);
+
+        assert_eq!(
+            Subtensor::<T>::current_epoch_with_lookahead(netuid),
+            reveal_period
+        );
+        assert!(Subtensor::<T>::is_reveal_block_range(netuid, commit_epoch));
+        assert!(!Subtensor::<T>::is_commit_expired(netuid, commit_epoch));
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            netuid,
+            mecid,
+            uids,
+            weight_values,
+            salt,
+            version_key,
+        );
+    }
+
+    #[benchmark]
+    fn commit_crv3_mechanism_weights() {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, _uids, _weight_values, _salt, _version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+        let vec_commit: Vec<u8> = vec![u8::MAX; MAX_CRV3_COMMIT_SIZE_BYTES as usize];
+        let commit: BoundedVec<_, _> = vec_commit.try_into().unwrap();
+        let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        let mut existing = VecDeque::new();
+        for i in 0..9u64 {
+            existing.push_back((hotkey.clone(), 0, commit.clone(), i));
+        }
+        TimelockedWeightCommits::<T>::insert(netuid_index, epoch, existing);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            netuid,
+            mecid,
+            commit,
+            u64::MAX,
+        );
+    }
+
+    #[benchmark]
+    fn commit_timelocked_mechanism_weights() {
+        let mecid = subtensor_runtime_common::MechId::MAIN;
+        let (netuid, hotkey, _uids, _weight_values, _salt, _version_key) =
+            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+        let vec_commit: Vec<u8> = vec![u8::MAX; MAX_CRV3_COMMIT_SIZE_BYTES as usize];
+        let commit: BoundedVec<_, _> = vec_commit.try_into().unwrap();
+        let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
+        let epoch = Subtensor::<T>::current_epoch_with_lookahead(netuid);
+        let mut existing = VecDeque::new();
+        for i in 0..9u64 {
+            existing.push_back((hotkey.clone(), 0, commit.clone(), i));
+        }
+        TimelockedWeightCommits::<T>::insert(netuid_index, epoch, existing);
+        let version = Subtensor::<T>::get_commit_reveal_weights_version();
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            netuid,
+            mecid,
+            commit,
+            u64::MAX,
+            version,
+        );
+    }
+
+    #[benchmark]
+    fn swap_hotkey_v2() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let old_hotkey: T::AccountId = account("old_hotkey", 0, 1);
+        let new_hotkey: T::AccountId = account("new_hotkey", 0, 1);
+
+        for netuid_raw in 1..=GLOBAL_MAX_SUBNET_COUNT {
+            let netuid = NetUid::from(netuid_raw);
+            Subtensor::<T>::init_new_network(netuid, 1);
+            SubtokenEnabled::<T>::insert(netuid, true);
+            Subtensor::<T>::set_network_registration_allowed(netuid, true);
+            Burn::<T>::insert(netuid, benchmark_registration_burn());
+            seed_swap_reserves::<T>(netuid);
+            fund_for_registration::<T>(netuid, &coldkey);
+
+            assert_ok!(Subtensor::<T>::burned_register(
+                RawOrigin::Signed(coldkey.clone()).into(),
+                netuid,
+                old_hotkey.clone(),
+            ));
+
+            let alpha_amount = AlphaBalance::from(1_000_000_u64);
+            SubnetAlphaOut::<T>::insert(netuid, alpha_amount * 2.into());
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &old_hotkey,
+                &coldkey,
+                netuid,
+                alpha_amount,
+            );
+        }
+
+        Owner::<T>::insert(&old_hotkey, &coldkey);
+        let cost = Subtensor::<T>::get_key_swap_cost();
+        add_balance_to_coldkey_account::<T>(&coldkey, cost.into());
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            old_hotkey,
+            new_hotkey,
+            None,
+            false,
+        );
+    }
+
+    #[benchmark]
+    fn sudo_set_min_childkey_take() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, PerU16::from_parts(u16::MIN));
+    }
+
+    #[benchmark]
+    fn sudo_set_max_childkey_take() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, PerU16::from_parts(u16::MAX));
+    }
+
+    #[benchmark]
+    fn dissolve_network() {
+        let netuid = NetUid::from(1);
+        let (_hotkey, coldkey, _uids, _weights) =
+            setup_worst_case_registered_subnet::<T>("dissolve", netuid, 4096);
+        SubnetOwner::<T>::insert(netuid, coldkey.clone());
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, coldkey.clone(), netuid);
+    }
+
+    #[benchmark]
+    fn root_dissolve_network() {
+        let netuid = NetUid::from(1);
+        let (_hotkey, _coldkey, _uids, _weights) =
+            setup_worst_case_registered_subnet::<T>("root_dissolve", netuid, 4096);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid);
+    }
+
+    #[benchmark]
+    fn set_children(c: Linear<1, 5>) {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = account("children_cold", 0, 1);
+        let hotkey: T::AccountId = account("children_hot", 0, 1);
+        let mut children = Vec::with_capacity(c as usize);
+
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Burn::<T>::insert(netuid, benchmark_registration_burn());
+        seed_swap_reserves::<T>(netuid);
+        fund_for_registration::<T>(netuid, &coldkey);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            netuid,
+            hotkey.clone(),
+        ));
+
+        for seed in 0..c {
+            let child: T::AccountId = account("children_child", seed, 1);
+            children.push((u64::MAX / c as u64, child));
+        }
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey.clone()), hotkey, netuid, children);
+    }
+
+    #[allow(deprecated)]
+    #[benchmark]
+    fn schedule_swap_coldkey() {
+        let new_coldkey: T::AccountId = account("new_coldkey", 0, u32::MAX);
+
+        #[block]
+        {
+            assert!(
+                Subtensor::<T>::schedule_swap_coldkey(RawOrigin::Root.into(), new_coldkey).is_err()
+            );
+        }
+    }
+
+    #[benchmark]
+    fn enable_voting_power_tracking() {
+        let netuid = NetUid::from(1);
+        let owner: T::AccountId = whitelisted_caller();
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubnetOwner::<T>::insert(netuid, owner.clone());
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner.clone()), netuid);
+    }
+
+    #[benchmark]
+    fn disable_voting_power_tracking() {
+        let netuid = NetUid::from(1);
+        let owner: T::AccountId = whitelisted_caller();
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubnetOwner::<T>::insert(netuid, owner.clone());
+        assert_ok!(Subtensor::<T>::enable_voting_power_tracking(
+            RawOrigin::Signed(owner.clone()).into(),
+            netuid
+        ));
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner.clone()), netuid);
+    }
+
+    #[benchmark]
+    fn sudo_set_voting_power_ema_alpha() {
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, 1_000_000_000_000_000_000u64);
+    }
+
+    #[benchmark]
+    fn register_limit() {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = account("register_limit_cold", 0, 1);
+        let hotkey: T::AccountId = account("register_limit_hot", 0, 1);
+
+        setup_full_subnet_registration_benchmark::<T>(
+            netuid,
+            "register_limit_existing_hot",
+            "register_limit_existing_cold",
+        );
+        // Match `burned_register`: measure the collateral-enabled payment path.
+        CollateralLockShare::<T>::insert(netuid, MaxCollateralLockShare::<T>::get());
+        fund_for_registration::<T>(netuid, &coldkey);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey.clone()), netuid, hotkey, u64::MAX);
+    }
+
+    #[benchmark]
+    fn set_perpetual_lock() {
+        let netuid = NetUid::from(1);
+        let coldkey: T::AccountId = account("perpetual_cold", 0, 1);
+        let hotkey: T::AccountId = account("perpetual_hot", 0, 1);
+
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Burn::<T>::insert(netuid, benchmark_registration_burn());
+        seed_swap_reserves::<T>(netuid);
+        fund_for_registration::<T>(netuid, &coldkey);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            netuid,
+            hotkey.clone(),
+        ));
+        add_lock::<T>(&coldkey, netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey.clone()), netuid, true);
+    }
+
+    #[benchmark]
+    fn set_reject_locked_alpha() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        AccountFlags::<T>::insert(&coldkey, crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey.clone()), true);
     }
 
     impl_benchmark_test_suite!(

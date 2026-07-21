@@ -212,6 +212,8 @@ pub enum Hyperparameter {
     MinChildkeyTake = 29,
     ActivityCutoffFactorMilli = 30,
     TriggerEpoch = 31,
+    CollateralLockShare = 32,
+    CollateralDrainRatio = 33,
 }
 
 impl<T: Config> Pallet<T> {

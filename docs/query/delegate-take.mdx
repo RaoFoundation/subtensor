@@ -40,3 +40,11 @@ result = sub.read("delegate_take", hotkey_ss58="5F...")
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`SubtensorModule.Delegates`](/code/pallets/subtensor/src/lib.rs#L1300)
+- Storage [`SubtensorModule.MinDelegateTake`](/code/pallets/subtensor/src/lib.rs#L1273)
+- Storage [`SubtensorModule.MaxDelegateTake`](/code/pallets/subtensor/src/lib.rs#L1269)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

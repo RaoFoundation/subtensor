@@ -43,7 +43,13 @@ cat > "$tmp/bin/sccache" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
   --stop-server) exit 0 ;;
-  --start-server) [[ "${MOCK_START_FAIL:-false}" != true ]] ;;
+  --start-server)
+    [[ "${MOCK_START_FAIL:-false}" != true ]] || exit 1
+    if [[ "${MOCK_LOCAL_START_FAIL:-false}" == true && -n "${SCCACHE_MULTILEVEL_CHAIN:-}" ]]; then
+      exit 1
+    fi
+    exit 0
+    ;;
   --show-stats) printf 'Compile requests                     1\nCache write errors                   1\n'; exit 0 ;;
   *) exit 0 ;;
 esac
@@ -62,7 +68,7 @@ export SCCACHE_PATH="$tmp/bin/sccache"
 write_metadata() {
   local endpoint="${1:-https://3dc4cebb791314d78848969042fb3382.r2.cloudflarestorage.com}"
   cat > "$tmp/metadata.json" <<EOF
-{"bucket":"subtensor-ci-sccache","endpoint":"$endpoint","region":"auto","s3_use_ssl":true,"s3_rw_mode":"READ_ONLY","key_prefix":"subtensor/v1","access_key_id":"$ACCESS_KEY","secret_access_key":"$SECRET_KEY"}
+{"bucket":"subtensor-ci-sccache","endpoint":"$endpoint","region":"auto","s3_use_ssl":true,"s3_rw_mode":"READ_ONLY","key_prefix":"subtensor/v1","access_key_id":"$ACCESS_KEY","secret_access_key":"$SECRET_KEY","local":{"endpoint":"http://192.168.128.1:8092","key_prefix":"","username":"$ACCESS_KEY","password":"$SECRET_KEY"}}
 EOF
   export MOCK_METADATA="$tmp/metadata.json"
 }
@@ -71,7 +77,8 @@ reset_outputs() {
   : > "$tmp/output"
   : > "$tmp/env"
   rm -f "$tmp/config.json"
-  unset MOCK_MMDS_FAIL MOCK_START_FAIL SCCACHE_GHA_FALLBACK AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+  unset MOCK_MMDS_FAIL MOCK_START_FAIL MOCK_LOCAL_START_FAIL SCCACHE_GHA_FALLBACK
+  unset SCCACHE_LOCAL_TIER_MODE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
   export GITHUB_OUTPUT="$tmp/output"
   export GITHUB_ENV="$tmp/env"
   export GITHUB_EVENT_PATH="$tmp/event.json"
@@ -121,9 +128,31 @@ assert_contains "$tmp/env" 'RUSTC_WRAPPER=sccache'
 assert_contains "$tmp/env" 'CARGO_INCREMENTAL=0'
 assert_contains "$tmp/env" 'SCCACHE_S3_KEY_PREFIX=subtensor/v1'
 assert_contains "$tmp/env" 'SCCACHE_IGNORE_SERVER_IO_ERROR=1'
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=true'
+assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN=webdav,s3'
+assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=ignore'
+assert_contains "$tmp/env" 'SCCACHE_WEBDAV_ENDPOINT=http://192.168.128.1:8092'
 grep -v '^::add-mask::' "$tmp/activate.log" > "$tmp/activate-public.log"
 assert_not_contains "$tmp/activate-public.log" "$ACCESS_KEY"
 assert_not_contains "$tmp/activate-public.log" "$SECRET_KEY"
+
+write_metadata
+reset_outputs
+export SCCACHE_LOCAL_TIER_MODE=disabled
+"$CONFIGURE" prepare reader "$tmp/config.json" "$tmp/output" >/dev/null
+SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >/dev/null
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
+assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
+
+write_metadata
+reset_outputs
+"$CONFIGURE" prepare reader "$tmp/config.json" "$tmp/output" >/dev/null
+export MOCK_LOCAL_START_FAIL=true
+SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/local-start-fail.log"
+assert_contains "$tmp/output" 'enabled=true'
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
+assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
+assert_contains "$tmp/local-start-fail.log" 'retrying direct R2'
 
 reset_outputs
 export MOCK_MMDS_FAIL=true
@@ -165,13 +194,15 @@ export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-pr.log"
 assert_contains "$tmp/output" 'available=false'
 
+# Same-repo non-fork PRs must stay on reader mode even when writer credentials
+# are present in the environment (defense in depth against misconfigured jobs).
 reset_outputs
 write_pr_event RaoFoundation/subtensor false
 export AWS_ACCESS_KEY_ID=writer-access-key-test
 export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr.log"
 assert_contains "$tmp/output" 'available=true'
-assert_contains "$tmp/config.json" '"mode":"writer"'
+assert_contains "$tmp/config.json" '"mode":"reader"'
 
 for reader_case in fork dependabot malformed target missing-credentials partial-credentials malformed-credentials; do
   reset_outputs
@@ -222,10 +253,54 @@ assert_contains "$tmp/output" 'available=true'
 grep -v '^::add-mask::' "$tmp/writer-main.log" > "$tmp/writer-main-public.log"
 assert_not_contains "$tmp/writer-main-public.log" 'writer-access-key-test'
 assert_not_contains "$tmp/writer-main-public.log" 'writer-secret-key-test'
+assert_contains "$tmp/config.json" '"local":'
 SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/writer-activate.log"
 assert_contains "$tmp/output" 'enabled=true'
 assert_contains "$tmp/env" 'SCCACHE_BACKEND=r2'
 assert_contains "$tmp/env" 'RUSTC_WRAPPER=sccache'
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=true'
+assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN=webdav,s3'
+assert_contains "$tmp/env" 'SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=all'
+assert_contains "$tmp/env" 'AWS_ACCESS_KEY_ID=writer-access-key-test'
+assert_contains "$tmp/env" 'SCCACHE_WEBDAV_USERNAME=reader-access-key-test'
+
+write_metadata
+reset_outputs
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+export GITHUB_EVENT_NAME=push
+export GITHUB_REF=refs/heads/main
+"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >/dev/null
+export MOCK_LOCAL_START_FAIL=true
+SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >"$tmp/writer-local-start-fail.log"
+assert_contains "$tmp/output" 'enabled=true'
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
+assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
+assert_contains "$tmp/writer-local-start-fail.log" 'retrying direct R2'
+
+reset_outputs
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+export GITHUB_EVENT_NAME=push
+export GITHUB_REF=refs/heads/main
+export MOCK_MMDS_FAIL=true
+"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-local-unavailable.log"
+assert_contains "$tmp/output" 'available=true'
+assert_contains "$tmp/config.json" '"mode":"writer"'
+assert_not_contains "$tmp/config.json" '"local":'
+assert_contains "$tmp/writer-local-unavailable.log" 'using direct R2 writer'
+SCCACHE_INSTALL_OUTCOME=success "$CONFIGURE" activate "$tmp/config.json" "$tmp/env" "$tmp/output" >/dev/null
+assert_contains "$tmp/env" 'SCCACHE_LOCAL_TIER=false'
+assert_not_contains "$tmp/env" 'SCCACHE_MULTILEVEL_CHAIN='
+
+reset_outputs
+export AWS_ACCESS_KEY_ID=writer-access-key-test
+export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
+export GITHUB_EVENT_NAME=push
+export GITHUB_REF=refs/heads/main
+export SCCACHE_LOCAL_TIER_MODE=invalid
+"$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-invalid-local.log"
+assert_contains "$tmp/output" 'available=false'
 
 for untrusted_branch in bittensor-core-exploration codex/subtensor-r2-sccache; do
   for untrusted_event in push workflow_dispatch; do

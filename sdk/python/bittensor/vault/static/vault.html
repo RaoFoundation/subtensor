@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <!--
+    CSP: only this page's inline script and the esm.sh jsQR fallback (used
+    when the browser has no native BarcodeDetector) may run; images are the
+    QR frames btcli pushes as data: URIs; network access is limited to the
+    local session websocket.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'unsafe-inline' https://esm.sh; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://esm.sh; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bittensor Vault Signing</title>
+  <style>
+    /* Matches bittensor.com's light theme: white ground, #292929 ink, thin
+       dark borders, #2f46f4 accent, Haffer-style sans + DM Mono labels. */
+    :root {
+      color-scheme: light;
+      --background: #ffffff;
+      --ink: #292929;
+      --muted: #757575;
+      --line: #262626;
+      --line-soft: #e3e3e3;
+      --accent: #2f46f4;
+      --success: #49c24e;
+      --error: #d93737;
+      --sans: Haffer, HafferSQ, "Helvetica Neue", Arial, system-ui, -apple-system, sans-serif;
+      --mono: "DM Mono", FiraCode, "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--background);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    /* Top bar: same anatomy as bittensor.com's header — logo left in a
+       105px slot, mono uppercase items, status on the right where the
+       site puts its wallet widget, 32px padding. */
+    .topbar {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      padding: 32px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+    }
+
+    .topbar .logo {
+      width: 105px;
+      display: flex;
+      align-items: center;
+    }
+
+    .topbar .logo svg {
+      width: 21px;
+      height: 23px;
+      color: var(--ink);
+    }
+
+    .topbar .page-name {
+      flex-grow: 1;
+      display: flex;
+      justify-content: center;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+
+    .topbar .session {
+      width: 105px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .topbar .session .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+    }
+
+    body[data-state="signing"] .topbar .session .dot,
+    body[data-state="waiting"] .topbar .session .dot { background: var(--accent); }
+    body[data-state="scanned"] .topbar .session .dot,
+    body[data-state="complete"] .topbar .session .dot { background: var(--success); }
+    body[data-state="failed"] .topbar .session .dot,
+    body[data-state="error"] .topbar .session .dot { background: var(--error); }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(18rem, 26rem) minmax(18rem, 26rem);
+      align-items: start;
+      justify-content: center;
+      gap: clamp(1.5rem, 4vw, 3rem);
+      min-height: calc(100vh - 87px);
+      align-content: center;
+      padding: clamp(1.5rem, 5vw, 4rem);
+      padding-top: 0;
+    }
+
+    /* Address-import mode: one panel, centered. */
+    body.scan-only .shell {
+      grid-template-columns: minmax(18rem, 26rem);
+    }
+    body.scan-only #qr-panel {
+      display: none;
+    }
+
+    .status {
+      grid-column: 1 / -1;
+      justify-self: center;
+      text-align: center;
+      max-width: 44rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .status h1 {
+      margin: 0;
+      font-size: clamp(1.7rem, 3.4vw, 2.5rem);
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+
+    .status p {
+      margin: 0.7rem 0 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--background);
+    }
+
+    .panel-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 2.4rem;
+      padding: 0 0.9rem;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .panel-bar .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+    }
+
+    .panel-body {
+      padding: 1.1rem;
+      display: grid;
+      gap: 0.9rem;
+      justify-items: center;
+    }
+
+    .qr-frame {
+      width: 100%;
+      aspect-ratio: 1;
+      border: 1px solid var(--line-soft);
+      background: #ffffff;
+      display: grid;
+      place-items: center;
+    }
+
+    .qr-frame img {
+      width: 100%;
+      height: 100%;
+      image-rendering: pixelated;
+    }
+
+    .qr-frame .placeholder {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+
+    video {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      background: #0e0e0e;
+      border: 1px solid var(--line-soft);
+      display: block;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+      text-align: center;
+      margin: 0;
+    }
+
+    .hint a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid currentColor;
+    }
+
+    .meta {
+      width: 100%;
+      display: grid;
+      gap: 0.3rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--muted);
+      word-break: break-all;
+      border-top: 1px solid var(--line-soft);
+      padding-top: 0.9rem;
+    }
+
+    .meta b {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .frame-counter { font-family: var(--mono); }
+
+    body[data-state="scanned"] .panel-bar .dot,
+    body[data-state="complete"] .panel-bar .dot { background: var(--success); }
+    body[data-state="complete"] .panel { border-color: var(--success); }
+    body[data-state="failed"] .panel,
+    body[data-state="error"] .panel { border-color: var(--error); }
+    body[data-state="failed"] .status h1,
+    body[data-state="error"] .status h1 { color: var(--error); }
+
+    @media (max-width: 900px) {
+      .shell {
+        grid-template-columns: minmax(16rem, 26rem);
+      }
+    }
+  </style>
+</head>
+<body data-state="connecting">
+  <header class="topbar">
+    <div class="logo">
+      <a href="https://bittensor.com" target="_blank" rel="noreferrer" aria-label="Bittensor">
+        <!-- τ logo (website/packages/ui/assets/TaoLogo.svg) -->
+        <svg width="21" height="23" viewBox="0 0 21 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12.5309 17.7832V8.70318C12.5238 7.60933 12.0844 6.56266 11.3087 5.79143C10.533 5.02019 9.48378 4.58695 8.38991 4.58618V19.0972C8.38387 19.6135 8.48312 20.1256 8.6816 20.6023C8.88007 21.0789 9.17361 21.5102 9.54428 21.8696C9.91496 22.2291 10.355 22.5092 10.8376 22.6929C11.3201 22.8766 11.835 22.9601 12.3509 22.9382C13.3561 23.0064 14.353 22.7174 15.1659 22.1222C12.7769 21.8692 12.5309 20.4292 12.5309 17.7832Z" fill="currentColor"/>
+          <path d="M3.775 0.787109C2.77152 0.793711 1.81138 1.19698 1.10414 1.9089C0.396901 2.62083 -2.17165e-05 3.5836 8.91144e-10 4.58711H16.893C17.8965 4.58051 18.8566 4.17724 19.5639 3.46531C20.2711 2.75339 20.668 1.79062 20.668 0.787109H3.775Z" fill="currentColor"/>
+        </svg>
+      </a>
+    </div>
+    <div class="page-name" id="page-name">Vault signing</div>
+    <div class="session"><span class="dot" aria-hidden="true"></span><span id="session-state">local</span></div>
+  </header>
+  <main class="shell">
+    <div class="status">
+      <h1 id="headline">Connecting…</h1>
+      <p id="detail">Waiting for btcli.</p>
+    </div>
+
+    <section class="panel" id="qr-panel">
+      <div class="panel-bar"><span id="qr-panel-title">1 · scan with Vault</span><span class="dot" id="qr-dot"></span></div>
+      <div class="panel-body">
+        <div class="qr-frame" id="qr-frame"><span class="placeholder">waiting for transaction…</span></div>
+        <p class="hint" id="qr-hint">
+          Open Polkadot Vault on your phone and scan this code — it carries
+          its own metadata proof. If Vault reports an unknown network,
+          <a id="specs-toggle" href="#">show the add-network QR</a>, scan and
+          approve it once, then come back to the transaction. Full walkthrough
+          in the <a id="guide-link" href="https://www.bittensor.com/docs/guides/vault" target="_blank" rel="noreferrer">Vault guide</a>.
+        </p>
+        <div class="meta" id="meta"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="cam-panel">
+      <div class="panel-bar"><span id="cam-panel-title">2 · show the signature</span><span class="dot" id="cam-dot"></span></div>
+      <div class="panel-body">
+        <video id="camera" muted playsinline></video>
+        <p class="hint" id="cam-hint">
+          After you approve on the phone, Vault shows a signature QR —
+          hold it up to this camera.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    const headlineEl = document.getElementById("headline");
+    const detailEl = document.getElementById("detail");
+    const qrFrameEl = document.getElementById("qr-frame");
+    const metaEl = document.getElementById("meta");
+    const videoEl = document.getElementById("camera");
+    const guideLinkEl = document.getElementById("guide-link");
+    const camTitleEl = document.getElementById("cam-panel-title");
+    const camHintEl = document.getElementById("cam-hint");
+
+    const wsUrl = `ws://${location.host}/ws`;
+    const session = new URLSearchParams(location.search).get("session") || "";
+
+    let ws;
+    let frames = [];
+    let frameIdx = 0;
+    let frameTimer = null;
+    let scanning = false;
+    let finished = false;
+    let mediaStream = null;
+
+    const STATE_LABELS = {
+      connecting: "connecting",
+      waiting: "connected",
+      signing: "in progress",
+      scanned: "captured",
+      complete: "complete",
+      failed: "failed",
+      error: "error",
+    };
+
+    function setState(state) {
+      document.body.dataset.state = state;
+      document.getElementById("session-state").textContent = STATE_LABELS[state] || state;
+    }
+
+    function show(headline, detail) {
+      headlineEl.textContent = headline;
+      detailEl.textContent = detail;
+    }
+
+    function sendError(message) {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "error", message }));
+      }
+      setState("error");
+      show("Signing failed", message);
+    }
+
+    let showingSpecs = false;
+
+    function renderFrames() {
+      qrFrameEl.innerHTML = "";
+      if (frameTimer) clearInterval(frameTimer);
+      document.getElementById("frame-counter")?.remove();
+      const img = document.createElement("img");
+      if (showingSpecs) {
+        // The one-time add-network (chain specs) QR, served by the CLI
+        // itself — for phones that don't know the Bittensor network yet.
+        img.alt = "Bittensor add-network (chain specs) QR";
+        img.src = "/bittensor-chain-specs.png";
+        qrFrameEl.appendChild(img);
+        return;
+      }
+      if (!frames.length) {
+        qrFrameEl.innerHTML = '<span class="placeholder">waiting for transaction…</span>';
+        return;
+      }
+      img.alt = "transaction QR";
+      img.src = frames[frameIdx % frames.length];
+      qrFrameEl.appendChild(img);
+      if (frames.length > 1) {
+        frameTimer = setInterval(() => {
+          frameIdx = (frameIdx + 1) % frames.length;
+          img.src = frames[frameIdx];
+        }, 1500);
+        const counter = document.createElement("p");
+        counter.className = "hint frame-counter";
+        counter.id = "frame-counter";
+        counter.textContent = `animated QR — ${frames.length} frames, keep the phone steady`;
+        qrFrameEl.after(counter);
+      }
+    }
+
+    document.getElementById("specs-toggle").addEventListener("click", (event) => {
+      event.preventDefault();
+      showingSpecs = !showingSpecs;
+      event.target.textContent = showingSpecs
+        ? "back to the transaction QR"
+        : "show the add-network QR";
+      renderFrames();
+    });
+
+    let countdownTimer = null;
+
+    function renderCountdown(deadlineSeconds) {
+      if (countdownTimer) clearInterval(countdownTimer);
+      const el = document.getElementById("countdown");
+      if (!deadlineSeconds) { el.textContent = ""; return; }
+      const deadline = Date.now() + deadlineSeconds * 1000;
+      const tick = () => {
+        const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+        el.textContent = left > 0
+          ? `valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`
+          : "expired — switch back to btcli and re-run the command";
+        if (left <= 0) clearInterval(countdownTimer);
+      };
+      tick();
+      countdownTimer = setInterval(tick, 1000);
+    }
+
+    function renderMeta(summary) {
+      const rows = [];
+      if (summary.stage) rows.push(`<b>${escapeHtml(summary.stage)}</b>`);
+      if (summary.text) rows.push(`<b>${escapeHtml(summary.text)}</b>`);
+      rows.push(`signer <b>${escapeHtml(summary.address || "")}</b>`);
+      rows.push(`nonce <b>${summary.nonce}</b> · spec <b>${summary.specVersion}</b>`);
+      rows.push(`<span id="countdown"></span>`);
+      if (summary.hashed) {
+        rows.push(`<b>large call:</b> Vault will show only its hash (blind signing)`);
+      }
+      metaEl.innerHTML = rows.join("<br/>");
+      renderCountdown(summary.deadlineSeconds);
+      if (summary.guideUrl) guideLinkEl.href = summary.guideUrl;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = String(text);
+      return div.innerHTML;
+    }
+
+    // --- QR scanning ----------------------------------------------------------
+
+    const HEX_SIGNATURE = /^(0x)?[0-9a-fA-F]{128,130}$/;
+    // Vault key-details QR: "substrate:<ss58>:<genesis hash>[...]"; some
+    // wallets show the bare ss58 instead.
+    const SUBSTRATE_ADDRESS = /^substrate:[1-9A-HJ-NP-Za-km-z]{40,60}(:.*)?$/;
+    const BARE_SS58 = /^[1-9A-HJ-NP-Za-km-z]{40,60}$/;
+
+    let scanMode = "signature"; // or "text" (address import)
+
+    function finishScan(state, headline, detail, message) {
+      finished = true;
+      stopCamera();
+      setState(state);
+      show(headline, detail);
+      ws.send(JSON.stringify(message));
+    }
+
+    function handleDecoded(text) {
+      if (finished || !text) return;
+      const trimmed = text.trim();
+      if (trimmed.startsWith("secret:")) {
+        // Vault's seed-backup QR: never transmit it anywhere.
+        setState("error");
+        show(
+          "That is a SECRET seed QR",
+          "Do not show your seed backup to any camera. Nothing was sent. Show the address or signature QR instead."
+        );
+        return;
+      }
+      if (scanMode === "signature") {
+        if (!HEX_SIGNATURE.test(trimmed)) return; // not a signature QR; keep scanning
+        finishScan(
+          "scanned",
+          "Signature captured",
+          "Switch back to btcli — submitting the transaction.",
+          { type: "signature", signature: trimmed }
+        );
+        return;
+      }
+      if (!SUBSTRATE_ADDRESS.test(trimmed) && !BARE_SS58.test(trimmed)) return;
+      finishScan(
+        "complete",
+        "Address captured",
+        "Switch back to btcli — this tab closes itself in a moment.",
+        { type: "scanned", text: trimmed }
+      );
+      closeTabSoon("Address captured");
+    }
+
+    async function decoderLoop() {
+      let detect;
+      if ("BarcodeDetector" in window) {
+        const detector = new BarcodeDetector({ formats: ["qr_code"] });
+        detect = async () => {
+          const codes = await detector.detect(videoEl).catch(() => []);
+          return codes[0]?.rawValue ?? null;
+        };
+      } else {
+        const { default: jsQR } = await import("https://esm.sh/jsqr@1.4.0");
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        detect = async () => {
+          if (!videoEl.videoWidth) return null;
+          canvas.width = videoEl.videoWidth;
+          canvas.height = videoEl.videoHeight;
+          ctx.drawImage(videoEl, 0, 0);
+          const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          return jsQR(image.data, image.width, image.height)?.data ?? null;
+        };
+      }
+      while (scanning && !finished) {
+        try {
+          const text = await detect();
+          if (text) handleDecoded(text);
+        } catch { /* transient decode errors: keep scanning */ }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+
+    async function startCamera() {
+      if (scanning) return;
+      scanning = true;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (error) {
+        // Not fatal: fix camera permissions and reload — the session survives
+        // and btcli re-sends the request to the reloaded tab.
+        scanning = false;
+        camHintEl.textContent =
+          `Camera access failed (${error.message || error}). Allow camera access ` +
+          "for this page in the browser settings, then reload this tab.";
+        return;
+      }
+      videoEl.srcObject = mediaStream;
+      await videoEl.play().catch(() => {});
+      decoderLoop();
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (mediaStream) {
+        for (const track of mediaStream.getTracks()) track.stop();
+        mediaStream = null;
+      }
+      videoEl.srcObject = null;
+    }
+
+    // --- websocket ----------------------------------------------------------
+
+    function handleMessage(message) {
+      if (message.type === "sign-request") {
+        // A session may sign several extrinsics back to back (MEV shielding
+        // signs an inner and an outer): reset the capture state each time.
+        finished = false;
+        scanMode = "signature";
+        document.body.classList.remove("scan-only");
+        frames = message.frames || [];
+        frameIdx = 0;
+        renderFrames();
+        renderMeta(message.summary || {});
+        setState("signing");
+        const stage = message.summary?.stage;
+        show(
+          stage ? `Scan and approve — ${stage}` : "Scan and approve",
+          "Scan the QR with Polkadot Vault, approve, then show the signature to the camera."
+        );
+        startCamera();
+      } else if (message.type === "warm-up") {
+        setState("signing");
+        show("Get ready", "Unlock Polkadot Vault and open its scanner — the transaction QR appears here in a moment.");
+        startCamera();
+      } else if (message.type === "scan-request") {
+        scanMode = "text";
+        document.body.classList.add("scan-only");
+        document.getElementById("page-name").textContent = "Vault address import";
+        camTitleEl.textContent = "show the address QR";
+        camHintEl.textContent =
+          message.prompt || "Show the QR from your phone to this camera.";
+        setState("signing");
+        show("Show the QR", "Open the key in Polkadot Vault and hold its address QR up to the camera.");
+        startCamera();
+      } else if (message.type === "result") {
+        finished = true;
+        stopCamera();
+        if (frameTimer) clearInterval(frameTimer);
+        setState(message.success ? "complete" : "failed");
+        show(
+          message.success ? "Transaction complete" : "Transaction failed",
+          message.success ? "This tab closes itself in a moment." : "Switch back to btcli for details."
+        );
+        if (message.success) {
+          closeTabSoon("Transaction complete");
+        }
+      }
+    }
+
+    // Close this tab once the flow is done. Browsers only let a script close
+    // tabs it (or an external opener) created with no further history — which
+    // is exactly how btcli opens this page. If the browser refuses, fall back
+    // to telling the user.
+    function closeTabSoon(headline, delayMs = 1200) {
+      setTimeout(() => {
+        window.close();
+        setTimeout(() => {
+          if (!document.hidden) {
+            show(headline, "You can close this tab.");
+          }
+        }, 400);
+      }, delayMs);
+    }
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ role: "vault", session }));
+        setState("waiting");
+        show("Connected", "Waiting for the transaction from btcli…");
+      };
+      ws.onclose = (event) => {
+        if (finished) return;
+        if (event.code === 1008 || event.code === 1012) {
+          // Stale or replaced session: this tab can do nothing further, so
+          // try to get out of the way instead of piling up.
+          setState("error");
+          show("Stale session", "A fresh tab opens with the next btcli run.");
+          setTimeout(() => window.close(), 800);
+          return;
+        }
+        setState("connecting");
+        show("Reconnecting…", "Lost the btcli connection.");
+        setTimeout(connect, 1500);
+      };
+      ws.onmessage = (event) => {
+        try {
+          handleMessage(JSON.parse(event.data));
+        } catch { /* ignore malformed frames */ }
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>

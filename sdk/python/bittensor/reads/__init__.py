@@ -16,6 +16,7 @@ that inherits dispatch + catalog + the generated CLI ``query`` command.
 from . import (  # noqa: F401  (imported for registration side effects)
     accounts,
     chain,
+    collateral,
     delegation,
     epochs,
     hyperparameters,

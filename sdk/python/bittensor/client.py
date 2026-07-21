@@ -34,6 +34,7 @@ from .multisig import Multisig
 from .namespaces import (
     Balances,
     Chain,
+    Collateral,
     Delegation,
     Epochs,
     Hyperparameters,
@@ -186,6 +187,7 @@ class Client:
         # and Snapshot; assigned explicitly so type checkers see each attribute.)
         self.balances = Balances(self)
         self.chain = Chain(self)
+        self.collateral = Collateral(self)
         self.delegation = Delegation(self)
         self.epochs = Epochs(self)
         self.hyperparameters = Hyperparameters(self)
@@ -582,6 +584,10 @@ class Client:
     async def block(self) -> int:
         """Current chain block number."""
         return await self._substrate.block_number()
+
+    async def spec_version(self) -> int:
+        """The connected runtime's ``spec_version`` (at the chain head)."""
+        return await self._substrate.spec_version()
 
     async def at(self, block: Optional[int] = None) -> Snapshot:
         """A read-only view pinned to ``block`` (defaults to the current head).

@@ -750,6 +750,11 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<TaoBalance, DispatchError> {
+        // Refuse to strip conviction-locked or collateral-bonded alpha even when
+        // callers (e.g. alpha fee withdrawal) skip the remove-stake validators.
+        Self::ensure_available_to_unstake(coldkey, netuid, alpha)?;
+        Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha)?;
+
         //  Decrease alpha on subnet
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
 
@@ -979,8 +984,17 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
-        // Transfer lock (may fail if destination coldkey has a conflicting lock)
-        Self::transfer_lock(origin_coldkey, destination_coldkey, netuid, alpha)?;
+        // Transfer lock (may fail if destination coldkey has a conflicting lock).
+        // The lock must follow the stake to the destination hotkey, otherwise a
+        // hotkey-changing transfer would leave the recipient's lock and conviction
+        // stranded on the origin hotkey.
+        Self::transfer_lock(
+            origin_coldkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+        )?;
 
         // Decrease alpha on origin keys
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
@@ -995,6 +1009,12 @@ impl<T: Config> Pallet<T> {
                 origin_coldkey,
                 alpha,
             );
+        }
+
+        // If the destination coldkey does not own the destination hotkey, make the
+        // hotkey a delegate, matching the cross-subnet transfer path.
+        if Self::get_owning_coldkey_for_hotkey(destination_hotkey) != *destination_coldkey {
+            Self::maybe_become_delegate(destination_hotkey);
         }
 
         // Increase alpha on destination keys
@@ -1021,9 +1041,9 @@ impl<T: Config> Pallet<T> {
             .saturating_to_num::<u64>()
             .into();
 
-        // Ensure tao_equivalent is above DefaultMinStake
+        // Ensure tao_equivalent is above the minimum transfer amount
         ensure!(
-            tao_equivalent >= DefaultMinStake::<T>::get(),
+            tao_equivalent >= DefaultMinTransfer::<T>::get(),
             Error::<T>::AmountTooLow
         );
 
@@ -1197,6 +1217,9 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that unstaked amount is not greater than available to unstake (due to locks)
         Self::ensure_available_to_unstake(coldkey, netuid, alpha_unstaked)?;
+        // Collateral is per-hotkey: free stake on a sibling hotkey must not cover
+        // stripping the bonded position.
+        Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha_unstaked)?;
 
         Ok(())
     }
@@ -1309,14 +1332,18 @@ impl<T: Config> Pallet<T> {
         // If origin and destination netuid are different, do the swap-related checks
         if origin_netuid != destination_netuid {
             // Ensure that the stake amount to be removed is above the minimum in tao equivalent.
+            // Transfers (check_transfer_toggle == true) have their own minimum, detached from
+            // the staking minimum used by moves and swaps.
+            let min_amount = if check_transfer_toggle {
+                DefaultMinTransfer::<T>::get()
+            } else {
+                DefaultMinStake::<T>::get()
+            };
             let order = GetTaoForAlpha::<T>::with_amount(alpha_amount);
             let tao_equivalent = T::SwapInterface::sim_swap(origin_netuid.into(), order)
                 .map(|res| res.amount_paid_out)
                 .map_err(|_| Error::<T>::InsufficientLiquidity)?;
-            ensure!(
-                tao_equivalent > DefaultMinStake::<T>::get(),
-                Error::<T>::AmountTooLow
-            );
+            ensure!(tao_equivalent > min_amount, Error::<T>::AmountTooLow);
 
             // Ensure that if partial execution is not allowed, the amount will not cause
             // slippage over desired
@@ -1345,7 +1372,24 @@ impl<T: Config> Pallet<T> {
         // cover the lock.
         if origin_netuid != destination_netuid {
             Self::ensure_available_to_unstake(origin_coldkey, origin_netuid, alpha_amount)?;
+        } else if origin_coldkey != destination_coldkey {
+            // Same-subnet, ownership-changing transfer. Conviction locks follow the
+            // stake to the destination coldkey via `transfer_lock`, but miner
+            // registration collateral has no transfer exit and does not follow — its
+            // `MinerCollateral(netuid, hotkey, coldkey)` stays on the origin. Without
+            // this check, a coldkey could liberate locked collateral by transferring the
+            // staked alpha to a second coldkey. Require the origin coldkey to retain
+            // enough alpha on the subnet to still cover its collateral.
+            Self::ensure_transfer_respects_collateral(origin_coldkey, origin_netuid, alpha_amount)?;
         }
+        // Always keep bonded alpha on the origin hotkey itself (same-subnet moves
+        // to a sibling hotkey would otherwise leave a ghost metagraph bond).
+        Self::ensure_hotkey_covers_collateral(
+            origin_coldkey,
+            origin_hotkey,
+            origin_netuid,
+            alpha_amount,
+        )?;
 
         Ok(())
     }

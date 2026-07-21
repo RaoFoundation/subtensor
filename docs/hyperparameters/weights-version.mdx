@@ -10,11 +10,17 @@ sending an old version key — has its weights rejected until it upgrades.
 
 ## How it works
 
-Every `set_weights` call carries a `version_key` argument. The chain compares
-it in `check_version_key` (`pallets/subtensor/src/subnets/weights.rs`): the
+Every
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+call carries a `version_key` argument. The chain compares
+it in
+[`check_version_key`](/code/pallets/subtensor/src/subnets/weights.rs#L1013-L1019)
+(`pallets/subtensor/src/subnets/weights.rs`): the
 submission passes when the subnet's `WeightsVersionKey` is 0 (the gate is
 disabled) or when the submitted key is greater than or equal to it. Otherwise
-the call fails with `IncorrectWeightVersionKey`. The value itself is opaque to
+the call fails with
+[`IncorrectWeightVersionKey`](/code/pallets/subtensor/src/macros/errors.rs#L83).
+The value itself is opaque to
 the chain — it is a plain u64 counter whose meaning is a convention between
 the owner and their validator codebase.
 

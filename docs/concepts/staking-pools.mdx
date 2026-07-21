@@ -14,8 +14,9 @@ fact. This page explains the machinery; the
 ## The pool
 
 Each subnet's pool is a **weighted balancer pool** (a generalization of the
-constant-product AMM): two reserves, TAO (`SubnetTAO`) and alpha
-(`SubnetAlphaIn`), plus a pair of weights $w_1 + w_2 = 1$. The spot price is
+constant-product AMM): two reserves, TAO ([`SubnetTAO`](/code/pallets/subtensor/src/lib.rs#L1377)) and alpha
+([`SubnetAlphaIn`](/code/pallets/subtensor/src/lib.rs#L1419)), plus a pair of weights $w_1 + w_2 = 1$. The spot price
+([`calculate_price`](/code/pallets/swap/src/pallet/balancer.rs#L220-L228)) is
 
 $$
 p = \frac{w_1 \cdot \text{TAO reserve}}{w_2 \cdot \text{alpha reserve}}
@@ -42,7 +43,7 @@ each slice of your order fills at a slightly worse price than the last.
 
 <StakingPoolSwapDemo />
 
-The math lives in `pallets/swap/src/pallet/balancer.rs`; quotes over RPC use
+The math lives in [`pallets/swap/src/pallet/balancer.rs`](/code/pallets/swap/src/pallet/balancer.rs); quotes over RPC use
 exactly the same path ([`quote-stake`](/docs/query/quote-stake),
 [`quote-unstake`](/docs/query/quote-unstake)), so a quote is a faithful
 simulation, not an estimate.
@@ -58,12 +59,12 @@ position. Step through it:
 
 Points worth pinning down:
 
-- **The fee comes off the input side first.** Amount × `FeeRate`/65535
+- **The fee comes off the input side first.** Amount × [`FeeRate`](/code/pallets/swap/src/pallet/mod.rs#L96)/65535
   (default 33 ≈ 0.05%, per-subnet) is deducted before the swap and paid to
   the block author — TAO when staking, alpha when unstaking.
 - **The swap updates both reserves.** Your TAO enters `SubnetTAO`, alpha
   leaves the pool's side (`SubnetAlphaIn`) and joins the staked total
-  (`SubnetAlphaOut`). The price after your trade is the new reserve ratio —
+  ([`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424)). The price after your trade is the new reserve ratio —
   your own trade moved it.
 - **The position is alpha, not TAO.** From the moment the swap settles, the
   position's TAO value floats with the pool price, and it earns the
@@ -153,7 +154,7 @@ imbalance; this is the reason the pools are weighted at all. Reserves only
 grow through injection and trading — stake swaps in TAO, unstake swaps it
 back out — and the pool refuses trades that would drain a reserve below a
 minimum, and rejects single swaps larger than 1,000× the TAO reserve
-(`InsufficientLiquidity`).
+([`InsufficientLiquidity`](/code/pallets/swap/src/pallet/mod.rs#L151)).
 
 ## Reading the pool
 

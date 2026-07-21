@@ -6,6 +6,7 @@ import json
 import re
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 
@@ -23,7 +24,8 @@ from ...intents import (
     Transfer,
 )
 from ...keyfiles import WrongPasswordError
-from ...settings import resolve_endpoint
+from ...settings import BLOCKTIME, resolve_endpoint
+from ...timelock import format_duration
 from .. import multisig_helpers as ms_helpers
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals, with_unlock_globals
@@ -1352,8 +1354,42 @@ def swap_check(
     """Check pending coldkey swap announcement."""
     app_ctx: AppContext = ctx_of(ctx)
     owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-    announcement = app_ctx.run(lambda c: c.read("coldkey_swap_announcement", coldkey_ss58=owner))
-    app_ctx.output.detail("coldkey swap status", announcement or {"status": "none"})
+
+    async def _status(client):
+        announcement = await client.read("coldkey_swap_announcement", coldkey_ss58=owner)
+        if announcement is None:
+            return None, None
+        return announcement, await client.block()
+
+    announcement, current_block = app_ctx.run(_status)
+    if announcement is None:
+        app_ctx.output.detail("coldkey swap status", {"status": "none"})
+        return
+
+    blocks_remaining = announcement["execute_block"] - current_block
+    if blocks_remaining <= 0:
+        executable = "now (waiting period elapsed)"
+    else:
+        wait = timedelta(seconds=blocks_remaining * BLOCKTIME)
+        eta = datetime.now().astimezone() + wait
+        if wait >= timedelta(minutes=1):
+            rounded = timedelta(minutes=round(wait.total_seconds() / 60))
+        else:
+            rounded = wait
+        executable = f"in ~{format_duration(rounded)} ({eta:%Y-%m-%d %H:%M %Z})"
+
+    app_ctx.output.detail(
+        "coldkey swap status",
+        {
+            "execute_block": announcement["execute_block"],
+            "current_block": current_block,
+            "blocks_remaining": max(0, blocks_remaining),
+            "executable": executable,
+            "new_coldkey_hash": announcement["new_coldkey_hash"],
+            "disputed": announcement["disputed"],
+            "dispute_block": announcement["dispute_block"],
+        },
+    )
 
 
 @app.command("announce-coldkey-swap", rich_help_panel=PANEL_SECURITY)

@@ -71,9 +71,8 @@ impl Verifier for QuicknetVerifier {
                 .map_err(|e| format!("Failed to decode public key: {e}"))?;
 
         // decode signature (sigma)
-        let signature =
-            ArkScale::<G1AffineOpt>::decode(&mut pulse.signature.into_inner().as_slice())
-                .map_err(|e| format!("Failed to decode signature: {e}"))?;
+        let signature = ArkScale::<G1AffineOpt>::decode(&mut pulse.signature.as_slice())
+            .map_err(|e| format!("Failed to decode signature: {e}"))?;
 
         // m = sha256({} || {round})
         let message = message(pulse.round, &[]);

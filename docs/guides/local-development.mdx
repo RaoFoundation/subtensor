@@ -67,10 +67,10 @@ On macOS, two prerequisites before building: Apple Silicon needs Rosetta
 Homebrew.
 
 `localnet.sh` builds with the `pow-faucet` cargo feature (the `FEATURES` line
-in the script), which enables the `faucet` extrinsic — disabled on mainnet —
+in the script), which enables the [`faucet`](/code/pallets/subtensor/src/macros/dispatches.rs#L1028-L1039) extrinsic — disabled on mainnet —
 so you can mint test TAO to any coldkey with a small proof-of-work. The grant
 is 1,000 TAO per call, a hardcoded constant in the registration pallet
-(`pallets/subtensor/src/subnets/registration.rs`) you can edit for more.
+([`pallets/subtensor/src/subnets/registration.rs`](/code/pallets/subtensor/src/subnets/registration.rs)) you can edit for more.
 
 ## Connect
 

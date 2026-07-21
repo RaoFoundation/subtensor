@@ -15,7 +15,7 @@ the pure proxy and anything it holds.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.create_pure` |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.create_pure`](/code/pallets/proxy/src/lib.rs#L330-L364) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("create_pure_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L332`](/code/pallets/proxy/src/lib.rs#L332):
+`Proxy.create_pure` — [`pallets/proxy/src/lib.rs#L332`](/code/pallets/proxy/src/lib.rs#L330-L364):
 
 ```rust
 #[pallet::call_index(4)]
