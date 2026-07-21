@@ -174,6 +174,16 @@ export const IStakingV2ABI = [
                 name: "netuid",
                 type: "uint256",
             },
+            {
+                internalType: "uint256",
+                name: "cursor",
+                type: "uint256",
+            },
+            {
+                internalType: "uint256",
+                name: "limit",
+                type: "uint256",
+            },
         ],
         name: "getStakeInfoForColdkeyAndNetuid",
         outputs: [
@@ -193,6 +203,11 @@ export const IStakingV2ABI = [
                 internalType: "struct IStaking.StakeInfo[]",
                 name: "positions",
                 type: "tuple[]",
+            },
+            {
+                internalType: "uint256",
+                name: "nextCursor",
+                type: "uint256",
             },
         ],
         stateMutability: "view",

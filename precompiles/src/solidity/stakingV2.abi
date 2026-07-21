@@ -103,6 +103,16 @@
         "internalType": "uint256",
         "name": "netuid",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "cursor",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "limit",
+        "type": "uint256"
       }
     ],
     "name": "getStakeInfoForColdkeyAndNetuid",
@@ -123,6 +133,11 @@
         "internalType": "struct IStaking.StakeInfo[]",
         "name": "positions",
         "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "nextCursor",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",

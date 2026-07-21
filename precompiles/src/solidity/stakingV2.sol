@@ -158,17 +158,31 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
-     * @dev Returns the coldkey's non-zero alpha stake positions on `netuid`.
-     * Hotkeys with no stake on that subnet are omitted.
+     * @dev Returns one bounded page of the coldkey's non-zero alpha stake positions
+     * on `netuid`. The cursor addresses the coldkey's historical staking-hotkey
+     * index, so a page can be empty while `nextCursor` is non-zero when every
+     * hotkey in that page has zero stake on the requested subnet.
+     *
+     * Begin with `cursor = 0`, use a `limit` from 1 through 64, and continue with
+     * the returned `nextCursor` until it is zero. This bounds storage decoding and
+     * gas consumption even when a coldkey has an arbitrarily large history.
      *
      * @param coldkey The coldkey public key (32 bytes).
      * @param netuid The subnet to query.
-     * @return positions The coldkey's hotkeys and alpha stake amounts on `netuid`.
+     * @param cursor The zero-based historical hotkey index at which to start.
+     * @param limit The maximum historical hotkeys to scan (1 through 64).
+     * @return positions Non-zero hotkey and alpha stake pairs found in this page.
+     * @return nextCursor The cursor for the next page, or zero when complete.
      */
     function getStakeInfoForColdkeyAndNetuid(
         bytes32 coldkey,
-        uint256 netuid
-    ) external view returns (StakeInfo[] memory positions);
+        uint256 netuid,
+        uint256 cursor,
+        uint256 limit
+    ) external view returns (
+        StakeInfo[] memory positions,
+        uint256 nextCursor
+    );
 
     /**
      * @dev Delegates staking to a proxy account.
