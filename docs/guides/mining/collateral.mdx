@@ -178,13 +178,15 @@ conservatively — absence should never improve a score.
 
 ## Worked examples
 
-### A subnet deters tail-risk farming
+### A trading subnet deters tail-risk farming
 
 Netuid 42 rewards trading signals by Sortino ratio. The metric is blind to
 strategies that sell tail risk: a martingale posts a top-percentile score for
 months, farms emissions, then blows up. Under pure burn (price τ10), a farmer
 who collects τ80 of emissions before the blow-up nets τ70 per cycle and
 repeats with a fresh hotkey.
+
+<TradingCollateralExample />
 
 The owner sets `p = 90%` and `k = 0.2`:
 
@@ -229,12 +231,14 @@ async with bt.Subtensor() as client:
     await client.execute(bt.SetWeights(netuid=42, weights=normalize(scores)), wallet)
 ```
 
-### A GPU marketplace with per-machine deposits
+### A GPU marketplace with per-machine deposits (Lium)
 
-The Lium pattern: miners bring machines, each machine must be backed by a
-deposit, pulling a rented machine forfeits it, and an honest departure winds
-down cleanly. The chain provides amount-agnostic rails; the *per-machine*
-policy lives in validator code.
+The [Lium](https://lium.io) pattern: miners bring machines, each machine must
+be backed by a deposit, pulling a rented machine forfeits it, and an honest
+departure winds down cleanly. The chain provides amount-agnostic rails; the
+*per-machine* policy lives in validator code.
+
+<LiumCollateralExample />
 
 **Owner config** — a modest registration bond plus deposit-friendly drain:
 

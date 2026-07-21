@@ -1,4 +1,6 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
+import {LiumCollateralDiagram} from '@/components/docs/collateral-lium-diagram';
+import {TradingCollateralDiagram} from '@/components/docs/collateral-trading-diagram';
 import {Link} from '@raofoundation/ui';
 import type {Metadata} from 'next';
 import {Suspense} from 'react';
@@ -477,67 +479,111 @@ btcli sudo set --netuid 42 --name collateral_drain_ratio --value 1.0    # k = 1`
               <strong>Anti-tail-risk (p = 83–90%, k = 0.2–0.5)</strong> — for subnets whose
               scoring can be gamed on short horizons (trading, forecasting): a large lock with
               a slow drain keeps your fastest <i>apparent</i> earners collateralized through
-              your detection window. The guide works this example against a Sortino-scored
-              trading market.
+              your detection window.
             </li>
             <li>
               <strong>Fast release (p = 67%, k = 2)</strong> — a capital gate at entry with
               minimal ongoing lockup, for lower-stakes work.
             </li>
           </ol>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Example · trading-signals subnet</p>
           <p>
-            <strong>Worked example — a trading-signals subnet.</strong> Say miners submit
-            equity trades and validators score a rolling Sortino ratio. The metric is blind
-            to tail risk: a martingale that quietly sells crash insurance posts a
+            Miners submit equity trades; validators score a rolling Sortino ratio. The metric
+            is blind to tail risk: a martingale that quietly sells crash insurance posts a
             top-percentile score for months, farms emissions, then blows up. Under pure burn
-            (price τ10) the farmer nets ~τ70 a cycle and just re-registers a fresh hotkey. Set{' '}
-            <code>collateral_lock_share = 90%</code> and{' '}
+            (price τ10) the farmer nets ~τ70 a cycle and just re-registers a fresh hotkey.
+            Set <code>collateral_lock_share = 90%</code> and{' '}
             <code>collateral_drain_ratio = 0.2</code>:
           </p>
           <pre className={styles.code_block}>
             {`btcli sudo set --netuid 42 --name collateral_lock_share --value 0.9    # p = 90%
 btcli sudo set --netuid 42 --name collateral_drain_ratio --value 0.2    # k = 0.2`}
           </pre>
+          <TradingCollateralDiagram className={styles.graph} />
+          <p className={styles.graph_caption}>
+            Same registration price on both sides. Pure burn lets the farmer forget for the
+            next burn alone. With p = 90% and k = 0.2 the τ9 lock is still mostly intact when
+            validators stop scoring after the blow-up, so the remainder strands. Break-even
+            before detection is E* = T ÷ (1 + k) ≈ τ8.3.
+          </p>
           <p>
             Registration still costs the same floating τ10 — now τ1 burned, τ9 swapped into
             locked alpha. Here p = 90% ≥ k/(1+k) ≈ 17%, so break-even is{' '}
             <code>E* = T ÷ (1 + k) ≈ τ8.3</code> in emissions <i>before</i> your validators
-            stop scoring the hotkey, and the slow k&nbsp;=&nbsp;0.2 drain keeps ~τ9 at risk
-            deep into the run — so the blow-up strands the bond. An honest miner with a real
-            edge is barely affected: τ1 sunk, and the τ9 lock releases steadily as they earn.
-            The subnet never had to fix Sortino; it just made the tail risk expensive to hide.
+            stop scoring the hotkey, and the slow drain keeps ~τ9 at risk deep into the run.
+            An honest miner with a real edge is barely affected: τ1 sunk, and the τ9 lock
+            releases steadily as they earn. The subnet never had to fix Sortino; it just made
+            the tail risk expensive to hide.
           </p>
           <p>
             The payoff curve makes the deflection concrete. Net profit per
             register-farm-banned cycle is <code>E + min(k·E, p·T) − T</code> with the bond
             versus <code>E − X</code> for a pure burn — where E is emissions farmed before the
-            ban and T is the TAO registration price (the lock is the AMM&apos;s resulting
-            alpha). Setting profit to zero yields{' '}
-            <code>E* = max(T ÷ (1 + k), (1 − p)·T)</code>. Below the break-even line the
-            strategy loses money, so the further right the curve crosses zero, the more a
-            farmer must extract before detection just to recover their costs:
+            ban and T is the TAO registration price. Setting profit to zero yields{' '}
+            <code>E* = max(T ÷ (1 + k), (1 − p)·T)</code>:
           </p>
           <AdversaryProfitGraph />
           <p className={styles.graph_caption}>
-            Illustrative preset in TAO units (α on the axes is emissions / pool value at the
-            same scale): burned share X = τ100, lock share p = 83% (sticker price T = X ÷ (1 −
-            p) ≈ τ600), drain k = 0.5. Since p ≥ k/(1+k), E* = T ÷ (1 + k) = τ400 — four times
-            the pure-burn bar of τ100. If p were below k/(1+k), break-even would instead sit
-            at the burned share (1 − p)·T. If the drain has not yet released the bond by the
-            time the ban lands, the remainder is forfeit on top.
+            Illustrative preset: burned share X = τ100, lock share p = 83% (sticker price T =
+            X ÷ (1 − p) ≈ τ600), drain k = 0.5. Since p ≥ k/(1+k), E* = T ÷ (1 + k) = τ400 —
+            four times the pure-burn bar of τ100. If the drain has not yet released the bond
+            by the time the ban lands, the remainder is forfeit on top.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Example · Lium GPU marketplace</p>
+          <p>
+            Resource subnets like{' '}
+            <a className={styles.inline_link} href='https://lium.io' target='_blank' rel='noreferrer'>
+              Lium
+            </a>{' '}
+            need more than a registration bond: each machine a miner brings should be backed
+            by a deposit, pulling a rented machine should forfeit it, and an honest departure
+            should wind down cleanly. The chain stays amount-agnostic; the per-machine policy
+            lives in validator code. Owner config is a modest registration bond plus a
+            deposit-friendly drain:
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli sudo set --netuid 51 --name collateral_lock_share --value 0.5    # p = 50%
+btcli sudo set --netuid 51 --name collateral_drain_ratio --value 1.0    # k = 1`}
+          </pre>
+          <p>
+            Publish the rule off chain as{' '}
+            <strong>25α of collateral per machine</strong>, and have miners fund it with the
+            two deposit extrinsics. Four machines means a 100α floor:
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli collateral add --netuid 51 --amount-tao 100 -w my_coldkey -H my_hotkey
+btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`}
+          </pre>
+          <LiumCollateralDiagram className={styles.graph} />
+          <p className={styles.graph_caption}>
+            Four GPUs × 25α = 100α required. <code>add_collateral</code> funds the lock;{' '}
+            <code>set_min_collateral</code> parks the floor so the drain cannot undercut the
+            deposit. Clear the floor and keep serving rentals to wind down; pull a rented
+            machine and the score goes to zero, freezing whatever is left.
           </p>
           <p>
-            Two properties make this safe to adopt. Both parameters are{' '}
+            Validators enforce coverage from the metagraph alone. Every neuron row already
+            carries <code>collateral_locked</code>, <code>collateral_min</code>, and{' '}
+            <code>collateral_earned</code>, so under-collateralized hotkeys get zero weight
+            and no new rentals. An exiting miner clears the floor, finishes existing jobs
+            while still scored, and the ordinary drain returns the deposit. Pulling mid-rental
+            strands it. Full owner, miner, and validator code for both this pattern and the
+            trading example is in the{' '}
+            <DocLink href='/docs/guides/mining/collateral'>collateral guide</DocLink>.
+          </p>
+          <p>
+            Two properties make collateral safe to adopt on any subnet. Both parameters are{' '}
             <strong>snapshot per miner at registration</strong>, so changing them never
-            re-prices standing collateral — there is no way to retroactively lock or rug
-            incumbents. And enforcement needs no new machinery: your validators&apos; existing
-            power to stop evaluating a hotkey is the blacklist, stake-weighted by construction
-            and reversible if they resume scoring. One requirement on the validator side: key
-            scoring state by <strong>hotkey</strong>, not UID, and persist it across
-            deregistrations, so a track record cannot be laundered by cycling registration.
-            Full details, worked examples, and budgeting notes for miners are in the{' '}
-            <DocLink href='/docs/guides/mining/collateral'>collateral guide</DocLink> and the{' '}
-            <DocLink href='/docs/guides/mining'>mining guide</DocLink>.
+            re-prices standing locks. Enforcement needs no ban extrinsic: validators stop
+            scoring a hotkey, stake-weighted by construction and reversible if they resume.
+            Key scoring state by <strong>hotkey</strong>, not UID, and persist it across
+            deregistrations so a track record cannot be laundered by cycling registration.
           </p>
         </section>
 
