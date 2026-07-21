@@ -80,54 +80,124 @@ Your `k` is **snapshot at registration** into your collateral entry: owner
 changes to the drain ratio apply to future registrations, never to your
 standing lock.
 
-### Voluntary collateral and the self-maintaining floor
+### Voluntary collateral: `add_collateral` and `set_min_collateral`
 
-Beyond the registration lock, two miner-initiated extrinsics let a subnet run
+Beyond the registration lock, two miner-initiated calls let a subnet run
 deposit-style policies (for example, "post X alpha per machine you bring"):
 
-- [`add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs)
-  locks about the given TAO-value of additional collateral on your own
-  hotkey: free alpha already staked there is used first (at the subnet
-  moving price), and only the shortfall is bought with TAO. Same lock, same
-  drain, same persistence across deregistration and credit on
-  re-registration.
-- [`set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L299-L342)
-  sets a **floor** the lock self-maintains around: the drain never releases
-  below it, and while the lock is under it, your earned incentive is captured
-  into the lock until the floor is met. Without a floor, tracking a
-  validator-published requirement means re-locking whatever the drain
-  releases every tempo; with one, the chain does it for you. Zero clears the
-  floor.
+| Call | What it does | Units |
+|------|--------------|-------|
+| [`add_collateral`](/docs/tx/add-collateral) | Lock more alpha on your own hotkey | TAO-value in, alpha locked |
+| [`set_min_collateral`](/docs/tx/set-min-collateral) | Set a self-maintaining floor under the lock | alpha |
+
+Both require the signing coldkey to own the hotkey. Neither is a subnet
+hyperparameter: owners publish the required amount off chain (docs, validator
+code); miners fund and park it; validators enforce by reading the metagraph
+and refusing to score under-collateralized hotkeys. The full Lium-style
+pattern is in
+[a GPU marketplace with per-machine deposits](#a-gpu-marketplace-with-per-machine-deposits-lium)
+below.
+
+#### `add_collateral`
+
+[`add_collateral`](/docs/tx/add-collateral) tops up the hotkey's locked
+collateral by about the TAO-value you pass. Funding order:
+
+1. **Free stake first.** Alpha already staked on that `(hotkey, coldkey)`
+   position, above what is already locked, is reclassified as collateral at
+   the subnet's moving price. No swap, no slip.
+2. **Buy the shortfall.** Only the remainder is bought with coldkey TAO
+   (keep-alive fill-or-kill: a partial buy that would leave you under ED
+   fails with `NotEnoughBalanceToStake`).
+
+The new lock joins the same entry as registration collateral: same drain
+ratio snapshot (or the subnet's current `k` if this is your first lock on
+the hotkey), same persistence across deregistration, same credit on
+re-registration. There is still no withdrawal path other than earned
+incentive.
 
 ```bash
-btcli collateral add --netuid 42 --amount-tao 50 -w my_coldkey -H my_hotkey
-btcli collateral set-min --netuid 42 --min-alpha 45 -w my_coldkey -H my_hotkey
-btcli collateral show --netuid 42 -H my_hotkey     # your lock, floor, and the subnet policy
-btcli collateral list --netuid 42                  # every miner's collateral (what validators read)
+# Prefer the collateral subcommand; btcli tx add-collateral is equivalent.
+btcli collateral add --netuid 51 --amount-tao 100 -w my_coldkey -H my_hotkey
+btcli collateral add --netuid 51 --amount-tao all -w my_coldkey -H my_hotkey --dry-run
 ```
 
 ```python
-await client.execute(bt.AddCollateral(netuid=42, amount_tao=50), wallet)
-await client.execute(bt.SetMinCollateral(netuid=42, min_alpha=45), wallet)
-state = await client.collateral.miner_collateral(netuid=42, hotkey_ss58=wallet.hotkey_address)
+await client.execute(
+    bt.AddCollateral(netuid=51, amount_tao=100, hotkey_ss58=wallet.hotkey_address),
+    wallet,
+)
 ```
 
-The floor is per-miner state, not a subnet hyperparameter: adequacy
-enforcement stays with validators, who read
-[`subnet_collateral`](/docs/query/subnet-collateral) and refuse to score
-miners whose lock is below the subnet's published requirement. Raising the
-floor above your current lock needs no fresh capital — the shortfall fills
-from future incentive — but validators see your actual lock, not your floor,
-so fund immediately with `add_collateral` when coverage matters now.
+Emits `CollateralLocked { locked, total_locked }` for the amount just added.
+Fails with `AmountTooLow` if the TAO-value converts to zero alpha,
+`NonAssociatedColdKey` if you don't own the hotkey, `StakeUnavailable` if
+free stake moved out from under the preflight, or the usual staking errors
+when buying the shortfall.
 
-The full pattern — owner config, miner flow, validator enforcement code, and
-the exit protocol — is worked through in
-[a GPU marketplace with per-machine deposits](#a-gpu-marketplace-with-per-machine-deposits)
-below.
+#### `set_min_collateral`
 
-The whole lifecycle in one picture — drag the sliders to see how the lock
-share, drain ratio, and your earning rate shape the bond, and switch to the
-blacklisted scenario to see what stranding looks like:
+[`set_min_collateral`](/docs/tx/set-min-collateral) sets a **floor**
+(`min_locked`) the lock self-maintains around. It does not move stake by
+itself:
+
+```
+released each tempo = min(locked − min_locked, k × incentive)   # never below the floor
+while locked < min_locked: earned incentive is captured into the lock until the floor is met
+```
+
+Without a floor, tracking a validator-published requirement means re-running
+`add_collateral` every tempo as the drain releases headroom. With one, the
+chain parks the lock and tops it up from incentive when it dips. **Zero
+clears the floor** and restores pure drain behavior (the exit step in the
+Lium wind-down).
+
+```bash
+btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey
+btcli collateral set-min --netuid 51 --min-alpha 0 -w my_coldkey -H my_hotkey   # clear
+```
+
+```python
+await client.execute(
+    bt.SetMinCollateral(netuid=51, min_alpha=100, hotkey_ss58=wallet.hotkey_address),
+    wallet,
+)
+```
+
+Emits `MinCollateralSet { min_locked }`. Raising the floor above your current
+lock needs no fresh capital: the shortfall fills from future incentive. But
+validators see your **actual** `collateral_locked`, not your floor, so fund
+with `add_collateral` when coverage must hold now (before the next scored
+tempos).
+
+Typical sequence for a deposit policy:
+
+```bash
+btcli collateral add --netuid 51 --amount-tao 100 -w my_coldkey -H my_hotkey
+btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey
+btcli collateral show --netuid 51 -H my_hotkey
+btcli collateral list --netuid 51                  # what validators read
+```
+
+```python
+await client.execute(bt.AddCollateral(netuid=51, amount_tao=100), wallet)
+await client.execute(bt.SetMinCollateral(netuid=51, min_alpha=100), wallet)
+state = await client.collateral.miner_collateral(
+    netuid=51, hotkey_ss58=wallet.hotkey_address,
+)
+# state["locked_alpha"], ["min_locked_alpha"], ["earned_alpha"], ["headroom_alpha"], ...
+```
+
+Query the same fields on-chain with
+[`miner-collateral`](/docs/query/miner-collateral) (one position) or
+[`subnet-collateral`](/docs/query/subnet-collateral) (every entry on the
+subnet, including dormant bonds). Registered neurons also expose
+`collateral_locked`, `collateral_min`, and `collateral_earned` on the
+[`metagraph`](/docs/query/metagraph).
+
+The whole lifecycle in one picture. Drag the sliders for lock share, drain
+ratio, floor, and a mid-career `add_collateral`, and switch to the blacklisted
+scenario to see stranding:
 
 <CollateralLifecycle />
 
@@ -439,6 +509,10 @@ hyperparameter changes.
 ## Related
 
 [Registration burn](/docs/guides/mining/burn),
+[`add_collateral`](/docs/tx/add-collateral),
+[`set_min_collateral`](/docs/tx/set-min-collateral),
+[`miner-collateral`](/docs/query/miner-collateral),
+[`subnet-collateral`](/docs/query/subnet-collateral),
 [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share),
 [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio),
 [emissions](/docs/concepts/emissions)

@@ -16,7 +16,9 @@ payment buys depends on the subnet's configuration:
   entry fee. See [registration burn](/docs/guides/mining/burn).
 - Subnets can instead lock a share of the price as **collateral** — stake
   attached to your hotkey that you earn back by mining. See
-  [registration collateral](/docs/guides/mining/collateral).
+  [registration collateral](/docs/guides/mining/collateral). Some also ask
+  for extra deposits via [`add_collateral`](/docs/tx/add-collateral) and a
+  floor via [`set_min_collateral`](/docs/tx/set-min-collateral).
 
 Mining (and validating) is not supported on Windows. Wallet operations work
 under WSL 2, but run miners on Linux or macOS.
