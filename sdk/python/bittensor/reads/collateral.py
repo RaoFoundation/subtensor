@@ -26,9 +26,7 @@ def _fixed_to_float(value: Any) -> float:
     return int(value or 0) / 2**64
 
 
-def _collateral_record(
-    view, netuid: int, hotkey: str, coldkey: str, state: Any
-) -> Optional[dict]:
+def _collateral_record(view, netuid: int, hotkey: str, coldkey: str, state: Any) -> Optional[dict]:
     if not isinstance(state, dict):
         return None
     locked = int(state.get("locked") or 0)

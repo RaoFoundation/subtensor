@@ -93,14 +93,10 @@ class SetMinCollateral(Intent):
     wraps = (("SubtensorModule", "set_min_collateral"),)
 
     netuid: int = field(metadata={"help": "Subnet the floor applies to."})
-    min_alpha: Money = field(
-        metadata={"help": "The floor, in the subnet's alpha. Zero clears it."}
-    )
+    min_alpha: Money = field(metadata={"help": "The floor, in the subnet's alpha. Zero clears it."})
     hotkey_ss58: Optional[str] = field(
         default=None,
-        metadata={
-            "help": "Miner hotkey the floor applies to. Defaults to the wallet hotkey."
-        },
+        metadata={"help": "Miner hotkey the floor applies to. Defaults to the wallet hotkey."},
     )
 
     def __post_init__(self):

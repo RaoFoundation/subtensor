@@ -46,6 +46,8 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"owner_cut_enabled",
     b"owner_cut_auto_lock_enabled",
     b"min_childkey_take",
+    b"collateral_lock_share",
+    b"collateral_drain_ratio",
 ];
 
 fn find<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {

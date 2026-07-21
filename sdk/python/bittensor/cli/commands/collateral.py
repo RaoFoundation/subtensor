@@ -44,9 +44,7 @@ def show_collateral(
     # Omit → read looks up the hotkey owner. Only resolve when the user
     # explicitly passed a coldkey (address-book name, wallet, or ss58).
     coldkey = (
-        app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-        if coldkey_ss58 is not None
-        else None
+        app_ctx.resolve_address("coldkey_ss58", coldkey_ss58) if coldkey_ss58 is not None else None
     )
 
     async def _op(client):
