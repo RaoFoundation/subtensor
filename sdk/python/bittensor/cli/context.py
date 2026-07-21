@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Awaitable, Callable, Optional, TypeVar
 
 import typer
@@ -485,7 +486,12 @@ class AppContext:
         wallet = self.wallet()
         self._register_local_names(wallet)
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
-        summary = intent.summary() + (f" [as {proxy_for} via proxy]" if proxy_for else "")
+        registration_quote = None
+        summary = intent.summary()
+        if intent.op == "register_subnet":
+            registration_quote = self.run(lambda client: client.read("subnet_registration_cost"))
+            summary += f" for {registration_quote.decimal:,f} TAO"
+        summary += f" [as {proxy_for} via proxy]" if proxy_for else ""
         if shield:
             summary += " [MEV-shielded]"
 
@@ -541,6 +547,60 @@ class AppContext:
         else:
             self.confirm(f"{summary}?")
 
+        # Native keyfiles unlock synchronously on their first signature.  Do it
+        # before starting the registration status display so an encrypted
+        # coldkey's password prompt remains visible and usable.  Reuse the
+        # unlocked keypair for planning/signing; otherwise the lazy SDK signer
+        # would prompt underneath the live spinner and appear to hang forever.
+        local_signer = None
+        if intent.op == "register_subnet" and not self.uses_external_signer():
+            signing_key = wallets.signing_keypair(
+                wallet,
+                intent.signer,
+                password_file=self.wallet_password_file,
+                macos_prompt=self.macos_password,
+                keychain=self.keychain_password,
+            )
+            try:
+                hotkey = wallet.hotkeypub
+            except FileNotFoundError:
+                hotkey = wallet.hotkey
+            # Keep the wallet shape because register_subnet defaults its hotkey
+            # from it, while replacing the signing side with the keypair that
+            # was already unlocked above.
+            local_signer = SimpleNamespace(
+                coldkey=signing_key,
+                coldkeypub=wallet.coldkeypub,
+                hotkey=hotkey,
+            )
+
+        def activity_update(_text: str, _announce: bool = False) -> None:
+            pass
+
+        def _registration_progress(progress: dict) -> None:
+            stage = progress.get("stage")
+            cleanup = progress.get("deregistered_netuid") or progress.get("cleanup_netuid")
+            if stage == "queued":
+                if progress.get("deregistered_netuid") is not None:
+                    text = f"capacity is full · deregistering subnet {cleanup} before registration"
+                elif cleanup is not None:
+                    text = f"registration queued · waiting for subnet {cleanup} cleanup"
+                else:
+                    text = "registration queued · waiting for deregistration cleanup"
+                activity_update(text, True)
+            elif stage == "waiting":
+                subject = f"subnet {cleanup} cleanup" if cleanup is not None else "cleanup"
+                activity_update(
+                    f"{subject} · block {progress.get('block')} · waiting for NetworkAdded",
+                    False,
+                )
+            elif stage == "registered":
+                activity_update(
+                    f"NetworkAdded · subnet {progress.get('netuid')} · "
+                    f"block {progress.get('block')}",
+                    False,
+                )
+
         async def _execute(client):
             use_shield = shield
             if use_shield and await client.read("mev_shield_next_key") is None:
@@ -561,7 +621,7 @@ class AppContext:
                     "[dim]MEV shield is not active on this network — submitting unshielded[/dim]"
                 )
                 use_shield = False
-            signer = await self.resolve_signing_wallet(intent.signer)
+            signer = local_signer or await self.resolve_signing_wallet(intent.signer)
             if use_shield and self.uses_vault_signer():
                 # Shielded signing runs against an 8-block (~96 s) era, and
                 # a shielded submission means two QR scans (the shielded
@@ -577,17 +637,25 @@ class AppContext:
             result = None
             try:
                 if use_shield:
+                    shield_options = {"wait_for_finalization": False}
+                    if intent.op == "register_subnet":
+                        shield_options["on_progress"] = _registration_progress
                     result = await client.submit_shielded(
                         intent,
                         signer,
-                        wait_for_finalization=False,
+                        **shield_options,
                     )
                 else:
+                    execute_options = {
+                        "wait_for_finalization": False,
+                        **options,
+                    }
+                    if intent.op == "register_subnet":
+                        execute_options["on_progress"] = _registration_progress
                     result = await client.execute(
                         intent,
                         signer,
-                        wait_for_finalization=False,
-                        **options,
+                        **execute_options,
                     )
                     await self._attach_multisig_followup(client, intent, result)
                 return result
@@ -600,8 +668,30 @@ class AppContext:
                 if hasattr(signer, "close"):
                     await signer.close()
 
-        result = self.run(_execute)
-        if not self.output.result(result, summary):
+        if intent.op == "register_subnet":
+            with self.output.activity("submitting subnet registration") as update:
+                activity_update = update
+                result = self.run(_execute)
+            if (
+                result.success
+                and registration_quote is not None
+                and "registration_price_rao" not in result.data
+            ):
+                result = replace(
+                    result,
+                    data={
+                        **result.data,
+                        "registration_price_rao": registration_quote.rao,
+                    },
+                )
+        else:
+            result = self.run(_execute)
+        rendered = (
+            self.output.registration_result(result)
+            if intent.op == "register_subnet"
+            else self.output.result(result, summary)
+        )
+        if not rendered:
             if shield and result.data.get("shielded") is not True:
                 # The failure happened at (or before) the encrypted pool
                 # submission, so the shield itself may be the blocker.

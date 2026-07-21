@@ -353,6 +353,37 @@ class Output:
         if not self.quiet and not self.json_mode:
             self._err.print(text)
 
+    @contextlib.contextmanager
+    def activity(self, initial: str):
+        """Transient stderr spinner with a quiet, non-TTY fallback.
+
+        The yielded updater accepts ``(text, announce=False)``. Interactive
+        terminals animate in place; redirected human output only prints
+        meaningful announced phase changes. JSON and quiet modes stay silent.
+        """
+        if self.quiet or self.json_mode:
+            yield lambda _text, announce=False: None
+            return
+        if self._err.is_terminal:
+            with self._err.status(
+                self.linked_prose(initial, STYLE_HINT),
+                spinner="dots",
+                spinner_style=STYLE_HINT,
+            ) as status:
+                yield lambda text, announce=False: status.update(
+                    self.linked_prose(text, STYLE_HINT)
+                )
+            return
+
+        announced: set[str] = set()
+
+        def update(text: str, announce: bool = False) -> None:
+            if announce and text not in announced:
+                announced.add(text)
+                self.message(text)
+
+        yield update
+
     def value(self, payload: Any) -> None:
         """Emit an arbitrary already-JSON-friendly value (used by generic query).
 
@@ -1558,6 +1589,45 @@ class Output:
         else:
             self._print_failure(result)
         return result.success
+
+    def registration_result(self, result: ExtrinsicResult) -> bool:
+        """Render the two-phase subnet-registration result compactly."""
+        if self.json_mode or not result.success or "netuid" not in result.data:
+            return self.result(result, "register a new subnet")
+
+        netuid = int(result.data["netuid"])
+        line = Text()
+        line.append(f"{GLYPH_OK} ", style=STYLE_SUCCESS)
+        line.append_text(self.linked_prose(f"subnet {netuid} registered", STYLE_SUCCESS))
+        self._out.print(line)
+
+        mode = result.data.get("registration_mode")
+        if mode == "after_deregistration":
+            prior = result.data.get("deregistered_netuid") or result.data.get("cleanup_netuid")
+            flow = "queued · registered after deregistration"
+            if prior is not None:
+                flow += f" of subnet {prior}"
+        else:
+            flow = "immediate · no deregistration needed"
+
+        fields: dict[str, Any] = {
+            "netuid": netuid,
+            "flow": flow,
+        }
+        if result.data.get("registration_price_rao") is not None:
+            fields["price"] = self.balance(int(result.data["registration_price_rao"]))
+        if result.data.get("queued_at_block") is not None:
+            fields["queued block"] = result.data["queued_at_block"]
+        if result.data.get("registered_at_block") is not None:
+            fields["registered block"] = result.data["registered_at_block"]
+        if result.fee is not None:
+            fields["fee"] = result.fee
+        if result.extrinsic_id:
+            fields["registration tx"] = result.extrinsic_id
+        if result.explorer_url:
+            fields["explorer"] = result.explorer_url
+        self._print_fields(fields)
+        return True
 
     def _print_failure(self, result: ExtrinsicResult) -> None:
         """Rustc diagnostic anatomy: ``error[code]:`` states what went wrong,

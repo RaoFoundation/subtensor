@@ -8,6 +8,7 @@ the ``BTCLI_*`` env vars — a test can never touch the real ``~/.bittensor``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import pytest
@@ -193,3 +194,187 @@ class TestTransactions:
         assert result.exit_code == 1
         payload = json.loads(result.output)
         assert payload["success"] is False
+
+    def test_subnet_create_json_reports_immediate_registration(self, fake: FakeSubstrate):
+        from dataclasses import replace
+
+        from tests.harness.fake_substrate import success_result
+
+        event = {
+            "event": {
+                "module_id": "SubtensorModule",
+                "event_id": "NetworkAdded",
+                "attributes": [8, 1],
+            }
+        }
+        fake.queue_result(replace(success_result(), events=[event]))
+
+        result = invoke("--json", "--yes", "subnets", "create")
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["data"]["netuid"] == 8
+        assert payload["data"]["registration_mode"] == "immediate"
+
+    def test_subnet_create_human_output_explains_immediate_flow(self, fake: FakeSubstrate):
+        from dataclasses import replace
+
+        from tests.harness.fake_substrate import success_result
+
+        event = {
+            "event": {
+                "module_id": "SubtensorModule",
+                "event_id": "NetworkAdded",
+                "attributes": [8, 1],
+            }
+        }
+        fake.queue_result(replace(success_result(), events=[event]))
+        fake.seed("SubtensorModule", "SubnetLocked", [8], 2_500_000_000)
+
+        result = invoke("--yes", "subnets", "create")
+
+        assert result.exit_code == 0, result.output
+        assert "subnet 8 registered" in result.output
+        assert "immediate · no deregistration needed" in result.output
+        assert "price  τ2.500000000" in result.output
+
+    def test_subnet_create_confirmation_includes_live_price(self, fake: FakeSubstrate, monkeypatch):
+        from dataclasses import replace
+
+        from tests.harness.fake_substrate import success_result
+
+        fake.seed_runtime(
+            "SubnetRegistrationRuntimeApi", "get_network_registration_cost", 2_500_000_000
+        )
+        fake.seed("SubtensorModule", "SubnetLocked", [8], 2_500_000_000)
+        fake.queue_result(
+            replace(
+                success_result(),
+                events=[
+                    {
+                        "event": {
+                            "module_id": "SubtensorModule",
+                            "event_id": "NetworkAdded",
+                            "attributes": [8, 1],
+                        }
+                    }
+                ],
+            )
+        )
+
+        prompts = []
+        real_confirm = cli_context.AppContext.confirm
+
+        def tracked_confirm(self, prompt):
+            prompts.append(prompt)
+            return real_confirm(self, prompt)
+
+        monkeypatch.setattr(cli_context.AppContext, "confirm", tracked_confirm)
+        result = invoke("--yes", "subnets", "create")
+
+        assert result.exit_code == 0, result.output
+        assert prompts == ["register a new subnet for 2.5 TAO?"]
+        assert "price  τ2.500000000" in result.output
+
+    def test_subnet_create_unlocks_before_starting_activity(self, fake: FakeSubstrate, monkeypatch):
+        from dataclasses import replace
+
+        from bittensor.cli.output import Output
+        from tests.harness.fake_substrate import success_result
+
+        fake.queue_result(
+            replace(
+                success_result(),
+                events=[
+                    {
+                        "event": {
+                            "module_id": "SubtensorModule",
+                            "event_id": "NetworkAdded",
+                            "attributes": [8, 1],
+                        }
+                    }
+                ],
+            )
+        )
+        order = []
+        real_signing_keypair = wallets.signing_keypair
+        real_activity = Output.activity
+
+        def tracked_signing_keypair(*args, **kwargs):
+            order.append("unlock")
+            return real_signing_keypair(*args, **kwargs)
+
+        @contextlib.contextmanager
+        def tracked_activity(self, initial):
+            order.append("activity")
+            with real_activity(self, initial) as update:
+                yield update
+
+        monkeypatch.setattr(wallets, "signing_keypair", tracked_signing_keypair)
+        monkeypatch.setattr(Output, "activity", tracked_activity)
+
+        result = invoke("--yes", "subnets", "create")
+
+        assert result.exit_code == 0, result.output
+        assert order == ["unlock", "activity"]
+
+    def test_subnet_create_waits_and_explains_deregistration(
+        self, fake: FakeSubstrate, wallet_dir: str
+    ):
+        from dataclasses import replace
+
+        from tests.harness.fake_substrate import success_result
+
+        wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
+        coldkey = wallet.coldkeypub.ss58_address
+        hotkey = wallet.hotkey.ss58_address
+        fake.queue_result(
+            replace(
+                success_result(),
+                events=[
+                    {
+                        "extrinsic_idx": 1,
+                        "event": {
+                            "module_id": "SubtensorModule",
+                            "event_id": "NetworkRemoved",
+                            "attributes": 6,
+                        },
+                    },
+                    {
+                        "extrinsic_idx": 1,
+                        "event": {
+                            "module_id": "SubtensorModule",
+                            "event_id": "NetworkRegistrationQueued",
+                            "attributes": {
+                                "coldkey": coldkey,
+                                "hotkey": hotkey,
+                                "registration_block": 100,
+                            },
+                        },
+                    },
+                ],
+            )
+        )
+        fake.seed("SubtensorModule", "SubnetOwner", [6], coldkey)
+        fake.seed("SubtensorModule", "SubnetOwnerHotkey", [6], hotkey)
+        fake.seed_events(
+            102,
+            [
+                {
+                    "phase": "Finalization",
+                    "extrinsic_idx": None,
+                    "event": {
+                        "module_id": "SubtensorModule",
+                        "event_id": "NetworkAdded",
+                        "attributes": [6, 1],
+                    },
+                }
+            ],
+        )
+
+        result = invoke("--yes", "subnets", "create")
+
+        assert result.exit_code == 0, result.output
+        assert "capacity is full · deregistering subnet 6 before registration" in result.output
+        assert "subnet 6 registered" in result.output
+        assert "queued · registered after deregistration of subnet 6" in result.output
