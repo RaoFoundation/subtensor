@@ -1225,12 +1225,17 @@ mod pallet_benchmarks {
         );
         ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, already_locked);
 
+        // Bound at max so the measured path still exercises the buy leg;
+        // production callers pass spot × (1 + tolerance).
+        let limit_price = T::SwapInterface::max_price();
+
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             netuid,
             hot.clone(),
             collateral_tao,
+            limit_price,
         );
     }
 

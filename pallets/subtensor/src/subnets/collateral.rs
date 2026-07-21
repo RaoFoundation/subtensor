@@ -207,6 +207,28 @@ impl<T: Config> Pallet<T> {
         TaoBalance::from(requirement_tao.saturating_sub(locked_value_tao))
     }
 
+    /// Worst alpha price (RAO per alpha) accepted for a collateral AMM buy.
+    ///
+    /// Spot × (1 + 5%). Callers that already took a user-supplied limit (e.g.
+    /// `add_collateral`) should pass that through instead; this bound is for
+    /// registration paths that have no separate AMM limit argument.
+    pub fn collateral_purchase_limit_price(netuid: NetUid) -> Result<TaoBalance, DispatchError> {
+        let spot = T::SwapInterface::current_alpha_price(netuid);
+        ensure!(
+            spot > U64F64::saturating_from_num(0),
+            Error::<T>::InsufficientLiquidity
+        );
+        // 5% above spot, in RAO-per-alpha (same units as `add_stake_limit`).
+        let limited = spot
+            .saturating_mul(U64F64::saturating_from_num(105))
+            .safe_div(U64F64::saturating_from_num(100));
+        let as_rao = limited
+            .saturating_mul(U64F64::saturating_from_num(1_000_000_000u64))
+            .saturating_to_num::<u64>();
+        ensure!(as_rao > 0, Error::<T>::InsufficientLiquidity);
+        Ok(TaoBalance::from(as_rao))
+    }
+
     /// Pay the registration charge as one transfer + one swap, then split the
     /// resulting alpha by the TAO weights of the burned share vs collateral
     /// top-up.
@@ -231,8 +253,16 @@ impl<T: Config> Pallet<T> {
         }
 
         let tao_paid = Self::transfer_tao_to_subnet(netuid, coldkey, total_charge)?;
-        let swap_result =
-            Self::swap_tao_for_alpha(netuid, tao_paid, T::SwapInterface::max_price(), false)?;
+        // Bound the AMM fill whenever any of the charge is collateral. A naked
+        // `max_price()` lets a delayed/shielded inclusion clear at an
+        // arbitrarily worse rate; burn-only registrations keep the historical
+        // unbounded path (the burn share is destroyed, not kept as a position).
+        let limit_price = if collateral_topup.is_zero() {
+            T::SwapInterface::max_price()
+        } else {
+            Self::collateral_purchase_limit_price(netuid)?
+        };
+        let swap_result = Self::swap_tao_for_alpha(netuid, tao_paid, limit_price, false)?;
 
         // Fee to block author (same as `stake_into_subnet`).
         let maybe_block_author_coldkey = T::AuthorshipProvider::author();
@@ -454,13 +484,15 @@ impl<T: Config> Pallet<T> {
     /// valued at the subnet moving-average price, same as re-registration
     /// credit — and only buys the shortfall with TAO. Keeps the existing
     /// drain-ratio snapshot: a top-up is not a new registration and does not
-    /// re-price the contract. The buy leg uses the same fill-or-kill
-    /// preflight as `add_stake`, and the whole path is transactional.
+    /// re-price the contract. The buy leg is fill-or-kill against
+    /// `limit_price` (same units as `add_stake_limit`), and the whole path is
+    /// transactional.
     pub fn do_add_collateral(
         origin: OriginFor<T>,
         netuid: NetUid,
         hotkey: T::AccountId,
         tao: TaoBalance,
+        limit_price: TaoBalance,
     ) -> dispatch::DispatchResult {
         let coldkey = ensure_signed(origin)?;
         ensure!(
@@ -538,12 +570,18 @@ impl<T: Config> Pallet<T> {
                 }
 
                 if !tao_to_buy.is_zero() {
+                    // Preflight the limit the same way as `add_stake_limit` so a
+                    // too-tight bound fails before transferring TAO.
+                    let max_amount: TaoBalance =
+                        Self::get_max_amount_add(netuid, limit_price)?.into();
+                    ensure!(tao_to_buy <= max_amount, Error::<T>::SlippageTooHigh);
+
                     let bought = Self::stake_into_subnet(
                         &hotkey,
                         &coldkey,
                         netuid,
                         tao_to_buy,
-                        T::SwapInterface::max_price(),
+                        limit_price,
                         false,
                     )?;
                     ensure!(!bought.is_zero(), Error::<T>::AmountTooLow);

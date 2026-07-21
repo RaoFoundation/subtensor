@@ -429,20 +429,41 @@ class AppContext:
         # default. `forced` distinguishes "the user asked for shielding" (hard
         # failure when it can't be honored) from "the built-in stake default"
         # (downgraded with a notice when the chain or flow can't shield).
+        # `mev_shield_required` intents (collateral AMM buys) refuse the
+        # unshielded opt-out entirely.
         configured_shield = cfg.get("mev_shield")
-        if self.mev_shield is not None:
+        if intent.mev_shield_required:
+            if self.mev_shield is False or configured_shield is False:
+                self.output.error(
+                    f"{intent.op} must be submitted MEV-shielded",
+                    help=(
+                        "collateral / burned-registration AMM fills cannot run "
+                        "unshielded; omit --no-mev-shield"
+                    ),
+                )
+                raise typer.Exit(2)
+            shield = True
+            shield_forced = True
+        elif self.mev_shield is not None:
             shield = self.mev_shield
+            shield_forced = shield
         elif configured_shield is not None:
             shield = bool(configured_shield)
+            shield_forced = shield
         else:
             shield = intent.mev_shield_default
-        shield_forced = shield and (self.mev_shield is not None or configured_shield is not None)
+            shield_forced = False
         if shield and (proxy_for is not None or self.uses_extension_signer()):
             blocker = "a proxied call" if proxy_for is not None else "the extension signer"
-            if shield_forced:
+            if shield_forced or intent.mev_shield_required:
                 self.output.error(
                     f"MEV shielding cannot wrap {blocker}",
-                    help="pass --no-mev-shield to submit unshielded",
+                    help=(
+                        "collateral intents cannot fall back to unshielded; "
+                        "sign directly without a proxy/extension"
+                        if intent.mev_shield_required
+                        else "pass --no-mev-shield to submit unshielded"
+                    ),
                 )
                 raise typer.Exit(2)
             self.output.message(
@@ -524,13 +545,17 @@ class AppContext:
             use_shield = shield
             if use_shield and await client.read("mev_shield_next_key") is None:
                 # The MevShield pallet isn't active here (e.g. localnet). A
-                # forced shield must fail loudly; the built-in default degrades
-                # visibly so the command still works.
-                if shield_forced:
+                # forced / required shield must fail loudly; the built-in
+                # default degrades visibly so the command still works.
+                if shield_forced or intent.mev_shield_required:
                     raise BittensorError(
                         "MEV shield is not active on this network "
-                        "(MevShield.NextKey is unset); pass --no-mev-shield "
-                        "to submit unshielded"
+                        "(MevShield.NextKey is unset); "
+                        + (
+                            f"{intent.op} cannot submit unshielded"
+                            if intent.mev_shield_required
+                            else "pass --no-mev-shield to submit unshielded"
+                        )
                     )
                 self.output.message(
                     "[dim]MEV shield is not active on this network — submitting unshielded[/dim]"

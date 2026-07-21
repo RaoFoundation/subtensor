@@ -1,181 +1,98 @@
 name: Deploy Docs Preview
 
-# Non-fork PRs that touch docs/website get:
-#   https://pr-<n>.preview.bittensor.com
-# plus a sticky PR comment with the URL.
+# Trusted half of docs previews. Always taken from the default branch
+# (`workflow_run`), so a PR cannot rewrite these steps to exfiltrate secrets.
 #
-# Credential boundary (skeptic HIGH a2b93918 / follow-up):
-#   - `vercel build` runs on PR HEAD with project settings from the trusted
-#     base ref and never receives VERCEL_TOKEN (or GoDaddy secrets).
-#   - Deploy runs in a separate job on a fresh runner with only a sealed
-#     tarball (no PR checkout). That closes the same-runner
-#     build-script → steal-next-step-secret path.
-#   - The sealed tarball includes `.vercel/output` plus `website/node_modules`
-#     so Next NFT traces can resolve during `vercel deploy --prebuilt`.
-#   - GoDaddy / domain aliasing stays in a job that never checks out PR HEAD.
+# Never checks out PR HEAD and never runs PR-controlled scripts. Consumes only
+# the sealed artifact from `Request Docs Preview`, then deploys / aliases /
+# comments (or cleans up) with Vercel + GoDaddy credentials.
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    paths:
-      - "docs/**"
-      - "website/**"
-      - ".github/workflows/deploy-docs-preview.yml"
+  workflow_run:
+    workflows: ["Request Docs Preview"]
+    types: [completed]
 
 permissions:
+  actions: read
   contents: read
   pull-requests: write
 
 jobs:
-  # Trusted tree only: fetch Vercel project settings with the deploy token.
-  # Never checks out PR HEAD, so a malicious package.json cannot see the token.
-  pull-settings:
-    name: Pull Vercel project settings
-    if: >
-      github.event.action != 'closed' &&
-      !github.event.pull_request.head.repo.fork &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, fireactions-turbo-8]
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: vercel pull (base ref)
-        # Same as deploy-docs.yml: project rootDirectory is
-        # website/apps/bittensor-website relative to the repo root.
-        run: |
-          set -euo pipefail
-          mkdir -p .vercel
-          node -e '
-            const fs = require("fs");
-            fs.writeFileSync(".vercel/project.json", JSON.stringify({
-              projectId: process.env.VERCEL_PROJECT_ID,
-              orgId: process.env.VERCEL_ORG_ID,
-            }));
-          '
-          npx --yes vercel@56.4.1 pull --yes --environment=preview --token "$VERCEL_TOKEN"
-          # Preview env files are not needed for `vercel build` assembly and
-          # must not leak into the untrusted build job.
-          rm -f .vercel/.env.preview.local .vercel/.env.*.local
-
-      - name: Upload project settings
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-preview-vercel-settings-${{ github.event.pull_request.number }}
-          path: .vercel/project.json
-          retention-days: 1
-
-  build:
-    name: Build PR docs preview
-    needs: pull-settings
-    runs-on: [self-hosted, fireactions-turbo-8]
-    concurrency:
-      group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
-    # No VERCEL_TOKEN in this job — PR HEAD executes here.
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Enable corepack (yarn 4)
-        run: corepack enable
-
-      - name: Download project settings
-        uses: actions/download-artifact@v4
-        with:
-          name: docs-preview-vercel-settings-${{ github.event.pull_request.number }}
-          path: .vercel
-
-      - name: Assemble Vercel prebuilt output (no deploy token)
-        run: |
-          set -euo pipefail
-          test -f .vercel/project.json
-          # Same as deploy-docs.yml: let `vercel build` install + compile.
-          # Do not pre-run turbo — a leftover `.next` confuses the assembler.
-          # Local assemble only — do not pass --token.
-          npx --yes vercel@56.4.1 build
-          test -f .vercel/output/functions/_global-error.func/.vc-config.json
-          test -d website/node_modules
-
-      - name: Seal prebuilt output for deploy job
-        run: |
-          set -euo pipefail
-          # Include website/node_modules: Next NFT traces resolve there during
-          # `vercel deploy --prebuilt`. Single tarball keeps upload-artifact
-          # from dropping symlinks/dotfiles inside `.vercel/output`.
-          tar -czf docs-preview-sealed.tgz .vercel/output website/node_modules
-
-      - name: Upload sealed prebuilt output
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-preview-vercel-${{ github.event.pull_request.number }}
-          path: docs-preview-sealed.tgz
-          retention-days: 1
-
   deploy:
-    name: Deploy preview to Vercel
-    needs: build
+    name: Deploy or clean up docs preview
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
-      group: deploy-docs-preview-deploy-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
-    outputs:
-      alias: ${{ steps.deploy.outputs.alias }}
-      url: ${{ steps.deploy.outputs.url }}
-      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+      group: docs-preview-domain-dns
+      cancel-in-progress: false
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+      GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      # Sealed artifact only — no actions/checkout of PR HEAD, no yarn, no
-      # vercel build. Fresh runner, so nothing from the build job can see
-      # VERCEL_TOKEN.
-      - name: Download sealed prebuilt output
-        uses: actions/download-artifact@v4
-        with:
-          name: docs-preview-vercel-${{ github.event.pull_request.number }}
-          path: .
+      - name: Resolve PR number and download artifact
+        id: meta
+        run: |
+          set -euo pipefail
+          # Prefer the pull_requests list; fall back to the commit→PR API when
+          # workflow_run omits it (race on just-opened PRs).
+          pr=$(node -e '
+            const ev = ${{ toJSON(github.event.workflow_run.pull_requests) }};
+            if (Array.isArray(ev) && ev[0] && ev[0].number) {
+              process.stdout.write(String(ev[0].number));
+            }
+          ')
+          if [ -z "${pr}" ]; then
+            pr=$(gh api \
+              "repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" \
+              --jq '.[0].number // empty')
+          fi
+          if [ -z "${pr}" ]; then
+            echo "Could not resolve PR number for workflow_run ${{ github.event.workflow_run.id }}" >&2
+            exit 1
+          fi
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "alias=pr-${pr}.preview.${DOCS_DOMAIN}" >> "$GITHUB_OUTPUT"
+          echo "url=https://pr-${pr}.preview.${DOCS_DOMAIN}" >> "$GITHUB_OUTPUT"
+
+          # download-artifact@v4 needs the producing run id for workflow_run.
+          mkdir -p artifact
+          gh run download "${{ github.event.workflow_run.id }}" \
+            --repo "${{ github.repository }}" \
+            --name "docs-preview-${pr}" \
+            --dir artifact
+          action=$(tr -d '[:space:]' < artifact/docs-preview-action.txt)
+          echo "action=$action" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
+        if: steps.meta.outputs.action == 'deploy'
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Deploy prebuilt
+        if: steps.meta.outputs.action == 'deploy'
         id: deploy
+        env:
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          ALIAS: ${{ steps.meta.outputs.alias }}
         run: |
           set -euo pipefail
-          alias="pr-${PR_NUMBER}.preview.${DOCS_DOMAIN}"
-          echo "alias=$alias" >> "$GITHUB_OUTPUT"
-          echo "url=https://${alias}" >> "$GITHUB_OUTPUT"
-
+          cd artifact
           tar -xzf docs-preview-sealed.tgz
           test -f .vercel/output/functions/_global-error.func/.vc-config.json
           test -d website/node_modules
-          # Remote project rootDirectory; content comes from the sealed tree.
           mkdir -p website/apps/bittensor-website
+          mkdir -p .vercel
           node -e '
             const fs = require("fs");
-            fs.mkdirSync(".vercel", { recursive: true });
             fs.writeFileSync(".vercel/project.json", JSON.stringify({
               projectId: process.env.VERCEL_PROJECT_ID,
               orgId: process.env.VERCEL_ORG_ID,
@@ -190,26 +107,11 @@ jobs:
             | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).id')
           echo "deployment_id=$dep_id" >> "$GITHUB_OUTPUT"
 
-  publish:
-    name: Alias preview and comment
-    needs: deploy
-    runs-on: [self-hosted, fireactions-turbo-8]
-    concurrency:
-      group: docs-preview-domain-dns
-      cancel-in-progress: false
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-      GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
-      GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
-      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      ALIAS: ${{ needs.deploy.outputs.alias }}
-      DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
-      PREVIEW_URL: ${{ needs.deploy.outputs.url }}
-    steps:
       - name: Register domain, alias deployment
+        if: steps.meta.outputs.action == 'deploy'
+        env:
+          ALIAS: ${{ steps.meta.outputs.alias }}
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
         run: |
           set -euo pipefail
 
@@ -281,8 +183,10 @@ jobs:
           echo "Aliased to https://${ALIAS}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment preview URL on PR
+        if: steps.meta.outputs.action == 'deploy'
         env:
-          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          PREVIEW_URL: ${{ steps.meta.outputs.url }}
         run: |
           marker="<!-- docs-preview-url -->"
           body=$(printf '%s\n' \
@@ -310,32 +214,18 @@ jobs:
               -f body="$body" > /dev/null
           fi
 
-  cleanup:
-    name: Remove PR docs preview domain
-    if: >
-      github.event.action == 'closed' &&
-      !github.event.pull_request.head.repo.fork &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, fireactions-turbo-8]
-    concurrency:
-      group: docs-preview-domain-dns
-      cancel-in-progress: false
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-    steps:
-      - name: Delete preview domain from Vercel project
+      - name: Remove PR docs preview domain
+        if: steps.meta.outputs.action == 'cleanup'
+        env:
+          ALIAS: ${{ steps.meta.outputs.alias }}
         run: |
-          alias="pr-${PR_NUMBER}.preview.${DOCS_DOMAIN}"
+          set -euo pipefail
           code=$(curl -sS -o /tmp/del.json -w "%{http_code}" -X DELETE \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${alias}?teamId=${VERCEL_ORG_ID}" \
+            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${ALIAS}?teamId=${VERCEL_ORG_ID}" \
             || true)
           if [ "$code" = "200" ] || [ "$code" = "204" ]; then
-            echo "Removed ${alias} from Vercel project" >> "$GITHUB_STEP_SUMMARY"
+            echo "Removed ${ALIAS} from Vercel project" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No project domain to remove for ${alias} (HTTP ${code})" >> "$GITHUB_STEP_SUMMARY"
+            echo "No project domain to remove for ${ALIAS} (HTTP ${code})" >> "$GITHUB_STEP_SUMMARY"
           fi

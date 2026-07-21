@@ -312,12 +312,22 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
             );
 
             // Worst case for coinbase: every incentivized miner has standing
-            // collateral that must be settled (below-floor capture path: read +
-            // stake write + locked/aggregate updates). Only seed epoch-due
-            // subnets so ambient live state stays cheap.
+            // collateral that must be settled. Alternate below-floor capture
+            // (stake write into the lock) and above-floor drain (release back
+            // to free stake) so both settle branches are measured. Only seed
+            // epoch-due subnets so ambient live state stays cheap.
             if epoch_is_due_this_block {
-                let locked = AlphaBalance::from(VALIDATOR_ALPHA_STAKE / 4);
-                let min_locked = AlphaBalance::from(VALIDATOR_ALPHA_STAKE);
+                let (locked, min_locked) = if uid % 2 == 0 {
+                    (
+                        AlphaBalance::from(VALIDATOR_ALPHA_STAKE / 4),
+                        AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
+                    )
+                } else {
+                    (
+                        AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
+                        AlphaBalance::from(VALIDATOR_ALPHA_STAKE / 4),
+                    )
+                };
                 MinerCollateral::<T>::insert(
                     (netuid, &hotkey, &coldkey),
                     MinerCollateralState {

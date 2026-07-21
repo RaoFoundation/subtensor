@@ -99,8 +99,18 @@ def add_collateral(
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
+    rate_tolerance: float = typer.Option(
+        0.05,
+        "--rate-tolerance",
+        help=AddCollateral.field_help("rate_tolerance")
+        or "Max price move (fraction) for any TAO→alpha shortfall buy.",
+    ),
 ):
-    """Lock additional miner collateral (free stake first, then buy shortfall)."""
+    """Lock additional miner collateral (free stake first, then buy shortfall).
+
+    Always MEV-shielded: the shortfall buy is fill-or-kill against spot ×
+    (1 + rate tolerance). ``--no-mev-shield`` is refused.
+    """
     app_ctx: AppContext = ctx_of(ctx)
     try:
         amount = _parse_money(amount_tao, False)
@@ -108,7 +118,14 @@ def add_collateral(
         app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
         raise typer.Exit(2)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-    app_ctx.submit(AddCollateral(netuid=netuid, amount_tao=amount, hotkey_ss58=hotkey))
+    app_ctx.submit(
+        AddCollateral(
+            netuid=netuid,
+            amount_tao=amount,
+            hotkey_ss58=hotkey,
+            rate_tolerance=rate_tolerance,
+        )
+    )
 
 
 @app.command("set-min")

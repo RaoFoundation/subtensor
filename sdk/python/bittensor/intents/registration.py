@@ -45,6 +45,10 @@ class BurnedRegister(Intent):
     signer = "coldkey"
     wraps = (("SubtensorModule", "burned_register"),)
     mev_shield_default = True
+    # Registration can buy the collateral share through the AMM; keep the
+    # mempool entry encrypted so a delayed inclusion cannot be sandwiched
+    # into a worse fill against the runtime's 5% collateral limit.
+    mev_shield_required = True
 
     netuid: int = field(metadata={"help": "Subnet to register on."})
     hotkey_ss58: Optional[str] = field(

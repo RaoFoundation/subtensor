@@ -108,7 +108,11 @@ collateral by about the TAO-value you pass. Funding order:
    the subnet's moving price. No swap, no slip.
 2. **Buy the shortfall.** Only the remainder is bought with coldkey TAO
    (keep-alive fill-or-kill: a partial buy that would leave you under ED
-   fails with `NotEnoughBalanceToStake`).
+   fails with `NotEnoughBalanceToStake`). The buy is priced like
+   `add_stake_limit` — fill-or-kill against spot × (1 + `--rate-tolerance`,
+   default 5%) — and the CLI / SDK always submit it MEV-shielded
+   (`--no-mev-shield` is refused). Registration collateral buys use the same
+   5% runtime bound when a lock share is due.
 
 The new lock joins the same entry as registration collateral: same drain
 ratio snapshot (or the subnet's current `k` if this is your first lock on
@@ -123,6 +127,7 @@ btcli collateral add --netuid 51 --amount-tao all -w my_coldkey -H my_hotkey --d
 ```
 
 ```python
+# execute() redirects AddCollateral to submit_shielded automatically.
 await client.execute(
     bt.AddCollateral(netuid=51, amount_tao=100, hotkey_ss58=wallet.hotkey_address),
     wallet,
@@ -132,7 +137,8 @@ await client.execute(
 Emits `CollateralLocked { locked, total_locked }` for the amount just added.
 Fails with `AmountTooLow` if the TAO-value converts to zero alpha,
 `NonAssociatedColdKey` if you don't own the hotkey, `StakeUnavailable` if
-free stake moved out from under the preflight, or the usual staking errors
+free stake moved out from under the preflight, `SlippageTooHigh` if the
+shortfall buy would clear above the limit, or the usual staking errors
 when buying the shortfall.
 
 #### `set_min_collateral`

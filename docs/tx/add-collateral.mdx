@@ -83,11 +83,15 @@ pub fn add_collateral(
     netuid: NetUid,
     hotkey: T::AccountId,
     tao: TaoBalance,
+    limit_price: TaoBalance,
 ) -> DispatchResult {
-    Self::do_add_collateral(origin, netuid, hotkey, tao)
+    Self::do_add_collateral(origin, netuid, hotkey, tao, limit_price)
 }
 ```
 
-Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L459).
+Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs).
+Any TAO→alpha shortfall buy is fill-or-kill against `limit_price` (same units as
+`add_stake_limit`). SDK / CLI callers submit this MEV-shielded with a 5% spot
+tolerance by default.
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

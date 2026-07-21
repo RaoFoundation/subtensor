@@ -2422,6 +2422,10 @@ mod dispatches {
         /// * `tao`: TAO-value of collateral to add. Fully covered by free
         ///   stake when possible; otherwise the unpaid remainder is bought
         ///   (that remainder must meet the staking minimum).
+        /// * `limit_price`: Worst alpha price (RAO per alpha) accepted for any
+        ///   TAO→alpha buy of the shortfall. Fill-or-kill: the buy fails with
+        ///   `SlippageTooHigh` instead of executing above this price. Pass the
+        ///   current spot (or spot × (1 + tolerance)) — never the swap max.
         ///
         /// # Errors
         /// * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network.
@@ -2431,6 +2435,7 @@ mod dispatches {
         /// * `AmountTooLow`: `tao` converts to zero alpha, or the buy
         ///   remainder is below the minimum stake.
         /// * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder.
+        /// * `SlippageTooHigh`: The shortfall buy would clear above `limit_price`.
         ///
         /// # Events
         /// Emits `CollateralLocked` on success.
@@ -2441,8 +2446,9 @@ mod dispatches {
             netuid: NetUid,
             hotkey: T::AccountId,
             tao: TaoBalance,
+            limit_price: TaoBalance,
         ) -> DispatchResult {
-            Self::do_add_collateral(origin, netuid, hotkey, tao)
+            Self::do_add_collateral(origin, netuid, hotkey, tao, limit_price)
         }
 
         /// Sets the self-maintaining collateral floor for the signer's hotkey

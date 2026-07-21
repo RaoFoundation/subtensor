@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-# TODO(codegen): switch to `calls.SubtensorModule.add_collateral` /
-# `set_min_collateral` once the registry is regenerated against spec >= 435.
+from .._generated import calls
 from .._generated.calls import Call
 from ._money import Money, Spend, alpha_amount, tao_amount
 from .base import Intent
 from .registry import register
+from .staking import (
+    DEFAULT_RATE_TOLERANCE,
+    RATE_TOLERANCE_HELP,
+    _alpha_price_rao,
+    _check_rate_tolerance,
+)
 
 
 @register
@@ -30,12 +35,17 @@ class AddCollateral(Intent):
     requirement on re-registration. There is no direct withdrawal path —
     see ``set_min_collateral`` for maintaining a level without re-locking
     drained funds.
+
+    Any TAO→alpha buy is fill-or-kill against ``rate_tolerance`` above spot
+    and must be submitted MEV-shielded — collateral purchases are not allowed
+    to clear unshielded at an unbounded AMM price.
     """
 
     op = "add_collateral"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_collateral"),)
     mev_shield_default = True
+    mev_shield_required = True
 
     netuid: int = field(metadata={"help": "Subnet to lock collateral on."})
     amount_tao: Money = field(
@@ -53,22 +63,31 @@ class AddCollateral(Intent):
             "help": "Miner hotkey the collateral attaches to. Defaults to the wallet hotkey."
         },
     )
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
+    )
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        price = await _alpha_price_rao(substrate, self.netuid)
         return await substrate.compose(
-            Call(
-                "SubtensorModule",
-                "add_collateral",
-                {"netuid": self.netuid, "hotkey": hotkey, "tao": self.amount_tao.rao},
+            calls.SubtensorModule.add_collateral(
+                netuid=self.netuid,
+                hotkey=hotkey,
+                tao=self.amount_tao.rao,
+                limit_price=int(price * (1 + self.rate_tolerance)),
             )
         )
 
     def summary(self) -> str:
-        return f"lock {self.amount_tao} as collateral on netuid {self.netuid}"
+        return (
+            f"lock {self.amount_tao} as collateral on netuid {self.netuid}"
+            f" (fails if price moves >{self.rate_tolerance:.2%})"
+        )
 
     def spend(self) -> Spend:
         return self.amount_tao
