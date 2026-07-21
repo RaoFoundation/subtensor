@@ -118,8 +118,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> AlphaBalance {
-        let stake =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
+        let stake = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
         let collateral = Self::get_miner_collateral_locked(netuid, hotkey, coldkey);
         let position_free = stake.saturating_sub(collateral);
         position_free.min(Self::available_to_unstake(coldkey, netuid))
@@ -136,8 +135,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         amount: AlphaBalance,
     ) -> Result<(), Error<T>> {
-        let stake =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
+        let stake = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
         let collateral = Self::get_miner_collateral_locked(netuid, hotkey, coldkey);
         let removable = stake.saturating_sub(collateral);
         ensure!(amount <= removable, Error::<T>::StakeUnavailable);
@@ -233,12 +231,8 @@ impl<T: Config> Pallet<T> {
         }
 
         let tao_paid = Self::transfer_tao_to_subnet(netuid, coldkey, total_charge)?;
-        let swap_result = Self::swap_tao_for_alpha(
-            netuid,
-            tao_paid,
-            T::SwapInterface::max_price(),
-            false,
-        )?;
+        let swap_result =
+            Self::swap_tao_for_alpha(netuid, tao_paid, T::SwapInterface::max_price(), false)?;
 
         // Fee to block author (same as `stake_into_subnet`).
         let maybe_block_author_coldkey = T::AuthorshipProvider::author();
@@ -280,7 +274,10 @@ impl<T: Config> Pallet<T> {
             total_alpha
         } else {
             AlphaBalance::from(
-                ((total_alpha.to_u64() as u128).saturating_mul(lock_w) / total_w) as u64,
+                (total_alpha.to_u64() as u128)
+                    .saturating_mul(lock_w)
+                    .checked_div(total_w)
+                    .unwrap_or(0) as u64,
             )
         };
         let burn_alpha = total_alpha.saturating_sub(lock_alpha);
@@ -297,20 +294,11 @@ impl<T: Config> Pallet<T> {
         }
 
         ensure!(
-            Self::try_increase_stake_for_hotkey_and_coldkey_on_subnet(
-                hotkey,
-                netuid,
-                lock_alpha,
-            ),
+            Self::try_increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, netuid, lock_alpha,),
             Error::<T>::InsufficientLiquidity
         );
 
-        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            hotkey,
-            coldkey,
-            netuid,
-            lock_alpha,
-        );
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, lock_alpha);
 
         let mut staking_hotkeys = StakingHotkeys::<T>::get(coldkey);
         if !staking_hotkeys.contains(hotkey) {
@@ -319,17 +307,16 @@ impl<T: Config> Pallet<T> {
         }
 
         Self::cleanup_lock_if_zero(coldkey, netuid);
-        LastColdkeyHotkeyStakeBlock::<T>::insert(
-            coldkey,
-            hotkey,
-            Self::get_current_block_as_u64(),
-        );
+        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
 
         let lock_tao = if total_w == 0 {
             TaoBalance::ZERO
         } else {
             TaoBalance::from(
-                ((u64::from(tao_paid) as u128).saturating_mul(lock_w) / total_w) as u64,
+                (u64::from(tao_paid) as u128)
+                    .saturating_mul(lock_w)
+                    .checked_div(total_w)
+                    .unwrap_or(0) as u64,
             )
         };
         Self::deposit_event(Event::StakeAdded(
@@ -342,10 +329,7 @@ impl<T: Config> Pallet<T> {
         ));
 
         let total_locked = Self::credit_miner_collateral(
-            netuid,
-            hotkey,
-            coldkey,
-            lock_alpha,
+            netuid, hotkey, coldkey, lock_alpha,
             true, // re-snapshot drain ratio on registration
         );
 
@@ -370,37 +354,35 @@ impl<T: Config> Pallet<T> {
         resnapshot_drain: bool,
     ) -> AlphaBalance {
         let old_locked = Self::get_miner_collateral_locked(netuid, hotkey, coldkey);
-        let new_locked = MinerCollateral::<T>::mutate((netuid, hotkey, coldkey), |maybe_state| {
-            match maybe_state {
-                Some(state) => {
-                    state.locked = state.locked.saturating_add(alpha);
-                    if resnapshot_drain {
-                        state.drain_ratio = CollateralDrainRatio::<T>::get(netuid);
+        let new_locked =
+            MinerCollateral::<T>::mutate(
+                (netuid, hotkey, coldkey),
+                |maybe_state| match maybe_state {
+                    Some(state) => {
+                        state.locked = state.locked.saturating_add(alpha);
+                        if resnapshot_drain {
+                            state.drain_ratio = CollateralDrainRatio::<T>::get(netuid);
+                        }
+                        state.locked
                     }
-                    state.locked
-                }
-                None => {
-                    *maybe_state = Some(MinerCollateralState {
-                        locked: alpha,
-                        drain_ratio: CollateralDrainRatio::<T>::get(netuid),
-                        min_locked: AlphaBalance::ZERO,
-                        earned: AlphaBalance::ZERO,
-                    });
-                    alpha
-                }
-            }
-        });
+                    None => {
+                        *maybe_state = Some(MinerCollateralState {
+                            locked: alpha,
+                            drain_ratio: CollateralDrainRatio::<T>::get(netuid),
+                            min_locked: AlphaBalance::ZERO,
+                            earned: AlphaBalance::ZERO,
+                        });
+                        alpha
+                    }
+                },
+            );
         Self::adjust_coldkey_miner_collateral(coldkey, netuid, old_locked, new_locked);
         new_locked
     }
 
     /// Re-snapshot a standing collateral entry's drain ratio to the subnet's
     /// current `CollateralDrainRatio`. No-op when the position has no entry.
-    fn resnapshot_collateral_drain(
-        netuid: NetUid,
-        hotkey: &T::AccountId,
-        coldkey: &T::AccountId,
-    ) {
+    fn resnapshot_collateral_drain(netuid: NetUid, hotkey: &T::AccountId, coldkey: &T::AccountId) {
         MinerCollateral::<T>::mutate_exists((netuid, hotkey, coldkey), |maybe_state| {
             if let Some(state) = maybe_state {
                 state.drain_ratio = CollateralDrainRatio::<T>::get(netuid);
@@ -431,35 +413,34 @@ impl<T: Config> Pallet<T> {
             return AlphaBalance::ZERO;
         }
         let old_locked = Self::get_miner_collateral_locked(netuid, hotkey, owner);
-        let captured = MinerCollateral::<T>::mutate_exists((netuid, hotkey, owner), |maybe_state| {
-            let Some(state) = maybe_state else {
-                return AlphaBalance::ZERO;
-            };
+        let captured =
+            MinerCollateral::<T>::mutate_exists((netuid, hotkey, owner), |maybe_state| {
+                let Some(state) = maybe_state else {
+                    return AlphaBalance::ZERO;
+                };
 
-            state.earned = state.earned.saturating_add(incentive);
+                state.earned = state.earned.saturating_add(incentive);
 
-            let shortfall = state.min_locked.saturating_sub(state.locked);
-            if !shortfall.is_zero() {
-                let captured = incentive.min(shortfall);
-                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey, owner, netuid, captured,
-                );
-                state.locked = state.locked.saturating_add(captured);
-                return captured;
-            }
+                let shortfall = state.min_locked.saturating_sub(state.locked);
+                if !shortfall.is_zero() {
+                    let captured = incentive.min(shortfall);
+                    Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                        hotkey, owner, netuid, captured,
+                    );
+                    state.locked = state.locked.saturating_add(captured);
+                    return captured;
+                }
 
-            let release: u64 = U64F64::saturating_from_num(incentive.to_u64())
-                .saturating_mul(state.drain_ratio)
-                .saturating_to_num();
-            let releasable = state.locked.saturating_sub(state.min_locked);
-            state.locked = state
-                .locked
-                .saturating_sub(releasable.min(release.into()));
-            if state.locked.is_zero() && state.min_locked.is_zero() {
-                *maybe_state = None;
-            }
-            AlphaBalance::ZERO
-        });
+                let release: u64 = U64F64::saturating_from_num(incentive.to_u64())
+                    .saturating_mul(state.drain_ratio)
+                    .saturating_to_num();
+                let releasable = state.locked.saturating_sub(state.min_locked);
+                state.locked = state.locked.saturating_sub(releasable.min(release.into()));
+                if state.locked.is_zero() && state.min_locked.is_zero() {
+                    *maybe_state = None;
+                }
+                AlphaBalance::ZERO
+            });
         let new_locked = Self::get_miner_collateral_locked(netuid, hotkey, owner);
         Self::adjust_coldkey_miner_collateral(owner, netuid, old_locked, new_locked);
         captured
@@ -482,7 +463,10 @@ impl<T: Config> Pallet<T> {
         tao: TaoBalance,
     ) -> dispatch::DispatchResult {
         let coldkey = ensure_signed(origin)?;
-        ensure!(!netuid.is_root(), Error::<T>::RegistrationNotPermittedOnRootSubnet);
+        ensure!(
+            !netuid.is_root(),
+            Error::<T>::RegistrationNotPermittedOnRootSubnet
+        );
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subtoken_enabled(netuid)?;
         ensure!(
@@ -508,8 +492,7 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(!target_alpha.is_zero(), Error::<T>::AmountTooLow);
 
-        let stake =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        let stake = Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
         let already_locked = Self::get_miner_collateral_locked(netuid, &hotkey, &coldkey);
         let free_alpha = stake.saturating_sub(already_locked);
         let from_stake = free_alpha.min(target_alpha);
@@ -543,22 +526,14 @@ impl<T: Config> Pallet<T> {
                 if !from_stake.is_zero() {
                     // Re-check coverage inside the transaction: stake may have
                     // moved since the preflight read.
-                    let stake_now = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
-                        &hotkey, &coldkey, netuid,
-                    );
-                    let locked_now =
-                        Self::get_miner_collateral_locked(netuid, &hotkey, &coldkey);
+                    let stake_now =
+                        Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+                    let locked_now = Self::get_miner_collateral_locked(netuid, &hotkey, &coldkey);
                     ensure!(
                         stake_now.saturating_sub(locked_now) >= from_stake,
                         Error::<T>::StakeUnavailable
                     );
-                    Self::credit_miner_collateral(
-                        netuid,
-                        &hotkey,
-                        &coldkey,
-                        from_stake,
-                        false,
-                    );
+                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, from_stake, false);
                     added = added.saturating_add(from_stake);
                 }
 
@@ -607,7 +582,10 @@ impl<T: Config> Pallet<T> {
         min_locked: AlphaBalance,
     ) -> dispatch::DispatchResult {
         let coldkey = ensure_signed(origin)?;
-        ensure!(!netuid.is_root(), Error::<T>::RegistrationNotPermittedOnRootSubnet);
+        ensure!(
+            !netuid.is_root(),
+            Error::<T>::RegistrationNotPermittedOnRootSubnet
+        );
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             Self::hotkey_account_exists(&hotkey),
@@ -618,9 +596,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NonAssociatedColdKey
         );
 
-        MinerCollateral::<T>::mutate_exists(
-            (netuid, &hotkey, &coldkey),
-            |maybe_state| match maybe_state {
+        MinerCollateral::<T>::mutate_exists((netuid, &hotkey, &coldkey), |maybe_state| {
+            match maybe_state {
                 Some(state) => {
                     state.min_locked = min_locked;
                     if state.locked.is_zero() && state.min_locked.is_zero() {
@@ -637,8 +614,8 @@ impl<T: Config> Pallet<T> {
                         });
                     }
                 }
-            },
-        );
+            }
+        });
 
         Self::deposit_event(Event::MinCollateralSet {
             netuid,

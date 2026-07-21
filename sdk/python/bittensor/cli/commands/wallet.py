@@ -1372,7 +1372,10 @@ def swap_check(
     else:
         wait = timedelta(seconds=blocks_remaining * BLOCKTIME)
         eta = datetime.now().astimezone() + wait
-        rounded = timedelta(minutes=round(wait.total_seconds() / 60)) if wait >= timedelta(minutes=1) else wait
+        if wait >= timedelta(minutes=1):
+            rounded = timedelta(minutes=round(wait.total_seconds() / 60))
+        else:
+            rounded = wait
         executable = f"in ~{format_duration(rounded)} ({eta:%Y-%m-%d %H:%M %Z})"
 
     app_ctx.output.detail(

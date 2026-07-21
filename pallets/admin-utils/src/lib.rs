@@ -2338,7 +2338,10 @@ pub mod pallet {
             );
 
             pallet_subtensor::CollateralDrainRatio::<T>::insert(netuid, drain_ratio);
-            Self::deposit_event(Event::CollateralDrainRatioSet { netuid, drain_ratio });
+            Self::deposit_event(Event::CollateralDrainRatioSet {
+                netuid,
+                drain_ratio,
+            });
             log::debug!(
                 "CollateralDrainRatioSet( netuid: {netuid:?}, drain_ratio: {drain_ratio:?} )"
             );

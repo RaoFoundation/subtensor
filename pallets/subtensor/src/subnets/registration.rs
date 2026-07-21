@@ -111,13 +111,7 @@ impl<T: Config> Pallet<T> {
         // after the swap must not leave a partial charge.
         with_transaction(|| {
             let result = (|| -> Result<u16, DispatchError> {
-                Self::pay_registration(
-                    netuid,
-                    &hotkey,
-                    &coldkey,
-                    burned_share,
-                    collateral_topup,
-                )?;
+                Self::pay_registration(netuid, &hotkey, &coldkey, burned_share, collateral_topup)?;
 
                 let neuron_uid = Self::register_neuron(netuid, &hotkey)?;
 
@@ -128,11 +122,7 @@ impl<T: Config> Pallet<T> {
                 log::debug!(
                     "NeuronRegistered( netuid:{netuid:?} uid:{neuron_uid:?} hotkey:{hotkey:?} )"
                 );
-                Self::deposit_event(Event::NeuronRegistered(
-                    netuid,
-                    neuron_uid,
-                    hotkey.clone(),
-                ));
+                Self::deposit_event(Event::NeuronRegistered(netuid, neuron_uid, hotkey.clone()));
                 Ok(neuron_uid)
             })();
 

@@ -16,12 +16,7 @@ use subtensor_swap_interface::SwapHandler;
 use mock::*;
 mod mock;
 
-fn mark_collateral(
-    netuid: NetUid,
-    hotkey: &U256,
-    coldkey: &U256,
-    locked: AlphaBalance,
-) {
+fn mark_collateral(netuid: NetUid, hotkey: &U256, coldkey: &U256, locked: AlphaBalance) {
     MinerCollateral::<Test>::insert(
         (netuid, hotkey, coldkey),
         MinerCollateralState {
@@ -1834,8 +1829,8 @@ fn test_alpha_fee_rejects_fully_collateralized_stake() {
         let subnet_tao_before = SubnetTAO::<Test>::get(netuid);
         let subnet_alpha_in_before = SubnetAlphaIn::<Test>::get(netuid);
         let subnet_alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
-        let collateral_before = MinerCollateral::<Test>::get((netuid, hotkey, sn.coldkey))
-            .expect("collateral entry");
+        let collateral_before =
+            MinerCollateral::<Test>::get((netuid, hotkey, sn.coldkey)).expect("collateral entry");
         let aggregate_before = ColdkeyMinerCollateral::<Test>::get(netuid, sn.coldkey);
 
         assert_eq!(
@@ -1844,7 +1839,9 @@ fn test_alpha_fee_rejects_fully_collateralized_stake() {
                 &alpha_vec,
                 1.into(),
             ),
-            Err(TransactionValidityError::Invalid(InvalidTransaction::Payment))
+            Err(TransactionValidityError::Invalid(
+                InvalidTransaction::Payment
+            ))
         );
 
         // Also reject through the full charge-extension path.
@@ -1873,8 +1870,8 @@ fn test_alpha_fee_rejects_fully_collateralized_stake() {
         assert_eq!(SubnetTAO::<Test>::get(netuid), subnet_tao_before);
         assert_eq!(SubnetAlphaIn::<Test>::get(netuid), subnet_alpha_in_before);
         assert_eq!(SubnetAlphaOut::<Test>::get(netuid), subnet_alpha_out_before);
-        let collateral_after = MinerCollateral::<Test>::get((netuid, hotkey, sn.coldkey))
-            .expect("collateral entry");
+        let collateral_after =
+            MinerCollateral::<Test>::get((netuid, hotkey, sn.coldkey)).expect("collateral entry");
         assert_eq!(collateral_after.locked, collateral_before.locked);
         assert_eq!(
             ColdkeyMinerCollateral::<Test>::get(netuid, sn.coldkey),

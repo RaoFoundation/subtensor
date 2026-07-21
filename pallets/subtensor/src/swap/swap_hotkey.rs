@@ -114,11 +114,8 @@ impl<T: Config> Pallet<T> {
         );
         weight.saturating_accrue(match netuid {
             Some(_) => T::DbWeight::get().reads(3),
-            None => T::DbWeight::get().reads(
-                Self::get_all_subnet_netuids()
-                    .len()
-                    .saturating_mul(3) as u64,
-            ),
+            None => T::DbWeight::get()
+                .reads(Self::get_all_subnet_netuids().len().saturating_mul(3) as u64),
         });
 
         // 6. Get the current block number

@@ -1928,13 +1928,14 @@ impl<T: Config> Pallet<T> {
             // Conviction only follows the lock when the destination hotkey is owned
             // by the same coldkey as the source hotkey; otherwise it is forfeited,
             // mirroring `do_move_lock`.
-            received_conviction =
-                if Self::conviction_survives_hotkey_change(&source_hotkey, &destination_lock_hotkey)
-                {
-                    conviction_transfer
-                } else {
-                    U64F64::saturating_from_num(0)
-                };
+            received_conviction = if Self::conviction_survives_hotkey_change(
+                &source_hotkey,
+                &destination_lock_hotkey,
+            ) {
+                conviction_transfer
+            } else {
+                U64F64::saturating_from_num(0)
+            };
 
             source_lock.locked_mass = source_lock.locked_mass.saturating_sub(locked_transfer);
             source_lock.conviction = source_lock.conviction.saturating_sub(conviction_transfer);
