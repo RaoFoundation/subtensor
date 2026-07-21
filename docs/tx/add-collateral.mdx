@@ -18,9 +18,13 @@ requirement on re-registration. There is no direct withdrawal path —
 see `set_min_collateral` for maintaining a level without re-locking
 drained funds.
 
+Any TAO→alpha buy is fill-or-kill against `rate_tolerance` above spot
+and must be submitted MEV-shielded — collateral purchases are not allowed
+to clear unshielded at an unbounded AMM price.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2437-L2446) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2442-L2452) |
 
 ## Parameters
 
@@ -29,6 +33,7 @@ drained funds.
 | `netuid` | integer | yes | Subnet to lock collateral on. |
 | `amount_tao` | number \| `"all"` | yes | TAO-value of collateral to add. Uses free stake on the hotkey first; only the shortfall is bought (that remainder must meet the staking minimum). |
 | `hotkey_ss58` | string | no | Miner hotkey the collateral attaches to. Defaults to the wallet hotkey. |
+| `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -73,7 +78,7 @@ result = sub.execute_tool("add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2439`](/code/pallets/subtensor/src/macros/dispatches.rs#L2437-L2446):
+`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2444`](/code/pallets/subtensor/src/macros/dispatches.rs#L2442-L2452):
 
 ```rust
 #[pallet::call_index(144)]
@@ -89,9 +94,6 @@ pub fn add_collateral(
 }
 ```
 
-Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs).
-Any TAO→alpha shortfall buy is fill-or-kill against `limit_price` (same units as
-`add_stake_limit`). SDK / CLI callers submit this MEV-shielded with a 5% spot
-tolerance by default.
+Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L490).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
