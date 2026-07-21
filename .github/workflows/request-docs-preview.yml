@@ -66,12 +66,26 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .vercel
+          # Full project settings (framework / rootDirectory / node) — same
+          # payload `vercel pull` writes. IDs + settings are not secrets; the
+          # deploy token stays off this workflow.
           node -e '
             const fs = require("fs");
             fs.writeFileSync(".vercel/project.json", JSON.stringify({
               projectId: process.env.VERCEL_PROJECT_ID,
               orgId: process.env.VERCEL_ORG_ID,
-            }));
+              projectName: "subtensor",
+              settings: {
+                framework: "nextjs",
+                devCommand: null,
+                installCommand: null,
+                buildCommand: null,
+                outputDirectory: null,
+                rootDirectory: "website/apps/bittensor-website",
+                directoryListing: false,
+                nodeVersion: "24.x",
+              },
+            }, null, 2));
           '
           # Local assemble only — do not pass --token.
           npx --yes vercel@56.4.1 build
