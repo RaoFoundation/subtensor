@@ -157,7 +157,11 @@ jobs:
           echo "alias=$alias" >> "$GITHUB_OUTPUT"
           echo "url=https://${alias}" >> "$GITHUB_OUTPUT"
 
-          mkdir -p .vercel
+          # No PR checkout on purpose (credential boundary). The remote project
+          # rootDirectory is website/apps/bittensor-website; `vercel deploy
+          # --prebuilt` only needs that path to exist — content comes from
+          # .vercel/output.
+          mkdir -p website/apps/bittensor-website .vercel
           node -e '
             const fs = require("fs");
             fs.writeFileSync(".vercel/project.json", JSON.stringify({
