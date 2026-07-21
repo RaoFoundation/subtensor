@@ -32,6 +32,7 @@ import { HyperparamWeightsRateLimitChart } from './docs/hyperparam-weights-rate-
 import { HyperparamWeightsRules } from './docs/hyperparam-weights-rules';
 import { HyperparamWeightsVersionGate } from './docs/hyperparam-weights-version-gate';
 import { HyperparamYuma3Chart } from './docs/hyperparam-yuma3-chart';
+import { CollateralLifecycle } from './docs/collateral-lifecycle';
 import { MevShieldTimeline } from './docs/mev-shield-timeline';
 import { RegistrationBurnTimeline } from './docs/registration-burn-timeline';
 import { RootProportionExplainer } from './docs/root-proportion-explainer';
@@ -137,6 +138,7 @@ export function getMDXComponents(components?: MDXComponents) {
     StakingPoolSwapDemo,
     StakingSlippageLimit,
     MevShieldTimeline,
+    CollateralLifecycle,
     RegistrationBurnTimeline,
     ConvictionLockChart,
     ConvictionSubnetScenario,

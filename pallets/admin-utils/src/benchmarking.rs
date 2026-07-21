@@ -892,6 +892,25 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_collateral_lock_share() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+        let max_share = pallet_subtensor::MaxCollateralLockShare::<T>::get();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, max_share);
+    }
+
+    #[benchmark]
+    fn sudo_set_collateral_drain_ratio() {
+        let netuid = NetUid::from(1);
+        let owner = setup_worst_case_admin_subnet::<T>(netuid);
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(owner), netuid, U64F64::from_num(1));
+    }
+
+    #[benchmark]
     fn sudo_set_owner_cut_enabled() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);

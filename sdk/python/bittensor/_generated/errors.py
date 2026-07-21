@@ -253,6 +253,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (19, 11): ErrorInfo('AdminUtils', 'NotPermittedOnRootSubnet', 'Operation is not permitted on the root network.'),
     (19, 12): ErrorInfo('AdminUtils', 'POWRegistrationDisabled', 'POW Registration has been deprecated'),
     (19, 13): ErrorInfo('AdminUtils', 'Deprecated', 'Call is deprecated'),
+    (19, 14): ErrorInfo('AdminUtils', 'CollateralLockShareTooHigh', 'The collateral lock share exceeds the settable maximum (95% of the registration price).'),
+    (19, 15): ErrorInfo('AdminUtils', 'CollateralDrainRatioOutOfBounds', 'The collateral drain ratio must be positive and at most the settable maximum.'),
     (20, 0): ErrorInfo('SafeMode', 'Entered', 'The safe-mode is (already or still) entered.'),
     (20, 1): ErrorInfo('SafeMode', 'Exited', 'The safe-mode is (already or still) exited.'),
     (20, 2): ErrorInfo('SafeMode', 'NotConfigured', 'This functionality of the pallet is disabled by the configuration.'),

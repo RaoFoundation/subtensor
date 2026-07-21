@@ -15,6 +15,7 @@ from .coldkey import (
     DisputeColdkeySwap,
     SwapColdkeyAnnounced,
 )
+from .collateral import AddCollateral, SetMinCollateral
 from .crowdloan import (
     ContributeCrowdloan,
     CreateCrowdloan,
@@ -87,6 +88,7 @@ __all__ = [
     "PROXY_TYPES",
     "REGISTRY",
     "UNBOUNDED",
+    "AddCollateral",
     "AddProxy",
     "AddStake",
     "AddStakeLimit",
@@ -143,6 +145,7 @@ __all__ = [
     "SetHyperparameter",
     "SetIdentity",
     "SetMechanismCount",
+    "SetMinCollateral",
     "SetPerpetualLock",
     "SetRootClaimType",
     "SetSubnetEmissionEnabled",

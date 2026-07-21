@@ -25,6 +25,7 @@ from rich.tree import Tree
 
 from .. import config as cfg
 from ..balance import Balance
+from ..error_map import DISPATCH_ERRORS, NAME_TO_CODE
 from ..intents import Plan
 from ..result import ErrorCode, ExtrinsicResult
 from ..settings import (
@@ -608,9 +609,7 @@ class Output:
                     self.subnet_text(cell)
                     if columns[i].endswith("netuid") and str(cell).isdigit()
                     else (
-                        _linkify_urls(Text(str(cell)))
-                        if _URL_RE.search(str(cell))
-                        else str(cell)
+                        _linkify_urls(Text(str(cell))) if _URL_RE.search(str(cell)) else str(cell)
                     )
                     for i, cell in enumerate(row)
                 )
@@ -1437,9 +1436,12 @@ class Output:
             ),
         }
         if followup.get("target"):
-            fields["target"] = followup.get("target") + (
-                " via Sudo.sudo" if followup.get("sudo") else ""
-            )
+            target = followup.get("target")
+            if followup.get("sudo"):
+                target += " via Sudo.sudo"
+            if followup.get("proxy_for"):
+                target += f" as {followup['proxy_for']} via proxy"
+            fields["target"] = target
         approval_labels = followup.get("approval_labels") or followup.get("approvals_so_far") or []
         if approval_labels:
             fields["approved_by"] = approval_labels
@@ -1579,7 +1581,7 @@ class Output:
             return
         if error.name:
             self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
-        if error.description:
+        if error.description and error.description != message:
             self._sub_diag("note", error.description)
         self._sub_diag("help", error.remediation)
         if error.docs_url:
@@ -1587,10 +1589,14 @@ class Output:
         if result.explorer_url:
             self._sub_diag("see", result.explorer_url)
         # The exact chain name gives the most specific explanation; the semantic
-        # code is the fallback when the failure never carried a module error.
-        explain_target = error.name or (
-            error.code.value if error.code is not ErrorCode.UNKNOWN else None
-        )
+        # code is the fallback when the failure never carried a name `btcli
+        # explain` can resolve (a pool rejection, an unclassified name).
+        if error.name and (error.name in NAME_TO_CODE or error.name in DISPATCH_ERRORS):
+            explain_target = error.name
+        elif error.code is not ErrorCode.UNKNOWN:
+            explain_target = error.code.value
+        else:
+            explain_target = None
         if explain_target:
             tail = _prose(
                 f"for more information about this error, run `btcli explain {explain_target}`"

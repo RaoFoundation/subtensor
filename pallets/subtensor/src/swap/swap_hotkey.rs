@@ -666,6 +666,17 @@ impl<T: Config> Pallet<T> {
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
         }
 
+        // 3.9. Swap miner registration collateral.
+        // MinerCollateral( netuid, hotkey ) --> MinerCollateralState -- follows the
+        // hotkey so a swapped miner keeps its standing collateral (and its work debt).
+        // Skip when keep_stake: the bonded alpha stays on the old hotkey, so the
+        // lock metadata must stay with it too (otherwise metagraph / re-reg credit
+        // detach from the stake that backs them).
+        if !keep_stake {
+            Self::swap_miner_collateral(old_hotkey, new_hotkey, netuid);
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
+        }
+
         // 4. Swap ChildKeys.
         // 5. Swap ParentKeys.
         // 6. Swap PendingChildKeys.

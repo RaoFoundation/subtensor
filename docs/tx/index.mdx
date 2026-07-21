@@ -69,6 +69,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 
 | Operation | Signer | Origin | Summary |
 | --- | --- | --- | --- |
+| [`add-collateral`](/docs/tx/add-collateral) | coldkey | signed account (pallet role may apply) | Stake TAO to your own hotkey and lock it as additional miner collateral. |
 | [`add-stake`](/docs/tx/add-stake) | coldkey | signed account (pallet role may apply) | Stake TAO from the coldkey onto a hotkey. |
 | [`add-stake-limit`](/docs/tx/add-stake-limit) | coldkey | signed account (pallet role may apply) | Stake TAO with a limit price (slippage protection). |
 | [`announce-coldkey-swap`](/docs/tx/announce-coldkey-swap) | coldkey | signed account (pallet role may apply) | Announce (commit to) a coldkey swap; executable after the chain's delay. |
@@ -98,6 +99,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-childkey-take`](/docs/tx/set-childkey-take) | coldkey | signed account (pallet role may apply) | Set the childkey take for a hotkey on a subnet. |
 | [`set-children`](/docs/tx/set-children) | coldkey | signed account (pallet role may apply) | Assign child hotkeys with stake-weight proportions on a subnet. |
 | [`set-identity`](/docs/tx/set-identity) | coldkey | signed account (pallet role may apply) | Publish an on-chain identity (name, links, description) for the coldkey. |
+| [`set-min-collateral`](/docs/tx/set-min-collateral) | coldkey | signed account (pallet role may apply) | Set the self-maintaining collateral floor for your hotkey on a subnet. |
 | [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account (pallet role may apply) | Enable or disable perpetual lock mode for a coldkey on a subnet. |
 | [`set-root-claim-type`](/docs/tx/set-root-claim-type) | coldkey | signed account (pallet role may apply) | Set how a coldkey's root alpha emission is claimed. |
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |

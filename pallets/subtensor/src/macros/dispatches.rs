@@ -2401,5 +2401,76 @@ mod dispatches {
                 alpha_amount,
             )
         }
+
+        /// Stakes `tao` to the signer's own hotkey and locks the resulting
+        /// alpha as additional miner collateral on the subnet.
+        ///
+        /// Used to top up the registration collateral voluntarily — for
+        /// example to meet a validator-published per-machine requirement on
+        /// resource subnets. The lock is released back through earned
+        /// incentive exactly like registration collateral (it is the same
+        /// lock), keeps the existing drain-ratio snapshot, and is credited
+        /// against the collateral requirement on re-registration.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that owns `hotkey`.
+        /// * `netuid`: The subnet to lock collateral on.
+        /// * `hotkey`: The miner hotkey the collateral attaches to.
+        /// * `tao`: TAO to stake and lock; must be at least the minimum stake.
+        ///
+        /// # Errors
+        /// * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network.
+        /// * `SubnetNotExists`: The subnet does not exist.
+        /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
+        /// * `NonAssociatedColdKey`: The signer does not own `hotkey`.
+        /// * `AmountTooLow`: `tao` is below the minimum stake.
+        /// * `NotEnoughBalanceToStake`: The coldkey cannot cover `tao`.
+        ///
+        /// # Events
+        /// Emits `CollateralLocked` on success.
+        #[pallet::call_index(144)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_collateral())]
+        pub fn add_collateral(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            tao: TaoBalance,
+        ) -> DispatchResult {
+            Self::do_add_collateral(origin, netuid, hotkey, tao)
+        }
+
+        /// Sets the self-maintaining collateral floor for the signer's hotkey
+        /// on a subnet.
+        ///
+        /// The drain never releases the lock below the floor, and while the
+        /// lock is under it, earned miner incentive is captured into the lock
+        /// until the floor is met — so a miner tracking a validator-published
+        /// collateral requirement does not need to keep re-locking drained
+        /// funds. Zero clears the floor and restores pure drain behavior.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that owns `hotkey`.
+        /// * `netuid`: The subnet the floor applies to.
+        /// * `hotkey`: The miner hotkey the floor applies to.
+        /// * `min_locked`: The floor, in alpha; zero clears it.
+        ///
+        /// # Errors
+        /// * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network.
+        /// * `SubnetNotExists`: The subnet does not exist.
+        /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
+        /// * `NonAssociatedColdKey`: The signer does not own `hotkey`.
+        ///
+        /// # Events
+        /// Emits `MinCollateralSet` on success.
+        #[pallet::call_index(145)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_min_collateral())]
+        pub fn set_min_collateral(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            min_locked: AlphaBalance,
+        ) -> DispatchResult {
+            Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
+        }
     }
 }

@@ -131,6 +131,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
                 Error::<T>::AmountTooLow
             );
             Self::ensure_available_to_unstake(from_coldkey, netuid, amount)?;
+            Self::ensure_hotkey_covers_collateral(from_coldkey, from_hotkey, netuid, amount)?;
         }
 
         if validate_receiver {

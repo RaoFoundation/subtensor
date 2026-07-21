@@ -23,32 +23,24 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v434',
+    tag: 'v435',
     date: 'July 2026',
-    title: 'The V434 Upgrade',
+    title: 'The Collateral Release',
     summary:
-      'One-call stake transfer to a new coldkey and hotkey, a dedicated stake-transfer ' +
-      'minimum, air-gapped signing with Polkadot Vault, and fully benchmarked extrinsic ' +
-      'weights.',
-    href: '/releases/v434-upgrade',
-  },
-  {
-    tag: 'v432',
-    date: 'July 2026',
-    title: 'The V432 Upgrade',
-    summary:
-      'Follow-on after v431: privilege-aware SDK intents and docs, nested sudo/proxy/multisig ' +
-      'failure reporting, root emission controls, and the localnet publication digest fix.',
-    href: '/releases/v432-upgrade',
+      'Miner registration collateral: subnets can lock a share of the registration price as ' +
+      'a bond miners earn back through incentive — sunk for sybils and cheaters, nearly free ' +
+      'for honest miners. Plus one-call stake transfer to a new coldkey and hotkey, ' +
+      'air-gapped Polkadot Vault signing, and fully benchmarked extrinsic weights.',
+    href: '/releases/v435-upgrade',
   },
   {
     tag: 'v431',
     date: 'July 2026',
-    title: 'The V431 Upgrade',
+    title: 'The Monorepo Release',
     summary:
       'Conviction-based subnet ownership, price-driven emissions, the bittensor v11 SDK ' +
       'with a Rust core, Ledger and browser-extension signing, and a verifiable upgrade ' +
-      'pipeline — the monorepo era.',
+      'pipeline — the chain, SDK, CLI, and docs developed and released together.',
     href: '/releases/v431-upgrade',
   },
 ];

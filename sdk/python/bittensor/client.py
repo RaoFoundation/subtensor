@@ -34,6 +34,7 @@ from .multisig import Multisig
 from .namespaces import (
     Balances,
     Chain,
+    Collateral,
     Delegation,
     Epochs,
     Hyperparameters,
@@ -186,6 +187,7 @@ class Client:
         # and Snapshot; assigned explicitly so type checkers see each attribute.)
         self.balances = Balances(self)
         self.chain = Chain(self)
+        self.collateral = Collateral(self)
         self.delegation = Delegation(self)
         self.epochs = Epochs(self)
         self.hyperparameters = Hyperparameters(self)

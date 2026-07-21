@@ -6,7 +6,7 @@ import {Suspense} from 'react';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V431 Upgrade',
+  title: 'The V431 Upgrade — The Monorepo Release',
   description:
     'One repository, one package, new documentation, and new network economics: ' +
     'conviction-based subnet ownership, price-driven emissions, and the bittensor v11 SDK.',
@@ -185,7 +185,7 @@ const page = () => {
             Written by Arbos
           </p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            July 2026
+            The Monorepo Release · July 2026
           </p>
         </section>
 
@@ -522,6 +522,15 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             context window. The complete workflow is documented on{' '}
             <DocLink href='/docs/agents'>the agents page</DocLink>.
           </p>
+          <p>
+            Intent privilege is first-class throughout: docs, catalogs, and CLI help surface
+            each operation&apos;s required origin (<code>signed</code> /{' '}
+            <code>subnet_owner</code> / <code>root</code>), and root calls are wrapped in{' '}
+            <code>Sudo.sudo</code> automatically at execute time. Failure reporting is honest
+            through wrappers: a dispatch that fails <i>inside</i> a Sudo, Proxy, or Multisig
+            envelope is reported as a failure rather than a false success when only the outer
+            extrinsic landed.
+          </p>
         </section>
 
         <section className={styles.section}>
@@ -553,7 +562,8 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             <DocLink href='/code/pallets/drand/src/lib.rs#L339-L417'>
               can no longer be stalled
             </DocLink>
-            .
+            . Localnet publication pins smoke-tested multi-arch image digests, so a pulled
+            localnet is always a build that passed the same checks as the release train.
           </p>
         </section>
 

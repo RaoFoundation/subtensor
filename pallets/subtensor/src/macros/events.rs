@@ -721,5 +721,29 @@ mod events {
             /// The TAO-equivalent amount moved.
             amount: TaoBalance,
         },
+
+        /// Miner collateral was staked and locked (at registration or via
+        /// `add_collateral`). Appended at the end of the enum to avoid
+        /// shifting existing event indices.
+        CollateralLocked {
+            /// Subnet identifier.
+            netuid: NetUid,
+            /// The miner hotkey the collateral is attached to.
+            hotkey: T::AccountId,
+            /// Alpha locked by this operation.
+            locked: AlphaBalance,
+            /// Total alpha now locked for this hotkey on this subnet.
+            total_locked: AlphaBalance,
+        },
+
+        /// A miner set the self-maintaining collateral floor for a hotkey.
+        MinCollateralSet {
+            /// Subnet identifier.
+            netuid: NetUid,
+            /// The miner hotkey the floor applies to.
+            hotkey: T::AccountId,
+            /// The new floor; zero clears it.
+            min_locked: AlphaBalance,
+        },
     }
 }

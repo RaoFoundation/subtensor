@@ -59,6 +59,8 @@
     "ColdkeySwapDisputed",
     "ColdkeySwapReannouncedTooEarly",
     "ColdkeySwapTooEarly",
+    "CollateralDrainRatioOutOfBounds",
+    "CollateralLockShareTooHigh",
     "CommitRevealDisabled",
     "CommitRevealEnabled",
     "CommittingWeightsTooFast",

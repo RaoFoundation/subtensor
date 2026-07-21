@@ -264,6 +264,10 @@ mod pallet_benchmarks {
             "burned_register_existing_hot",
             "burned_register_existing_cold",
         );
+        // Worst case: collateral enabled, so the charge also stakes-and-locks the
+        // collateral share (AMM swap + share-pool + MinerCollateral write) rather
+        // than only burning.
+        CollateralLockShare::<T>::insert(netuid, MaxCollateralLockShare::<T>::get());
         fund_for_registration::<T>(netuid, &coldkey);
 
         #[extrinsic_call]
@@ -1168,6 +1172,71 @@ mod pallet_benchmarks {
             netuid,
             netuid,
             alpha_to_transfer,
+        );
+    }
+
+    #[benchmark]
+    fn add_collateral() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hot: T::AccountId = account("A", 0, 1);
+        let netuid = NetUid::from(1);
+
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        Subtensor::<T>::set_network_registration_allowed(netuid, true);
+
+        let reg_fee = Subtensor::<T>::get_burn(netuid);
+        let collateral_tao = DefaultMinStake::<T>::get().saturating_mul(10.into());
+        let deposit = reg_fee.saturating_mul(2.into()).saturating_add(collateral_tao);
+        add_balance_to_coldkey_account::<T>(&coldkey, deposit.into());
+        add_lock::<T>(&coldkey, netuid);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            netuid,
+            hot.clone()
+        ));
+
+        set_reserves::<T>(netuid, deposit, AlphaBalance::from(deposit.to_u64()));
+        TotalStake::<T>::set(deposit);
+
+        // Worst case: an entry already exists so the extrinsic merges into it.
+        MinerCollateral::<T>::insert(
+            netuid,
+            &hot,
+            MinerCollateralState {
+                locked: AlphaBalance::from(1_000u64),
+                drain_ratio: U64F64::saturating_from_num(1),
+                min_locked: AlphaBalance::from(1_000u64),
+                earned: AlphaBalance::ZERO,
+            },
+        );
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            netuid,
+            hot.clone(),
+            collateral_tao,
+        );
+    }
+
+    #[benchmark]
+    fn set_min_collateral() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hot: T::AccountId = account("A", 0, 1);
+        let netuid = NetUid::from(1);
+
+        SubtokenEnabled::<T>::insert(netuid, true);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        let _ = Subtensor::<T>::create_account_if_non_existent(&coldkey, &hot);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            netuid,
+            hot.clone(),
+            AlphaBalance::from(1_000_000u64),
         );
     }
 

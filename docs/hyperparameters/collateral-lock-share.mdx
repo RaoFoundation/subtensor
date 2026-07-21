@@ -1,0 +1,75 @@
+---
+title: collateral_lock_share
+description: Share of the registration price locked as miner collateral instead of burned; 0 disables collateral.
+---
+
+`collateral_lock_share` (call it `p`) splits the subnet's floating
+registration price: the `(1 − p)` share is burned as in a classic burned
+registration, and the `p` share is staked to the registering hotkey and
+locked as [miner collateral](/docs/guides/mining/collateral). Miners care
+because it decides how much of the entry price they can earn back by mining;
+owners tune it to price post-registration accountability — sybils, UID
+squatters, and miners that validators blacklist never release the lock.
+
+## How it works
+
+At registration
+([`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L66-L127)
+in `pallets/subtensor/src/subnets/registration.rs`), with floating price `T`:
+
+```
+burned = (1 − p) × T
+top-up = max(0, p × T − value of standing collateral)
+```
+
+The burned share is recycled exactly like a pre-collateral registration; the
+top-up is staked to the hotkey via the normal staking path and locked
+([`lock_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L121-L178)).
+Standing collateral from a previous registration of the same hotkey is valued
+at the subnet's moving-average price and credited, so a pruned miner re-registers for
+roughly the burned share alone. Locked collateral is excluded from what the
+coldkey can unstake and is released only against earned miner incentive, at
+[`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio)
+alpha per alpha earned.
+
+The value is stored in
+[`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L2786-L2793) as a
+`u16` normalized so `u16::MAX` (65535) = 100%. The chain default is 0 —
+collateral disabled, whole price burned, identical to pre-collateral
+behavior. The owner-set extrinsic
+([`sudo_set_collateral_lock_share`](/code/pallets/admin-utils/src/lib.rs#L2267-L2309)
+in `pallets/admin-utils/src/lib.rs`) caps the value at
+[`MaxCollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L431-L437)
+(62258, ≈95%): the burned share must stay strictly positive so
+re-registration always pays a nonzero, floating burn. Values above the cap
+fail with
+[`CollateralLockShareTooHigh`](/docs/errors/chain/CollateralLockShareTooHigh).
+
+Changes are **prospective only**: each miner's lock is created at
+registration time, so raising `p` affects future registrants (and returning
+miners' top-ups), never standing collateral.
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name collateral_lock_share
+```
+
+Stored u16-normalized (65535 = 100%); `btcli` accepts either the 0..1
+fraction or the raw integer. Owner or root, rate-limited, outside the
+weights window:
+
+```
+btcli sudo set --netuid N --name collateral_lock_share --value 0.75   # or the raw integer 49151
+```
+
+Common settings: 0 (pure burn, default), 0.75 (standard bond), 0.83–0.9
+(subnets defending against short-horizon score gaming — pair with a low
+drain ratio). `btcli` accepts the 0..1 fraction or the raw u16 integer.
+
+## Related
+
+[`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio),
+[`min_burn`](/docs/hyperparameters/min-burn),
+[`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult),
+[Registration collateral guide](/docs/guides/mining/collateral)

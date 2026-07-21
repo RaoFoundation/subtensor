@@ -1,9 +1,23 @@
 import { source } from '@/lib/source';
 import { llms } from 'fumadocs-core/source';
 import { buildCommit, CODE_ROOTS } from '@/lib/code';
-import { codeRoute } from '@/lib/shared';
+import { chainRepoUrl, codeRoute, docsContentRoute, siteUrl } from '@/lib/shared';
 
 export const revalidate = false;
+
+function searchSection(): string {
+  return [
+    '## Searching these docs',
+    '',
+    'Everything below is plain text over HTTP, so you can grep it as if it were local:',
+    '',
+    `- Full docs corpus (every page in one file): \`curl -s ${siteUrl}/llms-full.txt | rg -n '<pattern>'\``,
+    `- One page as markdown: ${siteUrl}${docsContentRoute}/<slug>/content.md, e.g. ${siteUrl}${docsContentRoute}/quickstart/content.md`,
+    `- Chain source: \`curl -s ${siteUrl}${codeRoute}/index.json\` lists every file path, then \`curl -s ${siteUrl}${codeRoute}/raw/<repo-path> | rg -n '<pattern>'\``,
+    `- For heavy exploration, clone the repo (docs live in docs/): \`git clone --depth 1 ${chainRepoUrl}\``,
+    '',
+  ].join('\n');
+}
 
 function codeSection(): string {
   const commit = buildCommit();
@@ -22,5 +36,5 @@ function codeSection(): string {
 }
 
 export function GET() {
-  return new Response(`${llms(source).index()}\n${codeSection()}`);
+  return new Response(`${llms(source).index()}\n${searchSection()}\n${codeSection()}`);
 }

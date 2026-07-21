@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from ._generated.errors import ERRORS
 from .error_descriptions import DESCRIPTIONS as _DESCRIPTIONS
+from .error_map import DISPATCH_ERRORS as _DISPATCH_ERRORS
 from .error_map import NAME_TO_CODE as _NAME_TO_CODE
 from .error_map import ErrorCode
 from .settings import chain_error_docs_url, error_docs_url
@@ -279,6 +280,8 @@ def classify_error(text: str, name: Optional[str] = None) -> ErrorCode:
     if name:
         if name in _NAME_TO_CODE:
             return _NAME_TO_CODE[name]
+        if name in _DISPATCH_ERRORS:
+            return _DISPATCH_ERRORS[name][0]
         if name.endswith("RateLimitExceeded") or "RateLimit" in name:
             return ErrorCode.RATE_LIMITED
         return ErrorCode.UNKNOWN
@@ -316,10 +319,17 @@ class ChainError(BittensorError):
     @property
     def description(self) -> Optional[str]:
         """What triggered this exact chain error and where to check, from the
-        per-name table in :mod:`bittensor.error_descriptions` (split by pallet).
-        ``None`` when the
-        failure carried no module error name (e.g. a pool rejection)."""
-        return _DESCRIPTIONS.get(self.name) if self.name else None
+        per-name table in :mod:`bittensor.error_descriptions` (split by pallet),
+        or the dispatch-level table for non-module errors (``BadOrigin``,
+        ``TokenError`` variants). ``None`` when the failure carried no error
+        name (e.g. a pool rejection)."""
+        if not self.name:
+            return None
+        if self.name in _DESCRIPTIONS:
+            return _DESCRIPTIONS[self.name]
+        if self.name in _DISPATCH_ERRORS:
+            return _DISPATCH_ERRORS[self.name][1]
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {

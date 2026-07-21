@@ -118,6 +118,22 @@ pub mod pallet {
             /// Whether pool-side emission injections and chain buys are enabled.
             enabled: bool,
         },
+
+        /// Event emitted when the miner collateral lock share is set for a subnet.
+        CollateralLockShareSet {
+            /// The network identifier.
+            netuid: NetUid,
+            /// The new lock share, normalized so `u16::MAX` = 100%.
+            lock_share: u16,
+        },
+
+        /// Event emitted when the miner collateral drain ratio is set for a subnet.
+        CollateralDrainRatioSet {
+            /// The network identifier.
+            netuid: NetUid,
+            /// The new drain ratio (alpha released per alpha of incentive earned).
+            drain_ratio: U64F64,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -151,6 +167,10 @@ pub mod pallet {
         POWRegistrationDisabled,
         /// Call is deprecated
         Deprecated,
+        /// The collateral lock share exceeds the settable maximum (95% of the registration price).
+        CollateralLockShareTooHigh,
+        /// The collateral drain ratio must be positive and at most the settable maximum.
+        CollateralDrainRatioOutOfBounds,
     }
     /// Enum for specifying the type of precompile operation.
     #[derive(
@@ -2240,6 +2260,94 @@ pub mod pallet {
             pallet_subtensor::SubnetEmissionEnabled::<T>::insert(netuid, enabled);
             Self::deposit_event(Event::SubnetEmissionEnabledSet { netuid, enabled });
             log::debug!("SubnetEmissionEnabledSet( netuid: {netuid:?}, enabled: {enabled:?} )");
+
+            Ok(())
+        }
+
+        /// Sets the miner collateral lock share (p) for a subnet: the share of
+        /// the registration price that is staked to the registering hotkey and
+        /// locked as collateral instead of burned. Normalized so `u16::MAX` =
+        /// 100%; capped at 95% so the burned share stays positive. 0 disables
+        /// collateral. Callable by root and subnet owner. Applies only to
+        /// future registrations; standing collateral is never re-priced.
+        #[pallet::call_index(98)]
+        #[pallet::weight((<T as pallet::Config>::WeightInfo::sudo_set_collateral_lock_share(), DispatchClass::Operational, Pays::Yes))]
+        pub fn sudo_set_collateral_lock_share(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            lock_share: u16,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::CollateralLockShare.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            ensure!(
+                lock_share <= pallet_subtensor::MaxCollateralLockShare::<T>::get(),
+                Error::<T>::CollateralLockShareTooHigh
+            );
+
+            pallet_subtensor::CollateralLockShare::<T>::insert(netuid, lock_share);
+            Self::deposit_event(Event::CollateralLockShareSet { netuid, lock_share });
+            log::debug!("CollateralLockShareSet( netuid: {netuid:?}, lock_share: {lock_share:?} )");
+
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::CollateralLockShare.into()],
+            );
+
+            Ok(())
+        }
+
+        /// Sets the miner collateral drain ratio (k) for a subnet: how much
+        /// locked collateral is released per alpha of miner incentive earned.
+        /// Must be positive, at most 10. Callable by root and subnet owner.
+        /// Snapshot per miner at registration; changing it never affects
+        /// already-locked collateral.
+        #[pallet::call_index(99)]
+        #[pallet::weight((<T as pallet::Config>::WeightInfo::sudo_set_collateral_drain_ratio(), DispatchClass::Operational, Pays::Yes))]
+        pub fn sudo_set_collateral_drain_ratio(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            drain_ratio: U64F64,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::CollateralDrainRatio.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            ensure!(
+                drain_ratio > U64F64::from_num(0)
+                    && drain_ratio <= pallet_subtensor::MaxCollateralDrainRatio::<T>::get(),
+                Error::<T>::CollateralDrainRatioOutOfBounds
+            );
+
+            pallet_subtensor::CollateralDrainRatio::<T>::insert(netuid, drain_ratio);
+            Self::deposit_event(Event::CollateralDrainRatioSet { netuid, drain_ratio });
+            log::debug!(
+                "CollateralDrainRatioSet( netuid: {netuid:?}, drain_ratio: {drain_ratio:?} )"
+            );
+
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::CollateralDrainRatio.into()],
+            );
 
             Ok(())
         }

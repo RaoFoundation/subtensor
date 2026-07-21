@@ -66,6 +66,8 @@ pub trait WeightInfo {
 	fn swap_stake_limit() -> Weight;
 	fn transfer_stake() -> Weight;
 	fn transfer_stake_and_hotkey() -> Weight;
+	fn add_collateral() -> Weight;
+	fn set_min_collateral() -> Weight;
 	fn swap_stake() -> Weight;
 	fn batch_commit_weights() -> Weight;
 	fn batch_set_weights() -> Weight;
@@ -1657,6 +1659,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(228_018_000, 7928)
 			.saturating_add(T::DbWeight::get().reads(20_u64))
 			.saturating_add(T::DbWeight::get().writes(8_u64))
+	}
+	// Mirrors `add_stake` (same staking path) plus the MinerCollateral
+	// read/write, until the benchmark run regenerates this file.
+	fn add_collateral() -> Weight {
+		Weight::from_parts(682_328_000, 8727)
+			.saturating_add(T::DbWeight::get().reads(33_u64))
+			.saturating_add(T::DbWeight::get().writes(17_u64))
+	}
+	// Ownership checks plus one MinerCollateral mutation; estimate pending a
+	// measured run.
+	fn set_min_collateral() -> Weight {
+		Weight::from_parts(50_000_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5030,6 +5046,20 @@ impl WeightInfo for () {
 		Weight::from_parts(228_018_000, 7928)
 			.saturating_add(RocksDbWeight::get().reads(20_u64))
 			.saturating_add(RocksDbWeight::get().writes(8_u64))
+	}
+	// Mirrors `add_stake` (same staking path) plus the MinerCollateral
+	// read/write, until the benchmark run regenerates this file.
+	fn add_collateral() -> Weight {
+		Weight::from_parts(682_328_000, 8727)
+			.saturating_add(RocksDbWeight::get().reads(33_u64))
+			.saturating_add(RocksDbWeight::get().writes(17_u64))
+	}
+	// Ownership checks plus one MinerCollateral mutation; estimate pending a
+	// measured run.
+	fn set_min_collateral() -> Weight {
+		Weight::from_parts(50_000_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)

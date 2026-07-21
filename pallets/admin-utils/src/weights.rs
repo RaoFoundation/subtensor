@@ -118,6 +118,8 @@ pub trait WeightInfo {
 	fn sudo_set_burn_increase_mult() -> Weight;
 	fn sudo_set_owner_cut_enabled() -> Weight;
 	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight;
+	fn sudo_set_collateral_lock_share() -> Weight;
+	fn sudo_set_collateral_drain_ratio() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
@@ -1406,6 +1408,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Measured:  `1002`
 		//  Estimated: `4467`
 		// Minimum execution time: 41_972_000 picoseconds.
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_lock_share() -> Weight {
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_drain_ratio() -> Weight {
 		Weight::from_parts(42_884_000, 4467)
 			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
@@ -2743,6 +2759,20 @@ impl WeightInfo for () {
 		//  Measured:  `1002`
 		//  Estimated: `4467`
 		// Minimum execution time: 41_972_000 picoseconds.
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_lock_share() -> Weight {
+		Weight::from_parts(42_884_000, 4467)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Same owner-hyperparameter guard path and single insert as
+	/// `sudo_set_burn_increase_mult`; estimate reused pending a measured run.
+	fn sudo_set_collateral_drain_ratio() -> Weight {
 		Weight::from_parts(42_884_000, 4467)
 			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))

@@ -979,8 +979,17 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
-        // Transfer lock (may fail if destination coldkey has a conflicting lock)
-        Self::transfer_lock(origin_coldkey, destination_coldkey, netuid, alpha)?;
+        // Transfer lock (may fail if destination coldkey has a conflicting lock).
+        // The lock must follow the stake to the destination hotkey, otherwise a
+        // hotkey-changing transfer would leave the recipient's lock and conviction
+        // stranded on the origin hotkey.
+        Self::transfer_lock(
+            origin_coldkey,
+            destination_coldkey,
+            destination_hotkey,
+            netuid,
+            alpha,
+        )?;
 
         // Decrease alpha on origin keys
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
@@ -995,6 +1004,12 @@ impl<T: Config> Pallet<T> {
                 origin_coldkey,
                 alpha,
             );
+        }
+
+        // If the destination coldkey does not own the destination hotkey, make the
+        // hotkey a delegate, matching the cross-subnet transfer path.
+        if Self::get_owning_coldkey_for_hotkey(destination_hotkey) != *destination_coldkey {
+            Self::maybe_become_delegate(destination_hotkey);
         }
 
         // Increase alpha on destination keys
@@ -1197,6 +1212,9 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that unstaked amount is not greater than available to unstake (due to locks)
         Self::ensure_available_to_unstake(coldkey, netuid, alpha_unstaked)?;
+        // Collateral is per-hotkey: free stake on a sibling hotkey must not cover
+        // stripping the bonded position.
+        Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha_unstaked)?;
 
         Ok(())
     }
@@ -1349,7 +1367,24 @@ impl<T: Config> Pallet<T> {
         // cover the lock.
         if origin_netuid != destination_netuid {
             Self::ensure_available_to_unstake(origin_coldkey, origin_netuid, alpha_amount)?;
+        } else if origin_coldkey != destination_coldkey {
+            // Same-subnet, ownership-changing transfer. Conviction locks follow the
+            // stake to the destination coldkey via `transfer_lock`, but miner
+            // registration collateral has no transfer exit and does not follow — its
+            // `MinerCollateral(netuid, hotkey)` entry stays on the origin hotkey. Without
+            // this check, a coldkey could liberate locked collateral by transferring the
+            // staked alpha to a second coldkey. Require the origin coldkey to retain
+            // enough alpha on the subnet to still cover its collateral.
+            Self::ensure_transfer_respects_collateral(origin_coldkey, origin_netuid, alpha_amount)?;
         }
+        // Always keep bonded alpha on the origin hotkey itself (same-subnet moves
+        // to a sibling hotkey would otherwise leave a ghost metagraph bond).
+        Self::ensure_hotkey_covers_collateral(
+            origin_coldkey,
+            origin_hotkey,
+            origin_netuid,
+            alpha_amount,
+        )?;
 
         Ok(())
     }

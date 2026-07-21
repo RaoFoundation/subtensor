@@ -205,6 +205,14 @@ exists only for the **legacy salt-based** commit flow: it must reproduce the
 exact committed uids, weights, salt, and version key, and is never needed for
 timelocked commits, which the chain reveals on its own.
 
+## Scoring and collateral
+
+On subnets that opt into [miner collateral](/docs/guides/mining/collateral),
+validators enforce floors off chain: read
+[`collateral_locked`](/docs/query/metagraph) / [`subnet_collateral`](/docs/query/subnet-collateral)
+and simply stop scoring under-collateralized or misbehaving hotkeys. There is
+no on-chain slash — zero incentive stops the drain and strands the lock.
+
 ## Bonds and liquid alpha
 
 Dividends flow through **bonds**: each validator accumulates bond value toward

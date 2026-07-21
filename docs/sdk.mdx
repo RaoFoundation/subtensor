@@ -43,6 +43,7 @@ accessors:
 ```python
 sub.balances.get("5F...")                       # typed namespace
 sub.subnets.metagraph(netuid=1)                 # a whole subnet as one object
+sub.collateral.collateral_policy(netuid=1)      # lock share + drain ratio
 sub.read("delegate_take", hotkey_ss58="5F...")  # same catalog, by name
 sub.query(bt.storage.SubtensorModule.Tempo, [1])  # anything in the runtime
 ```
@@ -100,6 +101,7 @@ level — `bt.Transfer`, `bt.AddStake`, `bt.SetWeights`, `bt.BurnedRegister`,
 
 ```python
 intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
+# Miner collateral (spec >= 435): bt.AddCollateral / bt.SetMinCollateral
 
 plan = sub.plan(intent, wallet)       # fee, effects, warnings — nothing submitted
 result = sub.execute(intent, wallet)  # sign and submit

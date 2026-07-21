@@ -21,6 +21,17 @@ const nextConfig = {
         destination: '/docs',
         permanent: true,
       },
+      // v432 and v434 were squashed into the v431 and v435 release pages.
+      {
+        source: '/releases/v432-upgrade',
+        destination: '/releases/v431-upgrade',
+        permanent: true,
+      },
+      {
+        source: '/releases/v434-upgrade',
+        destination: '/releases/v435-upgrade',
+        permanent: true,
+      },
       {
         source: '/scan/:path*',
         destination: 'https://taostats.io',

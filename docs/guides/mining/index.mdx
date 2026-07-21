@@ -9,6 +9,15 @@ validators where to reach you, and don't get evicted. The work itself — the
 model, the service, the actual commodity — is defined by each subnet's own
 codebase, not by the chain.
 
+Registering costs the subnet's floating **registration price**, and what that
+payment buys depends on the subnet's configuration:
+
+- On most subnets the whole price is **burned** — a sunk, non-refundable
+  entry fee. See [registration burn](/docs/guides/mining/burn).
+- Subnets can instead lock a share of the price as **collateral** — stake
+  attached to your hotkey that you earn back by mining. See
+  [registration collateral](/docs/guides/mining/collateral).
+
 Mining (and validating) is not supported on Windows. Wallet operations work
 under WSL 2, but run miners on Linux or macOS.
 
@@ -18,7 +27,8 @@ under WSL 2, but run miners on Linux or macOS.
 btcli subnets list
 btcli subnets show 1
 btcli query burn --netuid 1 --json                     # current registration price
-btcli query subnet-hyperparameters --netuid 1 --json   # immunity period, limits
+btcli query subnet-hyperparameters --netuid 1 --json   # immunity, limits, collateral_*
+btcli query collateral-policy --netuid 1 --json        # lock share + drain ratio only
 btcli query metagraph --netuid 1 --json                # who you're competing with
 ```
 
@@ -28,7 +38,12 @@ lets you learn without deregistration risk; a mature high-emission subnet
 means competing against miners tuned over months. Each subnet's repo
 conventionally documents hardware needs (`min_compute.yml` or the README),
 and most subnets run on a testnet netuid — test there or on a local chain
-before paying the registration burn.
+before paying the registration price.
+
+Check the subnet's collateral policy before budgeting:
+[`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) (also
+on `subnet-hyperparameters` / [`collateral-policy`](/docs/query/collateral-policy))
+tells you what fraction of the price is a recoverable lock rather than a burn.
 
 Note also whose hotkey you register: mining on the subnet owner's hotkey (or
 its associated hotkeys) is pointless — miner emission directed at
@@ -37,8 +52,8 @@ by default, per the subnet's `RecycleOrBurn` setting).
 
 ## 2. Register
 
-[`burned-register`](/docs/tx/burned-register) burns the subnet's current
-registration cost from your coldkey and assigns your hotkey a **UID**:
+[`burned-register`](/docs/tx/burned-register) charges the subnet's current
+registration price from your coldkey and assigns your hotkey a **UID**:
 
 ```bash
 btcli tx burned-register --netuid 1 --dry-run -w my_coldkey
@@ -54,28 +69,11 @@ The UID goes to the wallet's hotkey by default; pass `hotkey_ss58` to register
 a different one.
 
 Registration is continuous — there are no registration windows. Admission is
-governed entirely by a dynamic burn price:
-
-- The price **decays over time**
-  ([`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)),
-  halving every [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L2726) blocks
-  (default 360, about one tempo; owner-settable).
-- Each successful registration **multiplies the price**
-  ([`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L517-L541))
-  by [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L2731)
-  (default 1.26), so a registration rush gets expensive fast.
-- The price is clamped between [`MinBurn`](/code/pallets/subtensor/src/lib.rs#L2135) (default 500,000 rao = 0.0005 TAO)
-  and [`MaxBurn`](/code/pallets/subtensor/src/lib.rs#L2140) (default 100 TAO). All three are per-subnet hyperparameters.
-
-<RegistrationBurnTimeline />
-
-Read the live price with [`burn`](/docs/query/burn). Know before you send:
-
-- The burned TAO is **recycled, not staked** — deregistering does not refund
-  it. Under the hood the TAO is swapped into the subnet's pool and the
-  resulting alpha is removed from the subnet's outstanding supply.
-- The cost floats and is only known at execution time, so a configured
-  `Policy` spend cap blocks this call until raised.
+governed entirely by the dynamic price described in
+[registration burn](/docs/guides/mining/burn): it decays every block and jumps
+after every successful registration, so a rush gets expensive fast. The cost
+floats and is only known at execution time, so a configured `Policy` spend cap
+blocks this call until raised.
 
 Confirm with [`uid`](/docs/query/uid) or
 [`netuids-for-hotkey`](/docs/query/netuids-for-hotkey). One hotkey can hold
@@ -103,6 +101,11 @@ The rules, as implemented in the chain's pruning logic:
 Practical consequence: your immunity period is your runway. If the subnet's
 `immunity_period` is 4096 blocks, you have about half a day to start earning
 emissions before you're evictable.
+
+Eviction is mechanical, not a judgment. It costs you the UID and nothing
+else: your stake stays where it is, and on a collateral subnet your locked
+collateral stays attached to the hotkey and is credited when you
+[re-register](/docs/guides/mining/collateral#deregistration-and-re-registration).
 
 ## 4. Publish your endpoint
 
@@ -150,7 +153,9 @@ service directly.
 Longevity compounds. Validators' bonds toward a miner build up as an
 exponential moving average, so an established miner out-earns an identical
 newcomer until the newcomer's bonds mature — see
-[emissions](/docs/concepts/emissions) for the bond math.
+[emissions](/docs/concepts/emissions) for the bond math. On collateral
+subnets, longevity also pays down your lock: every alpha of incentive you
+earn releases collateral back to withdrawable stake.
 
 Rewards accrue to the hotkey as stake. Have them auto-staked to a hotkey of
 your choice with [`set-auto-stake`](/docs/tx/set-auto-stake).
@@ -166,4 +171,5 @@ your choice with [`set-auto-stake`](/docs/tx/set-auto-stake).
 - Create hotkeys on a trusted machine and transfer only the hotkey file (or
   mnemonic) to the miner.
 - If the hotkey is compromised, [`swap-hotkey`](/docs/tx/swap-hotkey) replaces
-  it while keeping its registrations.
+  it while keeping its registrations — and, on collateral subnets, its locked
+  collateral, which follows the hotkey.

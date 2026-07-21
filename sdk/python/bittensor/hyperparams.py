@@ -322,6 +322,23 @@ HYPERPARAMS: dict[str, Hyperparam] = {
         "Blocks for the burn cost to decay halfway back toward min_burn.",
         short="burn cost decay half-life",
     ),
+    "collateral_lock_share": Hyperparam(
+        "u16",
+        "Share of the registration price locked as miner collateral instead of "
+        "burned. Stored as u16 (65535 = 1.0) and capped at 62258 (95%) so the "
+        "burned share stays positive; 0 disables collateral.",
+        short="registration price share locked",
+        maximum=62258,
+    ),
+    "collateral_drain_ratio": Hyperparam(
+        "fixed128",
+        "Alpha of locked miner collateral released per alpha of incentive "
+        "earned. U64F64 fixed-point, snapshot per miner at registration; must "
+        "be positive and at most 10.",
+        short="collateral released per α earned",
+        minimum=1,
+        maximum=10 * FIXED128_ONE,
+    ),
     "yuma3_enabled": Hyperparam(
         "bool",
         "Whether the Yuma3 consensus variant is enabled for this subnet.",
@@ -418,6 +435,10 @@ STORAGE_ITEMS: dict[str, st.Item] = {
     "max_allowed_uids": st.SubtensorModule.MaxAllowedUids,
     "burn_increase_mult": st.SubtensorModule.BurnIncreaseMult,
     "burn_half_life": st.SubtensorModule.BurnHalfLife,
+    # TODO(codegen): switch to generated descriptors once the storage registry
+    # is regenerated against spec >= 435.
+    "collateral_lock_share": st.Item("SubtensorModule", "CollateralLockShare", "u16"),
+    "collateral_drain_ratio": st.Item("SubtensorModule", "CollateralDrainRatio", "U64F64"),
     "yuma3_enabled": st.SubtensorModule.Yuma3On,
     "subnet_emission_enabled": st.SubtensorModule.SubnetEmissionEnabled,
     "bonds_reset_enabled": st.SubtensorModule.BondsResetOn,

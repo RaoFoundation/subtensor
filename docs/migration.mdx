@@ -375,7 +375,8 @@ a limit price).
 | `announce_coldkey_swap` / `swap_coldkey_announced` / `dispute_coldkey_swap` / `clear_coldkey_swap_announcement` | same-name intents |
 | crowdloan methods | same-name intents (`bt.CreateCrowdloan`, `bt.ContributeCrowdloan`, ...) |
 | `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(bt.calls.Commitments.set_commitment(...), wallet)` |
-| hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` |
+| hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` (includes `collateral_lock_share` / `collateral_drain_ratio`) |
+| *(new)* miner collateral top-up / floor | `bt.AddCollateral(netuid=..., amount_tao=...)` / `bt.SetMinCollateral(netuid=..., min_alpha=...)`; reads via `client.collateral.*` |
 | `add_liquidity` / `modify_liquidity` / `remove_liquidity` | removed (feature retired on chain) |
 | `mev_submit_encrypted(wallet, call)` | `client.submit_shielded(intent, wallet)`, or the default shielding on stake intents |
 | `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(bt.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |

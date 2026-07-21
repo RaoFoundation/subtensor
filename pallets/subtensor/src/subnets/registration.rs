@@ -66,10 +66,22 @@ impl<T: Config> Pallet<T> {
         // 5) compute current burn price.
         // This has already been decayed in `on_initialize` for this block, and
         // successful registrations in the same block bump it immediately.
+        //
+        // The price is split by the subnet's collateral lock share (p): the
+        // `(1 - p)` share is burned, and the `p` share is locked to the hotkey
+        // as miner collateral. Standing collateral from a previous
+        // registration of this hotkey is credited against the requirement, so
+        // a returning miner only tops up the shortfall.
         let registration_cost: TaoBalance = Self::get_burn(netuid);
+        let collateral_requirement: TaoBalance =
+            Self::get_collateral_requirement_tao(netuid, registration_cost);
+        let burned_share: TaoBalance = registration_cost.saturating_sub(collateral_requirement);
+        let collateral_topup: TaoBalance =
+            Self::get_collateral_topup_tao(netuid, &hotkey, registration_cost);
+        let total_charge: TaoBalance = burned_share.saturating_add(collateral_topup);
 
         ensure!(
-            Self::can_remove_balance_from_coldkey_account(&coldkey, registration_cost.into()),
+            Self::can_remove_balance_from_coldkey_account(&coldkey, total_charge.into()),
             Error::<T>::NotEnoughBalanceToStake
         );
 
@@ -95,9 +107,9 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // 8) burn payment (same mechanics as old burned_register)
+        // 8) burn payment of the burned share (same mechanics as old burned_register)
         let actual_burn_amount =
-            Self::transfer_tao_to_subnet(netuid, &coldkey, registration_cost.into())?;
+            Self::transfer_tao_to_subnet(netuid, &coldkey, burned_share.into())?;
 
         let burned_alpha = Self::swap_tao_for_alpha(
             netuid,
@@ -111,6 +123,9 @@ impl<T: Config> Pallet<T> {
             *total = total.saturating_sub(burned_alpha.into())
         });
 
+        // 8b) stake and lock the collateral share (top-up over standing collateral)
+        Self::lock_miner_collateral(netuid, &hotkey, &coldkey, collateral_topup)?;
+
         // 9) register neuron
         let neuron_uid: u16 = Self::register_neuron(netuid, &hotkey)?;
 
@@ -119,9 +134,10 @@ impl<T: Config> Pallet<T> {
 
         // 11) counters
         RegistrationsThisBlock::<T>::mutate(netuid, |val| val.saturating_inc());
-        Self::increase_rao_recycled(netuid, registration_cost.into());
+        Self::increase_rao_recycled(netuid, burned_share.into());
 
-        // Record TAO inflow
+        // Record TAO inflow of the burned share; the collateral share records
+        // its own inflow inside the staking path.
         Self::record_tao_inflow(netuid, actual_burn_amount);
 
         // 12) event

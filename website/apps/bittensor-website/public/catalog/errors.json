@@ -477,8 +477,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 133,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L133"
+          "line": 149,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L149"
         }
       ]
     },
@@ -874,6 +874,38 @@
         }
       ]
     },
+    "CollateralDrainRatioOutOfBounds": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_collateral_drain_ratio` was given a value that is zero, negative, or above `MaxCollateralDrainRatio` (10). The drain ratio must be strictly positive \u2014 with no other exit path for miner collateral, a ratio of zero would make locked collateral permanently unrecoverable. Pass a `drain_ratio` in the range (0, 10].",
+      "docs_url": "/docs/errors/chain/CollateralDrainRatioOutOfBounds",
+      "pallets": [
+        "AdminUtils"
+      ],
+      "sources": [
+        {
+          "pallet": "AdminUtils",
+          "path": "pallets/admin-utils/src/lib.rs",
+          "line": 173,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L173"
+        }
+      ]
+    },
+    "CollateralLockShareTooHigh": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_collateral_lock_share` was given a value above `MaxCollateralLockShare` (62258, ~95% of u16::MAX). The burned share of the registration price must stay strictly positive so re-registration always pays a nonzero, floating burn. Lower the `lock_share` argument to at most 62258.",
+      "docs_url": "/docs/errors/chain/CollateralLockShareTooHigh",
+      "pallets": [
+        "AdminUtils"
+      ],
+      "sources": [
+        {
+          "pallet": "AdminUtils",
+          "path": "pallets/admin-utils/src/lib.rs",
+          "line": 171,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L171"
+        }
+      ]
+    },
     "CommitRevealDisabled": {
       "code": "disabled",
       "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
@@ -1149,8 +1181,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 153,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L153"
+          "line": 169,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L169"
         },
         {
           "pallet": "Swap",
@@ -2267,8 +2299,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 147,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L147"
+          "line": 163,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L163"
         }
       ]
     },
@@ -2475,8 +2507,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 131,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L131"
+          "line": 147,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L147"
         }
       ]
     },
@@ -2491,8 +2523,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 145,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L145"
+          "line": 161,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L161"
         }
       ]
     },
@@ -2507,8 +2539,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 143,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L143"
+          "line": 159,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L159"
         }
       ]
     },
@@ -2571,8 +2603,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 129,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L129"
+          "line": 145,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L145"
         }
       ]
     },
@@ -2658,8 +2690,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 139,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L139"
+          "line": 155,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L155"
         }
       ]
     },
@@ -2674,8 +2706,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 141,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L141"
+          "line": 157,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L157"
         }
       ]
     },
@@ -2762,8 +2794,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 135,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L135"
+          "line": 151,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L151"
         }
       ]
     },
@@ -3244,8 +3276,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 149,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L149"
+          "line": 165,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L165"
         }
       ]
     },
@@ -3459,8 +3491,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 151,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L151"
+          "line": 167,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L167"
         }
       ]
     },
@@ -3954,7 +3986,7 @@
     },
     "StakeUnavailable": {
       "code": "insufficient_balance",
-      "description": "An unstake would dip into stake that is still locked: the requested alpha exceeds the coldkey's unlocked balance on that subnet. Check the `Lock` entry for the coldkey and netuid; only total stake minus the decaying locked mass can be unstaked.",
+      "description": "An unstake or same-subnet stake transfer would dip into stake that is still reserved: the requested alpha exceeds the coldkey's free balance on that subnet after subtracting conviction `Lock` and any miner registration collateral locked against hotkeys the coldkey owns. Check `Lock` and `MinerCollateral` for the netuid; only total stake minus those reservations can move.",
       "docs_url": "/docs/errors/chain/StakeUnavailable",
       "pallets": [
         "SubtensorModule"
@@ -4083,8 +4115,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 127,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L127"
+          "line": 143,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L143"
         }
       ]
     },
@@ -4780,8 +4812,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 137,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L137"
+          "line": 153,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L153"
         }
       ]
     },

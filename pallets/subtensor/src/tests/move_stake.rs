@@ -1319,6 +1319,83 @@ fn test_do_transfer_stake_and_hotkey_success() {
     });
 }
 
+// Regression: locked miner collateral must not be liberated by a same-subnet,
+// ownership-changing transfer to a second coldkey. The collateral lock does not
+// follow the stake on this path (unlike conviction), so the origin coldkey must
+// be blocked from transferring away alpha it needs to cover its collateral.
+#[test]
+fn test_do_transfer_stake_and_hotkey_same_subnet_respects_collateral() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let destination_coldkey = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(
+            &destination_coldkey,
+            &destination_hotkey,
+        );
+        add_balance_to_coldkey_account(&origin_coldkey, stake_amount.into());
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+            stake_amount.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+
+        // Flag the origin hotkey's whole position as registration collateral.
+        MinerCollateral::<Test>::insert(
+            netuid,
+            origin_hotkey,
+            MinerCollateralState {
+                locked: alpha,
+                drain_ratio: U64F64::from_num(1),
+                min_locked: AlphaBalance::ZERO,
+                earned: AlphaBalance::ZERO,
+            },
+        );
+
+        // Same-subnet transfer to a second coldkey must be rejected: it would
+        // liberate the locked collateral.
+        assert_err!(
+            SubtensorModule::do_transfer_stake_and_hotkey(
+                RuntimeOrigin::signed(origin_coldkey),
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                netuid,
+                alpha
+            ),
+            Error::<Test>::StakeUnavailable
+        );
+
+        // Collateral remains locked on the origin position.
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &origin_coldkey,
+                netuid
+            ),
+            alpha
+        );
+    });
+}
+
 #[test]
 fn test_do_transfer_stake_and_hotkey_nonexistent_destination_hotkey() {
     new_test_ext(1).execute_with(|| {

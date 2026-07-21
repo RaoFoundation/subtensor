@@ -37,10 +37,10 @@ blocking mode with the `await`s dropped.
 
 **Typed namespaces** — one per read category (`balances`, `subnets`,
 `neurons`, `staking`, `delegation`, `prices`, `epochs`, `weights`, `locks`,
-`identity`, `leasing`, `hyperparameters`, `chain`). Every read in the catalog
-is a method on its namespace, with autocomplete, signature help, and typed
-returns; a few curated helpers (`subnets.all()`, `balances.get()`) add
-renamed or richer variants on top:
+`identity`, `leasing`, `hyperparameters`, `collateral`, `chain`). Every read
+in the catalog is a method on its namespace, with autocomplete, signature help,
+and typed returns; a few curated helpers (`subnets.all()`, `balances.get()`)
+add renamed or richer variants on top:
 
 ```python
 await client.balances.get("5F...")                  # Balance
@@ -48,6 +48,7 @@ await client.subnets.all()                          # list[SubnetInfo]
 await client.subnets.subnet_registration_cost()     # Balance
 await client.delegation.delegate_take(hotkey_ss58="5F...")
 await client.neurons.all(netuid=1)                  # list[Neuron]
+await client.collateral.miner_collateral(netuid=1, hotkey_ss58="5F...")
 ```
 
 Every method takes an optional `block=` to pin the read to one block.

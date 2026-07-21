@@ -642,9 +642,11 @@ DESCRIPTIONS: dict[str, str] = {
         "`btcli query neurons --netuid 0`)."
     ),
     "StakeUnavailable": (
-        "An unstake would dip into stake that is still locked: the requested alpha exceeds the "
-        "coldkey's unlocked balance on that subnet. Check the `Lock` entry for the coldkey and "
-        "netuid; only total stake minus the decaying locked mass can be unstaked."
+        "An unstake or same-subnet stake transfer would dip into stake that is still reserved: "
+        "the requested alpha exceeds the coldkey's free balance on that subnet after subtracting "
+        "conviction `Lock` and any miner registration collateral locked against hotkeys the "
+        "coldkey owns. Check `Lock` and `MinerCollateral` for the netuid; only total stake minus "
+        "those reservations can move."
     ),
     "StakingRateLimitExceeded": (
         "Staking operations (add_stake, remove_stake, and similar) were submitted faster than "

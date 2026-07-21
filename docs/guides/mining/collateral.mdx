@@ -1,0 +1,432 @@
+---
+title: Registration collateral
+description: Lock a share of the registration price as a bond you earn back by mining; misbehave and it stays frozen.
+---
+
+Subnets can turn part of the registration price into **collateral**: instead
+of burning the whole price, the subnet locks a share of it as alpha stake on
+your hotkey. The lock is released back to you at a fixed rate per alpha of
+miner incentive you earn — so the only way to recover it is to actually mine.
+It survives deregistration, is credited when you re-register the same hotkey,
+and has no other exit: quit for good and the remainder stays frozen on the
+hotkey indefinitely.
+
+The design in one line: **the burn prices the registration event; the
+collateral prices your behavior after it.** A hotkey that mines honestly for
+its career pays only the burn. A hotkey that registers and never earns — a
+sybil, a UID squatter, a spam registration — forfeits the lock in practice,
+because nothing ever releases it. And a hotkey that cheats loses it too: see
+[enforcement](#enforcement-the-off-chain-blacklist) below.
+
+## Mechanics
+
+Two per-subnet hyperparameters define the whole system:
+
+| — | name | meaning | default |
+|---|------|---------|---------|
+| `p` | [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | share of the registration price locked instead of burned | 0 (disabled) |
+| `k` | [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | alpha released per alpha of miner incentive earned | 1.0 |
+
+With price `T` (the same floating price described in
+[registration burn](/docs/guides/mining/burn)), registration charges:
+
+```
+burned            = (1 − p) × T                          — recycled, sunk
+locked collateral = max(0, p × T − standing collateral)  — staked to your hotkey, locked
+```
+
+There is no special first-time case: a fresh hotkey has zero standing
+collateral and pays the full `p × T`; a returning hotkey's existing lock is
+valued at the subnet's moving-average price and credited, so it usually pays only the
+burned share. This is implemented in
+[`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L66-L127)
+via
+[`get_collateral_topup_tao`](/code/pallets/subtensor/src/subnets/collateral.rs#L87-L109)
+and
+[`lock_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L121-L178).
+
+The locked alpha is real stake owned by your coldkey on your hotkey — it
+appreciates and depreciates with the subnet's pool like any alpha — but it is
+**not withdrawable**: the unstake guard
+([`stake_availability`](/code/pallets/subtensor/src/staking/lock.rs#L746-L755))
+subtracts it from what your coldkey can remove, and a per-hotkey check
+([`ensure_hotkey_covers_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs))
+keeps the bond on that hotkey (sibling free stake cannot cover it). If the
+subnet dissolves, the lock metadata is cleared after alpha is settled to
+coldkey free TAO with everyone else's stake — there is no separate collateral
+refund step.
+
+### Earning it back
+
+Each tempo, when the chain credits your miner incentive
+([`distribute_dividends_and_incentives`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L669-L766)),
+it also releases collateral:
+
+```
+released = min(locked − min_locked, k × incentive)
+```
+
+(`min_locked` is your optional self-maintained floor, described below; it is
+zero unless you set one, giving the plain `min(locked, k × incentive)`.)
+
+([`settle_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L193-L229)).
+Released collateral simply becomes withdrawable stake — it was your alpha all
+along; only the lock flag moves. At `k = 1`, every alpha you earn frees one
+alpha of collateral: a miner who has earned emissions equal to their lock is
+fully released. At `k = 0.5` you must earn two alpha per alpha released —
+subnets use low `k` to keep miners collateralized longer.
+
+Your `k` is **snapshot at registration** into your collateral entry: owner
+changes to the drain ratio apply to future registrations, never to your
+standing lock.
+
+### Voluntary collateral and the self-maintaining floor
+
+Beyond the registration lock, two miner-initiated extrinsics let a subnet run
+deposit-style policies (for example, "post X alpha per machine you bring"):
+
+- [`add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L235-L292)
+  stakes TAO to your own hotkey and locks it on top of the registration
+  collateral. Same lock, same drain, same persistence across deregistration
+  and credit on re-registration.
+- [`set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L299-L342)
+  sets a **floor** the lock self-maintains around: the drain never releases
+  below it, and while the lock is under it, your earned incentive is captured
+  into the lock until the floor is met. Without a floor, tracking a
+  validator-published requirement means re-locking whatever the drain
+  releases every tempo; with one, the chain does it for you. Zero clears the
+  floor.
+
+```bash
+btcli collateral add --netuid 42 --amount-tao 50 -w my_coldkey -H my_hotkey
+btcli collateral set-min --netuid 42 --min-alpha 45 -w my_coldkey -H my_hotkey
+btcli collateral show --netuid 42 -H my_hotkey     # your lock, floor, and the subnet policy
+btcli collateral list --netuid 42                  # every miner's collateral (what validators read)
+```
+
+```python
+await client.execute(bt.AddCollateral(netuid=42, amount_tao=50), wallet)
+await client.execute(bt.SetMinCollateral(netuid=42, min_alpha=45), wallet)
+state = await client.collateral.miner_collateral(netuid=42, hotkey_ss58=wallet.hotkey_address)
+```
+
+The floor is per-miner state, not a subnet hyperparameter: adequacy
+enforcement stays with validators, who read
+[`subnet_collateral`](/docs/query/subnet-collateral) and refuse to score
+miners whose lock is below the subnet's published requirement. Raising the
+floor above your current lock needs no fresh capital — the shortfall fills
+from future incentive — but validators see your actual lock, not your floor,
+so fund immediately with `add_collateral` when coverage matters now.
+
+The full pattern — owner config, miner flow, validator enforcement code, and
+the exit protocol — is worked through in
+[a GPU marketplace with per-machine deposits](#a-gpu-marketplace-with-per-machine-deposits)
+below.
+
+The whole lifecycle in one picture — drag the sliders to see how the lock
+share, drain ratio, and your earning rate shape the bond, and switch to the
+blacklisted scenario to see what stranding looks like:
+
+<CollateralLifecycle />
+
+### Deregistration and re-registration
+
+Being pruned does not touch collateral. The lock freezes in place, attached
+to `(netuid, hotkey)`, and waits. When you re-register the same hotkey, it is
+credited against the current requirement — the single registration formula
+above handles it — so a pruned miner returns for roughly the burned share
+alone. If the price or lock share rose since, you top up the difference; if
+your standing lock exceeds the current requirement, you pay only the burn and
+the excess keeps draining as you earn.
+
+There is deliberately **no withdrawal path**. Collateral converts back to
+withdrawable stake only through earned incentive. Abandoning a hotkey
+strands whatever is still locked (a standing incentive to come back and mine
+it out); [`swap-hotkey`](/docs/tx/swap-hotkey) moves the lock to the new
+hotkey along with everything else
+([`swap_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L348-L364)).
+
+### Enforcement: the off-chain blacklist
+
+The chain never adjudicates miner behavior — there is no ban extrinsic. The
+teeth are simpler: validators score miners off-chain, and a validator that
+concludes a hotkey is cheating simply **stops evaluating it**. Zero incentive
+means zero collateral release, forever. The lock strands — economically
+confiscated, without any judicial machinery:
+
+- It is **stake-weighted by construction**: one validator refusing to score
+  you reduces your incentive by its weight in consensus; a supermajority
+  blacklist freezes your collateral outright.
+- It is **reversible**: if validators resume evaluating (wrong call, or the
+  miner reformed), the lock resumes draining.
+- Nobody profits from it: frozen collateral pays no one, so there is no
+  bounty for banning.
+
+The residual escape — rotating to a fresh hotkey — costs the full
+registration price including a fresh full lock. The system's invariant is
+exactly that: *forgetting is never cheaper than `T`.*
+
+**Note for validator authors**: this only holds if your scoring state is
+keyed by **hotkey** (not UID) and persists across the miner's
+deregistrations. UIDs are recycled slots; a miner must not be able to launder
+a bad track record by cycling registration. Treat scoring gaps
+conservatively — absence should never improve a score.
+
+## Worked examples
+
+### A subnet deters tail-risk farming
+
+Netuid 42 rewards trading signals by Sortino ratio. The metric is blind to
+strategies that sell tail risk: a martingale posts a top-percentile score for
+months, farms emissions, then blows up. Under pure burn (price τ10), a farmer
+who collects τ80 of emissions before the blow-up nets τ70 per cycle and
+repeats with a fresh hotkey.
+
+The owner sets `p = 90%` and `k = 0.2`:
+
+```bash
+btcli sudo set --netuid 42 --name collateral_lock_share --value 0.9    # 90% (raw 58982 also accepted)
+btcli sudo set --netuid 42 --name collateral_drain_ratio --value 0.2
+```
+
+Registration now charges the same floating price, split τ1 burned + τ9
+locked. The farmer's arithmetic inverts: farming `E` before validators stop
+scoring the hotkey yields `E` (emissions) `+ 0.2·E` (released collateral)
+`− T` (price paid) — they must farm `E* = T / 1.2 ≈ 0.83·T` before detection
+just to break even, and each detected cycle strands the rest of a fresh
+τ9 lock. The honest miner's costs are nearly unchanged: τ1 sunk (the burn),
+and a τ9 lock they release by doing exactly what they registered to do.
+
+**Validator enforcement.** The chain side needs nothing from validators —
+the lock and drain run themselves. The validator's whole job is the two
+invariants from [enforcement](#enforcement-the-off-chain-blacklist): score by
+hotkey with persistent history, and stop scoring hotkeys whose returns show
+the martingale signature. Stranding follows automatically:
+
+```python
+import bittensor as bt
+
+blacklist: set[str] = load_state("blacklist")        # persists across restarts
+history: dict[str, list[float]] = load_state("returns")  # keyed by HOTKEY, not uid
+
+async with bt.Subtensor() as client:
+    metagraph = await client.subnets.metagraph(42)
+    for neuron in metagraph.neurons:
+        returns = history.setdefault(neuron.hotkey, [])
+        returns.extend(await fetch_new_returns(neuron))   # gaps never improve a score
+
+        # A top-percentile Sortino with no downside observations IS the signature.
+        if is_martingale(returns) or neuron.hotkey in blacklist:
+            blacklist.add(neuron.hotkey)
+            scores[neuron.uid] = 0.0    # zero incentive: drain freezes, bond strands
+        else:
+            scores[neuron.uid] = sortino(returns)
+
+    await client.execute(bt.SetWeights(netuid=42, weights=normalize(scores)), wallet)
+```
+
+### A GPU marketplace with per-machine deposits
+
+The Lium pattern: miners bring machines, each machine must be backed by a
+deposit, pulling a rented machine forfeits it, and an honest departure winds
+down cleanly. The chain provides amount-agnostic rails; the *per-machine*
+policy lives in validator code.
+
+**Owner config** — a modest registration bond plus deposit-friendly drain:
+
+```bash
+btcli sudo set --netuid 51 --name collateral_lock_share --value 0.5    # p = 50%
+btcli sudo set --netuid 51 --name collateral_drain_ratio --value 1.0    # k = 1
+```
+
+The subnet publishes its policy in validator code: **25α of collateral per
+machine**. Sizing the deposit in incentive-terms matters: if one machine
+earns ~1α/tempo, a 25α deposit at `k = 1` takes ~25 tempos of scored work to
+drain — so an exiting miner's wind-down lasts about one rental term, which is
+exactly the notice period the business wants.
+
+**Miner flow** — bring 4 machines, deposit 100α, let the floor hold it:
+
+```bash
+btcli collateral add --netuid 51 --amount-tao 100 -w my_coldkey -H my_hotkey
+btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey
+```
+
+The floor stops the drain at 100α, and if the lock ever dips under (say the
+miner raises the floor for a fifth machine before funding it), incentive
+fills the gap automatically. No re-locking, no bot.
+
+**Validator enforcement** — collateral rides the metagraph, so the check
+costs zero extra calls: every neuron row carries `collateral_locked`,
+`collateral_min` (the miner's floor), and `collateral_earned` (lifetime
+incentive since the bond existed):
+
+```python
+import bittensor as bt
+
+PER_MACHINE_ALPHA = 25
+
+async with bt.Subtensor() as client:
+    metagraph = await client.subnets.metagraph(51)
+
+    for neuron in metagraph.neurons:
+        machines = await verify_hardware(neuron)          # the subnet's own attestation
+        required = machines * PER_MACHINE_ALPHA
+        if neuron.collateral_locked is None or neuron.collateral_locked.alpha < required:
+            scores[neuron.uid] = 0.0     # under-collateralized: no rentals, no incentive
+            continue
+        route_rentals(neuron, machines)
+        scores[neuron.uid] = availability_score(neuron)
+```
+
+For hotkeys *not* in the metagraph — deregistered miners whose bonds persist
+(dormant bonds, the population most likely to return) — use
+[`subnet_collateral`](/docs/query/subnet-collateral): every collateral entry
+on the subnet with `uid` (None when deregistered), owning `coldkey`, and the
+derived terms `headroom_alpha` (portion actively draining above the floor),
+`shortfall_alpha` (capture in progress below it), and
+`releasable_work_alpha` (incentive still needed to release the headroom).
+
+**Exit protocol** — the deposit leaves through the same door it drains
+through:
+
+1. The miner signals departure (the subnet's API, or an on-chain
+   [`set_commitment`](/docs/concepts/advanced#raw-calls-the-escape-hatch) raw
+   call) and clears the floor:
+   `btcli collateral set-min --netuid 51 --min-alpha 0`.
+2. Validators stop routing *new* rentals to them but keep scoring the
+   machines still serving existing rentals — and waive the coverage floor
+   for a miner in wind-down.
+3. With the floor cleared and incentive still flowing, the ordinary drain
+   returns the deposit at `k × incentive` per tempo; by the time the last
+   rental ends, most of the 100α is withdrawable again.
+4. **Pulling a rented machine instead** zeroes their score immediately:
+   drain stops, the remaining deposit strands, and it stays stranded unless
+   validators resume scoring them (forgiveness) or they return and mine it
+   out. Their track record — keyed by hotkey — is waiting for them either
+   way.
+
+The deterrence is the same stranding mechanism as everywhere else in this
+system; what the marketplace adds is only *sizing* (per machine) and the
+*wind-down convention*, both of which live in the subnet's own code.
+
+### A miner's lifecycle on a collateral subnet
+
+Price τ10, `p = 80%`, `k = 1`:
+
+1. **Register**: pay τ10 — τ2 burned, τ8 staked to your hotkey and locked
+   (about 8 alpha at an alpha price of τ1). A `CollateralLocked` event
+   records it; query your entry under `MinerCollateral(netuid, hotkey)`.
+2. **Mine**: you earn 0.5 alpha of incentive per tempo. Each tempo releases
+   0.5 alpha of the lock. After ~16 tempos of that rate you are fully
+   released; everything you earn is withdrawable immediately either way.
+3. **Get pruned** at 3 alpha still locked: the 3 alpha freezes. Nothing to
+   do, nothing lost.
+4. **Re-register** next week: requirement is 80% of the current price,
+   your 3 alpha lock is credited at the subnet's moving-average price, and you top up
+   only the shortfall — plus the burned share, which is always charged.
+5. **Quit forever**: the remaining lock stays frozen on the hotkey. It is
+   still yours, still earning pool appreciation, but only mining releases it.
+
+## Budgeting notes for miners
+
+- Total capital at the door is the full price `T` regardless of `p`; the
+  difference is how much of it you can earn back. Check both the price and
+  the split before registering:
+
+```bash
+btcli query burn --netuid 42 --json
+btcli sudo get --netuid 42 --name collateral_lock_share
+btcli sudo get --netuid 42 --name collateral_drain_ratio
+```
+
+- The lock is denominated in **alpha units** at lock time. Its TAO value
+  floats with the pool — collateral on a subnet you believe in is not dead
+  weight, and collateral on a subnet you attack devalues with your attack.
+- Unstake math: your withdrawable balance on the subnet is your total alpha
+  minus conviction locks minus collateral locks. `remove_stake`, `recycle`,
+  `burn_alpha`, and stake moves all respect the guard (they fail with
+  `StakeUnavailable` if they would dip into locked collateral).
+- Registration fails with `NotEnoughBalanceToStake` if your coldkey cannot
+  cover the burned share plus your collateral top-up.
+
+## Owner guidance
+
+`p` decides how much of the entry price is accountability rather than toll;
+`k` decides how long it takes a good miner to work it off:
+
+- **`p = 0`** — pure burn, exactly the pre-collateral chain behavior. The
+  safe default; nothing changes for your subnet until you opt in.
+- **Moderate bond (`p = 75%`, `k = 1`)** — general-purpose deterrence:
+  sybils and squatters forfeit; honest miners recover at par.
+- **Anti-tail-risk (`p = 83–90%`, `k = 0.2–0.5`)** — subnets whose scoring
+  can be gamed on short horizons (trading, forecasting): a large lock with a
+  slow drain keeps your fastest *apparent* earners collateralized through
+  your detection window.
+- **Fast release (`p = 67%`, `k = 2`)** — capital gate at entry with a
+  minimal ongoing lockup, for low-stakes work.
+
+Both settings apply **prospectively only** — every miner's lock and drain
+ratio are snapshot at their registration — so raising `p` never retro-locks
+incumbents, and neither parameter can be used to rug standing collateral.
+The lock share is capped at 95%
+([`MaxCollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L433-L437)):
+the burned share must stay positive so re-registration always costs a
+nonzero, floating burn. The drain ratio must be positive (a `k` of zero
+would make the lock unrecoverable — a burn with extra steps) and at most 10.
+
+## Chain reference
+
+**Terms** — the shared vocabulary for validators and dashboards, as returned
+by [`subnet_collateral`](/docs/query/subnet-collateral) (and, for registered
+neurons, as per-uid vectors on the [`metagraph`](/docs/query/metagraph)):
+
+- **locked** — the bond: what a blacklist strands and re-registration
+  credits.
+- **min_locked** — the floor: the miner's standing commitment.
+- **earned** — lifetime incentive since the collateral relationship began;
+  compare against the detection budget `E* = T ÷ (1 + k)` to see how far a
+  miner is from having "paid off" their bond. Lives and dies with the entry.
+- **headroom** = `locked − min_locked` — the portion actively draining; zero
+  with a floor set means parked at commitment.
+- **shortfall** = `min_locked − locked` — capture in progress: incentive is
+  filling a raised floor instead of being paid out.
+- **releasable work** = `headroom ÷ k` — incentive still needed to release
+  everything above the floor.
+- **dormant bond** — `locked > 0` with no `uid`: a deregistered miner whose
+  capital waits on the subnet; the population most likely to return.
+
+**Storage** —
+[`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L2786-L2793),
+[`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L2795-L2801),
+[`MinerCollateral`](/code/pallets/subtensor/src/lib.rs#L2803-L2818) holding
+[`MinerCollateralState { locked, drain_ratio, min_locked, earned }`](/code/pallets/subtensor/src/lib.rs#L364-L389).
+
+**Extrinsics** —
+[`add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L235-L292)
+and
+[`set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L299-L342)
+(miner, must own the hotkey);
+[`sudo_set_collateral_lock_share`](/code/pallets/admin-utils/src/lib.rs#L2267-L2309),
+[`sudo_set_collateral_drain_ratio`](/code/pallets/admin-utils/src/lib.rs#L2311-L2354)
+(owner-or-root, rate-limited, admin-window gated).
+
+**Events** — `CollateralLocked { netuid, hotkey, locked, total_locked }` on
+registration and `add_collateral`; `MinCollateralSet { netuid, hotkey,
+min_locked }`; `CollateralLockShareSet` / `CollateralDrainRatioSet` on
+hyperparameter changes.
+
+**Errors** —
+[`CollateralLockShareTooHigh`](/docs/errors/chain/CollateralLockShareTooHigh)
+(owner tried to set `p` above 95%),
+[`CollateralDrainRatioOutOfBounds`](/docs/errors/chain/CollateralDrainRatioOutOfBounds)
+(owner tried to set `k ≤ 0` or above 10). Miners hit the pre-existing
+`NotEnoughBalanceToStake` (can't cover burn + top-up) and `StakeUnavailable`
+(unstake would dip into locked collateral).
+
+## Related
+
+[Registration burn](/docs/guides/mining/burn),
+[`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share),
+[`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio),
+[emissions](/docs/concepts/emissions)

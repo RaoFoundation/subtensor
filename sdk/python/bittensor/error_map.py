@@ -306,6 +306,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "MaxAllowedUidsGreaterThanDefaultMaxAllowedUids": _C.INVALID_ARGUMENT,
     "NotPermittedOnRootSubnet": _C.INVALID_ARGUMENT,
     "POWRegistrationDisabled": _C.DISABLED,
+    "CollateralLockShareTooHigh": _C.INVALID_ARGUMENT,
+    "CollateralDrainRatioOutOfBounds": _C.INVALID_ARGUMENT,
     # ── SafeMode ────────────────────────────────────────────────────────
     "Entered": _C.ALREADY_EXISTS,
     "Exited": _C.ALREADY_EXISTS,
@@ -435,4 +437,70 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ArithmeticOverflow": _C.INTERNAL,
     "DuplicateOrderInBatch": _C.INVALID_ARGUMENT,
     "ZeroShareInBatch": _C.INVALID_ARGUMENT,
+}
+
+# ── Dispatch-level errors ────────────────────────────────────────────────
+# ``DispatchError`` variants other than ``Module``: ``BadOrigin``,
+# ``CannotLookup``, and the ``sp_runtime::TokenError`` variants. These are
+# raised by runtime machinery (origin checks, the balances fungible traits)
+# rather than by a pallet, so they never appear in the generated module-error
+# catalog — which is why they live outside ``NAME_TO_CODE`` (the ``--names``
+# gate pins that table to the catalog). Keyed by the bare variant name the
+# receipt decoder yields; each entry carries the semantic code and a short
+# description (there is no on-chain docstring to fall back on).
+DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
+    "BadOrigin": (
+        _C.NOT_AUTHORIZED,
+        "The call was dispatched with the wrong origin: the signing key (or the "
+        "unsigned/root origin used) is not allowed to make this call.",
+    ),
+    "CannotLookup": (
+        _C.NOT_FOUND,
+        "An account referenced by the call could not be looked up.",
+    ),
+    # TokenError variants.
+    "FundsUnavailable": (
+        _C.INSUFFICIENT_BALANCE,
+        "The account's spendable balance cannot cover the amount being moved plus "
+        "fees; funds that are locked, reserved, or needed for the existential "
+        "deposit do not count.",
+    ),
+    "OnlyProvider": (
+        _C.INSUFFICIENT_BALANCE,
+        "The balance being moved is the account's only provider reference, so "
+        "moving it would destroy the account.",
+    ),
+    "BelowMinimum": (
+        _C.INSUFFICIENT_BALANCE,
+        "The receiving account would end up below the existential deposit.",
+    ),
+    "CannotCreate": (
+        _C.INSUFFICIENT_BALANCE,
+        "The receiving account does not exist and cannot be created by this call.",
+    ),
+    "UnknownAsset": (
+        _C.NOT_FOUND,
+        "The asset in question is unknown.",
+    ),
+    "Frozen": (
+        _C.INSUFFICIENT_BALANCE,
+        "The funds exist but are frozen and cannot be spent.",
+    ),
+    "Unsupported": (
+        _C.DISABLED,
+        "The operation is not supported by the asset.",
+    ),
+    "CannotCreateHold": (
+        _C.INSUFFICIENT_BALANCE,
+        "The account cannot be created to record the amount on hold.",
+    ),
+    "NotExpendable": (
+        _C.INSUFFICIENT_BALANCE,
+        "The withdrawal would drop the account below the existential deposit and "
+        "reap it.",
+    ),
+    "Blocked": (
+        _C.NOT_AUTHORIZED,
+        "The account cannot receive the funds (it is blocked).",
+    ),
 }
