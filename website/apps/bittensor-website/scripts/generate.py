@@ -77,6 +77,20 @@ def frontmatter(title: str, description: str) -> str:
     )
 
 
+def docs_markdown_url(docs_url: str) -> str:
+    """Agent-fetchable markdown for a `/docs/...` page URL."""
+    if docs_url == "/docs" or docs_url == "/docs/":
+        return "/llms.mdx/docs/content.md"
+    if not docs_url.startswith("/docs/"):
+        raise ValueError(f"expected /docs/... path, got {docs_url!r}")
+    return f"/llms.mdx{docs_url}/content.md"
+
+
+def with_code_urls(path: str, url: str) -> dict[str, str]:
+    """HTML viewer URL plus plain-text raw URL for the same file."""
+    return {"url": url, "raw_url": f"/code/raw/{path}"}
+
+
 def kebab(name: str) -> str:
     return name.replace("_", "-")
 
@@ -435,21 +449,32 @@ def read_targets(spec) -> list[dict]:
             found = find_storage_item(container, name)
             if found:
                 path, line = found
-                target.update(path=path, line=line, url=f"/code/{path}#L{line}")
+                target.update(
+                    path=path,
+                    line=line,
+                    **with_code_urls(path, f"/code/{path}#L{line}"),
+                )
         elif kind == "runtime":
             fn = find_runtime_api_fn(name)
             if fn:
+                path = fn["path"]
                 target.update(
-                    path=fn["path"],
+                    path=path,
                     line=fn["line"],
                     end_line=fn["end_line"],
-                    url=f"/code/{fn['path']}#L{fn['line']}-L{fn['end_line']}",
+                    **with_code_urls(
+                        path, f"/code/{path}#L{fn['line']}-L{fn['end_line']}"
+                    ),
                 )
         else:
             found = find_runtime_constant(name)
             if found:
                 path, line = found
-                target.update(path=path, line=line, url=f"/code/{path}#L{line}")
+                target.update(
+                    path=path,
+                    line=line,
+                    **with_code_urls(path, f"/code/{path}#L{line}"),
+                )
         out.append(target)
     return out
 
@@ -1149,14 +1174,15 @@ def intent_sources(cls) -> list[dict]:
         found = find_dispatchable(PALLET_DIRS[pallet], call)
         if found is None:
             continue
+        path = found["path"]
         sources.append(
             {
                 "pallet": pallet,
                 "call": call,
-                "path": found["path"],
+                "path": path,
                 "line": found["fn_line"],
                 "end_line": found["end_line"],
-                "url": f"/code/{found['path']}{range_anchor(found)}",
+                **with_code_urls(path, f"/code/{path}{range_anchor(found)}"),
             }
         )
     return sources
@@ -1171,7 +1197,12 @@ def chain_error_sources(name: str) -> list[dict]:
             continue
         path, line = found
         sources.append(
-            {"pallet": pallet, "path": path, "line": line, "url": f"/code/{path}#L{line}"}
+            {
+                "pallet": pallet,
+                "path": path,
+                "line": line,
+                **with_code_urls(path, f"/code/{path}#L{line}"),
+            }
         )
     return sources
 
@@ -1182,42 +1213,54 @@ def write_catalogs(catalog_root: Path) -> None:
     by_op = {t["name"]: t for t in tools}
     for op, cls in INTENTS.items():
         by_op[op].update(intent_examples(op, cls))
-        by_op[op]["docs_url"] = f"/docs/tx/{kebab(op)}"
+        docs_url = f"/docs/tx/{kebab(op)}"
+        by_op[op]["docs_url"] = docs_url
+        by_op[op]["markdown_url"] = docs_markdown_url(docs_url)
         by_op[op]["wraps"] = [list(pair) for pair in cls.wraps]
         sources = intent_sources(cls)
         if sources:
             by_op[op]["sources"] = sources
     reads = list_reads()
     for r in reads:
-        r["docs_url"] = f"/docs/query/{kebab(r['name'])}"
+        docs_url = f"/docs/query/{kebab(r['name'])}"
+        r["docs_url"] = docs_url
+        r["markdown_url"] = docs_markdown_url(docs_url)
         spec = READS[r["name"]]
         if not namespace_shadowed(spec):
             r["python"] = f"sub.{namespace_attr(spec)}.{spec.name}(...)"
         hits = read_targets(spec)
         if hits:
             r["hits"] = hits
+    codes = {}
+    for code in error_map.ErrorCode:
+        docs_url = f"/docs/errors/{kebab(code.value)}"
+        codes[code.value] = {
+            "remediation": result.REMEDIATION[code],
+            "docs_url": docs_url,
+            "markdown_url": docs_markdown_url(docs_url),
+        }
+    chain_errors = {}
+    for n, c in sorted(error_map.NAME_TO_CODE.items()):
+        docs_url = f"/docs/errors/chain/{n}"
+        entry = {
+            "code": c.value,
+            "description": error_descriptions.DESCRIPTIONS[n],
+            "docs_url": docs_url,
+            "markdown_url": docs_markdown_url(docs_url),
+            "pallets": CHAIN_ERROR_PALLETS.get(n, []),
+        }
+        sources = chain_error_sources(n)
+        if sources:
+            entry["sources"] = sources
+        chain_errors[n] = entry
     errors = {
-        "codes": {
-            code.value: {
-                "remediation": result.REMEDIATION[code],
-                "docs_url": f"/docs/errors/{kebab(code.value)}",
-            }
-            for code in error_map.ErrorCode
-        },
-        "chain_errors": {
-            n: {
-                "code": c.value,
-                "description": error_descriptions.DESCRIPTIONS[n],
-                "docs_url": f"/docs/errors/chain/{n}",
-                "pallets": CHAIN_ERROR_PALLETS.get(n, []),
-                **(
-                    {"sources": chain_error_sources(n)}
-                    if chain_error_sources(n)
-                    else {}
-                ),
-            }
-            for n, c in sorted(error_map.NAME_TO_CODE.items())
-        },
+        "note": (
+            "Semantic ErrorCode values are under `codes` (snake_case keys). "
+            "Exact on-chain error names are under `chain_errors` (CamelCase keys). "
+            "Each entry has `docs_url` (HTML page) and `markdown_url` (raw markdown)."
+        ),
+        "codes": codes,
+        "chain_errors": chain_errors,
     }
     (catalog_root / "intents.json").write_text(json.dumps(tools, indent=2) + "\n")
     (catalog_root / "reads.json").write_text(json.dumps(reads, indent=2) + "\n")

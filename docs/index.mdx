@@ -56,9 +56,9 @@ for the curl/grep recipes.
   `rg`, not for stuffing into context).
 - Every page as raw markdown: `/llms.mdx/docs/<slug>/content.md` (also linked
   from each page’s copy-markdown control).
-- [`/catalog/intents.json`](/catalog/intents.json) — every transaction with its JSON schema, signer, and summary.
-- [`/catalog/reads.json`](/catalog/reads.json) — every query with parameters and docs.
-- [`/catalog/errors.json`](/catalog/errors.json) — every error code with remediation, and the full chain-error classification.
-- Chain Rust source: [`/code/index.json`](/code/index.json), then
-  `/code/raw/<repo-path>`.
+- [`/catalog/intents.json`](/catalog/intents.json) — every transaction with its JSON schema, signer, `markdown_url`, and summary.
+- [`/catalog/reads.json`](/catalog/reads.json) — every query with parameters, `markdown_url`, and docs.
+- [`/catalog/errors.json`](/catalog/errors.json) — semantic codes under `.codes`, chain names under `.chain_errors`; each has remediation + `markdown_url`.
+- Chain Rust source: [`/code/search.json?q=…`](/code/search.json?q=do_move_stake) to search,
+  [`/code/index.json`](/code/index.json) to list, `/code/raw/<repo-path>` to fetch.
 - The same catalogs, live from the tool itself: `btcli tools` on the CLI, `bt.intents.list_tools()` in Python.

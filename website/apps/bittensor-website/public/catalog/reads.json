@@ -11,6 +11,7 @@
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/alpha-price",
+    "markdown_url": "/llms.mdx/docs/query/alpha-price/content.md",
     "python": "sub.prices.alpha_price(...)",
     "hits": [
       {
@@ -20,7 +21,8 @@
         "path": "pallets/subtensor/src/staking/order_swap.rs",
         "line": 99,
         "end_line": 101,
-        "url": "/code/pallets/subtensor/src/staking/order_swap.rs#L99-L101"
+        "url": "/code/pallets/subtensor/src/staking/order_swap.rs#L99-L101",
+        "raw_url": "/code/raw/pallets/subtensor/src/staking/order_swap.rs"
       }
     ]
   },
@@ -32,6 +34,7 @@
     "param_docs": {},
     "category": "Prices & swaps",
     "docs_url": "/docs/query/alpha-prices",
+    "markdown_url": "/llms.mdx/docs/query/alpha-prices/content.md",
     "python": "sub.prices.alpha_prices(...)",
     "hits": [
       {
@@ -41,7 +44,8 @@
         "path": "runtime/src/lib.rs",
         "line": 2425,
         "end_line": 2435,
-        "url": "/code/runtime/src/lib.rs#L2425-L2435"
+        "url": "/code/runtime/src/lib.rs#L2425-L2435",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -59,6 +63,7 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/associated-evm-key",
+    "markdown_url": "/llms.mdx/docs/query/associated-evm-key/content.md",
     "python": "sub.neurons.associated_evm_key(...)",
     "hits": [
       {
@@ -67,7 +72,8 @@
         "name": "AssociatedEvmAddress",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2688,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2688"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2688",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -85,6 +91,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/auto-stake",
+    "markdown_url": "/llms.mdx/docs/query/auto-stake/content.md",
     "python": "sub.staking.auto_stake(...)",
     "hits": [
       {
@@ -93,7 +100,8 @@
         "name": "AutoStakeDestination",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1507,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1507"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1507",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -109,6 +117,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/auto-stake-all",
+    "markdown_url": "/llms.mdx/docs/query/auto-stake-all/content.md",
     "python": "sub.staking.auto_stake_all(...)",
     "hits": [
       {
@@ -117,7 +126,8 @@
         "name": "AutoStakeDestination",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1507,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1507"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1507",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -133,6 +143,7 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/balance",
+    "markdown_url": "/llms.mdx/docs/query/balance/content.md",
     "python": "sub.balances.balance(...)",
     "hits": [
       {
@@ -154,6 +165,7 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/balances",
+    "markdown_url": "/llms.mdx/docs/query/balances/content.md",
     "python": "sub.balances.balances(...)",
     "hits": [
       {
@@ -175,6 +187,7 @@
     },
     "category": "Chain",
     "docs_url": "/docs/query/block-info",
+    "markdown_url": "/llms.mdx/docs/query/block-info/content.md",
     "python": "sub.chain.block_info(...)"
   },
   {
@@ -185,6 +198,7 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/block-time",
+    "markdown_url": "/llms.mdx/docs/query/block-time/content.md",
     "python": "sub.chain.block_time(...)"
   },
   {
@@ -199,6 +213,7 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/blocks-since-last-step",
+    "markdown_url": "/llms.mdx/docs/query/blocks-since-last-step/content.md",
     "python": "sub.epochs.blocks_since_last_step(...)",
     "hits": [
       {
@@ -207,7 +222,8 @@
         "name": "BlocksSinceLastStep",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2037,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2037"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2037",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -225,6 +241,7 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/blocks-since-last-update",
+    "markdown_url": "/llms.mdx/docs/query/blocks-since-last-update/content.md",
     "python": "sub.epochs.blocks_since_last_update(...)",
     "hits": [
       {
@@ -233,7 +250,8 @@
         "name": "LastUpdate",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2420,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2420"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2420",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -249,6 +267,7 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/blocks-until-next-epoch",
+    "markdown_url": "/llms.mdx/docs/query/blocks-until-next-epoch/content.md",
     "python": "sub.epochs.blocks_until_next_epoch(...)",
     "hits": [
       {
@@ -258,7 +277,8 @@
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
         "line": 1169,
         "end_line": 1183,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1169-L1183"
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1169-L1183",
+        "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
   },
@@ -276,6 +296,7 @@
     },
     "category": "Weights & bonds",
     "docs_url": "/docs/query/bonds",
+    "markdown_url": "/llms.mdx/docs/query/bonds/content.md",
     "python": "sub.weights.bonds(...)",
     "hits": [
       {
@@ -284,7 +305,8 @@
         "name": "Bonds",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2448,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2448"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2448",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -300,6 +322,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/burn",
+    "markdown_url": "/llms.mdx/docs/query/burn/content.md",
     "python": "sub.subnets.burn(...)",
     "hits": [
       {
@@ -308,7 +331,8 @@
         "name": "Burn",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2191,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2191"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2191",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -326,6 +350,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/children",
+    "markdown_url": "/llms.mdx/docs/query/children/content.md",
     "python": "sub.delegation.children(...)",
     "hits": [
       {
@@ -334,7 +359,8 @@
         "name": "ChildKeys",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1330,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1330"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1330",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -352,6 +378,7 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/coldkey-lock",
+    "markdown_url": "/llms.mdx/docs/query/coldkey-lock/content.md",
     "python": "sub.locks.coldkey_lock(...)",
     "hits": [
       {
@@ -360,7 +387,8 @@
         "name": "Lock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1630,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1630"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1630",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -376,6 +404,7 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/coldkey-swap-announcement",
+    "markdown_url": "/llms.mdx/docs/query/coldkey-swap-announcement/content.md",
     "python": "sub.balances.coldkey_swap_announcement(...)",
     "hits": [
       {
@@ -384,7 +413,8 @@
         "name": "ColdkeySwapAnnouncements",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1542,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1542"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1542",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -392,7 +422,8 @@
         "name": "ColdkeySwapDisputes",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1548,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1548"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1548",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -408,6 +439,7 @@
     },
     "category": "Mining & collateral",
     "docs_url": "/docs/query/collateral-policy",
+    "markdown_url": "/llms.mdx/docs/query/collateral-policy/content.md",
     "python": "sub.collateral.collateral_policy(...)"
   },
   {
@@ -422,6 +454,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/commit-reveal-enabled",
+    "markdown_url": "/llms.mdx/docs/query/commit-reveal-enabled/content.md",
     "python": "sub.subnets.commit_reveal_enabled(...)",
     "hits": [
       {
@@ -430,7 +463,8 @@
         "name": "CommitRevealWeightsEnabled",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2186,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2186"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2186",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -448,6 +482,7 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/commitment",
+    "markdown_url": "/llms.mdx/docs/query/commitment/content.md",
     "python": "sub.identity.commitment(...)",
     "hits": [
       {
@@ -456,7 +491,8 @@
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
         "line": 137,
-        "url": "/code/pallets/commitments/src/lib.rs#L137"
+        "url": "/code/pallets/commitments/src/lib.rs#L137",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
   },
@@ -472,6 +508,7 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/commitments",
+    "markdown_url": "/llms.mdx/docs/query/commitments/content.md",
     "python": "sub.identity.commitments(...)"
   },
   {
@@ -486,6 +523,7 @@
     },
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/crowdloan",
+    "markdown_url": "/llms.mdx/docs/query/crowdloan/content.md",
     "python": "sub.leasing.crowdloan(...)",
     "hits": [
       {
@@ -494,7 +532,8 @@
         "name": "Crowdloans",
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 152,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L152"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L152",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -510,6 +549,7 @@
     },
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/crowdloan-contributors",
+    "markdown_url": "/llms.mdx/docs/query/crowdloan-contributors/content.md",
     "python": "sub.leasing.crowdloan_contributors(...)",
     "hits": [
       {
@@ -518,7 +558,8 @@
         "name": "Contributions",
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 161,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L161"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L161",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -530,6 +571,7 @@
     "param_docs": {},
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/crowdloans",
+    "markdown_url": "/llms.mdx/docs/query/crowdloans/content.md",
     "python": "sub.leasing.crowdloans(...)",
     "hits": [
       {
@@ -538,7 +580,8 @@
         "name": "Crowdloans",
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 152,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L152"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L152",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -554,6 +597,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/delegate",
+    "markdown_url": "/llms.mdx/docs/query/delegate/content.md",
     "python": "sub.delegation.delegate(...)",
     "hits": [
       {
@@ -563,7 +607,8 @@
         "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
         "line": 135,
         "end_line": 143,
-        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L135-L143"
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L135-L143",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
       }
     ]
   },
@@ -579,6 +624,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/delegate-take",
+    "markdown_url": "/llms.mdx/docs/query/delegate-take/content.md",
     "python": "sub.delegation.delegate_take(...)",
     "hits": [
       {
@@ -587,7 +633,8 @@
         "name": "Delegates",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1300,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1300"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1300",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -595,7 +642,8 @@
         "name": "MinDelegateTake",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1273,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1273"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1273",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -603,7 +651,8 @@
         "name": "MaxDelegateTake",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1269,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1269"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1269",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -619,6 +668,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/delegated",
+    "markdown_url": "/llms.mdx/docs/query/delegated/content.md",
     "python": "sub.delegation.delegated(...)",
     "hits": [
       {
@@ -628,7 +678,8 @@
         "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
         "line": 159,
         "end_line": 187,
-        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L159-L187"
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L159-L187",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
       }
     ]
   },
@@ -640,6 +691,7 @@
     "param_docs": {},
     "category": "Delegation",
     "docs_url": "/docs/query/delegates",
+    "markdown_url": "/llms.mdx/docs/query/delegates/content.md",
     "python": "sub.delegation.delegates(...)",
     "hits": [
       {
@@ -649,7 +701,8 @@
         "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
         "line": 147,
         "end_line": 155,
-        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L147-L155"
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L147-L155",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
       }
     ]
   },
@@ -665,6 +718,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/difficulty",
+    "markdown_url": "/llms.mdx/docs/query/difficulty/content.md",
     "python": "sub.hyperparameters.difficulty(...)",
     "hits": [
       {
@@ -673,7 +727,8 @@
         "name": "Difficulty",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2195,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2195"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2195",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -689,6 +744,7 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/epoch-status",
+    "markdown_url": "/llms.mdx/docs/query/epoch-status/content.md",
     "python": "sub.epochs.epoch_status(...)",
     "hits": [
       {
@@ -697,7 +753,8 @@
         "name": "Tempo",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1895,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1895"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1895",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -705,7 +762,8 @@
         "name": "LastEpochBlock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1920,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1920"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1920",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -713,7 +771,8 @@
         "name": "BlocksSinceLastStep",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2037,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2037"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2037",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -721,7 +780,8 @@
         "name": "PendingEpochAt",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1926,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1926"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1926",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -729,7 +789,8 @@
         "name": "SubnetEpochIndex",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1932,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1932"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1932",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "runtime",
@@ -738,7 +799,8 @@
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
         "line": 1169,
         "end_line": 1183,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1169-L1183"
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1169-L1183",
+        "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
   },
@@ -750,6 +812,7 @@
     "param_docs": {},
     "category": "Accounts & keys",
     "docs_url": "/docs/query/existential-deposit",
+    "markdown_url": "/llms.mdx/docs/query/existential-deposit/content.md",
     "python": "sub.balances.existential_deposit(...)",
     "hits": [
       {
@@ -758,7 +821,8 @@
         "name": "ExistentialDeposit",
         "path": "runtime/src/lib.rs",
         "line": 476,
-        "url": "/code/runtime/src/lib.rs#L476"
+        "url": "/code/runtime/src/lib.rs#L476",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -776,6 +840,7 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/hotkey-conviction",
+    "markdown_url": "/llms.mdx/docs/query/hotkey-conviction/content.md",
     "python": "sub.locks.hotkey_conviction(...)",
     "hits": [
       {
@@ -785,7 +850,8 @@
         "path": "runtime/src/lib.rs",
         "line": 2338,
         "end_line": 2340,
-        "url": "/code/runtime/src/lib.rs#L2338-L2340"
+        "url": "/code/runtime/src/lib.rs#L2338-L2340",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -801,6 +867,7 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/hotkey-identities",
+    "markdown_url": "/llms.mdx/docs/query/hotkey-identities/content.md",
     "python": "sub.identity.hotkey_identities(...)",
     "hits": [
       {
@@ -809,7 +876,8 @@
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1290,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1290"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1290",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -817,7 +885,8 @@
         "name": "IdentitiesV2",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2510,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2510"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2510",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -833,6 +902,7 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/hotkey-owner",
+    "markdown_url": "/llms.mdx/docs/query/hotkey-owner/content.md",
     "python": "sub.neurons.hotkey_owner(...)",
     "hits": [
       {
@@ -841,7 +911,8 @@
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1290,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1290"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1290",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -857,6 +928,7 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/identity",
+    "markdown_url": "/llms.mdx/docs/query/identity/content.md",
     "python": "sub.identity.identity(...)",
     "hits": [
       {
@@ -865,7 +937,8 @@
         "name": "IdentitiesV2",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2510,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2510"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2510",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -881,6 +954,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/immunity-period",
+    "markdown_url": "/llms.mdx/docs/query/immunity-period/content.md",
     "python": "sub.hyperparameters.immunity_period(...)",
     "hits": [
       {
@@ -889,7 +963,8 @@
         "name": "ImmunityPeriod",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2105,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2105"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2105",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -905,6 +980,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/is-delegate",
+    "markdown_url": "/llms.mdx/docs/query/is-delegate/content.md",
     "python": "sub.delegation.is_delegate(...)",
     "hits": [
       {
@@ -914,7 +990,8 @@
         "path": "pallets/subtensor/src/rpc_info/delegate_info.rs",
         "line": 135,
         "end_line": 143,
-        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L135-L143"
+        "url": "/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L135-L143",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/delegate_info.rs"
       }
     ]
   },
@@ -926,6 +1003,7 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/is-fast-blocks",
+    "markdown_url": "/llms.mdx/docs/query/is-fast-blocks/content.md",
     "python": "sub.chain.is_fast_blocks(...)"
   },
   {
@@ -940,6 +1018,7 @@
     },
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/lease",
+    "markdown_url": "/llms.mdx/docs/query/lease/content.md",
     "python": "sub.leasing.lease(...)",
     "hits": [
       {
@@ -948,7 +1027,8 @@
         "name": "SubnetLeases",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2706,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2706"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2706",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -960,6 +1040,7 @@
     "param_docs": {},
     "category": "Leases & crowdloans",
     "docs_url": "/docs/query/leases",
+    "markdown_url": "/llms.mdx/docs/query/leases/content.md",
     "python": "sub.leasing.leases(...)",
     "hits": [
       {
@@ -968,7 +1049,8 @@
         "name": "SubnetLeases",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2706,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2706"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2706",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -984,6 +1066,7 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/locks-for-coldkey",
+    "markdown_url": "/llms.mdx/docs/query/locks-for-coldkey/content.md",
     "python": "sub.locks.locks_for_coldkey(...)",
     "hits": [
       {
@@ -992,7 +1075,8 @@
         "name": "Lock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1630,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1630"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1630",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1008,6 +1092,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/max-weight-limit",
+    "markdown_url": "/llms.mdx/docs/query/max-weight-limit/content.md",
     "python": "sub.hyperparameters.max_weight_limit(...)",
     "hits": [
       {
@@ -1016,7 +1101,8 @@
         "name": "MaxWeightsLimit",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2121,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2121"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2121",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1032,6 +1118,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/mechanism-count",
+    "markdown_url": "/llms.mdx/docs/query/mechanism-count/content.md",
     "python": "sub.subnets.mechanism_count(...)",
     "hits": [
       {
@@ -1040,7 +1127,8 @@
         "name": "MechanismCountCurrent",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2780,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2780"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2780",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1056,6 +1144,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/mechanism-emission-split",
+    "markdown_url": "/llms.mdx/docs/query/mechanism-emission-split/content.md",
     "python": "sub.subnets.mechanism_emission_split(...)",
     "hits": [
       {
@@ -1064,7 +1153,8 @@
         "name": "MechanismEmissionSplit",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2785,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2785"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2785",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1080,6 +1170,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/metagraph",
+    "markdown_url": "/llms.mdx/docs/query/metagraph/content.md",
     "hits": [
       {
         "kind": "runtime",
@@ -1088,7 +1179,8 @@
         "path": "pallets/subtensor/src/rpc_info/metagraph.rs",
         "line": 653,
         "end_line": 828,
-        "url": "/code/pallets/subtensor/src/rpc_info/metagraph.rs#L653-L828"
+        "url": "/code/pallets/subtensor/src/rpc_info/metagraph.rs#L653-L828",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/metagraph.rs"
       }
     ]
   },
@@ -1100,6 +1192,7 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/mev-shield-next-key",
+    "markdown_url": "/llms.mdx/docs/query/mev-shield-next-key/content.md",
     "python": "sub.chain.mev_shield_next_key(...)",
     "hits": [
       {
@@ -1108,7 +1201,8 @@
         "name": "NextKey",
         "path": "pallets/shield/src/lib.rs",
         "line": 115,
-        "url": "/code/pallets/shield/src/lib.rs#L115"
+        "url": "/code/pallets/shield/src/lib.rs#L115",
+        "raw_url": "/code/raw/pallets/shield/src/lib.rs"
       }
     ]
   },
@@ -1124,6 +1218,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/min-allowed-weights",
+    "markdown_url": "/llms.mdx/docs/query/min-allowed-weights/content.md",
     "python": "sub.hyperparameters.min_allowed_weights(...)",
     "hits": [
       {
@@ -1132,7 +1227,8 @@
         "name": "MinAllowedWeights",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2131,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2131"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2131",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1152,6 +1248,7 @@
     },
     "category": "Mining & collateral",
     "docs_url": "/docs/query/miner-collateral",
+    "markdown_url": "/llms.mdx/docs/query/miner-collateral/content.md",
     "python": "sub.collateral.miner_collateral(...)",
     "hits": [
       {
@@ -1160,7 +1257,8 @@
         "name": "Owner",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1290,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1290"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1290",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1176,6 +1274,7 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/most-convicted-hotkey",
+    "markdown_url": "/llms.mdx/docs/query/most-convicted-hotkey/content.md",
     "python": "sub.locks.most_convicted_hotkey(...)",
     "hits": [
       {
@@ -1185,7 +1284,8 @@
         "path": "runtime/src/lib.rs",
         "line": 2342,
         "end_line": 2344,
-        "url": "/code/runtime/src/lib.rs#L2342-L2344"
+        "url": "/code/runtime/src/lib.rs#L2342-L2344",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -1203,6 +1303,7 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/multisig",
+    "markdown_url": "/llms.mdx/docs/query/multisig/content.md",
     "python": "sub.balances.multisig(...)",
     "hits": [
       {
@@ -1224,6 +1325,7 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/netuids-for-hotkey",
+    "markdown_url": "/llms.mdx/docs/query/netuids-for-hotkey/content.md",
     "python": "sub.neurons.netuids_for_hotkey(...)",
     "hits": [
       {
@@ -1232,7 +1334,8 @@
         "name": "IsNetworkMember",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1963,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1963"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1963",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1250,6 +1353,7 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/neurons",
+    "markdown_url": "/llms.mdx/docs/query/neurons/content.md",
     "python": "sub.neurons.neurons(...)",
     "hits": [
       {
@@ -1259,7 +1363,8 @@
         "path": "pallets/subtensor/src/rpc_info/neuron_info.rs",
         "line": 209,
         "end_line": 225,
-        "url": "/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L209-L225"
+        "url": "/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L209-L225",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/neuron_info.rs"
       },
       {
         "kind": "runtime",
@@ -1268,7 +1373,8 @@
         "path": "pallets/subtensor/src/rpc_info/neuron_info.rs",
         "line": 58,
         "end_line": 74,
-        "url": "/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L58-L74"
+        "url": "/code/pallets/subtensor/src/rpc_info/neuron_info.rs#L58-L74",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/neuron_info.rs"
       }
     ]
   },
@@ -1284,6 +1390,7 @@
     },
     "category": "Epochs & timing",
     "docs_url": "/docs/query/next-epoch-start-block",
+    "markdown_url": "/llms.mdx/docs/query/next-epoch-start-block/content.md",
     "python": "sub.epochs.next_epoch_start_block(...)",
     "hits": [
       {
@@ -1293,7 +1400,8 @@
         "path": "pallets/subtensor/src/coinbase/run_coinbase.rs",
         "line": 1169,
         "end_line": 1183,
-        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1169-L1183"
+        "url": "/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1169-L1183",
+        "raw_url": "/code/raw/pallets/subtensor/src/coinbase/run_coinbase.rs"
       }
     ]
   },
@@ -1309,6 +1417,7 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/owned-hotkeys",
+    "markdown_url": "/llms.mdx/docs/query/owned-hotkeys/content.md",
     "python": "sub.neurons.owned_hotkeys(...)",
     "hits": [
       {
@@ -1317,7 +1426,8 @@
         "name": "OwnedHotkeys",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1502,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1502"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1502",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1335,6 +1445,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/parents",
+    "markdown_url": "/llms.mdx/docs/query/parents/content.md",
     "python": "sub.delegation.parents(...)",
     "hits": [
       {
@@ -1343,7 +1454,8 @@
         "name": "ParentKeys",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1343,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1343"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1343",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1361,6 +1473,7 @@
     },
     "category": "Delegation",
     "docs_url": "/docs/query/pending-children",
+    "markdown_url": "/llms.mdx/docs/query/pending-children/content.md",
     "python": "sub.delegation.pending_children(...)",
     "hits": [
       {
@@ -1369,7 +1482,8 @@
         "name": "PendingChildKeys",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1317,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1317"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1317",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1385,6 +1499,7 @@
     },
     "category": "Accounts & keys",
     "docs_url": "/docs/query/proxies",
+    "markdown_url": "/llms.mdx/docs/query/proxies/content.md",
     "python": "sub.balances.proxies(...)",
     "hits": [
       {
@@ -1393,7 +1508,8 @@
         "name": "Proxies",
         "path": "pallets/proxy/src/lib.rs",
         "line": 811,
-        "url": "/code/pallets/proxy/src/lib.rs#L811"
+        "url": "/code/pallets/proxy/src/lib.rs#L811",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -1411,6 +1527,7 @@
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/quote-stake",
+    "markdown_url": "/llms.mdx/docs/query/quote-stake/content.md",
     "python": "sub.prices.quote_stake(...)",
     "hits": [
       {
@@ -1420,7 +1537,8 @@
         "path": "runtime/src/lib.rs",
         "line": 2437,
         "end_line": 2465,
-        "url": "/code/runtime/src/lib.rs#L2437-L2465"
+        "url": "/code/runtime/src/lib.rs#L2437-L2465",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -1438,6 +1556,7 @@
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/quote-unstake",
+    "markdown_url": "/llms.mdx/docs/query/quote-unstake/content.md",
     "python": "sub.prices.quote_unstake(...)",
     "hits": [
       {
@@ -1447,7 +1566,8 @@
         "path": "runtime/src/lib.rs",
         "line": 2467,
         "end_line": 2495,
-        "url": "/code/runtime/src/lib.rs#L2467-L2495"
+        "url": "/code/runtime/src/lib.rs#L2467-L2495",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -1463,6 +1583,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/reveal-period",
+    "markdown_url": "/llms.mdx/docs/query/reveal-period/content.md",
     "python": "sub.hyperparameters.reveal_period(...)",
     "hits": [
       {
@@ -1471,7 +1592,8 @@
         "name": "RevealPeriodEpochs",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2623,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2623"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2623",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1489,6 +1611,7 @@
     },
     "category": "Identity & commitments",
     "docs_url": "/docs/query/revealed-commitment",
+    "markdown_url": "/llms.mdx/docs/query/revealed-commitment/content.md",
     "python": "sub.identity.revealed_commitment(...)",
     "hits": [
       {
@@ -1497,7 +1620,8 @@
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
         "line": 173,
-        "url": "/code/pallets/commitments/src/lib.rs#L173"
+        "url": "/code/pallets/commitments/src/lib.rs#L173",
+        "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
   },
@@ -1513,6 +1637,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/root-claim-type",
+    "markdown_url": "/llms.mdx/docs/query/root-claim-type/content.md",
     "python": "sub.staking.root_claim_type(...)",
     "hits": [
       {
@@ -1521,7 +1646,8 @@
         "name": "RootClaimType",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2665,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2665"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2665",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1541,6 +1667,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake",
+    "markdown_url": "/llms.mdx/docs/query/stake/content.md",
     "python": "sub.staking.stake(...)",
     "hits": [
       {
@@ -1550,7 +1677,8 @@
         "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
         "line": 118,
         "end_line": 144,
-        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L118-L144"
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L118-L144",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
       }
     ]
   },
@@ -1566,6 +1694,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-for-coldkey",
+    "markdown_url": "/llms.mdx/docs/query/stake-for-coldkey/content.md",
     "python": "sub.staking.stake_for_coldkey(...)",
     "hits": [
       {
@@ -1575,7 +1704,8 @@
         "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
         "line": 102,
         "end_line": 116,
-        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L102-L116"
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L102-L116",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
       }
     ]
   },
@@ -1591,6 +1721,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-for-coldkeys",
+    "markdown_url": "/llms.mdx/docs/query/stake-for-coldkeys/content.md",
     "python": "sub.staking.stake_for_coldkeys(...)",
     "hits": [
       {
@@ -1600,7 +1731,8 @@
         "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
         "line": 92,
         "end_line": 100,
-        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L92-L100"
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L92-L100",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
       }
     ]
   },
@@ -1616,6 +1748,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-value-for-coldkey",
+    "markdown_url": "/llms.mdx/docs/query/stake-value-for-coldkey/content.md",
     "python": "sub.staking.stake_value_for_coldkey(...)",
     "hits": [
       {
@@ -1625,7 +1758,8 @@
         "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
         "line": 102,
         "end_line": 116,
-        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L102-L116"
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L102-L116",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
       }
     ]
   },
@@ -1641,6 +1775,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/stake-value-for-coldkeys",
+    "markdown_url": "/llms.mdx/docs/query/stake-value-for-coldkeys/content.md",
     "python": "sub.staking.stake_value_for_coldkeys(...)",
     "hits": [
       {
@@ -1650,7 +1785,8 @@
         "path": "pallets/subtensor/src/rpc_info/stake_info.rs",
         "line": 92,
         "end_line": 100,
-        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L92-L100"
+        "url": "/code/pallets/subtensor/src/rpc_info/stake_info.rs#L92-L100",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/stake_info.rs"
       }
     ]
   },
@@ -1666,6 +1802,7 @@
     },
     "category": "Staking",
     "docs_url": "/docs/query/staking-hotkeys",
+    "markdown_url": "/llms.mdx/docs/query/staking-hotkeys/content.md",
     "python": "sub.staking.staking_hotkeys(...)",
     "hits": [
       {
@@ -1674,7 +1811,8 @@
         "name": "StakingHotkeys",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1497,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1497"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1497",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1690,6 +1828,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet",
+    "markdown_url": "/llms.mdx/docs/query/subnet/content.md",
     "python": "sub.subnets.subnet(...)",
     "hits": [
       {
@@ -1698,7 +1837,8 @@
         "name": "Tempo",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1895,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1895"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1895",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1706,7 +1846,8 @@
         "name": "Burn",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2191,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2191"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2191",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1714,7 +1855,8 @@
         "name": "SubnetworkN",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1954,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1954"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1954",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1730,6 +1872,7 @@
     },
     "category": "Mining & collateral",
     "docs_url": "/docs/query/subnet-collateral",
+    "markdown_url": "/llms.mdx/docs/query/subnet-collateral/content.md",
     "python": "sub.collateral.subnet_collateral(...)",
     "hits": [
       {
@@ -1738,7 +1881,8 @@
         "name": "Uids",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2373,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2373"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2373",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1754,6 +1898,7 @@
     },
     "category": "Locks & conviction",
     "docs_url": "/docs/query/subnet-convictions",
+    "markdown_url": "/llms.mdx/docs/query/subnet-convictions/content.md",
     "python": "sub.locks.subnet_convictions(...)",
     "hits": [
       {
@@ -1762,7 +1907,8 @@
         "name": "HotkeyLock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1656,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1656"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1656",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1770,7 +1916,8 @@
         "name": "DecayingHotkeyLock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1668,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1668"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1668",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1778,7 +1925,8 @@
         "name": "OwnerLock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1680,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1680"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1680",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1786,7 +1934,8 @@
         "name": "DecayingOwnerLock",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1684,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1684"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1684",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1794,7 +1943,8 @@
         "name": "SubnetOwnerHotkey",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2052,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2052"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2052",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1802,7 +1952,8 @@
         "name": "SubnetAlphaOut",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1488,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1488"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1488",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1810,7 +1961,8 @@
         "name": "UnlockRate",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1722,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1722"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1722",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1818,7 +1970,8 @@
         "name": "MaturityRate",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1718,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1718"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1718",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -1826,7 +1979,8 @@
         "name": "NetworkRegisteredAt",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1986,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1986"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1986",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1842,6 +1996,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/subnet-emission-enabled",
+    "markdown_url": "/llms.mdx/docs/query/subnet-emission-enabled/content.md",
     "python": "sub.hyperparameters.subnet_emission_enabled(...)",
     "hits": [
       {
@@ -1850,7 +2005,8 @@
         "name": "SubnetEmissionEnabled",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1458,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1458"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1458",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1866,6 +2022,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-hyperparameters",
+    "markdown_url": "/llms.mdx/docs/query/subnet-hyperparameters/content.md",
     "python": "sub.subnets.subnet_hyperparameters(...)",
     "hits": [
       {
@@ -1875,7 +2032,8 @@
         "path": "pallets/subtensor/src/rpc_info/subnet_info.rs",
         "line": 468,
         "end_line": 641,
-        "url": "/code/pallets/subtensor/src/rpc_info/subnet_info.rs#L468-L641"
+        "url": "/code/pallets/subtensor/src/rpc_info/subnet_info.rs#L468-L641",
+        "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/subnet_info.rs"
       }
     ]
   },
@@ -1891,6 +2049,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-identity",
+    "markdown_url": "/llms.mdx/docs/query/subnet-identity/content.md",
     "python": "sub.subnets.subnet_identity(...)",
     "hits": [
       {
@@ -1899,7 +2058,8 @@
         "name": "SubnetIdentitiesV3",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2515,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2515"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2515",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1911,6 +2071,7 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-names",
+    "markdown_url": "/llms.mdx/docs/query/subnet-names/content.md",
     "python": "sub.subnets.subnet_names(...)",
     "hits": [
       {
@@ -1919,7 +2080,8 @@
         "name": "SubnetIdentitiesV3",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2515,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2515"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2515",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -1931,6 +2093,7 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-registration-cost",
+    "markdown_url": "/llms.mdx/docs/query/subnet-registration-cost/content.md",
     "python": "sub.subnets.subnet_registration_cost(...)",
     "hits": [
       {
@@ -1940,7 +2103,8 @@
         "path": "runtime/src/lib.rs",
         "line": 2348,
         "end_line": 2350,
-        "url": "/code/runtime/src/lib.rs#L2348-L2350"
+        "url": "/code/runtime/src/lib.rs#L2348-L2350",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -1956,6 +2120,7 @@
     },
     "category": "Subnets",
     "docs_url": "/docs/query/subnet-start-schedule",
+    "markdown_url": "/llms.mdx/docs/query/subnet-start-schedule/content.md",
     "python": "sub.subnets.subnet_start_schedule(...)",
     "hits": [
       {
@@ -1964,7 +2129,8 @@
         "name": "NetworkRegisteredAt",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1986,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1986"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1986",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "constant",
@@ -1972,7 +2138,8 @@
         "name": "InitialStartCallDelay",
         "path": "runtime/src/lib.rs",
         "line": 851,
-        "url": "/code/runtime/src/lib.rs#L851"
+        "url": "/code/runtime/src/lib.rs#L851",
+        "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
   },
@@ -1984,6 +2151,7 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/subnets",
+    "markdown_url": "/llms.mdx/docs/query/subnets/content.md",
     "python": "sub.subnets.subnets(...)",
     "hits": [
       {
@@ -1992,7 +2160,8 @@
         "name": "NetworksAdded",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1958,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1958"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1958",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -2000,7 +2169,8 @@
         "name": "Tempo",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1895,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1895"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1895",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -2008,7 +2178,8 @@
         "name": "Burn",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2191,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2191"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2191",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       },
       {
         "kind": "storage",
@@ -2016,7 +2187,8 @@
         "name": "SubnetworkN",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1954,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1954"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1954",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -2034,6 +2206,7 @@
     },
     "category": "Weights & bonds",
     "docs_url": "/docs/query/timelocked-weight-commits",
+    "markdown_url": "/llms.mdx/docs/query/timelocked-weight-commits/content.md",
     "python": "sub.weights.timelocked_weight_commits(...)",
     "hits": [
       {
@@ -2042,7 +2215,8 @@
         "name": "TimelockedWeightCommits",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2571,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2571"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2571",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -2054,6 +2228,7 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/timestamp",
+    "markdown_url": "/llms.mdx/docs/query/timestamp/content.md",
     "python": "sub.chain.timestamp(...)"
   },
   {
@@ -2064,6 +2239,7 @@
     "param_docs": {},
     "category": "Subnets",
     "docs_url": "/docs/query/token-symbols",
+    "markdown_url": "/llms.mdx/docs/query/token-symbols/content.md",
     "python": "sub.subnets.token_symbols(...)",
     "hits": [
       {
@@ -2072,7 +2248,8 @@
         "name": "TokenSymbol",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 1736,
-        "url": "/code/pallets/subtensor/src/lib.rs#L1736"
+        "url": "/code/pallets/subtensor/src/lib.rs#L1736",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -2084,6 +2261,7 @@
     "param_docs": {},
     "category": "Chain",
     "docs_url": "/docs/query/tx-rate-limit",
+    "markdown_url": "/llms.mdx/docs/query/tx-rate-limit/content.md",
     "python": "sub.chain.tx_rate_limit(...)",
     "hits": [
       {
@@ -2092,7 +2270,8 @@
         "name": "TxRateLimit",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2249,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2249"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2249",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -2110,6 +2289,7 @@
     },
     "category": "Neurons & registration",
     "docs_url": "/docs/query/uid",
+    "markdown_url": "/llms.mdx/docs/query/uid/content.md",
     "python": "sub.neurons.uid(...)",
     "hits": [
       {
@@ -2118,7 +2298,8 @@
         "name": "Uids",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2373,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2373"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2373",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -2136,6 +2317,7 @@
     },
     "category": "Weights & bonds",
     "docs_url": "/docs/query/weights",
+    "markdown_url": "/llms.mdx/docs/query/weights/content.md",
     "python": "sub.weights.weights(...)",
     "hits": [
       {
@@ -2144,7 +2326,8 @@
         "name": "Weights",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2435,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2435"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2435",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   },
@@ -2160,6 +2343,7 @@
     },
     "category": "Hyperparameters",
     "docs_url": "/docs/query/weights-rate-limit",
+    "markdown_url": "/llms.mdx/docs/query/weights-rate-limit/content.md",
     "python": "sub.hyperparameters.weights_rate_limit(...)",
     "hits": [
       {
@@ -2168,7 +2352,8 @@
         "name": "WeightsSetRateLimit",
         "path": "pallets/subtensor/src/lib.rs",
         "line": 2161,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2161"
+        "url": "/code/pallets/subtensor/src/lib.rs#L2161",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
   }

@@ -25,9 +25,9 @@ curl -s https://www.bittensor.com/llms-full.txt | rg -n '<pattern>'
 # One page (same URLs as the links inside llms.txt)
 curl -s https://www.bittensor.com/llms.mdx/docs/quickstart/content.md
 
-# Chain source: list paths, then fetch a file
-curl -s https://www.bittensor.com/code/index.json
-curl -s https://www.bittensor.com/code/raw/pallets/subtensor/src/lib.rs | rg -n '<pattern>'
+# Chain source: search by symbol, or fetch a known path
+curl -s 'https://www.bittensor.com/code/search.json?q=do_move_stake'
+curl -s https://www.bittensor.com/code/raw/pallets/subtensor/src/staking/move_stake.rs
 
 # Heavy exploration: clone the repo (docs live in docs/)
 git clone --depth 1 https://github.com/RaoFoundation/subtensor
@@ -51,8 +51,10 @@ bt.reads.list_reads()     # every read: name, params, docs, category
 The same catalogs are published statically by these docs:
 [`/catalog/intents.json`](/catalog/intents.json),
 [`/catalog/reads.json`](/catalog/reads.json),
-[`/catalog/errors.json`](/catalog/errors.json). Each entry includes a
-`docs_url` pointing at its reference page.
+[`/catalog/errors.json`](/catalog/errors.json). Each entry includes
+`docs_url` (HTML), `markdown_url` (raw markdown to fetch), and often
+`sources` / `hits` with a `raw_url` into `/code`. Errors live under
+`.codes` (semantic) and `.chain_errors` (exact pallet names); see `.note`.
 
 ## Execute by name
 

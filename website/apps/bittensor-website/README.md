@@ -28,8 +28,9 @@ Agent-facing endpoints: `/llms.txt` (curated index with `content.md` links;
 omits per-op reference listings), `/llms-full.txt` (full prose dump for
 offline `rg`/RAG), raw markdown for every page under
 `/llms.mdx/docs/<slug>/content.md`, the catalogs at
-`/catalog/{intents,reads,errors}.json`, and the chain Rust source at `/code`
-(plain text at `/code/raw/<path>`, machine-readable index at
+`/catalog/{intents,reads,errors}.json` (each entry has `markdown_url`; code
+links include `raw_url`), and the chain Rust source at `/code` (search at
+`/code/search.json?q=…`, plain text at `/code/raw/<path>`, index at
 `/code/index.json`). See `docs/agents.mdx` § Searching these docs.
 
 ## Development

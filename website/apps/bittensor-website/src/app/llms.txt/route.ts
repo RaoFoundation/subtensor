@@ -92,7 +92,9 @@ function searchSection(): string {
     `- Full corpus (for \`rg\`, not for stuffing into context): \`curl -s ${siteUrl}/llms-full.txt | rg -n '<pattern>'\``,
     `- One page: ${siteUrl}${docsContentRoute}/<slug>/content.md`,
     `- JSON catalogs: ${siteUrl}/catalog/intents.json, ${siteUrl}/catalog/reads.json, ${siteUrl}/catalog/errors.json`,
-    `- Chain source: \`curl -s ${siteUrl}${codeRoute}/index.json\` then \`curl -s ${siteUrl}${codeRoute}/raw/<repo-path>\``,
+    `  (each entry has \`markdown_url\` for prose and, where known, \`sources\`/\`hits\` with \`raw_url\`)`,
+    `- Chain source search: \`curl -s '${siteUrl}${codeRoute}/search.json?q=<literal>'\``,
+    `- Chain source by path: \`curl -s ${siteUrl}${codeRoute}/index.json\` then \`curl -s ${siteUrl}${codeRoute}/raw/<repo-path>\``,
     `- Clone for heavy exploration (docs in docs/): \`git clone --depth 1 ${chainRepoUrl}\``,
     '',
   ].join('\n');
@@ -103,15 +105,13 @@ function referenceHint(): string {
     '## Reference catalogs',
     '',
     'Per-op and per-query pages are omitted here (they dominate the tree).',
-    'Use the JSON catalogs; open a docs_url from an entry only when you need prose.',
-    `Catalog \`docs_url\` values look like \`/docs/tx/add-stake\`; the markdown is`,
-    `${siteUrl}${docsContentRoute}/tx/add-stake/content.md` +
-      ' (prefix `/docs/` → `/llms.mdx/docs/`, suffix `/content.md`).',
+    'Prefer the JSON catalogs; each entry carries `markdown_url` (raw prose),',
+    '`docs_url` (HTML), and often `sources` / `hits` with `raw_url` into `/code`.',
     '',
     `- Transactions: ${siteUrl}/catalog/intents.json`,
     `- Queries: ${siteUrl}/catalog/reads.json`,
     `- Errors: ${siteUrl}/catalog/errors.json` +
-      ' (semantic codes under `.codes`, chain names under `.chain_errors`)',
+      ' — semantic codes under `.codes`, chain names under `.chain_errors` (see `.note`)',
     `- Hyperparameters landing: ${siteUrl}${docsContentRoute}/hyperparameters/content.md`,
     `- Full prose dump: ${siteUrl}/llms-full.txt`,
     '',
@@ -126,6 +126,7 @@ function codeSection(): string {
     'The Rust that runs on the chain (pallets, runtime, primitives — no tests/mocks/benchmarks)' +
       (commit ? `, at commit ${commit}.` : '.'),
     '',
+    `- Search: ${siteUrl}${codeRoute}/search.json?q=<literal>`,
     `- Index: ${siteUrl}${codeRoute}/index.json`,
     `- Browse: ${siteUrl}${codeRoute}/<repo-path> with #L<n> or #L<n>-L<m> line anchors`,
     `- Plain text: ${siteUrl}${codeRoute}/raw/<repo-path>`,

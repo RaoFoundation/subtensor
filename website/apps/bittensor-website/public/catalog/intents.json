@@ -46,6 +46,7 @@
     },
     "cli": "btcli tx add-collateral --netuid <int> --amount-tao <amount|all>",
     "python_class": "AddCollateral",
+    "markdown_url": "/llms.mdx/docs/tx/add-collateral/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -53,7 +54,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2439,
         "end_line": 2446,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2437-L2446"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2437-L2446",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -94,6 +96,7 @@
     },
     "cli": "btcli tx add-proxy --delegate <ss58|name>",
     "python_class": "AddProxy",
+    "markdown_url": "/llms.mdx/docs/tx/add-proxy/content.md",
     "sources": [
       {
         "pallet": "Proxy",
@@ -101,7 +104,8 @@
         "path": "pallets/proxy/src/lib.rs",
         "line": 267,
         "end_line": 276,
-        "url": "/code/pallets/proxy/src/lib.rs#L265-L276"
+        "url": "/code/pallets/proxy/src/lib.rs#L265-L276",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -165,6 +169,7 @@
     },
     "cli": "btcli tx add-stake --hotkey <ss58|name> --netuid <int> --amount-tao <amount|all>",
     "python_class": "AddStake",
+    "markdown_url": "/llms.mdx/docs/tx/add-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -172,7 +177,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 561,
         "end_line": 568,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L559-L568"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L559-L568",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
@@ -180,7 +186,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1393,
         "end_line": 1410,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1391-L1410"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1391-L1410",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -241,6 +248,7 @@
     },
     "cli": "btcli tx add-stake-limit --hotkey <ss58|name> --netuid <int> --amount-tao <amount|all> --limit-price-rao <int>",
     "python_class": "AddStakeLimit",
+    "markdown_url": "/llms.mdx/docs/tx/add-stake-limit/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -248,7 +256,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1393,
         "end_line": 1410,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1391-L1410"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1391-L1410",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -281,6 +290,7 @@
     },
     "cli": "btcli tx announce-coldkey-swap --new-coldkey <ss58|name>",
     "python_class": "AnnounceColdkeySwap",
+    "markdown_url": "/llms.mdx/docs/tx/announce-coldkey-swap/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -288,7 +298,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1987,
         "end_line": 2013,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1985-L2013"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1985-L2013",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -336,6 +347,7 @@
     },
     "cli": "btcli tx associate-evm-key --netuid <int> --evm-key <value> --block-number <int> --signature <value>",
     "python_class": "AssociateEvmKey",
+    "markdown_url": "/llms.mdx/docs/tx/associate-evm-key/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -343,7 +355,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1579,
         "end_line": 1587,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1573-L1587"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1573-L1587",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -374,6 +387,7 @@
     },
     "cli": "btcli tx associate-hotkey",
     "python_class": "AssociateHotkey",
+    "markdown_url": "/llms.mdx/docs/tx/associate-hotkey/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -381,7 +395,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1521,
         "end_line": 1527,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1519-L1527"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1519-L1527",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -414,6 +429,7 @@
     },
     "cli": "btcli tx batch --intents <a,b,c>",
     "python_class": "Batch",
+    "markdown_url": "/llms.mdx/docs/tx/batch/content.md",
     "sources": [
       {
         "pallet": "Utility",
@@ -421,7 +437,8 @@
         "path": "pallets/utility/src/lib.rs",
         "line": 314,
         "end_line": 362,
-        "url": "/code/pallets/utility/src/lib.rs#L308-L362"
+        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
   },
@@ -458,6 +475,7 @@
     },
     "cli": "btcli tx burned-register --netuid <int>",
     "python_class": "BurnedRegister",
+    "markdown_url": "/llms.mdx/docs/tx/burned-register/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -465,7 +483,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 818,
         "end_line": 824,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L816-L824"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L816-L824",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -501,6 +520,7 @@
     },
     "cli": "btcli tx claim-root --subnets <a,b,c>",
     "python_class": "ClaimRoot",
+    "markdown_url": "/llms.mdx/docs/tx/claim-root/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -508,7 +528,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1891,
         "end_line": 1907,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1889-L1907"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1889-L1907",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -534,6 +555,7 @@
     },
     "cli": "btcli tx clear-coldkey-swap-announcement",
     "python_class": "ClearColdkeySwapAnnouncement",
+    "markdown_url": "/llms.mdx/docs/tx/clear-coldkey-swap-announcement/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -541,7 +563,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2186,
         "end_line": 2201,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2184-L2201"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2184-L2201",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -600,6 +623,7 @@
     },
     "cli": "btcli tx commit-weights --netuid <int>",
     "python_class": "CommitWeights",
+    "markdown_url": "/llms.mdx/docs/tx/commit-weights/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -607,7 +631,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1852,
         "end_line": 1868,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1850-L1868"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1850-L1868",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -654,6 +679,7 @@
     },
     "cli": "btcli tx contribute-crowdloan --crowdloan-id <int> --amount-tao <amount|all>",
     "python_class": "ContributeCrowdloan",
+    "markdown_url": "/llms.mdx/docs/tx/contribute-crowdloan/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -661,7 +687,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 440,
         "end_line": 536,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L438-L536"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L438-L536",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -744,6 +771,7 @@
     },
     "cli": "btcli tx create-crowdloan --deposit-tao <amount|all> --min-contribution-tao <amount|all> --cap-tao <amount|all> --end <int>",
     "python_class": "CreateCrowdloan",
+    "markdown_url": "/llms.mdx/docs/tx/create-crowdloan/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -751,7 +779,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 341,
         "end_line": 425,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L331-L425"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L331-L425",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -790,6 +819,7 @@
     },
     "cli": "btcli tx create-pure-proxy",
     "python_class": "CreatePureProxy",
+    "markdown_url": "/llms.mdx/docs/tx/create-pure-proxy/content.md",
     "sources": [
       {
         "pallet": "Proxy",
@@ -797,7 +827,8 @@
         "path": "pallets/proxy/src/lib.rs",
         "line": 332,
         "end_line": 364,
-        "url": "/code/pallets/proxy/src/lib.rs#L330-L364"
+        "url": "/code/pallets/proxy/src/lib.rs#L330-L364",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -838,6 +869,7 @@
     },
     "cli": "btcli tx decrease-take --take <value>",
     "python_class": "DecreaseTake",
+    "markdown_url": "/llms.mdx/docs/tx/decrease-take/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -845,7 +877,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 492,
         "end_line": 498,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -871,6 +904,7 @@
     },
     "cli": "btcli tx dispute-coldkey-swap",
     "python_class": "DisputeColdkeySwap",
+    "markdown_url": "/llms.mdx/docs/tx/dispute-coldkey-swap/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -878,7 +912,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2056,
         "end_line": 2073,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2054-L2073"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2054-L2073",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -911,6 +946,7 @@
     },
     "cli": "btcli tx dissolve-crowdloan --crowdloan-id <int>",
     "python_class": "DissolveCrowdloan",
+    "markdown_url": "/llms.mdx/docs/tx/dissolve-crowdloan/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -918,7 +954,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 763,
         "end_line": 805,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L761-L805"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L761-L805",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -959,7 +996,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx evm-withdraw --amount-tao <amount|all>",
-    "python_class": "EvmWithdraw"
+    "python_class": "EvmWithdraw",
+    "markdown_url": "/llms.mdx/docs/tx/evm-withdraw/content.md"
   },
   {
     "name": "execute_proxy_announced",
@@ -1009,6 +1047,7 @@
     },
     "cli": "btcli tx execute-proxy-announced --delegate <ss58|name> --real <ss58|name> --inner-op <value> --inner-args '<json>'",
     "python_class": "ExecuteProxyAnnounced",
+    "markdown_url": "/llms.mdx/docs/tx/execute-proxy-announced/content.md",
     "sources": [
       {
         "pallet": "Proxy",
@@ -1016,7 +1055,8 @@
         "path": "pallets/proxy/src/lib.rs",
         "line": 549,
         "end_line": 573,
-        "url": "/code/pallets/proxy/src/lib.rs#L540-L573"
+        "url": "/code/pallets/proxy/src/lib.rs#L540-L573",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -1049,6 +1089,7 @@
     },
     "cli": "btcli tx finalize-crowdloan --crowdloan-id <int>",
     "python_class": "FinalizeCrowdloan",
+    "markdown_url": "/llms.mdx/docs/tx/finalize-crowdloan/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -1056,7 +1097,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 611,
         "end_line": 674,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L609-L674"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L609-L674",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -1108,7 +1150,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx fund-evm-key --evm-address <value> --amount-tao <amount|all>",
-    "python_class": "FundEvmKey"
+    "python_class": "FundEvmKey",
+    "markdown_url": "/llms.mdx/docs/tx/fund-evm-key/content.md"
   },
   {
     "name": "increase_take",
@@ -1147,6 +1190,7 @@
     },
     "cli": "btcli tx increase-take --take <value>",
     "python_class": "IncreaseTake",
+    "markdown_url": "/llms.mdx/docs/tx/increase-take/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1154,7 +1198,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 525,
         "end_line": 531,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L523-L531"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L523-L531",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1203,6 +1248,7 @@
     },
     "cli": "btcli tx kill-pure-proxy --spawner <ss58|name>",
     "python_class": "KillPureProxy",
+    "markdown_url": "/llms.mdx/docs/tx/kill-pure-proxy/content.md",
     "sources": [
       {
         "pallet": "Proxy",
@@ -1210,7 +1256,8 @@
         "path": "pallets/proxy/src/lib.rs",
         "line": 384,
         "end_line": 410,
-        "url": "/code/pallets/proxy/src/lib.rs#L382-L410"
+        "url": "/code/pallets/proxy/src/lib.rs#L382-L410",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -1261,6 +1308,7 @@
     },
     "cli": "btcli tx lock-stake --netuid <int> --amount-alpha <amount|all>",
     "python_class": "LockStake",
+    "markdown_url": "/llms.mdx/docs/tx/lock-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1268,7 +1316,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2258,
         "end_line": 2266,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2256-L2266"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2256-L2266",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1306,6 +1355,7 @@
     },
     "cli": "btcli tx move-lock --netuid <int> --destination-hotkey <ss58|name>",
     "python_class": "MoveLock",
+    "markdown_url": "/llms.mdx/docs/tx/move-lock/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1313,7 +1363,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2282,
         "end_line": 2289,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2280-L2289"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2280-L2289",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1375,6 +1426,7 @@
     },
     "cli": "btcli tx move-stake --origin-hotkey <ss58|name> --origin-netuid <int> --dest-hotkey <ss58|name> --dest-netuid <int> --amount-alpha <amount|all>",
     "python_class": "MoveStake",
+    "markdown_url": "/llms.mdx/docs/tx/move-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1382,7 +1434,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1257,
         "end_line": 1273,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1255-L1273"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1255-L1273",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1432,7 +1485,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-approve --threshold <int> --other-signatories <a,b,c> --call '<json>'",
-    "python_class": "MultisigApprove"
+    "python_class": "MultisigApprove",
+    "markdown_url": "/llms.mdx/docs/tx/multisig-approve/content.md"
   },
   {
     "name": "multisig_cancel",
@@ -1477,7 +1531,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-cancel --threshold <int> --other-signatories <a,b,c> --call '<json>' --timepoint '<json>'",
-    "python_class": "MultisigCancel"
+    "python_class": "MultisigCancel",
+    "markdown_url": "/llms.mdx/docs/tx/multisig-cancel/content.md"
   },
   {
     "name": "multisig_execute",
@@ -1521,7 +1576,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-execute --threshold <int> --other-signatories <a,b,c> --call '<json>'",
-    "python_class": "MultisigExecute"
+    "python_class": "MultisigExecute",
+    "markdown_url": "/llms.mdx/docs/tx/multisig-execute/content.md"
   },
   {
     "name": "multisig_threshold_1",
@@ -1556,7 +1612,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx multisig-threshold-1 --other-signatories <a,b,c> --call '<json>'",
-    "python_class": "MultisigThreshold1"
+    "python_class": "MultisigThreshold1",
+    "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
   },
   {
     "name": "refund_crowdloan",
@@ -1587,6 +1644,7 @@
     },
     "cli": "btcli tx refund-crowdloan --crowdloan-id <int>",
     "python_class": "RefundCrowdloan",
+    "markdown_url": "/llms.mdx/docs/tx/refund-crowdloan/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -1594,7 +1652,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 688,
         "end_line": 750,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L686-L750"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L686-L750",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -1631,6 +1690,7 @@
     },
     "cli": "btcli tx register-leased-network --emissions-share <int>",
     "python_class": "RegisterLeasedNetwork",
+    "markdown_url": "/llms.mdx/docs/tx/register-leased-network/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1638,7 +1698,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1673,
         "end_line": 1679,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1671-L1679"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1671-L1679",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1669,6 +1730,7 @@
     },
     "cli": "btcli tx register-subnet",
     "python_class": "RegisterSubnet",
+    "markdown_url": "/llms.mdx/docs/tx/register-subnet/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1676,7 +1738,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1004,
         "end_line": 1006,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1002-L1006"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1002-L1006",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1702,6 +1765,7 @@
     },
     "cli": "btcli tx remove-proxies",
     "python_class": "RemoveProxies",
+    "markdown_url": "/llms.mdx/docs/tx/remove-proxies/content.md",
     "sources": [
       {
         "pallet": "Proxy",
@@ -1709,7 +1773,8 @@
         "path": "pallets/proxy/src/lib.rs",
         "line": 306,
         "end_line": 310,
-        "url": "/code/pallets/proxy/src/lib.rs#L304-L310"
+        "url": "/code/pallets/proxy/src/lib.rs#L304-L310",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -1750,6 +1815,7 @@
     },
     "cli": "btcli tx remove-proxy --delegate <ss58|name>",
     "python_class": "RemoveProxy",
+    "markdown_url": "/llms.mdx/docs/tx/remove-proxy/content.md",
     "sources": [
       {
         "pallet": "Proxy",
@@ -1757,7 +1823,8 @@
         "path": "pallets/proxy/src/lib.rs",
         "line": 287,
         "end_line": 296,
-        "url": "/code/pallets/proxy/src/lib.rs#L285-L296"
+        "url": "/code/pallets/proxy/src/lib.rs#L285-L296",
+        "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
   },
@@ -1827,6 +1894,7 @@
     },
     "cli": "btcli tx remove-stake --hotkey <ss58|name> --netuid <int> --amount-alpha <amount|all>",
     "python_class": "RemoveStake",
+    "markdown_url": "/llms.mdx/docs/tx/remove-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1834,7 +1902,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 595,
         "end_line": 602,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L593-L602"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L593-L602",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
@@ -1842,7 +1911,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1446,
         "end_line": 1462,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1444-L1462"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1444-L1462",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1909,6 +1979,7 @@
     },
     "cli": "btcli tx remove-stake-limit --hotkey <ss58|name> --netuid <int> --amount-alpha <amount|all> --limit-price-rao <int>",
     "python_class": "RemoveStakeLimit",
+    "markdown_url": "/llms.mdx/docs/tx/remove-stake-limit/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1916,7 +1987,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1446,
         "end_line": 1462,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1444-L1462"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1444-L1462",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -1949,6 +2021,7 @@
     },
     "cli": "btcli tx reset-axon --netuid <int>",
     "python_class": "ResetAxon",
+    "markdown_url": "/llms.mdx/docs/tx/reset-axon/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -1956,7 +2029,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 642,
         "end_line": 665,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L640-L665"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L640-L665",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2017,6 +2091,7 @@
     },
     "cli": "btcli tx reveal-weights --netuid <int> --uids <a,b,c> --weights <a,b,c> --salt <a,b,c>",
     "python_class": "RevealWeights",
+    "markdown_url": "/llms.mdx/docs/tx/reveal-weights/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2024,7 +2099,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 277,
         "end_line": 286,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L275-L286",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2055,6 +2131,7 @@
     },
     "cli": "btcli tx root-register",
     "python_class": "RootRegister",
+    "markdown_url": "/llms.mdx/docs/tx/root-register/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2062,7 +2139,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 811,
         "end_line": 813,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L809-L813"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L809-L813",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2113,6 +2191,7 @@
     },
     "cli": "btcli tx serve-axon --netuid <int> --ip <value> --port <int>",
     "python_class": "ServeAxon",
+    "markdown_url": "/llms.mdx/docs/tx/serve-axon/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2120,7 +2199,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 642,
         "end_line": 665,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L640-L665"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L640-L665",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2176,6 +2256,7 @@
     },
     "cli": "btcli tx serve-axon-tls --netuid <int> --ip <value> --port <int> --certificate <value>",
     "python_class": "ServeAxonTls",
+    "markdown_url": "/llms.mdx/docs/tx/serve-axon-tls/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2183,7 +2264,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 708,
         "end_line": 732,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L706-L732"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L706-L732",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2230,6 +2312,7 @@
     },
     "cli": "btcli tx serve-prometheus --netuid <int> --ip <value> --port <int>",
     "python_class": "ServePrometheus",
+    "markdown_url": "/llms.mdx/docs/tx/serve-prometheus/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2237,7 +2320,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 750,
         "end_line": 759,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L748-L759"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L748-L759",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2274,6 +2358,7 @@
     },
     "cli": "btcli tx set-auto-stake --netuid <int>",
     "python_class": "SetAutoStake",
+    "markdown_url": "/llms.mdx/docs/tx/set-auto-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2281,7 +2366,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1786,
         "end_line": 1826,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1784-L1826"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1784-L1826",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2327,6 +2413,7 @@
     },
     "cli": "btcli tx set-childkey-take --netuid <int> --take <value>",
     "python_class": "SetChildkeyTake",
+    "markdown_url": "/llms.mdx/docs/tx/set-childkey-take/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2334,7 +2421,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 927,
         "end_line": 937,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L925-L937"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L925-L937",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2376,6 +2464,7 @@
     },
     "cli": "btcli tx set-children --netuid <int> --children <a,b,c>",
     "python_class": "SetChildren",
+    "markdown_url": "/llms.mdx/docs/tx/set-children/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2383,7 +2472,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1079,
         "end_line": 1087,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2429,6 +2519,7 @@
     },
     "cli": "btcli tx set-crowdloan-max-contribution --crowdloan-id <int>",
     "python_class": "SetCrowdloanMaxContribution",
+    "markdown_url": "/llms.mdx/docs/tx/set-crowdloan-max-contribution/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -2436,7 +2527,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 935,
         "end_line": 967,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L933-L967"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L933-L967",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -2603,6 +2695,7 @@
     },
     "cli": "btcli tx set-hyperparameter --netuid <int> --name <value> --value <value>",
     "python_class": "SetHyperparameter",
+    "markdown_url": "/llms.mdx/docs/tx/set-hyperparameter/content.md",
     "sources": [
       {
         "pallet": "AdminUtils",
@@ -2610,7 +2703,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1032,
         "end_line": 1036,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1021-L1036"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1021-L1036",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2618,7 +2712,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 476,
         "end_line": 502,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L474-L502"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L474-L502",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2626,7 +2721,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 509,
         "end_line": 535,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L507-L535"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L507-L535",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2634,7 +2730,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 361,
         "end_line": 389,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L359-L389"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L359-L389",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2642,7 +2739,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 681,
         "end_line": 695,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L679-L695"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L679-L695",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2650,7 +2748,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 763,
         "end_line": 795,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L761-L795"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L761-L795",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2658,7 +2757,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 802,
         "end_line": 834,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L800-L834"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L800-L834",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2666,7 +2766,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 894,
         "end_line": 926,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L892-L926"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L892-L926",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2674,7 +2775,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 933,
         "end_line": 957,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L931-L957"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L931-L957",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2682,7 +2784,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 278,
         "end_line": 297,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L276-L297"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L276-L297",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2690,7 +2793,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1376,
         "end_line": 1403,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1374-L1403"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1374-L1403",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2698,7 +2802,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 542,
         "end_line": 585,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L540-L585"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L540-L585",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2706,7 +2811,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2151,
         "end_line": 2189,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2149-L2189"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2149-L2189",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2714,7 +2820,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2109,
         "end_line": 2145,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2107-L2145"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2107-L2145",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2722,7 +2829,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2275,
         "end_line": 2308,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2273-L2308"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2273-L2308",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2730,7 +2838,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2317,
         "end_line": 2356,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2315-L2356"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2315-L2356",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2738,7 +2847,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 445,
         "end_line": 469,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L443-L469"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L443-L469",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2746,7 +2856,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 608,
         "end_line": 628,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L606-L628"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L606-L628",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2754,7 +2865,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 328,
         "end_line": 354,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L326-L354"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L326-L354",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2762,7 +2874,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1627,
         "end_line": 1659,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1625-L1659"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1625-L1659",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2770,7 +2883,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1200,
         "end_line": 1232,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1198-L1232"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1198-L1232",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2778,7 +2892,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1813,
         "end_line": 1831,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1811-L1831"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1811-L1831",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2786,7 +2901,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1301,
         "end_line": 1324,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1299-L1324"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1299-L1324",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2794,7 +2910,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1239,
         "end_line": 1264,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1237-L1264"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1237-L1264",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2802,7 +2919,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1277,
         "end_line": 1296,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1275-L1296"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1275-L1296",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2810,7 +2928,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 723,
         "end_line": 729,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L721-L729"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L721-L729",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2818,7 +2937,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1672,
         "end_line": 1693,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1670-L1693"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1670-L1693",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2826,7 +2946,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1706,
         "end_line": 1727,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1704-L1727"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1704-L1727",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2834,7 +2955,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1465,
         "end_line": 1485,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1463-L1485"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1463-L1485",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2842,7 +2964,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2195,
         "end_line": 2213,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2193-L2213"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2193-L2213",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
@@ -2850,7 +2973,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2219,
         "end_line": 2237,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2217-L2237"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2217-L2237",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
   },
@@ -2907,6 +3031,7 @@
     },
     "cli": "btcli tx set-identity --name <value>",
     "python_class": "SetIdentity",
+    "markdown_url": "/llms.mdx/docs/tx/set-identity/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -2914,7 +3039,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1120,
         "end_line": 1140,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1118-L1140"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1118-L1140",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -2952,6 +3078,7 @@
     },
     "cli": "btcli tx set-mechanism-count --netuid <int> --mechanism-count <int>",
     "python_class": "SetMechanismCount",
+    "markdown_url": "/llms.mdx/docs/tx/set-mechanism-count/content.md",
     "sources": [
       {
         "pallet": "AdminUtils",
@@ -2959,7 +3086,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1873,
         "end_line": 1893,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1871-L1893"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1871-L1893",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
   },
@@ -3010,6 +3138,7 @@
     },
     "cli": "btcli tx set-min-collateral --netuid <int> --min-alpha <amount|all>",
     "python_class": "SetMinCollateral",
+    "markdown_url": "/llms.mdx/docs/tx/set-min-collateral/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3017,7 +3146,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2473,
         "end_line": 2480,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2471-L2480"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2471-L2480",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3055,6 +3185,7 @@
     },
     "cli": "btcli tx set-perpetual-lock --netuid <int> --enabled/--no-enabled",
     "python_class": "SetPerpetualLock",
+    "markdown_url": "/llms.mdx/docs/tx/set-perpetual-lock/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3062,7 +3193,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2298,
         "end_line": 2305,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2296-L2305"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2296-L2305",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3097,6 +3229,7 @@
     },
     "cli": "btcli tx set-root-claim-type",
     "python_class": "SetRootClaimType",
+    "markdown_url": "/llms.mdx/docs/tx/set-root-claim-type/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3104,7 +3237,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1918,
         "end_line": 1932,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1916-L1932"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1916-L1932",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3149,6 +3283,7 @@
     },
     "cli": "btcli tx set-subnet-emission-enabled --netuids <a,b,c> --enabled/--no-enabled",
     "python_class": "SetSubnetEmissionEnabled",
+    "markdown_url": "/llms.mdx/docs/tx/set-subnet-emission-enabled/content.md",
     "sources": [
       {
         "pallet": "AdminUtils",
@@ -3156,7 +3291,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2247,
         "end_line": 2265,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2245-L2265"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2245-L2265",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
   },
@@ -3222,6 +3358,7 @@
     },
     "cli": "btcli tx set-subnet-identity --netuid <int> --subnet-name <value>",
     "python_class": "SetSubnetIdentity",
+    "markdown_url": "/llms.mdx/docs/tx/set-subnet-identity/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3229,7 +3366,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1155,
         "end_line": 1179,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1153-L1179"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1153-L1179",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3274,6 +3412,7 @@
     },
     "cli": "btcli tx set-take --take <value>",
     "python_class": "SetTake",
+    "markdown_url": "/llms.mdx/docs/tx/set-take/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3281,7 +3420,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 525,
         "end_line": 531,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L523-L531"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L523-L531",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
@@ -3289,7 +3429,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 492,
         "end_line": 498,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3348,6 +3489,7 @@
     },
     "cli": "btcli tx set-weights --netuid <int>",
     "python_class": "SetWeights",
+    "markdown_url": "/llms.mdx/docs/tx/set-weights/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3355,7 +3497,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 130,
         "end_line": 143,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L128-L143"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L128-L143",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
@@ -3363,7 +3506,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1852,
         "end_line": 1868,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1850-L1868"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1850-L1868",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3419,6 +3563,7 @@
     },
     "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount|all> --limit-price <int>",
     "python_class": "StakeBurn",
+    "markdown_url": "/llms.mdx/docs/tx/stake-burn/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3426,7 +3571,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2170,
         "end_line": 2178,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2168-L2178"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2168-L2178",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3459,6 +3605,7 @@
     },
     "cli": "btcli tx start-call --netuid <int>",
     "python_class": "StartCall",
+    "markdown_url": "/llms.mdx/docs/tx/start-call/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3466,7 +3613,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1539,
         "end_line": 1542,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1537-L1542"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1537-L1542",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3499,6 +3647,7 @@
     },
     "cli": "btcli tx swap-coldkey-announced --new-coldkey <ss58|name>",
     "python_class": "SwapColdkeyAnnounced",
+    "markdown_url": "/llms.mdx/docs/tx/swap-coldkey-announced/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3506,7 +3655,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2025,
         "end_line": 2045,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2023-L2045"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2023-L2045",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3547,6 +3697,7 @@
     },
     "cli": "btcli tx swap-hotkey --new-hotkey <ss58|name>",
     "python_class": "SwapHotkey",
+    "markdown_url": "/llms.mdx/docs/tx/swap-hotkey/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3554,7 +3705,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 842,
         "end_line": 849,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L836-L849"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L836-L849",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3623,6 +3775,7 @@
     },
     "cli": "btcli tx swap-stake --hotkey <ss58|name> --origin-netuid <int> --dest-netuid <int> --amount-alpha <amount|all>",
     "python_class": "SwapStake",
+    "markdown_url": "/llms.mdx/docs/tx/swap-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3630,7 +3783,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1343,
         "end_line": 1357,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1341-L1357"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1341-L1357",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
@@ -3638,7 +3792,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1491,
         "end_line": 1509,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1489-L1509"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1489-L1509",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3675,6 +3830,7 @@
     },
     "cli": "btcli tx terminate-lease --lease-id <int>",
     "python_class": "TerminateLease",
+    "markdown_url": "/llms.mdx/docs/tx/terminate-lease/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3682,7 +3838,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1696,
         "end_line": 1702,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1694-L1702"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1694-L1702",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3746,7 +3903,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx transfer --dest <ss58|name> --amount-tao <amount|all>",
-    "python_class": "Transfer"
+    "python_class": "Transfer",
+    "markdown_url": "/llms.mdx/docs/tx/transfer/content.md"
   },
   {
     "name": "transfer_all",
@@ -3780,7 +3938,8 @@
       "additionalProperties": false
     },
     "cli": "btcli tx transfer-all --dest <ss58|name>",
-    "python_class": "TransferAll"
+    "python_class": "TransferAll",
+    "markdown_url": "/llms.mdx/docs/tx/transfer-all/content.md"
   },
   {
     "name": "transfer_stake",
@@ -3848,6 +4007,7 @@
     },
     "cli": "btcli tx transfer-stake --dest-coldkey <ss58|name> --hotkey <ss58|name> --origin-netuid <int> --dest-netuid <int> --amount-alpha <amount|all>",
     "python_class": "TransferStake",
+    "markdown_url": "/llms.mdx/docs/tx/transfer-stake/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3855,7 +4015,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1301,
         "end_line": 1317,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1299-L1317"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1299-L1317",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
@@ -3863,7 +4024,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 2385,
         "end_line": 2403,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2383-L2403"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2383-L2403",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3901,6 +4063,7 @@
     },
     "cli": "btcli tx trim-subnet --netuid <int> --max-n <int>",
     "python_class": "TrimSubnet",
+    "markdown_url": "/llms.mdx/docs/tx/trim-subnet/content.md",
     "sources": [
       {
         "pallet": "AdminUtils",
@@ -3908,7 +4071,8 @@
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 1927,
         "end_line": 1947,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1925-L1947"
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1925-L1947",
+        "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
   },
@@ -3941,6 +4105,7 @@
     },
     "cli": "btcli tx unstake-all --hotkey <ss58|name>",
     "python_class": "UnstakeAll",
+    "markdown_url": "/llms.mdx/docs/tx/unstake-all/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3948,7 +4113,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1212,
         "end_line": 1214,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1210-L1214"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1210-L1214",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -3981,6 +4147,7 @@
     },
     "cli": "btcli tx unstake-all-alpha --hotkey <ss58|name>",
     "python_class": "UnstakeAllAlpha",
+    "markdown_url": "/llms.mdx/docs/tx/unstake-all-alpha/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -3988,7 +4155,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1236,
         "end_line": 1238,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1234-L1238"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1234-L1238",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -4035,6 +4203,7 @@
     },
     "cli": "btcli tx update-crowdloan-cap --crowdloan-id <int> --new-cap-tao <amount|all>",
     "python_class": "UpdateCrowdloanCap",
+    "markdown_url": "/llms.mdx/docs/tx/update-crowdloan-cap/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -4042,7 +4211,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 898,
         "end_line": 923,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L896-L923"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L896-L923",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -4080,6 +4250,7 @@
     },
     "cli": "btcli tx update-crowdloan-end --crowdloan-id <int> --new-end <int>",
     "python_class": "UpdateCrowdloanEnd",
+    "markdown_url": "/llms.mdx/docs/tx/update-crowdloan-end/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -4087,7 +4258,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 863,
         "end_line": 887,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L861-L887"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L861-L887",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -4134,6 +4306,7 @@
     },
     "cli": "btcli tx update-crowdloan-min-contribution --crowdloan-id <int> --new-min-contribution-tao <amount|all>",
     "python_class": "UpdateCrowdloanMinContribution",
+    "markdown_url": "/llms.mdx/docs/tx/update-crowdloan-min-contribution/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -4141,7 +4314,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 819,
         "end_line": 852,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L817-L852"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L817-L852",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   },
@@ -4179,6 +4353,7 @@
     },
     "cli": "btcli tx update-symbol --netuid <int> --symbol <value>",
     "python_class": "UpdateSymbol",
+    "markdown_url": "/llms.mdx/docs/tx/update-symbol/content.md",
     "sources": [
       {
         "pallet": "SubtensorModule",
@@ -4186,7 +4361,8 @@
         "path": "pallets/subtensor/src/macros/dispatches.rs",
         "line": 1721,
         "end_line": 1736,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1719-L1736"
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1719-L1736",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
   },
@@ -4219,6 +4395,7 @@
     },
     "cli": "btcli tx withdraw-crowdloan --crowdloan-id <int>",
     "python_class": "WithdrawCrowdloan",
+    "markdown_url": "/llms.mdx/docs/tx/withdraw-crowdloan/content.md",
     "sources": [
       {
         "pallet": "Crowdloan",
@@ -4226,7 +4403,8 @@
         "path": "pallets/crowdloan/src/lib.rs",
         "line": 548,
         "end_line": 592,
-        "url": "/code/pallets/crowdloan/src/lib.rs#L546-L592"
+        "url": "/code/pallets/crowdloan/src/lib.rs#L546-L592",
+        "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
       }
     ]
   }
