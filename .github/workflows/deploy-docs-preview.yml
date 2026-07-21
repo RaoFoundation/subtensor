@@ -4,17 +4,15 @@ name: Deploy Docs Preview
 #   https://pr-<n>.preview.bittensor.com
 # plus a sticky PR comment with the URL.
 #
-# Credential boundary (skeptic HIGH a2b93918):
+# Credential boundary (skeptic HIGH a2b93918 / follow-up):
 #   - `vercel build` runs on PR HEAD with project settings from the trusted
 #     base ref and never receives VERCEL_TOKEN (or GoDaddy secrets).
-#   - VERCEL_TOKEN is injected only into the subsequent deploy step. That step
-#     reinstalls the CLI into $RUNNER_TEMP so it does not invoke a
-#     workspace-poisoned `npx`/`vercel` from the build.
-#   - GoDaddy / domain aliasing stays in a separate job that never checks out
-#     PR HEAD.
-#   - Prebuilt deploy must run where `website/node_modules` still exists:
-#     Next NFT traces point there, so a no-checkout artifact-only deploy job
-#     cannot succeed.
+#   - Deploy runs in a separate job on a fresh runner with only a sealed
+#     tarball (no PR checkout). That closes the same-runner
+#     build-script → steal-next-step-secret path.
+#   - The sealed tarball includes `.vercel/output` plus `website/node_modules`
+#     so Next NFT traces can resolve during `vercel deploy --prebuilt`.
+#   - GoDaddy / domain aliasing stays in a job that never checks out PR HEAD.
 
 on:
   pull_request:
@@ -77,18 +75,14 @@ jobs:
           path: .vercel/project.json
           retention-days: 1
 
-  build-and-deploy:
-    name: Build and deploy PR docs preview
+  build:
+    name: Build PR docs preview
     needs: pull-settings
     runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
       group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    # No job-level VERCEL_TOKEN — only the deploy step receives it.
-    outputs:
-      alias: ${{ steps.deploy.outputs.alias }}
-      url: ${{ steps.deploy.outputs.url }}
-      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    # No VERCEL_TOKEN in this job — PR HEAD executes here.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,30 +111,78 @@ jobs:
           # Local assemble only — do not pass --token.
           npx --yes vercel@56.4.1 build
           test -f .vercel/output/functions/_global-error.func/.vc-config.json
+          test -d website/node_modules
+
+      - name: Seal prebuilt output for deploy job
+        run: |
+          set -euo pipefail
+          # Include website/node_modules: Next NFT traces resolve there during
+          # `vercel deploy --prebuilt`. Single tarball keeps upload-artifact
+          # from dropping symlinks/dotfiles inside `.vercel/output`.
+          tar -czf docs-preview-sealed.tgz .vercel/output website/node_modules
+
+      - name: Upload sealed prebuilt output
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-vercel-${{ github.event.pull_request.number }}
+          path: docs-preview-sealed.tgz
+          retention-days: 1
+
+  deploy:
+    name: Deploy preview to Vercel
+    needs: build
+    runs-on: [self-hosted, fireactions-turbo-8]
+    concurrency:
+      group: deploy-docs-preview-deploy-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    outputs:
+      alias: ${{ steps.deploy.outputs.alias }}
+      url: ${{ steps.deploy.outputs.url }}
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # Sealed artifact only — no actions/checkout of PR HEAD, no yarn, no
+      # vercel build. Fresh runner, so nothing from the build job can see
+      # VERCEL_TOKEN.
+      - name: Download sealed prebuilt output
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-preview-vercel-${{ github.event.pull_request.number }}
+          path: .
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Deploy prebuilt
         id: deploy
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-          DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           alias="pr-${PR_NUMBER}.preview.${DOCS_DOMAIN}"
           echo "alias=$alias" >> "$GITHUB_OUTPUT"
           echo "url=https://${alias}" >> "$GITHUB_OUTPUT"
 
-          # Fresh CLI prefix: do not trust workspace node_modules/.bin after
-          # the PR-controlled build step.
-          prefix="$RUNNER_TEMP/vercel-cli-prefix"
-          mkdir -p "$prefix"
-          npm install --prefix "$prefix" --no-save --no-package-lock vercel@56.4.1
-          vercel_bin="$prefix/node_modules/.bin/vercel"
-          test -x "$vercel_bin"
+          tar -xzf docs-preview-sealed.tgz
+          test -f .vercel/output/functions/_global-error.func/.vc-config.json
+          test -d website/node_modules
+          # Remote project rootDirectory; content comes from the sealed tree.
+          mkdir -p website/apps/bittensor-website
+          node -e '
+            const fs = require("fs");
+            fs.mkdirSync(".vercel", { recursive: true });
+            fs.writeFileSync(".vercel/project.json", JSON.stringify({
+              projectId: process.env.VERCEL_PROJECT_ID,
+              orgId: process.env.VERCEL_ORG_ID,
+            }));
+          '
 
-          url=$("$vercel_bin" deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+          url=$(npx --yes vercel@56.4.1 deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
           echo "Deployed: $url"
 
           dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
@@ -150,7 +192,7 @@ jobs:
 
   publish:
     name: Alias preview and comment
-    needs: build-and-deploy
+    needs: deploy
     runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
       group: docs-preview-domain-dns
@@ -163,9 +205,9 @@ jobs:
       GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      ALIAS: ${{ needs.build-and-deploy.outputs.alias }}
-      DEPLOYMENT_ID: ${{ needs.build-and-deploy.outputs.deployment_id }}
-      PREVIEW_URL: ${{ needs.build-and-deploy.outputs.url }}
+      ALIAS: ${{ needs.deploy.outputs.alias }}
+      DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
+      PREVIEW_URL: ${{ needs.deploy.outputs.url }}
     steps:
       - name: Register domain, alias deployment
         run: |
