@@ -31,10 +31,7 @@ fn mark_collateral(netuid: NetUid, hotkey: &U256, coldkey: &U256, locked: AlphaB
 
 fn drain_coldkey_to_ed(coldkey: &U256) {
     let current = Balances::free_balance(*coldkey);
-    remove_balance_from_coldkey_account(
-        coldkey,
-        current.saturating_sub(ExistentialDeposit::get()),
-    );
+    remove_balance_from_coldkey_account(coldkey, current.saturating_sub(ExistentialDeposit::get()));
 }
 
 // cargo test --package subtensor-transaction-fee --lib -- tests::test_remove_stake_fees_tao --exact --show-output
