@@ -109,15 +109,32 @@ jobs:
           mkdir -p "$DEPLOY_ROOT"
           ARCHIVE="$(pwd)/artifact/docs-preview-sealed.tgz"
           # Heredoc body must be unindented — leading spaces would SyntaxError.
-          python3 - "$ARCHIVE" "$DEPLOY_ROOT" <<'PY'
+          # Quotas bound a hostile PR archive before it can fill the runner disk.
+          MAX_ARCHIVE_BYTES=$((2 * 1024 * 1024 * 1024))   # 2 GiB compressed
+          MAX_MEMBERS=400000
+          MAX_TOTAL_UNCOMPRESSED=$((4 * 1024 * 1024 * 1024))  # 4 GiB
+          MAX_FILE_BYTES=$((512 * 1024 * 1024))  # 512 MiB per member
+          archive_bytes=$(wc -c < "$ARCHIVE")
+          if [ "$archive_bytes" -gt "$MAX_ARCHIVE_BYTES" ]; then
+            echo "archive too large: ${archive_bytes} bytes" >&2
+            exit 1
+          fi
+          python3 - "$ARCHIVE" "$DEPLOY_ROOT" "$MAX_MEMBERS" "$MAX_TOTAL_UNCOMPRESSED" "$MAX_FILE_BYTES" <<'PY'
 import os, sys, tarfile
 
 archive, dest = sys.argv[1], sys.argv[2]
+max_members = int(sys.argv[3])
+max_total = int(sys.argv[4])
+max_file = int(sys.argv[5])
 dest = os.path.realpath(dest)
 allowed_prefixes = (".vercel/", "website/node_modules/")
 
 with tarfile.open(archive, "r:gz") as tf:
-    for member in tf.getmembers():
+    members = tf.getmembers()
+    if len(members) > max_members:
+        raise SystemExit(f"too many members: {len(members)} > {max_members}")
+    total = 0
+    for member in members:
         name = member.name.lstrip("./")
         if name.startswith("/") or name.startswith("\\") or ".." in name.split("/"):
             raise SystemExit(f"refusing unsafe path: {member.name!r}")
@@ -127,6 +144,12 @@ with tarfile.open(archive, "r:gz") as tf:
             raise SystemExit(f"refusing link member: {member.name!r}")
         if not (member.isfile() or member.isdir()):
             raise SystemExit(f"refusing non-file member: {member.name!r}")
+        size = member.size or 0
+        if size > max_file:
+            raise SystemExit(f"member too large: {member.name!r} ({size} bytes)")
+        total += size
+        if total > max_total:
+            raise SystemExit(f"uncompressed total too large: {total} > {max_total}")
         target = os.path.realpath(os.path.join(dest, name))
         if target != dest and not target.startswith(dest + os.sep):
             raise SystemExit(f"refusing path escape: {member.name!r}")
