@@ -26,16 +26,39 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Always-on probe so a bad `if` on build cannot hide the event context.
+  gate:
+    name: Preview gate
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    outputs:
+      allow: ${{ steps.check.outputs.allow }}
+    steps:
+      - id: check
+        env:
+          ACTION: ${{ github.event.action }}
+          FORK: ${{ github.event.pull_request.head.repo.fork }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          ASSOC: ${{ github.event.pull_request.author_association }}
+        run: |
+          echo "action=$ACTION fork=$FORK head=$HEAD_REPO repo=$REPO assoc=$ASSOC"
+          allow=false
+          if [ "$ACTION" != closed ] \
+            && [ "$FORK" != true ] \
+            && [ "$HEAD_REPO" = "$REPO" ] \
+            && { [ "$ASSOC" = MEMBER ] || [ "$ASSOC" = OWNER ] || [ "$ASSOC" = COLLABORATOR ]; }; then
+            allow=true
+          fi
+          echo "allow=$allow" >> "$GITHUB_OUTPUT"
+          if [ "$allow" != true ]; then
+            echo "Preview gated off for this PR context." >&2
+          fi
+
   build:
     name: Build PR docs preview
-    # Prefer !fork and contains(...): `== false` is unreliable in GHA expressions
-    # and has been observed to skip same-repo member PRs.
-    if: >
-      github.event.action != 'closed' &&
-      !github.event.pull_request.head.repo.fork &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'),
-               github.event.pull_request.author_association)
+    needs: gate
+    if: needs.gate.outputs.allow == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
       group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
@@ -82,7 +105,8 @@ jobs:
 
   publish:
     name: Alias preview and comment
-    needs: build
+    needs: [gate, build]
+    if: needs.gate.outputs.allow == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     # Serialize domain registration: GoDaddy PUT replaces all _vercel TXT
     # records, so concurrent PRs must not interleave read-modify-write.
