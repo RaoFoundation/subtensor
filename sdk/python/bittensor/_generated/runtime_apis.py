@@ -30,10 +30,6 @@ class BabeApi:
     generate_key_ownership_proof = Method('BabeApi', 'generate_key_ownership_proof')
     submit_report_equivocation_unsigned_extrinsic = Method('BabeApi', 'submit_report_equivocation_unsigned_extrinsic')
 
-class Benchmark:
-    benchmark_metadata = Method('Benchmark', 'benchmark_metadata')
-    dispatch_benchmark = Method('Benchmark', 'dispatch_benchmark')
-
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')
     finalize_block = Method('BlockBuilder', 'finalize_block')
