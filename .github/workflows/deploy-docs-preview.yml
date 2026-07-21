@@ -28,12 +28,14 @@ permissions:
 jobs:
   build:
     name: Build PR docs preview
+    # Prefer !fork and contains(...): `== false` is unreliable in GHA expressions
+    # and has been observed to skip same-repo member PRs.
     if: >
       github.event.action != 'closed' &&
-      github.event.pull_request.head.repo.fork == false &&
-      (github.event.pull_request.author_association == 'MEMBER' ||
-       github.event.pull_request.author_association == 'OWNER' ||
-       github.event.pull_request.author_association == 'COLLABORATOR')
+      !github.event.pull_request.head.repo.fork &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'),
+               github.event.pull_request.author_association)
     runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
       group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
@@ -201,7 +203,8 @@ jobs:
     name: Remove PR docs preview domain
     if: >
       github.event.action == 'closed' &&
-      github.event.pull_request.head.repo.fork == false
+      !github.event.pull_request.head.repo.fork &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, fireactions-turbo-8]
     concurrency:
       group: docs-preview-domain-dns
