@@ -6,10 +6,13 @@ name: Deploy Docs Preview
 #
 # Credential boundary (skeptic HIGH a2b93918):
 #   - The job that checks out PR HEAD never receives VERCEL_TOKEN or GoDaddy
-#     secrets. It builds with yarn and runs `vercel build` using project
-#     settings pulled from the trusted base ref in a separate job.
+#     secrets. It runs `vercel build` using project settings pulled from the
+#     trusted base ref in a separate job.
 #   - The deploy token is used only in jobs that do not check out PR HEAD
 #     (base-only pull-settings, or artifact-only deploy/publish).
+#   - Prebuilt output is transferred as a tarball so function symlinks and
+#     dotfiles survive actions/upload-artifact (bare directory upload drops
+#     them and breaks `vercel deploy --prebuilt`).
 
 on:
   pull_request:
@@ -93,12 +96,6 @@ jobs:
       - name: Enable corepack (yarn 4)
         run: corepack enable
 
-      - name: Install and build site
-        working-directory: website
-        run: |
-          yarn install --immutable
-          yarn turbo run build --filter=@raofoundation/bittensor-website
-
       - name: Download project settings
         uses: actions/download-artifact@v4
         with:
@@ -109,14 +106,24 @@ jobs:
         run: |
           set -euo pipefail
           test -f .vercel/project.json
+          # Same as deploy-docs.yml: let `vercel build` install + compile.
+          # Do not pre-run turbo — a leftover `.next` confuses the assembler.
           # Local assemble only — do not pass --token.
           npx --yes vercel@56.4.1 build
+          test -f .vercel/output/functions/_global-error.func/.vc-config.json
+
+      - name: Pack prebuilt output
+        run: |
+          set -euo pipefail
+          # Tar preserves symlinks/dotfiles that upload-artifact drops when
+          # given a bare directory tree.
+          tar -czf docs-preview-vercel.tgz -C .vercel output
 
       - name: Upload prebuilt output
         uses: actions/upload-artifact@v4
         with:
           name: docs-preview-vercel-${{ github.event.pull_request.number }}
-          path: .vercel/output
+          path: docs-preview-vercel.tgz
           retention-days: 1
 
   deploy:
@@ -142,7 +149,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: docs-preview-vercel-${{ github.event.pull_request.number }}
-          path: .vercel/output
+          path: .
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -162,6 +169,8 @@ jobs:
           # --prebuilt` only needs that path to exist — content comes from
           # .vercel/output.
           mkdir -p website/apps/bittensor-website .vercel
+          tar -xzf docs-preview-vercel.tgz -C .vercel
+          test -f .vercel/output/functions/_global-error.func/.vc-config.json
           node -e '
             const fs = require("fs");
             fs.writeFileSync(".vercel/project.json", JSON.stringify({
