@@ -122,6 +122,7 @@ function assertMetadataAvailable() {
 
 async function findEmissionSubnet() {
   const initializedEntries = await api.query.swap.palSwapInitialized.entries();
+  const candidates = [];
   for (const [key, initialized] of initializedEntries) {
     if (!initialized.isTrue) continue;
 
@@ -130,19 +131,31 @@ async function findEmissionSubnet() {
     if ((await api.query.subtensorModule.networksAdded(netuid)).isFalse) continue;
     if ((await api.query.subtensorModule.subnetEmissionEnabled(netuid)).isFalse) continue;
 
-    const [tao, alpha] = await Promise.all([
+    const [tao, alpha, taoInEmission] = await Promise.all([
       api.query.subtensorModule.subnetTAO(netuid),
       api.query.subtensorModule.subnetAlphaIn(netuid),
+      api.query.subtensorModule.subnetTaoInEmission(netuid),
     ]);
     if (tao.toBigInt() > 0n && alpha.toBigInt() > 0n) {
-      return netuid;
+      candidates.push({ netuid, taoInEmission: taoInEmission.toBigInt() });
     }
+  }
+
+  // Prefer a subnet that already has a non-zero TAO-in emission sample so the
+  // edge scenario is not starved by MaxEpochsPerBlock deferral onto a dead slot.
+  candidates.sort((a, b) => Number(b.taoInEmission - a.taoInEmission) || a.netuid - b.netuid);
+  if (candidates.length > 0) {
+    return candidates[0].netuid;
   }
 
   throw new Error("no initialized emission-enabled subnet with non-zero TAO and alpha reserves found");
 }
 
 async function runEdgeWeightScenario(netuid, quoteWeight, label) {
+  const headerNow = await api.rpc.chain.getHeader();
+  const now = BigInt(headerNow.number.toNumber());
+  // Force this subnet into the next epoch window so MaxEpochsPerBlock cannot
+  // keep deferring it past the wait budget on a busy clone.
   const { blockHash } = await sudoSetStorage(
     [
       [api.query.swap.swapBalancer.key(netuid), balancerValueHex(quoteWeight)],
@@ -150,6 +163,9 @@ async function runEdgeWeightScenario(netuid, quoteWeight, label) {
       [api.query.subtensorModule.subnetAlphaIn.key(netuid), storageValueHex("u64", EDGE_ALPHA_RESERVE)],
       [api.query.swap.balancerTaoReservoir.key(netuid), storageValueHex("u64", 0n)],
       [api.query.swap.balancerAlphaReservoir.key(netuid), storageValueHex("u64", 0n)],
+      [api.query.subtensorModule.pendingEpochAt.key(netuid), storageValueHex("u64", now + 1n)],
+      [api.query.subtensorModule.lastEpochBlock.key(netuid), storageValueHex("u64", 0n)],
+      [api.query.subtensorModule.blocksSinceLastStep.key(netuid), storageValueHex("u64", 50_401n)],
     ],
     `sudo force balancer ${label} on netuid ${netuid}`
   );
