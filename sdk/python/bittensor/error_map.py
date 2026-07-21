@@ -497,8 +497,7 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     ),
     "NotExpendable": (
         _C.INSUFFICIENT_BALANCE,
-        "The withdrawal would drop the account below the existential deposit and "
-        "reap it.",
+        "The withdrawal would drop the account below the existential deposit and reap it.",
     ),
     "Blocked": (
         _C.NOT_AUTHORIZED,

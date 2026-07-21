@@ -2729,8 +2729,8 @@
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
         "line": 2317,
-        "end_line": 2353,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2315-L2353"
+        "end_line": 2356,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2315-L2356"
       },
       {
         "pallet": "AdminUtils",
