@@ -84,7 +84,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.meta.outputs.action == 'deploy'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
 
@@ -96,12 +96,25 @@ jobs:
           ALIAS: ${{ steps.meta.outputs.alias }}
         run: |
           set -euo pipefail
-          cd artifact
-          tar -xzf docs-preview-sealed.tgz
+          # Install the CLI into a clean prefix and invoke it by absolute path.
+          # Never `npx` / resolve binaries from the PR-built website/node_modules
+          # tree (that would let a malicious bin stub see deploy secrets).
+          CLEAN_CLI="${RUNNER_TEMP}/vercel-cli"
+          mkdir -p "$CLEAN_CLI"
+          npm install --prefix "$CLEAN_CLI" --no-save --no-package-lock vercel@56.4.1
+          VERCEL_BIN="$CLEAN_CLI/node_modules/.bin/vercel"
+          test -x "$VERCEL_BIN"
+          # Keep PATH free of the artifact tree for the rest of this step.
+          export PATH="${CLEAN_CLI}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin"
+
+          DEPLOY_ROOT="${RUNNER_TEMP}/docs-preview-deploy"
+          rm -rf "$DEPLOY_ROOT"
+          mkdir -p "$DEPLOY_ROOT"
+          tar -xzf artifact/docs-preview-sealed.tgz -C "$DEPLOY_ROOT"
+          cd "$DEPLOY_ROOT"
           test -f .vercel/output/functions/_global-error.func/.vc-config.json
           test -d website/node_modules
-          mkdir -p website/apps/bittensor-website
-          mkdir -p .vercel
+          mkdir -p website/apps/bittensor-website .vercel
           node -e '
             const fs = require("fs");
             fs.writeFileSync(".vercel/project.json", JSON.stringify({
@@ -110,12 +123,12 @@ jobs:
             }));
           '
 
-          url=$(npx --yes vercel@56.4.1 deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+          url=$("$VERCEL_BIN" deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
           echo "Deployed: $url"
 
           dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v13/deployments/${url#https://}?teamId=$VERCEL_ORG_ID" \
-            | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).id')
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).id))')
           echo "deployment_id=$dep_id" >> "$GITHUB_OUTPUT"
 
       - name: Register domain, alias deployment
