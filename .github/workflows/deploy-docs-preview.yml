@@ -60,7 +60,7 @@ jobs:
               orgId: process.env.VERCEL_ORG_ID,
             }));
           '
-          npx --yes vercel@41.0.0 pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          npx --yes vercel@56.4.1 pull --yes --environment=preview --token "$VERCEL_TOKEN"
           # Preview env files are not needed for `vercel build` assembly and
           # must not leak into the untrusted build job.
           rm -f .vercel/.env.preview.local .vercel/.env.*.local
@@ -110,7 +110,7 @@ jobs:
           set -euo pipefail
           test -f .vercel/project.json
           # Local assemble only — do not pass --token.
-          npx --yes vercel@41.0.0 build
+          npx --yes vercel@56.4.1 build
 
       - name: Upload prebuilt output
         uses: actions/upload-artifact@v4
@@ -166,7 +166,7 @@ jobs:
             }));
           '
 
-          url=$(npx --yes vercel@41.0.0 deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+          url=$(npx --yes vercel@56.4.1 deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
           echo "Deployed: $url"
 
           dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
