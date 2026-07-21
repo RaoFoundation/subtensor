@@ -28,20 +28,18 @@ jobs:
     concurrency:
       group: docs-preview-domain-dns
       cancel-in-progress: false
+    # No secrets at job scope — each step opts into only what it needs so
+    # `npm install` / artifact extract never see Vercel/GoDaddy/GH credentials.
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-      GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
-      GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Resolve PR number and download artifact
         id: meta
         env:
           # Pass event fields via env (never interpolate into the script body)
           # so a crafted PR branch/title cannot break out of a shell quote.
+          # GH_TOKEN here is only for `gh run download` of our own artifact.
+          GH_TOKEN: ${{ github.token }}
           WORKFLOW_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
           WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
@@ -88,30 +86,27 @@ jobs:
         with:
           node-version: 20
 
-      - name: Deploy prebuilt
+      - name: Install vercel CLI (no secrets)
         if: steps.meta.outputs.action == 'deploy'
-        id: deploy
-        env:
-          PR_NUMBER: ${{ steps.meta.outputs.pr }}
-          ALIAS: ${{ steps.meta.outputs.alias }}
+        id: vercel_cli
         run: |
           set -euo pipefail
-          # Install the CLI into a clean prefix and invoke it by absolute path.
-          # Never `npx` / resolve binaries from the PR-built website/node_modules
-          # tree (that would let a malicious bin stub see deploy secrets).
+          # Clean prefix + ignore-scripts: no deploy credentials in this step's
+          # environment, and no package lifecycle scripts from the registry.
           CLEAN_CLI="${RUNNER_TEMP}/vercel-cli"
           mkdir -p "$CLEAN_CLI"
-          npm install --prefix "$CLEAN_CLI" --no-save --no-package-lock vercel@56.4.1
-          VERCEL_BIN="$CLEAN_CLI/node_modules/.bin/vercel"
-          test -x "$VERCEL_BIN"
-          # Keep PATH free of the artifact tree for the rest of this step.
-          export PATH="${CLEAN_CLI}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin"
+          npm install --prefix "$CLEAN_CLI" --no-save --no-package-lock --ignore-scripts vercel@56.4.1
+          test -x "$CLEAN_CLI/node_modules/.bin/vercel"
+          echo "dir=$CLEAN_CLI" >> "$GITHUB_OUTPUT"
 
+      - name: Extract sealed archive (no secrets)
+        if: steps.meta.outputs.action == 'deploy'
+        id: extract
+        run: |
+          set -euo pipefail
           DEPLOY_ROOT="${RUNNER_TEMP}/docs-preview-deploy"
           rm -rf "$DEPLOY_ROOT"
           mkdir -p "$DEPLOY_ROOT"
-          # Safe extract: reject absolute paths, `..`, and any symlink/hardlink
-          # members so a hostile archive cannot redirect writes on the runner.
           ARCHIVE="$(pwd)/artifact/docs-preview-sealed.tgz"
           # Heredoc body must be unindented — leading spaces would SyntaxError.
           python3 - "$ARCHIVE" "$DEPLOY_ROOT" <<'PY'
@@ -135,15 +130,33 @@ with tarfile.open(archive, "r:gz") as tf:
         target = os.path.realpath(os.path.join(dest, name))
         if target != dest and not target.startswith(dest + os.sep):
             raise SystemExit(f"refusing path escape: {member.name!r}")
-    # filter="data" on 3.12+; our member checks above are the real gate.
     try:
         tf.extractall(dest, filter="data")
     except TypeError:
         tf.extractall(dest)
 PY
+          test -f "$DEPLOY_ROOT/.vercel/output/functions/_global-error.func/.vc-config.json"
+          test -d "$DEPLOY_ROOT/website/node_modules"
+          echo "root=$DEPLOY_ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy prebuilt
+        if: steps.meta.outputs.action == 'deploy'
+        id: deploy
+        env:
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          ALIAS: ${{ steps.meta.outputs.alias }}
+          CLEAN_CLI: ${{ steps.vercel_cli.outputs.dir }}
+          DEPLOY_ROOT: ${{ steps.extract.outputs.root }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          VERCEL_BIN="$CLEAN_CLI/node_modules/.bin/vercel"
+          test -x "$VERCEL_BIN"
+          # Keep PATH free of the artifact tree.
+          export PATH="${CLEAN_CLI}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin"
           cd "$DEPLOY_ROOT"
-          test -f .vercel/output/functions/_global-error.func/.vc-config.json
-          test -d website/node_modules
           mkdir -p website/apps/bittensor-website .vercel
           node -e '
             const fs = require("fs");
@@ -166,6 +179,11 @@ PY
         env:
           ALIAS: ${{ steps.meta.outputs.alias }}
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+          GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
         run: |
           set -euo pipefail
 
@@ -241,6 +259,7 @@ PY
         env:
           PR_NUMBER: ${{ steps.meta.outputs.pr }}
           PREVIEW_URL: ${{ steps.meta.outputs.url }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           marker="<!-- docs-preview-url -->"
           body=$(printf '%s\n' \
@@ -272,6 +291,9 @@ PY
         if: steps.meta.outputs.action == 'cleanup'
         env:
           ALIAS: ${{ steps.meta.outputs.alias }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
         run: |
           set -euo pipefail
           code=$(curl -sS -o /tmp/del.json -w "%{http_code}" -X DELETE \
