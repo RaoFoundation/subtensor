@@ -1,17 +1,16 @@
 name: Deploy Docs Preview
 
-# Non-fork PRs from org members / collaborators that touch docs/website get:
+# Non-fork PRs that touch docs/website get:
 #   https://pr-<n>.preview.bittensor.com
 # plus a sticky PR comment with the URL.
 #
-# Each PR subdomain is registered on the Vercel project and verified via a
-# GoDaddy TXT record on _vercel.bittensor.com (a true Vercel wildcard needs
-# NS delegation of the preview zone; per-PR domains keep apex DNS on GoDaddy).
-#
-# No TestPyPI publish here — every-PR uploads would pollute the index and
-# need a trusted-publisher entry. SDK pre-releases stay on the main
-# `publish-sdk-dev` channel; a label-gated PR publisher can be added later
-# if needed.
+# Credential boundary (skeptic HIGH a2b93918):
+#   - The job that checks out PR HEAD never receives VERCEL_TOKEN or GoDaddy
+#     secrets. It builds with yarn and assembles a local Vercel prebuilt
+#     output using only project/org identifiers (not the deploy token).
+#   - The deploy token is used only in jobs that do not check out PR HEAD and
+#     do not run yarn / vercel build — they upload an already-built
+#     `.vercel/output` with a pinned CLI.
 
 on:
   pull_request:
@@ -28,9 +27,6 @@ permissions:
 jobs:
   build:
     name: Build PR docs preview
-    # Same-repo only (fork PRs never get a bittensor.com subdomain). Do not
-    # gate on author_association: the pull_request event often reports
-    # CONTRIBUTOR even for org members (REST may say MEMBER).
     if: >
       github.event.action != 'closed' &&
       !github.event.pull_request.head.repo.fork &&
@@ -39,16 +35,11 @@ jobs:
     concurrency:
       group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    outputs:
-      alias: ${{ steps.deploy.outputs.alias }}
-      url: ${{ steps.deploy.outputs.url }}
-      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    # Identifiers only (repo vars, not the deploy token). The token never
+    # enters this job.
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,16 +53,85 @@ jobs:
       - name: Enable corepack (yarn 4)
         run: corepack enable
 
-      - name: Build and deploy to Vercel
+      - name: Install and build site
+        working-directory: website
+        run: |
+          yarn install --immutable
+          yarn turbo run build --filter=@raofoundation/bittensor-website
+
+      - name: Assemble Vercel prebuilt output (no deploy token)
+        working-directory: website/apps/bittensor-website
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          node -e '
+            const fs = require("fs");
+            const projectId = process.env.VERCEL_PROJECT_ID;
+            const orgId = process.env.VERCEL_ORG_ID;
+            if (!projectId || !orgId) {
+              console.error("VERCEL_PROJECT_ID / VERCEL_ORG_ID required");
+              process.exit(1);
+            }
+            fs.writeFileSync(".vercel/project.json", JSON.stringify({ projectId, orgId }));
+          '
+          # Local assemble only — do not pass --token.
+          npx --yes vercel@41.0.0 build
+
+      - name: Upload prebuilt output
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-vercel-${{ github.event.pull_request.number }}
+          path: website/apps/bittensor-website/.vercel/output
+          retention-days: 1
+
+  deploy:
+    name: Deploy preview to Vercel
+    needs: build
+    runs-on: [self-hosted, fireactions-turbo-8]
+    concurrency:
+      group: deploy-docs-preview-deploy-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    outputs:
+      alias: ${{ steps.deploy.outputs.alias }}
+      url: ${{ steps.deploy.outputs.url }}
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # Artifact only — no actions/checkout of PR HEAD, no yarn, no vercel build.
+      - name: Download prebuilt output
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-preview-vercel-${{ github.event.pull_request.number }}
+          path: .vercel/output
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy prebuilt
         id: deploy
         run: |
+          set -euo pipefail
           alias="pr-${PR_NUMBER}.preview.${DOCS_DOMAIN}"
           echo "alias=$alias" >> "$GITHUB_OUTPUT"
           echo "url=https://${alias}" >> "$GITHUB_OUTPUT"
 
-          npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
-          npx --yes vercel build --token "$VERCEL_TOKEN"
-          url=$(npx --yes vercel deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+          mkdir -p .vercel
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync(".vercel/project.json", JSON.stringify({
+              projectId: process.env.VERCEL_PROJECT_ID,
+              orgId: process.env.VERCEL_ORG_ID,
+            }));
+          '
+
+          url=$(npx --yes vercel@41.0.0 deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
           echo "Deployed: $url"
 
           dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
@@ -81,10 +141,8 @@ jobs:
 
   publish:
     name: Alias preview and comment
-    needs: build
+    needs: deploy
     runs-on: [self-hosted, fireactions-turbo-8]
-    # Serialize domain registration: GoDaddy PUT replaces all _vercel TXT
-    # records, so concurrent PRs must not interleave read-modify-write.
     concurrency:
       group: docs-preview-domain-dns
       cancel-in-progress: false
@@ -96,9 +154,9 @@ jobs:
       GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      ALIAS: ${{ needs.build.outputs.alias }}
-      DEPLOYMENT_ID: ${{ needs.build.outputs.deployment_id }}
-      PREVIEW_URL: ${{ needs.build.outputs.url }}
+      ALIAS: ${{ needs.deploy.outputs.alias }}
+      DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
+      PREVIEW_URL: ${{ needs.deploy.outputs.url }}
     steps:
       - name: Register domain, alias deployment
         run: |
