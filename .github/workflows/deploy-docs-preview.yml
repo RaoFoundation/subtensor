@@ -113,33 +113,34 @@ jobs:
           # Safe extract: reject absolute paths, `..`, and any symlink/hardlink
           # members so a hostile archive cannot redirect writes on the runner.
           ARCHIVE="$(pwd)/artifact/docs-preview-sealed.tgz"
+          # Heredoc body must be unindented — leading spaces would SyntaxError.
           python3 - "$ARCHIVE" "$DEPLOY_ROOT" <<'PY'
-          import os, sys, tarfile
+import os, sys, tarfile
 
-          archive, dest = sys.argv[1], sys.argv[2]
-          dest = os.path.realpath(dest)
-          allowed_prefixes = (".vercel/", "website/node_modules/")
+archive, dest = sys.argv[1], sys.argv[2]
+dest = os.path.realpath(dest)
+allowed_prefixes = (".vercel/", "website/node_modules/")
 
-          with tarfile.open(archive, "r:gz") as tf:
-              for member in tf.getmembers():
-                  name = member.name.lstrip("./")
-                  if name.startswith("/") or name.startswith("\\") or ".." in name.split("/"):
-                      raise SystemExit(f"refusing unsafe path: {member.name!r}")
-                  if not name.startswith(allowed_prefixes):
-                      raise SystemExit(f"refusing unexpected path: {member.name!r}")
-                  if member.issym() or member.islnk():
-                      raise SystemExit(f"refusing link member: {member.name!r}")
-                  if not (member.isfile() or member.isdir()):
-                      raise SystemExit(f"refusing non-file member: {member.name!r}")
-                  target = os.path.realpath(os.path.join(dest, name))
-                  if target != dest and not target.startswith(dest + os.sep):
-                      raise SystemExit(f"refusing path escape: {member.name!r}")
-              # filter="data" on 3.12+; our member checks above are the real gate.
-              try:
-                  tf.extractall(dest, filter="data")
-              except TypeError:
-                  tf.extractall(dest)
-          PY
+with tarfile.open(archive, "r:gz") as tf:
+    for member in tf.getmembers():
+        name = member.name.lstrip("./")
+        if name.startswith("/") or name.startswith("\\") or ".." in name.split("/"):
+            raise SystemExit(f"refusing unsafe path: {member.name!r}")
+        if not name.startswith(allowed_prefixes):
+            raise SystemExit(f"refusing unexpected path: {member.name!r}")
+        if member.issym() or member.islnk():
+            raise SystemExit(f"refusing link member: {member.name!r}")
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f"refusing non-file member: {member.name!r}")
+        target = os.path.realpath(os.path.join(dest, name))
+        if target != dest and not target.startswith(dest + os.sep):
+            raise SystemExit(f"refusing path escape: {member.name!r}")
+    # filter="data" on 3.12+; our member checks above are the real gate.
+    try:
+        tf.extractall(dest, filter="data")
+    except TypeError:
+        tf.extractall(dest)
+PY
           cd "$DEPLOY_ROOT"
           test -f .vercel/output/functions/_global-error.func/.vc-config.json
           test -d website/node_modules
