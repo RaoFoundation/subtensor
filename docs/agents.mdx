@@ -11,16 +11,18 @@ do. Nothing here requires parsing human prose.
 
 ## Searching these docs
 
-Everything below is plain text over HTTP, so you can grep it as if it were local:
+Start with one fetch: [`/llms.txt`](/llms.txt). Every docs link in it is
+already raw markdown (`content.md`), so you can open a page without rewriting
+URLs or scraping HTML.
 
 ```bash
 # Curated index (start here)
 curl -s https://www.bittensor.com/llms.txt
 
-# Full docs corpus (every page in one file)
+# Full docs corpus (for rg, not for stuffing into context)
 curl -s https://www.bittensor.com/llms-full.txt | rg -n '<pattern>'
 
-# One page as markdown
+# One page (same URLs as the links inside llms.txt)
 curl -s https://www.bittensor.com/llms.mdx/docs/quickstart/content.md
 
 # Chain source: list paths, then fetch a file
@@ -31,10 +33,8 @@ curl -s https://www.bittensor.com/code/raw/pallets/subtensor/src/lib.rs | rg -n 
 git clone --depth 1 https://github.com/RaoFoundation/subtensor
 ```
 
-Prefer [`/llms.txt`](/llms.txt) plus per-page `content.md` and the JSON
-catalogs below over dumping [`/llms-full.txt`](/llms-full.txt) into context.
-`llms-full.txt` is for offline search and RAG, not for loading whole into a
-session.
+Prefer that index plus the JSON catalogs below over dumping
+[`/llms-full.txt`](/llms-full.txt) into context.
 
 ## Discover the operations
 

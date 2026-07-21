@@ -2,16 +2,16 @@ import { source } from '@/lib/source';
 import { llms } from 'fumadocs-core/source';
 import type { Folder, Item, Node, Root } from 'fumadocs-core/page-tree';
 import { buildCommit, CODE_ROOTS } from '@/lib/code';
-import { chainRepoUrl, codeRoute, docsContentRoute, siteUrl } from '@/lib/shared';
+import { chainRepoUrl, codeRoute, docsContentRoute, docsRoute, siteUrl } from '@/lib/shared';
 
 export const revalidate = false;
 
 /** Deep generated reference trees: landing page only in llms.txt. */
 const COLLAPSE_PREFIXES = [
-  '/docs/tx',
-  '/docs/query',
-  '/docs/errors',
-  '/docs/hyperparameters',
+  `${docsRoute}/tx`,
+  `${docsRoute}/query`,
+  `${docsRoute}/errors`,
+  `${docsRoute}/hyperparameters`,
 ];
 
 function isCollapseLanding(url: string): boolean {
@@ -36,7 +36,6 @@ function slimTree(root: Root): Root {
       if (shouldCollapse(node)) {
         const landing = landingPage(node);
         if (!landing) return { ...node, children: [] };
-        // Prefer real `index` when present; otherwise keep landing as sole child.
         if (node.index) return { ...node, children: [] };
         return { ...node, children: [landing] };
       }
@@ -48,19 +47,53 @@ function slimTree(root: Root): Root {
   return { ...root, children: root.children.map(mapNode) };
 }
 
+/**
+ * Point index links at fetchable markdown (or absolute site URLs), so an agent
+ * never has to rewrite `/docs/foo` → `/llms.mdx/docs/foo/content.md`.
+ */
+function toAgentUrl(url: string): string {
+  if (url === docsRoute || url === `${docsRoute}/`) {
+    return `${siteUrl}${docsContentRoute}/content.md`;
+  }
+  if (url.startsWith(`${docsRoute}/`)) {
+    const slug = url.slice(docsRoute.length + 1).replace(/\/$/, '');
+    return `${siteUrl}${docsContentRoute}/${slug}/content.md`;
+  }
+  if (url.startsWith('/')) return `${siteUrl}${url}`;
+  return url;
+}
+
+function rewriteUrls(root: Root): Root {
+  function mapNode(node: Node): Node {
+    if (node.type === 'page') {
+      return { ...node, url: toAgentUrl(node.url) };
+    }
+    if (node.type === 'folder') {
+      return {
+        ...node,
+        index: node.index ? { ...node.index, url: toAgentUrl(node.index.url) } : undefined,
+        children: node.children.map(mapNode),
+      };
+    }
+    return node;
+  }
+
+  return { ...root, children: root.children.map(mapNode) };
+}
+
 function searchSection(): string {
   return [
     '## Searching these docs',
     '',
-    'Everything below is plain text over HTTP, so you can grep it as if it were local:',
+    'Every docs link in this file is already raw markdown. Fetch it directly;',
+    'do not scrape HTML. Grep the corpus as if it were local:',
     '',
-    `- Curated index (this file): \`${siteUrl}/llms.txt\``,
-    `- Full docs corpus (every page in one file, for \`rg\`, not for stuffing into context): \`curl -s ${siteUrl}/llms-full.txt | rg -n '<pattern>'\``,
-    `- One page as markdown: ${siteUrl}${docsContentRoute}/<slug>/content.md, e.g. ${siteUrl}${docsContentRoute}/quickstart/content.md`,
+    `- This index: \`${siteUrl}/llms.txt\``,
+    `- Full corpus (for \`rg\`, not for stuffing into context): \`curl -s ${siteUrl}/llms-full.txt | rg -n '<pattern>'\``,
+    `- One page: ${siteUrl}${docsContentRoute}/<slug>/content.md`,
     `- JSON catalogs: ${siteUrl}/catalog/intents.json, ${siteUrl}/catalog/reads.json, ${siteUrl}/catalog/errors.json`,
-    `- Chain source: \`curl -s ${siteUrl}${codeRoute}/index.json\` lists every file path, then \`curl -s ${siteUrl}${codeRoute}/raw/<repo-path> | rg -n '<pattern>'\``,
-    `- For heavy exploration, clone the repo (docs live in docs/): \`git clone --depth 1 ${chainRepoUrl}\``,
-    `- Human-readable guide: ${siteUrl}/docs/agents#searching-these-docs`,
+    `- Chain source: \`curl -s ${siteUrl}${codeRoute}/index.json\` then \`curl -s ${siteUrl}${codeRoute}/raw/<repo-path>\``,
+    `- Clone for heavy exploration (docs in docs/): \`git clone --depth 1 ${chainRepoUrl}\``,
     '',
   ].join('\n');
 }
@@ -69,14 +102,18 @@ function referenceHint(): string {
   return [
     '## Reference catalogs',
     '',
-    'Per-op and per-query pages are omitted from this index (they dominate the tree).',
-    'Use the landing pages and JSON catalogs instead:',
+    'Per-op and per-query pages are omitted here (they dominate the tree).',
+    'Use the JSON catalogs; open a docs_url from an entry only when you need prose.',
+    `Catalog \`docs_url\` values look like \`/docs/tx/add-stake\`; the markdown is`,
+    `${siteUrl}${docsContentRoute}/tx/add-stake/content.md` +
+      ' (prefix `/docs/` → `/llms.mdx/docs/`, suffix `/content.md`).',
     '',
-    `- [Transactions](${siteUrl}/docs/tx) / ${siteUrl}/catalog/intents.json`,
-    `- [Queries](${siteUrl}/docs/query) / ${siteUrl}/catalog/reads.json`,
-    `- [Errors](${siteUrl}/docs/errors) / ${siteUrl}/catalog/errors.json`,
-    `- [Hyperparameters](${siteUrl}/docs/hyperparameters)`,
-    `- Full prose dump of every page: ${siteUrl}/llms-full.txt`,
+    `- Transactions: ${siteUrl}/catalog/intents.json`,
+    `- Queries: ${siteUrl}/catalog/reads.json`,
+    `- Errors: ${siteUrl}/catalog/errors.json` +
+      ' (semantic codes under `.codes`, chain names under `.chain_errors`)',
+    `- Hyperparameters landing: ${siteUrl}${docsContentRoute}/hyperparameters/content.md`,
+    `- Full prose dump: ${siteUrl}/llms-full.txt`,
     '',
   ].join('\n');
 }
@@ -89,17 +126,16 @@ function codeSection(): string {
     'The Rust that runs on the chain (pallets, runtime, primitives — no tests/mocks/benchmarks)' +
       (commit ? `, at commit ${commit}.` : '.'),
     '',
-    `- [Index of every file (JSON)](${codeRoute}/index.json)`,
-    `- Browse: ${codeRoute}/<repo-path> with #L<n> or #L<n>-L<m> line anchors, e.g. ${codeRoute}/pallets/subtensor/src/coinbase/run_coinbase.rs`,
-    `- Plain text: ${codeRoute}/raw/<repo-path>`,
+    `- Index: ${siteUrl}${codeRoute}/index.json`,
+    `- Browse: ${siteUrl}${codeRoute}/<repo-path> with #L<n> or #L<n>-L<m> line anchors`,
+    `- Plain text: ${siteUrl}${codeRoute}/raw/<repo-path>`,
     `- Roots: ${CODE_ROOTS.join(', ')}`,
     '',
   ].join('\n');
 }
 
 export function GET() {
-  // H1 first (llms.txt convention), then search tips before the page list.
-  const slimmed = slimTree(source.getPageTree());
+  const slimmed = rewriteUrls(slimTree(source.getPageTree()));
   const formatter = llms(source);
   const title = typeof slimmed.name === 'string' ? slimmed.name : 'Bittensor';
   const description =
