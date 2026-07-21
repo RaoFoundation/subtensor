@@ -10,9 +10,10 @@ name: Deploy Docs Preview
 #     trusted base ref in a separate job.
 #   - The deploy token is used only in jobs that do not check out PR HEAD
 #     (base-only pull-settings, or artifact-only deploy/publish).
-#   - Prebuilt output is transferred as a tarball so function symlinks and
-#     dotfiles survive actions/upload-artifact (bare directory upload drops
-#     them and breaks `vercel deploy --prebuilt`).
+#   - Prebuilt output is transferred as a dereferenced tarball so function
+#     trees are self-contained on the deploy runner (no PR checkout / no
+#     node_modules). Bare upload-artifact drops dotfiles; plain symlink
+#     tarballs still point at website/node_modules and break deploy.
 
 on:
   pull_request:
@@ -115,9 +116,10 @@ jobs:
       - name: Pack prebuilt output
         run: |
           set -euo pipefail
-          # Tar preserves symlinks/dotfiles that upload-artifact drops when
-          # given a bare directory tree.
-          tar -czf docs-preview-vercel.tgz -C .vercel output
+          # -h: follow symlinks into real files. Function dirs link into
+          # website/node_modules; the deploy job has neither checkout nor
+          # install, so preserved symlinks fail with ENOENT on lstat.
+          tar -czhf docs-preview-vercel.tgz -C .vercel output
 
       - name: Upload prebuilt output
         uses: actions/upload-artifact@v4
