@@ -96,8 +96,11 @@ jobs:
         run: |
           set -euo pipefail
           # Include website/node_modules: Next NFT traces resolve there during
-          # `vercel deploy --prebuilt`.
-          tar -czf docs-preview-sealed.tgz .vercel/output website/node_modules
+          # `vercel deploy --prebuilt`. Dereference links so the trusted
+          # extractor never has to honor PR-controlled symlinks/hardlinks.
+          tar --create --gzip --file=docs-preview-sealed.tgz \
+            --hard-dereference --dereference \
+            .vercel/output website/node_modules
           printf '%s\n' "${{ github.event.pull_request.number }}" > docs-preview-pr-number.txt
           printf '%s\n' "deploy" > docs-preview-action.txt
 
