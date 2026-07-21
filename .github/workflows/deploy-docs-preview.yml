@@ -1,0 +1,227 @@
+name: Deploy Docs Preview
+
+# Non-fork PRs from org members / collaborators that touch docs/website get:
+#   https://pr-<n>.preview.bittensor.com
+# plus a sticky PR comment with the URL.
+#
+# Each PR subdomain is registered on the Vercel project and verified via a
+# GoDaddy TXT record on _vercel.bittensor.com (a true Vercel wildcard needs
+# NS delegation of the preview zone; per-PR domains keep apex DNS on GoDaddy).
+#
+# No TestPyPI publish here — every-PR uploads would pollute the index and
+# need a trusted-publisher entry. SDK pre-releases stay on the main
+# `publish-sdk-dev` channel; a label-gated PR publisher can be added later
+# if needed.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "docs/**"
+      - "website/**"
+      - ".github/workflows/deploy-docs-preview.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  build:
+    name: Build PR docs preview
+    if: >
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.fork == false &&
+      (github.event.pull_request.author_association == 'MEMBER' ||
+       github.event.pull_request.author_association == 'OWNER' ||
+       github.event.pull_request.author_association == 'COLLABORATOR')
+    runs-on: [self-hosted, fireactions-turbo-8]
+    concurrency:
+      group: deploy-docs-preview-build-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    outputs:
+      alias: ${{ steps.deploy.outputs.alias }}
+      url: ${{ steps.deploy.outputs.url }}
+      deployment_id: ${{ steps.deploy.outputs.deployment_id }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Build and deploy to Vercel
+        id: deploy
+        run: |
+          alias="pr-${PR_NUMBER}.preview.${DOCS_DOMAIN}"
+          echo "alias=$alias" >> "$GITHUB_OUTPUT"
+          echo "url=https://${alias}" >> "$GITHUB_OUTPUT"
+
+          npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          npx --yes vercel build --token "$VERCEL_TOKEN"
+          url=$(npx --yes vercel deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+          echo "Deployed: $url"
+
+          dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/${url#https://}?teamId=$VERCEL_ORG_ID" \
+            | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).id')
+          echo "deployment_id=$dep_id" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Alias preview and comment
+    needs: build
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # Serialize domain registration: GoDaddy PUT replaces all _vercel TXT
+    # records, so concurrent PRs must not interleave read-modify-write.
+    concurrency:
+      group: docs-preview-domain-dns
+      cancel-in-progress: false
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+      GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      ALIAS: ${{ needs.build.outputs.alias }}
+      DEPLOYMENT_ID: ${{ needs.build.outputs.deployment_id }}
+      PREVIEW_URL: ${{ needs.build.outputs.url }}
+    steps:
+      - name: Register domain, alias deployment
+        run: |
+          set -euo pipefail
+
+          resp=$(curl -sS -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"$ALIAS\"}" \
+            "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/domains?teamId=${VERCEL_ORG_ID}" \
+            || true)
+          if ! echo "$resp" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); if(!d.name) process.exit(1)'; then
+            resp=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${ALIAS}?teamId=${VERCEL_ORG_ID}")
+          fi
+
+          verified=$(echo "$resp" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).verified === true ? "yes" : "no"')
+          if [ "$verified" != "yes" ]; then
+            challenge=$(echo "$resp" | node -pe '
+              const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+              const v = (d.verification || []).find((x) => x.type === "TXT");
+              if (!v) { process.stderr.write("no TXT challenge\n"); process.exit(1); }
+              process.stdout.write(v.value);
+            ')
+
+            existing=$(curl -sf \
+              -H "Authorization: sso-key ${GODADDY_API_KEY}:${GODADDY_API_SECRET}" \
+              "https://api.godaddy.com/v1/domains/${DOCS_DOMAIN}/records/TXT/_vercel")
+            payload=$(EXISTING_JSON="$existing" CHALLENGE="$challenge" node -e '
+              const existing = JSON.parse(process.env.EXISTING_JSON);
+              const values = new Set(existing.map((r) => r.data));
+              values.add(process.env.CHALLENGE);
+              process.stdout.write(JSON.stringify(
+                [...values].sort().map((data) => ({ data, ttl: 600 }))
+              ));
+            ')
+            curl -sf -X PUT \
+              -H "Authorization: sso-key ${GODADDY_API_KEY}:${GODADDY_API_SECRET}" \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              "https://api.godaddy.com/v1/domains/${DOCS_DOMAIN}/records/TXT/_vercel" > /dev/null
+
+            verified=no
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              verify=$(curl -sS -X POST \
+                -H "Authorization: Bearer $VERCEL_TOKEN" \
+                "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${ALIAS}/verify?teamId=${VERCEL_ORG_ID}" \
+                || true)
+              if echo "$verify" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).verified === true ? "yes" : "no"' | grep -q yes; then
+                verified=yes
+                break
+              fi
+              sleep 15
+            done
+            if [ "$verified" != "yes" ]; then
+              echo "Timed out verifying $ALIAS" >&2
+              echo "$verify" >&2
+              exit 1
+            fi
+          fi
+
+          curl -sf -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"alias\":\"$ALIAS\"}" \
+            "https://api.vercel.com/v2/deployments/${DEPLOYMENT_ID}/aliases?teamId=${VERCEL_ORG_ID}" > /dev/null
+
+          echo "Aliased to https://${ALIAS}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment preview URL on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          marker="<!-- docs-preview-url -->"
+          body=$(printf '%s\n' \
+            "${marker}" \
+            "### Docs preview" \
+            "" \
+            "${PREVIEW_URL}/docs" \
+            "" \
+            "Stable for this PR — updates on each push that touches \`docs/**\` or \`website/**\`.")
+
+          existing=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
+            | head -n 1)
+
+          if [ -n "$existing" ]; then
+            gh api \
+              --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+              -f body="$body" > /dev/null
+          else
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -f body="$body" > /dev/null
+          fi
+
+  cleanup:
+    name: Remove PR docs preview domain
+    if: >
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.fork == false
+    runs-on: [self-hosted, fireactions-turbo-8]
+    concurrency:
+      group: docs-preview-domain-dns
+      cancel-in-progress: false
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Delete preview domain from Vercel project
+        run: |
+          alias="pr-${PR_NUMBER}.preview.${DOCS_DOMAIN}"
+          code=$(curl -sS -o /tmp/del.json -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${alias}?teamId=${VERCEL_ORG_ID}" \
+            || true)
+          if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+            echo "Removed ${alias} from Vercel project" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No project domain to remove for ${alias} (HTTP ${code})" >> "$GITHUB_STEP_SUMMARY"
+          fi
