@@ -207,8 +207,9 @@ jobs:
   # still build both production release and fast-runtime binaries.
   build:
     runs-on: [self-hosted, fireactions-turbo-8]
+    # PR HEAD executes here; never attach sccache-writer / pass R2 write keys.
     environment:
-      name: sccache-writer
+      name: sccache-reader
       deployment: false
     needs: [trusted-pr, changes]
     if: needs.changes.outputs.build_count != '0'
@@ -274,9 +275,7 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           cache-key: e2e-${{ matrix.variant }}
-          sccache-credential-mode: auto
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+          sccache-credential-mode: reader
 
       - name: Build node-subtensor (${{ matrix.variant }})
         if: steps.reuse.outputs.reused != 'true'

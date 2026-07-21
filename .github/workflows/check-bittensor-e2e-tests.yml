@@ -219,8 +219,12 @@ jobs:
     # on eight cores. Reserve the constrained 16-core lane for the image build
     # that controls this workflow's wall time.
     runs-on: [self-hosted, fireactions-turbo-8]
+    # PR HEAD (and its local actions/scripts) execute in this job. Never attach
+    # the sccache-writer environment or pass R2 write keys here — writer
+    # credentials are exported into the job env for sccache and would be
+    # readable by PR-controlled build.rs / composite actions.
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: sccache-reader
       deployment: false
     timeout-minutes: 60
     env:
@@ -236,9 +240,7 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           cache-key: rust-sdk-e2e-test-binary
-          sccache-credential-mode: auto
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+          sccache-credential-mode: reader
 
       - name: Compile once and prove manifest completeness
         shell: bash
@@ -288,8 +290,9 @@ jobs:
     # additional turbo-16 slot. A full PR still needs four 16-core runners, so
     # the eight-runner lane retains capacity for two simultaneous PRs.
     runs-on: [self-hosted, fireactions-turbo-16]
+    # Same credential boundary as build-rust-e2e-test-binary: PR code runs here.
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: sccache-reader
       deployment: false
     outputs:
       image_ref: ${{ steps.pin.outputs.image_ref }}
@@ -309,9 +312,7 @@ jobs:
         with:
           cache-key: rust-sdk-localnet-fast
           fast-linker: "false"
-          sccache-credential-mode: auto
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+          sccache-credential-mode: reader
 
       - name: Ensure native target is installed
         run: rustup target add "$BUILD_TRIPLE"

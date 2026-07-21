@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -197,25 +196,11 @@ def source_is_trusted(event_path: Path | None) -> bool:
             "devnet",
             "testnet",
         }
-    if event_name == "pull_request" and re.fullmatch(
-        r"refs/pull/[0-9]+/merge", ref
-    ):
-        if event_path is None or not event_path.is_file() or not repository:
-            return False
-        pull = load_object(event_path).get("pull_request")
-        if not isinstance(pull, dict):
-            return False
-        head = pull.get("head")
-        user = pull.get("user")
-        if not isinstance(head, dict) or not isinstance(user, dict):
-            return False
-        head_repository = head.get("repo")
-        return (
-            isinstance(head_repository, dict)
-            and head_repository.get("full_name") == repository
-            and head_repository.get("fork") is False
-            and user.get("login") != "dependabot[bot]"
-        )
+    # pull_request is never writer-trusted: the job checks out PR HEAD and
+    # runs PR-controlled actions/build scripts. Writer keys are exported into
+    # the job environment for sccache, so granting them on PRs is an
+    # exfiltration / cache-poisoning path. PR jobs must use reader mode;
+    # write-through warming belongs on push/schedule of protected branches.
     return False
 
 

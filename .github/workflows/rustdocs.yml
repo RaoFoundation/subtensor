@@ -20,7 +20,7 @@ jobs:
   build:
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     steps:
       - uses: actions/checkout@v4

@@ -194,14 +194,15 @@ export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 "$CONFIGURE" prepare writer "$tmp/config.json" "$tmp/output" >"$tmp/writer-pr.log"
 assert_contains "$tmp/output" 'available=false'
 
+# Same-repo non-fork PRs must stay on reader mode even when writer credentials
+# are present in the environment (defense in depth against misconfigured jobs).
 reset_outputs
 write_pr_event RaoFoundation/subtensor false
 export AWS_ACCESS_KEY_ID=writer-access-key-test
 export AWS_SECRET_ACCESS_KEY=writer-secret-key-test
 "$CONFIGURE" prepare auto "$tmp/config.json" "$tmp/output" >"$tmp/auto-pr.log"
 assert_contains "$tmp/output" 'available=true'
-assert_contains "$tmp/config.json" '"mode":"writer"'
-assert_contains "$tmp/config.json" '"local":'
+assert_contains "$tmp/config.json" '"mode":"reader"'
 
 for reader_case in fork dependabot malformed target missing-credentials partial-credentials malformed-credentials; do
   reset_outputs

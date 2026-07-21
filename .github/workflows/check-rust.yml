@@ -145,7 +145,7 @@ jobs:
     # path without consuming the 16-core critical-path lane.
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     env:
       SKIP_WASM_BUILD: 1
@@ -204,7 +204,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     env:
       RUSTFLAGS: -D warnings
@@ -234,7 +234,7 @@ jobs:
     # Longest job in this workflow; retain the reserved 16-core turbo lane.
     runs-on: [self-hosted, fireactions-turbo-16]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     env:
       SKIP_WASM_BUILD: 1
@@ -282,7 +282,7 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     # No RUSTFLAGS deny here: it would apply to dependencies too, and the
     # vendored w3f-bls fork carries warnings in this feature combination.
@@ -347,7 +347,7 @@ jobs:
     # Compile-bound, same reasoning as clippy.
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     env:
       SKIP_WASM_BUILD: 1
@@ -373,7 +373,7 @@ jobs:
     if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     steps:
       - uses: actions/checkout@v4

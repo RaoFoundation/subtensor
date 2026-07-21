@@ -152,7 +152,7 @@ jobs:
     outputs:
       mbm_args: ${{ steps.mbm.outputs.args }}
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     timeout-minutes: 60
     env:
@@ -216,7 +216,7 @@ jobs:
     # Turbo runners probe the host-local tier and fail open to direct R2.
     runs-on: [self-hosted, fireactions-turbo-8]
     environment:
-      name: ${{ github.event_name == 'workflow_dispatch' && 'sccache-reader' || 'sccache-writer' }}
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
       deployment: false
     timeout-minutes: 60
     env:
