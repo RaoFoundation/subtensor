@@ -574,7 +574,9 @@ the upgrade. Full narrative:
 
 - **Queued subnet registration.** When capacity is full or cleanup is pending,
   `register_network` may emit `NetworkRegistrationQueued` without creating the
-  subnet. Wait for `NetworkAdded` before treating the registration as live.
+  subnet. `client.execute(RegisterSubnet(...))` and `btcli subnets create` wait
+  for the matching `NetworkAdded` by default and return the assigned `netuid`;
+  raw-call clients must do the same before treating the registration as live.
 - **Tempo and activity cutoff.** Owner (and root) set these through
   `AdminUtils::sudo_set_tempo` and `AdminUtils::sudo_set_activity_cutoff_factor`.
   `SubtensorModule` call indices 139 (`set_tempo`) and 140
@@ -725,7 +727,8 @@ explains any error code.
 10. Apply the [chain and runtime changes](#chain-and-runtime-changes): audit
     proxies; retarget owner tempo / `activity_cutoff_factor` calls to
     AdminUtils; never submit a full alpha balance when fees are alpha-paid;
-    wait for `NetworkAdded` on queued registrations; regenerate metadata
+    let the SDK wait for `NetworkAdded` on queued registrations (or do so in
+    raw-call clients); regenerate metadata
     bindings and any `errors.json` / `get_proxy_filter` consumers.
 11. Dry-run everything: `client.plan(...)` in Python, `--dry-run` on the
     CLI, ideally against `test` or a local node first.

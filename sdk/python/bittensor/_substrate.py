@@ -142,6 +142,10 @@ class Substrate(Protocol):
         """Stream decoded block headers as they are produced (or finalized)."""
         ...
 
+    async def events(self, block_hash: Optional[str] = None) -> list[dict]:
+        """Decoded ``System.Events`` records for a block."""
+        ...
+
     # Calls and fees -------------------------------------------------------------
 
     async def compose(self, call) -> Any:
@@ -451,6 +455,10 @@ class RpcSubstrate:
                 yield {"header": header}
         except SubstrateRequestException as error:
             raise ChainError(str(error)) from error
+
+    async def events(self, block_hash: Optional[str] = None) -> list[dict]:
+        """Decoded ``System.Events`` records for a block."""
+        return await self._read(lambda raw: raw.get_events(block_hash))
 
     async def compose(self, call):
         """Compose a chain call from a generated ``Call`` (module, function, params)."""

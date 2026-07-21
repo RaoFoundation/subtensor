@@ -582,8 +582,9 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             <li>
               <strong>Subnet registration can queue.</strong> Under full capacity or pending
               cleanup, <code>register_network</code> may emit{' '}
-              <code>NetworkRegistrationQueued</code> without creating the subnet — wait for{' '}
-              <code>NetworkAdded</code>.
+              <code>NetworkRegistrationQueued</code> without creating the subnet. The SDK and{' '}
+              <code>btcli subnets create</code> wait for the matching <code>NetworkAdded</code>{' '}
+              by default; raw-call clients must do the same.
             </li>
             <li>
               <strong>Drand rounds are sequential.</strong> After the first pulse, only{' '}
