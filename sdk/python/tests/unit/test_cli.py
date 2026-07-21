@@ -238,15 +238,34 @@ class TestTransactions:
         assert "immediate · no deregistration needed" in result.output
         assert "price  τ2.500000000" in result.output
 
-    def test_subnet_create_confirmation_includes_live_price(self, fake: FakeSubstrate, monkeypatch):
+    @pytest.mark.parametrize(
+        ("subnet_limit", "prune_netuid", "expected_flow"),
+        [
+            (2, None, "immediate · no deregistration needed"),
+            (1, 1, "queued · deregisters subnet 1 before registration"),
+        ],
+    )
+    def test_subnet_create_confirmation_includes_live_price_and_flow(
+        self,
+        fake: FakeSubstrate,
+        monkeypatch,
+        subnet_limit,
+        prune_netuid,
+        expected_flow,
+    ):
         from dataclasses import replace
 
         from tests.harness.fake_substrate import success_result
 
         fake.seed_runtime(
-            "SubnetRegistrationRuntimeApi", "get_network_registration_cost", 2_500_000_000
+            "SubnetRegistrationRuntimeApi", "get_network_registration_cost", 7_998_452_462_874
         )
-        fake.seed("SubtensorModule", "SubnetLocked", [8], 2_500_000_000)
+        fake.seed_runtime("SubnetInfoRuntimeApi", "get_subnet_to_prune", prune_netuid)
+        fake.seed("SubtensorModule", "SubnetLocked", [8], 7_998_452_462_874)
+        fake.seed_map("SubtensorModule", "NetworksAdded", [(0, True), (1, True)])
+        fake.seed("SubtensorModule", "SubnetLimit", [], subnet_limit)
+        fake.seed("SubtensorModule", "DissolveCleanupQueue", [], [])
+        fake.seed("SubtensorModule", "NetworkRegistrationQueue", [], [])
         fake.queue_result(
             replace(
                 success_result(),
@@ -263,18 +282,17 @@ class TestTransactions:
         )
 
         prompts = []
-        real_confirm = cli_context.AppContext.confirm
 
         def tracked_confirm(self, prompt):
             prompts.append(prompt)
-            return real_confirm(self, prompt)
 
         monkeypatch.setattr(cli_context.AppContext, "confirm", tracked_confirm)
-        result = invoke("--yes", "subnets", "create")
+        result = invoke("subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert prompts == ["register a new subnet for 2.5 TAO?"]
-        assert "price  τ2.500000000" in result.output
+        assert prompts == ["register a new subnet for 7,998.452462874 TAO?"]
+        assert expected_flow in result.output
+        assert "price  τ7,998.452462874" in result.output
 
     def test_subnet_create_unlocks_before_starting_activity(self, fake: FakeSubstrate, monkeypatch):
         from dataclasses import replace
@@ -319,10 +337,11 @@ class TestTransactions:
         assert order == ["unlock", "activity"]
 
     def test_subnet_create_waits_and_explains_deregistration(
-        self, fake: FakeSubstrate, wallet_dir: str
+        self, fake: FakeSubstrate, wallet_dir: str, monkeypatch
     ):
         from dataclasses import replace
 
+        from bittensor.cli.output import Output
         from tests.harness.fake_substrate import success_result
 
         wallet = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir)
@@ -372,9 +391,27 @@ class TestTransactions:
             ],
         )
 
+        updates = []
+
+        @contextlib.contextmanager
+        def tracked_activity(_self, _initial):
+            def update(text, announce=False):
+                updates.append((text, announce))
+
+            yield update
+
+        monkeypatch.setattr(Output, "activity", tracked_activity)
+
         result = invoke("--yes", "subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert "capacity is full · deregistering subnet 6 before registration" in result.output
+        assert (
+            "capacity is full · deregistering subnet 6 before registration",
+            True,
+        ) in updates
+        assert (
+            "subnet 6 cleanup · 1 block since call · waiting for NetworkAdded",
+            False,
+        ) in updates
         assert "subnet 6 registered" in result.output
         assert "queued · registered after deregistration of subnet 6" in result.output

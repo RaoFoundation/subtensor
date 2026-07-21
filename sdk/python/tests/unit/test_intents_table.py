@@ -265,6 +265,13 @@ class TestExecuteFlow:
             "registration_price_rao": 1_000_000_000,
         }
         assert progress[0]["stage"] == "queued"
+        assert progress[1] == {
+            "stage": "waiting",
+            "block": 101,
+            "blocks_since_call": 1,
+            "cleanup_netuid": 4,
+            "deregistered_netuid": 4,
+        }
         assert progress[-1] == {
             "stage": "registered",
             "mode": "after_deregistration",

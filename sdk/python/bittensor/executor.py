@@ -388,6 +388,7 @@ async def _complete_subnet_registration(
                 on_progress,
                 stage="waiting",
                 block=block,
+                blocks_since_call=max(0, block - (queued_at if queued_at is not None else first)),
                 cleanup_netuid=cleanup_netuid,
                 deregistered_netuid=deregistered_netuid,
             )

@@ -1604,15 +1604,15 @@ class Output:
         mode = result.data.get("registration_mode")
         if mode == "after_deregistration":
             prior = result.data.get("deregistered_netuid") or result.data.get("cleanup_netuid")
-            flow = "queued · registered after deregistration"
+            registration = "queued · registered after deregistration"
             if prior is not None:
-                flow += f" of subnet {prior}"
+                registration += f" of subnet {prior}"
         else:
-            flow = "immediate · no deregistration needed"
+            registration = "immediate · no deregistration needed"
 
         fields: dict[str, Any] = {
             "netuid": netuid,
-            "flow": flow,
+            "registration": registration,
         }
         if result.data.get("registration_price_rao") is not None:
             fields["price"] = self.balance(int(result.data["registration_price_rao"]))
