@@ -12,11 +12,11 @@ const HIGH_QUOTE_WEIGHT = 990_000_000_000_000_000n;
 const LOW_QUOTE_WEIGHT = 10_000_000_000_000_000n;
 const HIGH_EDGE_FLOOR = 980_000_000_000_000_000n;
 const LOW_EDGE_CEILING = 20_000_000_000_000_000n;
-// Keep alpha large vs TAO so the forced 0.99/0.01 balancer weights still park
-// injection in the reservoir, but do not smash TAO so low that
-// `current_alpha_price * alpha_in` truncates to 0 u64 and the wait loop never
-// observes SubnetTAO / BalancerTaoReservoir growth (clone flake on sn 102).
-const EDGE_TAO_RESERVE = 1_000_000_000n;
+// Keep alpha large enough that the forced 0.99/0.01 balancer weights still park
+// injection in the reservoir, but keep TAO≈alpha so
+// `current_alpha_price * alpha_in` does not truncate to 0 u64 (clone flake:
+// with TAO=1e9 / alpha=1e12, price≈1e-3 and small alpha_in yields tao_in=0).
+const EDGE_TAO_RESERVE = 1_000_000_000_000n;
 const EDGE_ALPHA_RESERVE = 1_000_000_000_000n;
 
 const keyring = new Keyring({ type: "sr25519" });
