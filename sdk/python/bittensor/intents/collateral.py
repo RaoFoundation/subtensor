@@ -8,7 +8,7 @@ from typing import Any, Optional
 # TODO(codegen): switch to `calls.SubtensorModule.add_collateral` /
 # `set_min_collateral` once the registry is regenerated against spec >= 435.
 from .._generated.calls import Call
-from ._money import Money, alpha_amount, tao_amount
+from ._money import Money, Spend, alpha_amount, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -16,27 +16,36 @@ from .registry import register
 @register
 @dataclass
 class AddCollateral(Intent):
-    """Stake TAO to your own hotkey and lock it as additional miner collateral.
+    """Lock additional miner collateral on your own hotkey.
 
     Tops up the hotkey's registration collateral on the subnet — for example
     to meet a validator-published per-machine requirement on resource
-    subnets. The signing coldkey must own the hotkey, because the lock is
-    charged against the owner's stake. The locked alpha is real stake (it
-    appreciates with the subnet pool) but is not withdrawable: it is released
-    back to free stake through earned miner incentive at the drain ratio
-    snapshot the hotkey already carries, survives deregistration, and is
-    credited against the collateral requirement on re-registration. There is
-    no direct withdrawal path — see ``set_min_collateral`` for maintaining a
-    level without re-locking drained funds.
+    subnets. Prefers free alpha already staked on that hotkey (valued at the
+    subnet moving price) and only buys the shortfall with TAO from the
+    coldkey. The signing coldkey must own the hotkey. The locked alpha is
+    real stake (it appreciates with the subnet pool) but is not
+    withdrawable: it is released back to free stake through earned miner
+    incentive at the drain ratio snapshot the hotkey already carries,
+    survives deregistration, and is credited against the collateral
+    requirement on re-registration. There is no direct withdrawal path —
+    see ``set_min_collateral`` for maintaining a level without re-locking
+    drained funds.
     """
 
     op = "add_collateral"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_collateral"),)
+    mev_shield_default = True
 
     netuid: int = field(metadata={"help": "Subnet to lock collateral on."})
     amount_tao: Money = field(
-        metadata={"help": "TAO to stake and lock as collateral (min: the staking minimum)."}
+        metadata={
+            "help": (
+                "TAO-value of collateral to add. Uses free stake on the hotkey "
+                "first; only the shortfall is bought (that remainder must meet "
+                "the staking minimum)."
+            )
+        },
     )
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -60,6 +69,9 @@ class AddCollateral(Intent):
 
     def summary(self) -> str:
         return f"lock {self.amount_tao} as collateral on netuid {self.netuid}"
+
+    def spend(self) -> Spend:
+        return self.amount_tao
 
 
 @register

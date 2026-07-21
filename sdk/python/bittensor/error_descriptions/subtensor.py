@@ -285,6 +285,14 @@ DESCRIPTIONS: dict[str, str] = {
         "passed since the coldkey's last swap on that netuid. Compare `LastHotkeySwapOnNetuid` "
         "for the coldkey with the current block and retry after the interval."
     ),
+    "HotKeyHasCollateral": (
+        "This hotkey still has standing miner registration collateral and does not hold "
+        "validator permit on that subnet (or on a subnet involved in an all-subnet swap). "
+        "Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and "
+        "bond to a fresh key and defeat validator blacklists. Keys with validator permit "
+        "may still swap. Drain the bond through earned incentive, or obtain permit, before "
+        "swapping."
+    ),
     "IncorrectCommitRevealVersion": (
         "The `commit_reveal_version` argument does not match the chain's current commit-reveal "
         "weights version. Query the `CommitRevealWeightsVersion` storage item and upgrade or "

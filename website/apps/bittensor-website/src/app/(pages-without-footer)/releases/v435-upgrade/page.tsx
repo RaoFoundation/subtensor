@@ -139,7 +139,7 @@ const AdversaryProfitGraph = () => {
       </text>
       <circle cx={xForE(400)} cy={yForP(0)} r='4' fill='#d15168' />
       <text {...GRAPH_TEXT} x={xForE(400) + 8} y={yForP(0) + 18} fill='#d15168'>
-        E* = 400 = T ÷ (1 + k)
+        E* = 400 = max(T÷(1+k), (1−p)T)
       </text>
     </svg>
   );
@@ -276,13 +276,13 @@ const CollateralGraph = () => (
       INCENTIVE EARNED
     </text>
     <text {...GRAPH_TEXT} x='62' y='293' textAnchor='end'>
-      0α
+      0
     </text>
     <text {...GRAPH_TEXT} x='62' y='86' textAnchor='end'>
-      9α
+      τ9
     </text>
     <text {...GRAPH_TEXT} x='62' y='63' textAnchor='end'>
-      10α
+      τ10
     </text>
 
     {/* Registration price split */}
@@ -296,7 +296,7 @@ const CollateralGraph = () => (
       strokeDasharray='4 4'
     />
     <text {...GRAPH_TEXT} x='76' y='52'>
-      REGISTRATION PRICE 10α: 1α BURNED + 9α LOCKED (p = 90%)
+      REGISTRATION PRICE τ10: τ1 BURNED + τ9 LOCKED AS α (p = 90%)
     </text>
 
     {/* Full release point */}
@@ -417,8 +417,9 @@ const page = () => {
           </p>
           <p>
             Two miner extrinsics extend the mechanism to deposit-style policies.{' '}
-            <code>add_collateral</code> voluntarily locks more on your own hotkey — for
-            example to meet a validator-published per-machine requirement on resource
+            <code>add_collateral</code> voluntarily locks more on your own hotkey
+            (free stake first, then buys any shortfall with TAO) — for example to
+            meet a validator-published per-machine requirement on resource
             subnets — and <code>set_min_collateral</code> sets a{' '}
             <strong>self-maintaining floor</strong>: the drain never releases below it, and
             while the lock is under it, earned incentive is captured into the lock until
@@ -426,9 +427,12 @@ const page = () => {
             first-class metagraph field: every neuron row carries{' '}
             <code>collateral_locked</code>, <code>collateral_min</code>, and{' '}
             <code>collateral_earned</code> (lifetime incentive since the bond existed), so
-            validator enforcement costs zero extra calls. The SDK surfaces the same
-            path as <code>bt.AddCollateral</code> / <code>bt.SetMinCollateral</code>{' '}
-            and <code>client.collateral.*</code> (
+            validator enforcement costs zero extra calls. Full{' '}
+            <code>get_metagraph</code> consumers with frozen SCALE types must refresh
+            metadata for v435 — the three vectors are appended at the end of the
+            struct; selective fetches of the previous indices are unchanged. The SDK
+            surfaces the same path as <code>bt.AddCollateral</code> /{' '}
+            <code>bt.SetMinCollateral</code> and <code>client.collateral.*</code> (
             <code>miner_collateral</code>, <code>subnet_collateral</code>,{' '}
             <code>collateral_policy</code>); the CLI mirrors it with{' '}
             <code>btcli collateral</code> (<code>show</code> / <code>list</code> /{' '}
@@ -457,10 +461,12 @@ btcli sudo set --netuid 42 --name collateral_drain_ratio --value 1.0    # k = 1`
             <DocLink href='/docs/hyperparameters/collateral-drain-ratio'>
               <code>collateral_drain_ratio</code>
             </DocLink>{' '}
-            (k) decides how long a good miner takes to work it off. The deterrence math is one
-            line: an adversary who plans to farm and abandon must collect roughly{' '}
-            <code>price ÷ (1 + k)</code> in emissions before your validators stop scoring
-            them, just to break even. Three starting points:
+            (k) decides how long a good miner takes to work it off. Break-even emissions before
+            a ban are{' '}
+            <code>E* = max(T ÷ (1 + k), (1 − p)·T)</code> — the familiar{' '}
+            <code>T ÷ (1 + k)</code> form applies when{' '}
+            <code>p ≥ k ÷ (1 + k)</code>; otherwise the bond drains before break-even and the
+            floor is just the burned share <code>(1 − p)·T</code>. Three starting points:
           </p>
           <ol className={styles.list}>
             <li>
@@ -493,9 +499,9 @@ btcli sudo set --netuid 42 --name collateral_drain_ratio --value 1.0    # k = 1`
 btcli sudo set --netuid 42 --name collateral_drain_ratio --value 0.2    # k = 0.2`}
           </pre>
           <p>
-            Registration still costs the same floating τ10 — now τ1 burned, τ9 locked. The
-            farmer&apos;s math inverts: to break even they must farm{' '}
-            <code>price ÷ (1 + k) ≈ τ8.3</code> in emissions <i>before</i> your validators
+            Registration still costs the same floating τ10 — now τ1 burned, τ9 swapped into
+            locked alpha. Here p = 90% ≥ k/(1+k) ≈ 17%, so break-even is{' '}
+            <code>E* = T ÷ (1 + k) ≈ τ8.3</code> in emissions <i>before</i> your validators
             stop scoring the hotkey, and the slow k&nbsp;=&nbsp;0.2 drain keeps ~τ9 at risk
             deep into the run — so the blow-up strands the bond. An honest miner with a real
             edge is barely affected: τ1 sunk, and the τ9 lock releases steadily as they earn.
@@ -505,17 +511,20 @@ btcli sudo set --netuid 42 --name collateral_drain_ratio --value 0.2    # k = 0.
             The payoff curve makes the deflection concrete. Net profit per
             register-farm-banned cycle is <code>E + min(k·E, p·T) − T</code> with the bond
             versus <code>E − X</code> for a pure burn — where E is emissions farmed before the
-            ban. Below the break-even line the strategy loses money, so the further right the
-            curve crosses zero, the more a farmer must extract before detection just to
-            recover their costs:
+            ban and T is the TAO registration price (the lock is the AMM&apos;s resulting
+            alpha). Setting profit to zero yields{' '}
+            <code>E* = max(T ÷ (1 + k), (1 − p)·T)</code>. Below the break-even line the
+            strategy loses money, so the further right the curve crosses zero, the more a
+            farmer must extract before detection just to recover their costs:
           </p>
           <AdversaryProfitGraph />
           <p className={styles.graph_caption}>
-            Illustrative preset: equilibrium burned share X = 100α, lock share p = 83% (so the
-            sticker price T = X ÷ (1 − p) ≈ 600α), drain k = 0.5. Pure burn breaks even after
-            farming 100α; with the bond the break-even moves out to E* = T ÷ (1 + k) = 400α.
-            Cheating has to clear four times the bar, and if the drain has not yet released
-            the bond by the time the ban lands, the remainder is forfeit on top.
+            Illustrative preset in TAO units (α on the axes is emissions / pool value at the
+            same scale): burned share X = τ100, lock share p = 83% (sticker price T = X ÷ (1 −
+            p) ≈ τ600), drain k = 0.5. Since p ≥ k/(1+k), E* = T ÷ (1 + k) = τ400 — four times
+            the pure-burn bar of τ100. If p were below k/(1+k), break-even would instead sit
+            at the burned share (1 − p)·T. If the drain has not yet released the bond by the
+            time the ban lands, the remainder is forfeit on top.
           </p>
           <p>
             Two properties make this safe to adopt. Both parameters are{' '}

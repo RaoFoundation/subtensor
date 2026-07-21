@@ -99,8 +99,8 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | Query | Summary |
 | --- | --- |
 | [`collateral-policy`](/docs/query/collateral-policy) | A subnet's collateral configuration. |
-| [`miner-collateral`](/docs/query/miner-collateral) | A miner hotkey's standing collateral on a subnet, or None if it has none. |
-| [`subnet-collateral`](/docs/query/subnet-collateral) | Every miner hotkey with standing collateral on a subnet. |
+| [`miner-collateral`](/docs/query/miner-collateral) | A `(hotkey, coldkey)` stake position's standing collateral, or None. |
+| [`subnet-collateral`](/docs/query/subnet-collateral) | Every `(hotkey, coldkey)` position with standing collateral on a subnet. |
 
 ## Neurons & registration
 

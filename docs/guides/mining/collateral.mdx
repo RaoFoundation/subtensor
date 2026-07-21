@@ -43,7 +43,7 @@ burned share. This is implemented in
 via
 [`get_collateral_topup_tao`](/code/pallets/subtensor/src/subnets/collateral.rs#L87-L109)
 and
-[`lock_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L121-L178).
+[`pay_registration`](/code/pallets/subtensor/src/subnets/collateral.rs).
 
 The locked alpha is real stake owned by your coldkey on your hotkey — it
 appreciates and depreciates with the subnet's pool like any alpha — but it is
@@ -85,10 +85,12 @@ standing lock.
 Beyond the registration lock, two miner-initiated extrinsics let a subnet run
 deposit-style policies (for example, "post X alpha per machine you bring"):
 
-- [`add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L235-L292)
-  stakes TAO to your own hotkey and locks it on top of the registration
-  collateral. Same lock, same drain, same persistence across deregistration
-  and credit on re-registration.
+- [`add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs)
+  locks about the given TAO-value of additional collateral on your own
+  hotkey: free alpha already staked there is used first (at the subnet
+  moving price), and only the shortfall is bought with TAO. Same lock, same
+  drain, same persistence across deregistration and credit on
+  re-registration.
 - [`set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L299-L342)
   sets a **floor** the lock self-maintains around: the drain never releases
   below it, and while the lock is under it, your earned incentive is captured
@@ -163,8 +165,10 @@ confiscated, without any judicial machinery:
   bounty for banning.
 
 The residual escape — rotating to a fresh hotkey — costs the full
-registration price including a fresh full lock. The system's invariant is
-exactly that: *forgetting is never cheaper than `T`.*
+registration price including a fresh full lock. Hotkey swap is refused while
+standing collateral remains **and** the hotkey lacks validator permit on that
+subnet (permitted validators on collateral-enabled subnets can still rotate).
+The system's invariant is exactly that: *forgetting is never cheaper than `T`.*
 
 **Note for validator authors**: this only holds if your scoring state is
 keyed by **hotkey** (not UID) and persists across the miner's
@@ -245,16 +249,19 @@ earns ~1α/tempo, a 25α deposit at `k = 1` takes ~25 tempos of scored work to
 drain — so an exiting miner's wind-down lasts about one rental term, which is
 exactly the notice period the business wants.
 
-**Miner flow** — bring 4 machines, deposit 100α, let the floor hold it:
+**Miner flow** — bring 4 machines, lock ~τ100 of collateral (free stake on
+the hotkey is used first; only the shortfall is bought), then set a 100α
+floor so the lock holds:
 
 ```bash
 btcli collateral add --netuid 51 --amount-tao 100 -w my_coldkey -H my_hotkey
 btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey
 ```
 
-The floor stops the drain at 100α, and if the lock ever dips under (say the
-miner raises the floor for a fifth machine before funding it), incentive
-fills the gap automatically. No re-locking, no bot.
+`add` takes a TAO-value; the floor is in alpha. The floor stops the drain
+at 100α, and if the lock ever dips under (say the miner raises the floor
+for a fifth machine before funding it), incentive fills the gap
+automatically. No re-locking, no bot.
 
 **Validator enforcement** — collateral rides the metagraph, so the check
 costs zero extra calls: every neuron row carries `collateral_locked`,
@@ -385,8 +392,9 @@ neurons, as per-uid vectors on the [`metagraph`](/docs/query/metagraph)):
   credits.
 - **min_locked** — the floor: the miner's standing commitment.
 - **earned** — lifetime incentive since the collateral relationship began;
-  compare against the detection budget `E* = T ÷ (1 + k)` to see how far a
-  miner is from having "paid off" their bond. Lives and dies with the entry.
+  compare against the detection budget
+  `E* = max(T ÷ (1 + k), (1 − p)·T)` to see how far a miner is from having
+  "paid off" their bond. Lives and dies with the entry.
 - **headroom** = `locked − min_locked` — the portion actively draining; zero
   with a floor set means parked at commitment.
 - **shortfall** = `min_locked − locked` — capture in progress: incentive is

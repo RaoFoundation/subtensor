@@ -185,6 +185,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRecoveredPublicKey": _C.INVALID_ARGUMENT,
     "SubtokenDisabled": _C.SUBTOKEN_DISABLED,  # also Swap
     "HotKeySwapOnSubnetIntervalNotPassed": _C.RATE_LIMITED,
+    "HotKeyHasCollateral": _C.POLICY_VIOLATION,
     "SameNetuid": _C.INVALID_ARGUMENT,
     "InsufficientTaoBalance": _C.INSUFFICIENT_BALANCE,
     "InsufficientAlphaBalance": _C.INSUFFICIENT_BALANCE,

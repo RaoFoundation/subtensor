@@ -88,8 +88,12 @@ class Collateral(_ReadNamespace):
         miner at registration.
         """
 
-    async def miner_collateral(self, netuid: int, hotkey_ss58: str, *, block: Optional[int] = None) -> Optional[dict]:
-        """A miner hotkey's standing collateral on a subnet, or None if it has none.
+    async def miner_collateral(self, netuid: int, hotkey_ss58: str, coldkey_ss58: str | None = None, *, block: Optional[int] = None) -> Optional[dict]:
+        """A `(hotkey, coldkey)` stake position's standing collateral, or None.
+
+        Collateral is keyed by hotkey + coldkey so nominators on the same hotkey are
+        never charged for the owner's bond. When `coldkey_ss58` is omitted, the
+        hotkey owner is used.
 
         `locked_alpha` is non-withdrawable stake released through earned incentive
         at `drain_ratio` alpha per alpha earned; `min_locked_alpha` is the
@@ -103,7 +107,7 @@ class Collateral(_ReadNamespace):
         """
 
     async def subnet_collateral(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
-        """Every miner hotkey with standing collateral on a subnet.
+        """Every `(hotkey, coldkey)` position with standing collateral on a subnet.
 
         The list validator code reads to enforce a per-machine collateral
         requirement: each record carries the locked amount, the miner's

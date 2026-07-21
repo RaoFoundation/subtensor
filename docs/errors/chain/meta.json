@@ -114,6 +114,7 @@
     "HotKeyAccountNotExists",
     "HotKeyAlreadyDelegate",
     "HotKeyAlreadyRegisteredInSubNet",
+    "HotKeyHasCollateral",
     "HotKeyNotRegisteredInNetwork",
     "HotKeyNotRegisteredInSubNet",
     "HotKeySetTxRateLimitExceeded",

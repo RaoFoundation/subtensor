@@ -26,7 +26,9 @@ def _fixed_to_float(value: Any) -> float:
     return int(value or 0) / 2**64
 
 
-def _collateral_record(view, netuid: int, hotkey: str, state: Any) -> Optional[dict]:
+def _collateral_record(
+    view, netuid: int, hotkey: str, coldkey: str, state: Any
+) -> Optional[dict]:
     if not isinstance(state, dict):
         return None
     locked = int(state.get("locked") or 0)
@@ -40,6 +42,7 @@ def _collateral_record(view, netuid: int, hotkey: str, state: Any) -> Optional[d
     shortfall = max(min_locked - locked, 0)
     return {
         "hotkey": hotkey,
+        "coldkey": coldkey,
         "netuid": netuid,
         "locked_alpha": view.balance(locked, netuid),
         "min_locked_alpha": view.balance(min_locked, netuid),
@@ -55,15 +58,22 @@ def _collateral_record(view, netuid: int, hotkey: str, state: Any) -> Optional[d
 
 @read(
     "miner_collateral",
-    {"netuid": "integer", "hotkey_ss58": "string"},
+    {"netuid": "integer", "hotkey_ss58": "string", "coldkey_ss58": "string"},
     category="Mining & collateral",
     param_docs={
         "netuid": "Subnet to query.",
-        "hotkey_ss58": "Miner hotkey whose collateral to read.",
+        "hotkey_ss58": "Miner hotkey of the bonded stake position.",
+        "coldkey_ss58": "Coldkey of the bonded stake position. Defaults to the hotkey owner.",
     },
 )
-async def miner_collateral(view, netuid: int, hotkey_ss58: str) -> Optional[dict]:
-    """A miner hotkey's standing collateral on a subnet, or None if it has none.
+async def miner_collateral(
+    view, netuid: int, hotkey_ss58: str, coldkey_ss58: str | None = None
+) -> Optional[dict]:
+    """A `(hotkey, coldkey)` stake position's standing collateral, or None.
+
+    Collateral is keyed by hotkey + coldkey so nominators on the same hotkey are
+    never charged for the owner's bond. When `coldkey_ss58` is omitted, the
+    hotkey owner is used.
 
     `locked_alpha` is non-withdrawable stake released through earned incentive
     at `drain_ratio` alpha per alpha earned; `min_locked_alpha` is the
@@ -75,8 +85,14 @@ async def miner_collateral(view, netuid: int, hotkey_ss58: str) -> Optional[dict
     headroom). The lock survives deregistration and is credited on
     re-registration.
     """
-    state = await view.query(_MINER_COLLATERAL, [netuid, hotkey_ss58])
-    return _collateral_record(view, netuid, hotkey_ss58, state)
+    coldkey = coldkey_ss58
+    if coldkey is None:
+        owner = await view.query(st.SubtensorModule.Owner, [hotkey_ss58])
+        if owner is None:
+            return None
+        coldkey = str(owner)
+    state = await view.query(_MINER_COLLATERAL, [netuid, hotkey_ss58, coldkey])
+    return _collateral_record(view, netuid, hotkey_ss58, coldkey, state)
 
 
 @read(
@@ -86,7 +102,7 @@ async def miner_collateral(view, netuid: int, hotkey_ss58: str) -> Optional[dict
     param_docs={"netuid": "Subnet to query."},
 )
 async def subnet_collateral(view, netuid: int) -> list[dict]:
-    """Every miner hotkey with standing collateral on a subnet.
+    """Every `(hotkey, coldkey)` position with standing collateral on a subnet.
 
     The list validator code reads to enforce a per-machine collateral
     requirement: each record carries the locked amount, the miner's
@@ -96,23 +112,23 @@ async def subnet_collateral(view, netuid: int) -> list[dict]:
     """
     view = await view.at()
     rows = await view.query_map(_MINER_COLLATERAL, [netuid])
-    records = [
-        _collateral_record(view, netuid, str(hotkey), state) for hotkey, state in rows
-    ]
-    entries = [r for r in records if r]
-    uids, owners = await asyncio.gather(
-        view.query_batch(
-            st.SubtensorModule.Uids, [[netuid, entry["hotkey"]] for entry in entries]
-        ),
-        view.query_batch(
-            st.SubtensorModule.Owner, [[entry["hotkey"]] for entry in entries]
-        ),
+    records = []
+    for key, state in rows:
+        # NMap remainder after the netuid prefix: (hotkey, coldkey).
+        if isinstance(key, (list, tuple)) and len(key) >= 2:
+            hotkey, coldkey = str(key[0]), str(key[1])
+        else:
+            continue
+        record = _collateral_record(view, netuid, hotkey, coldkey, state)
+        if record:
+            records.append(record)
+    uids = await view.query_batch(
+        st.SubtensorModule.Uids, [[netuid, entry["hotkey"]] for entry in records]
     )
-    for entry, uid, owner in zip(entries, uids, owners):
+    for entry, uid in zip(records, uids):
         entry["uid"] = int(uid) if uid is not None else None
-        entry["coldkey"] = str(owner) if owner is not None else None
-    entries.sort(key=lambda entry: -entry["locked_alpha"].rao)
-    return entries
+    records.sort(key=lambda entry: -entry["locked_alpha"].rao)
+    return records
 
 
 @read(

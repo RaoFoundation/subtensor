@@ -2402,29 +2402,35 @@ mod dispatches {
             )
         }
 
-        /// Stakes `tao` to the signer's own hotkey and locks the resulting
-        /// alpha as additional miner collateral on the subnet.
+        /// Locks about `tao` worth of additional miner collateral on the
+        /// signer's own hotkey.
         ///
-        /// Used to top up the registration collateral voluntarily — for
-        /// example to meet a validator-published per-machine requirement on
-        /// resource subnets. The lock is released back through earned
-        /// incentive exactly like registration collateral (it is the same
-        /// lock), keeps the existing drain-ratio snapshot, and is credited
-        /// against the collateral requirement on re-registration.
+        /// Prefers free alpha already staked on that `(hotkey, coldkey)`
+        /// position (valued at the subnet moving price) and only buys the
+        /// shortfall with TAO. Used to top up registration collateral
+        /// voluntarily — for example to meet a validator-published
+        /// per-machine requirement on resource subnets. The lock is released
+        /// back through earned incentive exactly like registration
+        /// collateral (it is the same lock), keeps the existing drain-ratio
+        /// snapshot, and is credited against the collateral requirement on
+        /// re-registration.
         ///
         /// # Arguments
         /// * `origin`: Signed by the coldkey that owns `hotkey`.
         /// * `netuid`: The subnet to lock collateral on.
         /// * `hotkey`: The miner hotkey the collateral attaches to.
-        /// * `tao`: TAO to stake and lock; must be at least the minimum stake.
+        /// * `tao`: TAO-value of collateral to add. Fully covered by free
+        ///   stake when possible; otherwise the unpaid remainder is bought
+        ///   (that remainder must meet the staking minimum).
         ///
         /// # Errors
         /// * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network.
         /// * `SubnetNotExists`: The subnet does not exist.
         /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
         /// * `NonAssociatedColdKey`: The signer does not own `hotkey`.
-        /// * `AmountTooLow`: `tao` is below the minimum stake.
-        /// * `NotEnoughBalanceToStake`: The coldkey cannot cover `tao`.
+        /// * `AmountTooLow`: `tao` converts to zero alpha, or the buy
+        ///   remainder is below the minimum stake.
+        /// * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder.
         ///
         /// # Events
         /// Emits `CollateralLocked` on success.

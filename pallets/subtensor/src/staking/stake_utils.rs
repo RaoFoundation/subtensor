@@ -750,6 +750,11 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<TaoBalance, DispatchError> {
+        // Refuse to strip conviction-locked or collateral-bonded alpha even when
+        // callers (e.g. alpha fee withdrawal) skip the remove-stake validators.
+        Self::ensure_available_to_unstake(coldkey, netuid, alpha)?;
+        Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha)?;
+
         //  Decrease alpha on subnet
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
 
@@ -1371,7 +1376,7 @@ impl<T: Config> Pallet<T> {
             // Same-subnet, ownership-changing transfer. Conviction locks follow the
             // stake to the destination coldkey via `transfer_lock`, but miner
             // registration collateral has no transfer exit and does not follow — its
-            // `MinerCollateral(netuid, hotkey)` entry stays on the origin hotkey. Without
+            // `MinerCollateral(netuid, hotkey, coldkey)` stays on the origin. Without
             // this check, a coldkey could liberate locked collateral by transferring the
             // staked alpha to a second coldkey. Require the origin coldkey to retain
             // enough alpha on the subnet to still cover its collateral.

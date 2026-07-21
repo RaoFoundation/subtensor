@@ -23,19 +23,40 @@ def show_collateral(
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
+    coldkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("coldkey_ss58"),
+        help=(
+            f"{ss58_param_help('coldkey_ss58')} Defaults to the hotkey owner "
+            "(collateral is keyed by hotkey + coldkey)."
+        ),
+    ),
 ):
-    """Show a miner hotkey's collateral on a subnet.
+    """Show a `(hotkey, coldkey)` position's collateral on a subnet.
 
     Includes the locked amount (non-withdrawable stake released through
     earned incentive), the self-maintained floor, the drain-ratio snapshot,
-    and the subnet's collateral policy.
+    and the subnet's collateral policy. Omit `--coldkey` to use the hotkey
+    owner.
     """
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    # Omit → read looks up the hotkey owner. Only resolve when the user
+    # explicitly passed a coldkey (address-book name, wallet, or ss58).
+    coldkey = (
+        app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+        if coldkey_ss58 is not None
+        else None
+    )
 
     async def _op(client):
         collateral, policy = await asyncio.gather(
-            client.read("miner_collateral", netuid=netuid, hotkey_ss58=hotkey),
+            client.read(
+                "miner_collateral",
+                netuid=netuid,
+                hotkey_ss58=hotkey,
+                coldkey_ss58=coldkey,
+            ),
             client.read("collateral_policy", netuid=netuid),
         )
         return {"collateral": collateral, "policy": policy}
@@ -50,7 +71,7 @@ def list_collateral(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help="Subnet to query."),
 ):
-    """List every miner hotkey with standing collateral on a subnet.
+    """List every `(hotkey, coldkey)` position with standing collateral on a subnet.
 
     The same view validator code uses to enforce a per-machine collateral
     requirement, sorted by locked amount.
@@ -81,14 +102,15 @@ def add_collateral(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
 ):
-    """Stake TAO to your hotkey and lock it as additional miner collateral."""
+    """Lock additional miner collateral (free stake first, then buy shortfall)."""
     app_ctx: AppContext = ctx_of(ctx)
     try:
         amount = _parse_money(amount_tao, False)
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
         raise typer.Exit(2)
-    app_ctx.submit(AddCollateral(netuid=netuid, amount_tao=amount, hotkey_ss58=hotkey_ss58))
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    app_ctx.submit(AddCollateral(netuid=netuid, amount_tao=amount, hotkey_ss58=hotkey))
 
 
 @app.command("set-min")
@@ -123,4 +145,5 @@ def set_min_collateral(
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--min-alpha`: {error}")
         raise typer.Exit(2)
-    app_ctx.submit(SetMinCollateral(netuid=netuid, min_alpha=amount, hotkey_ss58=hotkey_ss58))
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    app_ctx.submit(SetMinCollateral(netuid=netuid, min_alpha=amount, hotkey_ss58=hotkey))

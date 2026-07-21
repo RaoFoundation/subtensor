@@ -361,17 +361,18 @@ pub mod pallet {
         Recycle,
     }
 
-    /// Miner registration collateral for a hotkey on a subnet.
+    /// Miner registration collateral for a `(hotkey, coldkey)` stake position
+    /// on a subnet.
     ///
-    /// The locked alpha is real stake owned by the miner's coldkey on the
-    /// hotkey, flagged non-withdrawable. It is released back to free stake at
+    /// The locked alpha is real stake owned by that coldkey on the hotkey,
+    /// flagged non-withdrawable. It is released back to free stake at
     /// `drain_ratio` alpha per alpha of miner incentive earned, survives
     /// deregistration, and is credited against the collateral requirement at
-    /// the next registration of the same hotkey.
-    #[crate::freeze_struct("9b3e4a614376337e")]
+    /// the next registration of the same `(hotkey, coldkey)` pair.
+    #[crate::freeze_struct("2c60af250ccb992b")]
     #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
     pub struct MinerCollateralState {
-        /// Alpha still locked (non-withdrawable) for this hotkey on this subnet.
+        /// Alpha still locked (non-withdrawable) on this stake position.
         pub locked: AlphaBalance,
         /// Snapshot of the subnet's drain ratio (k) at the last registration.
         pub drain_ratio: U64F64,
@@ -2811,20 +2812,39 @@ pub mod pallet {
     pub type CollateralDrainRatio<T> =
         StorageMap<_, Identity, NetUid, U64F64, ValueQuery, DefaultCollateralDrainRatio<T>>;
 
-    /// DMAP ( netuid, hotkey ) --> MinerCollateralState
+    /// NMAP ( netuid, hotkey, coldkey ) --> MinerCollateralState
     ///
-    /// Standing registration collateral of a miner hotkey on a subnet. The
-    /// entry persists across deregistration and is only removed when fully
-    /// drained through earned incentive.
+    /// Standing registration collateral of a `(hotkey, coldkey)` stake
+    /// position on a subnet. Keyed by coldkey so nominators on the same
+    /// hotkey are never charged for the owner's bond. The entry persists
+    /// across deregistration and is only removed when fully drained through
+    /// earned incentive.
     #[pallet::storage]
-    pub type MinerCollateral<T: Config> = StorageDoubleMap<
+    pub type MinerCollateral<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,               // subnet
+            NMapKey<Blake2_128Concat, T::AccountId>, // hot
+            NMapKey<Blake2_128Concat, T::AccountId>, // cold
+        ),
+        MinerCollateralState,
+        OptionQuery,
+    >;
+
+    /// MAP ( netuid, coldkey ) --> total locked miner collateral
+    ///
+    /// O(1) aggregate of `MinerCollateral.locked` across that coldkey's hotkeys
+    /// on the subnet. Kept in sync by collateral credit / settle paths so
+    /// unstake availability checks do not scan `OwnedHotkeys`.
+    #[pallet::storage]
+    pub type ColdkeyMinerCollateral<T: Config> = StorageDoubleMap<
         _,
         Identity,
         NetUid,
         Blake2_128Concat,
         T::AccountId,
-        MinerCollateralState,
-        OptionQuery,
+        AlphaBalance,
+        ValueQuery,
     >;
 
     /// MAP ( hotkey ) --> parent_delegation_enabled

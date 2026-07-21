@@ -1,5 +1,5 @@
 ---
-name: skeptic
+name: skeptc
 description: Run the security-focused Skeptic persona on the local working tree's diff against a base branch. Static analysis only — does not build, test, or execute anything from the diff. Outputs a verdict comment and a suggested-changes patch file. Use when the user wants to security-review a branch before pushing.
 ---
 

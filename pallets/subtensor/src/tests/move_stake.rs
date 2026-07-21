@@ -1357,10 +1357,9 @@ fn test_do_transfer_stake_and_hotkey_same_subnet_respects_collateral() {
             netuid,
         );
 
-        // Flag the origin hotkey's whole position as registration collateral.
+        // Flag the origin (hotkey, coldkey) position as registration collateral.
         MinerCollateral::<Test>::insert(
-            netuid,
-            origin_hotkey,
+            (netuid, origin_hotkey, origin_coldkey),
             MinerCollateralState {
                 locked: alpha,
                 drain_ratio: U64F64::from_num(1),
@@ -1368,6 +1367,7 @@ fn test_do_transfer_stake_and_hotkey_same_subnet_respects_collateral() {
                 earned: AlphaBalance::ZERO,
             },
         );
+        ColdkeyMinerCollateral::<Test>::insert(netuid, origin_coldkey, alpha);
 
         // Same-subnet transfer to a second coldkey must be rejected: it would
         // liberate the locked collateral.

@@ -1,10 +1,10 @@
 use super::*;
+use frame_support::storage::{TransactionOutcome, with_transaction};
 use sp_core::{H256, U256};
 use sp_io::hashing::{keccak_256, sha2_256};
 use sp_runtime::Saturating;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, Token};
-use subtensor_swap_interface::SwapHandler;
 use system::pallet_prelude::BlockNumberFor;
 
 const LOG_TARGET: &str = "runtime::subtensor::registration";
@@ -77,7 +77,7 @@ impl<T: Config> Pallet<T> {
             Self::get_collateral_requirement_tao(netuid, registration_cost);
         let burned_share: TaoBalance = registration_cost.saturating_sub(collateral_requirement);
         let collateral_topup: TaoBalance =
-            Self::get_collateral_topup_tao(netuid, &hotkey, registration_cost);
+            Self::get_collateral_topup_tao(netuid, &hotkey, &coldkey, registration_cost);
         let total_charge: TaoBalance = burned_share.saturating_add(collateral_topup);
 
         ensure!(
@@ -107,44 +107,40 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // 8) burn payment of the burned share (same mechanics as old burned_register)
-        let actual_burn_amount =
-            Self::transfer_tao_to_subnet(netuid, &coldkey, burned_share.into())?;
+        // 8–12) one atomic payment (burn + collateral) then register. A failure
+        // after the swap must not leave a partial charge.
+        with_transaction(|| {
+            let result = (|| -> Result<u16, DispatchError> {
+                Self::pay_registration(
+                    netuid,
+                    &hotkey,
+                    &coldkey,
+                    burned_share,
+                    collateral_topup,
+                )?;
 
-        let burned_alpha = Self::swap_tao_for_alpha(
-            netuid,
-            actual_burn_amount,
-            T::SwapInterface::max_price(),
-            false,
-        )?
-        .amount_paid_out;
+                let neuron_uid = Self::register_neuron(netuid, &hotkey)?;
 
-        SubnetAlphaOut::<T>::mutate(netuid, |total| {
-            *total = total.saturating_sub(burned_alpha.into())
-        });
+                Self::bump_registration_price_after_registration(netuid);
+                RegistrationsThisBlock::<T>::mutate(netuid, |val| val.saturating_inc());
+                Self::increase_rao_recycled(netuid, burned_share.into());
 
-        // 8b) stake and lock the collateral share (top-up over standing collateral)
-        Self::lock_miner_collateral(netuid, &hotkey, &coldkey, collateral_topup)?;
+                log::debug!(
+                    "NeuronRegistered( netuid:{netuid:?} uid:{neuron_uid:?} hotkey:{hotkey:?} )"
+                );
+                Self::deposit_event(Event::NeuronRegistered(
+                    netuid,
+                    neuron_uid,
+                    hotkey.clone(),
+                ));
+                Ok(neuron_uid)
+            })();
 
-        // 9) register neuron
-        let neuron_uid: u16 = Self::register_neuron(netuid, &hotkey)?;
-
-        // 10) immediate burn bump for subsequent registrations in this block
-        Self::bump_registration_price_after_registration(netuid);
-
-        // 11) counters
-        RegistrationsThisBlock::<T>::mutate(netuid, |val| val.saturating_inc());
-        Self::increase_rao_recycled(netuid, burned_share.into());
-
-        // Record TAO inflow of the burned share; the collateral share records
-        // its own inflow inside the staking path.
-        Self::record_tao_inflow(netuid, actual_burn_amount);
-
-        // 12) event
-        log::debug!("NeuronRegistered( netuid:{netuid:?} uid:{neuron_uid:?} hotkey:{hotkey:?} )");
-        Self::deposit_event(Event::NeuronRegistered(netuid, neuron_uid, hotkey));
-
-        Ok(())
+            match result {
+                Ok(_) => TransactionOutcome::Commit(Ok(())),
+                Err(e) => TransactionOutcome::Rollback(Err(e)),
+            }
+        })
     }
 
     pub fn do_register_limit(

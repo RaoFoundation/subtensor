@@ -1503,9 +1503,11 @@ impl<T: Config> Pallet<T> {
         let mut earned_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
         for uid in 0..n {
             let hotkey = Keys::<T>::get(netuid, uid);
-            let (locked, min_locked, earned) = MinerCollateral::<T>::get(netuid, &hotkey)
-                .map(|s| (s.locked, s.min_locked, s.earned))
-                .unwrap_or((AlphaBalance::ZERO, AlphaBalance::ZERO, AlphaBalance::ZERO));
+            let coldkey = Owner::<T>::get(&hotkey);
+            let (locked, min_locked, earned) =
+                MinerCollateral::<T>::get((netuid, &hotkey, &coldkey))
+                    .map(|s| (s.locked, s.min_locked, s.earned))
+                    .unwrap_or((AlphaBalance::ZERO, AlphaBalance::ZERO, AlphaBalance::ZERO));
             locked_vec.push(locked.into());
             min_vec.push(min_locked.into());
             earned_vec.push(earned.into());

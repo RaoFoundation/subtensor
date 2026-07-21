@@ -311,6 +311,25 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
                 AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
             );
 
+            // Worst case for coinbase: every incentivized miner has standing
+            // collateral that must be settled (below-floor capture path: read +
+            // stake write + locked/aggregate updates). Only seed epoch-due
+            // subnets so ambient live state stays cheap.
+            if epoch_is_due_this_block {
+                let locked = AlphaBalance::from(VALIDATOR_ALPHA_STAKE / 4);
+                let min_locked = AlphaBalance::from(VALIDATOR_ALPHA_STAKE);
+                MinerCollateral::<T>::insert(
+                    (netuid, &hotkey, &coldkey),
+                    MinerCollateralState {
+                        locked,
+                        drain_ratio: U64F64::saturating_from_num(1),
+                        min_locked,
+                        earned: AlphaBalance::ZERO,
+                    },
+                );
+                ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, locked);
+            }
+
             if uid < MAINNET_VALIDATORS_PER_SUBNET {
                 Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
                 Weights::<T>::insert(netuid_index, uid, dense_weights.clone());

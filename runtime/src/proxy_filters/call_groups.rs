@@ -305,6 +305,8 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
+        RuntimeCall::SubtensorModule(SubtensorCall::add_collateral),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_min_collateral),
     ]
 );
 
@@ -527,6 +529,8 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_burn_increase_mult),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_cut_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_cut_auto_lock_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_lock_share),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_drain_ratio),
     ]
 );
 

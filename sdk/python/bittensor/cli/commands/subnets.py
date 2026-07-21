@@ -380,12 +380,14 @@ def register_subnet(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
 ):
-    """Register a hotkey on a subnet by burning TAO.
+    """Register a hotkey on a subnet by paying the registration cost.
 
-    Recycles the subnet's current burn cost from the wallet coldkey to
-    give the hotkey a neuron slot (UID). The burned TAO is not
-    recoverable, and the cost fluctuates with registration demand; check
-    it first with `btcli subnets burn-cost`.
+    Pays the subnet's current floating registration cost from the wallet
+    coldkey for a neuron slot (UID). When the subnet's collateral lock
+    share is zero the full cost is burned/recycled; when it is positive,
+    that share is staked and locked as miner collateral (released only
+    through earned incentive). Check the current cost with
+    `btcli subnets burn-cost`.
     """
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey_ss58))

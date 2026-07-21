@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 433
+Spec version: 435
 
 Pallet constant descriptors: unpack into substrate.constant.
 """
@@ -56,6 +56,7 @@ class SubtensorModule:
     InitialMaxBurn = Item('SubtensorModule', 'InitialMaxBurn')
     InitialMinBurn = Item('SubtensorModule', 'InitialMinBurn')
     InitialMinStake = Item('SubtensorModule', 'InitialMinStake')
+    InitialMinTransfer = Item('SubtensorModule', 'InitialMinTransfer')
     MinBurnUpperBound = Item('SubtensorModule', 'MinBurnUpperBound')
     MaxBurnLowerBound = Item('SubtensorModule', 'MaxBurnLowerBound')
     MinTempo = Item('SubtensorModule', 'MinTempo')

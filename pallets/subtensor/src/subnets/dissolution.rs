@@ -175,7 +175,9 @@ impl<T: Config> Pallet<T> {
             // pro-rata converted to coldkey free TAO in AlphaInOutStakesSettleStakes;
             // unlocking here would double-pay. Clearing drops the now-meaningless
             // MinerCollateral rows for the dissolved netuid.
-            MinerCollateral::<T>::clear_prefix(netuid, limit, None)
+            MinerCollateral::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyMinerCollateral::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {

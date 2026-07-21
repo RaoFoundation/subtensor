@@ -24,7 +24,7 @@ top-up = max(0, p × T − value of standing collateral)
 
 The burned share is recycled exactly like a pre-collateral registration; the
 top-up is staked to the hotkey via the normal staking path and locked
-([`lock_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L121-L178)).
+([`pay_registration`](/code/pallets/subtensor/src/subnets/collateral.rs)).
 Standing collateral from a previous registration of the same hotkey is valued
 at the subnet's moving-average price and credited, so a pruned miner re-registers for
 roughly the burned share alone. Locked collateral is excluded from what the

@@ -1,8 +1,8 @@
 [
   {
     "name": "add_collateral",
-    "summary": "Stake TAO to your own hotkey and lock it as additional miner collateral.",
-    "description": "Stake TAO to your own hotkey and lock it as additional miner collateral.\n\nTops up the hotkey's registration collateral on the subnet \u2014 for example\nto meet a validator-published per-machine requirement on resource\nsubnets. The signing coldkey must own the hotkey, because the lock is\ncharged against the owner's stake. The locked alpha is real stake (it\nappreciates with the subnet pool) but is not withdrawable: it is released\nback to free stake through earned miner incentive at the drain ratio\nsnapshot the hotkey already carries, survives deregistration, and is\ncredited against the collateral requirement on re-registration. There is\nno direct withdrawal path \u2014 see `set_min_collateral` for maintaining a\nlevel without re-locking drained funds.",
+    "summary": "Lock additional miner collateral on your own hotkey.",
+    "description": "Lock additional miner collateral on your own hotkey.\n\nTops up the hotkey's registration collateral on the subnet \u2014 for example\nto meet a validator-published per-machine requirement on resource\nsubnets. Prefers free alpha already staked on that hotkey (valued at the\nsubnet moving price) and only buys the shortfall with TAO from the\ncoldkey. The signing coldkey must own the hotkey. The locked alpha is\nreal stake (it appreciates with the subnet pool) but is not\nwithdrawable: it is released back to free stake through earned miner\nincentive at the drain ratio snapshot the hotkey already carries,\nsurvives deregistration, and is credited against the collateral\nrequirement on re-registration. There is no direct withdrawal path \u2014\nsee `set_min_collateral` for maintaining a level without re-locking\ndrained funds.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -31,7 +31,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO to stake and lock as collateral (min: the staking minimum)."
+          "description": "TAO-value of collateral to add. Uses free stake on the hotkey first; only the shortfall is bought (that remainder must meet the staking minimum)."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -51,9 +51,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2433,
-        "end_line": 2440,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2431-L2440"
+        "line": 2439,
+        "end_line": 2446,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2437-L2446"
       }
     ]
   },
@@ -427,8 +427,8 @@
   },
   {
     "name": "burned_register",
-    "summary": "Register a hotkey on a subnet by recycling TAO.",
-    "description": "Register a hotkey on a subnet by recycling TAO.\n\nBurns the subnet's current registration cost from the signing coldkey and\nassigns the hotkey a UID on that subnet. The burned TAO is recycled, not\nstaked \u2014 it cannot be recovered by deregistering. The cost floats with\nregistration demand and is only known at execution time, so a configured\nspend cap blocks this call until raised. Fails with\n`SubNetRegistrationDisabled` while the subnet's `registration_allowed`\ntoggle is off. On a full subnet, registering evicts the non-immune neuron\nwith the lowest emission (ties broken by older registration block, then\nlower UID), and the new UID can itself be evicted once its immunity\nperiod ends. Use `root_register` instead for the root network\n(netuid 0).",
+    "summary": "Register a hotkey on a subnet by paying the registration cost.",
+    "description": "Register a hotkey on a subnet by paying the registration cost.\n\nPays the subnet's current floating registration cost from the signing\ncoldkey and assigns the hotkey a UID. When the subnet's collateral lock\nshare (p) is zero, the full cost is burned/recycled. When p > 0, the\n`(1 - p)` share is burned and the `p` share is staked to the hotkey and\nlocked as miner collateral (released only through earned incentive). The\nexact TAO charge is only known at execution time, so a configured spend\ncap blocks this call until raised. Fails with\n`SubNetRegistrationDisabled` while the subnet's `registration_allowed`\ntoggle is off. On a full subnet, registering evicts the non-immune neuron\nwith the lowest emission (ties broken by older registration block, then\nlower UID), and the new UID can itself be evicted once its immunity\nperiod ends. Use `root_register` instead for the root network\n(netuid 0).",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3015,9 +3015,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2467,
-        "end_line": 2474,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2465-L2474"
+        "line": 2473,
+        "end_line": 2480,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2471-L2480"
       }
     ]
   },

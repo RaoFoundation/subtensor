@@ -1289,9 +1289,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Measured:  `35625320`
 		//  Estimated: `38160710`
 		// Minimum execution time: 163_391_001_000 picoseconds.
-		Weight::from_parts(165_779_408_000, 38160710)
-			.saturating_add(T::DbWeight::get().reads(13926_u64))
-			.saturating_add(T::DbWeight::get().writes(7064_u64))
+		// Bumped for worst-case collateral settle on epoch-due miners
+		// (MaxEpochsPerBlock × n, capture path). Re-measure with
+		// `scripts/benchmark_all.sh pallet_subtensor` after collateral seeding
+		// in `setup_block_step_benchmark`.
+		Weight::from_parts(200_000_000_000, 42_000_000)
+			.saturating_add(T::DbWeight::get().reads(16_500_u64))
+			.saturating_add(T::DbWeight::get().writes(9_200_u64))
 	}
 
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -1660,18 +1664,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(20_u64))
 			.saturating_add(T::DbWeight::get().writes(8_u64))
 	}
-	// Mirrors `add_stake` (same staking path) plus the MinerCollateral
-	// read/write, until the benchmark run regenerates this file.
+	// Worst case: lock-from-existing-stake + buy shortfall (`add_stake` path) +
+	// two MinerCollateral / ColdkeyMinerCollateral updates. Conservative until
+	// `scripts/benchmark_all.sh pallet_subtensor` regenerates measured values.
 	fn add_collateral() -> Weight {
-		Weight::from_parts(682_328_000, 8727)
-			.saturating_add(T::DbWeight::get().reads(33_u64))
-			.saturating_add(T::DbWeight::get().writes(17_u64))
+		Weight::from_parts(950_000_000, 12_000)
+			.saturating_add(T::DbWeight::get().reads(48_u64))
+			.saturating_add(T::DbWeight::get().writes(24_u64))
 	}
-	// Ownership checks plus one MinerCollateral mutation; estimate pending a
-	// measured run.
+	// Ownership checks plus one MinerCollateral mutation (and optional insert).
 	fn set_min_collateral() -> Weight {
-		Weight::from_parts(50_000_000, 4467)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
+		Weight::from_parts(60_000_000, 5_000)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
@@ -4676,9 +4680,10 @@ impl WeightInfo for () {
 		//  Measured:  `35625320`
 		//  Estimated: `38160710`
 		// Minimum execution time: 163_391_001_000 picoseconds.
-		Weight::from_parts(165_779_408_000, 38160710)
-			.saturating_add(RocksDbWeight::get().reads(13926_u64))
-			.saturating_add(RocksDbWeight::get().writes(7064_u64))
+		// Bumped for worst-case collateral settle on epoch-due miners.
+		Weight::from_parts(200_000_000_000, 42_000_000)
+			.saturating_add(RocksDbWeight::get().reads(16_500_u64))
+			.saturating_add(RocksDbWeight::get().writes(9_200_u64))
 	}
 
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -5047,18 +5052,15 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(20_u64))
 			.saturating_add(RocksDbWeight::get().writes(8_u64))
 	}
-	// Mirrors `add_stake` (same staking path) plus the MinerCollateral
-	// read/write, until the benchmark run regenerates this file.
+	// Worst case: lock-from-existing-stake + buy shortfall + collateral updates.
 	fn add_collateral() -> Weight {
-		Weight::from_parts(682_328_000, 8727)
-			.saturating_add(RocksDbWeight::get().reads(33_u64))
-			.saturating_add(RocksDbWeight::get().writes(17_u64))
+		Weight::from_parts(950_000_000, 12_000)
+			.saturating_add(RocksDbWeight::get().reads(48_u64))
+			.saturating_add(RocksDbWeight::get().writes(24_u64))
 	}
-	// Ownership checks plus one MinerCollateral mutation; estimate pending a
-	// measured run.
 	fn set_min_collateral() -> Weight {
-		Weight::from_parts(50_000_000, 4467)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
+		Weight::from_parts(60_000_000, 5_000)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:2 w:0)
