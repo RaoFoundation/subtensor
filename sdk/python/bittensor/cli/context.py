@@ -19,6 +19,7 @@ import typer
 
 from .. import config as cfg
 from .. import wallets
+from .._generated import runtime_apis, storage
 from ..client import Client
 from ..extension.client import BridgeError
 from ..ledger import LedgerError, LedgerSigner
@@ -406,10 +407,48 @@ class AppContext:
         self._register_local_names(wallet)
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
         registration_quote = None
+        registration_flow = None
         summary = intent.summary()
         if intent.op == "register_subnet":
-            registration_quote = self.run(lambda client: client.read("subnet_registration_cost"))
-            summary += f" for {registration_quote.decimal:,f} TAO"
+
+            async def _registration_preview(client):
+                block = await client.block()
+                quote_rao = await client.runtime(
+                    runtime_apis.SubnetRegistrationRuntimeApi.get_network_registration_cost,
+                    [],
+                    block=block,
+                )
+                quote = client.balance(int(quote_rao))
+                if self.assume_yes:
+                    return quote, None
+                networks, subnet_limit, cleanup_queue, registration_queue = await asyncio.gather(
+                    client.query_map(storage.SubtensorModule.NetworksAdded, block=block),
+                    client.query(storage.SubtensorModule.SubnetLimit, block=block),
+                    client.query(storage.SubtensorModule.DissolveCleanupQueue, block=block),
+                    client.query(storage.SubtensorModule.NetworkRegistrationQueue, block=block),
+                )
+                active = sum(1 for netuid, added in networks if int(netuid) != 0 and bool(added))
+                cleanup_queue = list(cleanup_queue or [])
+                registration_queue = list(registration_queue or [])
+                if active + len(cleanup_queue) < int(subnet_limit):
+                    return quote, "immediate · no deregistration needed"
+                if len(cleanup_queue) > len(registration_queue):
+                    target = int(cleanup_queue[0]) if cleanup_queue else None
+                    flow = "queued · waits for deregistration cleanup"
+                    if target is not None:
+                        flow += f" of subnet {target}"
+                    return quote, flow
+                prune = await client.runtime(
+                    runtime_apis.SubnetInfoRuntimeApi.get_subnet_to_prune,
+                    [],
+                    block=block,
+                )
+                if prune is None:
+                    return quote, "blocked · no subnet is eligible for deregistration"
+                return quote, f"queued · deregisters subnet {int(prune)} before registration"
+
+            registration_quote, registration_flow = self.run(_registration_preview)
+            summary += f" for {registration_quote.decimal:,.9f} TAO"
         summary += f" [as {proxy_for} via proxy]" if proxy_for else ""
         if shield:
             summary += " [MEV-shielded]"
@@ -454,6 +493,8 @@ class AppContext:
 
             self.run(_prepare)
 
+        if registration_flow is not None and not self.assume_yes:
+            self.output.message(f"[dim]{registration_flow}[/dim]")
         self.confirm(f"{summary}?")
 
         # Native keyfiles unlock synchronously on their first signature.  Do it
@@ -499,8 +540,10 @@ class AppContext:
                 activity_update(text, True)
             elif stage == "waiting":
                 subject = f"subnet {cleanup} cleanup" if cleanup is not None else "cleanup"
+                elapsed = int(progress.get("blocks_since_call", 0))
+                unit = "block" if elapsed == 1 else "blocks"
                 activity_update(
-                    f"{subject} · block {progress.get('block')} · waiting for NetworkAdded",
+                    f"{subject} · {elapsed} {unit} since call · waiting for NetworkAdded",
                     False,
                 )
             elif stage == "registered":
