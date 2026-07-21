@@ -3,6 +3,12 @@ pragma solidity ^0.8.0;
 address constant ISTAKING_ADDRESS = 0x0000000000000000000000000000000000000805;
 
 interface IStaking {
+    /// A coldkey's non-zero alpha stake position on a subnet.
+    struct StakeInfo {
+        bytes32 hotkey;
+        uint256 stake;
+    }
+
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey`.
      *
@@ -152,6 +158,19 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
+     * @dev Returns the coldkey's non-zero alpha stake positions on `netuid`.
+     * Hotkeys with no stake on that subnet are omitted.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet to query.
+     * @return positions The coldkey's hotkeys and alpha stake amounts on `netuid`.
+     */
+    function getStakeInfoForColdkeyAndNetuid(
+        bytes32 coldkey,
+        uint256 netuid
+    ) external view returns (StakeInfo[] memory positions);
+
+    /**
      * @dev Delegates staking to a proxy account.
      *
      * @param delegate The public key (32 bytes) of the delegate.
@@ -204,6 +223,18 @@ interface IStaking {
      * @return The minimum required stake for a nominator.
      */
     function getNominatorMinRequiredStake() external view returns (uint256);
+
+    /**
+     * @dev Returns the runtime-configured base TAO threshold used by stake operations.
+     * Depending on the operation, fees, price conversion, and full-unstake rules
+     * can make the exact accepted input differ from this base value.
+     *
+     * @return threshold The current DefaultMinStake value in rao.
+     */
+    function getStakeOperationThreshold()
+        external
+        view
+        returns (uint256 threshold);
 
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.
@@ -340,7 +371,7 @@ interface IStaking {
     function allowance(
         address sourceAddress,
         address spenderAddress,
-        uint256 netuid,
+        uint256 netuid
     ) external view returns (uint256);
 
     /**
