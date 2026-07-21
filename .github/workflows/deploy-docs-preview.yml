@@ -184,7 +184,10 @@ jobs:
 
           verified=$(echo "$resp" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).verified === true ? "yes" : "no"')
           if [ "$verified" != "yes" ]; then
-            challenge=$(echo "$resp" | node -pe '
+            # Use `node -e`, not `-pe`: `-p` also prints the expression
+            # result, and `stdout.write` returns true, which corrupted the
+            # TXT value to "...<token>true" and broke Vercel verification.
+            challenge=$(echo "$resp" | node -e '
               const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
               const v = (d.verification || []).find((x) => x.type === "TXT");
               if (!v) { process.stderr.write("no TXT challenge\n"); process.exit(1); }
