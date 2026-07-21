@@ -46,11 +46,18 @@ This installs both the `btcli` command and the `bittensor` Python package.
 
 ## Machine-readable everything
 
-If you are an agent (or building one), you never need to scrape these pages:
+If you are an agent (or building one), you never need to scrape these pages.
+See [For agents → Searching these docs](/docs/agents#searching-these-docs)
+for the curl/grep recipes.
 
-- [`/llms.txt`](/llms.txt) — index of every page; [`/llms-full.txt`](/llms-full.txt) — the entire docs in one file.
-- Every page is fetchable as raw markdown: append `content.md` under `/llms.mdx/docs/...` (linked from each page).
+- [`/llms.txt`](/llms.txt) — curated index (start here).
+- [`/llms-full.txt`](/llms-full.txt) — entire docs corpus in one file (for
+  `rg`, not for stuffing into context).
+- Every page as raw markdown: `/llms.mdx/docs/<slug>/content.md` (linked from
+  each page).
 - [`/catalog/intents.json`](/catalog/intents.json) — every transaction with its JSON schema, signer, and summary.
 - [`/catalog/reads.json`](/catalog/reads.json) — every query with parameters and docs.
 - [`/catalog/errors.json`](/catalog/errors.json) — every error code with remediation, and the full chain-error classification.
+- Chain Rust source: [`/code/index.json`](/code/index.json), then
+  `/code/raw/<repo-path>`.
 - The same catalogs, live from the tool itself: `btcli tools` on the CLI, `bt.intents.list_tools()` in Python.

@@ -9,6 +9,33 @@ before it spends anything, every failure returns a machine-readable code with a
 remediation hint, and a `Policy` can hard-bound what a session is allowed to
 do. Nothing here requires parsing human prose.
 
+## Searching these docs
+
+Everything below is plain text over HTTP, so you can grep it as if it were local:
+
+```bash
+# Curated index (start here)
+curl -s https://www.bittensor.com/llms.txt
+
+# Full docs corpus (every page in one file)
+curl -s https://www.bittensor.com/llms-full.txt | rg -n '<pattern>'
+
+# One page as markdown
+curl -s https://www.bittensor.com/llms.mdx/docs/quickstart/content.md
+
+# Chain source: list paths, then fetch a file
+curl -s https://www.bittensor.com/code/index.json
+curl -s https://www.bittensor.com/code/raw/pallets/subtensor/src/lib.rs | rg -n '<pattern>'
+
+# Heavy exploration: clone the repo (docs live in docs/)
+git clone --depth 1 https://github.com/RaoFoundation/subtensor
+```
+
+Prefer [`/llms.txt`](/llms.txt) plus per-page `content.md` and the JSON
+catalogs below over dumping [`/llms-full.txt`](/llms-full.txt) into context.
+`llms-full.txt` is for offline search and RAG, not for loading whole into a
+session.
+
 ## Discover the operations
 
 ```bash
@@ -25,15 +52,7 @@ The same catalogs are published statically by these docs:
 [`/catalog/intents.json`](/catalog/intents.json),
 [`/catalog/reads.json`](/catalog/reads.json),
 [`/catalog/errors.json`](/catalog/errors.json). Each entry includes a
-`docs_url` pointing at its reference page, and every docs page is fetchable as
-raw markdown (see the copy-markdown link on any page, or
-[`/llms-full.txt`](/llms-full.txt) for everything at once).
-
-The chain's Rust source is browsable at `/code/<repo path>` (e.g.
-[`/code/pallets/subtensor/src/lib.rs`](/code/pallets/subtensor/src/lib.rs)),
-with `#L12` / `#L12-L34` line anchors that highlight the span; a
-machine-readable file index is at [`/code/index.json`](/code/index.json), and
-plain text at `/code/raw/<path>`.
+`docs_url` pointing at its reference page.
 
 ## Execute by name
 

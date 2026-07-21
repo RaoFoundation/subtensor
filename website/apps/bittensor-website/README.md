@@ -24,10 +24,12 @@ uv run python ../../website/apps/bittensor-website/scripts/generate.py --check  
 
 Everything else under `docs/` is hand-written.
 
-Agent-facing endpoints: `/llms.txt`, `/llms-full.txt`, raw markdown for every
-page under `/llms.mdx/docs/<slug>/content.md`, the catalogs at
-`/catalog/{intents,reads,errors}.json`, and the chain Rust source at `/code`
-(plain text at `/code/raw/<path>`, machine-readable index at `/code/index.json`).
+Agent-facing endpoints: `/llms.txt` (curated index + search tips; omits per-op
+reference listings), `/llms-full.txt` (full prose dump for offline `rg`/RAG),
+raw markdown for every page under `/llms.mdx/docs/<slug>/content.md`, the
+catalogs at `/catalog/{intents,reads,errors}.json`, and the chain Rust source
+at `/code` (plain text at `/code/raw/<path>`, machine-readable index at
+`/code/index.json`). See `docs/agents.mdx` § Searching these docs.
 
 ## Development
 
