@@ -294,11 +294,11 @@ fn cancel_order_works() {
     });
 }
 
-/// An order signed with an Ed25519 key is rejected at validation time even
+/// An order signed with an ECDSA key is rejected at validation time even
 /// though the signature itself is cryptographically valid. The order must not
 /// appear in the Orders storage map after the batch runs.
 #[test]
-fn execute_orders_ed25519_signature_rejected() {
+fn execute_orders_ecdsa_signature_rejected() {
     new_test_ext().execute_with(|| {
         let alice_id = Sr25519Keyring::Alice.to_account_id();
         let bob_id = Sr25519Keyring::Bob.to_account_id();
@@ -322,12 +322,12 @@ fn execute_orders_ed25519_signature_rejected() {
         });
         let id = order_id(&order);
 
-        // Sign with ed25519 — valid signature, wrong scheme.
-        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
-        let ed_sig = ed_pair.sign(&order.encode());
+        // Sign with ecdsa — valid signature, unsupported scheme.
+        let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
+        let signature = pair.sign(&order.encode());
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature: MultiSignature::Ecdsa(signature),
             partial_fill: None,
         };
 
