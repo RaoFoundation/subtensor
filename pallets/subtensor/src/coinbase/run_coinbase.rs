@@ -790,8 +790,7 @@ impl<T: Config> Pallet<T> {
                 Self::get_hotkey_take_float(&hotkey).saturating_mul(alpha_divs);
             let nominator_divs: U96F32 = alpha_divs.saturating_sub(alpha_take);
             let take: AlphaBalance = tou64!(alpha_take).into();
-            let captured =
-                Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
             let liquid_take = take.saturating_sub(captured);
             if !liquid_take.is_zero() {
                 log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
@@ -824,8 +823,7 @@ impl<T: Config> Pallet<T> {
                 Self::get_hotkey_take_float(&hotkey).saturating_mul(root_alpha);
             let root_claimable: U96F32 = root_alpha.saturating_sub(alpha_take);
             let take: AlphaBalance = tou64!(alpha_take).into();
-            let captured =
-                Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
             let liquid_take = take.saturating_sub(captured);
             if !liquid_take.is_zero() {
                 log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
