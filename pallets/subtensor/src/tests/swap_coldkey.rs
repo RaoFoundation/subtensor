@@ -2016,10 +2016,10 @@ fn dispute_coldkey_swap(who: U256) {
 fn seed_collateral_row(netuid: NetUid, hotkey: U256, coldkey: U256, state: MinerCollateralState) {
     let locked = state.locked;
     MinerCollateral::<Test>::insert((netuid, hotkey, coldkey), state);
-    let aggregate = ColdkeyMinerCollateral::<Test>::get(netuid, coldkey).saturating_add(locked);
+    let aggregate = ColdkeyMinerCollateral::<Test>::get(netuid, coldkey) + locked;
     ColdkeyMinerCollateral::<Test>::insert(netuid, coldkey, aggregate);
     ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
-        if !hotkeys.iter().any(|h| *h == hotkey) {
+        if !hotkeys.contains(&hotkey) {
             hotkeys
                 .try_push(hotkey)
                 .expect("test collateral index within bound");

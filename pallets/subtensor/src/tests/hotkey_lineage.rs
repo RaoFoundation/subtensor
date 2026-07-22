@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
@@ -234,6 +234,75 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
             ),
             Error::<Test>::KeepStakeBlockedByCollateral
         );
+    });
+}
+
+/// At the collateral-hotkey cap, a rename must reserve the destination slot by
+/// rewriting the old index entry in place — never mutate first and fail after.
+#[test]
+fn test_bonded_hotkey_swap_renames_index_at_cap() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let h0 = U256::from(2);
+        let h1 = U256::from(3);
+
+        let netuid = add_dynamic_network(&h0, &coldkey);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+
+        // Fill the index to capacity with filler hotkeys, then overwrite the
+        // last slot with the bonded hotkey we will swap.
+        for i in 0..MAX_COLDKEY_COLLATERAL_HOTKEYS {
+            let hot = U256::from(10_000u64 + u64::from(i));
+            MinerCollateral::<Test>::insert(
+                (netuid, hot, coldkey),
+                MinerCollateralState {
+                    locked: AlphaBalance::from(1u64),
+                    drain_ratio: U64F64::from_num(1),
+                    min_locked: AlphaBalance::ZERO,
+                    earned: AlphaBalance::ZERO,
+                },
+            );
+            ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
+                hotkeys.try_push(hot).unwrap();
+            });
+        }
+        // Replace the last indexed filler with h0 (the registered bonded hotkey).
+        let last = U256::from(10_000u64 + u64::from(MAX_COLDKEY_COLLATERAL_HOTKEYS - 1));
+        MinerCollateral::<Test>::remove((netuid, last, coldkey));
+        MinerCollateral::<Test>::insert(
+            (netuid, h0, coldkey),
+            MinerCollateralState {
+                locked: AlphaBalance::from(40_000_000_000u64),
+                drain_ratio: U64F64::from_num(1),
+                min_locked: AlphaBalance::ZERO,
+                earned: AlphaBalance::ZERO,
+            },
+        );
+        ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
+            let idx = hotkeys.iter().position(|h| *h == last).unwrap();
+            hotkeys[idx] = h0;
+        });
+        ColdkeyMinerCollateral::<Test>::insert(
+            netuid,
+            coldkey,
+            AlphaBalance::from(40_000_000_031u64),
+        );
+
+        System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &h0,
+            &h1,
+            Some(netuid),
+            false,
+        ));
+
+        assert!(MinerCollateral::<Test>::get((netuid, h0, coldkey)).is_none());
+        assert!(MinerCollateral::<Test>::get((netuid, h1, coldkey)).is_some());
+        let indexed = ColdkeyCollateralHotkeys::<Test>::get(netuid, coldkey);
+        assert!(indexed.contains(&h1));
+        assert!(!indexed.contains(&h0));
+        assert_eq!(indexed.len(), MAX_COLDKEY_COLLATERAL_HOTKEYS as usize);
     });
 }
 

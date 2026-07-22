@@ -2905,7 +2905,7 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// DMAP ( netuid, coldkey ) --> BoundedVec\<hotkey\>
+    /// DMAP ( netuid, coldkey ) --> BoundedVec of hotkeys
     ///
     /// Hotkeys with a standing [`MinerCollateral`] row for this coldkey on the
     /// subnet. Kept in sync by collateral create / remove / swap paths so

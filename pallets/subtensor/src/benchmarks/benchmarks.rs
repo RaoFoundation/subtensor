@@ -935,8 +935,9 @@ mod pallet_benchmarks {
         let alpha_in = AlphaBalance::from(100_000_000_000_000_u64);
         set_reserves::<T>(netuid, tao_reserve, alpha_in);
 
-        let wallet_bal = 1000000u32.into();
-        add_balance_to_coldkey_account::<T>(&coldkey.clone(), wallet_bal);
+        // Registration now requires keep-alive coverage of the burn; fund
+        // above burn + ED rather than exactly the burn amount.
+        fund_for_registration::<T>(netuid, &coldkey);
 
         assert_ok!(Subtensor::<T>::burned_register(
             RawOrigin::Signed(coldkey.clone()).into(),
@@ -988,8 +989,8 @@ mod pallet_benchmarks {
         let alpha_in = AlphaBalance::from(100_000_000_000_000_u64);
         set_reserves::<T>(netuid, tao_reserve, alpha_in);
 
-        let wallet_bal = 1000000u32.into();
-        add_balance_to_coldkey_account::<T>(&coldkey.clone(), wallet_bal);
+        // Registration now requires keep-alive coverage of the burn.
+        fund_for_registration::<T>(netuid, &coldkey);
         add_lock::<T>(&coldkey, netuid);
 
         assert_ok!(Subtensor::<T>::burned_register(
@@ -1713,8 +1714,8 @@ mod pallet_benchmarks {
         let alpha_in = AlphaBalance::from(100_000_000_000_000_u64);
         set_reserves::<T>(netuid, tao_reserve, alpha_in);
 
-        let wallet_bal = 1000000u32.into();
-        add_balance_to_coldkey_account::<T>(&coldkey.clone(), wallet_bal);
+        // Registration now requires keep-alive coverage of the burn.
+        fund_for_registration::<T>(netuid, &coldkey);
         add_lock::<T>(&coldkey, netuid);
 
         assert_ok!(Subtensor::<T>::burned_register(

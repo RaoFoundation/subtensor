@@ -95,7 +95,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
     ) -> Result<(), Error<T>> {
         ColdkeyCollateralHotkeys::<T>::try_mutate(netuid, coldkey, |hotkeys| {
-            if hotkeys.iter().any(|h| h == hotkey) {
+            if hotkeys.contains(hotkey) {
                 return Ok(());
             }
             hotkeys
@@ -739,6 +739,34 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Ensure the destination hotkey will have an index slot before any
+    /// collateral mutation. Renames the old index entry in place when possible
+    /// so a coldkey already at the cap can still swap; otherwise reserves a
+    /// new slot (failing closed if the cap is full).
+    fn prepare_hotkey_collateral_index_swap(
+        netuid: NetUid,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        if !MinerCollateral::<T>::contains_key((netuid, old_hotkey, coldkey)) {
+            return Ok(());
+        }
+        let mut hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, coldkey);
+        let old_pos = hotkeys.iter().position(|h| h == old_hotkey);
+        let new_indexed = hotkeys.contains(new_hotkey);
+        if new_indexed {
+            return Ok(());
+        }
+        if let Some(i) = old_pos {
+            hotkeys[i] = new_hotkey.clone();
+            ColdkeyCollateralHotkeys::<T>::insert(netuid, coldkey, hotkeys);
+            return Ok(());
+        }
+        // Legacy / unindexed source row: require a free destination slot now.
+        Self::index_coldkey_collateral_hotkey(netuid, coldkey, new_hotkey)
+    }
+
     /// Move the collateral entry when a hotkey is swapped. The coldkey is
     /// unchanged (ownership stays with the same coldkey); only the hotkey leg
     /// of the key moves. If the new `(hotkey, coldkey)` already has collateral
@@ -749,16 +777,18 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         netuid: NetUid,
     ) -> Result<(), Error<T>> {
+        // Reserve / rename the index slot before mutating rows so a full-cap
+        // failure cannot leave the swap half-applied.
+        Self::prepare_hotkey_collateral_index_swap(netuid, old_hotkey, new_hotkey, coldkey)?;
         let Some(old_state) = MinerCollateral::<T>::take((netuid, old_hotkey, coldkey)) else {
             return Ok(());
         };
         MinerCollateral::<T>::mutate((netuid, new_hotkey, coldkey), |maybe_state| {
             Self::merge_miner_collateral_state(maybe_state, old_state);
         });
-        // Deindex the vacated old hotkey before indexing the destination so a
-        // coldkey already at the position cap can still rename in place.
+        // Drop any leftover old-hotkey index entry (no-op if already renamed).
         Self::deindex_coldkey_collateral_hotkey(netuid, coldkey, old_hotkey);
-        Self::sync_coldkey_collateral_hotkey_index(netuid, new_hotkey, coldkey)
+        Ok(())
     }
 
     /// Move the collateral entry when a coldkey is swapped. The hotkey is
@@ -774,6 +804,14 @@ impl<T: Config> Pallet<T> {
     ) -> Result<(), Error<T>> {
         if old_coldkey == new_coldkey {
             return Ok(());
+        }
+        if !MinerCollateral::<T>::contains_key((netuid, hotkey, old_coldkey)) {
+            return Ok(());
+        }
+        // Reserve the destination index slot before mutating so a full-cap
+        // failure cannot leave the coldkey swap half-applied.
+        if !MinerCollateral::<T>::contains_key((netuid, hotkey, new_coldkey)) {
+            Self::index_coldkey_collateral_hotkey(netuid, new_coldkey, hotkey)?;
         }
         let Some(old_state) = MinerCollateral::<T>::take((netuid, hotkey, old_coldkey)) else {
             return Ok(());
@@ -792,7 +830,7 @@ impl<T: Config> Pallet<T> {
         });
         let dest_after = Self::get_miner_collateral_locked(netuid, hotkey, new_coldkey);
         Self::adjust_coldkey_miner_collateral(new_coldkey, netuid, dest_before, dest_after);
-        Self::sync_coldkey_collateral_hotkey_index(netuid, hotkey, new_coldkey)
+        Ok(())
     }
 
     /// Migrate every miner-collateral row for `old_coldkey` on `netuid` onto
