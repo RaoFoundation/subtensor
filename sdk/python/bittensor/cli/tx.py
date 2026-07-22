@@ -230,15 +230,16 @@ def _make_command(intent_cls: type[Intent]):
             source is not None
             and kwargs.get(source[0]) is None
             and not app_ctx.assume_yes
-            and not app_ctx.uses_extension_signer()
+            and not app_ctx.uses_external_signer()
             and interactive(app_ctx)
         ):
             hotkey_field, netuid_field = source
             missing = [spec for spec in missing if spec.field != hotkey_field]
             missing.insert(0, stake_source_spec(hotkey_field, netuid_field))
         # The signing wallet is confirmed too (Enter accepts the configured
-        # default); --yes and the extension signer keep the flag-only flow.
-        if not app_ctx.assume_yes and not app_ctx.uses_extension_signer():
+        # default); --yes and external signers (extension, Ledger, Vault) keep
+        # the flag-only flow — the signing key lives outside the wallet files.
+        if not app_ctx.assume_yes and not app_ctx.uses_external_signer():
             missing = (
                 signer_specs(
                     app_ctx,

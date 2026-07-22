@@ -171,6 +171,33 @@ class TestTransactions:
         assert (call.module, call.function) == ("Balances", "transfer_keep_alive")
         assert call.params["value"] == 1_500_000_000
 
+    def test_ledger_signer_skips_wallet_prompt(self, fake: FakeSubstrate, monkeypatch):
+        """`--ledger` must not confirm the signing wallet: the key lives on the
+        device, so the wallet prompt (and its non-interactive default) does not
+        apply — same flag-only flow as the extension signer."""
+        import bittensor.cli.tx as cli_tx
+
+        signer_spec_calls = []
+        real_signer_specs = cli_tx.signer_specs
+
+        def tracked_signer_specs(*args, **kwargs):
+            signer_spec_calls.append(args)
+            return real_signer_specs(*args, **kwargs)
+
+        monkeypatch.setattr(cli_tx, "signer_specs", tracked_signer_specs)
+        submitted = []
+        monkeypatch.setattr(
+            cli_context.AppContext, "submit", lambda self, *a, **k: submitted.append(a)
+        )
+
+        invoke("tx", "transfer", "--dest", BOB, "--amount-tao", "1.5", "--ledger")
+        assert signer_spec_calls == []
+        assert len(submitted) == 1
+
+        # The default wallet-signer flow still confirms the signing wallet.
+        invoke("tx", "transfer", "--dest", BOB, "--amount-tao", "1.5")
+        assert len(signer_spec_calls) == 1
+
     def test_failed_extrinsic_exits_nonzero(self, fake: FakeSubstrate):
         from bittensor.result import ChainError, ExtrinsicResult
 
