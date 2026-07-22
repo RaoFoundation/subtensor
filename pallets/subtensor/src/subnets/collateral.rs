@@ -425,21 +425,29 @@ impl<T: Config> Pallet<T> {
     /// (miner incentive or validator dividends). Called from the emission
     /// distribution path.
     ///
+    /// `emission` drives lifetime earned and the release rate
+    /// (`k × emission`). `capturable` is the maximum that may be diverted
+    /// into the lock when below the floor — it must be value that already
+    /// belongs to `owner` (full miner incentive, or only the validator's
+    /// take from a dividend pool). Nominator / root-claimable shares must
+    /// never be passed as capturable.
+    ///
     /// Two directions around the miner-set floor (`min_locked`):
-    /// - Below the floor, emission is captured into the lock until the floor
-    ///   is met. The captured share is staked to the hotkey itself (the
-    ///   guarded position), never to an auto-stake destination.
+    /// - Below the floor, up to `min(capturable, shortfall)` is captured into
+    ///   the lock (staked to the hotkey itself, never an auto-stake
+    ///   destination).
     /// - Above the floor, `min(drain_ratio * emission, locked - min_locked)`
     ///   is released back to withdrawable stake.
     ///
     /// Returns the captured amount; the caller credits only the remainder of
-    /// the emission to the usual destination. The entry is removed once fully
+    /// the capturable slice to the owner. The entry is removed once fully
     /// drained with no floor set.
     pub fn settle_miner_collateral(
         netuid: NetUid,
         hotkey: &T::AccountId,
         owner: &T::AccountId,
         emission: AlphaBalance,
+        capturable: AlphaBalance,
     ) -> AlphaBalance {
         if emission.is_zero() {
             return AlphaBalance::ZERO;
@@ -455,7 +463,10 @@ impl<T: Config> Pallet<T> {
 
                 let shortfall = state.min_locked.saturating_sub(state.locked);
                 if !shortfall.is_zero() {
-                    let captured = emission.min(shortfall);
+                    let captured = capturable.min(shortfall);
+                    if captured.is_zero() {
+                        return AlphaBalance::ZERO;
+                    }
                     Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                         hotkey, owner, netuid, captured,
                     );

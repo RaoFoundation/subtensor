@@ -738,9 +738,10 @@ impl<T: Config> Pallet<T> {
             // emission is captured into the lock (staked to the registered
             // hotkey itself, never the auto-stake destination, so it lands on
             // the guarded position); above the floor, earned emission
-            // releases locked collateral. Only the uncaptured remainder is
-            // credited below.
-            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, incentive);
+            // releases locked collateral. Miner incentive is fully
+            // capturable. Only the uncaptured remainder is credited below.
+            let captured =
+                Self::settle_miner_collateral(netuid, &hotkey, &owner, incentive, incentive);
             let liquid = incentive.saturating_sub(captured);
             if liquid.is_zero() {
                 continue;
@@ -777,72 +778,77 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| U96F32::saturating_from_num(0));
         MinerBurned::<T>::insert(netuid, withheld_proportion);
 
-        // Distribute alpha divs. Settle collateral against the hotkey's full
-        // dividend emission first (same path as miner incentive), then split
-        // only the uncaptured remainder into take + nominator shares.
+        // Distribute alpha divs. Split take vs nominators first so nominator
+        // shares can never be floor-captured into owner collateral. Full
+        // dividend emission still drives release rate / earned; only the
+        // validator take is capturable.
         let _ = AlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
         for (hotkey, alpha_divs) in alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(alpha_divs).into();
-            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total);
-            let liquid_alpha = total.saturating_sub(captured);
-            if !liquid_alpha.is_zero() {
-                let liquid: U96F32 = U96F32::saturating_from_num(liquid_alpha.to_u64());
-                let alpha_take: U96F32 =
-                    Self::get_hotkey_take_float(&hotkey).saturating_mul(liquid);
-                let nominator_divs: U96F32 = liquid.saturating_sub(alpha_take);
-                log::debug!("hotkey: {hotkey:?} alpha_take: {alpha_take:?}");
+            let alpha_take: U96F32 =
+                Self::get_hotkey_take_float(&hotkey).saturating_mul(alpha_divs);
+            let nominator_divs: U96F32 = alpha_divs.saturating_sub(alpha_take);
+            let take: AlphaBalance = tou64!(alpha_take).into();
+            let captured =
+                Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     &hotkey,
                     &owner,
                     netuid,
-                    tou64!(alpha_take).into(),
+                    liquid_take,
                 );
+            }
+            let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
+            if !nominator_alpha.is_zero() {
                 log::debug!("hotkey: {hotkey:?} alpha_divs: {nominator_divs:?}");
-                Self::increase_stake_for_hotkey_on_subnet(
-                    &hotkey,
-                    netuid,
-                    tou64!(nominator_divs).into(),
-                );
+                Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
                 AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                    *divs = divs.saturating_add(tou64!(nominator_divs).into());
+                    *divs = divs.saturating_add(nominator_alpha);
                 });
             }
             let total_hotkey_alpha = TotalHotkeyAlpha::<T>::get(&hotkey, netuid);
             TotalHotkeyAlphaLastEpoch::<T>::insert(hotkey, netuid, total_hotkey_alpha);
         }
 
-        // Distribute root alpha divs. Same emission-based collateral settle
-        // as subnet alpha dividends before take / root-claimable split.
+        // Distribute root alpha divs. Same ownership rule: full root emission
+        // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
         for (hotkey, root_alpha) in root_alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(root_alpha).into();
-            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total);
-            let liquid_alpha = total.saturating_sub(captured);
-            if liquid_alpha.is_zero() {
-                continue;
+            let alpha_take: U96F32 =
+                Self::get_hotkey_take_float(&hotkey).saturating_mul(root_alpha);
+            let root_claimable: U96F32 = root_alpha.saturating_sub(alpha_take);
+            let take: AlphaBalance = tou64!(alpha_take).into();
+            let captured =
+                Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &owner,
+                    netuid,
+                    liquid_take,
+                );
             }
-            let liquid: U96F32 = U96F32::saturating_from_num(liquid_alpha.to_u64());
-            let alpha_take: U96F32 = Self::get_hotkey_take_float(&hotkey).saturating_mul(liquid);
-            let root_claimable: U96F32 = liquid.saturating_sub(alpha_take);
-            log::debug!("hotkey: {hotkey:?} alpha_take: {alpha_take:?}");
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                &owner,
-                netuid,
-                tou64!(alpha_take).into(),
-            );
 
-            Self::increase_root_claimable_for_hotkey_and_subnet(
-                &hotkey,
-                netuid,
-                tou64!(root_claimable).into(),
-            );
+            let root_claimable_alpha: AlphaBalance = tou64!(root_claimable).into();
+            if !root_claimable_alpha.is_zero() {
+                Self::increase_root_claimable_for_hotkey_and_subnet(
+                    &hotkey,
+                    netuid,
+                    root_claimable_alpha,
+                );
 
-            RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                *divs = divs.saturating_add(tou64!(root_claimable).into());
-            });
+                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(root_claimable_alpha);
+                });
+            }
         }
     }
 
