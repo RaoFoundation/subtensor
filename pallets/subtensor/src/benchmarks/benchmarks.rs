@@ -1669,7 +1669,9 @@ mod pallet_benchmarks {
             AlphaBalance::from(100_000_000_000_u64),
         );
 
-        add_balance_to_coldkey_account::<T>(&coldkey.clone(), 1000000u32.into());
+        // Registration now requires keep-alive coverage of the burn; fund
+        // above burn + ED rather than a flat token amount.
+        fund_for_registration::<T>(netuid, &coldkey);
 
         assert_ok!(Subtensor::<T>::burned_register(
             RawOrigin::Signed(coldkey.clone()).into(),

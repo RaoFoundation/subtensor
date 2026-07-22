@@ -811,7 +811,11 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
         if let Some(i) = old_pos {
-            hotkeys[i] = new_hotkey.clone();
+            let Some(slot) = hotkeys.get_mut(i) else {
+                // `position` implies a valid index; reserve instead if not.
+                return Self::index_coldkey_collateral_hotkey(netuid, coldkey, new_hotkey);
+            };
+            *slot = new_hotkey.clone();
             ColdkeyCollateralHotkeys::<T>::insert(netuid, coldkey, hotkeys);
             return Ok(());
         }
