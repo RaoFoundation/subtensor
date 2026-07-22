@@ -393,6 +393,28 @@ fn update_mechanism_counts_increases() {
 }
 
 #[test]
+fn emission_split_requires_one_entry_per_mechanism() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(42u16);
+        NetworksAdded::<Test>::insert(netuid, true);
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2u8));
+
+        assert_noop!(
+            SubtensorModule::do_set_emission_split(netuid, Some(vec![u16::MAX])),
+            Error::<Test>::InvalidValue
+        );
+        assert!(MechanismEmissionSplit::<Test>::get(netuid).is_none());
+
+        let split = vec![u16::MAX / 2, u16::MAX - u16::MAX / 2];
+        assert_ok!(SubtensorModule::do_set_emission_split(
+            netuid,
+            Some(split.clone())
+        ));
+        assert_eq!(MechanismEmissionSplit::<Test>::get(netuid), Some(split));
+    });
+}
+
+#[test]
 fn split_emissions_even_division() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(5u16);
