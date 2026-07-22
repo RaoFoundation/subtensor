@@ -2121,6 +2121,69 @@ fn test_do_swap_coldkey_migrates_miner_collateral() {
     });
 }
 
+// Regression: a zero-locked floor (`locked == 0`, `min_locked > 0`) still has a
+// standing MinerCollateral row and index entry, but ColdkeyMinerCollateral is
+// already zero. Coldkey swap must migrate that row — not early-return on the
+// locked aggregate.
+#[test]
+fn test_do_swap_coldkey_migrates_zero_locked_min_collateral_floor() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let old_coldkey = U256::from(1);
+        let new_coldkey = U256::from(2);
+        let hotkey = U256::from(3);
+        let min_locked = AlphaBalance::from(40_000_000_000u64);
+        let earned = AlphaBalance::from(9u64);
+
+        let _ = SubtensorModule::create_account_if_non_existent(&old_coldkey, &hotkey);
+        seed_collateral_row(
+            netuid,
+            hotkey,
+            old_coldkey,
+            MinerCollateralState {
+                locked: AlphaBalance::ZERO,
+                drain_ratio: U64F64::from_num(1),
+                min_locked,
+                earned,
+            },
+        );
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, old_coldkey),
+            AlphaBalance::ZERO,
+            "zero-locked floor must leave the locked aggregate empty"
+        );
+        assert!(
+            !ColdkeyCollateralHotkeys::<Test>::get(netuid, old_coldkey).is_empty(),
+            "zero-locked floor must remain indexed"
+        );
+
+        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+
+        assert!(
+            MinerCollateral::<Test>::get((netuid, hotkey, old_coldkey)).is_none(),
+            "old coldkey zero-locked floor must be cleared"
+        );
+        assert!(ColdkeyCollateralHotkeys::<Test>::get(netuid, old_coldkey).is_empty());
+        assert_eq!(
+            ColdkeyCollateralHotkeys::<Test>::get(netuid, new_coldkey).into_inner(),
+            vec![hotkey]
+        );
+
+        let migrated = MinerCollateral::<Test>::get((netuid, hotkey, new_coldkey))
+            .expect("zero-locked floor must move to new coldkey");
+        assert_eq!(migrated.locked, AlphaBalance::ZERO);
+        assert_eq!(migrated.min_locked, min_locked);
+        assert_eq!(migrated.earned, earned);
+        assert_eq!(
+            ColdkeyMinerCollateral::<Test>::get(netuid, new_coldkey),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
 // Regression: a late failure inside do_swap_coldkey must roll back collateral
 // migration together with the stake move (storage transaction).
 #[test]

@@ -893,18 +893,18 @@ impl<T: Config> Pallet<T> {
     /// `new_coldkey`.
     ///
     /// Walks the bounded [`ColdkeyCollateralHotkeys`] index (not unbounded
-    /// `StakingHotkeys` / `OwnedHotkeys` association vectors). Skips when the
-    /// aggregate is already zero. Requires the aggregate to clear afterward so
-    /// an unindexed / orphaned row fails closed rather than under-locking the
-    /// destination unstake guard.
+    /// `StakingHotkeys` / `OwnedHotkeys` association vectors). Always walks
+    /// the index — do not gate on [`ColdkeyMinerCollateral`] being non-zero,
+    /// because a standing row can have `locked == 0` with a non-zero
+    /// `min_locked` / `earned` floor (e.g. after [`Self::do_set_min_collateral`])
+    /// while the locked aggregate is already cleared. Requires the aggregate
+    /// to clear afterward so an unindexed / orphaned locked row fails closed
+    /// rather than under-locking the destination unstake guard.
     pub fn transfer_coldkey_miner_collateral(
         netuid: NetUid,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
-        if ColdkeyMinerCollateral::<T>::get(netuid, old_coldkey).is_zero() {
-            return Ok(());
-        }
         let hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, old_coldkey);
         for hotkey in hotkeys {
             Self::transfer_miner_collateral_coldkey(netuid, &hotkey, old_coldkey, new_coldkey)?;
