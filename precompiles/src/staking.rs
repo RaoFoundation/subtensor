@@ -31,7 +31,6 @@
 // provided only in `transferStakeFrom`.
 
 use alloc::vec::Vec;
-use codec::{Compact, Encode};
 use core::marker::PhantomData;
 use frame_support::Blake2_128Concat;
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
@@ -56,8 +55,7 @@ use crate::{PrecompileExt, PrecompileHandleExt};
 // share storage. In the V2 fallback case it performs two reads for the initial
 // share lookup, then five more for the value, share, and denominator.
 const STAKE_INFO_READS_PER_HOTKEY: u64 = 7;
-const MAX_STAKE_INFO_PAGE_SIZE: u32 = 64;
-const ACCOUNT_ID_ENCODED_SIZE: usize = 32;
+const MAX_STAKE_INFO_HOTKEYS: usize = 64;
 
 /// Prefix for the Allowances map in Substrate storage.
 pub struct AllowancesPrefix;
@@ -348,112 +346,44 @@ where
         Ok(u64::from(stake).into())
     }
 
-    #[precompile::public("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)")]
+    #[precompile::public("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])")]
     #[precompile::view]
     fn get_stake_info_for_coldkey_and_netuid(
         handle: &mut impl PrecompileHandle,
         coldkey: H256,
         netuid: U256,
-        cursor: U256,
-        limit: U256,
-    ) -> EvmResult<(Vec<(H256, U256)>, U256)> {
+        hotkeys: Vec<H256>,
+    ) -> EvmResult<Vec<(H256, U256)>> {
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = NetUid::from(try_u16_from_u256(netuid)?);
-        let cursor = try_u32_from_u256(cursor)?;
-        let limit = try_u32_from_u256(limit)?;
 
-        if limit == 0 {
-            return Err(revert("stake info page limit must be greater than zero"));
-        }
-        if limit > MAX_STAKE_INFO_PAGE_SIZE {
-            return Err(revert("stake info page limit exceeds 64"));
+        if hotkeys.len() > MAX_STAKE_INFO_HOTKEYS {
+            return Err(revert("stake info hotkey count exceeds 64"));
         }
 
-        // Charge before even reading the SCALE vector length. `decode_len` reads
-        // only the compact length prefix and never allocates or decodes the
-        // historical, unbounded `StakingHotkeys` value.
-        handle.record_db_reads::<R>(1)?;
-        let hotkey_count =
-            pallet_subtensor::StakingHotkeys::<R>::decode_len(&coldkey).unwrap_or_default();
-        let cursor = usize::try_from(cursor).map_err(|_| revert("stake info cursor overflow"))?;
+        // Charge the conservative V2 fallback cost for the complete bounded
+        // batch before performing any stake reads.
+        let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
+        handle.record_db_reads::<R>(hotkey_count.saturating_mul(STAKE_INFO_READS_PER_HOTKEY))?;
 
-        if cursor >= hotkey_count {
-            return Ok((Vec::new(), U256::zero()));
-        }
-
-        let limit = usize::try_from(limit).map_err(|_| revert("stake info limit overflow"))?;
-        let page_end = cursor.saturating_add(limit).min(hotkey_count);
-        let scanned_count = page_end.saturating_sub(cursor);
-
-        // Charge the bounded raw page read and the worst-case V2 stake reads
-        // before allocating or reading the page bytes.
-        let scanned_count_u64: u64 = scanned_count.unique_saturated_into();
-        let page_reads =
-            1u64.saturating_add(scanned_count_u64.saturating_mul(STAKE_INFO_READS_PER_HOTKEY));
-        handle.record_db_reads::<R>(page_reads)?;
-
-        // AccountId32 has a fixed 32-byte SCALE encoding. Read only the requested
-        // slice from the encoded Vec instead of calling `StakingHotkeys::get()`,
-        // which would decode the entire unbounded historical vector.
-        if coldkey.encode().len() != ACCOUNT_ID_ENCODED_SIZE {
-            return Err(revert("unsupported account id encoding"));
-        }
-        let storage_key = pallet_subtensor::StakingHotkeys::<R>::hashed_key_for(&coldkey);
-        let compact_len = Compact(
-            u32::try_from(hotkey_count).map_err(|_| revert("staking hotkey count overflow"))?,
-        )
-        .encode()
-        .len();
-        let byte_offset = compact_len
-            .checked_add(
-                cursor
-                    .checked_mul(ACCOUNT_ID_ENCODED_SIZE)
-                    .ok_or_else(|| revert("stake info cursor overflow"))?,
-            )
-            .ok_or_else(|| revert("stake info cursor overflow"))?;
-        let page_byte_len = scanned_count
-            .checked_mul(ACCOUNT_ID_ENCODED_SIZE)
-            .ok_or_else(|| revert("stake info page size overflow"))?;
-        let storage_offset =
-            u32::try_from(byte_offset).map_err(|_| revert("stake info cursor overflow"))?;
-        let mut encoded_hotkeys = vec![0u8; page_byte_len];
-        let remaining = sp_io::storage::read(&storage_key, &mut encoded_hotkeys, storage_offset)
-            .ok_or_else(|| revert("staking hotkey storage disappeared"))?;
-        if usize::try_from(remaining).unwrap_or_default() < page_byte_len {
-            return Err(revert("invalid staking hotkey storage encoding"));
-        }
-
-        let hotkeys = encoded_hotkeys
-            .chunks_exact(ACCOUNT_ID_ENCODED_SIZE)
-            .map(|bytes| {
-                let mut account = [0u8; ACCOUNT_ID_ENCODED_SIZE];
-                account.copy_from_slice(bytes);
-                R::AccountId::from(account)
-            });
-
-        let positions = hotkeys
+        Ok(hotkeys
             .into_iter()
             .filter_map(|hotkey| {
+                let hotkey_account = R::AccountId::from(hotkey.0);
                 let stake =
                     pallet_subtensor::Pallet::<R>::get_stake_for_hotkey_and_coldkey_on_subnet(
-                        &hotkey, &coldkey, netuid,
+                        &hotkey_account,
+                        &coldkey,
+                        netuid,
                     )
                     .to_u64();
                 if stake == 0 {
                     return None;
                 }
 
-                let hotkey: [u8; 32] = hotkey.into();
-                Some((hotkey.into(), stake.into()))
+                Some((hotkey, stake.into()))
             })
-            .collect();
-        let next_cursor = if page_end < hotkey_count {
-            U256::from(page_end)
-        } else {
-            U256::zero()
-        };
-
-        Ok((positions, next_cursor))
+            .collect())
     }
 
     #[precompile::public("getAlphaStakedValidators(bytes32,uint256)")]
@@ -505,9 +435,9 @@ where
         Ok(stake.into())
     }
 
-    #[precompile::public("getStakeOperationThreshold()")]
+    #[precompile::public("getDefaultMinStake()")]
     #[precompile::view]
-    fn get_stake_operation_threshold(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
+    fn get_default_min_stake(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
         handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::DefaultMinStake::<R>::get()
             .to_u64()
@@ -1045,12 +975,6 @@ fn try_u16_from_u256(value: U256) -> Result<u16, PrecompileFailure> {
     })
 }
 
-fn try_u32_from_u256(value: U256) -> Result<u32, PrecompileFailure> {
-    value.try_into().map_err(|_| PrecompileFailure::Error {
-        exit_status: ExitError::Other("the value is outside of u32 bounds".into()),
-    })
-}
-
 fn try_u64_from_u256(value: U256) -> Result<u64, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("the value is outside of u64 bounds".into()),
@@ -1115,13 +1039,9 @@ mod tests {
         netuid
     }
 
-    fn stake_info_cost(scanned_count: usize) -> u64 {
-        let scanned_count = u64::try_from(scanned_count).expect("hotkey count fits in u64");
-        let reads = if scanned_count == 0 {
-            1
-        } else {
-            2u64.saturating_add(scanned_count.saturating_mul(STAKE_INFO_READS_PER_HOTKEY))
-        };
+    fn stake_info_cost(hotkey_count: usize) -> u64 {
+        let hotkey_count = u64::try_from(hotkey_count).expect("hotkey count fits in u64");
+        let reads = hotkey_count.saturating_mul(STAKE_INFO_READS_PER_HOTKEY);
         RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(reads)
     }
 
@@ -1254,7 +1174,7 @@ mod tests {
     }
 
     #[test]
-    fn staking_precompile_v2_pages_non_zero_stake_positions_for_requested_subnet() {
+    fn staking_precompile_v2_returns_non_zero_stake_positions_for_requested_hotkeys() {
         new_test_ext().execute_with(|| {
             let netuid = setup_staking_subnet();
             setup_staking_subnet_id(SECOND_NETUID_U16);
@@ -1269,65 +1189,36 @@ mod tests {
             add_stake_v2(caller, &hotkey_b, SECOND_NETUID_U16, INITIAL_STAKE_RAO);
             add_stake_v2(caller, &hotkey_c, TEST_NETUID_U16, INITIAL_STAKE_RAO);
 
-            let hotkeys = pallet_subtensor::Pallet::<Runtime>::get_all_staked_hotkeys(&coldkey);
-            let expected_first: Vec<(H256, U256)> = hotkeys
-                .iter()
-                .take(2)
+            let requested_hotkeys = vec![
+                H256::from_slice(hotkey_a.as_ref()),
+                H256::from_slice(hotkey_b.as_ref()),
+                H256::from_slice(hotkey_c.as_ref()),
+            ];
+            let expected: Vec<(H256, U256)> = [&hotkey_a, &hotkey_b, &hotkey_c]
+                .into_iter()
                 .filter_map(|hotkey| {
                     let stake = stake_for(hotkey, &coldkey, netuid);
                     (stake > 0).then(|| (H256::from_slice(hotkey.as_ref()), U256::from(stake)))
                 })
                 .collect();
-            let expected_second: Vec<(H256, U256)> = hotkeys
-                .iter()
-                .skip(2)
-                .filter_map(|hotkey| {
-                    let stake = stake_for(hotkey, &coldkey, netuid);
-                    (stake > 0).then(|| (H256::from_slice(hotkey.as_ref()), U256::from(stake)))
-                })
-                .collect();
-            assert_eq!(expected_first.len(), 1);
-            assert_eq!(expected_second.len(), 1);
+            assert_eq!(expected.len(), 2);
 
             precompiles::<StakingPrecompileV2<Runtime>>()
                 .prepare_test(
                     caller,
                     addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
                     encode_with_selector(
-                        selector_u32(
-                            "getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)",
-                        ),
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
                         (
                             H256::from_slice(coldkey.as_ref()),
                             U256::from(TEST_NETUID_U16),
-                            U256::zero(),
-                            U256::from(2),
+                            requested_hotkeys,
                         ),
                     ),
                 )
                 .with_static_call(true)
-                .expect_cost(stake_info_cost(2))
-                .execute_returns_raw(encode_return_value((expected_first, U256::from(2))));
-
-            precompiles::<StakingPrecompileV2<Runtime>>()
-                .prepare_test(
-                    caller,
-                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
-                    encode_with_selector(
-                        selector_u32(
-                            "getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)",
-                        ),
-                        (
-                            H256::from_slice(coldkey.as_ref()),
-                            U256::from(TEST_NETUID_U16),
-                            U256::from(2),
-                            U256::from(2),
-                        ),
-                    ),
-                )
-                .with_static_call(true)
-                .expect_cost(stake_info_cost(1))
-                .execute_returns_raw(encode_return_value((expected_second, U256::zero())));
+                .expect_cost(stake_info_cost(3))
+                .execute_returns_raw(encode_return_value(expected));
         });
     }
 
@@ -1337,29 +1228,24 @@ mod tests {
             setup_staking_subnet();
             let caller = addr_from_index(0x1102);
             let coldkey = AccountId::from([0x41; 32]);
+            let hotkeys = vec![H256::repeat_byte(0x51), H256::repeat_byte(0x52)];
 
             precompiles::<StakingPrecompileV2<Runtime>>()
                 .prepare_test(
                     caller,
                     addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
                     encode_with_selector(
-                        selector_u32(
-                            "getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)",
-                        ),
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
                         (
                             H256::from_slice(coldkey.as_ref()),
                             U256::from(TEST_NETUID_U16),
-                            U256::zero(),
-                            U256::from(MAX_STAKE_INFO_PAGE_SIZE),
+                            hotkeys,
                         ),
                     ),
                 )
                 .with_static_call(true)
-                .expect_cost(stake_info_cost(0))
-                .execute_returns_raw(encode_return_value((
-                    Vec::<(H256, U256)>::new(),
-                    U256::zero(),
-                )));
+                .expect_cost(stake_info_cost(2))
+                .execute_returns_raw(encode_return_value(Vec::<(H256, U256)>::new()));
         });
     }
 
@@ -1375,14 +1261,11 @@ mod tests {
                 addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
                 caller,
                 encode_with_selector(
-                    selector_u32(
-                        "getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)",
-                    ),
+                    selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
                     (
                         H256::from_slice(coldkey.as_ref()),
                         invalid_netuid,
-                        U256::zero(),
-                        U256::one(),
+                        Vec::<H256>::new(),
                     ),
                 ),
                 U256::zero(),
@@ -1394,15 +1277,16 @@ mod tests {
     }
 
     #[test]
-    fn staking_precompile_v2_bounds_historical_hotkey_scan_and_precharges_page() {
+    fn staking_precompile_v2_only_reads_caller_supplied_hotkeys() {
         new_test_ext().execute_with(|| {
             let netuid = setup_staking_subnet();
             let caller = addr_from_index(0x1105);
             let coldkey = mapped_account(caller);
-            let historical_hotkeys: Vec<AccountId> = (0..=MAX_STAKE_INFO_PAGE_SIZE)
+            let historical_hotkeys: Vec<AccountId> = (0..=MAX_STAKE_INFO_HOTKEYS)
                 .map(|index| {
                     let mut account = [0u8; 32];
-                    account[..4].copy_from_slice(&index.to_le_bytes());
+                    let index = u64::try_from(index).expect("test index fits in u64");
+                    account[..8].copy_from_slice(&index.to_le_bytes());
                     AccountId::from(account)
                 })
                 .collect();
@@ -1424,90 +1308,75 @@ mod tests {
             let active_stake = stake_for(&active_hotkey, &coldkey, netuid);
             assert!(active_stake > 0);
 
-            let first_page_call = encode_with_selector(
-                selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)"),
-                (
-                    H256::from_slice(coldkey.as_ref()),
-                    U256::from(TEST_NETUID_U16),
-                    U256::zero(),
-                    U256::from(MAX_STAKE_INFO_PAGE_SIZE),
-                ),
-            );
-
-            precompiles::<StakingPrecompileV2<Runtime>>()
-                .prepare_test(
-                    caller,
-                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
-                    first_page_call,
-                )
-                .with_static_call(true)
-                .expect_cost(stake_info_cost(MAX_STAKE_INFO_PAGE_SIZE as usize))
-                .execute_returns_raw(encode_return_value((
-                    Vec::<(H256, U256)>::new(),
-                    U256::from(MAX_STAKE_INFO_PAGE_SIZE),
-                )));
-
             precompiles::<StakingPrecompileV2<Runtime>>()
                 .prepare_test(
                     caller,
                     addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
                     encode_with_selector(
-                        selector_u32(
-                            "getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)",
-                        ),
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
                         (
                             H256::from_slice(coldkey.as_ref()),
                             U256::from(TEST_NETUID_U16),
-                            U256::from(MAX_STAKE_INFO_PAGE_SIZE),
-                            U256::from(MAX_STAKE_INFO_PAGE_SIZE),
+                            vec![H256::from_slice(active_hotkey.as_ref())],
                         ),
                     ),
                 )
                 .with_static_call(true)
                 .expect_cost(stake_info_cost(1))
-                .execute_returns_raw(encode_return_value((
-                    vec![(
-                        H256::from_slice(active_hotkey.as_ref()),
-                        U256::from(active_stake),
-                    )],
-                    U256::zero(),
-                )));
+                .execute_returns_raw(encode_return_value(vec![(
+                    H256::from_slice(active_hotkey.as_ref()),
+                    U256::from(active_stake),
+                )]));
         });
     }
 
     #[test]
-    fn staking_precompile_v2_rejects_invalid_stake_info_page_limits() {
+    fn staking_precompile_v2_rejects_more_than_64_requested_hotkeys() {
         new_test_ext().execute_with(|| {
+            setup_staking_subnet();
             let caller = addr_from_index(0x1106);
             let coldkey = AccountId::from([0x43; 32]);
+            let hotkeys = vec![H256::repeat_byte(0x53); MAX_STAKE_INFO_HOTKEYS + 1];
 
-            for limit in [U256::zero(), U256::from(MAX_STAKE_INFO_PAGE_SIZE + 1)] {
-                let result = execute_precompile(
-                    &precompiles::<StakingPrecompileV2<Runtime>>(),
-                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
                     caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
                     encode_with_selector(
-                        selector_u32(
-                            "getStakeInfoForColdkeyAndNetuid(bytes32,uint256,uint256,uint256)",
-                        ),
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
                         (
                             H256::from_slice(coldkey.as_ref()),
                             U256::from(TEST_NETUID_U16),
-                            U256::zero(),
-                            limit,
+                            hotkeys[..MAX_STAKE_INFO_HOTKEYS].to_vec(),
                         ),
                     ),
-                    U256::zero(),
                 )
-                .expect("staking V2 call routes to the precompile");
+                .with_static_call(true)
+                .expect_cost(stake_info_cost(MAX_STAKE_INFO_HOTKEYS))
+                .execute_returns_raw(encode_return_value(Vec::<(H256, U256)>::new()));
 
-                assert!(result.is_err());
-            }
+            let result = execute_precompile(
+                &precompiles::<StakingPrecompileV2<Runtime>>(),
+                addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                caller,
+                encode_with_selector(
+                    selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
+                    (
+                        H256::from_slice(coldkey.as_ref()),
+                        U256::from(TEST_NETUID_U16),
+                        hotkeys,
+                    ),
+                ),
+                U256::zero(),
+            )
+            .expect("staking V2 call routes to the precompile");
+
+            assert!(result.is_err());
         });
     }
 
     #[test]
-    fn staking_precompile_v2_returns_current_stake_operation_threshold() {
+    fn staking_precompile_v2_returns_default_min_stake() {
         new_test_ext().execute_with(|| {
             let threshold = pallet_subtensor::DefaultMinStake::<Runtime>::get();
 
@@ -1515,7 +1384,7 @@ mod tests {
                 .prepare_test(
                     addr_from_index(0x1104),
                     addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
-                    encode_with_selector(selector_u32("getStakeOperationThreshold()"), ()),
+                    encode_with_selector(selector_u32("getDefaultMinStake()"), ()),
                 )
                 .with_static_call(true)
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())

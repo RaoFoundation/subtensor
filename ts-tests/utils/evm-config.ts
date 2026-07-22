@@ -175,14 +175,9 @@ export const IStakingV2ABI = [
                 type: "uint256",
             },
             {
-                internalType: "uint256",
-                name: "cursor",
-                type: "uint256",
-            },
-            {
-                internalType: "uint256",
-                name: "limit",
-                type: "uint256",
+                internalType: "bytes32[]",
+                name: "hotkeys",
+                type: "bytes32[]",
             },
         ],
         name: "getStakeInfoForColdkeyAndNetuid",
@@ -203,11 +198,6 @@ export const IStakingV2ABI = [
                 internalType: "struct IStaking.StakeInfo[]",
                 name: "positions",
                 type: "tuple[]",
-            },
-            {
-                internalType: "uint256",
-                name: "nextCursor",
-                type: "uint256",
             },
         ],
         stateMutability: "view",
@@ -343,11 +333,11 @@ export const IStakingV2ABI = [
     },
     {
         inputs: [],
-        name: "getStakeOperationThreshold",
+        name: "getDefaultMinStake",
         outputs: [
             {
                 internalType: "uint256",
-                name: "threshold",
+                name: "defaultMinStake",
                 type: "uint256",
             },
         ],

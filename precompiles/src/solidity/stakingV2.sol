@@ -158,31 +158,20 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
-     * @dev Returns one bounded page of the coldkey's non-zero alpha stake positions
-     * on `netuid`. The cursor addresses the coldkey's historical staking-hotkey
-     * index, so a page can be empty while `nextCursor` is non-zero when every
-     * hotkey in that page has zero stake on the requested subnet.
-     *
-     * Begin with `cursor = 0`, use a `limit` from 1 through 64, and continue with
-     * the returned `nextCursor` until it is zero. This bounds storage decoding and
-     * gas consumption even when a coldkey has an arbitrarily large history.
+     * @dev Returns non-zero alpha stake positions for up to 64 caller-supplied
+     * hotkeys. Callers that need more must split their hotkeys across calls.
+     * This function does not read the coldkey's unbounded historical hotkey index.
      *
      * @param coldkey The coldkey public key (32 bytes).
      * @param netuid The subnet to query.
-     * @param cursor The zero-based historical hotkey index at which to start.
-     * @param limit The maximum historical hotkeys to scan (1 through 64).
-     * @return positions Non-zero hotkey and alpha stake pairs found in this page.
-     * @return nextCursor The cursor for the next page, or zero when complete.
+     * @param hotkeys The candidate hotkeys to query (maximum 64).
+     * @return positions Non-zero hotkey and alpha stake pairs.
      */
     function getStakeInfoForColdkeyAndNetuid(
         bytes32 coldkey,
         uint256 netuid,
-        uint256 cursor,
-        uint256 limit
-    ) external view returns (
-        StakeInfo[] memory positions,
-        uint256 nextCursor
-    );
+        bytes32[] calldata hotkeys
+    ) external view returns (StakeInfo[] memory positions);
 
     /**
      * @dev Delegates staking to a proxy account.
@@ -239,16 +228,15 @@ interface IStaking {
     function getNominatorMinRequiredStake() external view returns (uint256);
 
     /**
-     * @dev Returns the runtime-configured base TAO threshold used by stake operations.
-     * Depending on the operation, fees, price conversion, and full-unstake rules
-     * can make the exact accepted input differ from this base value.
+     * @dev Returns DefaultMinStake. This is a base value only; operation fees,
+     * price conversion, and full-unstake rules can change the accepted amount.
      *
-     * @return threshold The current DefaultMinStake value in rao.
+     * @return defaultMinStake The current DefaultMinStake value in rao.
      */
-    function getStakeOperationThreshold()
+    function getDefaultMinStake()
         external
         view
-        returns (uint256 threshold);
+        returns (uint256 defaultMinStake);
 
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.
