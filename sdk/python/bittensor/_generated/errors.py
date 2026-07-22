@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 436
+Spec version: 437
 """
 from dataclasses import dataclass
 
@@ -196,8 +196,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 152): ErrorInfo('SubtensorModule', 'LockIdOverFlow', 'The coldkey has already registered too many subnets'),
     (7, 153): ErrorInfo('SubtensorModule', 'StartCallNotReady', 'Need to wait more blocks to do the start call.'),
     (7, 154): ErrorInfo('SubtensorModule', 'InsufficientAlphaBalance', 'The caller does not have enough Alpha stake for the operation.'),
-    (7, 155): ErrorInfo('SubtensorModule', 'ColdkeyCollateralIncomplete', "Coldkey swap could not fully migrate miner collateral: the old coldkey's ColdkeyMinerCollateral aggregate remained non-zero after migrating every indexed collateral hotkey. Failing closed avoids under-locking the destination unstake guard."),
-    (7, 156): ErrorInfo('SubtensorModule', 'ColdkeyCollateralPositionsFull', 'This coldkey already has the maximum number of distinct hotkeys with miner collateral on the subnet (MAX_COLDKEY_COLLATERAL_HOTKEYS).'),
+    (7, 155): ErrorInfo('SubtensorModule', 'ColdkeyCollateralIncomplete', "Coldkey swap could not fully migrate miner collateral: the old coldkey's [`ColdkeyMinerCollateral`] aggregate remained non-zero after migrating every indexed collateral hotkey. Failing closed avoids under-locking the destination unstake guard."),
+    (7, 156): ErrorInfo('SubtensorModule', 'ColdkeyCollateralPositionsFull', 'This coldkey already has the maximum number of distinct hotkeys with miner collateral on the subnet ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
