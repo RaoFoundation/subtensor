@@ -90,11 +90,12 @@ def add_collateral(
     netuid: int = typer.Option(
         ..., "--netuid", help=AddCollateral.field_help("netuid") or "Subnet to lock collateral on."
     ),
-    amount_tao: str = typer.Option(
+    amount_alpha: str = typer.Option(
         ...,
-        "--amount-tao",
+        "--amount-alpha",
         "--amount",
-        help=AddCollateral.field_help("amount_tao") or "TAO to stake and lock as collateral.",
+        help=AddCollateral.field_help("amount_alpha")
+        or "Alpha to lock as collateral (free stake first, then buy shortfall).",
     ),
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
@@ -113,15 +114,15 @@ def add_collateral(
     """
     app_ctx: AppContext = ctx_of(ctx)
     try:
-        amount = _parse_money(amount_tao, False)
+        amount = _parse_money(amount_alpha, False)
     except ValueError as error:
-        app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
+        app_ctx.output.error(f"invalid value for `--amount-alpha`: {error}")
         raise typer.Exit(2)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(
         AddCollateral(
             netuid=netuid,
-            amount_tao=amount,
+            amount_alpha=amount,
             hotkey_ss58=hotkey,
             rate_tolerance=rate_tolerance,
         )

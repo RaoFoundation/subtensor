@@ -115,6 +115,12 @@ DESCRIPTIONS: dict[str, str] = {
         "it, so it cannot receive the swapped identity. Check the `StakingHotkeys` storage for "
         "the new coldkey and swap to a fresh, unused coldkey instead."
     ),
+    "ColdkeyCollateralIncomplete": (
+        "A coldkey swap could not fully migrate miner collateral: after moving every "
+        "staking and owned hotkey row, the old coldkey's ColdkeyMinerCollateral aggregate "
+        "was still non-zero. This is a fail-closed invariant — retry after investigating "
+        "orphaned MinerCollateral rows for that coldkey, or contact runtime maintainers."
+    ),
     "ColdkeySwapAlreadyDisputed": (
         "`dispute_coldkey_swap` was called for a coldkey whose pending swap announcement is "
         "already under dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; no "
@@ -285,14 +291,6 @@ DESCRIPTIONS: dict[str, str] = {
         "passed since the coldkey's last swap on that netuid. Compare `LastHotkeySwapOnNetuid` "
         "for the coldkey with the current block and retry after the interval."
     ),
-    "HotKeyHasCollateral": (
-        "This hotkey still has standing miner registration collateral and does not hold "
-        "validator permit on that subnet (or on a subnet involved in an all-subnet swap). "
-        "Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and "
-        "bond to a fresh key and defeat validator blacklists. Keys with validator permit "
-        "may still swap. Drain the bond through earned emission, or obtain permit, before "
-        "swapping."
-    ),
     "IncorrectCommitRevealVersion": (
         "The `commit_reveal_version` argument does not match the chain's current commit-reveal "
         "weights version. Query the `CommitRevealWeightsVersion` storage item and upgrade or "
@@ -418,6 +416,13 @@ DESCRIPTIONS: dict[str, str] = {
         "The `block_number` in the proof-of-work submission is in the future or more than 3 "
         "blocks old, so the work is stale. Compare the submitted block number with the current "
         "chain height and regenerate the PoW against a fresh block."
+    ),
+    "KeepStakeBlockedByCollateral": (
+        "A hotkey swap with keep_stake=true was refused because the old hotkey still has "
+        "standing miner registration collateral. keep_stake leaves stake on the old key "
+        "while the UID moves, which would strand the bond. Retry with keep_stake=false so "
+        "collateral migrates with the UID; on-chain hotkey lineage maps track the rename "
+        "for blacklist continuity. Or drain the bond through earned emission first."
     ),
     "LeaseCannotEndInThePast": (
         "The `end_block` supplied when registering a leased network is not after the current "

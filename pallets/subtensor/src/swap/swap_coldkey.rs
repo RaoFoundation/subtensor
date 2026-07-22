@@ -1,3 +1,5 @@
+use frame_support::storage::{TransactionOutcome, with_transaction};
+
 use super::*;
 
 impl<T: Config> Pallet<T> {
@@ -16,36 +18,47 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NewColdKeyIsHotkey
         );
 
-        // Swap the identity if the old coldkey has one and the new coldkey doesn't
-        if IdentitiesV2::<T>::get(new_coldkey).is_none()
-            && let Some(identity) = IdentitiesV2::<T>::take(old_coldkey)
-        {
-            IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
-        }
+        with_transaction(|| {
+            let result = (|| -> DispatchResult {
+                // Swap the identity if the old coldkey has one and the new coldkey doesn't
+                if IdentitiesV2::<T>::get(new_coldkey).is_none()
+                    && let Some(identity) = IdentitiesV2::<T>::take(old_coldkey)
+                {
+                    IdentitiesV2::<T>::insert(new_coldkey.clone(), identity);
+                }
 
-        // Temporarily allow the destination coldkey to receive this stake even if some of it is
-        // locked; swap_coldkey_locks will copy the source AccountFlags over afterward.
-        Self::set_accept_locked_alpha(new_coldkey, true);
+                // Temporarily allow the destination coldkey to receive this stake even if some of it is
+                // locked; swap_coldkey_locks will copy the source AccountFlags over afterward.
+                Self::set_accept_locked_alpha(new_coldkey, true);
 
-        for netuid in Self::get_all_subnet_netuids() {
-            Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
-            Self::transfer_auto_stake_destination(netuid, old_coldkey, new_coldkey);
-            Self::transfer_coldkey_stake(netuid, old_coldkey, new_coldkey);
-        }
-        Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
-        Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
+                for netuid in Self::get_all_subnet_netuids() {
+                    Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
+                    Self::transfer_auto_stake_destination(netuid, old_coldkey, new_coldkey);
+                    Self::transfer_coldkey_stake(netuid, old_coldkey, new_coldkey);
+                    // Stake has moved; migrate the bond so unstake guards stay attached.
+                    Self::transfer_coldkey_miner_collateral(netuid, old_coldkey, new_coldkey)?;
+                }
+                Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
+                Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
 
-        // Transfer stake locks
-        Self::swap_coldkey_locks(old_coldkey, new_coldkey)?;
+                // Transfer stake locks
+                Self::swap_coldkey_locks(old_coldkey, new_coldkey)?;
 
-        // Transfer any remaining balance from old_coldkey to new_coldkey
-        Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
+                // Transfer any remaining balance from old_coldkey to new_coldkey
+                Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
 
-        Self::deposit_event(Event::ColdkeySwapped {
-            old_coldkey: old_coldkey.clone(),
-            new_coldkey: new_coldkey.clone(),
-        });
-        Ok(())
+                Self::deposit_event(Event::ColdkeySwapped {
+                    old_coldkey: old_coldkey.clone(),
+                    new_coldkey: new_coldkey.clone(),
+                });
+                Ok(())
+            })();
+
+            match result {
+                Ok(()) => TransactionOutcome::Commit(Ok(())),
+                Err(e) => TransactionOutcome::Rollback(Err(e)),
+            }
+        })
     }
 
     /// Charges the swap cost from the coldkey's account and recycles the tokens.

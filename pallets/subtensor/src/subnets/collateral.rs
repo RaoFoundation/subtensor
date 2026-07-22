@@ -44,39 +44,18 @@ impl<T: Config> Pallet<T> {
             .unwrap_or(AlphaBalance::ZERO)
     }
 
-    /// Whether a hotkey swap should be refused because `(hotkey, coldkey)` has
-    /// standing miner collateral on `netuid` (or any subnet when `netuid` is
-    /// `None`) **and** does not currently hold validator permit there.
-    ///
-    /// Bonded miners cannot cheaply rotate identity; permitted validators on
-    /// collateral-enabled subnets still can. A deregistered-but-still-bonded
-    /// hotkey has no permit and is treated as a miner.
-    pub fn miner_collateral_blocks_hotkey_swap(
+    /// Whether `(hotkey, coldkey)` has standing miner collateral on `netuid`
+    /// (or any subnet when `netuid` is `None`).
+    pub fn has_miner_collateral(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         netuid: Option<NetUid>,
     ) -> bool {
         match netuid {
-            Some(netuid) => {
-                Self::miner_collateral_blocks_hotkey_swap_on_subnet(hotkey, coldkey, netuid)
-            }
+            Some(netuid) => MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey)),
             None => Self::get_all_subnet_netuids().into_iter().any(|netuid| {
-                Self::miner_collateral_blocks_hotkey_swap_on_subnet(hotkey, coldkey, netuid)
+                MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey))
             }),
-        }
-    }
-
-    fn miner_collateral_blocks_hotkey_swap_on_subnet(
-        hotkey: &T::AccountId,
-        coldkey: &T::AccountId,
-        netuid: NetUid,
-    ) -> bool {
-        if !MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey)) {
-            return false;
-        }
-        match Uids::<T>::try_get(netuid, hotkey) {
-            Ok(uid) => !Self::get_validator_permit_for_uid(netuid, uid),
-            Err(_) => true,
         }
     }
 
@@ -254,6 +233,11 @@ impl<T: Config> Pallet<T> {
         }
 
         let tao_paid = Self::transfer_tao_to_subnet(netuid, coldkey, total_charge)?;
+        // `transfer_tao_to_subnet` clips to keep-alive; never accept a short fill.
+        ensure!(
+            tao_paid == total_charge,
+            Error::<T>::NotEnoughBalanceToStake
+        );
         // Bound the AMM fill whenever any of the charge is collateral. A naked
         // `max_price()` lets a delayed/shielded inclusion clear at an
         // arbitrarily worse rate; burn-only registrations keep the historical
@@ -489,22 +473,21 @@ impl<T: Config> Pallet<T> {
         captured
     }
 
-    /// Lock about `tao` worth of additional registration collateral on the
-    /// signer's own hotkey (e.g. per-machine deposits required by a subnet's
+    /// Lock `alpha` of additional registration collateral on the signer's
+    /// own hotkey (e.g. per-machine deposits required by a subnet's
     /// validators).
     ///
-    /// Prefers free alpha already staked on `(hotkey, coldkey, netuid)` —
-    /// valued at the subnet moving-average price, same as re-registration
-    /// credit — and only buys the shortfall with TAO. Keeps the existing
-    /// drain-ratio snapshot: a top-up is not a new registration and does not
-    /// re-price the contract. The buy leg is fill-or-kill against
-    /// `limit_price` (same units as `add_stake_limit`), and the whole path is
-    /// transactional.
+    /// Prefers free alpha already staked on `(hotkey, coldkey, netuid)` and
+    /// only buys the shortfall with TAO (priced at the subnet moving-average
+    /// price). Keeps the existing drain-ratio snapshot: a top-up is not a new
+    /// registration and does not re-price the contract. The buy leg is
+    /// fill-or-kill against `limit_price` (same units as `add_stake_limit`),
+    /// and the whole path is transactional.
     pub fn do_add_collateral(
         origin: OriginFor<T>,
         netuid: NetUid,
         hotkey: T::AccountId,
-        tao: TaoBalance,
+        alpha: AlphaBalance,
         limit_price: TaoBalance,
     ) -> dispatch::DispatchResult {
         let coldkey = ensure_signed(origin)?;
@@ -522,30 +505,22 @@ impl<T: Config> Pallet<T> {
             Self::coldkey_owns_hotkey(&coldkey, &hotkey),
             Error::<T>::NonAssociatedColdKey
         );
-        ensure!(!tao.is_zero(), Error::<T>::AmountTooLow);
-
-        let alpha_price = Self::get_moving_alpha_price(netuid);
-        ensure!(
-            alpha_price > U64F64::saturating_from_num(0),
-            Error::<T>::InsufficientLiquidity
-        );
-
-        let target_alpha = AlphaBalance::from(
-            U64F64::saturating_from_num(u64::from(tao))
-                .safe_div(alpha_price)
-                .saturating_to_num::<u64>(),
-        );
-        ensure!(!target_alpha.is_zero(), Error::<T>::AmountTooLow);
+        ensure!(!alpha.is_zero(), Error::<T>::AmountTooLow);
 
         let stake = Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
         let already_locked = Self::get_miner_collateral_locked(netuid, &hotkey, &coldkey);
         let free_alpha = stake.saturating_sub(already_locked);
-        let from_stake = free_alpha.min(target_alpha);
-        let shortfall_alpha = target_alpha.saturating_sub(from_stake);
+        let from_stake = free_alpha.min(alpha);
+        let shortfall_alpha = alpha.saturating_sub(from_stake);
 
         let tao_to_buy = if shortfall_alpha.is_zero() {
             TaoBalance::ZERO
         } else {
+            let alpha_price = Self::get_moving_alpha_price(netuid);
+            ensure!(
+                alpha_price > U64F64::saturating_from_num(0),
+                Error::<T>::InsufficientLiquidity
+            );
             TaoBalance::from(
                 U64F64::saturating_from_num(shortfall_alpha.to_u64())
                     .saturating_mul(alpha_price)
@@ -677,11 +652,29 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Merge `from` into an existing or vacant `MinerCollateral` slot.
+    ///
+    /// Sums `locked` / `min_locked` / `earned` and keeps the slower (`min`)
+    /// drain ratio. Shared by hotkey-leg and coldkey-leg moves.
+    fn merge_miner_collateral_state(
+        maybe_state: &mut Option<MinerCollateralState>,
+        from: MinerCollateralState,
+    ) {
+        match maybe_state {
+            Some(state) => {
+                state.locked = state.locked.saturating_add(from.locked);
+                state.drain_ratio = state.drain_ratio.min(from.drain_ratio);
+                state.min_locked = state.min_locked.saturating_add(from.min_locked);
+                state.earned = state.earned.saturating_add(from.earned);
+            }
+            None => *maybe_state = Some(from),
+        }
+    }
+
     /// Move the collateral entry when a hotkey is swapped. The coldkey is
     /// unchanged (ownership stays with the same coldkey); only the hotkey leg
     /// of the key moves. If the new `(hotkey, coldkey)` already has collateral
-    /// on the subnet, the locks merge, the base (slower) drain ratio is kept,
-    /// and the floors add (they represent distinct per-machine commitments).
+    /// on the subnet, the locks merge via [`Self::merge_miner_collateral_state`].
     pub fn swap_miner_collateral(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -691,17 +684,71 @@ impl<T: Config> Pallet<T> {
         let Some(old_state) = MinerCollateral::<T>::take((netuid, old_hotkey, coldkey)) else {
             return;
         };
-        MinerCollateral::<T>::mutate(
-            (netuid, new_hotkey, coldkey),
-            |maybe_state| match maybe_state {
-                Some(state) => {
-                    state.locked = state.locked.saturating_add(old_state.locked);
-                    state.drain_ratio = state.drain_ratio.min(old_state.drain_ratio);
-                    state.min_locked = state.min_locked.saturating_add(old_state.min_locked);
-                    state.earned = state.earned.saturating_add(old_state.earned);
-                }
-                None => *maybe_state = Some(old_state),
-            },
+        MinerCollateral::<T>::mutate((netuid, new_hotkey, coldkey), |maybe_state| {
+            Self::merge_miner_collateral_state(maybe_state, old_state);
+        });
+    }
+
+    /// Move the collateral entry when a coldkey is swapped. The hotkey is
+    /// unchanged; only the coldkey leg of the key moves. Merge rules match
+    /// [`Self::swap_miner_collateral`]. Updates [`ColdkeyMinerCollateral`] for
+    /// both coldkeys. No-op when the source row is absent.
+    pub fn transfer_miner_collateral_coldkey(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) {
+        if old_coldkey == new_coldkey {
+            return;
+        }
+        let Some(old_state) = MinerCollateral::<T>::take((netuid, hotkey, old_coldkey)) else {
+            return;
+        };
+        let moved_locked = old_state.locked;
+        Self::adjust_coldkey_miner_collateral(
+            old_coldkey,
+            netuid,
+            moved_locked,
+            AlphaBalance::ZERO,
         );
+        let dest_before = Self::get_miner_collateral_locked(netuid, hotkey, new_coldkey);
+        MinerCollateral::<T>::mutate((netuid, hotkey, new_coldkey), |maybe_state| {
+            Self::merge_miner_collateral_state(maybe_state, old_state);
+        });
+        let dest_after = Self::get_miner_collateral_locked(netuid, hotkey, new_coldkey);
+        Self::adjust_coldkey_miner_collateral(new_coldkey, netuid, dest_before, dest_after);
+    }
+
+    /// Migrate every miner-collateral row for `old_coldkey` on `netuid` onto
+    /// `new_coldkey`.
+    ///
+    /// Walks the coldkey's staking and owned hotkeys (bounded by that account's
+    /// associations — not a full-subnet `MinerCollateral` prefix scan). Skips
+    /// when the aggregate is already zero. Requires the aggregate to clear
+    /// afterward so an orphaned row fails closed rather than under-locking the
+    /// destination unstake guard.
+    pub fn transfer_coldkey_miner_collateral(
+        netuid: NetUid,
+        old_coldkey: &T::AccountId,
+        new_coldkey: &T::AccountId,
+    ) -> DispatchResult {
+        if ColdkeyMinerCollateral::<T>::get(netuid, old_coldkey).is_zero() {
+            return Ok(());
+        }
+        let mut hotkeys: Vec<T::AccountId> = StakingHotkeys::<T>::get(old_coldkey);
+        for owned in OwnedHotkeys::<T>::get(old_coldkey) {
+            if !hotkeys.contains(&owned) {
+                hotkeys.push(owned);
+            }
+        }
+        for hotkey in hotkeys {
+            Self::transfer_miner_collateral_coldkey(netuid, &hotkey, old_coldkey, new_coldkey);
+        }
+        ensure!(
+            ColdkeyMinerCollateral::<T>::get(netuid, old_coldkey).is_zero(),
+            Error::<T>::ColdkeyCollateralIncomplete
+        );
+        Ok(())
     }
 }

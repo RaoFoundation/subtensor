@@ -1186,10 +1186,11 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
 
         let reg_fee = Subtensor::<T>::get_burn(netuid);
-        let collateral_tao = DefaultMinStake::<T>::get().saturating_mul(10.into());
-        let deposit = reg_fee
-            .saturating_mul(2.into())
-            .saturating_add(collateral_tao.saturating_mul(2.into()));
+        let collateral_alpha =
+            AlphaBalance::from(u64::from(DefaultMinStake::<T>::get().saturating_mul(10.into())));
+        let deposit = reg_fee.saturating_mul(2.into()).saturating_add(
+            TaoBalance::from(collateral_alpha.to_u64()).saturating_mul(2.into()),
+        );
         add_balance_to_coldkey_account::<T>(&coldkey, deposit.into());
         add_lock::<T>(&coldkey, netuid);
 
@@ -1201,13 +1202,13 @@ mod pallet_benchmarks {
 
         set_reserves::<T>(netuid, deposit, AlphaBalance::from(deposit.to_u64()));
         TotalStake::<T>::set(deposit);
-        // Moving price ≈ 1 so `tao` maps 1:1 into target alpha.
+        // Moving price ≈ 1 so shortfall alpha maps 1:1 into TAO for the buy.
         SubnetMovingPrice::<T>::insert(netuid, I96F32::from_num(1));
 
         // Worst case: free stake covers only part of the target (lock-from-stake
         // + buy shortfall), and an existing entry must be merged.
         let already_locked = AlphaBalance::from(1_000u64);
-        let free_partial = AlphaBalance::from(u64::from(collateral_tao) / 2);
+        let free_partial = AlphaBalance::from(collateral_alpha.to_u64() / 2);
         Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hot,
             &coldkey,
@@ -1234,7 +1235,7 @@ mod pallet_benchmarks {
             RawOrigin::Signed(coldkey.clone()),
             netuid,
             hot.clone(),
-            collateral_tao,
+            collateral_alpha,
             limit_price,
         );
     }

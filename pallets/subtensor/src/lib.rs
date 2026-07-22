@@ -1243,6 +1243,36 @@ pub mod pallet {
         DefaultZeroU64<T>,
     >;
 
+    /// DMap ( netuid, old_hotkey ) --> new_hotkey | hotkey swap successor on a subnet.
+    ///
+    /// Written on each successful hotkey swap so watchers can follow identity
+    /// without an archive node. Per-subnet because a swap may move a UID on
+    /// one netuid while the old hotkey remains registered elsewhere.
+    #[pallet::storage]
+    pub type HotkeySuccessor<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    /// DMap ( netuid, hotkey ) --> root_hotkey | first hotkey in this subnet's
+    /// swap lineage. Absent means the hotkey is its own root (never swapped
+    /// into, or never recorded). Ban/score against the root, not a single SS58.
+    #[pallet::storage]
+    pub type HotkeyRoot<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        T::AccountId,
+        OptionQuery,
+    >;
+
     /// Ensures unique IDs for StakeJobs storage map
     #[pallet::storage]
     pub type NextStakeJobId<T> = StorageValue<_, u64, ValueQuery, DefaultZeroU64<T>>;

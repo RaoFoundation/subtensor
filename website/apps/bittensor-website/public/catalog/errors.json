@@ -867,6 +867,24 @@
         }
       ]
     },
+    "ColdkeyCollateralIncomplete": {
+      "code": "internal",
+      "description": "A coldkey swap could not fully migrate miner collateral: after moving every staking and owned hotkey row, the old coldkey's ColdkeyMinerCollateral aggregate was still non-zero. This is a fail-closed invariant \u2014 retry after investigating orphaned MinerCollateral rows for that coldkey, or contact runtime maintainers.",
+      "docs_url": "/docs/errors/chain/ColdkeyCollateralIncomplete",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ColdkeyCollateralIncomplete/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 344,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L344",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "ColdkeySwapAlreadyDisputed": {
       "code": "already_exists",
       "description": "`dispute_coldkey_swap` was called for a coldkey whose pending swap announcement is already under dispute. Check the `ColdkeySwapDisputes` storage for the coldkey; no further dispute action is needed.",
@@ -1792,24 +1810,6 @@
         }
       ]
     },
-    "HotKeyHasCollateral": {
-      "code": "policy_violation",
-      "description": "This hotkey still has standing miner registration collateral and does not hold validator permit on that subnet (or on a subnet involved in an all-subnet swap). Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and bond to a fresh key and defeat validator blacklists. Keys with validator permit may still swap. Drain the bond through earned emission, or obtain permit, before swapping.",
-      "docs_url": "/docs/errors/chain/HotKeyHasCollateral",
-      "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyHasCollateral/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 219,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L219",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
       "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli query uid --netuid <n>` (or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
@@ -2663,6 +2663,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/IssuanceDeactivated/content.md",
       "pallets": [
         "Balances"
+      ]
+    },
+    "KeepStakeBlockedByCollateral": {
+      "code": "policy_violation",
+      "description": "A hotkey swap with keep_stake=true was refused because the old hotkey still has standing miner registration collateral. keep_stake leaves stake on the old key while the UID moves, which would strand the bond. Retry with keep_stake=false so collateral migrates with the UID; on-chain hotkey lineage maps track the rename for blacklist continuity. Or drain the bond through earned emission first.",
+      "docs_url": "/docs/errors/chain/KeepStakeBlockedByCollateral",
+      "markdown_url": "/llms.mdx/docs/errors/chain/KeepStakeBlockedByCollateral/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 219,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L219",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
       ]
     },
     "LeaseCannotEndInThePast": {

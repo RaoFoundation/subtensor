@@ -558,7 +558,7 @@ btcli sudo set --netuid 51 --name collateral_drain_ratio --value 1.0    # k = 1`
             two deposit extrinsics. Four machines means a 100α floor:
           </p>
           <pre className={styles.code_block}>
-            {`btcli collateral add --netuid 51 --amount-tao 100 -w my_coldkey -H my_hotkey
+            {`btcli collateral add --netuid 51 --amount-alpha 100 -w my_coldkey -H my_hotkey
 btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`}
           </pre>
           <LiumCollateralDiagram className={styles.graph} />

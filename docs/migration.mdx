@@ -376,7 +376,7 @@ a limit price).
 | crowdloan methods | same-name intents (`bt.CreateCrowdloan`, `bt.ContributeCrowdloan`, ...) |
 | `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(bt.calls.Commitments.set_commitment(...), wallet)` |
 | hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` (includes `collateral_lock_share` / `collateral_drain_ratio`) |
-| *(new)* miner collateral top-up / floor | `bt.AddCollateral(netuid=..., amount_tao=...)` / `bt.SetMinCollateral(netuid=..., min_alpha=...)`; reads via `client.collateral.*` |
+| *(new)* miner collateral top-up / floor | `bt.AddCollateral(netuid=..., amount_alpha=...)` / `bt.SetMinCollateral(netuid=..., min_alpha=...)`; reads via `client.collateral.*` |
 | `add_liquidity` / `modify_liquidity` / `remove_liquidity` | removed (feature retired on chain) |
 | `mev_submit_encrypted(wallet, call)` | `client.submit_shielded(intent, wallet)`, or the default shielding on stake intents |
 | `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(bt.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |
@@ -570,6 +570,13 @@ the upgrade. Full narrative:
 - **Stake move/transfer/swap extrinsics** also pay the ordinary transaction
   fee (`Pays::Yes`). Same-subnet `move_stake` is not a pool swap, but it is
   not fee-free.
+- **Miner collateral.** `add_collateral` takes **alpha** (`amount_alpha` /
+  `AlphaBalance`), not TAO — free stake covers the lock first; only a
+  shortfall is bought with TAO under `limit_price`. Bonded
+  `swap_hotkey` / `swap_hotkey_v2` with `keep_stake=true` fails with
+  [`KeepStakeBlockedByCollateral`](/docs/errors/chain/KeepStakeBlockedByCollateral);
+  use `keep_stake=false` so the bond migrates (lineage maps track the
+  rename). Coldkey swap migrates `MinerCollateral` with the stake.
 
 ### Registration, hyperparameters, and randomness
 

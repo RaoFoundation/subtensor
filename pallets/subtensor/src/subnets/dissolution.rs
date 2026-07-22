@@ -232,6 +232,10 @@ impl<T: Config> Pallet<T> {
 
         if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LastHotkeySwapOnNetuid::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            HotkeySuccessor::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            HotkeyRoot::<T>::clear_prefix(netuid, limit, None)
         }) {
             return false;
         }
