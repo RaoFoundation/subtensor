@@ -25,23 +25,26 @@ create standalone proxy accounts with
 ### Proxy types
 
 Each grant is scoped by `proxy_type` — the runtime filters every proxied call
-against the type's allowlist. Prefer the narrowest type that covers the job:
+against the type's allowlist
+([`proxy_type_filter`](/code/runtime/src/proxy_filters/mod.rs#L108-L129)).
+Prefer the narrowest type that covers the job:
 
 - **Any** — everything the account can do, including transfers. Avoid.
 - **NonTransfer** — everything *except* balance transfers, stake transfers,
   and coldkey swaps. Notably it can manage the account's other proxies.
-- **Transfer** — balance transfers and `transfer_stake` only.
+- **Transfer** — balance transfers and stake transfers (`transfer_stake` /
+  `transfer_stake_and_hotkey`) only.
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
 - **Staking** — stake operations only: add / remove / move / swap /
-  unstake-all and their limit variants, plus `set_root_claim_type`. The
+  unstake-all and their limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). The
   allowlist does **not** include `Utility.batch_all`, so batching staking
   calls through a Staking proxy fails with `CallFiltered` — use a NonTransfer
   proxy for batched staking.
-- **Registration** — neuron registration calls (`burned_register`,
-  `register`, `register_limit`).
-- **ChildKeys** — `set_children` and `set_childkey_take`.
-- **RootClaim** — `claim_root` only.
+- **Registration** — neuron registration calls ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832),
+  [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814), [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
+- **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945).
+- **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1910-L1926) only.
 - **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
@@ -123,7 +126,7 @@ submission evicts from the pool within a handful of blocks. The block author
 decrypts the wrapper and includes the inner extrinsic in the block it
 builds, where it executes — and reports success or failure — like any
 normally submitted extrinsic. The wrapper's acceptance is marked by the
-pallet's `EncryptedSubmitted` event, and a successful submission carries
+pallet's [`EncryptedSubmitted`](/code/pallets/shield/src/lib.rs#L206) event, and a successful submission carries
 `inner_extrinsic_hash` in the result data so the inner extrinsic can be
 located on chain.
 
@@ -151,12 +154,12 @@ The chain has a `LimitOrders` pallet: resting orders (limit buy, take-profit,
 stop-loss) signed off-chain with a limit price and expiry, settled against
 the subnet's pool by an executor submitting them in batches — each order can
 restrict which relayer accounts may execute it, and a root-set global toggle
-enables the pallet. `execute_batched_orders` nets a batch's buys against its
+enables the pallet. [`execute_batched_orders`](/code/pallets/limit-orders/src/lib.rs#L469-L481) nets a batch's buys against its
 sells at the current price, so only the residual amount touches the pool in
 a single swap — offset-side orders fill internally with no price impact. No
 intent wraps the pallet; the calls are reachable as raw calls under
-`bt.calls.LimitOrders.*` (`execute_orders`, `execute_batched_orders`,
-`cancel_order`, `set_pallet_status`).
+`bt.calls.LimitOrders.*` ([`execute_orders`](/code/pallets/limit-orders/src/lib.rs#L419-L443), `execute_batched_orders`,
+[`cancel_order`](/code/pallets/limit-orders/src/lib.rs#L490-L511), [`set_pallet_status`](/code/pallets/limit-orders/src/lib.rs#L520-L538)).
 
 ## Raw calls: the escape hatch
 

@@ -40,3 +40,9 @@ result = sub.read("quote_unstake", netuid=1, amount_alpha=1.0)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`SwapRuntimeApi.sim_swap_alpha_for_tao`](/code/runtime/src/lib.rs#L2512-L2540)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

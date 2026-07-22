@@ -13,6 +13,14 @@ export const learnResources: ExplorerCardData[] = [
     logoSrc: '/assets/learn/bittensor-docs-logo.svg',
   },
   {
+    id: 'chainsource',
+    name: 'Chain source',
+    href: '/code',
+    badge: 'Official',
+    imageSrc: '/assets/learn/chain-source-card.svg',
+    logoSrc: '/assets/learn/chain-source-logo.svg',
+  },
+  {
     id: 'taostatsdocs',
     name: 'Taostats Docs',
     href: 'https://docs.taostats.io',

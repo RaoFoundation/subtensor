@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 433
+Spec version: 436
 """
 from typing import Any, NamedTuple
 
@@ -199,6 +199,11 @@ class Balances:
 
 class SubtensorModule:
     """Call builders for the SubtensorModule pallet."""
+
+    @staticmethod
+    def add_collateral(netuid: 'NetUid', hotkey: 'AccountId32', tao: 'TaoBalance', limit_price: 'TaoBalance') -> Call:
+        "Locks about `tao` worth of additional miner collateral on the signer's own hotkey.  Prefers free alpha already staked on that `(hotkey, coldkey)` position (valued at the subnet moving price) and only buys the shortfall with TAO. Used to top up registration collateral voluntarily — for example to meet a validator-published per-machine requirement on resource subnets. The lock is released back through earned incentive exactly like registration collateral (it is the same lock), keeps the existing drain-ratio snapshot, and is credited against the collateral requirement on re-registration.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet to lock collateral on. * `hotkey`: The miner hotkey the collateral attaches to. * `tao`: TAO-value of collateral to add. Fully covered by free stake when possible; otherwise the unpaid remainder is bought (that remainder must meet the staking minimum). * `limit_price`: Worst alpha price (RAO per alpha) accepted for any TAO→alpha buy of the shortfall. Fill-or-kill: the buy fails with `SlippageTooHigh` instead of executing above this price. Pass the current spot (or spot × (1 + tolerance)) — never the swap max.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`. * `AmountTooLow`: `tao` converts to zero alpha, or the buy remainder is below the minimum stake. * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder. * `SlippageTooHigh`: The shortfall buy would clear above `limit_price`.  # Events Emits `CollateralLocked` on success."
+        return Call('SubtensorModule', 'add_collateral', {'netuid': netuid, 'hotkey': hotkey, 'tao': tao, 'limit_price': limit_price})
 
     @staticmethod
     def add_stake(hotkey: 'AccountId32', netuid: 'NetUid', amount_staked: 'TaoBalance') -> Call:
@@ -456,6 +461,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_mechanism_weights', {'netuid': netuid, 'mecid': mecid, 'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
+    def set_min_collateral(netuid: 'NetUid', hotkey: 'AccountId32', min_locked: 'AlphaBalance') -> Call:
+        "Sets the self-maintaining collateral floor for the signer's hotkey on a subnet.  The drain never releases the lock below the floor, and while the lock is under it, earned miner incentive is captured into the lock until the floor is met — so a miner tracking a validator-published collateral requirement does not need to keep re-locking drained funds. Zero clears the floor and restores pure drain behavior.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet the floor applies to. * `hotkey`: The miner hotkey the floor applies to. * `min_locked`: The floor, in alpha; zero clears it.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`.  # Events Emits `MinCollateralSet` on success."
+        return Call('SubtensorModule', 'set_min_collateral', {'netuid': netuid, 'hotkey': hotkey, 'min_locked': min_locked})
+
+    @staticmethod
     def set_pending_childkey_cooldown(cooldown: 'u64') -> Call:
         'Sets the pending childkey cooldown (in blocks). Root only.'
         return Call('SubtensorModule', 'set_pending_childkey_cooldown', {'cooldown': cooldown})
@@ -564,6 +574,11 @@ class SubtensorModule:
     def transfer_stake(destination_coldkey: 'AccountId32', hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
         'Transfers a specified amount of stake from one coldkey to another, optionally across subnets, while keeping the same hotkey.  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `hotkey`: The hotkey associated with the stake. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeTransferred` event on success.'
         return Call('SubtensorModule', 'transfer_stake', {'destination_coldkey': destination_coldkey, 'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
+
+    @staticmethod
+    def transfer_stake_and_hotkey(destination_coldkey: 'AccountId32', origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance') -> Call:
+        'Transfers a specified amount of stake from one coldkey to another, landing it on a different hotkey, optionally across subnets.  This is `transfer_stake` generalized to a destination hotkey: it transfers ownership of the position and re-delegates it in one atomic call. Use `transfer_stake` when the hotkey stays the same, and `move_stake` when only the hotkey changes (ownership stays with the signing coldkey).  # Arguments * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`. * `destination_coldkey`: The coldkey to which the stake is transferred. * `origin_hotkey`: The hotkey the stake currently sits on. * `destination_hotkey`: The hotkey the stake lands on. * `origin_netuid`: The network/subnet ID to move stake from. * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer). * `alpha_amount`: The amount of stake to transfer.  # Errors * `BadOrigin`: The transaction is not signed. * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist. * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet. * `HotKeyAccountNotExists`: The `origin_hotkey` or `destination_hotkey` account does not exist. * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, origin_hotkey, origin_netuid)` position has less stake than `alpha_amount`. * `InsufficientLiquidity`: The swap simulation on the origin subnet fails. * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement. * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet. * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.  # Events May emit a `StakeAndHotkeyTransferred` event on success.'
+        return Call('SubtensorModule', 'transfer_stake_and_hotkey', {'destination_coldkey': destination_coldkey, 'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
     def trigger_epoch(netuid: 'NetUid') -> Call:
@@ -936,6 +951,16 @@ class AdminUtils:
     def sudo_set_coldkey_swap_reannouncement_delay(duration: 'u32') -> Call:
         'Sets the coldkey swap reannouncement delay.'
         return Call('AdminUtils', 'sudo_set_coldkey_swap_reannouncement_delay', {'duration': duration})
+
+    @staticmethod
+    def sudo_set_collateral_drain_ratio(netuid: 'NetUid', drain_ratio: 'FixedU128') -> Call:
+        'Sets the miner collateral drain ratio (k) for a subnet: how much locked collateral is released per alpha of miner incentive earned. Must be positive, at most 10. Callable by root and subnet owner. Snapshot per miner at registration; changing it never affects already-locked collateral.'
+        return Call('AdminUtils', 'sudo_set_collateral_drain_ratio', {'netuid': netuid, 'drain_ratio': drain_ratio})
+
+    @staticmethod
+    def sudo_set_collateral_lock_share(netuid: 'NetUid', lock_share: 'u16') -> Call:
+        'Sets the miner collateral lock share (p) for a subnet: the share of the registration price that is staked to the registering hotkey and locked as collateral instead of burned. Normalized so `u16::MAX` = 100%; capped at 95% so the burned share stays positive. 0 disables collateral. Callable by root and subnet owner. Applies only to future registrations; standing collateral is never re-priced.'
+        return Call('AdminUtils', 'sudo_set_collateral_lock_share', {'netuid': netuid, 'lock_share': lock_share})
 
     @staticmethod
     def sudo_set_commit_reveal_version(version: 'u16') -> Call:

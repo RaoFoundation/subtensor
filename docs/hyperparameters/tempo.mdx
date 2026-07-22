@@ -10,9 +10,11 @@ validators are paid once per tempo, not per block.
 ## How it works
 
 Each subnet's epoch fires once `tempo` blocks have passed since its last
-epoch: `should_run_epoch` (`pallets/subtensor/src/coinbase/run_coinbase.rs`)
+epoch: [`should_run_epoch`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1117-L1132)
+(`pallets/subtensor/src/coinbase/run_coinbase.rs`)
 checks `current_block − LastEpochBlock ≥ tempo`. The default is 360 blocks
-(~72 minutes); at most 2 subnet epochs run per block, with extras deferred,
+(~72 minutes); at most 2 subnet epochs run per block, with extras
+[deferred](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L388-L411),
 and the owner can trigger an early epoch. When the epoch fires, the alpha
 accumulated since the previous epoch is distributed via
 [Yuma Consensus](/docs/concepts/emissions#yuma-consensus); see
@@ -21,7 +23,8 @@ accumulated since the previous epoch is distributed via
 `tempo` also anchors other parameters: the effective
 [`activity_cutoff`](/docs/hyperparameters/activity-cutoff) is a per-mille
 factor multiplied by `tempo`, and commit-reveal delays are counted in tempos.
-Setting a new tempo resets the epoch cycle (`apply_tempo_with_cycle_reset`
+Setting a new tempo resets the epoch cycle
+([`apply_tempo_with_cycle_reset`](/code/pallets/subtensor/src/utils/misc.rs#L121-L125)
 re-anchors `LastEpochBlock` to the current block), so the next epoch lands a
 full tempo after the change.
 
@@ -46,7 +49,9 @@ Owner-settable:
 btcli sudo set --netuid N --name tempo --value 720
 ```
 
-This dispatches `sudo_set_tempo` (AdminUtils), which is owner-or-root: the
+This dispatches
+[`sudo_set_tempo`](/code/pallets/admin-utils/src/lib.rs#L1020-L1024)
+(AdminUtils), which is owner-or-root: the
 owner is bounded to 360–50,400 blocks (~72 minutes to ~7 days) and
 rate-limited to one change per 360 blocks; root may set any u16. Both paths
 respect the admin freeze window, and a successful change resets the epoch

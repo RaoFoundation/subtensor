@@ -76,6 +76,46 @@ class Chain(_ReadNamespace):
     async def tx_rate_limit(self, netuid: Optional[int] = None, *, block: Optional[int] = None) -> int:
         """Global transaction rate limit in blocks."""
 
+class Collateral(_ReadNamespace):
+    """Miner registration collateral."""
+
+    async def collateral_policy(self, netuid: int, *, block: Optional[int] = None) -> dict:
+        """A subnet's collateral configuration.
+
+        `lock_share` is the fraction of the registration price locked as
+        collateral instead of burned (0 disables collateral); `drain_ratio` is
+        the alpha released per alpha of miner incentive earned, snapshot per
+        miner at registration.
+        """
+
+    async def miner_collateral(self, netuid: int, hotkey_ss58: str, coldkey_ss58: str | None = None, *, block: Optional[int] = None) -> Optional[dict]:
+        """A `(hotkey, coldkey)` stake position's standing collateral, or None.
+
+        Collateral is keyed by hotkey + coldkey so nominators on the same hotkey are
+        never charged for the owner's bond. When `coldkey_ss58` is omitted, the
+        hotkey owner is used.
+
+        `locked_alpha` is non-withdrawable stake released through earned incentive
+        at `drain_ratio` alpha per alpha earned; `min_locked_alpha` is the
+        miner-set floor the lock self-maintains around (the drain stops at it and
+        incentive fills any shortfall); `earned_alpha` is lifetime incentive since
+        the collateral entry existed. Derived: `headroom_alpha` (draining portion
+        above the floor), `shortfall_alpha` (capture in progress below the floor),
+        and `releasable_work_alpha` (incentive still needed to release the
+        headroom). The lock survives deregistration and is credited on
+        re-registration.
+        """
+
+    async def subnet_collateral(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
+        """Every `(hotkey, coldkey)` position with standing collateral on a subnet.
+
+        The list validator code reads to enforce a per-machine collateral
+        requirement: each record carries the locked amount, the miner's
+        self-maintained floor, the drain-ratio snapshot, and the hotkey's current
+        `uid` (None when the hotkey is deregistered but its collateral persists) —
+        ready to join against the metagraph when scoring.
+        """
+
 class Delegation(_ReadNamespace):
     """Delegate info, delegated stake, and child/parent hotkey relations."""
 

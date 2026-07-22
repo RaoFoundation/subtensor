@@ -53,6 +53,7 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that recycled amount is not greater than available to unstake (due to locks)
         Self::ensure_available_to_unstake(&coldkey, netuid, amount)?;
+        Self::ensure_hotkey_covers_collateral(&coldkey, &hotkey, netuid, amount)?;
 
         // Deduct from the coldkey's stake.
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid, amount);
@@ -114,6 +115,7 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that burned amount is not greater than available to unstake (due to locks)
         Self::ensure_available_to_unstake(&coldkey, netuid, amount)?;
+        Self::ensure_hotkey_covers_collateral(&coldkey, &hotkey, netuid, amount)?;
 
         // Deduct from the coldkey's stake.
         Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid, amount);

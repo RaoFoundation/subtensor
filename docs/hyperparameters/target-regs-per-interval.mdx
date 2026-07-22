@@ -12,15 +12,21 @@ registrations. Root-subnet validators hit it most directly.
 
 ## How it works
 
-The value lives in `TargetRegistrationsPerInterval` storage (u16, default
+The value lives in
+[`TargetRegistrationsPerInterval`](/code/pallets/subtensor/src/lib.rs#L2112)
+storage (u16, default
 **2**, so the cap is 6). Two places enforce the 3× cap:
 
-- `do_root_register` (`pallets/subtensor/src/coinbase/root.rs`) rejects a root
-  registration with `TooManyRegistrationsThisInterval` once
+- [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77-L188)
+  (`pallets/subtensor/src/coinbase/root.rs`) rejects a root
+  registration with
+  [`TooManyRegistrationsThisInterval`](/code/pallets/subtensor/src/macros/errors.rs#L99)
+  once
   `RegistrationsThisInterval ≥ 3 × target_regs_per_interval`. The counter
   resets on the root subnet's epoch boundary — one "interval" is effectively
   one root tempo, and `adjustment_interval` itself is not consulted.
-- `checked_allowed_register` (`pallets/subtensor/src/lib.rs`) applies the same
+- [`checked_allowed_register`](/code/pallets/subtensor/src/lib.rs#L2802-L2823)
+  (`pallets/subtensor/src/lib.rs`) applies the same
   3× comparison when reporting whether a non-root subnet accepts
   registrations; on those subnets pricing is done by the continuous burn
   controller ([`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)
@@ -42,8 +48,9 @@ admission stops once the count reaches 3× the target.
 btcli sudo get --netuid 12 --name target_regs_per_interval
 ```
 
-Root/governance only — `sudo_set_target_registrations_per_interval` in
-`pallets/admin-utils/src/lib.rs` requires the root origin (plus the admin
+Root/governance only —
+[`sudo_set_target_registrations_per_interval`](/code/pallets/admin-utils/src/lib.rs#L722-L742)
+in `pallets/admin-utils/src/lib.rs` requires the root origin (plus the admin
 freeze window being open), so subnet owners cannot change it. The value is a
 plain integer.
 

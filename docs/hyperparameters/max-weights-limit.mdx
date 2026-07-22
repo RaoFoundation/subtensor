@@ -12,16 +12,24 @@ more than ~10% of a submission's total weight.
 
 The check is on the **normalized** distribution, not the raw values. On
 submission the chain first max-upscales the u16 values so the largest equals
-65535 (`vec_u16_max_upscale_to_u16`), then `max_weight_limited`
+65535
+([`vec_u16_max_upscale_to_u16`](/code/pallets/subtensor/src/epoch/math.rs#L123-L129)),
+then
+[`max_weight_limited`](/code/pallets/subtensor/src/subnets/weights.rs#L1131-L1145)
 (`pallets/subtensor/src/subnets/weights.rs`) sum-normalizes them and rejects
-the whole submission with `MaxWeightExceeded` if the largest share exceeds
-`max_weights_limit / 65535` (`check_vec_max_limited` in `epoch/math.rs`). A
+the whole submission with
+[`MaxWeightExceeded`](/code/pallets/subtensor/src/macros/errors.rs#L77) if the
+largest share exceeds `max_weights_limit / 65535`
+([`check_vec_max_limited`](/code/pallets/subtensor/src/epoch/math.rs#L132-L142)
+in `epoch/math.rs`). A
 single self-weight is exempt.
 
-In the current runtime the enforced limit is pinned: `get_max_weight_limit`
+In the current runtime the enforced limit is pinned:
+[`get_max_weight_limit`](/code/pallets/subtensor/src/utils/misc.rs#L557-L559)
 (`pallets/subtensor/src/utils/misc.rs`) is a constant returning `u16::MAX`, so
 the on-chain check always passes and there is no extrinsic to change it. The
-`MaxWeightsLimit` storage map still exists and is what queries return; the SDK
+[`MaxWeightsLimit`](/code/pallets/subtensor/src/lib.rs#L2057) storage map
+still exists and is what queries return; the SDK
 reads it and `btcli tx set-weights` (the `set_weights` intent) proactively
 clips and renormalizes your weights to fit the stored value — redistributing
 the excess mass rather than discarding it — and warns when clipping occurs.

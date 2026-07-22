@@ -9,6 +9,8 @@ A stake, unstake, or move with a price limit would execute at a worse rate than 
 
 Declared by the `SubtensorModule` pallet; it classifies to the semantic code [`insufficient_liquidity`](/docs/errors/insufficient-liquidity).
 
+Declared at [`pallets/subtensor/src/macros/errors.rs#L192`](/code/pallets/subtensor/src/macros/errors.rs#L192).
+
 ## Remediation
 
 The price moved past the slippage-protection limit (stake trades are protected by default with a 5% tolerance); retry, raise the tolerance (`--rate-tolerance 0.1` / rate_tolerance=0.1), or disable protection entirely (`--no-slippage-protection` / slippage_protection=False)

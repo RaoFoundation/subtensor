@@ -235,7 +235,8 @@ _SIGNER = [
         typer.Option(
             None,
             "--signer",
-            help="Signing backend: wallet (default), extension, or ledger.",
+            help="Signing backend: wallet (default), extension, ledger, or vault "
+            "(Polkadot Vault via QR).",
             rich_help_panel=PANEL_EXTENSION,
         ),
     ),
@@ -276,7 +277,8 @@ _SIGNER = [
             None,
             "--signer-address",
             envvar="BT_SIGNER_ADDRESS",
-            help="Extension account ss58 address (optional; prompts when omitted).",
+            help="External signer account ss58 address (extension: prompts when omitted; "
+            "vault: falls back to the wallet's coldkeypub).",
             rich_help_panel=PANEL_EXTENSION,
         ),
     ),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -40,16 +40,46 @@ function alphaSigmoid(diff: number, low: number, high: number, steepness: number
   return Math.min(Math.max(alpha, low), high);
 }
 
-const BASE_CAPTION =
-  'Matches alpha_sigmoid in the epoch code. Deviation is weight − consensus when buying bond, bond − weight when selling. Higher alpha moves bonds faster. Requires yuma3_enabled; when liquid alpha is off, every pair uses the flat 1 − bonds_moving_avg / 1e6.';
+const BASE_CAPTION = (
+  <>
+    Matches{' '}
+    <a href="/code/pallets/subtensor/src/epoch/run_epoch.rs#L1538-L1565" className="underline">
+      alpha_sigmoid
+    </a>{' '}
+    in the epoch code. Deviation is weight − consensus when buying bond, bond − weight when
+    selling. Higher alpha moves bonds faster. Requires yuma3_enabled; when liquid alpha is off,
+    every pair uses the flat 1 − bonds_moving_avg / 1e6.
+  </>
+);
 
-const FOCUS_CAPTIONS: Record<string, string> = {
-  liquid_alpha_enabled: `${BASE_CAPTION} The toggle below flips automatically — watch the sigmoid collapse to the flat line — until you take over.`,
+const FOCUS_CAPTIONS: Record<string, ReactNode> = {
+  liquid_alpha_enabled: (
+    <>
+      {BASE_CAPTION} The toggle below flips automatically — watch the sigmoid collapse to the
+      flat line — until you take over.
+    </>
+  ),
   bonds_moving_avg:
     'With liquid alpha off, alpha_sigmoid never runs: every validator–miner pair smooths at the single flat rate 1 − bonds_moving_avg / 1,000,000, the solid line here. Drag the slider to move the line; re-enable liquid alpha to see the flat rate become the dashed fallback under the sigmoid.',
-  alpha_low: `${BASE_CAPTION} The shaded band marks rates below alpha_low — the curve can never enter it, so alpha_low is the guaranteed floor for in-consensus pairs.`,
-  alpha_high: `${BASE_CAPTION} The shaded band marks rates above alpha_high — the curve can never enter it, so alpha_high caps how fast even the most deviant pair's bonds move.`,
-  alpha_sigmoid_steepness: `${BASE_CAPTION} The steepness slider sweeps on its own so you can watch the transition sharpen from a gentle ramp into a near step at deviation 0.5 — grab any control to stop it.`,
+  alpha_low: (
+    <>
+      {BASE_CAPTION} The shaded band marks rates below alpha_low — the curve can never enter
+      it, so alpha_low is the guaranteed floor for in-consensus pairs.
+    </>
+  ),
+  alpha_high: (
+    <>
+      {BASE_CAPTION} The shaded band marks rates above alpha_high — the curve can never enter
+      it, so alpha_high caps how fast even the most deviant pair&apos;s bonds move.
+    </>
+  ),
+  alpha_sigmoid_steepness: (
+    <>
+      {BASE_CAPTION} The steepness slider sweeps on its own so you can watch the transition
+      sharpen from a gentle ramp into a near step at deviation 0.5 — grab any control to stop
+      it.
+    </>
+  ),
 };
 
 export function HyperparamLiquidAlpha({ focus }: { focus?: string }) {

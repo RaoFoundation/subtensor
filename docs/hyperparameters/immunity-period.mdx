@@ -7,9 +7,9 @@ description: Blocks a newly registered neuron is protected from being pruned as 
 
 ## How it works
 
-When a subnet is at [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids), each new registration must recycle an existing slot. `get_neuron_to_prune` (`pallets/subtensor/src/subnets/registration.rs`) scans every UID and treats a neuron as immune while `current_block − registration_block` is less than `immunity_period`. It picks the lowest-emission non-immune neuron (ties broken by older registration, then lower UID). Owner-immune UIDs (see [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit)) are skipped entirely.
+When a subnet is at [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids), each new registration must recycle an existing slot. [`get_neuron_to_prune`](/code/pallets/subtensor/src/subnets/registration.rs#L280-L356) (`pallets/subtensor/src/subnets/registration.rs`) scans every UID and treats a neuron as immune while `current_block − registration_block` is less than `immunity_period`. It picks the lowest-emission non-immune neuron (ties broken by older registration, then lower UID). Owner-immune UIDs (see [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit)) are skipped entirely.
 
-Immunity is not absolute: if pruning a non-immune neuron would leave `MinNonImmuneUids` (default 10) or fewer non-immune UIDs, the chain instead prunes the lowest-emission immune neuron. If no candidate exists at all, registration fails with `NoNeuronIdAvailable`.
+Immunity is not absolute: if pruning a non-immune neuron would leave `MinNonImmuneUids` (default 10) or fewer non-immune UIDs, the chain instead prunes the lowest-emission immune neuron. If no candidate exists at all, registration fails with [`NoNeuronIdAvailable`](/code/pallets/subtensor/src/macros/errors.rs#L119).
 
 The default is 4096 blocks, about 13.7 hours at 12-second blocks. Longer periods shelter newcomers but shrink the pool of prunable slots; with heavy registration churn, most of the subnet can end up immune.
 

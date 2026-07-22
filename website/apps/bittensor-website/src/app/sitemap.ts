@@ -7,6 +7,7 @@ const staticRoutes = [
   '/about',
   '/academia',
   '/charter',
+  '/code',
   '/dtao-whitepaper',
   '/explore',
   '/intro',

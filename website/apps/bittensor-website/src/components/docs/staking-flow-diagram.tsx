@@ -235,7 +235,19 @@ export function StakingFlowDiagram() {
     <ExplainerPanel
       title="What add_stake / remove_stake actually does"
       tag="add_stake.rs · swap_step.rs"
-      caption="Step through the on-chain path from add_stake.rs → stake_into_subnet (stake_utils.rs) → the balancer swap in swap_step.rs. Illustrative pool: 10,000 τ / 200,000 α at 0.05 τ/α; the fee is 0.05% of the input side and 100% of it goes to the block author."
+      caption={
+        <>
+          Step through the on-chain path from add_stake.rs →{' '}
+          <a
+            href="/code/pallets/subtensor/src/staking/stake_utils.rs#L853-L968"
+            className="underline"
+          >
+            stake_into_subnet (stake_utils.rs)
+          </a>{' '}
+          → the balancer swap in swap_step.rs. Illustrative pool: 10,000 τ / 200,000 α at 0.05
+          τ/α; the fee is 0.05% of the input side and 100% of it goes to the block author.
+        </>
+      }
     >
       <div className="mb-6">
         <ExplainerToggle

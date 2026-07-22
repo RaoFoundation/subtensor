@@ -339,7 +339,19 @@ export function ConvictionSubnetScenario() {
   return (
     <ExplainerPanel
       title={`Example: Subnet ${EXAMPLE_SUBNET.netuid} (${EXAMPLE_SUBNET.name})`}
-      caption="Fictional numbers for illustration. Three coldkeys lock toward different hotkeys; total conviction must reach 10% of SubnetAlphaOut before ownership can transfer."
+      caption={
+        <>
+          Fictional numbers for illustration. Three coldkeys lock toward different hotkeys;
+          total conviction must reach 10% of SubnetAlphaOut before{' '}
+          <a
+            href="/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377"
+            className="underline"
+          >
+            ownership can transfer
+          </a>
+          .
+        </>
+      }
     >
       <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-4 border-b border-line pb-4 sm:grid-cols-4">
         <ExplainerStat label="SubnetAlphaOut" value={formatAlpha(EXAMPLE_SUBNET.alphaOut)} />

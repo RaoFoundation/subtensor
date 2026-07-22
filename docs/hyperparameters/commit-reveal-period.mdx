@@ -13,14 +13,20 @@ weights are when they finally land.
 ## How it works
 
 Each commit is tagged with the subnet's current epoch index. The reveal is
-valid in **exactly one epoch**: `is_reveal_block_range`
+valid in **exactly one epoch**:
+[`is_reveal_block_range`](/code/pallets/subtensor/src/subnets/weights.rs#L1174-L1179)
 (`pallets/subtensor/src/subnets/weights.rs`) requires
 `current_epoch == commit_epoch + commit_reveal_period`. Revealing earlier
-fails with `RevealTooEarly`; once the current epoch moves past that target,
-`is_commit_expired` drops the commit and a late reveal fails with
-`ExpiredWeightCommit`. A hotkey may hold at most 10 unrevealed commits.
+fails with [`RevealTooEarly`](/code/pallets/subtensor/src/macros/errors.rs#L182);
+once the current epoch moves past that target,
+[`is_commit_expired`](/code/pallets/subtensor/src/subnets/weights.rs#L1206-L1211)
+drops the commit and a late reveal fails with
+[`ExpiredWeightCommit`](/code/pallets/subtensor/src/macros/errors.rs#L180).
+A hotkey may hold at most 10 unrevealed commits.
 
-The value is bounded on-chain: `set_reveal_period` accepts 1 to 100 epochs.
+The value is bounded on-chain:
+[`set_reveal_period`](/code/pallets/subtensor/src/subnets/weights.rs#L1213-L1228)
+accepts 1 to 100 epochs.
 
 In practice validators rarely reveal by hand. `btcli tx set-weights` (the
 `set_weights` intent) uses timelocked commits: it reads `RevealPeriodEpochs`

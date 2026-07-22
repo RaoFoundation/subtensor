@@ -166,7 +166,21 @@ export function HyperparamRegsPerBlockChart() {
   return (
     <ExplainerPanel
       title="Per-block registration cap"
-      caption="Each successful registration bumps the RegistrationsThisBlock counter; on_initialize resets it to zero next block. Once the counter reaches max_regs_per_block, further attempts in that block fail with TooManyRegistrationsThisBlock (do_root_register in coinbase/root.rs; checked_allowed_register reports the subnet closed for the rest of the block). The dark portion of each bar is what got in; the pale portion overflowed the cap."
+      caption={
+        <>
+          Each successful registration bumps the RegistrationsThisBlock counter; on_initialize
+          resets it to zero next block. Once the counter reaches max_regs_per_block, further
+          attempts in that block fail with TooManyRegistrationsThisBlock (
+          <a
+            href="/code/pallets/subtensor/src/coinbase/root.rs#L77-L188"
+            className="underline"
+          >
+            do_root_register in coinbase/root.rs
+          </a>
+          ; checked_allowed_register reports the subnet closed for the rest of the block). The
+          dark portion of each bar is what got in; the pale portion overflowed the cap.
+        </>
+      }
     >
       <div className="h-52">
         <Bar data={data} options={options} plugins={[annotationPlugin]} />

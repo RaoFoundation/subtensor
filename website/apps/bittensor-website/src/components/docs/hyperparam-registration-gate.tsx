@@ -20,7 +20,21 @@ export function HyperparamRegistrationGate() {
   return (
     <ExplainerPanel
       title="The registration_allowed gate"
-      caption="Both burned_register and the legacy PoW register land in do_register, which checks get_network_registration_allowed at step 3 before anything else about the caller matters. Click a stretch of blocks to flip the flag there: every attempt under a closed gate fails with SubNetRegistrationDisabled, no matter how much TAO the caller offers."
+      caption={
+        <>
+          Both burned_register and the legacy PoW register land in{' '}
+          <a
+            href="/code/pallets/subtensor/src/subnets/registration.rs#L38-L132"
+            className="underline"
+          >
+            do_register
+          </a>
+          , which checks get_network_registration_allowed at step 3 before anything else about
+          the caller matters. Click a stretch of blocks to flip the flag there: every attempt
+          under a closed gate fails with SubNetRegistrationDisabled, no matter how much TAO
+          the caller offers.
+        </>
+      }
     >
       <div className="flex items-baseline justify-between">
         <p className="font-mono text-[0.625rem] uppercase tracking-[0.08em] text-mute">

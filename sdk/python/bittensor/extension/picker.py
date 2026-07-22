@@ -36,16 +36,17 @@ def pick_extension_account(
             on_picked(selected)
         return selected
 
+    # A remembered account (the config's `signer_address`) is reused without
+    # prompting: repeat commands go straight to the extension popup instead
+    # of bouncing back to the terminal. Pass --signer-address or
+    # --extension-source to pick a different one.
     if default_address is not None:
         saved = [account for account in filtered if account.address == default_address]
         if len(saved) == 1:
-            filtered_with_default = saved + [
-                account for account in filtered if account.address != default_address
-            ]
-        else:
-            filtered_with_default = filtered
-    else:
-        filtered_with_default = filtered
+            selected = saved[0]
+            if on_picked is not None:
+                on_picked(selected)
+            return selected
 
     if not interactive or not sys.stdin.isatty():
         hint = _format_account_hint(filtered)
@@ -54,7 +55,7 @@ def pick_extension_account(
             f"{hint}"
         )
 
-    selected = _prompt_account(filtered_with_default, default_address=default_address)
+    selected = _prompt_account(filtered, default_address=default_address)
     if on_picked is not None:
         on_picked(selected)
     return selected

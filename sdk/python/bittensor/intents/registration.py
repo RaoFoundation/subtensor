@@ -24,13 +24,15 @@ ROOT_CLAIM_TYPE_HELP = (
 @register
 @dataclass
 class BurnedRegister(Intent):
-    """Register a hotkey on a subnet by recycling TAO.
+    """Register a hotkey on a subnet by paying the registration cost.
 
-    Burns the subnet's current registration cost from the signing coldkey and
-    assigns the hotkey a UID on that subnet. The burned TAO is recycled, not
-    staked — it cannot be recovered by deregistering. The cost floats with
-    registration demand and is only known at execution time, so a configured
-    spend cap blocks this call until raised. Fails with
+    Pays the subnet's current floating registration cost from the signing
+    coldkey and assigns the hotkey a UID. When the subnet's collateral lock
+    share (p) is zero, the full cost is burned/recycled. When p > 0, the
+    ``(1 - p)`` share is burned and the ``p`` share is staked to the hotkey and
+    locked as miner collateral (released only through earned incentive). The
+    exact TAO charge is only known at execution time, so a configured spend
+    cap blocks this call until raised. Fails with
     ``SubNetRegistrationDisabled`` while the subnet's ``registration_allowed``
     toggle is off. On a full subnet, registering evicts the non-immune neuron
     with the lowest emission (ties broken by older registration block, then
@@ -42,6 +44,11 @@ class BurnedRegister(Intent):
     op = "burned_register"
     signer = "coldkey"
     wraps = (("SubtensorModule", "burned_register"),)
+    mev_shield_default = True
+    # Registration can buy the collateral share through the AMM; keep the
+    # mempool entry encrypted so a delayed inclusion cannot be sandwiched
+    # into a worse fill against the runtime's 5% collateral limit.
+    mev_shield_required = True
 
     netuid: int = field(metadata={"help": "Subnet to register on."})
     hotkey_ss58: Optional[str] = field(
@@ -57,10 +64,10 @@ class BurnedRegister(Intent):
 
     def summary(self) -> str:
         target = self.hotkey_ss58 or "wallet hotkey"
-        return f"register {target} on netuid {self.netuid} (burned)"
+        return f"register {target} on netuid {self.netuid} (burned/collateral)"
 
     def spend(self) -> Spend:
-        # Burns the subnet's current registration cost from the coldkey. The exact
+        # Pays the subnet's current registration cost from the coldkey. The exact
         # amount isn't known without a read, so a spend cap must block until raised.
         return UNBOUNDED
 

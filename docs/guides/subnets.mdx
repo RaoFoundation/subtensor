@@ -21,7 +21,7 @@ btcli tx register-subnet -w my_coldkey
 
 The cost **doubles** each time anyone registers a subnet, then decays linearly
 back over the lock-reduction interval (100,800 blocks, ~2 weeks), floored at
-`NetworkMinLockCost` — 1,000 TAO by default. It is only known at execution
+[`NetworkMinLockCost`](/code/pallets/subtensor/src/lib.rs#L1765) — 1,000 TAO by default. It is only known at execution
 time, so a `Policy` spend cap blocks this call until raised; read the live
 price with [`subnet-registration-cost`](/docs/query/subnet-registration-cost).
 Subnet registrations are also chain-rate-limited to one per 7,200 blocks
@@ -34,8 +34,8 @@ price equals the median alpha price across subnets. Nothing is recycled at
 registration. You get it back only by owning a subnet that earns.
 
 Identity can be set atomically at registration: the chain's
-`register_network_with_identity` extrinsic takes an optional identity record.
-`register-subnet` wraps plain `register_network`, so the identity variant
+[`register_network_with_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1198-L1204) extrinsic takes an optional identity record.
+`register-subnet` wraps plain [`register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1016-L1018), so the identity variant
 needs the [raw-call escape hatch](/docs/concepts/advanced).
 
 A new subnet is a two-step commitment: register, then activate with
@@ -181,11 +181,11 @@ enforced.)
 Two chain-side constraints on owner changes:
 
 - **Rate limit** — each hyperparameter can be changed roughly once per two
-  tempos (default `OwnerHyperparamRateLimit` = 2), tracked independently per
+  tempos (default [`OwnerHyperparamRateLimit`](/code/pallets/subtensor/src/lib.rs#L1160) = 2), tracked independently per
   parameter, so you can change several different parameters in one tempo but
   not the same one twice.
 - **Freeze window** — owner admin calls are rejected during the last ~10
-  blocks of each tempo (`AdminFreezeWindow`), so parameters can't change while
+  blocks of each tempo ([`AdminFreezeWindow`](/code/pallets/subtensor/src/lib.rs#L1155)), so parameters can't change while
   an epoch is being computed.
 
 Root-only parameters — `kappa` (default 32,767 ≈ 0.5),

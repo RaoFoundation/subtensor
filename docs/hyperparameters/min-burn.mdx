@@ -10,18 +10,24 @@ to something affordable.
 
 ## How it works
 
-Every block, `update_registration_prices_for_networks` (in
-`pallets/subtensor/src/subnets/registration.rs`, run from `block_step`) decays
+Every block,
+[`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)
+(in `pallets/subtensor/src/subnets/registration.rs`, run from
+[`block_step`](/code/pallets/subtensor/src/coinbase/block_step.rs#L7-L36))
+decays
 the current burn price exponentially toward zero — and then clamps it into
 `[min_burn, max_burn]`. The same clamp is applied after each registration bumps
 the price by [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult).
 So with no registrations arriving, the price settles at exactly `min_burn` and
 stays there; `min_burn` is the resting price of an idle subnet.
 
-The value is stored in `MinBurn` as a rao amount (1 TAO = 1e9 rao). The chain
+The value is stored in [`MinBurn`](/code/pallets/subtensor/src/lib.rs#L2135)
+as a rao amount (1 TAO = 1e9 rao). The chain
 default is 500,000 rao (τ0.0005). The owner-set extrinsic
-(`sudo_set_min_burn` in `pallets/admin-utils/src/lib.rs`) enforces two bounds:
-the new value must be **below 1 TAO** (`MinBurnUpperBound`) and **strictly less
+([`sudo_set_min_burn`](/code/pallets/admin-utils/src/lib.rs#L749-L781) in
+`pallets/admin-utils/src/lib.rs`) enforces two bounds:
+the new value must be **below 1 TAO**
+([`MinBurnUpperBound`](/code/runtime/src/lib.rs#L820)) and **strictly less
 than the subnet's current `max_burn`**. Registration burns are recycled — they
 are subtracted from total issuance and can be re-emitted, which pushes halvings
 out (see [emissions](/docs/concepts/emissions)).

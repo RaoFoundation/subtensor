@@ -285,6 +285,14 @@ DESCRIPTIONS: dict[str, str] = {
         "passed since the coldkey's last swap on that netuid. Compare `LastHotkeySwapOnNetuid` "
         "for the coldkey with the current block and retry after the interval."
     ),
+    "HotKeyHasCollateral": (
+        "This hotkey still has standing miner registration collateral and does not hold "
+        "validator permit on that subnet (or on a subnet involved in an all-subnet swap). "
+        "Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and "
+        "bond to a fresh key and defeat validator blacklists. Keys with validator permit "
+        "may still swap. Drain the bond through earned incentive, or obtain permit, before "
+        "swapping."
+    ),
     "IncorrectCommitRevealVersion": (
         "The `commit_reveal_version` argument does not match the chain's current commit-reveal "
         "weights version. Query the `CommitRevealWeightsVersion` storage item and upgrade or "
@@ -642,9 +650,11 @@ DESCRIPTIONS: dict[str, str] = {
         "`btcli query neurons --netuid 0`)."
     ),
     "StakeUnavailable": (
-        "An unstake would dip into stake that is still locked: the requested alpha exceeds the "
-        "coldkey's unlocked balance on that subnet. Check the `Lock` entry for the coldkey and "
-        "netuid; only total stake minus the decaying locked mass can be unstaked."
+        "An unstake or same-subnet stake transfer would dip into stake that is still reserved: "
+        "the requested alpha exceeds the coldkey's free balance on that subnet after subtracting "
+        "conviction `Lock` and any miner registration collateral locked against hotkeys the "
+        "coldkey owns. Check `Lock` and `MinerCollateral` for the netuid; only total stake minus "
+        "those reservations can move."
     ),
     "StakingRateLimitExceeded": (
         "Staking operations (add_stake, remove_stake, and similar) were submitted faster than "

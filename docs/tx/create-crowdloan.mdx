@@ -19,7 +19,7 @@ recover the deposit.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.create` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.create`](/code/pallets/crowdloan/src/lib.rs#L331-L425) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("create_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.create` — [`pallets/crowdloan/src/lib.rs#L341`](/code/pallets/crowdloan/src/lib.rs#L341):
+`Crowdloan.create` — [`pallets/crowdloan/src/lib.rs#L341`](/code/pallets/crowdloan/src/lib.rs#L331-L425):
 
 ```rust
         #[pallet::call_index(0)]

@@ -1,0 +1,76 @@
+---
+title: collateral_drain_ratio
+description: Alpha of locked miner collateral released per alpha of miner incentive earned.
+---
+
+`collateral_drain_ratio` (call it `k`) sets how fast a miner earns back the
+collateral locked at registration when the subnet uses a nonzero
+[`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share).
+Miners care because `lock / k` is the total incentive they must earn before
+their collateral is fully withdrawable; owners tune it to control how long
+miners stay collateralized — the security parameter for subnets whose scoring
+can be gamed on short horizons.
+
+## How it works
+
+Each tempo, when miner incentive is credited
+([`distribute_dividends_and_incentives`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L669-L766)
+in `pallets/subtensor/src/coinbase/run_coinbase.rs`),
+[`settle_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L193-L229)
+releases
+
+```
+released = min(locked − min_locked, k × incentive)
+```
+
+from the hotkey's lock back to withdrawable stake, where `min_locked` is the
+miner's optional self-maintained floor (zero unless set via
+`set_min_collateral`; while the lock is under the floor, incentive is
+captured into the lock instead). The release is keyed to
+the registered hotkey even when the emission itself is redirected by
+auto-stake. At `k = 1` (the default) collateral releases one-for-one with
+earned incentive; at `k = 0.5` a miner must earn two alpha per alpha
+released; at `k = 2` half the lock's worth of work releases all of it.
+
+The subnet value is stored in
+[`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L2795-L2801) as a
+`U64F64` fixed-point number, but each miner's effective ratio is **snapshot
+into their collateral entry at registration**
+([`MinerCollateralState`](/code/pallets/subtensor/src/lib.rs#L364-L383)):
+owner changes apply to future registrations only and can never slow (or
+speed) the drain of standing collateral. The owner-set extrinsic
+([`sudo_set_collateral_drain_ratio`](/code/pallets/admin-utils/src/lib.rs#L2311-L2354)
+in `pallets/admin-utils/src/lib.rs`) requires `0 < k ≤ 10`
+([`MaxCollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L446-L450));
+out-of-range values fail with
+[`CollateralDrainRatioOutOfBounds`](/docs/errors/chain/CollateralDrainRatioOutOfBounds).
+Zero is excluded by design: with no exit path for collateral, `k = 0` would
+make the lock permanently unrecoverable — a burn with extra steps.
+
+The deterrence math, briefly: an adversary who plans to farm emissions and
+abandon the hotkey must collect roughly `T / (1 + k)` (T = registration
+price) before validators stop scoring them, just to break even. Lower `k`
+raises that bar; see the
+[worked example](/docs/guides/mining/collateral#a-subnet-deters-tail-risk-farming).
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name collateral_drain_ratio
+```
+
+Fixed-point decimal; owner or root, rate-limited, outside the weights window:
+
+```
+btcli sudo set --netuid N --name collateral_drain_ratio --value 0.5
+```
+
+Common settings: 1.0 (default, earn-back at par), 0.2–0.5 (slow release for
+long-horizon or gameable-score subnets), 2.0 (fast release where the entry
+gate matters more than ongoing lockup).
+
+## Related
+
+[`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share),
+[`burn_half_life`](/docs/hyperparameters/burn-half-life),
+[Registration collateral guide](/docs/guides/mining/collateral)

@@ -38,6 +38,8 @@
     "max-allowed-uids",
     "burn-increase-mult",
     "burn-half-life",
+    "collateral-lock-share",
+    "collateral-drain-ratio",
     "yuma3-enabled",
     "yuma-version",
     "subnet-is-active",

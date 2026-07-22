@@ -18,7 +18,7 @@ export function ExplainerPanel({
 }: {
   title: string;
   tag?: string;
-  caption?: string;
+  caption?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {

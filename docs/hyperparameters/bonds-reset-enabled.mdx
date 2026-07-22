@@ -7,7 +7,7 @@ description: Whether a neuron's accrued validator bonds are wiped when it commit
 
 ## How it works
 
-When a hotkey commits metadata (the commitments pallet's `OnMetadataCommitment` hook, wired up as `ResetBondsOnCommit` in `runtime/src/lib.rs`), the chain calls `do_reset_bonds` in `pallets/subtensor/src/epoch/run_epoch.rs` for each mechanism of the subnet. If this flag is off, the call returns immediately. If it is on, the chain looks up the committing hotkey's UID and filters that UID's column out of every validator's bond vector — every bond held **on** the committing neuron is deleted, while bonds the neuron holds as a validator on others are untouched.
+When a hotkey commits metadata (the commitments pallet's [`OnMetadataCommitment`](/code/pallets/commitments/src/lib.rs#L367) hook, wired up as [`ResetBondsOnCommit`](/code/runtime/src/lib.rs#L728-L741) in `runtime/src/lib.rs`), the chain calls [`do_reset_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1611-L1643) in `pallets/subtensor/src/epoch/run_epoch.rs` for each mechanism of the subnet. If this flag is off, the call returns immediately. If it is on, the chain looks up the committing hotkey's UID and filters that UID's column out of every validator's bond vector — every bond held **on** the committing neuron is deleted, while bonds the neuron holds as a validator on others are untouched.
 
 Bonds then rebuild through the normal EMA at the rate set by [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) (or the liquid-alpha rate), so validators who re-endorse the refreshed miner regain dividends over subsequent epochs.
 
@@ -15,7 +15,7 @@ Here is what that looks like for a validator's bond on a miner that commits meta
 
 <HyperparamBondsResetChart />
 
-The flag is off by default and toggling it emits a `BondsResetToggled` event (`sudo_set_bonds_reset_enabled` in `pallets/admin-utils/src/lib.rs`).
+The flag is off by default and toggling it emits a [`BondsResetToggled`](/code/pallets/admin-utils/src/lib.rs#L93) event ([`sudo_set_bonds_reset_enabled`](/code/pallets/admin-utils/src/lib.rs#L1702-L1723) in `pallets/admin-utils/src/lib.rs`).
 
 ## Reading and setting
 

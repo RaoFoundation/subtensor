@@ -105,6 +105,19 @@ impl<T: Config> Pallet<T> {
         // 5. Ensure the new hotkey is different from the old one
         ensure!(old_hotkey != new_hotkey, Error::<T>::NewHotKeyIsSameWithOld);
 
+        // 5.1 Bonded miners cannot swap: moving UID + collateral to a fresh
+        // key would defeat validator blacklists keyed by hotkey. Permitted
+        // validators may still swap even on collateral-enabled subnets.
+        ensure!(
+            !Self::miner_collateral_blocks_hotkey_swap(old_hotkey, &coldkey, netuid),
+            Error::<T>::HotKeyHasCollateral
+        );
+        weight.saturating_accrue(match netuid {
+            Some(_) => T::DbWeight::get().reads(3),
+            None => T::DbWeight::get()
+                .reads(Self::get_all_subnet_netuids().len().saturating_mul(3) as u64),
+        });
+
         // 6. Get the current block number
         let block: u64 = Self::get_current_block_as_u64();
 
@@ -664,6 +677,16 @@ impl<T: Config> Pallet<T> {
             let childkey_take = ChildkeyTake::<T>::take(old_hotkey, netuid);
             ChildkeyTake::<T>::insert(new_hotkey, netuid, childkey_take);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 2));
+        }
+
+        // 3.9. Swap miner registration collateral (no-op when none; bonded
+        // miners are rejected earlier in `do_swap_hotkey`). Ownership may
+        // already have moved off `old_hotkey`, so read the coldkey from the
+        // new hotkey. Skip when keep_stake: stake stays on the old key.
+        if !keep_stake {
+            let owner = Owner::<T>::get(new_hotkey);
+            Self::swap_miner_collateral(old_hotkey, new_hotkey, &owner, netuid);
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 2));
         }
 
         // 4. Swap ChildKeys.

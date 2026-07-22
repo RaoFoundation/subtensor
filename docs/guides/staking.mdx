@@ -43,7 +43,7 @@ await client.execute(intent, wallet)
 ```
 
 Every stake operation must move at least the chain minimum — by default
-2,000,000 rao (0.002 TAO), stored in `MinStake`. The chain can also sweep
+2,000,000 rao (0.002 TAO), stored in [`MinStake`](/code/pallets/subtensor/src/lib.rs#L1047). The chain can also sweep
 nominations that fall below a nominator minimum (a governance-set fraction of
 the minimum stake; currently zero, so the sweep is effectively disabled).
 
@@ -86,7 +86,8 @@ changes.
   subnet).
 - [`swap-stake`](/docs/tx/swap-stake) — same hotkey, different subnet.
 - [`transfer-stake`](/docs/tx/transfer-stake) — different coldkey (gives the
-  position away).
+  position away). Pass `--dest-hotkey` to land it on a different hotkey in
+  the same call.
 
 ```python
 intent = bt.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=1,
@@ -124,11 +125,11 @@ Quick reference:
 - One lock per coldkey per subnet; top-ups add mass, conviction continues.
 - **Perpetual** vs **decaying** modes — opt in with [`set-perpetual-lock`](/docs/tx/set-perpetual-lock).
 - The two timescales are governance-set storage values, not fixed constants.
-  On mainnet today `MaturityRate` is 311,622 blocks (~43 days) and
-  `UnlockRate` is 934,866 blocks (~130 days) — read them live before planning
+  On mainnet today [`MaturityRate`](/code/pallets/subtensor/src/lib.rs#L1654) is 311,622 blocks (~43 days) and
+  [`UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658) is 934,866 blocks (~130 days) — read them live before planning
   around either.
 - Aggregate conviction can trigger **subnet ownership** after one year when
-  total conviction ≥ 10% of `SubnetAlphaOut`.
+  total conviction ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
 - Query with [`subnet-convictions`](/docs/query/subnet-convictions),
   [`hotkey-conviction`](/docs/query/hotkey-conviction),
   [`coldkey-lock`](/docs/query/coldkey-lock).
@@ -181,12 +182,12 @@ The chain enforces:
 - The child's take ([`set-childkey-take`](/docs/tx/set-childkey-take)) ranges
   0–18% and defaults to 0; increases are rate-limited to once per 216,000
   blocks (~30 days).
-- The parent must hold a minimum total stake (the chain's `StakeThreshold`,
+- The parent must hold a minimum total stake (the chain's [`StakeThreshold`](/code/pallets/subtensor/src/lib.rs#L2489),
   set by governance — read it live rather than assuming a value).
 
 Dividends settle back along the same links: a child hotkey's dividends are
 split among its parents in proportion to the stake weight each contributed
-(alpha plus TAO × `TaoWeight`), after deducting the childkey take. The
+(alpha plus TAO × [`TaoWeight`](/code/pallets/subtensor/src/lib.rs#L1197)), after deducting the childkey take. The
 deducted take is added to the child validator's own dividends — and since
 those distribute to the child's nominators like any validator dividends, most
 of the take flows onward to that validator's stakers rather than its

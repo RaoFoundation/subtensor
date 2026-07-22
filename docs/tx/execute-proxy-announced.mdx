@@ -14,7 +14,7 @@ matching announcement exists.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.proxy_announced` |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L540-L573) |
 
 ## Parameters
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L549`](/code/pallets/proxy/src/lib.rs#L549):
+`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L549`](/code/pallets/proxy/src/lib.rs#L540-L573):
 
 ```rust
         #[pallet::call_index(9)]

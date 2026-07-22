@@ -143,6 +143,8 @@ def build_replay_command(
     signer_role: str = "coldkey",
     preset: Optional[str] = None,
     other_signatory_labels: Optional[list[str]] = None,
+    proxy_for: Optional[str] = None,
+    force_proxy_type: Optional[str] = None,
 ) -> str:
     """Build a copy-paste ``btcli call`` command for a co-signer."""
     parts = ["btcli"]
@@ -155,6 +157,13 @@ def build_replay_command(
         parts.append(f"--args {shlex.quote(json.dumps(params, separators=(',', ':')))}")
     if sudo:
         parts.append("--sudo")
+    if proxy_for:
+        # The raw ss58, not a book name: co-signers approve by call hash, so
+        # their command must rebuild the byte-identical Proxy.proxy wrapper
+        # even without this machine's proxy book.
+        parts.append(f"--proxy-for {shlex.quote(proxy_for)}")
+        if force_proxy_type:
+            parts.append(f"--force-proxy-type {shlex.quote(force_proxy_type)}")
     if preset:
         parts.append(f"--multisig {shlex.quote(preset)}")
     elif other_signatory_labels:
@@ -295,6 +304,26 @@ def _json_friendly(value: Any) -> Any:
     return value
 
 
+def _multiaddress_ss58(value: Any) -> Optional[str]:
+    """The ss58 inside a decoded MultiAddress (a plain string or {"Id": ss58})."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and len(value) == 1:
+        inner = next(iter(value.values()))
+        if isinstance(inner, str):
+            return inner
+    return None
+
+
+def _proxy_type_name(value: Any) -> Optional[str]:
+    """The variant name of a decoded Option<ProxyType> (string or {name: None})."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and len(value) == 1:
+        return str(next(iter(value.keys())))
+    return None
+
+
 def _call_spec_from_decoded(raw_call: Any) -> Optional[dict[str, Any]]:
     value = raw_call.value if hasattr(raw_call, "value") else raw_call
     if not isinstance(value, dict):
@@ -306,6 +335,22 @@ def _call_spec_from_decoded(raw_call: Any) -> Optional[dict[str, Any]]:
         for arg in (value.get("call_args") or [])
         if arg.get("name") is not None
     }
+    if module == "Proxy" and function == "proxy":
+        # Proxied dispatch: recurse into the inner call (which may itself be
+        # Sudo.sudo) and record the real account so co-signer commands can
+        # rebuild the identical wrapper.
+        inner = args.pop("call", None)
+        real = _multiaddress_ss58(args.get("real"))
+        if inner is None or real is None:
+            return None
+        inner_spec = _call_spec_from_decoded(inner)
+        if inner_spec is None:
+            return None
+        inner_spec["proxy_for"] = real
+        forced = _proxy_type_name(args.get("force_proxy_type"))
+        if forced is not None:
+            inner_spec["force_proxy_type"] = forced
+        return inner_spec
     if module == "Sudo" and function == "sudo":
         inner = args.pop("call", None)
         if inner is None:
@@ -515,11 +560,15 @@ async def build_pending_followup(
     params: dict[str, Any] = {}
     args_file = None
     sudo = False
+    proxy_for = None
+    force_proxy_type = None
     if call_spec:
         target = call_spec.get("target")
         params = call_spec.get("params") or {}
         args_file = call_spec.get("args_file")
         sudo = bool(call_spec.get("sudo"))
+        proxy_for = call_spec.get("proxy_for")
+        force_proxy_type = call_spec.get("force_proxy_type")
         call_data = call_spec.get("call_data")
 
     co_signer_commands = []
@@ -549,6 +598,8 @@ async def build_pending_followup(
                         signer_role=signer_role,
                         preset=preset,
                         other_signatory_labels=other_labels,
+                        proxy_for=proxy_for,
+                        force_proxy_type=force_proxy_type,
                     ),
                 }
             )
@@ -557,6 +608,8 @@ async def build_pending_followup(
         "status": "pending",
         "target": target,
         "sudo": sudo,
+        "proxy_for": proxy_for,
+        "force_proxy_type": force_proxy_type,
         "params": params,
         "approvals": len(approvals),
         "threshold": threshold,
@@ -616,6 +669,8 @@ async def multisig_followup_from_composed(
     preset: Optional[str],
     signer_role: str,
     result: ExtrinsicResult,
+    proxy_for: Optional[str] = None,
+    force_proxy_type: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build co-signer instructions after submitting a multisig approval."""
     call_hash = hex_bytes(call_hash)
@@ -625,6 +680,8 @@ async def multisig_followup_from_composed(
         "params": params,
         "args_file": args_file,
         "sudo": sudo,
+        "proxy_for": proxy_for,
+        "force_proxy_type": force_proxy_type,
         "call_data": call_data,
         "call_hash": call_hash,
         "threshold": threshold,
@@ -643,6 +700,7 @@ async def multisig_followup_from_composed(
             "status": "executed",
             "target": target,
             "sudo": sudo,
+            "proxy_for": proxy_for,
             "call_hash": call_hash,
             "call_data": call_data,
             "multisig_address": ms.address,
@@ -695,6 +753,7 @@ async def multisig_followup_from_composed(
             "status": "submitted",
             "target": target,
             "sudo": sudo,
+            "proxy_for": proxy_for,
             "call_hash": call_hash,
             "call_data": call_data,
             "multisig_address": ms.address,
@@ -785,6 +844,8 @@ async def multisig_followup_for_intent(
         preset=preset,
         signer_role=intent.signer,
         result=result,
+        proxy_for=(spec or {}).get("proxy_for"),
+        force_proxy_type=(spec or {}).get("force_proxy_type"),
     )
 
 

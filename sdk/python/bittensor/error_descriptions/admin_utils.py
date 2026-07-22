@@ -3,6 +3,18 @@
 from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
+    "CollateralDrainRatioOutOfBounds": (
+        "`sudo_set_collateral_drain_ratio` was given a value that is zero, negative, or above "
+        "`MaxCollateralDrainRatio` (10). The drain ratio must be strictly positive — with no "
+        "other exit path for miner collateral, a ratio of zero would make locked collateral "
+        "permanently unrecoverable. Pass a `drain_ratio` in the range (0, 10]."
+    ),
+    "CollateralLockShareTooHigh": (
+        "`sudo_set_collateral_lock_share` was given a value above `MaxCollateralLockShare` "
+        "(62258, ~95% of u16::MAX). The burned share of the registration price must stay "
+        "strictly positive so re-registration always pays a nonzero, floating burn. Lower the "
+        "`lock_share` argument to at most 62258."
+    ),
     "BondsMovingAverageMaxReached": (
         "A subnet owner called `sudo_set_bonds_moving_average` with a value above 975000, the "
         "cap for owner-set values; root is exempt. Lower the `bonds_moving_average` argument or "

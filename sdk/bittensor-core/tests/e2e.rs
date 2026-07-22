@@ -285,6 +285,25 @@ fn test_mev_shield_next_key_is_mlkem768() {
 #[test]
 fn test_submit_shielded_runs_full_pipeline() {
     let ctx = TestContext::new();
+    // Same NextKey race as `test_mev_shield_next_key_is_mlkem768`: the rotation
+    // inherent leaves NextKey unset until every localnet authority has authored
+    // and announced. Poll before submitting so the pipeline does not fail open
+    // with `MevShield.NextKey is unavailable`.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let key = ctx
+            .client
+            .query("MevShield", "NextKey", &[], None)
+            .expect("NextKey read");
+        if value_bytes(&key).is_some() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "NextKey not announced within 30s before shielded submit"
+        );
+        thread::sleep(Duration::from_millis(250));
+    }
     let intent = transfer(ctx.bob.coldkey.ss58_address(), amount_tao(2));
     let result = ctx
         .executor()

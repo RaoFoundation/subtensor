@@ -14,7 +14,7 @@ contribution (including the deposit) and removes the loan.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.refund` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.refund`](/code/pallets/crowdloan/src/lib.rs#L686-L750) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("refund_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.refund` — [`pallets/crowdloan/src/lib.rs#L688`](/code/pallets/crowdloan/src/lib.rs#L688):
+`Crowdloan.refund` — [`pallets/crowdloan/src/lib.rs#L688`](/code/pallets/crowdloan/src/lib.rs#L686-L750):
 
 ```rust
 #[pallet::call_index(4)]

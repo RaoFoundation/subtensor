@@ -94,6 +94,14 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`most-convicted-hotkey`](/docs/query/most-convicted-hotkey) | Hotkey with the highest conviction on a subnet, if any. |
 | [`subnet-convictions`](/docs/query/subnet-convictions) | Every hotkey with locked stake on a subnet, rolled forward to now. |
 
+## Mining & collateral
+
+| Query | Summary |
+| --- | --- |
+| [`collateral-policy`](/docs/query/collateral-policy) | A subnet's collateral configuration. |
+| [`miner-collateral`](/docs/query/miner-collateral) | A `(hotkey, coldkey)` stake position's standing collateral, or None. |
+| [`subnet-collateral`](/docs/query/subnet-collateral) | Every `(hotkey, coldkey)` position with standing collateral on a subnet. |
+
 ## Neurons & registration
 
 | Query | Summary |

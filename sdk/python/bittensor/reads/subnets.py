@@ -149,6 +149,9 @@ async def metagraph(view, netuid: int) -> dict:
 
     `name` and `symbol` are decoded to text (the wire carries them as
     compact-u16 vectors of utf-8 bytes, unlike every other text field).
+    On runtimes with miner collateral (spec >= 435), each neuron also carries
+    `collateral_locked`, `collateral_min`, and `collateral_earned` (alpha
+    balances; ``None`` on older nodes).
     """
     graph = await view.runtime(api.SubnetInfoRuntimeApi.get_metagraph, [netuid])
     if isinstance(graph, dict):

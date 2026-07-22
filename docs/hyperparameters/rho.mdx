@@ -10,7 +10,9 @@ main audience.
 
 ## How it works
 
-The formula lives in `sigmoid_safe` (`pallets/subtensor/src/epoch/math.rs`):
+The formula lives in
+[`sigmoid_safe`](/code/pallets/subtensor/src/epoch/math.rs#L198-L207)
+(`pallets/subtensor/src/epoch/math.rs`):
 
 ```
 trust = 1 / (1 + e^(−rho × (x − kappa)))
@@ -23,9 +25,12 @@ to near 0. The recommended range in the code is 0 to 40; the mainnet
 default is 10.
 
 One caveat, straight from the source: the current epoch
-(`pallets/subtensor/src/epoch/run_epoch.rs`) computes consensus as the
+([`pallets/subtensor/src/epoch/run_epoch.rs`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L340-L343))
+computes consensus as the
 `kappa`-weighted median of weights and clips to it — the helper that would
-feed `rho` into the sigmoid (`get_float_rho`) is defined but not called on
+feed `rho` into the sigmoid
+([`get_float_rho`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1111-L1113))
+is defined but not called on
 the active path. `rho` remains a stored, owner-settable parameter of the
 Yuma formulation, but changing it does not alter today's epoch output. See
 [Yuma Consensus](/docs/concepts/emissions#yuma-consensus) for the full

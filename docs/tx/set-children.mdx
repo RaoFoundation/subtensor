@@ -26,7 +26,7 @@ is not yet enabled, where they apply immediately.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.set_children` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087) |
 
 ## Parameters
 
@@ -79,22 +79,20 @@ result = sub.execute_tool("set_children", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1093`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093):
+`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1079`](/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087):
 
 ```rust
-        #[pallet::call_index(67)]
-        #[pallet::weight((Weight::from_parts(119_000_000, 0)
-		.saturating_add(T::DbWeight::get().reads(6))
-		.saturating_add(T::DbWeight::get().writes(31)), DispatchClass::Normal, Pays::Yes))]
-        pub fn set_children(
-            origin: OriginFor<T>,
-            hotkey: T::AccountId,
-            netuid: NetUid,
-            children: Vec<(u64, T::AccountId)>,
-        ) -> DispatchResultWithPostInfo {
-            Self::do_schedule_children(origin, hotkey, netuid, children)?;
-            Ok(().into())
-        }
+#[pallet::call_index(67)]
+#[pallet::weight((<T as Config>::WeightInfo::set_children(children.len() as u32), DispatchClass::Normal, Pays::Yes))]
+pub fn set_children(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+    netuid: NetUid,
+    children: Vec<(u64, T::AccountId)>,
+) -> DispatchResultWithPostInfo {
+    Self::do_schedule_children(origin, hotkey, netuid, children)?;
+    Ok(().into())
+}
 ```
 
 Delegates to [`do_schedule_children`](/code/pallets/subtensor/src/staking/set_children.rs#L475).

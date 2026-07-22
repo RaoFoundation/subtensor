@@ -586,18 +586,22 @@ class TransferStake(Intent):
     Hands the position itself to the destination coldkey: after this call that
     coldkey — not you — controls and can unstake those funds, so this is a
     transfer of value and is irreversible. Double-check the destination
-    address. The stake stays on the same hotkey but can land on a different
-    subnet, swapping through both pools (with slippage) when the netuids
-    differ. Fails with ``TransferDisallowed`` when the subnet owner has
-    disabled stake transfers on the origin or destination subnet. A
-    spend-cap policy treats this as an unbounded spend and blocks it until
-    the cap is raised. Use ``move_stake`` to re-delegate without changing
-    owners.
+    address. The stake stays on the same hotkey by default; pass a destination
+    hotkey to re-delegate it in the same call (dispatched as
+    ``transfer_stake_and_hotkey``). It can also land on a different subnet,
+    swapping through both pools (with slippage) when the netuids differ. Fails
+    with ``TransferDisallowed`` when the subnet owner has disabled stake
+    transfers on the origin or destination subnet. A spend-cap policy treats
+    this as an unbounded spend and blocks it until the cap is raised. Use
+    ``move_stake`` to re-delegate without changing owners.
     """
 
     op = "transfer_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "transfer_stake"),)
+    wraps = (
+        ("SubtensorModule", "transfer_stake"),
+        ("SubtensorModule", "transfer_stake_and_hotkey"),
+    )
     mev_shield_default = True
 
     dest_coldkey_ss58: str = field(
@@ -612,13 +616,34 @@ class TransferStake(Intent):
             "amount; ``all`` is not accepted)."
         }
     )
+    dest_hotkey_ss58: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Hotkey the stake lands on. Defaults to the origin hotkey "
+            "(the position stays with the same validator)."
+        },
+    )
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
             self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
         )
 
+    def _changes_hotkey(self) -> bool:
+        return self.dest_hotkey_ss58 is not None and self.dest_hotkey_ss58 != self.hotkey_ss58
+
     async def build(self, substrate, wallet: Any):
+        if self._changes_hotkey():
+            return await substrate.compose(
+                calls.SubtensorModule.transfer_stake_and_hotkey(
+                    destination_coldkey=self.dest_coldkey_ss58,
+                    origin_hotkey=self.hotkey_ss58,
+                    destination_hotkey=self.dest_hotkey_ss58,
+                    origin_netuid=self.origin_netuid,
+                    destination_netuid=self.dest_netuid,
+                    alpha_amount=self.amount_alpha.rao,
+                )
+            )
         return await substrate.compose(
             calls.SubtensorModule.transfer_stake(
                 destination_coldkey=self.dest_coldkey_ss58,
@@ -630,9 +655,12 @@ class TransferStake(Intent):
         )
 
     def summary(self) -> str:
+        hotkey_note = (
+            f" (landing on hotkey {self.dest_hotkey_ss58})" if self._changes_hotkey() else ""
+        )
         return (
             f"transfer {self.amount_alpha} on netuid {self.origin_netuid} to "
-            f"coldkey {self.dest_coldkey_ss58}"
+            f"coldkey {self.dest_coldkey_ss58}{hotkey_note}"
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
