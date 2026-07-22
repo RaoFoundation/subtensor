@@ -332,8 +332,8 @@ where
         coldkey: H256,
         netuid: U256,
     ) -> EvmResult<U256> {
-        // Alpha share pool reads
-        handle.record_db_reads::<R>(2)?;
+        // Worst-case V2 fallback reads for the alpha share pool.
+        handle.record_db_reads::<R>(STAKE_INFO_READS_PER_HOTKEY)?;
         let hotkey = R::AccountId::from(hotkey.0);
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = try_u16_from_u256(netuid)?;
@@ -886,8 +886,8 @@ where
         coldkey: H256,
         netuid: U256,
     ) -> EvmResult<U256> {
-        // Alpha share pool reads
-        handle.record_db_reads::<R>(2)?;
+        // Worst-case V2 fallback reads for the alpha share pool.
+        handle.record_db_reads::<R>(STAKE_INFO_READS_PER_HOTKEY)?;
         let hotkey = R::AccountId::from(hotkey.0);
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = try_u16_from_u256(netuid)?;
@@ -1408,20 +1408,22 @@ mod tests {
             let stake_after = stake_for(&hotkey, &caller_account, netuid);
             assert!(stake_after > stake_before);
 
-            assert_static_call(
-                &precompiles::<StakingPrecompile<Runtime>>(),
-                caller,
-                addr_from_index(StakingPrecompile::<Runtime>::INDEX),
-                encode_with_selector(
-                    selector_u32("getStake(bytes32,bytes32,uint256)"),
-                    (
-                        H256::from_slice(hotkey.as_ref()),
-                        H256::from_slice(caller_account.as_ref()),
-                        U256::from(TEST_NETUID_U16),
+            precompiles::<StakingPrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompile::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getStake(bytes32,bytes32,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            H256::from_slice(caller_account.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
                     ),
-                ),
-                substrate_to_evm(stake_after),
-            );
+                )
+                .with_static_call(true)
+                .expect_cost(stake_info_cost(1))
+                .execute_returns(substrate_to_evm(stake_after));
         });
     }
 
@@ -1447,20 +1449,22 @@ mod tests {
             let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
             let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
 
-            assert_static_call(
-                &precompiles,
-                caller,
-                precompile_addr,
-                encode_with_selector(
-                    selector_u32("getStake(bytes32,bytes32,uint256)"),
-                    (
-                        H256::from_slice(hotkey.as_ref()),
-                        H256::from_slice(caller_account.as_ref()),
-                        U256::from(TEST_NETUID_U16),
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getStake(bytes32,bytes32,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            H256::from_slice(caller_account.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
                     ),
-                ),
-                U256::from(stake_after),
-            );
+                )
+                .with_static_call(true)
+                .expect_cost(stake_info_cost(1))
+                .execute_returns(U256::from(stake_after));
             assert_static_call(
                 &precompiles,
                 caller,
