@@ -1474,6 +1474,54 @@ fn is_order_valid_invalid_signature_returns_error() {
 }
 
 #[test]
+fn is_order_valid_accepts_raw_ed25519_signature() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        let (signed, _) = make_valid_signed_order();
+        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer: AccountId::from(ed_pair.public()),
+            ..signed.order.inner().clone()
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        let signature = ed_pair.sign(&order.encode());
+        let signed = crate::SignedOrder {
+            order,
+            signature: MultiSignature::Ed25519(signature),
+            partial_fill: None,
+        };
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
+fn is_order_valid_accepts_wrapped_sr25519_signature() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        let (mut signed, id) = make_valid_signed_order();
+        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        signed.signature = MultiSignature::Sr25519(AccountKeyring::Alice.pair().sign(&payload));
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
 fn is_order_valid_accepts_wrapped_ed25519_signature() {
     new_test_ext().execute_with(|| {
         MockTime::set(1_000_000);

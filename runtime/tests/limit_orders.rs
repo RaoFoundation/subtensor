@@ -450,6 +450,45 @@ fn limit_buy_order_executes_and_stakes_alpha() {
     });
 }
 
+/// A Ledger-style, wrapped Sr25519 signature is accepted by the runtime and
+/// executes the signed order.
+#[test]
+fn execute_orders_wrapped_sr25519_signature_executes() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        let bob_id = Sr25519Keyring::Bob.to_account_id();
+        let relayer = Sr25519Keyring::Charlie.to_account_id();
+
+        setup_subnet(netuid);
+        fund_account(&alice_id);
+        let _ = SubtensorModule::create_account_if_non_existent(&alice_id, &bob_id);
+
+        let mut signed = make_signed_order(
+            alice,
+            bob_id,
+            netuid,
+            OrderType::LimitBuy,
+            min_default_stake().into(),
+            u64::MAX,
+            u64::MAX,
+            Perbill::zero(),
+            relayer.clone(),
+        );
+        let id = order_id(&signed.order);
+        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload));
+
+        assert_ok!(LimitOrders::execute_orders(
+            RuntimeOrigin::signed(relayer),
+            make_order_batch(vec![signed]),
+            false,
+        ));
+        assert_eq!(Orders::<Runtime>::get(id), Some(OrderStatus::Fulfilled));
+    });
+}
+
 /// A TakeProfit order whose price condition is satisfied executes against the pool,
 /// marks the order as Fulfilled, and burns the seller's staked alpha position.
 #[test]
