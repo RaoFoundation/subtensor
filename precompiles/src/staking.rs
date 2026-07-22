@@ -36,7 +36,7 @@ use core::marker::PhantomData;
 use frame_support::Blake2_128Concat;
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::pallet_prelude::{StorageDoubleMap, ValueQuery};
-use frame_support::traits::{Get, IsSubType, StorageInstance};
+use frame_support::traits::{ConstU32, Get, IsSubType, StorageInstance};
 use frame_system::RawOrigin;
 use pallet_evm::{
     AddressMapping, BalanceConverter, EvmBalance, ExitError, PrecompileFailure, PrecompileHandle,
@@ -44,7 +44,7 @@ use pallet_evm::{
 };
 use pallet_subtensor_proxy as pallet_proxy;
 use precompile_utils::EvmResult;
-use precompile_utils::prelude::{Address, revert};
+use precompile_utils::prelude::{Address, BoundedVec, revert};
 use sp_core::{H160, H256, U256};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto};
 use sp_std::vec;
@@ -355,17 +355,14 @@ where
         handle: &mut impl PrecompileHandle,
         coldkey: H256,
         netuid: U256,
-        hotkeys: Vec<H256>,
+        hotkeys: BoundedVec<H256, ConstU32<{ MAX_STAKE_INFO_HOTKEYS as u32 }>>,
     ) -> EvmResult<Vec<(H256, U256)>> {
         let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
         handle.record_cost(hotkey_count.saturating_mul(STAKE_INFO_INPUT_GAS_PER_HOTKEY))?;
+        let hotkeys: Vec<H256> = hotkeys.into();
 
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = NetUid::from(try_u16_from_u256(netuid)?);
-
-        if hotkeys.len() > MAX_STAKE_INFO_HOTKEYS {
-            return Err(revert("stake info hotkey count exceeds 64"));
-        }
 
         let mut seen = BTreeSet::new();
         for hotkey in &hotkeys {
@@ -1352,7 +1349,7 @@ mod tests {
     }
 
     #[test]
-    fn staking_precompile_v2_rejects_more_than_64_requested_hotkeys() {
+    fn staking_precompile_v2_codec_rejects_more_than_64_requested_hotkeys() {
         new_test_ext().execute_with(|| {
             setup_staking_subnet();
             let caller = addr_from_index(0x1106);
@@ -1396,8 +1393,8 @@ mod tests {
                     ),
                 )
                 .with_static_call(true)
-                .expect_cost(stake_info_validation_cost(MAX_STAKE_INFO_HOTKEYS + 1))
-                .execute_reverts(|output| output == b"stake info hotkey count exceeds 64");
+                .expect_cost(0)
+                .execute_reverts(|output| output == b"hotkeys: Value is too large for length");
         });
     }
 
