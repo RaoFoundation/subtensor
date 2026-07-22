@@ -53,9 +53,9 @@ impl<T: Config> Pallet<T> {
     ) -> bool {
         match netuid {
             Some(netuid) => MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey)),
-            None => Self::get_all_subnet_netuids().into_iter().any(|netuid| {
-                MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey))
-            }),
+            None => Self::get_all_subnet_netuids()
+                .into_iter()
+                .any(|netuid| MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey))),
         }
     }
 

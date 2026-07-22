@@ -2089,12 +2089,7 @@ fn test_do_swap_coldkey_migrates_miner_collateral() {
 
         // Locked bond remains non-withdrawable under the new coldkey.
         assert_err!(
-            SubtensorModule::ensure_hotkey_covers_collateral(
-                &new_coldkey,
-                &hotkey,
-                netuid,
-                alpha
-            ),
+            SubtensorModule::ensure_hotkey_covers_collateral(&new_coldkey, &hotkey, netuid, alpha),
             Error::<Test>::StakeUnavailable
         );
         assert_ok!(SubtensorModule::ensure_hotkey_covers_collateral(

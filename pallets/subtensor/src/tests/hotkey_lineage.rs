@@ -212,10 +212,7 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
         let migrated = MinerCollateral::<Test>::get((netuid, h1, coldkey))
             .expect("collateral must follow the UID");
         assert_eq!(migrated.locked, locked);
-        assert_eq!(
-            ColdkeyMinerCollateral::<Test>::get(netuid, coldkey),
-            locked
-        );
+        assert_eq!(ColdkeyMinerCollateral::<Test>::get(netuid, coldkey), locked);
 
         // Validator permit must not reopen the keep_stake escape.
         let uid = Uids::<Test>::get(netuid, h1).expect("registered");

@@ -1186,11 +1186,12 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
 
         let reg_fee = Subtensor::<T>::get_burn(netuid);
-        let collateral_alpha =
-            AlphaBalance::from(u64::from(DefaultMinStake::<T>::get().saturating_mul(10.into())));
-        let deposit = reg_fee.saturating_mul(2.into()).saturating_add(
-            TaoBalance::from(collateral_alpha.to_u64()).saturating_mul(2.into()),
-        );
+        let collateral_alpha = AlphaBalance::from(u64::from(
+            DefaultMinStake::<T>::get().saturating_mul(10.into()),
+        ));
+        let deposit = reg_fee
+            .saturating_mul(2.into())
+            .saturating_add(TaoBalance::from(collateral_alpha.to_u64()).saturating_mul(2.into()));
         add_balance_to_coldkey_account::<T>(&coldkey, deposit.into());
         add_lock::<T>(&coldkey, netuid);
 
