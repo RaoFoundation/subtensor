@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from .._generated import calls
 from .._generated.calls import Call
-from ._money import Money, Spend, alpha_amount, tao_amount
+from ._money import UNBOUNDED, Money, Spend, alpha_amount
 from .base import Intent
 from .registry import register
 from .staking import (
@@ -25,13 +25,12 @@ class AddCollateral(Intent):
 
     Tops up the hotkey's registration collateral on the subnet — for example
     to meet a validator-published per-machine requirement on resource
-    subnets. Prefers free alpha already staked on that hotkey (valued at the
-    subnet moving price) and only buys the shortfall with TAO from the
-    coldkey. The signing coldkey must own the hotkey. The locked alpha is
-    real stake (it appreciates with the subnet pool) but is not
-    withdrawable: it is released back to free stake through earned miner
-    incentive at the drain ratio snapshot the hotkey already carries,
-    survives deregistration, and is credited against the collateral
+    subnets. Prefers free alpha already staked on that hotkey and only buys
+    the shortfall with TAO from the coldkey. The signing coldkey must own
+    the hotkey. The locked alpha is real stake (it appreciates with the
+    subnet pool) but is not withdrawable: it is released back to free stake
+    through earned emission at the drain ratio snapshot the hotkey already
+    carries, survives deregistration, and is credited against the collateral
     requirement on re-registration. There is no direct withdrawal path —
     see ``set_min_collateral`` for maintaining a level without re-locking
     drained funds.
@@ -48,12 +47,12 @@ class AddCollateral(Intent):
     mev_shield_required = True
 
     netuid: int = field(metadata={"help": "Subnet to lock collateral on."})
-    amount_tao: Money = field(
+    amount_alpha: Money = field(
         metadata={
             "help": (
-                "TAO-value of collateral to add. Uses free stake on the hotkey "
-                "first; only the shortfall is bought (that remainder must meet "
-                "the staking minimum)."
+                "Alpha of collateral to add. Uses free stake on the hotkey "
+                "first; only the shortfall is bought with TAO (that remainder "
+                "must meet the staking minimum)."
             )
         },
     )
@@ -68,7 +67,7 @@ class AddCollateral(Intent):
     )
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid)
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
@@ -78,19 +77,21 @@ class AddCollateral(Intent):
             calls.SubtensorModule.add_collateral(
                 netuid=self.netuid,
                 hotkey=hotkey,
-                tao=self.amount_tao.rao,
+                alpha=self.amount_alpha.rao,
                 limit_price=int(price * (1 + self.rate_tolerance)),
             )
         )
 
     def summary(self) -> str:
         return (
-            f"lock {self.amount_tao} as collateral on netuid {self.netuid}"
+            f"lock {self.amount_alpha} as collateral on netuid {self.netuid}"
             f" (fails if price moves >{self.rate_tolerance:.2%})"
         )
 
     def spend(self) -> Spend:
-        return self.amount_tao
+        # May buy a TAO shortfall when free alpha on the hotkey is insufficient;
+        # exact spend needs a stake read, so a spend cap blocks until raised.
+        return UNBOUNDED
 
 
 @register
@@ -99,12 +100,12 @@ class SetMinCollateral(Intent):
     """Set the self-maintaining collateral floor for your hotkey on a subnet.
 
     The collateral drain never releases the lock below the floor, and while
-    the lock is under it, earned miner incentive is captured into the lock
-    until the floor is met — so a miner tracking a validator-published
-    collateral requirement does not need to keep re-locking drained funds.
-    Raising the floor above the current lock does not require fresh capital:
-    the shortfall fills from future incentive (use ``add_collateral`` to fund
-    it immediately). Zero clears the floor and restores pure drain behavior.
+    the lock is under it, earned emission is captured into the lock until
+    the floor is met — so a miner tracking a validator-published collateral
+    requirement does not need to keep re-locking drained funds. Raising the
+    floor above the current lock does not require fresh capital: the shortfall
+    fills from future emission (use ``add_collateral`` to fund it
+    immediately). Zero clears the floor and restores pure drain behavior.
     """
 
     op = "set_min_collateral"

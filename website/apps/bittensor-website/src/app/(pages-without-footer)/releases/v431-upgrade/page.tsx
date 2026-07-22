@@ -651,8 +651,8 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
               <DocLink href='/code/pallets/subtensor/src/subnets/subnet.rs#L224-L254'>
                 <code>NetworkRegistrationQueued</code>
               </DocLink>{' '}
-              without creating the subnet — wait for{' '}
-              <code>NetworkAdded</code>.
+              without creating the subnet. The SDK and <code>btcli subnets create</code> wait for
+              the matching <code>NetworkAdded</code> by default; raw-call clients must do the same.
             </li>
             <li>
               <strong>Drand rounds are sequential.</strong> After the first pulse, only{' '}

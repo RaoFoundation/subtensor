@@ -30,7 +30,7 @@ class BurnedRegister(Intent):
     coldkey and assigns the hotkey a UID. When the subnet's collateral lock
     share (p) is zero, the full cost is burned/recycled. When p > 0, the
     ``(1 - p)`` share is burned and the ``p`` share is staked to the hotkey and
-    locked as miner collateral (released only through earned incentive). The
+    locked as miner collateral (released only through earned emission). The
     exact TAO charge is only known at execution time, so a configured spend
     cap blocks this call until raised. Fails with
     ``SubNetRegistrationDisabled`` while the subnet's ``registration_allowed``
@@ -84,9 +84,13 @@ class RegisterSubnet(Intent):
     reduction interval, and is only known at execution time, so a configured
     spend cap blocks this call until raised. The full cost becomes the new
     subnet's initial TAO pool reserve — a sunk cost, not a refundable deposit.
-    Network registrations are rate-limited per coldkey. If the chain is at
-    its subnet limit, registering dissolves the non-immune subnet with the
-    lowest EMA price to free the slot (the new subnet reuses its netuid).
+    Network registrations are rate-limited per coldkey. If capacity is
+    available, the subnet is created in the registration block. If the chain
+    is at its subnet limit, registration first queues while the non-immune
+    subnet with the lowest EMA price is dissolved across idle block time; SDK
+    execution waits for the matching ``NetworkAdded`` event before returning
+    by default. The result's ``registration_mode`` distinguishes the two paths
+    and ``netuid`` is the subnet actually assigned.
     The new subnet starts inactive: call ``start_call`` once the chain's
     activation delay has passed to activate it; the subnet's share of TAO
     emission additionally stays off until root enables the subnet's

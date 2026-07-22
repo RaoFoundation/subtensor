@@ -131,7 +131,7 @@ pub mod pallet {
         CollateralDrainRatioSet {
             /// The network identifier.
             netuid: NetUid,
-            /// The new drain ratio (alpha released per alpha of incentive earned).
+            /// The new drain ratio (alpha released per alpha of emission earned).
             drain_ratio: U64F64,
         },
     }
@@ -2308,7 +2308,8 @@ pub mod pallet {
         }
 
         /// Sets the miner collateral drain ratio (k) for a subnet: how much
-        /// locked collateral is released per alpha of miner incentive earned.
+        /// locked collateral is released per alpha of hotkey emission earned
+        /// (miner incentive and validator dividends).
         /// Must be positive, at most 10. Callable by root and subnet owner.
         /// Snapshot per miner at registration; changing it never affects
         /// already-locked collateral.

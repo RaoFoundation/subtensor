@@ -11,13 +11,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Awaitable, Callable, Optional, TypeVar
 
 import typer
 
 from .. import config as cfg
 from .. import wallets
+from .._generated import runtime_apis, storage
 from ..client import Client
 from ..extension.client import BridgeError
 from ..ledger import LedgerError, LedgerSigner
@@ -485,7 +487,50 @@ class AppContext:
         wallet = self.wallet()
         self._register_local_names(wallet)
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
-        summary = intent.summary() + (f" [as {proxy_for} via proxy]" if proxy_for else "")
+        registration_quote = None
+        registration_flow = None
+        summary = intent.summary()
+        if intent.op == "register_subnet":
+
+            async def _registration_preview(client):
+                block = await client.block()
+                quote_rao = await client.runtime(
+                    runtime_apis.SubnetRegistrationRuntimeApi.get_network_registration_cost,
+                    [],
+                    block=block,
+                )
+                quote = client.balance(int(quote_rao))
+                if self.assume_yes:
+                    return quote, None
+                networks, subnet_limit, cleanup_queue, registration_queue = await asyncio.gather(
+                    client.query_map(storage.SubtensorModule.NetworksAdded, block=block),
+                    client.query(storage.SubtensorModule.SubnetLimit, block=block),
+                    client.query(storage.SubtensorModule.DissolveCleanupQueue, block=block),
+                    client.query(storage.SubtensorModule.NetworkRegistrationQueue, block=block),
+                )
+                active = sum(1 for netuid, added in networks if int(netuid) != 0 and bool(added))
+                cleanup_queue = list(cleanup_queue or [])
+                registration_queue = list(registration_queue or [])
+                if active + len(cleanup_queue) < int(subnet_limit):
+                    return quote, "immediate · no deregistration needed"
+                if len(cleanup_queue) > len(registration_queue):
+                    target = int(cleanup_queue[0]) if cleanup_queue else None
+                    flow = "queued · waits for deregistration cleanup"
+                    if target is not None:
+                        flow += f" of subnet {target}"
+                    return quote, flow
+                prune = await client.runtime(
+                    runtime_apis.SubnetInfoRuntimeApi.get_subnet_to_prune,
+                    [],
+                    block=block,
+                )
+                if prune is None:
+                    return quote, "blocked · no subnet is eligible for deregistration"
+                return quote, f"queued · deregisters subnet {int(prune)} before registration"
+
+            registration_quote, registration_flow = self.run(_registration_preview)
+            summary += f" for {registration_quote.decimal:,.9f} TAO"
+        summary += f" [as {proxy_for} via proxy]" if proxy_for else ""
         if shield:
             summary += " [MEV-shielded]"
 
@@ -531,6 +576,8 @@ class AppContext:
                 await signer.close()
 
             self.run(_prepare)
+            if registration_flow is not None and not self.assume_yes:
+                self.output.message(f"[dim]{registration_flow}[/dim]")
             # The extension popup is the approval surface: it shows this same
             # transaction and requires an explicit approve/reject there, so a
             # terminal prompt would only bounce the user between windows.
@@ -539,7 +586,65 @@ class AppContext:
                 "[dim]approve or reject the request in the wallet extension popup[/dim]"
             )
         else:
+            if registration_flow is not None and not self.assume_yes:
+                self.output.message(f"[dim]{registration_flow}[/dim]")
             self.confirm(f"{summary}?")
+
+        # Native keyfiles unlock synchronously on their first signature.  Do it
+        # before starting the registration status display so an encrypted
+        # coldkey's password prompt remains visible and usable.  Reuse the
+        # unlocked keypair for planning/signing; otherwise the lazy SDK signer
+        # would prompt underneath the live spinner and appear to hang forever.
+        local_signer = None
+        if intent.op == "register_subnet" and not self.uses_external_signer():
+            signing_key = wallets.signing_keypair(
+                wallet,
+                intent.signer,
+                password_file=self.wallet_password_file,
+                macos_prompt=self.macos_password,
+                keychain=self.keychain_password,
+            )
+            try:
+                hotkey = wallet.hotkeypub
+            except FileNotFoundError:
+                hotkey = wallet.hotkey
+            # Keep the wallet shape because register_subnet defaults its hotkey
+            # from it, while replacing the signing side with the keypair that
+            # was already unlocked above.
+            local_signer = SimpleNamespace(
+                coldkey=signing_key,
+                coldkeypub=wallet.coldkeypub,
+                hotkey=hotkey,
+            )
+
+        def activity_update(_text: str, _announce: bool = False) -> None:
+            pass
+
+        def _registration_progress(progress: dict) -> None:
+            stage = progress.get("stage")
+            cleanup = progress.get("deregistered_netuid") or progress.get("cleanup_netuid")
+            if stage == "queued":
+                if progress.get("deregistered_netuid") is not None:
+                    text = f"capacity is full · deregistering subnet {cleanup} before registration"
+                elif cleanup is not None:
+                    text = f"registration queued · waiting for subnet {cleanup} cleanup"
+                else:
+                    text = "registration queued · waiting for deregistration cleanup"
+                activity_update(text, True)
+            elif stage == "waiting":
+                subject = f"subnet {cleanup} cleanup" if cleanup is not None else "cleanup"
+                elapsed = int(progress.get("blocks_since_call", 0))
+                unit = "block" if elapsed == 1 else "blocks"
+                activity_update(
+                    f"{subject} · {elapsed} {unit} since call · waiting for NetworkAdded",
+                    False,
+                )
+            elif stage == "registered":
+                activity_update(
+                    f"NetworkAdded · subnet {progress.get('netuid')} · "
+                    f"block {progress.get('block')}",
+                    False,
+                )
 
         async def _execute(client):
             use_shield = shield
@@ -561,7 +666,7 @@ class AppContext:
                     "[dim]MEV shield is not active on this network — submitting unshielded[/dim]"
                 )
                 use_shield = False
-            signer = await self.resolve_signing_wallet(intent.signer)
+            signer = local_signer or await self.resolve_signing_wallet(intent.signer)
             if use_shield and self.uses_vault_signer():
                 # Shielded signing runs against an 8-block (~96 s) era, and
                 # a shielded submission means two QR scans (the shielded
@@ -577,17 +682,25 @@ class AppContext:
             result = None
             try:
                 if use_shield:
+                    shield_options = {"wait_for_finalization": False}
+                    if intent.op == "register_subnet":
+                        shield_options["on_progress"] = _registration_progress
                     result = await client.submit_shielded(
                         intent,
                         signer,
-                        wait_for_finalization=False,
+                        **shield_options,
                     )
                 else:
+                    execute_options = {
+                        "wait_for_finalization": False,
+                        **options,
+                    }
+                    if intent.op == "register_subnet":
+                        execute_options["on_progress"] = _registration_progress
                     result = await client.execute(
                         intent,
                         signer,
-                        wait_for_finalization=False,
-                        **options,
+                        **execute_options,
                     )
                     await self._attach_multisig_followup(client, intent, result)
                 return result
@@ -600,8 +713,30 @@ class AppContext:
                 if hasattr(signer, "close"):
                     await signer.close()
 
-        result = self.run(_execute)
-        if not self.output.result(result, summary):
+        if intent.op == "register_subnet":
+            with self.output.activity("submitting subnet registration") as update:
+                activity_update = update
+                result = self.run(_execute)
+            if (
+                result.success
+                and registration_quote is not None
+                and "registration_price_rao" not in result.data
+            ):
+                result = replace(
+                    result,
+                    data={
+                        **result.data,
+                        "registration_price_rao": registration_quote.rao,
+                    },
+                )
+        else:
+            result = self.run(_execute)
+        rendered = (
+            self.output.registration_result(result)
+            if intent.op == "register_subnet"
+            else self.output.result(result, summary)
+        )
+        if not rendered:
             if shield and result.data.get("shielded") is not True:
                 # The failure happened at (or before) the encrypted pool
                 # submission, so the shield itself may be the blocker.

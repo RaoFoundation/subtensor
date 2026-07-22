@@ -9,6 +9,7 @@ adds the submission (and refuses if policy is violated).
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from typing import Any, Optional
@@ -98,6 +99,302 @@ def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
         if event.get("module_id") == module_id and event.get("event_id") == event_id:
             return event.get("attributes")
     return None
+
+
+def _event_parts(entry: Any) -> tuple[Optional[str], Optional[str], Any, Optional[int]]:
+    """Normalize one decoded event record across transport and test shapes."""
+    record = entry.value if hasattr(entry, "value") else entry
+    if not isinstance(record, dict):
+        return None, None, None, None
+    event = record.get("event", record)
+    if not isinstance(event, dict):
+        return None, None, None, None
+    index = record.get("extrinsic_idx")
+    try:
+        index = int(index) if index is not None else None
+    except (TypeError, ValueError):
+        index = None
+    return event.get("module_id"), event.get("event_id"), event.get("attributes"), index
+
+
+def _event_netuid(attributes: Any) -> Optional[int]:
+    """Read the netuid from named or tuple-style Subtensor events."""
+    value = attributes.get("netuid") if isinstance(attributes, dict) else attributes
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _result_block(result: ExtrinsicResult) -> Optional[int]:
+    if not result.extrinsic_id:
+        return None
+    height, _, _ = result.extrinsic_id.partition("-")
+    try:
+        return int(height)
+    except ValueError:
+        return None
+
+
+async def _notify_progress(callback: Any, **progress: Any) -> None:
+    if callback is None:
+        return
+    outcome = callback(progress)
+    if inspect.isawaitable(outcome):
+        await outcome
+
+
+async def _cleanup_netuid(substrate: Substrate, block_hash: str) -> Optional[int]:
+    """The subnet currently being cleaned, or the next queued for cleanup."""
+    status = await substrate.query(
+        "SubtensorModule", "CurrentDissolveCleanupStatus", block_hash=block_hash
+    )
+    if isinstance(status, dict) and status.get("netuid") is not None:
+        return int(status["netuid"])
+    queue = await substrate.query("SubtensorModule", "DissolveCleanupQueue", block_hash=block_hash)
+    if isinstance(queue, (list, tuple)) and queue:
+        return int(queue[0])
+    return None
+
+
+async def _complete_subnet_registration(
+    substrate: Substrate,
+    result: ExtrinsicResult,
+    *,
+    owner: str,
+    hotkey: str,
+    on_progress: Any = None,
+    timeout: Optional[float] = None,
+    deferred_dispatch: bool = False,
+) -> ExtrinsicResult:
+    """Resolve immediate or queued ``register_network`` to its ``NetworkAdded``.
+
+    A successful register extrinsic can now mean either "created" or merely
+    "queued behind subnet dissolution". The receipt decides the fast path. On
+    the queued path we follow blocks and only accept a ``NetworkAdded`` whose
+    owner and owner-hotkey match this request at that exact block.
+    """
+    included_at = _result_block(result)
+    queued = False
+    queued_at: Optional[int] = None
+    registration_block: Optional[int] = None
+    registration_price_rao: Optional[int] = None
+    deregistered_netuid: Optional[int] = None
+    cleanup_netuid: Optional[int] = None
+
+    for entry in result.events:
+        module, event, attributes, _ = _event_parts(entry)
+        if module != "SubtensorModule":
+            continue
+        if event == "NetworkAdded":
+            netuid = _event_netuid(attributes)
+            if netuid is not None:
+                event_hash = result.block_hash
+                if event_hash is None and included_at is not None:
+                    event_hash = await substrate.block_hash(included_at)
+                locked = await substrate.query(
+                    "SubtensorModule", "SubnetLocked", [netuid], block_hash=event_hash
+                )
+                data = {
+                    **result.data,
+                    "netuid": netuid,
+                    "registration_mode": "immediate",
+                    "registered_at_block": included_at,
+                }
+                if locked is not None:
+                    data["registration_price_rao"] = int(locked)
+                await _notify_progress(
+                    on_progress,
+                    stage="registered",
+                    mode="immediate",
+                    netuid=netuid,
+                    block=included_at,
+                )
+                return replace(result, message=f"Subnet {netuid} registered.", data=data)
+        elif event == "NetworkRegistrationQueued":
+            queued = True
+            queued_at = included_at
+            if isinstance(attributes, dict) and attributes.get("registration_block") is not None:
+                registration_block = int(attributes["registration_block"])
+            if isinstance(attributes, dict) and attributes.get("lock_amount") is not None:
+                registration_price_rao = int(attributes["lock_amount"])
+        elif event == "NetworkRemoved":
+            deregistered_netuid = _event_netuid(attributes)
+
+    # Without the queued event, a normal included register call has no deferred
+    # work to follow (e.g. a multisig approval that did not execute the call).
+    if not queued and not deferred_dispatch:
+        return result
+
+    async def wait() -> ExtrinsicResult:
+        nonlocal cleanup_netuid, deregistered_netuid, queued, queued_at
+        nonlocal registration_block, registration_price_rao
+
+        # Scan the inclusion block too: on_idle events are not part of the
+        # extrinsic receipt, and may follow the register call in that same block.
+        first = included_at if included_at is not None else await substrate.block_number()
+        last_scanned = first - 1
+
+        async def scan(block: int) -> Optional[ExtrinsicResult]:
+            nonlocal cleanup_netuid, deregistered_netuid, queued, queued_at
+            nonlocal registration_block, registration_price_rao
+            block_hash = await substrate.block_hash(block)
+            events = await substrate.events(block_hash)
+            target_queue_indices: set[Optional[int]] = set()
+            removed_by_index: dict[Optional[int], int] = {}
+
+            for entry in events:
+                module, event, attributes, index = _event_parts(entry)
+                if module != "SubtensorModule":
+                    continue
+                if event == "NetworkRegistrationQueued" and isinstance(attributes, dict):
+                    if (
+                        str(attributes.get("coldkey")) == owner
+                        and str(attributes.get("hotkey")) == hotkey
+                    ):
+                        target_queue_indices.add(index)
+                        queued_at = queued_at or block
+                        if attributes.get("registration_block") is not None:
+                            registration_block = int(attributes["registration_block"])
+                        if attributes.get("lock_amount") is not None:
+                            registration_price_rao = int(attributes["lock_amount"])
+                elif event == "NetworkRemoved":
+                    netuid = _event_netuid(attributes)
+                    if netuid is not None:
+                        removed_by_index[index] = netuid
+
+            if deregistered_netuid is None:
+                for index in target_queue_indices:
+                    if index in removed_by_index:
+                        deregistered_netuid = removed_by_index[index]
+                        break
+
+            if target_queue_indices:
+                newly_queued = not queued
+                queued = True
+                if cleanup_netuid is None:
+                    cleanup_netuid = deregistered_netuid or await _cleanup_netuid(
+                        substrate, block_hash
+                    )
+                if newly_queued:
+                    await _notify_progress(
+                        on_progress,
+                        stage="queued",
+                        block=queued_at,
+                        cleanup_netuid=cleanup_netuid,
+                        deregistered_netuid=deregistered_netuid,
+                    )
+
+            for entry in events:
+                module, event, attributes, _ = _event_parts(entry)
+                if module != "SubtensorModule" or event != "NetworkAdded":
+                    continue
+                netuid = _event_netuid(attributes)
+                if netuid is None:
+                    continue
+                actual_owner, actual_hotkey, pending_registrations, locked = await asyncio.gather(
+                    substrate.query(
+                        "SubtensorModule", "SubnetOwner", [netuid], block_hash=block_hash
+                    ),
+                    substrate.query(
+                        "SubtensorModule", "SubnetOwnerHotkey", [netuid], block_hash=block_hash
+                    ),
+                    substrate.query(
+                        "SubtensorModule", "NetworkRegistrationQueue", block_hash=block_hash
+                    ),
+                    substrate.query(
+                        "SubtensorModule", "SubnetLocked", [netuid], block_hash=block_hash
+                    ),
+                )
+                if str(actual_owner) != owner or str(actual_hotkey) != hotkey:
+                    continue
+                # Queue processing may skip a failed entry and register a later
+                # request. Do not mistake that later subnet for this one merely
+                # because it has the same owner/hotkey pair.
+                if (
+                    queued
+                    and registration_block is not None
+                    and isinstance(pending_registrations, (list, tuple))
+                ):
+                    still_pending = any(
+                        isinstance(entry, dict)
+                        and str(entry.get("coldkey")) == owner
+                        and str(entry.get("hotkey")) == hotkey
+                        and int(entry.get("registration_block", -1)) == registration_block
+                        for entry in pending_registrations
+                    )
+                    if still_pending:
+                        continue
+                mode = "after_deregistration" if queued else "immediate"
+                data = {
+                    **result.data,
+                    "netuid": netuid,
+                    "registration_mode": mode,
+                    "registered_at_block": block,
+                }
+                if queued_at is not None:
+                    data["queued_at_block"] = queued_at
+                if queued and cleanup_netuid is not None:
+                    data["cleanup_netuid"] = cleanup_netuid
+                if queued and deregistered_netuid is not None:
+                    data["deregistered_netuid"] = deregistered_netuid
+                exact_price = locked if locked is not None else registration_price_rao
+                if exact_price is not None:
+                    data["registration_price_rao"] = int(exact_price)
+                await _notify_progress(
+                    on_progress,
+                    stage="registered",
+                    mode=mode,
+                    netuid=netuid,
+                    block=block,
+                    cleanup_netuid=cleanup_netuid,
+                    deregistered_netuid=deregistered_netuid,
+                )
+                return replace(result, message=f"Subnet {netuid} registered.", data=data)
+            return None
+
+        if queued:
+            inclusion_hash = await substrate.block_hash(first)
+            cleanup_netuid = deregistered_netuid or await _cleanup_netuid(substrate, inclusion_hash)
+            await _notify_progress(
+                on_progress,
+                stage="queued",
+                block=queued_at,
+                cleanup_netuid=cleanup_netuid,
+                deregistered_netuid=deregistered_netuid,
+            )
+
+        # Cover blocks produced while the receipt was finalizing before opening
+        # the live subscription. Each live head then closes any subscription race
+        # by scanning every height since the last one observed.
+        head = await substrate.block_number()
+        for block in range(first, head + 1):
+            completed = await scan(block)
+            last_scanned = block
+            if completed is not None:
+                return completed
+
+        async for update in substrate.blocks():
+            header = update.get("header") or {}
+            block = int(header["number"])
+            for height in range(last_scanned + 1, block + 1):
+                completed = await scan(height)
+                last_scanned = height
+                if completed is not None:
+                    return completed
+            await _notify_progress(
+                on_progress,
+                stage="waiting",
+                block=block,
+                blocks_since_call=max(0, block - (queued_at if queued_at is not None else first)),
+                cleanup_netuid=cleanup_netuid,
+                deregistered_netuid=deregistered_netuid,
+            )
+        raise ChainError("block subscription ended before the queued subnet was registered")
+
+    return await asyncio.wait_for(wait(), timeout) if timeout else await wait()
 
 
 def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
@@ -240,6 +537,9 @@ class Executor:
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
         retries: int = 0,
+        wait_for_registration: bool = True,
+        registration_timeout: Optional[float] = None,
+        on_progress: Any = None,
     ) -> ExtrinsicResult:
         """Plan, then sign and submit. Raises ``PolicyError`` if the plan violates
         policy. (To preview without submitting, call ``plan`` instead.)
@@ -255,6 +555,13 @@ class Executor:
 
         Intents with ``mev_shield_required`` (collateral AMM buys) are redirected
         to :meth:`submit_shielded`; they cannot be submitted in the clear.
+
+        ``register_subnet`` has a second completion boundary: when subnet
+        capacity is full the successful extrinsic queues behind multi-block
+        dissolution. By default execute waits for the matching ``NetworkAdded``
+        event and returns its netuid. Set ``wait_for_registration=False`` to
+        return the queue receipt instead. ``registration_timeout`` and the
+        optional ``on_progress(dict)`` callback apply only to that wait.
         """
         if intent.mev_shield_required:
             if proxy_for is not None:
@@ -309,6 +616,28 @@ class Executor:
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)
+        if (
+            result.success
+            and intent.op == "register_subnet"
+            and wait_for_registration
+            and (wait_for_inclusion or wait_for_finalization)
+        ):
+            resolved_intent = _coerce_addresses(intent)
+            resolved_wallet = as_wallet(wallet)
+            owner = proxy_for or plan.signer_address
+            if owner is None:
+                raise ChainError("subnet registration signer address is unavailable")
+            hotkey = resolved_intent.hotkey_address(
+                resolved_wallet, getattr(resolved_intent, "hotkey_ss58", None)
+            )
+            result = await _complete_subnet_registration(
+                self.substrate,
+                result,
+                owner=owner,
+                hotkey=hotkey,
+                on_progress=on_progress,
+                timeout=registration_timeout,
+            )
         return result
 
     async def execute_tool(
@@ -326,6 +655,9 @@ class Executor:
         period: int = MEV_SHIELD_ERA_PERIOD,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = False,
+        wait_for_registration: bool = True,
+        registration_timeout: Optional[float] = None,
+        on_progress: Any = None,
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded via the MevShield pallet.
 
@@ -394,6 +726,23 @@ class Executor:
             result = replace(
                 result,
                 data={**result.data, "shielded": True, "inner_extrinsic_hash": inner_hash},
+            )
+        if (
+            result.success
+            and intent.op == "register_subnet"
+            and wait_for_registration
+            and (wait_for_inclusion or wait_for_finalization)
+        ):
+            owner = self._public_keypair(wallet, intent.signer).ss58_address
+            hotkey = intent.hotkey_address(wallet, getattr(intent, "hotkey_ss58", None))
+            result = await _complete_subnet_registration(
+                self.substrate,
+                result,
+                owner=owner,
+                hotkey=hotkey,
+                on_progress=on_progress,
+                timeout=registration_timeout,
+                deferred_dispatch=True,
             )
         return result
 

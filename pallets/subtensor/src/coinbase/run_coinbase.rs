@@ -735,12 +735,13 @@ impl<T: Config> Pallet<T> {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
 
             // Settle collateral first: below a miner-set floor, part of the
-            // incentive is captured into the lock (staked to the registered
+            // emission is captured into the lock (staked to the registered
             // hotkey itself, never the auto-stake destination, so it lands on
-            // the guarded position); above the floor, earned incentive
-            // releases locked collateral. Only the uncaptured remainder is
-            // credited below.
-            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, incentive);
+            // the guarded position); above the floor, earned emission
+            // releases locked collateral. Miner incentive is fully
+            // capturable. Only the uncaptured remainder is credited below.
+            let captured =
+                Self::settle_miner_collateral(netuid, &hotkey, &owner, incentive, incentive);
             let liquid = incentive.saturating_sub(captured);
             if liquid.is_zero() {
                 continue;
@@ -777,62 +778,75 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| U96F32::saturating_from_num(0));
         MinerBurned::<T>::insert(netuid, withheld_proportion);
 
-        // Distribute alpha divs.
+        // Distribute alpha divs. Split take vs nominators first so nominator
+        // shares can never be floor-captured into owner collateral. Full
+        // dividend emission still drives release rate / earned; only the
+        // validator take is capturable.
         let _ = AlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
-        for (hotkey, mut alpha_divs) in alpha_dividends {
-            // Get take prop
+        for (hotkey, alpha_divs) in alpha_dividends {
+            let owner: T::AccountId = Owner::<T>::get(&hotkey);
+            let total: AlphaBalance = tou64!(alpha_divs).into();
             let alpha_take: U96F32 =
                 Self::get_hotkey_take_float(&hotkey).saturating_mul(alpha_divs);
-            // Remove take prop from alpha_divs
-            alpha_divs = alpha_divs.saturating_sub(alpha_take);
-            // Give the validator their take.
-            log::debug!("hotkey: {hotkey:?} alpha_take: {alpha_take:?}");
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                &Owner::<T>::get(&hotkey),
-                netuid,
-                tou64!(alpha_take).into(),
-            );
-            // Give all other nominators.
-            log::debug!("hotkey: {hotkey:?} alpha_divs: {alpha_divs:?}");
-            Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, tou64!(alpha_divs).into());
-            // Record dividends for this hotkey.
-            AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                *divs = divs.saturating_add(tou64!(alpha_divs).into());
-            });
-            // Record total hotkey alpha based on which this value of AlphaDividendsPerSubnet
-            // was calculated
+            let nominator_divs: U96F32 = alpha_divs.saturating_sub(alpha_take);
+            let take: AlphaBalance = tou64!(alpha_take).into();
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &owner,
+                    netuid,
+                    liquid_take,
+                );
+            }
+            let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
+            if !nominator_alpha.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_divs: {nominator_divs:?}");
+                Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
+                AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(nominator_alpha);
+                });
+            }
             let total_hotkey_alpha = TotalHotkeyAlpha::<T>::get(&hotkey, netuid);
             TotalHotkeyAlphaLastEpoch::<T>::insert(hotkey, netuid, total_hotkey_alpha);
         }
 
-        // Distribute root alpha divs.
+        // Distribute root alpha divs. Same ownership rule: full root emission
+        // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
-        for (hotkey, mut root_alpha) in root_alpha_dividends {
-            // Get take prop
+        for (hotkey, root_alpha) in root_alpha_dividends {
+            let owner: T::AccountId = Owner::<T>::get(&hotkey);
+            let total: AlphaBalance = tou64!(root_alpha).into();
             let alpha_take: U96F32 =
                 Self::get_hotkey_take_float(&hotkey).saturating_mul(root_alpha);
-            // Remove take prop from root_alpha
-            root_alpha = root_alpha.saturating_sub(alpha_take);
-            // Give the validator their take.
-            log::debug!("hotkey: {hotkey:?} alpha_take: {alpha_take:?}");
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                &Owner::<T>::get(hotkey.clone()),
-                netuid,
-                tou64!(alpha_take).into(),
-            );
+            let root_claimable: U96F32 = root_alpha.saturating_sub(alpha_take);
+            let take: AlphaBalance = tou64!(alpha_take).into();
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &owner,
+                    netuid,
+                    liquid_take,
+                );
+            }
 
-            Self::increase_root_claimable_for_hotkey_and_subnet(
-                &hotkey,
-                netuid,
-                tou64!(root_alpha).into(),
-            );
+            let root_claimable_alpha: AlphaBalance = tou64!(root_claimable).into();
+            if !root_claimable_alpha.is_zero() {
+                Self::increase_root_claimable_for_hotkey_and_subnet(
+                    &hotkey,
+                    netuid,
+                    root_claimable_alpha,
+                );
 
-            // Record root alpha dividends for this validator on this subnet.
-            RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                *divs = divs.saturating_add(tou64!(root_alpha).into());
-            });
+                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(root_claimable_alpha);
+                });
+            }
         }
     }
 

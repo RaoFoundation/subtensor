@@ -178,6 +178,110 @@ class TestExecuteFlow:
         assert call.function == "transfer_keep_alive"
 
     @pytest.mark.asyncio
+    async def test_register_subnet_returns_immediate_network_added(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        from dataclasses import replace
+
+        from bittensor.intents.registration import RegisterSubnet
+        from tests.harness.fake_substrate import success_result
+
+        added = {
+            "event": {
+                "module_id": "SubtensorModule",
+                "event_id": "NetworkAdded",
+                "attributes": [12, 1],
+            }
+        }
+        substrate.queue_result(replace(success_result(), events=[added]))
+
+        result = await client.execute(RegisterSubnet(), wallet)
+
+        assert result.success
+        assert result.data["netuid"] == 12
+        assert result.data["registration_mode"] == "immediate"
+        assert result.data["registered_at_block"] == 100
+
+    @pytest.mark.asyncio
+    async def test_register_subnet_waits_for_its_network_added_after_cleanup(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        from dataclasses import replace
+
+        from bittensor.intents.registration import RegisterSubnet
+        from tests.harness.fake_substrate import success_result
+
+        coldkey = wallet.coldkeypub.ss58_address
+        hotkey = wallet.hotkey.ss58_address
+        queued = {
+            "extrinsic_idx": 1,
+            "event": {
+                "module_id": "SubtensorModule",
+                "event_id": "NetworkRegistrationQueued",
+                "attributes": {
+                    "coldkey": coldkey,
+                    "hotkey": hotkey,
+                    "registration_block": 100,
+                },
+            },
+        }
+        removed = {
+            "extrinsic_idx": 1,
+            "event": {
+                "module_id": "SubtensorModule",
+                "event_id": "NetworkRemoved",
+                "attributes": 4,
+            },
+        }
+        substrate.queue_result(replace(success_result(), events=[removed, queued]))
+        substrate.seed("SubtensorModule", "SubnetOwner", [4], coldkey)
+        substrate.seed("SubtensorModule", "SubnetOwnerHotkey", [4], hotkey)
+        substrate.seed_events(
+            102,
+            [
+                {
+                    "phase": "Finalization",
+                    "extrinsic_idx": None,
+                    "event": {
+                        "module_id": "SubtensorModule",
+                        "event_id": "NetworkAdded",
+                        "attributes": [4, 1],
+                    },
+                }
+            ],
+        )
+        progress = []
+
+        result = await client.execute(RegisterSubnet(), wallet, on_progress=progress.append)
+
+        assert result.success
+        assert result.data == {
+            "netuid": 4,
+            "registration_mode": "after_deregistration",
+            "queued_at_block": 100,
+            "registered_at_block": 102,
+            "cleanup_netuid": 4,
+            "deregistered_netuid": 4,
+            "registration_price_rao": 1_000_000_000,
+        }
+        assert progress[0]["stage"] == "queued"
+        assert progress[1] == {
+            "stage": "waiting",
+            "block": 101,
+            "blocks_since_call": 1,
+            "cleanup_netuid": 4,
+            "deregistered_netuid": 4,
+        }
+        assert progress[-1] == {
+            "stage": "registered",
+            "mode": "after_deregistration",
+            "netuid": 4,
+            "block": 102,
+            "cleanup_netuid": 4,
+            "deregistered_netuid": 4,
+        }
+
+    @pytest.mark.asyncio
     async def test_hotkey_intents_sign_with_hotkey(
         self, client: Client, substrate: FakeSubstrate, wallet
     ):

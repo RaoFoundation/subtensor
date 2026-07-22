@@ -55,7 +55,7 @@ export function LiumCollateralDiagram({className}: {className?: string}) {
         MINER
       </text>
       <text {...T} x='70' y='152' fill={INK_FAINT}>
-        btcli collateral add --amount-tao 100
+        btcli collateral add --amount-alpha 100
       </text>
       <text {...T} x='70' y='166' fill={INK_FAINT}>
         btcli collateral set-min --min-alpha 100

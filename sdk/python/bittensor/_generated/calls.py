@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 435
+Spec version: 437
 """
 from typing import Any, NamedTuple
 
@@ -201,9 +201,9 @@ class SubtensorModule:
     """Call builders for the SubtensorModule pallet."""
 
     @staticmethod
-    def add_collateral(netuid: 'NetUid', hotkey: 'AccountId32', tao: 'TaoBalance', limit_price: 'TaoBalance') -> Call:
-        "Locks about `tao` worth of additional miner collateral on the signer's own hotkey.  Prefers free alpha already staked on that `(hotkey, coldkey)` position (valued at the subnet moving price) and only buys the shortfall with TAO. Used to top up registration collateral voluntarily — for example to meet a validator-published per-machine requirement on resource subnets. The lock is released back through earned incentive exactly like registration collateral (it is the same lock), keeps the existing drain-ratio snapshot, and is credited against the collateral requirement on re-registration.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet to lock collateral on. * `hotkey`: The miner hotkey the collateral attaches to. * `tao`: TAO-value of collateral to add. Fully covered by free stake when possible; otherwise the unpaid remainder is bought (that remainder must meet the staking minimum). * `limit_price`: Worst alpha price (RAO per alpha) accepted for any TAO→alpha buy of the shortfall. Fill-or-kill: the buy fails with `SlippageTooHigh` instead of executing above this price. Pass the current spot (or spot × (1 + tolerance)) — never the swap max.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`. * `AmountTooLow`: `tao` converts to zero alpha, or the buy remainder is below the minimum stake. * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder. * `SlippageTooHigh`: The shortfall buy would clear above `limit_price`.  # Events Emits `CollateralLocked` on success."
-        return Call('SubtensorModule', 'add_collateral', {'netuid': netuid, 'hotkey': hotkey, 'tao': tao, 'limit_price': limit_price})
+    def add_collateral(netuid: 'NetUid', hotkey: 'AccountId32', alpha: 'AlphaBalance', limit_price: 'TaoBalance') -> Call:
+        "Locks additional miner collateral (in alpha) on the signer's own hotkey.  Prefers free alpha already staked on that `(hotkey, coldkey)` position and only buys the shortfall with TAO. Used to top up registration collateral voluntarily — for example to meet a validator-published per-machine requirement on resource subnets. The lock is released back through earned emission exactly like registration collateral (it is the same lock), keeps the existing drain-ratio snapshot, and is credited against the collateral requirement on re-registration.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet to lock collateral on. * `hotkey`: The miner hotkey the collateral attaches to. * `alpha`: Alpha of collateral to add. Fully covered by free stake when possible; otherwise the unpaid remainder is bought with TAO (that remainder must meet the staking minimum). * `limit_price`: Worst alpha price (RAO per alpha) accepted for any TAO→alpha buy of the shortfall. Fill-or-kill: the buy fails with `SlippageTooHigh` instead of executing above this price. Pass the current spot (or spot × (1 + tolerance)) — never the swap max.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`. * `AmountTooLow`: `alpha` is zero, or the buy remainder is below the minimum stake. * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder. * `SlippageTooHigh`: The shortfall buy would clear above `limit_price`.  # Events Emits `CollateralLocked` on success."
+        return Call('SubtensorModule', 'add_collateral', {'netuid': netuid, 'hotkey': hotkey, 'alpha': alpha, 'limit_price': limit_price})
 
     @staticmethod
     def add_stake(hotkey: 'AccountId32', netuid: 'NetUid', amount_staked: 'TaoBalance') -> Call:
@@ -462,7 +462,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_min_collateral(netuid: 'NetUid', hotkey: 'AccountId32', min_locked: 'AlphaBalance') -> Call:
-        "Sets the self-maintaining collateral floor for the signer's hotkey on a subnet.  The drain never releases the lock below the floor, and while the lock is under it, earned miner incentive is captured into the lock until the floor is met — so a miner tracking a validator-published collateral requirement does not need to keep re-locking drained funds. Zero clears the floor and restores pure drain behavior.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet the floor applies to. * `hotkey`: The miner hotkey the floor applies to. * `min_locked`: The floor, in alpha; zero clears it.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`.  # Events Emits `MinCollateralSet` on success."
+        "Sets the self-maintaining collateral floor for the signer's hotkey on a subnet.  The drain never releases the lock below the floor, and while the lock is under it, earned emission is captured into the lock until the floor is met — so a miner tracking a validator-published collateral requirement does not need to keep re-locking drained funds. Zero clears the floor and restores pure drain behavior.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey`. * `netuid`: The subnet the floor applies to. * `hotkey`: The miner hotkey the floor applies to. * `min_locked`: The floor, in alpha; zero clears it.  # Errors * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network. * `SubnetNotExists`: The subnet does not exist. * `HotKeyAccountNotExists`: The hotkey account does not exist. * `NonAssociatedColdKey`: The signer does not own `hotkey`.  # Events Emits `MinCollateralSet` on success."
         return Call('SubtensorModule', 'set_min_collateral', {'netuid': netuid, 'hotkey': hotkey, 'min_locked': min_locked})
 
     @staticmethod
@@ -954,7 +954,7 @@ class AdminUtils:
 
     @staticmethod
     def sudo_set_collateral_drain_ratio(netuid: 'NetUid', drain_ratio: 'FixedU128') -> Call:
-        'Sets the miner collateral drain ratio (k) for a subnet: how much locked collateral is released per alpha of miner incentive earned. Must be positive, at most 10. Callable by root and subnet owner. Snapshot per miner at registration; changing it never affects already-locked collateral.'
+        'Sets the miner collateral drain ratio (k) for a subnet: how much locked collateral is released per alpha of hotkey emission earned (miner incentive and validator dividends). Must be positive, at most 10. Callable by root and subnet owner. Snapshot per miner at registration; changing it never affects already-locked collateral.'
         return Call('AdminUtils', 'sudo_set_collateral_drain_ratio', {'netuid': netuid, 'drain_ratio': drain_ratio})
 
     @staticmethod

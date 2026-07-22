@@ -130,7 +130,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "lock_stake": {"netuid": 1, "amount_alpha": 1.0},
     "move_lock": {"netuid": 1, "destination_hotkey_ss58": BOB_HOT},
     "set_perpetual_lock": {"netuid": 1, "enabled": True},
-    "add_collateral": {"netuid": 1, "amount_tao": 1.0},
+    "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "create_crowdloan": {
         "deposit_tao": 100,

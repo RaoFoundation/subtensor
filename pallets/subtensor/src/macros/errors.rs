@@ -212,11 +212,11 @@ mod errors {
         SubtokenDisabled,
         /// Too frequent hotkey swap on subnet
         HotKeySwapOnSubnetIntervalNotPassed,
-        /// Hotkey still has standing miner collateral and does not hold
-        /// validator permit on that subnet. Moving a bonded miner UID to a
-        /// fresh hotkey would defeat validator blacklists keyed by hotkey.
-        /// Permitted validators may still swap.
-        HotKeyHasCollateral,
+        /// `keep_stake` hotkey swap refused because the old hotkey still has
+        /// standing miner collateral. Stake would stay on the old key while
+        /// the UID moves, stranding the bond. Swap with `keep_stake=false` so
+        /// collateral migrates with the UID (lineage maps track the rename).
+        KeepStakeBlockedByCollateral,
         /// Invalid netuid duplication
         SameNetuid,
         /// The caller does not have enough TAO balance for the operation.
@@ -337,5 +337,14 @@ mod errors {
         StartCallNotReady,
         /// The caller does not have enough Alpha stake for the operation.
         InsufficientAlphaBalance,
+        /// Coldkey swap could not fully migrate miner collateral: the old
+        /// coldkey's [`ColdkeyMinerCollateral`] aggregate remained non-zero
+        /// after migrating every indexed collateral hotkey. Failing closed
+        /// avoids under-locking the destination unstake guard.
+        ColdkeyCollateralIncomplete,
+        /// This coldkey already has the maximum number of distinct hotkeys
+        /// with miner collateral on the subnet
+        /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
+        ColdkeyCollateralPositionsFull,
     }
 }

@@ -9,15 +9,15 @@ Collateral is keyed by hotkey + coldkey so nominators on the same hotkey are
 never charged for the owner's bond. When `coldkey_ss58` is omitted, the
 hotkey owner is used.
 
-`locked_alpha` is non-withdrawable stake released through earned incentive
-at `drain_ratio` alpha per alpha earned; `min_locked_alpha` is the
-miner-set floor the lock self-maintains around (the drain stops at it and
-incentive fills any shortfall); `earned_alpha` is lifetime incentive since
-the collateral entry existed. Derived: `headroom_alpha` (draining portion
-above the floor), `shortfall_alpha` (capture in progress below the floor),
-and `releasable_work_alpha` (incentive still needed to release the
-headroom). The lock survives deregistration and is credited on
-re-registration.
+`locked_alpha` is non-withdrawable stake released through earned emission
+(miner incentive and validator dividends) at `drain_ratio` alpha per alpha
+earned; `min_locked_alpha` is the miner-set floor the lock self-maintains
+around (the drain stops at it and emission fills any shortfall);
+`earned_alpha` is lifetime emission since the collateral entry existed.
+Derived: `headroom_alpha` (draining portion above the floor),
+`shortfall_alpha` (capture in progress below the floor), and
+`releasable_work_alpha` (emission still needed to release the headroom).
+The lock survives deregistration and is credited on re-registration.
 
 **Category:** Mining & collateral
 
@@ -56,6 +56,6 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`SubtensorModule.Owner`](/code/pallets/subtensor/src/lib.rs#L1290)
+- Storage [`SubtensorModule.Owner`](/code/pallets/subtensor/src/lib.rs#L1347)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

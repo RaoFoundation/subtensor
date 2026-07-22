@@ -181,7 +181,9 @@ mod hooks {
                 // main AMM reserves (issue #2793). Guarded by HasMigrationRun, so it only runs once.
                 .saturating_add(migrations::migrate_cleanup_swap_v3::migrate_cleanup_swap_v3::<T>())
                 // Remove orphan SubnetIdentitiesV3 entries left for recycled netuids.
-                .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>());
+                .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>())
+                // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
+                .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>());
             weight
         }
 
