@@ -7,11 +7,11 @@ import {Suspense} from 'react';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V436 Upgrade — The Collateral Release',
+  title: 'The V437 Upgrade — Collateral & Key Lineage',
   description:
-    'Miner registration collateral: subnets can lock a share of the registration price as a ' +
-    'bond hotkeys earn back through emission. Plus one-call stake transfer to a new coldkey ' +
-    'and hotkey, air-gapped Polkadot Vault signing, and fully benchmarked extrinsic weights.',
+    'Miner registration collateral, on-chain hotkey and coldkey swap lineage, bonded key-swap ' +
+    'hardening, one-call stake transfer, air-gapped Polkadot Vault signing, and fully ' +
+    'benchmarked extrinsic weights.',
   alternates: {canonical: '/releases/v436-upgrade'},
 };
 
@@ -358,28 +358,28 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <p className={styles.paper_title}>The V436 Upgrade</p>
+          <p className={styles.paper_title}>The V437 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            The Collateral Release · July 2026
+            Collateral &amp; Key Lineage · July 2026
           </p>
         </section>
 
         <section className={styles.section}>
           <p className={styles.subtitle}>Introduction</p>
           <p>
-            Spec <strong>436</strong> is the next mainnet runtime after{' '}
-            <DocLink href='/releases/v431-upgrade'>v431</DocLink>, and it is a feature release
-            headlined by one change to the network&apos;s economics:{' '}
+            Spec <strong>437</strong> is the next mainnet runtime after{' '}
+            <DocLink href='/releases/v431-upgrade'>v431</DocLink>. It is headlined by{' '}
             <DocLink href='/docs/guides/mining/collateral'>
               miner registration collateral
-            </DocLink>
-            . A subnet can now lock a share of its floating registration price as a bond on
-            the registering hotkey instead of burning all of it — a bond the hotkey earns back
-            through emission (miner incentive and validator dividends). The release also
-            carries the operational work shipped on the way here: pure proxies operable by a
-            multisig from the CLI, one-call stake transfer to a new coldkey and hotkey, a
-            dedicated stake-transfer minimum, air-gapped transaction signing with Polkadot
-            Vault, and benchmark-measured weights for every extrinsic in the runtime.
+            </DocLink>{' '}
+            — a subnet can lock a share of its floating registration price as a bond on the
+            registering hotkey instead of burning all of it — plus on-chain{' '}
+            <strong>hotkey and coldkey swap lineage</strong> so validators and indexers can
+            follow identity across renames without an archive node. The release also carries
+            the operational work shipped on the way here: pure proxies operable by a multisig
+            from the CLI, one-call stake transfer to a new coldkey and hotkey, a dedicated
+            stake-transfer minimum, air-gapped transaction signing with Polkadot Vault, and
+            benchmark-measured weights for every extrinsic in the runtime.
           </p>
         </section>
 
@@ -679,9 +679,68 @@ btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`
         </section>
 
         <section className={styles.section}>
+          <p className={styles.subtitle}>Key lineage</p>
+          <p>
+            After a successful hotkey or coldkey swap, the chain records identity continuity
+            so watchers can ban or attribute by a stable root without replaying archives.
+          </p>
+          <p>
+            <strong>Hotkey lineage</strong> is per-subnet (a swap may move a UID on one netuid
+            while the old hotkey stays registered elsewhere):
+          </p>
+          <ul className={styles.list}>
+            <li>
+              <code>HotkeySuccessor(netuid, old) → new</code> — the rename edge
+            </li>
+            <li>
+              <code>HotkeyRoot(netuid, hotkey) → root</code> — first key in the chain (absent
+              means the key is its own root)
+            </li>
+          </ul>
+          <pre className={styles.code_block}>
+            {`hotkey_root(netuid, hotkey) -> AccountId
+same_hotkey_lineage(netuid, a, b) -> bool
+hotkey_lineage_tip(netuid, hotkey) -> AccountId   // best-effort; prefer root for bans`}
+          </pre>
+          <p>
+            Dissolution clears these maps. Re-registration of a previously swapped-away SS58
+            clears a stale outgoing successor. Bonded miners may rename with{' '}
+            <code>keep_stake=false</code> (the bond migrates with the UID);{' '}
+            <code>keep_stake=true</code> while any <code>MinerCollateral</code> remains fails
+            with{' '}
+            <DocLink href='/docs/errors/chain/KeepStakeBlockedByCollateral'>
+              <code>KeepStakeBlockedByCollateral</code>
+            </DocLink>
+            — there is no validator-permit escape.
+          </p>
+          <p>
+            <strong>Coldkey lineage</strong> is global (a coldkey swap moves ownership
+            everywhere at once):
+          </p>
+          <ul className={styles.list}>
+            <li>
+              <code>ColdkeySuccessor(old) → new</code>
+            </li>
+            <li>
+              <code>ColdkeyRoot(coldkey) → root</code>
+            </li>
+          </ul>
+          <pre className={styles.code_block}>
+            {`coldkey_root(coldkey) -> AccountId
+same_coldkey_lineage(a, b) -> bool
+coldkey_lineage_tip(coldkey) -> AccountId   // best-effort; prefer root for attribution`}
+          </pre>
+          <p>
+            Written at the end of a successful <code>do_swap_coldkey</code>, inside the same
+            storage transaction that migrates stake, ownership, locks, and miner collateral.
+            Prefer root for owner-keyed policy; tip walks are advisory under key reuse.
+          </p>
+        </section>
+
+        <section className={styles.section}>
           <p className={styles.subtitle}>What to do</p>
           <p>
-            Operators should wait for the on-chain <code>spec_version</code> to move to 436,
+            Operators should wait for the on-chain <code>spec_version</code> to move to 437,
             then upgrade nodes and clients. SDK users should pull the matching bittensor
             release once the train publishes it — older clients keep working, they simply
             don&apos;t know the new calls. Nothing changes for miners on subnets that keep the
@@ -696,13 +755,16 @@ btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`
             <code>AdminUtils.sudo_set_collateral_lock_share</code> (call index 98),{' '}
             <code>AdminUtils.sudo_set_collateral_drain_ratio</code> (call index 99), the{' '}
             <code>StakeAndHotkeyTransferred</code>, <code>CollateralLocked</code>, and{' '}
-            <code>MinCollateralSet</code> events, and the <code>MinerCollateral</code>{' '}
-            storage map. Runtime 437 adds key-lineage storage and helpers — see{' '}
-            <DocLink href='/releases/v437-upgrade'>The V437 Upgrade</DocLink>.
+            <code>MinCollateralSet</code> events, the <code>MinerCollateral</code> storage
+            map, and the key-lineage maps <code>HotkeySuccessor</code> /{' '}
+            <code>HotkeyRoot</code> / <code>ColdkeySuccessor</code> /{' '}
+            <code>ColdkeyRoot</code>. Validators that ban by SS58 should prefer{' '}
+            <code>hotkey_root</code> (and <code>coldkey_root</code> for owner attribution)
+            over raw addresses; treat tip helpers as advisory.
           </p>
           <p>
             Signers: after the release train proposes, use{' '}
-            <code>btcli upgrade sign --url &lt;v436 release URL&gt; -w &lt;wallet&gt;</code>.
+            <code>btcli upgrade sign --url &lt;v437 release URL&gt; -w &lt;wallet&gt;</code>.
           </p>
         </section>
 

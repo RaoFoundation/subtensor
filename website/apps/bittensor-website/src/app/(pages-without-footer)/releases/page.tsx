@@ -25,22 +25,11 @@ const releases: Release[] = [
   {
     tag: 'v437',
     date: 'July 2026',
-    title: 'Key Lineage',
+    title: 'Collateral & Key Lineage',
     summary:
-      'On-chain hotkey and coldkey swap lineage (Successor + Root maps and helpers) so ' +
-      'validators and indexers can follow identity across renames without archives — plus ' +
-      'bonded keep_stake and coldkey collateral migration hardening on top of v436.',
-    href: '/releases/v437-upgrade',
-  },
-  {
-    tag: 'v436',
-    date: 'July 2026',
-    title: 'The Collateral Release',
-    summary:
-      'Miner registration collateral: subnets can lock a share of the registration price as ' +
-      'a bond hotkeys earn back through emission — sunk for sybils and cheaters, nearly free ' +
-      'for honest operators. Plus one-call stake transfer to a new coldkey and hotkey, ' +
-      'air-gapped Polkadot Vault signing, and fully benchmarked extrinsic weights.',
+      'Miner registration collateral, on-chain hotkey and coldkey swap lineage, bonded ' +
+      'key-swap hardening, one-call stake transfer to a new coldkey and hotkey, air-gapped ' +
+      'Polkadot Vault signing, and fully benchmarked extrinsic weights.',
     href: '/releases/v436-upgrade',
   },
   {
