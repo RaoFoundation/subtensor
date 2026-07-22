@@ -1132,8 +1132,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_692_000 picoseconds.
-		Weight::from_parts(1_913_000, 0)
+		// Minimum execution time: 2_835_000 picoseconds.
+		Weight::from_parts(3_657_000, 0)
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerCut` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetOwnerCut` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1236,8 +1236,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_903_000 picoseconds.
-		Weight::from_parts(2_083_000, 0)
+		// Minimum execution time: 3_376_000 picoseconds.
+		Weight::from_parts(3_867_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
@@ -1304,8 +1304,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_993_000 picoseconds.
-		Weight::from_parts(2_173_000, 0)
+		// Minimum execution time: 3_587_000 picoseconds.
+		Weight::from_parts(4_127_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::FlowNormExponent` (r:0 w:1)
@@ -1314,8 +1314,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 2_083_000 picoseconds.
-		Weight::from_parts(2_204_000, 0)
+		// Minimum execution time: 3_537_000 picoseconds.
+		Weight::from_parts(4_028_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::FlowEmaSmoothingFactor` (r:0 w:1)
@@ -1324,8 +1324,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_943_000 picoseconds.
-		Weight::from_parts(2_093_000, 0)
+		// Minimum execution time: 3_376_000 picoseconds.
+		Weight::from_parts(3_867_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetTaoFlowEnabled` (r:0 w:1)
@@ -1334,8 +1334,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_952_000 picoseconds.
-		Weight::from_parts(2_073_000, 0)
+		// Minimum execution time: 3_275_000 picoseconds.
+		Weight::from_parts(3_737_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::MaxMechanismCount` (r:0 w:1)
@@ -2483,8 +2483,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_692_000 picoseconds.
-		Weight::from_parts(1_913_000, 0)
+		// Minimum execution time: 2_835_000 picoseconds.
+		Weight::from_parts(3_657_000, 0)
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerCut` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetOwnerCut` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2587,8 +2587,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_903_000 picoseconds.
-		Weight::from_parts(2_083_000, 0)
+		// Minimum execution time: 3_376_000 picoseconds.
+		Weight::from_parts(3_867_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
@@ -2655,8 +2655,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_993_000 picoseconds.
-		Weight::from_parts(2_173_000, 0)
+		// Minimum execution time: 3_587_000 picoseconds.
+		Weight::from_parts(4_127_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::FlowNormExponent` (r:0 w:1)
@@ -2665,8 +2665,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 2_083_000 picoseconds.
-		Weight::from_parts(2_204_000, 0)
+		// Minimum execution time: 3_537_000 picoseconds.
+		Weight::from_parts(4_028_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::FlowEmaSmoothingFactor` (r:0 w:1)
@@ -2675,8 +2675,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_943_000 picoseconds.
-		Weight::from_parts(2_093_000, 0)
+		// Minimum execution time: 3_376_000 picoseconds.
+		Weight::from_parts(3_867_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetTaoFlowEnabled` (r:0 w:1)
@@ -2685,8 +2685,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_952_000 picoseconds.
-		Weight::from_parts(2_073_000, 0)
+		// Minimum execution time: 3_275_000 picoseconds.
+		Weight::from_parts(3_737_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::MaxMechanismCount` (r:0 w:1)

@@ -64,36 +64,36 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_782_000 picoseconds.
-		Weight::from_parts(1_913_000, 0)
+		// Minimum execution time: 2_986_000 picoseconds.
+		Weight::from_parts(3_687_000, 0)
 	}
 	fn add_liquidity() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_763_000 picoseconds.
-		Weight::from_parts(1_892_000, 0)
+		// Minimum execution time: 2_896_000 picoseconds.
+		Weight::from_parts(3_666_000, 0)
 	}
 	fn remove_liquidity() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_803_000 picoseconds.
-		Weight::from_parts(1_943_000, 0)
+		// Minimum execution time: 2_895_000 picoseconds.
+		Weight::from_parts(3_707_000, 0)
 	}
 	fn modify_position() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_662_000 picoseconds.
-		Weight::from_parts(1_863_000, 0)
+		// Minimum execution time: 2_925_000 picoseconds.
+		Weight::from_parts(3_597_000, 0)
 	}
 	fn disable_lp() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_652_000 picoseconds.
-		Weight::from_parts(1_923_000, 0)
+		// Minimum execution time: 2_885_000 picoseconds.
+		Weight::from_parts(3_627_000, 0)
 	}
 }
 
@@ -116,35 +116,35 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_782_000 picoseconds.
-		Weight::from_parts(1_913_000, 0)
+		// Minimum execution time: 2_986_000 picoseconds.
+		Weight::from_parts(3_687_000, 0)
 	}
 	fn add_liquidity() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_763_000 picoseconds.
-		Weight::from_parts(1_892_000, 0)
+		// Minimum execution time: 2_896_000 picoseconds.
+		Weight::from_parts(3_666_000, 0)
 	}
 	fn remove_liquidity() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_803_000 picoseconds.
-		Weight::from_parts(1_943_000, 0)
+		// Minimum execution time: 2_895_000 picoseconds.
+		Weight::from_parts(3_707_000, 0)
 	}
 	fn modify_position() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_662_000 picoseconds.
-		Weight::from_parts(1_863_000, 0)
+		// Minimum execution time: 2_925_000 picoseconds.
+		Weight::from_parts(3_597_000, 0)
 	}
 	fn disable_lp() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 1_652_000 picoseconds.
-		Weight::from_parts(1_923_000, 0)
+		// Minimum execution time: 2_885_000 picoseconds.
+		Weight::from_parts(3_627_000, 0)
 	}
 }

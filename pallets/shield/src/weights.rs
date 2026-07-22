@@ -47,6 +47,8 @@ pub trait WeightInfo {
 /// Weights for `pallet_shield` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
+	/// Storage: `Aura::CurrentSlot` (r:1 w:0)
+	/// Proof: `Aura::CurrentSlot` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `Aura::Authorities` (r:1 w:0)
 	/// Proof: `Aura::Authorities` (`max_values`: Some(1), `max_size`: Some(1025), added: 1520, mode: `MaxEncodedLen`)
 	/// Storage: `MevShield::PendingKey` (r:1 w:1)
@@ -65,9 +67,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `3877`
 		//  Estimated: `5555`
-		// Minimum execution time: 32_118_000 picoseconds.
-		Weight::from_parts(33_661_000, 5555)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
+		// Minimum execution time: 35_817_000 picoseconds.
+		Weight::from_parts(37_701_000, 5555)
+			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 	fn submit_encrypted() -> Weight {
@@ -121,6 +123,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
+	/// Storage: `Aura::CurrentSlot` (r:1 w:0)
+	/// Proof: `Aura::CurrentSlot` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// Storage: `Aura::Authorities` (r:1 w:0)
 	/// Proof: `Aura::Authorities` (`max_values`: Some(1), `max_size`: Some(1025), added: 1520, mode: `MaxEncodedLen`)
 	/// Storage: `MevShield::PendingKey` (r:1 w:1)
@@ -139,9 +143,9 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `3877`
 		//  Estimated: `5555`
-		// Minimum execution time: 32_118_000 picoseconds.
-		Weight::from_parts(33_661_000, 5555)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
+		// Minimum execution time: 35_817_000 picoseconds.
+		Weight::from_parts(37_701_000, 5555)
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 	fn submit_encrypted() -> Weight {
