@@ -20,8 +20,8 @@ use pallet_limit_orders::{
 use pallet_subtensor::{SubnetAlphaIn, SubnetMechanism, SubnetTAO};
 use sp_core::{Get, H256, Pair};
 use sp_keyring::Sr25519Keyring;
-use sp_runtime::traits::AccountIdConversion;
-use sp_runtime::{MultiSignature, Perbill};
+use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Verify};
+use sp_runtime::{MultiSignature, MultiSigner, Perbill};
 use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance, Token};
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -300,12 +300,13 @@ fn cancel_order_works() {
 #[test]
 fn execute_orders_ecdsa_signature_rejected() {
     new_test_ext().execute_with(|| {
-        let alice_id = Sr25519Keyring::Alice.to_account_id();
+        let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
+        let ecdsa_id = MultiSigner::from(pair.public()).into_account();
         let bob_id = Sr25519Keyring::Bob.to_account_id();
         let fee_recipient = Sr25519Keyring::Charlie.to_account_id();
 
         let order = VersionedOrder::V1(Order {
-            signer: alice_id.clone(),
+            signer: ecdsa_id.clone(),
             hotkey: bob_id,
             netuid: NetUid::from(1u16),
             order_type: OrderType::LimitBuy,
@@ -322,19 +323,19 @@ fn execute_orders_ecdsa_signature_rejected() {
         });
         let id = order_id(&order);
 
-        // Sign with ecdsa — valid signature, unsupported scheme.
-        let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
-        let signature = pair.sign(&order.encode());
+        // The signature matches the order signer; only the scheme is unsupported.
+        let signature = MultiSignature::Ecdsa(pair.sign(&order.encode()));
+        assert!(signature.verify(order.encode().as_slice(), &ecdsa_id));
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Ecdsa(signature),
+            signature,
             partial_fill: None,
         };
 
         let orders = make_order_batch(vec![signed]);
 
         assert_ok!(LimitOrders::execute_orders(
-            RuntimeOrigin::signed(alice_id),
+            RuntimeOrigin::signed(ecdsa_id),
             orders,
             false,
         ));

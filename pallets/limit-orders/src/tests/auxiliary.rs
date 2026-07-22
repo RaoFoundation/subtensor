@@ -1409,7 +1409,10 @@ fn collect_fees_no_transfer_when_zero_fees() {
 use crate::Error;
 use codec::Encode;
 use sp_core::Pair;
-use sp_runtime::MultiSignature;
+use sp_runtime::{
+    MultiSignature, MultiSigner,
+    traits::{IdentifyAccount, Verify},
+};
 use subtensor_swap_interface::OrderSwapInterface;
 
 fn make_valid_signed_order() -> (crate::SignedOrder<AccountId>, sp_core::H256) {
@@ -1555,9 +1558,21 @@ fn is_order_valid_ecdsa_signature_returns_error() {
     new_test_ext().execute_with(|| {
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
-        let (mut signed, id) = make_valid_signed_order();
+        let (signed, _) = make_valid_signed_order();
         let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
-        signed.signature = MultiSignature::Ecdsa(pair.sign(&signed.order.encode()));
+        let signer = MultiSigner::from(pair.public()).into_account();
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer,
+            ..signed.order.inner().clone()
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        let signature = MultiSignature::Ecdsa(pair.sign(&order.encode()));
+        assert!(signature.verify(order.encode().as_slice(), &order.inner().signer));
+        let signed = crate::SignedOrder {
+            order,
+            signature,
+            partial_fill: None,
+        };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
             LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
