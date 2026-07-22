@@ -12,12 +12,17 @@ mirroring their submissions in the same epoch.
 ## How it works
 
 The flag flips the accepted submission path. With it **on**, the plain
-`set_weights` extrinsic is rejected outright with `CommitRevealEnabled`
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+extrinsic is rejected outright with
+[`CommitRevealEnabled`](/code/pallets/subtensor/src/macros/errors.rs#L130)
 (`pallets/subtensor/src/macros/dispatches.rs`); validators must instead
 commit — either a salted hash (revealed later by a matching
-`reveal_weights` call) or a timelock-encrypted payload that the chain
+[`reveal_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L281-L290)
+call) or a timelock-encrypted payload that the chain
 auto-decrypts at a drand round, no reveal transaction needed. With it
-**off**, commits are rejected with `CommitRevealDisabled` and plain
+**off**, commits are rejected with
+[`CommitRevealDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L132)
+and plain
 `set_weights` is the only path.
 
 The reveal delay is governed by

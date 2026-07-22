@@ -130,6 +130,8 @@ INTENT_SAMPLES: dict[str, dict] = {
     "lock_stake": {"netuid": 1, "amount_alpha": 1.0},
     "move_lock": {"netuid": 1, "destination_hotkey_ss58": BOB_HOT},
     "set_perpetual_lock": {"netuid": 1, "enabled": True},
+    "add_collateral": {"netuid": 1, "amount_tao": 1.0},
+    "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "create_crowdloan": {
         "deposit_tao": 100,
         "min_contribution_tao": 1,
@@ -196,6 +198,9 @@ READ_SAMPLES: dict[str, dict] = {
     "burn": {"netuid": 1},
     "children": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "coldkey_lock": {"coldkey_ss58": ALICE, "netuid": 1},
+    "collateral_policy": {"netuid": 1},
+    "miner_collateral": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
+    "subnet_collateral": {"netuid": 1},
     "coldkey_swap_announcement": {"coldkey_ss58": ALICE},
     "commit_reveal_enabled": {"netuid": 1},
     "commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},

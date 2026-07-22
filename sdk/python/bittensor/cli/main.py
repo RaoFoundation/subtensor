@@ -23,6 +23,7 @@ from .. import __version__, wallets
 from .._generated.errors import ERRORS
 from ..config import get as config_default
 from ..error_descriptions import DESCRIPTIONS
+from ..error_map import DISPATCH_ERRORS
 from ..intents import list_tools
 from ..result import EXPLANATIONS, REMEDIATION, ChainError, ErrorCode, classify_error
 from ..settings import DEFAULT_NETWORK, chain_error_docs_url, error_docs_url
@@ -32,6 +33,7 @@ from .call import call as call_command
 from .commands import (
     addresses,
     axon,
+    collateral,
     config,
     crowd,
     evm,
@@ -99,6 +101,7 @@ app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
 
 app.add_typer(weights.app, name="weights", rich_help_panel=PANEL_OPERATORS)
 app.add_typer(axon.app, name="axon", rich_help_panel=PANEL_OPERATORS)
+app.add_typer(collateral.app, name="collateral", rich_help_panel=PANEL_OPERATORS)
 app.add_typer(timelock.app, name="timelock", rich_help_panel=PANEL_OPERATORS)
 
 app.add_typer(addresses.app, name="addresses", rich_help_panel=PANEL_ACCOUNTS)
@@ -237,14 +240,16 @@ def main_callback(
     signer_backend: Optional[str] = typer.Option(
         None,
         "--signer",
-        help="Signing backend: wallet (default) or extension.",
+        help="Signing backend: wallet (default), extension, ledger, or vault "
+        "(Polkadot Vault via QR).",
         rich_help_panel=g.PANEL_EXTENSION,
     ),
     signer_address: Optional[str] = typer.Option(
         None,
         "--signer-address",
         envvar="BT_SIGNER_ADDRESS",
-        help="Extension account ss58 address (optional; last-used account is the default).",
+        help="External signer account ss58 address (extension: last-used account is the "
+        "default; vault: falls back to the wallet's coldkeypub).",
         rich_help_panel=g.PANEL_EXTENSION,
     ),
     extension_source: Optional[str] = typer.Option(
@@ -308,10 +313,28 @@ def _chain_error_matches(query: str) -> list[dict[str, str]]:
 
     Accepts bare names (``SettingWeightsTooFast``) and pallet-qualified forms
     (``SubtensorModule.SettingWeightsTooFast``). Names that exist in several
-    pallets yield one entry per pallet.
+    pallets yield one entry per pallet. Dispatch-level errors (``BadOrigin``,
+    ``TokenError`` variants like ``FundsUnavailable``) match too, under the
+    ``Runtime`` pallet label.
     """
     pallet_filter, _, name = query.rpartition(".")
     matches = []
+    for dispatch_name, (dispatch_code, dispatch_docs) in DISPATCH_ERRORS.items():
+        if dispatch_name.lower() != name.lower():
+            continue
+        if pallet_filter and pallet_filter.lower() != "runtime":
+            continue
+        matches.append(
+            {
+                "pallet": "Runtime",
+                "name": dispatch_name,
+                "code": dispatch_code.value,
+                "docs": dispatch_docs,
+                "description": dispatch_docs,
+                "help": ChainError("", name=dispatch_name).remediation,
+                "docs_url": error_docs_url(dispatch_code.value),
+            }
+        )
     for info in ERRORS.values():
         if info.name.lower() != name.lower():
             continue

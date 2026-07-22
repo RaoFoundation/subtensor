@@ -34,8 +34,23 @@ jobs:
           sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
           sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
-      - name: Install cargo-audit
-        run: cargo install --force --locked cargo-audit
+      - name: Ensure cargo-audit
+        run: |
+          # The pinned runner image provides this exact binary. Old images and
+          # hosted runners keep the normal Cargo install fallback.
+          contract=/etc/fireactions-runner-image/image-contract.env
+          system_bin=/usr/local/bin/cargo-audit
+          if [[ -r "$contract" ]] && \
+              grep -Fxq 'CARGO_AUDIT_VERSION=0.22.2' "$contract" && \
+              [[ -x "$system_bin" ]] && \
+              "$system_bin" --version 2>/dev/null | grep -Fq 'cargo-audit 0.22.2'; then
+            # rust-cache restores $HOME/.cargo/bin ahead of /usr/local/bin.
+            # Replace any cached copy with the verified image binary.
+            install -m 0755 "$system_bin" "$HOME/.cargo/bin/cargo-audit"
+            echo "Using verified runner-image cargo-audit 0.22.2"
+          else
+            cargo install --force --locked cargo-audit --version 0.22.2
+          fi
 
       - name: cargo audit
         # Each ignore is a known, accepted advisory; revisit when bumping

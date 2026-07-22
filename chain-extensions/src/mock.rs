@@ -310,6 +310,7 @@ parameter_types! {
     pub const InitialBurn: u64 = 0;
     pub const InitialMinBurn: u64 = 500_000;
     pub const InitialMinStake: u64 = 2_000_000;
+    pub const InitialMinTransfer: u64 = 2_000_000;
     pub const InitialMaxBurn: u64 = 1_000_000_000;
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -403,6 +404,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;

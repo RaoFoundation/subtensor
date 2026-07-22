@@ -1,0 +1,105 @@
+---
+title: Registration burn
+description: The floating registration price — how it decays, jumps, and what the burned share buys.
+---
+
+Every subnet charges a single floating **registration price**, read live with
+[`burn`](/docs/query/burn). What happens to your payment is set by the
+subnet's [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share)
+(call it `p`):
+
+- the `(1 − p)` share is **burned** — sunk, never refunded;
+- the `p` share is **locked as collateral** — stake you earn back by mining,
+  covered in [registration collateral](/docs/guides/mining/collateral).
+
+With `p = 0` (the chain default) the whole price is burned, which is the
+classic burned registration this page describes. Everything here about how
+the price moves applies identically on collateral subnets — only the split
+of the payment changes.
+
+## How the price floats
+
+Admission is governed entirely by price, with no registration windows:
+
+- The price **decays over time**
+  ([`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L489-L531)),
+  halving every [`burn_half_life`](/code/pallets/subtensor/src/lib.rs#L2778)
+  blocks (default 360, about one tempo; owner-settable).
+- Each successful registration **multiplies the price**
+  ([`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L533-L557))
+  by [`burn_increase_mult`](/code/pallets/subtensor/src/lib.rs#L2783)
+  (default 1.26), so a registration rush gets expensive fast.
+- The price is clamped between
+  [`min_burn`](/docs/hyperparameters/min-burn) (default 500,000 rao =
+  τ0.0005) and [`max_burn`](/docs/hyperparameters/max-burn) (default 100
+  TAO). All are per-subnet hyperparameters.
+
+<RegistrationBurnTimeline />
+
+The result is price discovery: the price settles where the marginal
+registrant's willingness to pay meets supply. A miner who expects a
+registration slot to return `X` is willing to pay up to `X` for it, and the
+decay/bump dynamics float the price to that level. An idle subnet rests at
+exactly `min_burn`.
+
+## What the burned share buys (and where it goes)
+
+The burned TAO is **recycled, not staked** — deregistering does not refund
+it. Under the hood
+([`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L110-L125)),
+the TAO is swapped into the subnet's pool and the resulting alpha is removed
+from the subnet's outstanding supply.
+
+Economically, the burn is the subnet's spam throttle. It prices the
+*registration event itself*: every attempt costs it, no matter how the
+attempt turns out, which is what keeps registration races and UID-lottery
+spam expensive. What the burn cannot do is price *behavior after
+registration* — a registered miner has nothing left at stake. That gap is
+what [collateral](/docs/guides/mining/collateral) exists to fill.
+
+## Worked example
+
+Suppose netuid 42 has `min_burn` = τ0.5, `burn_increase_mult` = 1.26,
+`burn_half_life` = 360, and the price is currently τ1.00 with no collateral
+configured (`p = 0`):
+
+1. You register and pay τ1.00. All of it is burned. The price immediately
+   jumps to τ1.26 for the next registrant.
+2. Two more miners register in the same tempo: they pay τ1.26 and τ1.59.
+   The price is now τ2.00.
+3. Nobody registers for the next 360 blocks: the price decays back to
+   τ1.00, and after another 360 quiet blocks it would rest at min_burn's
+   clamp path (τ0.5 floor).
+
+Your τ1.00 is gone regardless of what happens next — if you are pruned in a
+week, re-registering costs whatever the price is then.
+
+## Owner controls
+
+All owner-settable through `btcli sudo set` (rate-limited, and only outside
+the subnet's weights window):
+
+```bash
+btcli sudo set --netuid 42 --name min_burn --value 500000000        # rao
+btcli sudo set --netuid 42 --name max_burn --value 100000000000     # rao
+btcli sudo set --netuid 42 --name burn_half_life --value 360        # blocks
+btcli sudo set --netuid 42 --name burn_increase_mult --value 1.26
+```
+
+- [`min_burn`](/docs/hyperparameters/min-burn) — the resting price of an
+  idle subnet; keeps registration from becoming free. On collateral subnets
+  this floors the *total* price, of which only `(1 − p)` is burned.
+- [`max_burn`](/docs/hyperparameters/max-burn) — ceiling during registration
+  rushes.
+- [`burn_half_life`](/docs/hyperparameters/burn-half-life) — how fast the
+  price cools; shorter half-life means cheaper re-entry after a rush.
+- [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) — how
+  hard each registration pushes the price up; higher values throttle rushes
+  more aggressively.
+
+## Related
+
+[Registration collateral](/docs/guides/mining/collateral),
+[`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share),
+[`burn` query](/docs/query/burn),
+[`burned-register`](/docs/tx/burned-register)

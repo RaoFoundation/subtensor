@@ -13,7 +13,7 @@ loan has not been finalized.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.update_end` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.update_end`](/code/pallets/crowdloan/src/lib.rs#L861-L887) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("update_crowdloan_end", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.update_end` — [`pallets/crowdloan/src/lib.rs#L863`](/code/pallets/crowdloan/src/lib.rs#L863):
+`Crowdloan.update_end` — [`pallets/crowdloan/src/lib.rs#L863`](/code/pallets/crowdloan/src/lib.rs#L861-L887):
 
 ```rust
 #[pallet::call_index(7)]

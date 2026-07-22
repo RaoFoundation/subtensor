@@ -26,6 +26,7 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Union
 
+from ..settings import query_docs_url
 from ..signing import coerce_address, is_address_param
 
 
@@ -146,6 +147,7 @@ def list_reads() -> list[dict[str, Any]]:
             "params": s.params,
             "param_docs": s.param_docs,
             "category": s.category,
+            "docs_url": query_docs_url(s.name),
         }
         for s in sorted(REGISTRY.values(), key=lambda s: s.name)
     ]

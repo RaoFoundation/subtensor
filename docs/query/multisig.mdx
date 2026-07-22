@@ -40,3 +40,9 @@ result = sub.read("multisig", account_ss58="5F...", call_hash="...")
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage `Multisig.Multisigs` — implemented by Substrate's `pallet_multisig`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

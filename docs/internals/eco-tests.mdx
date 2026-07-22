@@ -7,8 +7,8 @@ description: What the eco-tests pin, why they run on every PR, and what to do wh
 pins the **storage shapes and runtime API signatures the TAO.com ecosystem
 indexer depends on**. The indexer reads chain state directly — storage items
 like `Consensus`, `Incentive`, `Weights`, `Bonds`, ownership and childkey
-maps, and runtime APIs like `DelegateInfoRuntimeApi` and
-`StakeInfoRuntimeApi`. If a runtime change renames a storage item, changes a
+maps, and runtime APIs like [`DelegateInfoRuntimeApi`](/code/pallets/subtensor/runtime-api/src/lib.rs#L27-L31) and
+[`StakeInfoRuntimeApi`](/code/pallets/subtensor/runtime-api/src/lib.rs#L67-L76). If a runtime change renames a storage item, changes a
 value type, or alters an API return shape, the indexer breaks in production
 even though nothing in this repo's own tests would notice.
 

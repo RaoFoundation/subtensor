@@ -89,6 +89,7 @@ from .signing import (
 from .snapshot import Snapshot
 from .sync import SyncClient
 from .timelock import Timelocked, TimelockError, TimelockNotReady
+from .vault import VaultError, VaultSigner
 from .wallet import Wallet
 from .wallets import (
     CRYPTO_ED25519,
@@ -109,8 +110,16 @@ _logging.getLogger(__name__).addHandler(_logging.NullHandler())
 _INTENT_EXPORTS = {cls.__name__: cls for cls in _INTENT_REGISTRY.values()}
 globals().update(_INTENT_EXPORTS)
 
+# Lowercase v10-style aliases: ``bt.subtensor()`` and ``bt.wallet()`` are the
+# same classes as ``bt.Subtensor`` / ``bt.Wallet``. The ``wallet`` binding
+# shadows the submodule of the same name in the package namespace on purpose;
+# ``import bittensor.wallet`` still resolves to the module via ``sys.modules``.
+subtensor = Subtensor
+wallet = Wallet
+
 __all__ = [
     "Subtensor",
+    "subtensor",  # lowercase alias for Subtensor
     "set_weights",
     "close_shared_clients",
     "Client",
@@ -148,6 +157,7 @@ __all__ = [
     "ErrorCode",
     "PolicyError",
     "Wallet",
+    "wallet",  # lowercase alias for Wallet
     "wallets",
     # EVM support: h160<->ss58 address math, EVM key storage, precompiles
     "evm",
@@ -193,6 +203,9 @@ __all__ = [
     # Ledger hardware signing (Polkadot generic app, RFC-0078 clear-signing)
     "LedgerSigner",
     "LedgerError",
+    # Polkadot Vault air-gapped signing (UOS QR round-trip)
+    "VaultSigner",
+    "VaultError",
     "CRYPTO_ED25519",
     "CRYPTO_SR25519",
     "DEFAULT_CRYPTO_TYPE",
@@ -219,9 +232,6 @@ _NO_NEURON_STACK = (
 )
 
 _REMOVED_V10_HINTS = {
-    # The lowercase v10 alias. The class is back (one class: blocking used
-    # directly, async when awaited) but only under its capitalized name.
-    "subtensor": "use bittensor.Subtensor (blocking directly, async when awaited)",
     "AsyncSubtensor": (
         "use `async with bittensor.Subtensor(network) as client:` "
         "or `await bittensor.Subtensor(network)`"
@@ -246,8 +256,7 @@ _REMOVED_V10_HINTS = {
     # argparse Config class — only the class name can get a hint here.
     "Config": "removed — the SDK no longer parses CLI args; pass arguments directly",
     "Keypair": (
-        "keypairs come from bittensor.wallet.Wallet; the low-level type is "
-        "bittensor.sp_core.Keypair"
+        "keypairs come from bittensor.Wallet; the low-level type is bittensor.sp_core.Keypair"
     ),
     "Keyfile": "use bittensor.keyfiles.Keyfile",
 }
@@ -258,6 +267,6 @@ def __getattr__(name: str):
     if hint is not None:
         raise AttributeError(
             f"bittensor.{name} was removed in v11 — {hint}. "
-            "Migration guide: /docs/migration in the Bittensor docs."
+            "Migration guide: https://www.bittensor.com/docs/migration"
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

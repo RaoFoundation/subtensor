@@ -114,7 +114,20 @@ export function HyperparamBondsPenaltyChart() {
   return (
     <ExplainerPanel
       title="bonds_penalty: interpolating raw and clipped weights"
-      caption="Matches weights_for_bonds = interpolate(weights, clipped_weights, bonds_penalty) in run_epoch.rs. The dashed steps are the stake-weighted consensus; clipping caps each weight there. An in-consensus validator (light bars) is never affected — only weight above consensus is at stake."
+      caption={
+        <>
+          Matches{' '}
+          <a
+            href="/code/pallets/subtensor/src/epoch/run_epoch.rs#L363-L368"
+            className="underline"
+          >
+            weights_for_bonds = interpolate(weights, clipped_weights, bonds_penalty)
+          </a>{' '}
+          in run_epoch.rs. The dashed steps are the stake-weighted consensus; clipping caps
+          each weight there. An in-consensus validator (light bars) is never affected — only
+          weight above consensus is at stake.
+        </>
+      }
     >
       <div className="h-52">
         <Chart type="bar" data={data} options={options} />

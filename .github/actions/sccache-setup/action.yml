@@ -11,6 +11,9 @@ inputs:
   writer-secret-access-key:
     description: "Protected Environment writer secret; used only for an authorized source"
     default: ""
+  local-tier:
+    description: "auto to use validated Fireactions host cache metadata, or disabled for direct R2"
+    default: "auto"
 
 outputs:
   enabled:
@@ -25,6 +28,7 @@ runs:
       shell: bash
       env:
         SCCACHE_CREDENTIAL_MODE: ${{ inputs.credential-mode }}
+        SCCACHE_LOCAL_TIER_MODE: ${{ inputs.local-tier }}
         AWS_ACCESS_KEY_ID: ${{ inputs.writer-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ inputs.writer-secret-access-key }}
       run: |
@@ -49,6 +53,7 @@ runs:
       env:
         SCCACHE_CONFIG_FILE: ${{ steps.prepare.outputs.config-file }}
         SCCACHE_INSTALL_OUTCOME: ${{ steps.install.outcome }}
+        SCCACHE_LOCAL_TIER_MODE: ${{ inputs.local-tier }}
       run: |
         "$GITHUB_ACTION_PATH/../../scripts/sccache-configure.sh" activate \
           "$SCCACHE_CONFIG_FILE" \

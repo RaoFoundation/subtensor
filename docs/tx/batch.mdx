@@ -16,7 +16,7 @@ every child, and the transaction plan lists each child's effects.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Utility | `Utility.batch_all` |
+| `coldkey` | signed account (pallet role may apply) | Utility | [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("batch", {...}, wallet)
 
 ## On-chain implementation
 
-`Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L314):
+`Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 
 ```rust
         #[pallet::call_index(2)]

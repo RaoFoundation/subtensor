@@ -43,6 +43,8 @@ OWNER_HYPERPARAMETERS: dict[str, tuple[str, bool]] = {
     "max_allowed_uids": ("sudo_set_max_allowed_uids", False),
     "burn_increase_mult": ("sudo_set_burn_increase_mult", False),
     "burn_half_life": ("sudo_set_burn_half_life", False),
+    "collateral_lock_share": ("sudo_set_collateral_lock_share", False),
+    "collateral_drain_ratio": ("sudo_set_collateral_drain_ratio", False),
     "adjustment_alpha": ("sudo_set_adjustment_alpha", False),
     "rho": ("sudo_set_rho", False),
     "max_difficulty": ("sudo_set_max_difficulty", False),
@@ -63,6 +65,14 @@ OWNER_HYPERPARAMETERS: dict[str, tuple[str, bool]] = {
 
 # Names sharing the two-value alpha call: position of each in (alpha_low, alpha_high).
 _ALPHA_PAIR: dict[str, int] = {"alpha_low": 0, "alpha_high": 1}
+
+# Value param name for setters not yet in the generated call registry, so the
+# call can be composed directly. TODO(codegen): drop once the registry is
+# regenerated against spec >= 435.
+_PENDING_CODEGEN_PARAM: dict[str, str] = {
+    "sudo_set_collateral_lock_share": "lock_share",
+    "sudo_set_collateral_drain_ratio": "drain_ratio",
+}
 
 HYPERPARAMETER_NAME_HELP = (
     "Hyperparameter to set. One of: " + ", ".join(sorted(OWNER_HYPERPARAMETERS)) + "."
@@ -125,6 +135,10 @@ class SetHyperparameter(Intent):
         if kind_of(self.name) == "fixed128":
             # Fixed-point newtypes (U64F64) encode as a one-field struct.
             value = {"bits": value}
+        pending_param = _PENDING_CODEGEN_PARAM.get(method)
+        if pending_param is not None:
+            call = calls.Call("AdminUtils", method, {"netuid": self.netuid, pending_param: value})
+            return await substrate.compose(call)
         return await substrate.compose(getattr(calls.AdminUtils, method)(self.netuid, value))
 
     def summary(self) -> str:

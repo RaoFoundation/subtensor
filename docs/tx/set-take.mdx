@@ -15,7 +15,7 @@ hotkey. If the move is upward it inherits the increase path's constraints
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.increase_take`, `SubtensorModule.decrease_take` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.increase_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L523-L531), [`SubtensorModule.decrease_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("set_take", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.increase_take` — [`pallets/subtensor/src/macros/dispatches.rs#L533`](/code/pallets/subtensor/src/macros/dispatches.rs#L533):
+`SubtensorModule.increase_take` — [`pallets/subtensor/src/macros/dispatches.rs#L525`](/code/pallets/subtensor/src/macros/dispatches.rs#L523-L531):
 
 ```rust
 #[pallet::call_index(66)]
@@ -81,7 +81,7 @@ pub fn increase_take(
 
 Delegates to [`do_increase_take`](/code/pallets/subtensor/src/staking/increase_take.rs#L27).
 
-`SubtensorModule.decrease_take` — [`pallets/subtensor/src/macros/dispatches.rs#L500`](/code/pallets/subtensor/src/macros/dispatches.rs#L500):
+`SubtensorModule.decrease_take` — [`pallets/subtensor/src/macros/dispatches.rs#L492`](/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498):
 
 ```rust
 #[pallet::call_index(65)]

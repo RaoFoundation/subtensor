@@ -27,8 +27,22 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(8_766_000, 0)
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
+	/// Storage: `Drand::BeaconConfig` (r:1 w:0)
+	/// Proof: `Drand::BeaconConfig` (`max_values`: Some(1), `max_size`: Some(238), added: 733, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::LastStoredRound` (r:1 w:1)
+	/// Proof: `Drand::LastStoredRound` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::OldestStoredRound` (r:1 w:1)
+	/// Proof: `Drand::OldestStoredRound` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::Pulses` (r:0 w:1)
+	/// Proof: `Drand::Pulses` (`max_values`: None, `max_size`: Some(211), added: 2686, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::NextUnsignedAt` (r:0 w:1)
+	/// Proof: `Drand::NextUnsignedAt` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	fn write_pulse() -> Weight {
-		Weight::from_parts(4_294_000_000, 0)
+		// Proof Size summary in bytes:
+		//  Measured:  `238`
+		//  Estimated: `1723`
+		// Minimum execution time: 5_040_693_000 picoseconds.
+		Weight::from_parts(5_051_984_000, 1723)
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
@@ -44,8 +58,22 @@ impl WeightInfo for () {
 		Weight::from_parts(8_766_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
+	/// Storage: `Drand::BeaconConfig` (r:1 w:0)
+	/// Proof: `Drand::BeaconConfig` (`max_values`: Some(1), `max_size`: Some(238), added: 733, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::LastStoredRound` (r:1 w:1)
+	/// Proof: `Drand::LastStoredRound` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::OldestStoredRound` (r:1 w:1)
+	/// Proof: `Drand::OldestStoredRound` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::Pulses` (r:0 w:1)
+	/// Proof: `Drand::Pulses` (`max_values`: None, `max_size`: Some(211), added: 2686, mode: `MaxEncodedLen`)
+	/// Storage: `Drand::NextUnsignedAt` (r:0 w:1)
+	/// Proof: `Drand::NextUnsignedAt` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	fn write_pulse() -> Weight {
-		Weight::from_parts(4_294_000_000, 0)
+		// Proof Size summary in bytes:
+		//  Measured:  `238`
+		//  Estimated: `1723`
+		// Minimum execution time: 5_040_693_000 picoseconds.
+		Weight::from_parts(5_051_984_000, 1723)
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}

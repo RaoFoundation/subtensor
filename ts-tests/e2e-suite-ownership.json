@@ -1,0 +1,40 @@
+{
+    "version": 1,
+    "suites": {
+        "dev": {
+            "owner": "pull_request",
+            "selector": "dev",
+            "environments": ["dev"]
+        },
+        "smoke": {
+            "owner": "scheduled",
+            "selector": null,
+            "environments": ["smoke_devnet", "smoke_mainnet", "smoke_testnet"]
+        },
+        "zombienet_coldkey_swap": {
+            "owner": "pull_request",
+            "selector": "coldkey_swap",
+            "environments": ["zombienet_coldkey_swap"]
+        },
+        "zombienet_evm": {
+            "owner": "pull_request",
+            "selector": "evm",
+            "environments": ["zombienet_evm"]
+        },
+        "zombienet_shield": {
+            "owner": "pull_request",
+            "selector": "shield",
+            "environments": ["zombienet_shield"]
+        },
+        "zombienet_staking": {
+            "owner": "pull_request",
+            "selector": "staking",
+            "environments": ["zombienet_staking"]
+        },
+        "zombienet_subnets": {
+            "owner": "pull_request",
+            "selector": "subnets",
+            "environments": ["zombienet_subnets"]
+        }
+    }
+}

@@ -170,6 +170,14 @@ impl<T: Config> Pallet<T> {
             DecayingHotkeyLock::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LockingColdkeys::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            // Lock metadata only. Alpha (including collateral stake) was already
+            // pro-rata converted to coldkey free TAO in AlphaInOutStakesSettleStakes;
+            // unlocking here would double-pay. Clearing drops the now-meaningless
+            // MinerCollateral rows for the dissolved netuid.
+            MinerCollateral::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyMinerCollateral::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {
@@ -248,7 +256,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        let removal_weight = T::DbWeight::get().writes(80);
+        // Flat write charge for the `::remove(netuid)` list below. Bump this when
+        // adding or removing entries from that list so the weight stays in step.
+        let removal_weight = T::DbWeight::get().writes(82);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -314,6 +324,8 @@ impl<T: Config> Pallet<T> {
         CommitRevealWeightsEnabled::<T>::remove(netuid);
         BurnHalfLife::<T>::remove(netuid);
         BurnIncreaseMult::<T>::remove(netuid);
+        CollateralLockShare::<T>::remove(netuid);
+        CollateralDrainRatio::<T>::remove(netuid);
         Burn::<T>::remove(netuid);
         MinBurn::<T>::remove(netuid);
         MaxBurn::<T>::remove(netuid);

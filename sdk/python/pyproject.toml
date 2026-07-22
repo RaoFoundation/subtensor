@@ -26,6 +26,9 @@ dependencies = [
     # EVM key storage, signing, and precompile call encoding
     # (`bittensor.evm`, `btcli evm`).
     "eth-account>=0.13,<0.14",
+    # UOS QR rendering for the Polkadot Vault signer (`--signer vault`).
+    # Pure Python; SVG output needs no imaging extras.
+    "qrcode>=8.0,<9",
 ]
 
 # Former extras, kept as no-ops so `pip install 'bittensor[cli]'` (the old

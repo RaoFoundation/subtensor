@@ -277,7 +277,7 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 
 | v10 | v11 |
 | --- | --- |
-| `subtensor.block` / `get_current_block()` | `await client.block()` |
+| `subtensor.block` / `get_current_block()` | `sub.block` (blocking) / `await client.block()` |
 | `get_block_info(block)` / `get_block_hash` | `await client.block_info(block)` |
 | `get_timestamp(block)` | `await client.timestamp(block)` |
 | `wait_for_block(block)` | `await client.wait_for_block(block)` (plus `wait_for_timestamp`, `wait_for_epoch`) |
@@ -375,7 +375,8 @@ a limit price).
 | `announce_coldkey_swap` / `swap_coldkey_announced` / `dispute_coldkey_swap` / `clear_coldkey_swap_announcement` | same-name intents |
 | crowdloan methods | same-name intents (`bt.CreateCrowdloan`, `bt.ContributeCrowdloan`, ...) |
 | `set_commitment(wallet, netuid, data)` | no intent — raw call: `client.submit_call(bt.calls.Commitments.set_commitment(...), wallet)` |
-| hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` |
+| hyperparameters (was CLI-only `sudo set`) | `bt.SetHyperparameter(netuid=..., name=..., value=...)` (includes `collateral_lock_share` / `collateral_drain_ratio`) |
+| *(new)* miner collateral top-up / floor | `bt.AddCollateral(netuid=..., amount_tao=...)` / `bt.SetMinCollateral(netuid=..., min_alpha=...)`; reads via `client.collateral.*` |
 | `add_liquidity` / `modify_liquidity` / `remove_liquidity` | removed (feature retired on chain) |
 | `mev_submit_encrypted(wallet, call)` | `client.submit_shielded(intent, wallet)`, or the default shielding on stake intents |
 | `compose_call(...)` + `sign_and_send_extrinsic(...)` | `client.submit_call(bt.calls.Pallet.function(...), wallet, signer="coldkey"/"hotkey")` |
@@ -496,8 +497,8 @@ the legacy v10 header format (recipe in the guide).
 | `BalanceTypeError` / `BalanceUnitMismatchError` | `TypeError` / `bt.UnitMismatchError` |
 
 Prefer `.code` over matching `.name` or message strings. SubtensorModule renamed
-`InsufficientBalance` → `InsufficientTaoBalance` (same error index) and added
-`InsufficientAlphaBalance`; both still classify as
+`InsufficientBalance` → [`InsufficientTaoBalance`](/code/pallets/subtensor/src/macros/errors.rs#L218) (same error index) and added
+[`InsufficientAlphaBalance`](/code/pallets/subtensor/src/macros/errors.rs#L334); both still classify as
 `ErrorCode.INSUFFICIENT_BALANCE`. Other pallets (Balances, Crowdloan, Swap)
 may still emit `InsufficientBalance`. `btcli explain <Name>` and
 `result.error.description` give the per-name trigger text.
@@ -525,7 +526,7 @@ the upgrade. Full narrative:
   `SubnetAlphaOut`. Existing conviction counts toward this threshold. See
   [Conviction](/docs/guides/conviction).
 - **Cross-subnet emissions.** Allocation uses EMA price adjusted by miner burn;
-  `root_proportion` is no longer included in the inter-subnet split (it still
+  [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L69-L79) is no longer included in the inter-subnet split (it still
   applies inside each subnet for injection caps and root dividends). Update
   emission calculations and forecasts. See [Emissions](/docs/concepts/emissions).
 
@@ -548,7 +549,7 @@ the upgrade. Full narrative:
 
 - **Default slippage protection.** `AddStake`, `RemoveStake`, and `SwapStake`
   (and the matching CLI commands) apply a 5% price bound by default. Old
-  any-price scripts fail with `SlippageTooHigh` unless you pass
+  any-price scripts fail with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
   `slippage_protection=False` / `--no-slippage-protection`, or set an explicit
   `rate_tolerance` / limit price.
 - **Strict stake moves.** `move_stake` / `transfer_stake` / `swap_stake` no
@@ -573,10 +574,11 @@ the upgrade. Full narrative:
 ### Registration, hyperparameters, and randomness
 
 - **Queued subnet registration.** When capacity is full or cleanup is pending,
-  `register_network` may emit `NetworkRegistrationQueued` without creating the
+  `register_network` may emit [`NetworkRegistrationQueued`](/code/pallets/subtensor/src/macros/events.rs#L681) without creating the
   subnet. `client.execute(RegisterSubnet(...))` and `btcli subnets create` wait
-  for the matching `NetworkAdded` by default and return the assigned `netuid`;
-  raw-call clients must do the same before treating the registration as live.
+  for the matching [`NetworkAdded`](/code/pallets/subtensor/src/macros/events.rs#L13)
+  by default and return the assigned `netuid`; raw-call clients must do the same
+  before treating the registration as live.
 - **Tempo and activity cutoff.** Owner (and root) set these through
   `AdminUtils::sudo_set_tempo` and `AdminUtils::sudo_set_activity_cutoff_factor`.
   `SubtensorModule` call indices 139 (`set_tempo`) and 140

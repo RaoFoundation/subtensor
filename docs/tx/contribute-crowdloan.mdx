@@ -15,7 +15,7 @@ success, the funds go to the loan's target or fund its inner call.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.contribute` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.contribute`](/code/pallets/crowdloan/src/lib.rs#L438-L536) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("contribute_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.contribute` — [`pallets/crowdloan/src/lib.rs#L440`](/code/pallets/crowdloan/src/lib.rs#L440):
+`Crowdloan.contribute` — [`pallets/crowdloan/src/lib.rs#L440`](/code/pallets/crowdloan/src/lib.rs#L438-L536):
 
 ```rust
 #[pallet::call_index(1)]

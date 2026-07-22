@@ -166,6 +166,15 @@ class SubstrateConnection:
     async def genesis_hash(self) -> str:
         return await self._runtimes.genesis_hash()
 
+    async def runtime_spec_version(self) -> int:
+        """The connected runtime's ``spec_version`` at the chain head.
+
+        Served from the head codec, which re-validates against
+        ``state_getRuntimeVersion`` on a short TTL — so a runtime upgrade
+        mid-session is reflected within about a block.
+        """
+        return (await self._runtimes.codec_at(None)).spec_version
+
     async def get_chain_head(self) -> str:
         return await self._session.request("chain_getHead", [])
 

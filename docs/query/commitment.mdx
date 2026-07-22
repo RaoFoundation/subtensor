@@ -40,3 +40,9 @@ result = sub.read("commitment", netuid=1, hotkey_ss58="5F...")
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`Commitments.CommitmentOf`](/code/pallets/commitments/src/lib.rs#L137)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

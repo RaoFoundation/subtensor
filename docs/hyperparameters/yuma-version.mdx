@@ -12,9 +12,13 @@ their dividends without decoding a boolean in their head.
 
 ## How it works
 
-`get_subnet_hyperparams_v3` (`pallets/subtensor/src/rpc_info/subnet_info.rs`)
-computes it inline: 3 when `Yuma3On` is set for the subnet, 2 otherwise. No
-`YumaVersion` storage exists; the epoch itself branches on `Yuma3On` directly
+[`get_subnet_hyperparams_v3`](/code/pallets/subtensor/src/rpc_info/subnet_info.rs#L468-L631)
+(`pallets/subtensor/src/rpc_info/subnet_info.rs`)
+computes it inline: 3 when
+[`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L2204) is set for the subnet,
+2 otherwise. No
+`YumaVersion` storage exists; the epoch itself
+[branches on `Yuma3On` directly](/code/pallets/subtensor/src/epoch/run_epoch.rs#L372)
 (`pallets/subtensor/src/epoch/run_epoch.rs`). What the two variants actually
 change — bond normalization, the EMA path, and whether liquid alpha applies —
 is covered on the [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) page.

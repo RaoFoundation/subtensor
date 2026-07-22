@@ -8,9 +8,28 @@ const nextConfig = {
 
   async redirects() {
     return [
+      // spec.bittensor.com: the Polkadot Vault onboarding shortcut — lands on
+      // the guide section hosting the one-time chain-specs QR.
+      {
+        source: '/:path*',
+        has: [{type: 'host', value: 'spec.bittensor.com'}],
+        destination: 'https://www.bittensor.com/docs/guides/vault',
+        permanent: false,
+      },
       {
         source: '/documentation/:path*',
         destination: '/docs',
+        permanent: true,
+      },
+      // v432 and v434 were squashed into the v431 and v435 release pages.
+      {
+        source: '/releases/v432-upgrade',
+        destination: '/releases/v431-upgrade',
+        permanent: true,
+      },
+      {
+        source: '/releases/v434-upgrade',
+        destination: '/releases/v435-upgrade',
         permanent: true,
       },
       {

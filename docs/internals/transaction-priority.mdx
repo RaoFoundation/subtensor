@@ -5,8 +5,8 @@ description: How custom transaction extensions determine extrinsic priority in s
 
 In Subtensor, transaction priority is determined by custom transaction extensions, which alter or override the default Substrate SDK behavior. Extensions affecting transaction priority are:
 
-- **`ChargeTransactionPaymentWrapper`** (wraps `ChargeTransactionPayment`)
-- **`DrandPriority`**
+- **[`ChargeTransactionPaymentWrapper`](/code/runtime/src/transaction_payment_wrapper.rs#L41)** (wraps `ChargeTransactionPayment`)
+- **[`DrandPriority`](/code/pallets/drand/src/drand_priority.rs#L21)**
 
 Substrate SDK combines priorities from all transaction extensions using addition.
 
@@ -31,4 +31,4 @@ It replaces the dynamic calculation with a **flat priority scale** based only on
 
 ## `DrandPriority`
 
-Special pallet_drand priority: 10_000 for `write_pulse` extrinsic.
+Special pallet_drand priority: 10_000 for [`write_pulse`](/code/pallets/drand/src/lib.rs#L339-L417) extrinsic.

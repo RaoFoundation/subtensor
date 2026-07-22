@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 432,
+    spec_version: 435,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -816,6 +816,7 @@ parameter_types! {
     pub const SubtensorInitialBurn: TaoBalance = TaoBalance::new(100_000_000); // 0.1 tao
     pub const SubtensorInitialMinBurn: TaoBalance = TaoBalance::new(500_000); // 500k RAO
     pub const SubtensorInitialMinStake: TaoBalance = TaoBalance::new(2_000_000); // 0.002 tao
+    pub const SubtensorInitialMinTransfer: TaoBalance = TaoBalance::new(100_000); // 0.0001 tao
     pub const SubtensorInitialMaxBurn: TaoBalance = TaoBalance::new(100_000_000_000); // 100 tao
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -898,6 +899,7 @@ impl pallet_subtensor::Config for Runtime {
     type InitialMaxBurn = SubtensorInitialMaxBurn;
     type InitialMinBurn = SubtensorInitialMinBurn;
     type InitialMinStake = SubtensorInitialMinStake;
+    type InitialMinTransfer = SubtensorInitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = SubtensorMinTempo;

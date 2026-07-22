@@ -14,7 +14,7 @@ to withdraw.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.withdraw` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.withdraw`](/code/pallets/crowdloan/src/lib.rs#L546-L592) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("withdraw_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.withdraw` — [`pallets/crowdloan/src/lib.rs#L548`](/code/pallets/crowdloan/src/lib.rs#L548):
+`Crowdloan.withdraw` — [`pallets/crowdloan/src/lib.rs#L548`](/code/pallets/crowdloan/src/lib.rs#L546-L592):
 
 ```rust
 #[pallet::call_index(2)]

@@ -45,3 +45,9 @@ result = sub.read("blocks_since_last_update", netuid=1, uid=1)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`SubtensorModule.LastUpdate`](/code/pallets/subtensor/src/lib.rs#L2420)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

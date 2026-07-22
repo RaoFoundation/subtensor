@@ -143,15 +143,17 @@ where
         }
 
         if let Some((hotkey, netuid)) = alpha_vec.first() {
-            let alpha_balance =
-                pallet_subtensor::Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey, coldkey, *netuid,
-                );
+            // Only free (non-collateral, non-conviction-locked) alpha may pay fees.
+            // Using total stake here lets a fully bonded miner erode MinerCollateral
+            // via failed remove-stake spam while locked accounting stays unchanged.
+            let available = pallet_subtensor::Pallet::<T>::available_to_unstake_from_hotkey(
+                coldkey, hotkey, *netuid,
+            );
             let alpha_fee = pallet_subtensor_swap::Pallet::<T>::get_alpha_amount_for_tao(
                 *netuid,
                 tao_amount.into(),
             );
-            alpha_balance >= alpha_fee
+            !alpha_fee.is_zero() && available >= alpha_fee
         } else {
             false
         }
@@ -167,18 +169,20 @@ where
         }
 
         if let Some((hotkey, netuid)) = alpha_vec.first() {
-            let alpha_balance =
-                pallet_subtensor::Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey, coldkey, *netuid,
-                );
+            let available = pallet_subtensor::Pallet::<T>::available_to_unstake_from_hotkey(
+                coldkey, hotkey, *netuid,
+            );
             let mut alpha_equivalent = pallet_subtensor_swap::Pallet::<T>::get_alpha_amount_for_tao(
                 *netuid,
                 tao_amount.into(),
             );
             if alpha_equivalent.is_zero() {
-                alpha_equivalent = alpha_balance;
+                alpha_equivalent = available;
             }
-            let alpha_fee = alpha_equivalent.min(alpha_balance);
+            let alpha_fee = alpha_equivalent.min(available);
+            if alpha_fee.is_zero() {
+                return Err(InvalidTransaction::Payment.into());
+            }
 
             // Sell alpha_fee and burn received tao (ignore unstake_from_subnet return).
             if let Some(author) = T::author() {
@@ -295,6 +299,12 @@ impl<F, OU> SubtensorTxFeeHandler<F, OU> {
                 origin_netuid,
                 ..
             }) => alpha_vec.push((hotkey.clone(), *origin_netuid)),
+            Some(SubtensorCall::transfer_stake_and_hotkey {
+                destination_coldkey: _,
+                origin_hotkey,
+                origin_netuid,
+                ..
+            }) => alpha_vec.push((origin_hotkey.clone(), *origin_netuid)),
             Some(SubtensorCall::swap_stake {
                 hotkey,
                 origin_netuid,

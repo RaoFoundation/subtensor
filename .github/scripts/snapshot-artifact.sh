@@ -126,6 +126,8 @@ select_artifact() {
         $artifacts.artifacts[]
         | select(.name == $name)
         | select(.expired == false)
+        | select((.size_in_bytes | type) == "number" and .size_in_bytes > 0)
+        | select((.digest | type) == "string" and (.digest | test("^sha256:[0-9a-f]{64}$")))
         | select(.workflow_run.head_branch == $branch)
         | select(.workflow_run.repository_id == $repository_id)
         | select(.workflow_run.head_repository_id == $repository_id)
@@ -156,6 +158,8 @@ select_artifact() {
   set_output "$output_file" artifact-id "$(jq -er '.id' <<<"$candidate")"
   set_output "$output_file" run-id "$(jq -er '.workflow_run.id' <<<"$candidate")"
   set_output "$output_file" producer-sha "$(jq -er '.workflow_run.head_sha' <<<"$candidate")"
+  set_output "$output_file" artifact-size-bytes "$(jq -er '.size_in_bytes' <<<"$candidate")"
+  set_output "$output_file" artifact-digest "$(jq -er '.digest' <<<"$candidate")"
   set_output "$output_file" created-at "$(jq -er '.created_at' <<<"$candidate")"
   set_output "$output_file" age-hours "$age_hours"
   if ((age_seconds > 36 * 3600)); then

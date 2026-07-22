@@ -190,7 +190,19 @@ export function TaoHalvingChart() {
   return (
     <ExplainerPanel
       title="TAO halving curve"
-      caption={`Matches get_block_emission_for_issuance. Finney issuance today ≈ ${formatTao(DEFAULT_EMISSION_SNAPSHOT.totalIssuanceTao, 2)} → ${formatTao(DEFAULT_EMISSION_SNAPSHOT.blockEmissionTao)}/block.`}
+      caption={
+        <>
+          Matches{' '}
+          <a
+            href="/code/pallets/subtensor/src/coinbase/block_emission.rs#L38-L81"
+            className="underline"
+          >
+            get_block_emission_for_issuance
+          </a>
+          . Finney issuance today ≈ {formatTao(DEFAULT_EMISSION_SNAPSHOT.totalIssuanceTao, 2)}{' '}
+          → {formatTao(DEFAULT_EMISSION_SNAPSHOT.blockEmissionTao)}/block.
+        </>
+      }
     >
       <div className="h-52">
         <Line data={data} options={options} plugins={[annotationPlugin]} />

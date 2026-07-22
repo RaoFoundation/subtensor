@@ -14,7 +14,7 @@ only to keys you control or fully trust.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.add_proxy` |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L265-L276) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("add_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L267`](/code/pallets/proxy/src/lib.rs#L267):
+`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L267`](/code/pallets/proxy/src/lib.rs#L265-L276):
 
 ```rust
 #[pallet::call_index(1)]

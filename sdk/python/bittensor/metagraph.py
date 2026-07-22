@@ -150,6 +150,11 @@ class MetagraphNeuron:
     axon: Optional[str]
     identity: Optional[dict]
     commitment: Optional[NeuronCommitment]
+    # Miner collateral (zero for hotkeys without a collateral entry; None on
+    # runtimes older than spec 435, which do not report collateral).
+    collateral_locked: Optional[Balance] = None
+    collateral_min: Optional[Balance] = None
+    collateral_earned: Optional[Balance] = None
 
 
 @dataclass
@@ -320,6 +325,16 @@ def _build(netuid: int, graph: dict, commitment_map: dict[str, NeuronCommitment]
     alpha_stake = column("alpha_stake")
     tao_stake = column("tao_stake")
     total_stake = column("total_stake")
+    # Present from spec 435; None-columns on older runtimes.
+    has_collateral = graph.get("collateral_locked") is not None
+    collateral_locked = column("collateral_locked")
+    collateral_min = column("collateral_min")
+    collateral_earned = column("collateral_earned")
+
+    def collateral(values: list, uid: int) -> Optional[Balance]:
+        if not has_collateral:
+            return None
+        return Balance.from_rao(int(values[uid] or 0), netuid, symbol)
 
     def score(values: list, uid: int) -> float:
         # Runtime-API values, so no storage descriptor carries their identity;
@@ -348,6 +363,9 @@ def _build(netuid: int, graph: dict, commitment_map: dict[str, NeuronCommitment]
             axon=_axon_endpoint(axons[uid]),
             identity=identities[uid] if isinstance(identities[uid], dict) else None,
             commitment=by_uid.get(uid),
+            collateral_locked=collateral(collateral_locked, uid),
+            collateral_min=collateral(collateral_min, uid),
+            collateral_earned=collateral(collateral_earned, uid),
         )
         for uid, hotkey in enumerate(hotkeys)
     ]

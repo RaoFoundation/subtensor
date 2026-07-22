@@ -627,6 +627,16 @@ impl<T: Config> Pallet<T> {
                 HyperparamValue::U16(Self::get_effective_min_childkey_take(netuid).into()),
             )
                 .into(),
+            (
+                "collateral_lock_share",
+                HyperparamValue::U16(CollateralLockShare::<T>::get(netuid).into()),
+            )
+                .into(),
+            (
+                "collateral_drain_ratio",
+                HyperparamValue::U64F64(CollateralDrainRatio::<T>::get(netuid)),
+            )
+                .into(),
         ])
     }
 }

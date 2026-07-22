@@ -20,7 +20,8 @@ stricter, never looser. Both defaults are currently 0.
 The floor is enforced in two places. Setting a take via
 [`set-childkey-take`](/docs/tx/set-childkey-take) rejects values below the
 effective floor (or above the global maximum, 11796/65535 ≈ 18%) with
-`InvalidChildkeyTake`. And every read of a childkey's take clamps up to the
+[`InvalidChildkeyTake`](/code/pallets/subtensor/src/macros/errors.rs#L166).
+And every read of a childkey's take clamps up to the
 floor — so raising it immediately re-prices existing childkeys that were set
 lower, without anyone resubmitting.
 

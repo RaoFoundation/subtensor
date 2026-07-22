@@ -7,7 +7,7 @@ description: How much out-of-consensus weight is excluded from bond accrual, fro
 
 ## How it works
 
-Before the bonds EMA runs, the epoch interpolates between raw and clipped weight matrices (`pallets/subtensor/src/epoch/run_epoch.rs`, around the "Bonds and Dividends" step):
+Before the bonds EMA runs, the epoch [interpolates](/code/pallets/subtensor/src/epoch/run_epoch.rs#L358-L368) between raw and clipped weight matrices (`pallets/subtensor/src/epoch/run_epoch.rs`, around the "Bonds and Dividends" step):
 
 ```
 weights_for_bonds = (1 − penalty) × weights + penalty × clipped_weights

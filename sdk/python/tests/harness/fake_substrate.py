@@ -129,6 +129,7 @@ class FakeSubstrate:
         self.connected = False
         self.closed = False
         self.block = 100
+        self.runtime_spec_version = 300
 
         # (module, item) -> {params-tuple: value}
         self._storage: dict[tuple[str, str], dict[tuple, Any]] = defaultdict(dict)
@@ -206,6 +207,9 @@ class FakeSubstrate:
     async def block_time(self) -> float:
         # Same derivation as production: the chain's Aura.SlotDuration constant.
         return int(await self.constant("Aura", "SlotDuration")) / 1000.0
+
+    async def spec_version(self) -> int:
+        return self.runtime_spec_version
 
     async def get_block(
         self, block_number: Optional[int] = None, block_hash: Optional[str] = None

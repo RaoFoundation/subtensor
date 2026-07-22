@@ -136,8 +136,13 @@ class Intent(ABC):
     # Whether the CLI submits this intent MEV-shielded by default (via
     # ``client.submit_shielded``). Set on intents that trade through subnet
     # pools, where a visible mempool entry can be front-run. Overridable per
-    # invocation with --mev-shield/--no-mev-shield or the mev_shield config key.
+    # invocation with --mev-shield/--no-mev-shield or the mev_shield config key
+    # unless ``mev_shield_required`` is set.
     mev_shield_default: ClassVar[bool] = False
+    # When True, unshielded submission is refused (CLI ``--no-mev-shield`` /
+    # config false and SDK ``execute``). Use for collateral AMM buys where a
+    # clear mempool entry can be sandwich-attacked into a worse fill.
+    mev_shield_required: ClassVar[bool] = False
 
     @abstractmethod
     async def build(self, substrate: "Substrate", wallet: "Any"):

@@ -10,7 +10,7 @@ how to reproduce each locally saves round-trips:
 |-------|----------------|-------------|-------------|
 | Rust unit tests | Pallet and runtime logic | `cargo test --workspace` (below) | `check-rust.yml` |
 | TypeScript / Moonwall | End-to-end chain behavior, EVM, zombienet multi-node | `ts-tests/` (below) | `typescript-e2e.yml` |
-| Migration checks | `on_runtime_upgrade` against live state | try-runtime CLI (below) | `try-runtime.yml` |
+| Migration checks | [`on_runtime_upgrade`](/code/pallets/subtensor/src/macros/hooks.rs#L41-L189) against live state | try-runtime CLI (below) | `try-runtime.yml` |
 | [Mainnet clone](/docs/internals/mainnet-clone) | Runtime upgrade + regression tests on cloned mainnet state | `clones/` scripts | `runtime-checks.yml` |
 | [Python SDK](/docs/internals/sdk-tests) | SDK unit tests and codegen drift gates | `cd sdk/python && just check` | `runtime-checks.yml` |
 | Rust SDK e2e | Chain-facing SDK behavior against localnet | `cargo test -p bittensor-core --test e2e` | `check-bittensor-e2e-tests.yml` |

@@ -10,10 +10,13 @@ rather see alpha change hands only through the pool.
 
 ## How it works
 
-The flag lives in `TransferToggle` storage and defaults to **true**. It is
+The flag lives in
+[`TransferToggle`](/code/pallets/subtensor/src/lib.rs#L1815) storage and
+defaults to **true**. It is
 checked only on the coldkey-changing path:
 [`transfer-stake`](/docs/tx/transfer-stake) validates it and fails with
-`TransferDisallowed` when the toggle is off. Moving stake between hotkeys or
+[`TransferDisallowed`](/code/pallets/subtensor/src/macros/errors.rs#L194)
+when the toggle is off. Moving stake between hotkeys or
 subnets under the *same* coldkey ([`move-stake`](/docs/tx/move-stake),
 [`swap-stake`](/docs/tx/swap-stake)) never consults the flag, and neither does
 ordinary staking or unstaking — disabling transfers does not trap anyone's

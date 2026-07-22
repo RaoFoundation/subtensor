@@ -9,6 +9,20 @@ import { type TypedApi, Binary } from "polkadot-api";
 import { getSignerFromKeypair } from "./account.ts";
 import { waitForFinalizedBlocks } from "./transactions.ts";
 
+export type ShieldRuntimeMode = "release" | "fast";
+
+const FAST_RUNTIME_THRESHOLD_MS = 6_000;
+
+export const getShieldRuntimeMode = (): ShieldRuntimeMode => {
+    const mode = process.env.SHIELD_RUNTIME ?? "release";
+    if (mode !== "release" && mode !== "fast") {
+        throw new Error(`Unsupported SHIELD_RUNTIME value: ${mode}`);
+    }
+    return mode;
+};
+
+export const getShieldSlotDurationMs = (): number => (getShieldRuntimeMode() === "fast" ? 250 : 12_000);
+
 const keyToBytes = (key: unknown): Uint8Array => {
     if (key instanceof Uint8Array) {
         return key;
@@ -41,11 +55,11 @@ export const checkRuntime = async (api: TypedApi<typeof subtensor>) => {
 
     const blockTimeMs = ts2 - ts1;
 
-    const MIN_BLOCK_TIME_MS = 6000;
-    // We check at least half of the block time length
-    if (blockTimeMs < MIN_BLOCK_TIME_MS) {
+    const expectedMode = getShieldRuntimeMode();
+    const detectedMode: ShieldRuntimeMode = blockTimeMs < FAST_RUNTIME_THRESHOLD_MS ? "fast" : "release";
+    if (detectedMode !== expectedMode) {
         throw new Error(
-            `Fast runtime detected (block time ~${blockTimeMs}ms < ${MIN_BLOCK_TIME_MS}ms). Rebuild with normal runtime before running MEV Shield tests.`
+            `Expected the ${expectedMode} Shield runtime, but detected ${detectedMode} from a ~${blockTimeMs}ms block-time delta.`
         );
     }
 };

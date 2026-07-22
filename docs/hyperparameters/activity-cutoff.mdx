@@ -11,7 +11,9 @@ validators that are actually evaluating miners.
 
 ## How it works
 
-At each epoch (`pallets/subtensor/src/epoch/run_epoch.rs`), a neuron is
+At each epoch
+([`pallets/subtensor/src/epoch/run_epoch.rs`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L183-L198)),
+a neuron is
 inactive when `last_update + activity_cutoff` is less than the current block,
 where `last_update` is the block of its last accepted weight submission.
 Inactive stake is masked out of the active-stake vector before consensus, so
@@ -20,7 +22,7 @@ an inactive validator contributes nothing to the
 dividends until it sets weights again.
 
 The effective value is derived, not stored directly:
-`get_activity_cutoff_blocks` (`pallets/subtensor/src/utils/misc.rs`) computes
+[`get_activity_cutoff_blocks`](/code/pallets/subtensor/src/utils/misc.rs#L638-L646) (`pallets/subtensor/src/utils/misc.rs`) computes
 `factor_milli × tempo / 1000`, clamped to at least 1 block. The per-mille
 factor is bounded to 1,000–50,000 (one to fifty tempos); the default 13,889
 at tempo 360 yields the legacy 5,000-block cutoff (~16.7 hours).
@@ -48,7 +50,9 @@ instead:
 btcli sudo set --netuid N --name activity_cutoff_factor --value 13889
 ```
 
-A legacy absolute-blocks extrinsic (`sudo_set_activity_cutoff`) still exists
+A legacy absolute-blocks extrinsic
+([`sudo_set_activity_cutoff`](/code/pallets/admin-utils/src/lib.rs#L621-L653))
+still exists
 on chain, but the value it writes is ignored by the epoch and it will be
 removed; don't use it.
 

@@ -11,12 +11,15 @@ rejected outright.
 
 ## How it works
 
-`set_weights` validates the submission length in `check_length`
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+validates the submission length in
+[`check_length`](/code/pallets/subtensor/src/subnets/weights.rs#L1093-L1115)
 (`pallets/subtensor/src/subnets/weights.rs`). The effective minimum is the
 smaller of `min_allowed_weights` and the subnet's current neuron count, so a
 freshly launched subnet with 5 neurons and a minimum of 50 still accepts
 5-entry submissions. Anything below the effective minimum fails with
-`WeightVecLengthIsLow`. A single **self-weight** — one entry naming the
+[`WeightVecLengthIsLow`](/code/pallets/subtensor/src/macros/errors.rs#L58).
+A single **self-weight** — one entry naming the
 validator's own UID — is exempt, as it is from most weight checks.
 
 What counts is the number of weights that actually reach the chain. The SDK

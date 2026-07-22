@@ -12,15 +12,26 @@ close a subnet during incidents or before launch.
 
 ## How it works
 
-Storage is `NetworkRegistrationAllowed` in `pallets/subtensor/src/lib.rs`
+Storage is
+[`NetworkRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L1912) in
+`pallets/subtensor/src/lib.rs`
 (default true; new subnets also set it explicitly to true during
 initialization in `pallets/subtensor/src/subnets/subnet.rs`). The
-gate is enforced at step 3 of `do_register`
+gate is enforced at step 3 of
+[`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38-L132)
 (`pallets/subtensor/src/subnets/registration.rs`): the extrinsic fails with
-`SubNetRegistrationDisabled` if `get_network_registration_allowed` returns
-false. Both `burned_register` and the legacy PoW `register` extrinsic land
+[`SubNetRegistrationDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L97)
+if
+[`get_network_registration_allowed`](/code/pallets/subtensor/src/utils/misc.rs#L661-L663)
+returns false. Both
+[`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832)
+and the legacy PoW
+[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
+extrinsic land
 in `do_register`, so the flag closes every registration path at once. The
-validity helper `checked_allowed_register` (`pallets/subtensor/src/lib.rs`)
+validity helper
+[`checked_allowed_register`](/code/pallets/subtensor/src/lib.rs#L2802-L2823)
+(`pallets/subtensor/src/lib.rs`)
 applies the same check, alongside the per-block cap
 ([`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block)) and the
 per-interval cap of 3 ×
@@ -40,7 +51,9 @@ accepted or rejected:
 btcli sudo get --netuid N --name registration_allowed
 ```
 
-Root/governance only: `sudo_set_network_registration_allowed` in the
+Root/governance only:
+[`sudo_set_network_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L685-L699)
+in the
 AdminUtils pallet requires the root origin (a boolean). It is not settable
 by the subnet owner via `btcli sudo set`.
 

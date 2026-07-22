@@ -27,6 +27,7 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenRes
 // ============================
 //	==== Benchmark Imports =====
 // ============================
+#[path = "benchmarks/benchmarks.rs"]
 mod benchmarks;
 
 // =========================
@@ -360,6 +361,34 @@ pub mod pallet {
         Recycle,
     }
 
+    /// Miner registration collateral for a `(hotkey, coldkey)` stake position
+    /// on a subnet.
+    ///
+    /// The locked alpha is real stake owned by that coldkey on the hotkey,
+    /// flagged non-withdrawable. It is released back to free stake at
+    /// `drain_ratio` alpha per alpha of miner incentive earned, survives
+    /// deregistration, and is credited against the collateral requirement at
+    /// the next registration of the same `(hotkey, coldkey)` pair.
+    #[crate::freeze_struct("2c60af250ccb992b")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct MinerCollateralState {
+        /// Alpha still locked (non-withdrawable) on this stake position.
+        pub locked: AlphaBalance,
+        /// Snapshot of the subnet's drain ratio (k) at the last registration.
+        pub drain_ratio: U64F64,
+        /// Miner-set floor the lock self-maintains around: the drain never
+        /// releases below it, and while `locked` is under it, earned incentive
+        /// is captured into the lock until the floor is met. Zero (the
+        /// default) disables the floor and restores pure drain behavior.
+        pub min_locked: AlphaBalance,
+        /// Cumulative miner incentive earned while this collateral entry has
+        /// existed (saturating). Observability for validators: compares a
+        /// miner's lifetime extraction against the bond still at risk. Scoped
+        /// to the entry — it disappears with the entry once the lock fully
+        /// drains with no floor set.
+        pub earned: AlphaBalance,
+    }
+
     // Staking + Accounts
 
     #[derive(
@@ -401,6 +430,35 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultNeuronBurnCost<T: Config>() -> TaoBalance {
         TaoBalance::from(1_000_000_000u64)
+    }
+
+    /// Default miner collateral lock share (p). 0 disables the collateral
+    /// mechanism entirely: the full registration price is burned, matching
+    /// pre-collateral behavior.
+    #[pallet::type_value]
+    pub fn DefaultCollateralLockShare<T: Config>() -> u16 {
+        0
+    }
+
+    /// Maximum settable miner collateral lock share: 95% of the registration
+    /// price (u16-normalized). The burned share must stay strictly positive so
+    /// re-registration always pays a nonzero, floating burn.
+    #[pallet::type_value]
+    pub fn MaxCollateralLockShare<T: Config>() -> u16 {
+        62258 // ~0.95 * u16::MAX
+    }
+
+    /// Default miner collateral drain ratio (k): one alpha of collateral is
+    /// released per alpha of miner incentive earned.
+    #[pallet::type_value]
+    pub fn DefaultCollateralDrainRatio<T: Config>() -> U64F64 {
+        U64F64::from_num(1)
+    }
+
+    /// Maximum settable miner collateral drain ratio.
+    #[pallet::type_value]
+    pub fn MaxCollateralDrainRatio<T: Config>() -> U64F64 {
+        U64F64::from_num(10)
     }
 
     /// Default minimum root claim amount.
@@ -1046,6 +1104,12 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultMinStake<T: Config>() -> TaoBalance {
         T::InitialMinStake::get().into()
+    }
+
+    /// Default minimum stake transfer amount.
+    #[pallet::type_value]
+    pub fn DefaultMinTransfer<T: Config>() -> TaoBalance {
+        T::InitialMinTransfer::get().into()
     }
 
     /// Default unicode vector for tau symbol.
@@ -2730,6 +2794,58 @@ pub mod pallet {
     #[pallet::storage]
     pub type BurnIncreaseMult<T> =
         StorageMap<_, Identity, NetUid, U64F64, ValueQuery, DefaultBurnIncreaseMult<T>>;
+
+    /// MAP ( netuid ) --> CollateralLockShare (p)
+    ///
+    /// Share of the registration price locked as miner collateral instead of
+    /// burned, normalized so `u16::MAX` = 100%. 0 (the default) disables
+    /// collateral: the whole registration price is burned as before.
+    #[pallet::storage]
+    pub type CollateralLockShare<T> =
+        StorageMap<_, Identity, NetUid, u16, ValueQuery, DefaultCollateralLockShare<T>>;
+
+    /// MAP ( netuid ) --> CollateralDrainRatio (k)
+    ///
+    /// Alpha of locked collateral released per alpha of miner incentive
+    /// earned. Snapshot into `MinerCollateral` at each registration.
+    #[pallet::storage]
+    pub type CollateralDrainRatio<T> =
+        StorageMap<_, Identity, NetUid, U64F64, ValueQuery, DefaultCollateralDrainRatio<T>>;
+
+    /// NMAP ( netuid, hotkey, coldkey ) --> MinerCollateralState
+    ///
+    /// Standing registration collateral of a `(hotkey, coldkey)` stake
+    /// position on a subnet. Keyed by coldkey so nominators on the same
+    /// hotkey are never charged for the owner's bond. The entry persists
+    /// across deregistration and is only removed when fully drained through
+    /// earned incentive.
+    #[pallet::storage]
+    pub type MinerCollateral<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, NetUid>,               // subnet
+            NMapKey<Blake2_128Concat, T::AccountId>, // hot
+            NMapKey<Blake2_128Concat, T::AccountId>, // cold
+        ),
+        MinerCollateralState,
+        OptionQuery,
+    >;
+
+    /// MAP ( netuid, coldkey ) --> total locked miner collateral
+    ///
+    /// O(1) aggregate of `MinerCollateral.locked` across that coldkey's hotkeys
+    /// on the subnet. Kept in sync by collateral credit / settle paths so
+    /// unstake availability checks do not scan `OwnedHotkeys`.
+    #[pallet::storage]
+    pub type ColdkeyMinerCollateral<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        AlphaBalance,
+        ValueQuery,
+    >;
 
     /// MAP ( hotkey ) --> parent_delegation_enabled
     ///

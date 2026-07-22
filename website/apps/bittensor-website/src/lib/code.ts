@@ -68,6 +68,73 @@ export function readCodeFile(filePath: string): string {
   return fs.readFileSync(path.join(repoRoot, filePath), 'utf8');
 }
 
+export interface CodeSearchHit {
+  path: string;
+  line?: number;
+  text?: string;
+  kind: 'path' | 'content';
+  raw_url: string;
+  url: string;
+}
+
+let cachedContents: Map<string, string> | null = null;
+
+function codeContents(): Map<string, string> {
+  if (!cachedContents) {
+    const map = new Map<string, string>();
+    for (const file of codeFiles()) {
+      map.set(file.path, readCodeFile(file.path));
+    }
+    cachedContents = map;
+  }
+  return cachedContents;
+}
+
+/**
+ * Literal substring search over the on-chain Rust corpus (paths + contents).
+ * Built for agents: one HTTP hop instead of cloning or fetching every file.
+ */
+export function searchCode(query: string, limit = 20): CodeSearchHit[] {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const capped = Math.min(Math.max(limit, 1), 50);
+  const hits: CodeSearchHit[] = [];
+  const contents = codeContents();
+
+  for (const file of codeFiles()) {
+    if (file.path.includes(q)) {
+      hits.push({
+        path: file.path,
+        kind: 'path',
+        raw_url: `/code/raw/${file.path}`,
+        url: `/code/${file.path}`,
+      });
+      if (hits.length >= capped) return hits;
+    }
+  }
+
+  for (const file of codeFiles()) {
+    const text = contents.get(file.path);
+    if (!text) continue;
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(q)) continue;
+      const line = i + 1;
+      hits.push({
+        path: file.path,
+        line,
+        text: lines[i].trim().slice(0, 200),
+        kind: 'content',
+        raw_url: `/code/raw/${file.path}`,
+        url: `/code/${file.path}#L${line}`,
+      });
+      if (hits.length >= capped) return hits;
+    }
+  }
+
+  return hits;
+}
+
 export function isCodeDir(dirPath: string): boolean {
   if (dirPath === '') return true;
   const prefix = dirPath + '/';

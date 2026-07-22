@@ -6,7 +6,7 @@ import {Suspense} from 'react';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V431 Upgrade',
+  title: 'The V431 Upgrade — The Monorepo Release',
   description:
     'One repository, one package, new documentation, and new network economics: ' +
     'conviction-based subnet ownership, price-driven emissions, and the bittensor v11 SDK.',
@@ -185,7 +185,7 @@ const page = () => {
             Written by Arbos
           </p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            July 2026
+            The Monorepo Release · July 2026
           </p>
         </section>
 
@@ -222,8 +222,11 @@ const page = () => {
             <strong>
               If a subnet is more than one year old, and the total conviction across its
               lockers exceeds ten percent of its outstanding alpha, ownership of the subnet —
-              including the owner&apos;s share of emissions — transfers to the hotkey with the
-              highest conviction.
+              including the owner&apos;s share of emissions —{' '}
+              <DocLink href='/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377'>
+                transfers to the hotkey with the highest conviction
+              </DocLink>
+              .
             </strong>
           </p>
           <ConvictionGraph />
@@ -234,8 +237,11 @@ const page = () => {
           </p>
           <p>
             Subnet ownership is therefore no longer fixed at registration; it is contestable
-            through open, on-chain rules. Two lock modes are available, and both are
-            exponential processes rather than fixed terms. A perpetual lock&apos;s conviction
+            through open, on-chain rules. Two lock modes are available, and both are{' '}
+            <DocLink href='/code/pallets/subtensor/src/staking/lock.rs#L425-L471'>
+              exponential processes
+            </DocLink>{' '}
+            rather than fixed terms. A perpetual lock&apos;s conviction
             approaches its locked mass asymptotically — it never quite completes. The
             chain&apos;s <i>maturity rate </i>sets the exponential time constant, roughly 43
             days at current values: after one time constant conviction stands at about 63% of
@@ -256,9 +262,16 @@ const page = () => {
           <p className={styles.subtitle}>Emissions, simplified</p>
           <p>
             Each block, the chain divides TAO emission between subnets. As of this upgrade,
-            that division is determined solely by each subnet&apos;s
-            <strong> moving-average price</strong>, weighted by a miner-burn penalty. The
-            root-proportion term has been removed from the cross-subnet calculation.
+            that division is{' '}
+            <DocLink href='/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L354-L389'>
+              determined solely by each subnet&apos;s
+              <strong> moving-average price</strong>
+            </DocLink>
+            , weighted by a miner-burn penalty. The{' '}
+            <DocLink href='/code/pallets/subtensor/src/coinbase/block_step.rs#L69-L79'>
+              root-proportion
+            </DocLink>{' '}
+            term has been removed from the cross-subnet calculation.
             Previously, this term reduced a subnet&apos;s emission share as its alpha issuance
             grew, which structurally disadvantaged older subnets. Root proportion continues to
             operate <i>within </i>each subnet — capping liquidity injection and reserving the
@@ -509,6 +522,15 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             context window. The complete workflow is documented on{' '}
             <DocLink href='/docs/agents'>the agents page</DocLink>.
           </p>
+          <p>
+            Intent privilege is first-class throughout: docs, catalogs, and CLI help surface
+            each operation&apos;s required origin (<code>signed</code> /{' '}
+            <code>subnet_owner</code> / <code>root</code>), and root calls are wrapped in{' '}
+            <code>Sudo.sudo</code> automatically at execute time. Failure reporting is honest
+            through wrappers: a dispatch that fails <i>inside</i> a Sudo, Proxy, or Multisig
+            envelope is reported as a failure rather than a false success when only the outer
+            extrinsic landed.
+          </p>
         </section>
 
         <section className={styles.section}>
@@ -530,9 +552,18 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
             and testnet as a supported environment.
           </p>
           <p>
-            The runtime was also hardened in this release: proxy permissions are now
-            deny-by-default, a crowdloan reentrancy flaw was closed, and the randomness
-            pipeline that secures commit-reveal can no longer be stalled.
+            The runtime was also hardened in this release: proxy permissions are now{' '}
+            <DocLink href='/code/runtime/src/proxy_filters/mod.rs'>deny-by-default</DocLink>, a
+            crowdloan{' '}
+            <DocLink href='/code/pallets/crowdloan/src/lib.rs#L611-L674'>
+              reentrancy flaw was closed
+            </DocLink>
+            , and the randomness pipeline that secures commit-reveal{' '}
+            <DocLink href='/code/pallets/drand/src/lib.rs#L339-L417'>
+              can no longer be stalled
+            </DocLink>
+            . Localnet publication pins smoke-tested multi-arch image digests, so a pulled
+            localnet is always a build that passed the same checks as the release train.
           </p>
         </section>
 
@@ -546,26 +577,54 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
           </p>
           <ol className={styles.list}>
             <li>
-              <strong>Stake moves are strict.</strong> <code>move_stake</code>,{' '}
-              <code>transfer_stake</code>, and <code>swap_stake</code> no longer silently shrink
+              <strong>Stake moves are strict.</strong>{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/dispatches.rs#L1271-L1287'>
+                <code>move_stake</code>
+              </DocLink>
+              ,{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/dispatches.rs#L1315-L1331'>
+                <code>transfer_stake</code>
+              </DocLink>
+              , and{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/dispatches.rs#L1357-L1371'>
+                <code>swap_stake</code>
+              </DocLink>{' '}
+              no longer silently shrink
               an oversize alpha amount after an alpha-paid fee. Submitting the full stake balance
               can fail — leave dust, or read the post-fee balance first.
             </li>
             <li>
               <strong>Limit stakes refund leftover TAO.</strong> When a price limit stops a
-              stake-in before the full amount swaps, the unswapped TAO returns to the coldkey.
+              stake-in before the full amount swaps, the unswapped TAO{' '}
+              <DocLink href='/code/pallets/subtensor/src/staking/stake_utils.rs#L916-L929'>
+                returns to the coldkey
+              </DocLink>
+              .
               Prefer post-state balances over summing <code>StakeAdded</code> for partial fills.
             </li>
             <li>
               <strong>Insufficient-balance errors split.</strong> SubtensorModule renamed{' '}
-              <code>InsufficientBalance</code> to <code>InsufficientTaoBalance</code> and added{' '}
-              <code>InsufficientAlphaBalance</code>. Match on the semantic error code, or handle
+              <code>InsufficientBalance</code> to{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/errors.rs#L218'>
+                <code>InsufficientTaoBalance</code>
+              </DocLink>{' '}
+              and added{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/errors.rs#L334'>
+                <code>InsufficientAlphaBalance</code>
+              </DocLink>
+              . Match on the semantic error code, or handle
               both names; other pallets may still emit the old name.
             </li>
             <li>
               <strong>Owner tempo and activity cutoff moved.</strong> Set them through{' '}
-              <code>AdminUtils::sudo_set_tempo</code> and{' '}
-              <code>AdminUtils::sudo_set_activity_cutoff_factor</code>. The old SubtensorModule
+              <DocLink href='/code/pallets/admin-utils/src/lib.rs#L1020-L1024'>
+                <code>AdminUtils::sudo_set_tempo</code>
+              </DocLink>{' '}
+              and{' '}
+              <DocLink href='/code/pallets/admin-utils/src/lib.rs#L664-L678'>
+                <code>AdminUtils::sudo_set_activity_cutoff_factor</code>
+              </DocLink>
+              . The old SubtensorModule
               call indices are retired — retarget raw encodings and Owner proxy prebuilds. The
               live inactivity window is the tempo-relative factor, not the legacy absolute
               blocks value.
@@ -576,15 +635,24 @@ btcli tx transfer --dest 5F...dest --amount-tao 1 --signer extension`}
               <code>SlippageTooHigh</code>.
             </li>
             <li>
-              <strong>Take changes pay fees.</strong> <code>increase_take</code> and{' '}
-              <code>decrease_take</code> are no longer free extrinsics.
+              <strong>Take changes pay fees.</strong>{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/dispatches.rs#L533-L539'>
+                <code>increase_take</code>
+              </DocLink>{' '}
+              and{' '}
+              <DocLink href='/code/pallets/subtensor/src/macros/dispatches.rs#L500-L506'>
+                <code>decrease_take</code>
+              </DocLink>{' '}
+              are no longer free extrinsics.
             </li>
             <li>
               <strong>Subnet registration can queue.</strong> Under full capacity or pending
               cleanup, <code>register_network</code> may emit{' '}
-              <code>NetworkRegistrationQueued</code> without creating the subnet. The SDK and{' '}
-              <code>btcli subnets create</code> wait for the matching <code>NetworkAdded</code>{' '}
-              by default; raw-call clients must do the same.
+              <DocLink href='/code/pallets/subtensor/src/subnets/subnet.rs#L224-L254'>
+                <code>NetworkRegistrationQueued</code>
+              </DocLink>{' '}
+              without creating the subnet. The SDK and <code>btcli subnets create</code> wait for
+              the matching <code>NetworkAdded</code> by default; raw-call clients must do the same.
             </li>
             <li>
               <strong>Drand rounds are sequential.</strong> After the first pulse, only{' '}

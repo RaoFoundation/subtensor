@@ -13,7 +13,7 @@ dissolved.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.finalize` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.finalize`](/code/pallets/crowdloan/src/lib.rs#L609-L674) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("finalize_crowdloan", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.finalize` — [`pallets/crowdloan/src/lib.rs#L611`](/code/pallets/crowdloan/src/lib.rs#L611):
+`Crowdloan.finalize` — [`pallets/crowdloan/src/lib.rs#L611`](/code/pallets/crowdloan/src/lib.rs#L609-L674):
 
 ```rust
 #[pallet::call_index(3)]

@@ -733,19 +733,32 @@ impl<T: Config> Pallet<T> {
             }
 
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
+
+            // Settle collateral first: below a miner-set floor, part of the
+            // incentive is captured into the lock (staked to the registered
+            // hotkey itself, never the auto-stake destination, so it lands on
+            // the guarded position); above the floor, earned incentive
+            // releases locked collateral. Only the uncaptured remainder is
+            // credited below.
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, incentive);
+            let liquid = incentive.saturating_sub(captured);
+            if liquid.is_zero() {
+                continue;
+            }
+
             let maybe_dest = AutoStakeDestination::<T>::get(&owner, netuid);
 
             // Always stake but only emit event if autostake is set.
             let destination = maybe_dest.clone().unwrap_or(hotkey.clone());
 
             if let Some(dest) = maybe_dest {
-                log::debug!("incentives: auto staking {incentive:?} to {dest:?}");
+                log::debug!("incentives: auto staking {liquid:?} to {dest:?}");
                 Self::deposit_event(Event::<T>::AutoStakeAdded {
                     netuid,
                     destination: dest,
                     hotkey: hotkey.clone(),
                     owner: owner.clone(),
-                    incentive,
+                    incentive: liquid,
                 });
             }
 
@@ -753,7 +766,7 @@ impl<T: Config> Pallet<T> {
                 &destination,
                 &owner,
                 netuid,
-                incentive,
+                liquid,
             );
         }
 

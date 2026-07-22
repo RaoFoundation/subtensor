@@ -169,7 +169,19 @@ export function ConvictionModeComparison() {
   return (
     <ExplainerPanel
       title="Perpetual vs decaying lock"
-      caption="Same 500k α lock on a subnet hotkey. Perpetual: mass stays, conviction approaches mass. Decaying: mass frees on UnlockRate; conviction peaks then falls."
+      caption={
+        <>
+          Same 500k α lock on a subnet hotkey. Perpetual: mass stays, conviction approaches
+          mass. Decaying:{' '}
+          <a
+            href="/code/pallets/subtensor/src/staking/lock.rs#L371-L423"
+            className="underline"
+          >
+            mass frees on UnlockRate
+          </a>
+          ; conviction peaks then falls.
+        </>
+      }
     >
       <div className="h-48">
         <Line data={data} options={options} plugins={[annotationPlugin]} />

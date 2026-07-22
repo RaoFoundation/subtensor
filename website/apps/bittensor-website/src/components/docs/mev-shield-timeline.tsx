@@ -185,7 +185,17 @@ export function MevShieldTimeline() {
     <ExplainerPanel
       title="Plain vs MEV-shielded submission"
       tag="pallets/shield"
-      caption="The same 500 τ stake into a 50,000 τ pool, submitted plain and shielded (docs/concepts/advanced.mdx, pallets/shield). Plain, the order is readable in the mempool and gets sandwiched; shielded, the mempool holds only ciphertext that the block author decrypts at build time."
+      caption={
+        <>
+          The same 500 τ stake into a 50,000 τ pool, submitted plain and shielded
+          (docs/concepts/advanced.mdx,{' '}
+          <a href="/code/pallets/shield/src/lib.rs" className="underline">
+            pallets/shield
+          </a>
+          ). Plain, the order is readable in the mempool and gets sandwiched; shielded, the
+          mempool holds only ciphertext that the block author decrypts at build time.
+        </>
+      }
     >
       <div className="mb-3 grid grid-cols-3 gap-x-4">
         {PHASE_LABELS.map((label) => (
