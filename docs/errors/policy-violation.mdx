@@ -19,6 +19,6 @@ The exact chain error names (from the extrinsic receipt) that classify to `polic
 
 | Chain error | Description |
 | --- | --- |
-| [`HotKeyHasCollateral`](/docs/errors/chain/HotKeyHasCollateral) | This hotkey still has standing miner registration collateral and does not hold validator permit on that subnet (or on a subnet involved in an all-subnet swap). Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and bond to a fresh key and defeat validator blacklists. Keys with validator permit may still swap. Drain the bond through earned incentive, or obtain permit, before swapping. |
+| [`HotKeyHasCollateral`](/docs/errors/chain/HotKeyHasCollateral) | This hotkey still has standing miner registration collateral and does not hold validator permit on that subnet (or on a subnet involved in an all-subnet swap). Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and bond to a fresh key and defeat validator blacklists. Keys with validator permit may still swap. Drain the bond through earned emission, or obtain permit, before swapping. |
 
 The same explanation is available in the terminal: `btcli explain policy_violation` (or `btcli explain <ChainErrorName>` for one exact chain error).

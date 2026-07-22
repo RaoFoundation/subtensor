@@ -386,7 +386,7 @@ def register_subnet(
     coldkey for a neuron slot (UID). When the subnet's collateral lock
     share is zero the full cost is burned/recycled; when it is positive,
     that share is staked and locked as miner collateral (released only
-    through earned incentive). Check the current cost with
+    through earned emission). Check the current cost with
     `btcli subnets burn-cost`.
     """
     app_ctx: AppContext = ctx_of(ctx)

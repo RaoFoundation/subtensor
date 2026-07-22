@@ -7,12 +7,12 @@ import {Suspense} from 'react';
 import styles from './page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V435 Upgrade — The Collateral Release',
+  title: 'The V436 Upgrade — The Collateral Release',
   description:
     'Miner registration collateral: subnets can lock a share of the registration price as a ' +
-    'bond miners earn back through incentive. Plus one-call stake transfer to a new coldkey ' +
+    'bond hotkeys earn back through emission. Plus one-call stake transfer to a new coldkey ' +
     'and hotkey, air-gapped Polkadot Vault signing, and fully benchmarked extrinsic weights.',
-  alternates: {canonical: '/releases/v435-upgrade'},
+  alternates: {canonical: '/releases/v436-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -260,7 +260,7 @@ const CollateralGraph = () => (
     className={styles.graph}
     viewBox='0 0 760 340'
     role='img'
-    aria-label='Locked collateral declining as incentive is earned, fully released when earnings reach bond divided by k; if validators stop scoring the hotkey, the remaining collateral flatlines and strands.'
+    aria-label='Locked collateral declining as emission is earned, fully released when earnings reach bond divided by k; if the hotkey stops earning emission, the remaining collateral flatlines and strands.'
   >
     {/* Stranded mass region: between the flatlined lock and zero, after the blacklist */}
     <rect x='320' y='198' width='410' height='92' fill='rgba(209, 81, 104, 0.07)' />
@@ -268,14 +268,14 @@ const CollateralGraph = () => (
       STRANDED IF BLACKLISTED
     </text>
     <text {...GRAPH_TEXT} x='525' y='250' textAnchor='middle' fill='#d15168'>
-      ZERO INCENTIVE, ZERO RELEASE
+      ZERO EMISSION, ZERO RELEASE
     </text>
 
     {/* Axes */}
     <line x1='70' y1='30' x2='70' y2='290' stroke='rgb(41, 41, 41)' strokeWidth='1' />
     <line x1='70' y1='290' x2='730' y2='290' stroke='rgb(41, 41, 41)' strokeWidth='1' />
     <text {...GRAPH_TEXT} x='730' y='310' textAnchor='end'>
-      INCENTIVE EARNED
+      EMISSION EARNED
     </text>
     <text {...GRAPH_TEXT} x='62' y='293' textAnchor='end'>
       0
@@ -332,7 +332,7 @@ const CollateralGraph = () => (
       LOCKED COLLATERAL
     </text>
     <text {...GRAPH_TEXT} x='110' y='124' fill='rgba(41, 41, 41, 0.55)'>
-      RELEASES k × INCENTIVE PER TEMPO
+      RELEASES k × EMISSION PER TEMPO
     </text>
 
     {/* Blacklist branch: validators stop scoring, the lock flatlines */}
@@ -358,7 +358,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <p className={styles.paper_title}>The V435 Upgrade</p>
+          <p className={styles.paper_title}>The V436 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             The Collateral Release · July 2026
           </p>
@@ -367,19 +367,19 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>Introduction</p>
           <p>
-            Spec <strong>435</strong> is the next mainnet runtime after{' '}
+            Spec <strong>436</strong> is the next mainnet runtime after{' '}
             <DocLink href='/releases/v431-upgrade'>v431</DocLink>, and it is a feature release
             headlined by one change to the network&apos;s economics:{' '}
             <DocLink href='/docs/guides/mining/collateral'>
               miner registration collateral
             </DocLink>
             . A subnet can now lock a share of its floating registration price as a bond on
-            the registering hotkey instead of burning all of it — a bond the miner earns back
-            only by mining. The release also carries the operational work shipped on the way
-            here: pure proxies operable by a multisig from the CLI, one-call stake transfer
-            to a new coldkey and hotkey, a dedicated stake-transfer minimum, air-gapped
-            transaction signing with Polkadot Vault, and benchmark-measured weights for every
-            extrinsic in the runtime.
+            the registering hotkey instead of burning all of it — a bond the hotkey earns back
+            through emission (miner incentive and validator dividends). The release also
+            carries the operational work shipped on the way here: pure proxies operable by a
+            multisig from the CLI, one-call stake transfer to a new coldkey and hotkey, a
+            dedicated stake-transfer minimum, air-gapped transaction signing with Polkadot
+            Vault, and benchmark-measured weights for every extrinsic in the runtime.
           </p>
         </section>
 
@@ -389,19 +389,20 @@ const page = () => {
             Registration on a collateral subnet splits the floating price in two. The burned
             share is recycled exactly as before — the spam throttle is unchanged. The locked
             share is staked to the registering hotkey and held as collateral, and each tempo
-            the chain releases <code>k × incentive</code> of it back to withdrawable stake.
-            <strong> Mining is the only exit.</strong> The lock survives deregistration and is
-            credited when the same hotkey re-registers, so a pruned miner returns for roughly
-            the burned share alone; a hotkey that validators stop scoring keeps its remainder
-            frozen indefinitely.
+            the chain releases <code>k × emission</code> of it back to withdrawable stake
+            (miner incentive and validator dividends).
+            <strong> Earning emission is the only exit.</strong> The lock survives
+            deregistration and is credited when the same hotkey re-registers, so a pruned
+            miner returns for roughly the burned share alone; a hotkey that stops earning
+            emission keeps its remainder frozen indefinitely.
           </p>
           <CollateralGraph />
           <p className={styles.graph_caption}>
-            A miner&apos;s bond over its career, at a 10α registration price with a 90% lock
-            share. The lock declines as incentive is earned and is fully released once
-            lifetime earnings reach bond ÷ k. If validators blacklist the hotkey — off chain,
-            by simply not scoring it — incentive stops, the release stops with it, and the
-            remainder strands.
+            A hotkey&apos;s bond over its career, at a 10α registration price with a 90% lock
+            share. The lock declines as emission is earned and is fully released once
+            lifetime earnings reach bond ÷ k. If validators blacklist a mining hotkey — off
+            chain, by simply not scoring it — incentive stops, the release stops with it
+            (unless the hotkey still earns validator dividends), and the remainder strands.
           </p>
           <p>
             The design in one line: <strong>the burn prices the registration event; the
@@ -424,14 +425,14 @@ const page = () => {
             meet a validator-published per-machine requirement on resource
             subnets — and <code>set_min_collateral</code> sets a{' '}
             <strong>self-maintaining floor</strong>: the drain never releases below it, and
-            while the lock is under it, earned incentive is captured into the lock until
+            while the lock is under it, earned emission is captured into the lock until
             the floor is met, so miners don&apos;t re-lock drained funds every tempo. Collateral is a
             first-class metagraph field: every neuron row carries{' '}
             <code>collateral_locked</code>, <code>collateral_min</code>, and{' '}
-            <code>collateral_earned</code> (lifetime incentive since the bond existed), so
+            <code>collateral_earned</code> (lifetime emission since the bond existed), so
             validator enforcement costs zero extra calls. Full{' '}
             <code>get_metagraph</code> consumers with frozen SCALE types must refresh
-            metadata for v435 — the three vectors are appended at the end of the
+            metadata for v436 — the three vectors are appended at the end of the
             struct; selective fetches of the previous indices are unchanged. The SDK
             surfaces the same path as <code>bt.AddCollateral</code> /{' '}
             <code>bt.SetMinCollateral</code> and <code>client.collateral.*</code> (
@@ -680,7 +681,7 @@ btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`
         <section className={styles.section}>
           <p className={styles.subtitle}>What to do</p>
           <p>
-            Operators should wait for the on-chain <code>spec_version</code> to move to 435,
+            Operators should wait for the on-chain <code>spec_version</code> to move to 436,
             then upgrade nodes and clients. SDK users should pull the matching bittensor
             release once the train publishes it — older clients keep working, they simply
             don&apos;t know the new calls. Nothing changes for miners on subnets that keep the
@@ -700,7 +701,7 @@ btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`
           </p>
           <p>
             Signers: after the release train proposes, use{' '}
-            <code>btcli upgrade sign --url &lt;v435 release URL&gt; -w &lt;wallet&gt;</code>.
+            <code>btcli upgrade sign --url &lt;v436 release URL&gt; -w &lt;wallet&gt;</code>.
           </p>
         </section>
 

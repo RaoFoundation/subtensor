@@ -35,7 +35,7 @@ def show_collateral(
     """Show a `(hotkey, coldkey)` position's collateral on a subnet.
 
     Includes the locked amount (non-withdrawable stake released through
-    earned incentive), the self-maintained floor, the drain-ratio snapshot,
+    earned emission), the self-maintained floor, the drain-ratio snapshot,
     and the subnet's collateral policy. Omit `--coldkey` to use the hotkey
     owner.
     """
@@ -150,7 +150,7 @@ def set_min_collateral(
 ):
     """Set the self-maintaining collateral floor for your hotkey.
 
-    The drain never releases the lock below the floor, and earned incentive
+    The drain never releases the lock below the floor, and earned emission
     fills any shortfall — no more re-locking drained funds to track a
     validator-published requirement.
     """

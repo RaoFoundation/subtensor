@@ -2410,7 +2410,7 @@ mod dispatches {
         /// shortfall with TAO. Used to top up registration collateral
         /// voluntarily — for example to meet a validator-published
         /// per-machine requirement on resource subnets. The lock is released
-        /// back through earned incentive exactly like registration
+        /// back through earned emission exactly like registration
         /// collateral (it is the same lock), keeps the existing drain-ratio
         /// snapshot, and is credited against the collateral requirement on
         /// re-registration.
@@ -2455,8 +2455,8 @@ mod dispatches {
         /// on a subnet.
         ///
         /// The drain never releases the lock below the floor, and while the
-        /// lock is under it, earned miner incentive is captured into the lock
-        /// until the floor is met — so a miner tracking a validator-published
+        /// lock is under it, earned emission is captured into the lock until
+        /// the floor is met — so a miner tracking a validator-published
         /// collateral requirement does not need to keep re-locking drained
         /// funds. Zero clears the floor and restores pure drain behavior.
         ///

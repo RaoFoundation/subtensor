@@ -4,8 +4,9 @@
 //! registration price is split: the `(1 - p)` share is burned exactly like a
 //! classic burned registration, and the `p` share is staked to the registering
 //! hotkey and locked as collateral. The lock is released back to free stake at
-//! [`CollateralDrainRatio`] (k) alpha per alpha of miner incentive earned, so
-//! the only way to recover the collateral is validated work on that subnet.
+//! [`CollateralDrainRatio`] (k) alpha per alpha of hotkey emission earned
+//! (miner incentive and validator dividends), so the only way to recover the
+//! collateral is to earn emission on that subnet.
 //!
 //! Collateral is keyed by `(netuid, hotkey, coldkey)` — the bonded stake
 //! position — so nominators on the same hotkey are never frozen by the owner's
@@ -13,7 +14,7 @@
 //! collateral requirement the next time the same `(hotkey, coldkey)` registers,
 //! so a pruned miner re-registers by paying only the burned share (plus any
 //! shortfall if the requirement rose). There is no other exit path: collateral
-//! is never directly withdrawable, and a position that validators stop scoring
+//! is never directly withdrawable, and a position that stops earning emission
 //! keeps its remaining collateral frozen indefinitely.
 
 use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -151,7 +152,7 @@ impl<T: Config> Pallet<T> {
     /// has no transfer exit and stays on the origin `(hotkey, coldkey)`.
     /// Without this, transferring staked-and-locked alpha to a second coldkey
     /// would liberate collateral that is only meant to be recovered through
-    /// earned incentive. Prefer [`ensure_hotkey_covers_collateral`] at call
+    /// earned emission. Prefer [`ensure_hotkey_covers_collateral`] at call
     /// sites that know the origin hotkey; this coldkey-wide check remains as a
     /// belt-and-suspenders for ownership-changing transfers.
     pub fn ensure_transfer_respects_collateral(
@@ -420,26 +421,27 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Settle a miner's collateral against this tempo's earned incentive.
-    /// Called from the incentive distribution path.
+    /// Settle a hotkey's collateral against this tempo's earned emission
+    /// (miner incentive or validator dividends). Called from the emission
+    /// distribution path.
     ///
     /// Two directions around the miner-set floor (`min_locked`):
-    /// - Below the floor, incentive is captured into the lock until the floor
-    ///   is met. The captured share is staked to the miner hotkey itself (the
+    /// - Below the floor, emission is captured into the lock until the floor
+    ///   is met. The captured share is staked to the hotkey itself (the
     ///   guarded position), never to an auto-stake destination.
-    /// - Above the floor, `min(drain_ratio * incentive, locked - min_locked)`
+    /// - Above the floor, `min(drain_ratio * emission, locked - min_locked)`
     ///   is released back to withdrawable stake.
     ///
     /// Returns the captured amount; the caller credits only the remainder of
-    /// the incentive to the miner's usual destination. The entry is removed
-    /// once fully drained with no floor set.
+    /// the emission to the usual destination. The entry is removed once fully
+    /// drained with no floor set.
     pub fn settle_miner_collateral(
         netuid: NetUid,
         hotkey: &T::AccountId,
         owner: &T::AccountId,
-        incentive: AlphaBalance,
+        emission: AlphaBalance,
     ) -> AlphaBalance {
-        if incentive.is_zero() {
+        if emission.is_zero() {
             return AlphaBalance::ZERO;
         }
         let old_locked = Self::get_miner_collateral_locked(netuid, hotkey, owner);
@@ -449,11 +451,11 @@ impl<T: Config> Pallet<T> {
                     return AlphaBalance::ZERO;
                 };
 
-                state.earned = state.earned.saturating_add(incentive);
+                state.earned = state.earned.saturating_add(emission);
 
                 let shortfall = state.min_locked.saturating_sub(state.locked);
                 if !shortfall.is_zero() {
-                    let captured = incentive.min(shortfall);
+                    let captured = emission.min(shortfall);
                     Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                         hotkey, owner, netuid, captured,
                     );
@@ -461,7 +463,7 @@ impl<T: Config> Pallet<T> {
                     return captured;
                 }
 
-                let release: u64 = U64F64::saturating_from_num(incentive.to_u64())
+                let release: u64 = U64F64::saturating_from_num(emission.to_u64())
                     .saturating_mul(state.drain_ratio)
                     .saturating_to_num();
                 let releasable = state.locked.saturating_sub(state.min_locked);
@@ -609,7 +611,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Set the miner's collateral floor for a hotkey on a subnet. The lock
-    /// self-maintains around the floor (drain stops at it; incentive fills a
+    /// self-maintains around the floor (drain stops at it; emission fills a
     /// shortfall), so miners tracking a validator-published per-machine
     /// requirement do not need to keep re-locking drained collateral. Zero
     /// clears the floor.

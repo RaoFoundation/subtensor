@@ -290,7 +290,7 @@ DESCRIPTIONS: dict[str, str] = {
         "validator permit on that subnet (or on a subnet involved in an all-subnet swap). "
         "Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and "
         "bond to a fresh key and defeat validator blacklists. Keys with validator permit "
-        "may still swap. Drain the bond through earned incentive, or obtain permit, before "
+        "may still swap. Drain the bond through earned emission, or obtain permit, before "
         "swapping."
     ),
     "IncorrectCommitRevealVersion": (

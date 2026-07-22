@@ -23,15 +23,15 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v435',
+    tag: 'v436',
     date: 'July 2026',
     title: 'The Collateral Release',
     summary:
       'Miner registration collateral: subnets can lock a share of the registration price as ' +
-      'a bond miners earn back through incentive — sunk for sybils and cheaters, nearly free ' +
-      'for honest miners. Plus one-call stake transfer to a new coldkey and hotkey, ' +
+      'a bond hotkeys earn back through emission — sunk for sybils and cheaters, nearly free ' +
+      'for honest operators. Plus one-call stake transfer to a new coldkey and hotkey, ' +
       'air-gapped Polkadot Vault signing, and fully benchmarked extrinsic weights.',
-    href: '/releases/v435-upgrade',
+    href: '/releases/v436-upgrade',
   },
   {
     tag: 'v431',

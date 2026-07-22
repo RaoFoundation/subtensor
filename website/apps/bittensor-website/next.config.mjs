@@ -21,7 +21,8 @@ const nextConfig = {
         destination: '/docs',
         permanent: true,
       },
-      // v432 and v434 were squashed into the v431 and v435 release pages.
+      // Earlier collateral-era specs were squashed into the v436 release page;
+      // v432 landed in the v431 monorepo release notes.
       {
         source: '/releases/v432-upgrade',
         destination: '/releases/v431-upgrade',
@@ -29,7 +30,12 @@ const nextConfig = {
       },
       {
         source: '/releases/v434-upgrade',
-        destination: '/releases/v435-upgrade',
+        destination: '/releases/v436-upgrade',
+        permanent: true,
+      },
+      {
+        source: '/releases/v435-upgrade',
+        destination: '/releases/v436-upgrade',
         permanent: true,
       },
       {

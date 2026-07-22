@@ -29,8 +29,8 @@ class AddCollateral(Intent):
     subnet moving price) and only buys the shortfall with TAO from the
     coldkey. The signing coldkey must own the hotkey. The locked alpha is
     real stake (it appreciates with the subnet pool) but is not
-    withdrawable: it is released back to free stake through earned miner
-    incentive at the drain ratio snapshot the hotkey already carries,
+    withdrawable: it is released back to free stake through earned emission
+    at the drain ratio snapshot the hotkey already carries,
     survives deregistration, and is credited against the collateral
     requirement on re-registration. There is no direct withdrawal path —
     see ``set_min_collateral`` for maintaining a level without re-locking
@@ -99,12 +99,12 @@ class SetMinCollateral(Intent):
     """Set the self-maintaining collateral floor for your hotkey on a subnet.
 
     The collateral drain never releases the lock below the floor, and while
-    the lock is under it, earned miner incentive is captured into the lock
-    until the floor is met — so a miner tracking a validator-published
-    collateral requirement does not need to keep re-locking drained funds.
-    Raising the floor above the current lock does not require fresh capital:
-    the shortfall fills from future incentive (use ``add_collateral`` to fund
-    it immediately). Zero clears the floor and restores pure drain behavior.
+    the lock is under it, earned emission is captured into the lock until
+    the floor is met — so a miner tracking a validator-published collateral
+    requirement does not need to keep re-locking drained funds. Raising the
+    floor above the current lock does not require fresh capital: the shortfall
+    fills from future emission (use ``add_collateral`` to fund it
+    immediately). Zero clears the floor and restores pure drain behavior.
     """
 
     op = "set_min_collateral"

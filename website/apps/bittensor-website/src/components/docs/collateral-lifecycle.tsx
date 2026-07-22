@@ -45,8 +45,8 @@ type SimInput = {
 /**
  * One run of the collateral state machine:
  * - `add_collateral` lands `addAmount` at `addTempo`;
- * - above the floor, each scored tempo releases k × incentive;
- * - below the floor, incentive is captured into the lock until the floor fills;
+ * - above the floor, each scored tempo releases k × emission;
+ * - below the floor, emission is captured into the lock until the floor fills;
  * - a blacklisted hotkey (t >= banTempo) earns nothing: no release, no capture.
  */
 function simulate({ bond, drainRatio, incentive, floor, addAmount, addTempo, banTempo }: SimInput) {
@@ -286,10 +286,10 @@ export function CollateralLifecycle() {
       tag={`price ${PRICE} α`}
       caption={
         'Registration splits the price: (1 − p) burned, p locked to the hotkey. Each scored ' +
-        'tempo releases k × incentive above the floor; add_collateral tops the lock up ' +
-        'mid-career, and set_min_collateral parks it at a floor that earned incentive ' +
+        'tempo releases k × emission above the floor; add_collateral tops the lock up ' +
+        'mid-career, and set_min_collateral parks it at a floor that earned emission ' +
         'refills. If validators blacklist the hotkey (off chain, by not scoring it), ' +
-        'incentive stops and the remainder strands.'
+        'emission stops and the remainder strands.'
       }
     >
       <div className="h-44">
@@ -310,7 +310,7 @@ export function CollateralLifecycle() {
           hint={
             floorHolds
               ? `the floor holds ${drainTarget.toFixed(1)} α parked; only headroom drains`
-              : `bond ÷ (k × incentive) at k = ${drainRatio}`
+              : `bond ÷ (k × emission) at k = ${drainRatio}`
           }
         />
         <ExplainerStat

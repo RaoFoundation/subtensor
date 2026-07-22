@@ -1,18 +1,18 @@
 ---
 title: Registration collateral
-description: Lock a share of the registration price as a bond you earn back by mining; misbehave and it stays frozen.
+description: Lock a share of the registration price as a bond you earn back through emission; misbehave and it stays frozen.
 ---
 
 Subnets can turn part of the registration price into **collateral**: instead
 of burning the whole price, the subnet locks a share of it as alpha stake on
 your hotkey. The lock is released back to you at a fixed rate per alpha of
-miner incentive you earn — so the only way to recover it is to actually mine.
-It survives deregistration, is credited when you re-register the same hotkey,
-and has no other exit: quit for good and the remainder stays frozen on the
-hotkey indefinitely.
+emission you earn (miner incentive and validator dividends) — so the only way
+to recover it is to earn on that subnet. It survives deregistration, is
+credited when you re-register the same hotkey, and has no other exit: quit
+for good and the remainder stays frozen on the hotkey indefinitely.
 
 The design in one line: **the burn prices the registration event; the
-collateral prices your behavior after it.** A hotkey that mines honestly for
+collateral prices your behavior after it.** A hotkey that earns honestly for
 its career pays only the burn. A hotkey that registers and never earns — a
 sybil, a UID squatter, a spam registration — forfeits the lock in practice,
 because nothing ever releases it. And a hotkey that cheats loses it too: see
@@ -25,7 +25,7 @@ Two per-subnet hyperparameters define the whole system:
 | — | name | meaning | default |
 |---|------|---------|---------|
 | `p` | [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | share of the registration price locked instead of burned | 0 (disabled) |
-| `k` | [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | alpha released per alpha of miner incentive earned | 1.0 |
+| `k` | [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | alpha released per alpha of hotkey emission earned | 1.0 |
 
 With price `T` (the same floating price described in
 [registration burn](/docs/guides/mining/burn)), registration charges:
@@ -58,23 +58,24 @@ refund step.
 
 ### Earning it back
 
-Each tempo, when the chain credits your miner incentive
-([`distribute_dividends_and_incentives`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L669-L766)),
+Each tempo, when the chain credits your hotkey emission — miner incentive or
+validator dividends
+([`distribute_dividends_and_incentives`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L669-L766)) —
 it also releases collateral:
 
 ```
-released = min(locked − min_locked, k × incentive)
+released = min(locked − min_locked, k × emission)
 ```
 
 (`min_locked` is your optional self-maintained floor, described below; it is
-zero unless you set one, giving the plain `min(locked, k × incentive)`.)
+zero unless you set one, giving the plain `min(locked, k × emission)`.)
 
 ([`settle_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L193-L229)).
 Released collateral simply becomes withdrawable stake — it was your alpha all
 along; only the lock flag moves. At `k = 1`, every alpha you earn frees one
-alpha of collateral: a miner who has earned emissions equal to their lock is
+alpha of collateral: a hotkey that has earned emissions equal to their lock is
 fully released. At `k = 0.5` you must earn two alpha per alpha released —
-subnets use low `k` to keep miners collateralized longer.
+subnets use low `k` to keep hotkeys collateralized longer.
 
 Your `k` is **snapshot at registration** into your collateral entry: owner
 changes to the drain ratio apply to future registrations, never to your
@@ -118,7 +119,7 @@ The new lock joins the same entry as registration collateral: same drain
 ratio snapshot (or the subnet's current `k` if this is your first lock on
 the hotkey), same persistence across deregistration, same credit on
 re-registration. There is still no withdrawal path other than earned
-incentive.
+emission.
 
 ```bash
 # Prefer the collateral subcommand; btcli tx add-collateral is equivalent.
@@ -148,13 +149,13 @@ when buying the shortfall.
 itself:
 
 ```
-released each tempo = min(locked − min_locked, k × incentive)   # never below the floor
-while locked < min_locked: earned incentive is captured into the lock until the floor is met
+released each tempo = min(locked − min_locked, k × emission)   # never below the floor
+while locked < min_locked: earned emission is captured into the lock until the floor is met
 ```
 
 Without a floor, tracking a validator-published requirement means re-running
 `add_collateral` every tempo as the drain releases headroom. With one, the
-chain parks the lock and tops it up from incentive when it dips. **Zero
+chain parks the lock and tops it up from emission when it dips. **Zero
 clears the floor** and restores pure drain behavior (the exit step in the
 Lium wind-down).
 
@@ -171,7 +172,7 @@ await client.execute(
 ```
 
 Emits `MinCollateralSet { min_locked }`. Raising the floor above your current
-lock needs no fresh capital: the shortfall fills from future incentive. But
+lock needs no fresh capital: the shortfall fills from future emission. But
 validators see your **actual** `collateral_locked`, not your floor, so fund
 with `add_collateral` when coverage must hold now (before the next scored
 tempos).
@@ -218,8 +219,8 @@ your standing lock exceeds the current requirement, you pay only the burn and
 the excess keeps draining as you earn.
 
 There is deliberately **no withdrawal path**. Collateral converts back to
-withdrawable stake only through earned incentive. Abandoning a hotkey
-strands whatever is still locked (a standing incentive to come back and mine
+withdrawable stake only through earned emission. Abandoning a hotkey
+strands whatever is still locked (a standing incentive to come back and earn
 it out); [`swap-hotkey`](/docs/tx/swap-hotkey) moves the lock to the new
 hotkey along with everything else
 ([`swap_miner_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L348-L364)).
@@ -384,8 +385,8 @@ through:
 2. Validators stop routing *new* rentals to them but keep scoring the
    machines still serving existing rentals — and waive the coverage floor
    for a miner in wind-down.
-3. With the floor cleared and incentive still flowing, the ordinary drain
-   returns the deposit at `k × incentive` per tempo; by the time the last
+3. With the floor cleared and emission still flowing, the ordinary drain
+   returns the deposit at `k × emission` per tempo; by the time the last
    rental ends, most of the 100α is withdrawable again.
 4. **Pulling a rented machine instead** zeroes their score immediately:
    drain stops, the remaining deposit strands, and it stays stranded unless
@@ -404,7 +405,7 @@ Price τ10, `p = 80%`, `k = 1`:
 1. **Register**: pay τ10 — τ2 burned, τ8 staked to your hotkey and locked
    (about 8 alpha at an alpha price of τ1). A `CollateralLocked` event
    records it; query your entry under `MinerCollateral(netuid, hotkey)`.
-2. **Mine**: you earn 0.5 alpha of incentive per tempo. Each tempo releases
+2. **Earn**: you earn 0.5 alpha of emission per tempo. Each tempo releases
    0.5 alpha of the lock. After ~16 tempos of that rate you are fully
    released; everything you earn is withdrawable immediately either way.
 3. **Get pruned** at 3 alpha still locked: the 3 alpha freezes. Nothing to
@@ -471,15 +472,15 @@ neurons, as per-uid vectors on the [`metagraph`](/docs/query/metagraph)):
 - **locked** — the bond: what a blacklist strands and re-registration
   credits.
 - **min_locked** — the floor: the miner's standing commitment.
-- **earned** — lifetime incentive since the collateral relationship began;
+- **earned** — lifetime emission since the collateral relationship began;
   compare against the detection budget
-  `E* = max(T ÷ (1 + k), (1 − p)·T)` to see how far a miner is from having
+  `E* = max(T ÷ (1 + k), (1 − p)·T)` to see how far a hotkey is from having
   "paid off" their bond. Lives and dies with the entry.
 - **headroom** = `locked − min_locked` — the portion actively draining; zero
   with a floor set means parked at commitment.
-- **shortfall** = `min_locked − locked` — capture in progress: incentive is
+- **shortfall** = `min_locked − locked` — capture in progress: emission is
   filling a raised floor instead of being paid out.
-- **releasable work** = `headroom ÷ k` — incentive still needed to release
+- **releasable work** = `headroom ÷ k` — emission still needed to release
   everything above the floor.
 - **dormant bond** — `locked > 0` with no `uid`: a deregistered miner whose
   capital waits on the subnet; the population most likely to return.

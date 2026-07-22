@@ -30,7 +30,7 @@ class BurnedRegister(Intent):
     coldkey and assigns the hotkey a UID. When the subnet's collateral lock
     share (p) is zero, the full cost is burned/recycled. When p > 0, the
     ``(1 - p)`` share is burned and the ``p`` share is staked to the hotkey and
-    locked as miner collateral (released only through earned incentive). The
+    locked as miner collateral (released only through earned emission). The
     exact TAO charge is only known at execution time, so a configured spend
     cap blocks this call until raised. Fails with
     ``SubNetRegistrationDisabled`` while the subnet's ``registration_allowed``
