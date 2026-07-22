@@ -30,6 +30,7 @@
 // The allowance is specific to a pair of `(spender, netuid)`, but doesn't specify the `hotkey` which is instead
 // provided only in `transferStakeFrom`.
 
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use frame_support::Blake2_128Concat;
@@ -55,6 +56,8 @@ use crate::{PrecompileExt, PrecompileHandleExt};
 // share storage. In the V2 fallback case it performs two reads for the initial
 // share lookup, then five more for the value, share, and denominator.
 const STAKE_INFO_READS_PER_HOTKEY: u64 = 7;
+// Conservative charge for decoding and validating each 32-byte hotkey.
+const STAKE_INFO_INPUT_GAS_PER_HOTKEY: u64 = 64;
 const MAX_STAKE_INFO_HOTKEYS: usize = 64;
 
 /// Prefix for the Allowances map in Substrate storage.
@@ -354,6 +357,9 @@ where
         netuid: U256,
         hotkeys: Vec<H256>,
     ) -> EvmResult<Vec<(H256, U256)>> {
+        let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
+        handle.record_cost(hotkey_count.saturating_mul(STAKE_INFO_INPUT_GAS_PER_HOTKEY))?;
+
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = NetUid::from(try_u16_from_u256(netuid)?);
 
@@ -361,15 +367,15 @@ where
             return Err(revert("stake info hotkey count exceeds 64"));
         }
 
-        for (index, hotkey) in hotkeys.iter().enumerate() {
-            if hotkeys.iter().take(index).any(|seen| seen == hotkey) {
+        let mut seen = BTreeSet::new();
+        for hotkey in &hotkeys {
+            if !seen.insert(hotkey) {
                 return Err(revert("duplicate stake info hotkey"));
             }
         }
 
         // Charge the conservative V2 fallback cost for the complete bounded
         // batch before performing any stake reads.
-        let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
         handle.record_db_reads::<R>(hotkey_count.saturating_mul(STAKE_INFO_READS_PER_HOTKEY))?;
 
         Ok(hotkeys
@@ -1045,10 +1051,19 @@ mod tests {
         netuid
     }
 
-    fn stake_info_cost(hotkey_count: usize) -> u64 {
+    fn stake_read_cost(hotkey_count: usize) -> u64 {
         let hotkey_count = u64::try_from(hotkey_count).expect("hotkey count fits in u64");
         let reads = hotkey_count.saturating_mul(STAKE_INFO_READS_PER_HOTKEY);
         RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(reads)
+    }
+
+    fn stake_info_validation_cost(hotkey_count: usize) -> u64 {
+        let hotkey_count = u64::try_from(hotkey_count).expect("hotkey count fits in u64");
+        STAKE_INFO_INPUT_GAS_PER_HOTKEY.saturating_mul(hotkey_count)
+    }
+
+    fn stake_info_cost(hotkey_count: usize) -> u64 {
+        stake_info_validation_cost(hotkey_count).saturating_add(stake_read_cost(hotkey_count))
     }
 
     fn hotkey() -> AccountId {
@@ -1367,23 +1382,22 @@ mod tests {
                 .expect_cost(stake_info_cost(MAX_STAKE_INFO_HOTKEYS))
                 .execute_returns_raw(encode_return_value(Vec::<(H256, U256)>::new()));
 
-            let result = execute_precompile(
-                &precompiles::<StakingPrecompileV2<Runtime>>(),
-                addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
-                caller,
-                encode_with_selector(
-                    selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
-                    (
-                        H256::from_slice(coldkey.as_ref()),
-                        U256::from(TEST_NETUID_U16),
-                        hotkeys,
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
+                        (
+                            H256::from_slice(coldkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                            hotkeys,
+                        ),
                     ),
-                ),
-                U256::zero(),
-            )
-            .expect("staking V2 call routes to the precompile");
-
-            assert!(result.is_err());
+                )
+                .with_static_call(true)
+                .expect_cost(stake_info_validation_cost(MAX_STAKE_INFO_HOTKEYS + 1))
+                .execute_reverts(|output| output == b"stake info hotkey count exceeds 64");
         });
     }
 
@@ -1414,7 +1428,7 @@ mod tests {
                     ),
                 )
                 .with_static_call(true)
-                .expect_cost(0)
+                .expect_cost(stake_info_validation_cost(3))
                 .execute_reverts(|output| output == b"duplicate stake info hotkey");
         });
     }
@@ -1466,7 +1480,7 @@ mod tests {
                     ),
                 )
                 .with_static_call(true)
-                .expect_cost(stake_info_cost(1))
+                .expect_cost(stake_read_cost(1))
                 .execute_returns(substrate_to_evm(stake_after));
         });
     }
@@ -1507,7 +1521,7 @@ mod tests {
                     ),
                 )
                 .with_static_call(true)
-                .expect_cost(stake_info_cost(1))
+                .expect_cost(stake_read_cost(1))
                 .execute_returns(U256::from(stake_after));
             assert_static_call(
                 &precompiles,
