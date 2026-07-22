@@ -432,7 +432,7 @@ const page = () => {
             <code>collateral_earned</code> (lifetime emission since the bond existed), so
             validator enforcement costs zero extra calls. Full{' '}
             <code>get_metagraph</code> consumers with frozen SCALE types must refresh
-            metadata for v436 — the three vectors are appended at the end of the
+            metadata for v437 — the three vectors are appended at the end of the
             struct; selective fetches of the previous indices are unchanged. The SDK
             surfaces the same path as <code>bt.AddCollateral</code> /{' '}
             <code>bt.SetMinCollateral</code> and <code>client.collateral.*</code> (
