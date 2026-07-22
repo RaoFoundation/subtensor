@@ -361,6 +361,12 @@ where
             return Err(revert("stake info hotkey count exceeds 64"));
         }
 
+        for (index, hotkey) in hotkeys.iter().enumerate() {
+            if hotkeys.iter().take(index).any(|seen| seen == hotkey) {
+                return Err(revert("duplicate stake info hotkey"));
+            }
+        }
+
         // Charge the conservative V2 fallback cost for the complete bounded
         // batch before performing any stake reads.
         let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
@@ -1336,7 +1342,13 @@ mod tests {
             setup_staking_subnet();
             let caller = addr_from_index(0x1106);
             let coldkey = AccountId::from([0x43; 32]);
-            let hotkeys = vec![H256::repeat_byte(0x53); MAX_STAKE_INFO_HOTKEYS + 1];
+            let hotkeys: Vec<H256> = (0..=MAX_STAKE_INFO_HOTKEYS)
+                .map(|index| {
+                    let mut hotkey = [0u8; 32];
+                    hotkey[..8].copy_from_slice(&index.to_le_bytes());
+                    H256::from(hotkey)
+                })
+                .collect();
 
             precompiles::<StakingPrecompileV2<Runtime>>()
                 .prepare_test(
@@ -1372,6 +1384,38 @@ mod tests {
             .expect("staking V2 call routes to the precompile");
 
             assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_rejects_duplicate_requested_hotkeys() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1107);
+            let coldkey = mapped_account(caller);
+            let hotkey = AccountId::from([0x54; 32]);
+            let requested_hotkey = H256::from_slice(hotkey.as_ref());
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            assert!(stake_for(&hotkey, &coldkey, netuid) > 0);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
+                        (
+                            H256::from_slice(coldkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                            vec![requested_hotkey, H256::repeat_byte(0x55), requested_hotkey],
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(0)
+                .execute_reverts(|output| output == b"duplicate stake info hotkey");
         });
     }
 

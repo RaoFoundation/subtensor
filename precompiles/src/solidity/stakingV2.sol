@@ -159,12 +159,13 @@ interface IStaking {
 
     /**
      * @dev Returns non-zero alpha stake positions for up to 64 caller-supplied
-     * hotkeys. Callers that need more must split their hotkeys across calls.
+     * distinct hotkeys. Duplicate hotkeys revert. Callers that need more must
+     * split their hotkeys across calls.
      * This function does not read the coldkey's unbounded historical hotkey index.
      *
      * @param coldkey The coldkey public key (32 bytes).
      * @param netuid The subnet to query.
-     * @param hotkeys The candidate hotkeys to query (maximum 64).
+     * @param hotkeys The distinct candidate hotkeys to query (maximum 64).
      * @return positions Non-zero hotkey and alpha stake pairs.
      */
     function getStakeInfoForColdkeyAndNetuid(
