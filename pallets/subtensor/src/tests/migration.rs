@@ -2964,10 +2964,14 @@ fn do_setup_unactive_sn() -> (Vec<NetUid>, Vec<NetUid>) {
         let coldkey_account_id = U256::from(1111);
         let hotkey_account_id = U256::from(1111);
         let burn_cost = SubtensorModule::get_burn(*netuid);
-        add_balance_to_coldkey_account(&coldkey_account_id, burn_cost.into());
+        // Registration requires keep-alive coverage above the burn (Preservation::Preserve).
+        let fund = burn_cost
+            .saturating_add(ExistentialDeposit::get())
+            .saturating_add(10.into());
+        add_balance_to_coldkey_account(&coldkey_account_id, fund);
         TotalIssuance::<Test>::mutate(|total_issuance| {
             let updated_total = u64::from(*total_issuance)
-                .checked_add(u64::from(burn_cost))
+                .checked_add(u64::from(fund))
                 .expect("total issuance overflow (burn)");
             *total_issuance = updated_total.into();
         });
