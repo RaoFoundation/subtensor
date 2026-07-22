@@ -739,6 +739,55 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Read-only check that a hotkey collateral rename can proceed without
+    /// exceeding [`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]. Does not mutate
+    /// storage — call before charging fees or writing swap state.
+    pub fn ensure_hotkey_collateral_index_can_swap(
+        netuid: NetUid,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        if !MinerCollateral::<T>::contains_key((netuid, old_hotkey, coldkey)) {
+            return Ok(());
+        }
+        let hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, coldkey);
+        if hotkeys.contains(new_hotkey) || hotkeys.iter().any(|h| h == old_hotkey) {
+            // Destination already indexed, or source can be renamed in place.
+            return Ok(());
+        }
+        ensure!(
+            (hotkeys.len() as u32) < crate::MAX_COLDKEY_COLLATERAL_HOTKEYS,
+            Error::<T>::ColdkeyCollateralPositionsFull
+        );
+        Ok(())
+    }
+
+    /// Preflight index capacity for every subnet that will migrate collateral
+    /// during a hotkey swap. Call before charging fees or writing swap state.
+    pub fn ensure_hotkey_collateral_swappable(
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: Option<NetUid>,
+    ) -> Result<(), Error<T>> {
+        match netuid {
+            Some(netuid) => Self::ensure_hotkey_collateral_index_can_swap(
+                netuid, old_hotkey, new_hotkey, coldkey,
+            ),
+            None => {
+                for netuid in Self::get_all_subnet_netuids() {
+                    if MinerCollateral::<T>::contains_key((netuid, old_hotkey, coldkey)) {
+                        Self::ensure_hotkey_collateral_index_can_swap(
+                            netuid, old_hotkey, new_hotkey, coldkey,
+                        )?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Ensure the destination hotkey will have an index slot before any
     /// collateral mutation. Renames the old index entry in place when possible
     /// so a coldkey already at the cap can still swap; otherwise reserves a
@@ -749,6 +798,9 @@ impl<T: Config> Pallet<T> {
         new_hotkey: &T::AccountId,
         coldkey: &T::AccountId,
     ) -> Result<(), Error<T>> {
+        // Fail closed before any index write (same capacity rules as the
+        // read-only preflight).
+        Self::ensure_hotkey_collateral_index_can_swap(netuid, old_hotkey, new_hotkey, coldkey)?;
         if !MinerCollateral::<T>::contains_key((netuid, old_hotkey, coldkey)) {
             return Ok(());
         }

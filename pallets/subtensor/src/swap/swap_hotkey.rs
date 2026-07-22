@@ -1,4 +1,5 @@
 use super::*;
+use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
 use share_pool::SafeFloat;
 use sp_core::Get;
@@ -169,146 +170,154 @@ impl<T: Config> Pallet<T> {
             Some(Self::prepare_hotkey_stake(old_hotkey))
         };
 
-        // 8. Swap LastTxBlockDelegateTake
-        let last_tx_block_delegate_take: u64 = Self::get_last_tx_block_delegate_take(old_hotkey);
-        Self::set_last_tx_block_delegate_take(new_hotkey, last_tx_block_delegate_take);
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
+        // Preflight collateral-index capacity before charging or writing so a
+        // full-cap / unindexed legacy row cannot fail mid-swap. The mutation
+        // body below is also transactional for any other fallible path.
+        if !keep_stake {
+            Self::ensure_hotkey_collateral_swappable(old_hotkey, new_hotkey, &coldkey, netuid)?;
+            weight.saturating_accrue(match netuid {
+                Some(_) => T::DbWeight::get().reads(2),
+                None => T::DbWeight::get()
+                    .reads(Self::get_all_subnet_netuids().len().saturating_mul(2) as u64),
+            });
+        }
 
-        // 11. Swap LastTxBlockChildKeyTake
-        let last_tx_block_child_key_take: u64 = Self::get_last_tx_block_childkey_take(old_hotkey);
-        Self::set_last_tx_block_childkey(new_hotkey, last_tx_block_child_key_take);
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
+        // All fee charges and storage mutations run in one storage transaction
+        // so a late failure (including collateral index) rolls back ownership,
+        // membership, UID, fee, and other writes together.
+        with_transaction(|| {
+            let result = (|| -> DispatchResultWithPostInfo {
+                // Swap LastTxBlockDelegateTake / ChildKeyTake.
+                let last_tx_block_delegate_take: u64 =
+                    Self::get_last_tx_block_delegate_take(old_hotkey);
+                Self::set_last_tx_block_delegate_take(new_hotkey, last_tx_block_delegate_take);
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
 
-        // 12. fork for swap hotkey on a specific subnet case after do the common check
-        if let Some(netuid) = netuid {
-            return Self::swap_hotkey_on_subnet(
-                &coldkey,
-                old_hotkey,
-                new_hotkey,
-                netuid,
-                weight,
-                keep_stake,
-                prepared_stake.as_ref(),
-            );
-        };
+                let last_tx_block_child_key_take: u64 =
+                    Self::get_last_tx_block_childkey_take(old_hotkey);
+                Self::set_last_tx_block_childkey(new_hotkey, last_tx_block_child_key_take);
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
 
-        // Start to do everything for swap hotkey on all subnets case
-        // 12.1 Enforce the per-subnet hotkey-swap cooldown on the all-subnets path too.
-        // The all-subnets swap moves the identity on every subnet the old hotkey actively
-        // participates in, so it must respect (and record) `LastHotkeySwapOnNetuid` for each
-        // of those subnets, exactly like the per-subnet path.
-        //
-        // "Participates in" is membership OR being a parent (has childkeys). Note a parent
-        // need not be a registered member — `do_set_children` has no membership requirement —
-        // so the childkey case genuinely adds coverage beyond `IsNetworkMember`, and
-        // `parent_child_swap_hotkey` re-homes those childkeys even on non-member subnets.
-        //
-        // We deliberately do NOT gate on the *child* side (`ParentKeys`): being someone's
-        // child is set by the parent via `do_set_children` WITHOUT the child's consent, so a
-        // third party could otherwise add a victim's hotkey as a child on an arbitrary subnet
-        // and impose swap-cooldowns on it — a griefing vector. The swap still migrates the
-        // child relationship for correctness; it simply isn't cooldown-gated.
-        let hotkey_swap_interval = T::HotkeySwapOnSubnetInterval::get();
-        let all_netuids = Self::get_all_subnet_netuids();
-        // Cooldown set: membership OR parent (childkeys). Residual collateral is
-        // NOT cooldown-gated — it only needs a lineage record after the swap.
-        // Up to 2 reads per subnet for the cooldown filter, plus the subnet-list
-        // read; residual collateral adds one more read per non-cooldown netuid.
-        weight.saturating_accrue(
-            T::DbWeight::get().reads(
-                (all_netuids.len() as u64)
-                    .saturating_mul(2)
-                    .saturating_add(1),
-            ),
-        );
-        let mut cooldown_netuids: Vec<NetUid> = Vec::new();
-        let mut residual_collateral_netuids: Vec<NetUid> = Vec::new();
-        for netuid in all_netuids {
-            let in_cooldown = IsNetworkMember::<T>::get(old_hotkey, netuid)
-                || !ChildKeys::<T>::get(old_hotkey, netuid).is_empty();
-            if in_cooldown {
-                cooldown_netuids.push(netuid);
-            } else {
-                weight.saturating_accrue(T::DbWeight::get().reads(1));
-                if MinerCollateral::<T>::contains_key((netuid, old_hotkey, &coldkey)) {
-                    residual_collateral_netuids.push(netuid);
+                // Per-subnet path after common checks.
+                if let Some(netuid) = netuid {
+                    return Self::swap_hotkey_on_subnet(
+                        &coldkey,
+                        old_hotkey,
+                        new_hotkey,
+                        netuid,
+                        weight,
+                        keep_stake,
+                        prepared_stake.as_ref(),
+                    );
                 }
-            }
-        }
-        for netuid in cooldown_netuids.iter() {
-            let last_hotkey_swap_block = LastHotkeySwapOnNetuid::<T>::get(*netuid, &coldkey);
-            // Only enforce the cooldown when a prior swap was recorded on this subnet.
-            // A first swap (no recorded timestamp) must not be gated by chain age — that
-            // would block the very first swap and never closes a bypass, since any swap
-            // records the timestamp and subsequent swaps within the interval are rejected.
-            if last_hotkey_swap_block != 0 {
-                ensure!(
-                    last_hotkey_swap_block.saturating_add(hotkey_swap_interval) < block,
-                    Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
+
+                // All-subnets path: enforce per-subnet hotkey-swap cooldown.
+                // The all-subnets swap moves the identity on every subnet the old
+                // hotkey actively participates in, so it must respect (and record)
+                // `LastHotkeySwapOnNetuid` for each of those subnets.
+                //
+                // "Participates in" is membership OR being a parent (has childkeys).
+                // Residual collateral is NOT cooldown-gated — it only needs a
+                // lineage record after the swap.
+                //
+                // We deliberately do NOT gate on the *child* side (`ParentKeys`):
+                // being someone's child is set by the parent via `do_set_children`
+                // WITHOUT the child's consent, so a third party could otherwise add
+                // a victim's hotkey as a child on an arbitrary subnet and impose
+                // swap-cooldowns on it — a griefing vector.
+                let hotkey_swap_interval = T::HotkeySwapOnSubnetInterval::get();
+                let all_netuids = Self::get_all_subnet_netuids();
+                weight.saturating_accrue(
+                    T::DbWeight::get().reads(
+                        (all_netuids.len() as u64)
+                            .saturating_mul(2)
+                            .saturating_add(1),
+                    ),
                 );
+                let mut cooldown_netuids: Vec<NetUid> = Vec::new();
+                let mut residual_collateral_netuids: Vec<NetUid> = Vec::new();
+                for netuid in all_netuids {
+                    let in_cooldown = IsNetworkMember::<T>::get(old_hotkey, netuid)
+                        || !ChildKeys::<T>::get(old_hotkey, netuid).is_empty();
+                    if in_cooldown {
+                        cooldown_netuids.push(netuid);
+                    } else {
+                        weight.saturating_accrue(T::DbWeight::get().reads(1));
+                        if MinerCollateral::<T>::contains_key((netuid, old_hotkey, &coldkey)) {
+                            residual_collateral_netuids.push(netuid);
+                        }
+                    }
+                }
+                for netuid in cooldown_netuids.iter() {
+                    let last_hotkey_swap_block =
+                        LastHotkeySwapOnNetuid::<T>::get(*netuid, &coldkey);
+                    // Only enforce the cooldown when a prior swap was recorded.
+                    // A first swap (no recorded timestamp) must not be gated by
+                    // chain age.
+                    if last_hotkey_swap_block != 0 {
+                        ensure!(
+                            last_hotkey_swap_block.saturating_add(hotkey_swap_interval) < block,
+                            Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
+                        );
+                    }
+                    weight.saturating_accrue(T::DbWeight::get().reads(1));
+                }
+
+                let swap_cost = Self::get_key_swap_cost();
+                log::debug!("Swap cost: {swap_cost:?}");
+                ensure!(
+                    Self::can_remove_balance_from_coldkey_account(&coldkey, swap_cost.into()),
+                    Error::<T>::NotEnoughBalanceToPaySwapHotKey
+                );
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 0));
+
+                Self::recycle_tao(&coldkey, swap_cost.into())?;
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(0, 2));
+
+                Self::perform_hotkey_swap_on_all_subnets_prepared(
+                    old_hotkey,
+                    new_hotkey,
+                    &coldkey,
+                    &mut weight,
+                    keep_stake,
+                    prepared_stake.as_ref(),
+                )?;
+
+                for netuid in cooldown_netuids.iter() {
+                    Self::record_hotkey_swap_on_netuid(
+                        *netuid,
+                        &coldkey,
+                        old_hotkey,
+                        new_hotkey,
+                        block,
+                        &mut weight,
+                    );
+                }
+                for netuid in residual_collateral_netuids.iter() {
+                    Self::record_hotkey_swap_lineage(*netuid, old_hotkey, new_hotkey);
+                    weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 3));
+                }
+
+                Self::deposit_event(Event::HotkeySwapped {
+                    coldkey,
+                    old_hotkey: old_hotkey.clone(),
+                    new_hotkey: new_hotkey.clone(),
+                });
+
+                // Stake-moving paths retain the generated pre-dispatch benchmark weight.
+                // `keep_stake` does not inspect stake prefixes and may keep its dynamic refund.
+                if keep_stake {
+                    Ok(Some(weight).into())
+                } else {
+                    Ok(None.into())
+                }
+            })();
+
+            match result {
+                Ok(info) => TransactionOutcome::Commit(Ok(info)),
+                Err(e) => TransactionOutcome::Rollback(Err(e)),
             }
-            weight.saturating_accrue(T::DbWeight::get().reads(1));
-        }
-
-        // Start to do everything for swap hotkey on all subnets case
-        // 13. Get the cost for swapping the key
-        let swap_cost = Self::get_key_swap_cost();
-        log::debug!("Swap cost: {swap_cost:?}");
-
-        // 14. Ensure the coldkey has enough balance to pay for the swap
-        ensure!(
-            Self::can_remove_balance_from_coldkey_account(&coldkey, swap_cost.into()),
-            Error::<T>::NotEnoughBalanceToPaySwapHotKey
-        );
-
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 0));
-
-        // 15. Remove the swap cost from the coldkey's account + Recycle the tokens
-        Self::recycle_tao(&coldkey, swap_cost.into())?;
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(0, 2));
-
-        // 16. Perform the hotkey swap using the read-only snapshot prepared
-        // before the fee was charged.
-        Self::perform_hotkey_swap_on_all_subnets_prepared(
-            old_hotkey,
-            new_hotkey,
-            &coldkey,
-            &mut weight,
-            keep_stake,
-            prepared_stake.as_ref(),
-        )?;
-
-        // 16.1 Cooldown + lineage on membership/parent netuids; lineage-only on
-        // residual-collateral netuids (bond moved, but no swap-interval gate).
-        for netuid in cooldown_netuids.iter() {
-            Self::record_hotkey_swap_on_netuid(
-                *netuid,
-                &coldkey,
-                old_hotkey,
-                new_hotkey,
-                block,
-                &mut weight,
-            );
-        }
-        for netuid in residual_collateral_netuids.iter() {
-            Self::record_hotkey_swap_lineage(*netuid, old_hotkey, new_hotkey);
-            weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 3));
-        }
-
-        // 17. Emit an event for the hotkey swap
-        Self::deposit_event(Event::HotkeySwapped {
-            coldkey,
-            old_hotkey: old_hotkey.clone(),
-            new_hotkey: new_hotkey.clone(),
-        });
-
-        // Stake-moving paths retain the generated pre-dispatch benchmark weight.
-        // `keep_stake` does not inspect stake prefixes and may keep its dynamic refund.
-        if keep_stake {
-            Ok(Some(weight).into())
-        } else {
-            Ok(None.into())
-        }
+        })
     }
 
     /// Performs the hotkey swap operation, transferring all associated data and state from the old hotkey to the new hotkey.

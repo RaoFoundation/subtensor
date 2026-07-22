@@ -306,6 +306,73 @@ fn test_bonded_hotkey_swap_renames_index_at_cap() {
     });
 }
 
+/// Unindexed legacy collateral at a full index must fail closed before any
+/// swap writes, and the storage transaction must leave fee / ownership intact.
+#[test]
+fn test_unindexed_collateral_at_full_cap_rolls_back_hotkey_swap() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let h0 = U256::from(2);
+        let h1 = U256::from(3);
+
+        let netuid = add_dynamic_network(&h0, &coldkey);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        let balance_before = Balances::free_balance(coldkey);
+
+        // Fill the index with unrelated hotkeys; leave h0's bond unindexed.
+        for i in 0..MAX_COLDKEY_COLLATERAL_HOTKEYS {
+            let hot = U256::from(10_000u64 + u64::from(i));
+            MinerCollateral::<Test>::insert(
+                (netuid, hot, coldkey),
+                MinerCollateralState {
+                    locked: AlphaBalance::from(1u64),
+                    drain_ratio: U64F64::from_num(1),
+                    min_locked: AlphaBalance::ZERO,
+                    earned: AlphaBalance::ZERO,
+                },
+            );
+            ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
+                hotkeys.try_push(hot).unwrap();
+            });
+        }
+        MinerCollateral::<Test>::insert(
+            (netuid, h0, coldkey),
+            MinerCollateralState {
+                locked: AlphaBalance::from(40_000_000_000u64),
+                drain_ratio: U64F64::from_num(1),
+                min_locked: AlphaBalance::ZERO,
+                earned: AlphaBalance::ZERO,
+            },
+        );
+        ColdkeyMinerCollateral::<Test>::insert(
+            netuid,
+            coldkey,
+            AlphaBalance::from(40_000_000_032u64),
+        );
+
+        System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
+        assert_noop!(
+            SubtensorModule::do_swap_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                &h0,
+                &h1,
+                Some(netuid),
+                false,
+            ),
+            Error::<Test>::ColdkeyCollateralPositionsFull
+        );
+
+        // Preflight / transaction: no fee charge, no ownership / UID move.
+        assert_eq!(Balances::free_balance(coldkey), balance_before);
+        assert_eq!(Owner::<Test>::get(h0), coldkey);
+        assert!(!OwnedHotkeys::<Test>::get(coldkey).contains(&h1));
+        assert_eq!(Uids::<Test>::get(netuid, h0), Some(0));
+        assert!(Uids::<Test>::get(netuid, h1).is_none());
+        assert!(MinerCollateral::<Test>::get((netuid, h0, coldkey)).is_some());
+        assert!(MinerCollateral::<Test>::get((netuid, h1, coldkey)).is_none());
+    });
+}
+
 #[test]
 fn test_hotkey_lineage_reverse_swap_does_not_cycle() {
     new_test_ext(1).execute_with(|| {
