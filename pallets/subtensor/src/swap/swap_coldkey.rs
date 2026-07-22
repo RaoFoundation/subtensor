@@ -47,6 +47,9 @@ impl<T: Config> Pallet<T> {
                 // Transfer any remaining balance from old_coldkey to new_coldkey
                 Self::transfer_all_tao_and_kill(old_coldkey, new_coldkey)?;
 
+                // Owner identity continuity for indexers / coldkey-keyed policy.
+                Self::record_coldkey_swap_lineage(old_coldkey, new_coldkey);
+
                 Self::deposit_event(Event::ColdkeySwapped {
                     old_coldkey: old_coldkey.clone(),
                     new_coldkey: new_coldkey.clone(),

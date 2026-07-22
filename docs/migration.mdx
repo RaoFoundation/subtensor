@@ -577,6 +577,12 @@ the upgrade. Full narrative:
   [`KeepStakeBlockedByCollateral`](/docs/errors/chain/KeepStakeBlockedByCollateral);
   use `keep_stake=false` so the bond migrates (lineage maps track the
   rename). Coldkey swap migrates `MinerCollateral` with the stake.
+- **Key lineage (runtime 437).** Hotkey swaps write per-subnet
+  `HotkeySuccessor` / `HotkeyRoot`; coldkey swaps write global
+  `ColdkeySuccessor` / `ColdkeyRoot`. Prefer `hotkey_root` /
+  `coldkey_root` (and `same_*_lineage`) for bans and owner attribution;
+  `*_lineage_tip` is best-effort. See
+  [The V437 Upgrade](/releases/v437-upgrade).
 
 ### Registration, hyperparameters, and randomness
 

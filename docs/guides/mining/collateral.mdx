@@ -247,8 +247,11 @@ swap with `keep_stake=false` (the lock migrates with the UID); swaps with
 `keep_stake=true` are refused while any collateral remains
 ([`KeepStakeBlockedByCollateral`](/docs/errors/chain/KeepStakeBlockedByCollateral)).
 Per-subnet lineage maps (`HotkeyRoot` / `HotkeySuccessor`) let validators
-follow renames without archives. The system's invariant is exactly that:
-*forgetting is never cheaper than `T`.*
+follow hotkey renames without archives; coldkey swaps write global
+`ColdkeyRoot` / `ColdkeySuccessor` for owner identity. Prefer
+`hotkey_root` / `coldkey_root` over tip walks. See
+[The V437 Upgrade](/releases/v437-upgrade). The system's invariant is exactly
+that: *forgetting is never cheaper than `T`.*
 
 **Note for validator authors**: score by **hotkey root** (or persist successor
 edges), not UID. UIDs are recycled slots; a miner must not be able to launder

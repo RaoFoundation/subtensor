@@ -1273,6 +1273,22 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// MAP ( old_coldkey ) --> new_coldkey | global coldkey swap successor.
+    ///
+    /// Written on each successful coldkey swap so watchers can follow owner
+    /// identity without an archive node. Global (not per-netuid) because a
+    /// coldkey swap moves ownership everywhere at once.
+    #[pallet::storage]
+    pub type ColdkeySuccessor<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
+    /// MAP ( coldkey ) --> root_coldkey | first coldkey in this swap lineage.
+    /// Absent means the coldkey is its own root. Prefer root for owner-keyed
+    /// bans/attribution, not a single SS58.
+    #[pallet::storage]
+    pub type ColdkeyRoot<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
     /// Ensures unique IDs for StakeJobs storage map
     #[pallet::storage]
     pub type NextStakeJobId<T> = StorageValue<_, u64, ValueQuery, DefaultZeroU64<T>>;

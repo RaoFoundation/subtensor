@@ -32,6 +32,7 @@ mod staking2;
 mod subnet;
 mod subnet_emissions;
 mod subnet_info;
+mod coldkey_lineage;
 mod hotkey_lineage;
 mod swap_coldkey;
 mod swap_hotkey;

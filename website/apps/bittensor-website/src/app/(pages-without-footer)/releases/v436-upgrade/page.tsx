@@ -697,7 +697,8 @@ btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey`
             <code>AdminUtils.sudo_set_collateral_drain_ratio</code> (call index 99), the{' '}
             <code>StakeAndHotkeyTransferred</code>, <code>CollateralLocked</code>, and{' '}
             <code>MinCollateralSet</code> events, and the <code>MinerCollateral</code>{' '}
-            storage map.
+            storage map. Runtime 437 adds key-lineage storage and helpers — see{' '}
+            <DocLink href='/releases/v437-upgrade'>The V437 Upgrade</DocLink>.
           </p>
           <p>
             Signers: after the release train proposes, use{' '}

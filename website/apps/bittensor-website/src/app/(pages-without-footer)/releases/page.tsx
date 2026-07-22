@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v437',
+    date: 'July 2026',
+    title: 'Key Lineage',
+    summary:
+      'On-chain hotkey and coldkey swap lineage (Successor + Root maps and helpers) so ' +
+      'validators and indexers can follow identity across renames without archives — plus ' +
+      'bonded keep_stake and coldkey collateral migration hardening on top of v436.',
+    href: '/releases/v437-upgrade',
+  },
+  {
     tag: 'v436',
     date: 'July 2026',
     title: 'The Collateral Release',
