@@ -46,7 +46,7 @@ runs:
         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
           -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-          build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config \
+          build-essential clang curl git libclang-dev make libssl-dev llvm libudev-dev protobuf-compiler pkg-config \
           python3 python3-dev \
           ${{ inputs.extra-packages }}
 

@@ -71,6 +71,7 @@ build-essential
 clang
 curl
 git
+libclang-dev
 libssl-dev
 libudev-dev
 llvm
@@ -122,7 +123,7 @@ assert_output "${output}" "toolchain_ready=true"
 output="$(run_preflight 'clippy,rust-src')"
 assert_output "${output}" "toolchain_ready=false"
 
-MOCK_MISSING_PACKAGE=llvm
+MOCK_MISSING_PACKAGE=libclang-dev
 output="$(run_preflight)"
 assert_output "${output}" "system_ready=false"
 assert_output "${output}" "toolchain_ready=true"
@@ -144,6 +145,7 @@ grep -Fq "if: steps.runner-image.outputs.toolchain_ready != 'true'" "${action}"
 grep -Fq "steps.runner-image.outputs.rustup_ready != 'true'" "${action}"
 grep -Fq 'RUST_SETUP_COMPONENTS: ${{ inputs.components }}' "${action}"
 grep -Fq 'run: .github/scripts/install-rust-toolchain.sh "$RUST_SETUP_COMPONENTS"' "${action}"
+grep -Fq 'libclang-dev' "${action}"
 
 rustup_log="${tmp}/rustup.log"
 : > "${rustup_log}"

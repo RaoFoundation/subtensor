@@ -63,7 +63,7 @@ if [ "$OS" = "Linux" ]; then
             /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources || true
         $SUDO apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update
         $SUDO apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y --no-install-recommends \
-            curl build-essential protobuf-compiler clang git pkg-config libssl-dev llvm libudev-dev \
+            curl build-essential protobuf-compiler clang git libclang-dev pkg-config libssl-dev llvm libudev-dev \
             python3 python3-dev \
             gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
     fi

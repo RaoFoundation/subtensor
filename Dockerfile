@@ -24,7 +24,7 @@ RUN rustup update stable && \
 ENV RUST_BACKTRACE=1
 RUN apt-get update && \
   apt-get install -y --no-install-recommends \
-  curl build-essential protobuf-compiler clang git pkg-config libssl-dev python3 python3-dev && \
+  curl build-essential protobuf-compiler clang git libclang-dev pkg-config libssl-dev python3 python3-dev && \
   rm -rf /var/lib/apt/lists/*
 
 # Copy entire repository once for all build stages (maximises cache hits)

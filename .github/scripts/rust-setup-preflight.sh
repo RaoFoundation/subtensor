@@ -11,6 +11,7 @@ required_packages=(
   clang
   curl
   git
+  libclang-dev
   libssl-dev
   libudev-dev
   llvm
