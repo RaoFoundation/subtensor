@@ -280,7 +280,7 @@ fn test_bonded_hotkey_swap_renames_index_at_cap() {
         );
         ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
             let idx = hotkeys.iter().position(|h| *h == last).unwrap();
-            hotkeys[idx] = h0;
+            *hotkeys.get_mut(idx).unwrap() = h0;
         });
         ColdkeyMinerCollateral::<Test>::insert(
             netuid,
