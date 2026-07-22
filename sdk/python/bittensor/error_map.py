@@ -225,6 +225,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "NetworkDissolveAlreadyQueued": _C.ALREADY_EXISTS,
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
     "ColdkeyCollateralIncomplete": _C.INTERNAL,
+    "ColdkeyCollateralPositionsFull": _C.LIMIT_EXCEEDED,
     "ColdkeySwapAnnounced": _C.ALREADY_EXISTS,
     # The account is frozen because its pending coldkey swap is disputed; all
     # signed calls are blocked until root resolves it via reset_coldkey_swap

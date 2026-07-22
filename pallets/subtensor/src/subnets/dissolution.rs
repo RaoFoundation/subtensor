@@ -178,6 +178,8 @@ impl<T: Config> Pallet<T> {
             MinerCollateral::<T>::clear_prefix((netuid,), limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             ColdkeyMinerCollateral::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyCollateralHotkeys::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {

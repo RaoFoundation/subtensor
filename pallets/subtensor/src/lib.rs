@@ -93,6 +93,14 @@ where
 /// single EVM address.
 pub const MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS: u32 = 32;
 
+/// Maximum number of distinct hotkeys that may hold miner collateral for one
+/// coldkey on a single subnet.
+///
+/// Bounds [`ColdkeyCollateralHotkeys`] so coldkey swaps migrate collateral via
+/// an O(bound) indexed walk instead of scanning unbounded
+/// `StakingHotkeys` / `OwnedHotkeys` association vectors.
+pub const MAX_COLDKEY_COLLATERAL_HOTKEYS: u32 = 32;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 
@@ -113,7 +121,9 @@ pub mod pallet {
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
-    use crate::{MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, RateLimitKey};
+    use crate::{
+        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, RateLimitKey,
+    };
     use frame_support::Twox64Concat;
     use frame_support::{
         BoundedVec,
@@ -2892,6 +2902,24 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         AlphaBalance,
+        ValueQuery,
+    >;
+
+    /// DMAP ( netuid, coldkey ) --> BoundedVec\<hotkey\>
+    ///
+    /// Hotkeys with a standing [`MinerCollateral`] row for this coldkey on the
+    /// subnet. Kept in sync by collateral create / remove / swap paths so
+    /// coldkey swaps migrate bonds with a bounded indexed walk (see
+    /// [`MAX_COLDKEY_COLLATERAL_HOTKEYS`]) instead of scanning unbounded
+    /// association vectors.
+    #[pallet::storage]
+    pub type ColdkeyCollateralHotkeys<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::AccountId, ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>>,
         ValueQuery,
     >;
 

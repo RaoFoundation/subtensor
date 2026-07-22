@@ -116,10 +116,15 @@ DESCRIPTIONS: dict[str, str] = {
         "the new coldkey and swap to a fresh, unused coldkey instead."
     ),
     "ColdkeyCollateralIncomplete": (
-        "A coldkey swap could not fully migrate miner collateral: after moving every "
-        "staking and owned hotkey row, the old coldkey's ColdkeyMinerCollateral aggregate "
+        "A coldkey swap could not fully migrate miner collateral: after migrating every "
+        "indexed collateral hotkey, the old coldkey's ColdkeyMinerCollateral aggregate "
         "was still non-zero. This is a fail-closed invariant — retry after investigating "
         "orphaned MinerCollateral rows for that coldkey, or contact runtime maintainers."
+    ),
+    "ColdkeyCollateralPositionsFull": (
+        "This coldkey already has the maximum number of distinct hotkeys with miner "
+        "collateral on the subnet. Drain or consolidate existing bonds before adding "
+        "another collateral position."
     ),
     "ColdkeySwapAlreadyDisputed": (
         "`dispute_coldkey_swap` was called for a coldkey whose pending swap announcement is "

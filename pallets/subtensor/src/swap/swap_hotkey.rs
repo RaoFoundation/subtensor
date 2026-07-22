@@ -713,8 +713,8 @@ impl<T: Config> Pallet<T> {
         // new hotkey.
         if !keep_stake {
             let owner = Owner::<T>::get(new_hotkey);
-            Self::swap_miner_collateral(old_hotkey, new_hotkey, &owner, netuid);
-            weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 2));
+            Self::swap_miner_collateral(old_hotkey, new_hotkey, &owner, netuid)?;
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(5, 4));
         }
 
         // 4. Swap ChildKeys.

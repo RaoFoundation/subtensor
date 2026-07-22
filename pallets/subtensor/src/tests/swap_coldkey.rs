@@ -2013,6 +2013,20 @@ fn dispute_coldkey_swap(who: U256) {
     ));
 }
 
+fn seed_collateral_row(netuid: NetUid, hotkey: U256, coldkey: U256, state: MinerCollateralState) {
+    let locked = state.locked;
+    MinerCollateral::<Test>::insert((netuid, hotkey, coldkey), state);
+    let aggregate = ColdkeyMinerCollateral::<Test>::get(netuid, coldkey).saturating_add(locked);
+    ColdkeyMinerCollateral::<Test>::insert(netuid, coldkey, aggregate);
+    ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
+        if !hotkeys.iter().any(|h| *h == hotkey) {
+            hotkeys
+                .try_push(hotkey)
+                .expect("test collateral index within bound");
+        }
+    });
+}
+
 // Regression: coldkey swap must migrate miner collateral with the stake so the
 // new coldkey cannot withdraw the locked bond.
 #[test]
@@ -2046,8 +2060,10 @@ fn test_do_swap_coldkey_migrates_miner_collateral() {
         let locked = alpha / 2.into();
         assert!(!locked.is_zero());
 
-        MinerCollateral::<Test>::insert(
-            (netuid, hotkey, old_coldkey),
+        seed_collateral_row(
+            netuid,
+            hotkey,
+            old_coldkey,
             MinerCollateralState {
                 locked,
                 drain_ratio: U64F64::from_num(1),
@@ -2055,13 +2071,17 @@ fn test_do_swap_coldkey_migrates_miner_collateral() {
                 earned: AlphaBalance::from(7u64),
             },
         );
-        ColdkeyMinerCollateral::<Test>::insert(netuid, old_coldkey, locked);
 
         assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
 
         assert!(
             MinerCollateral::<Test>::get((netuid, hotkey, old_coldkey)).is_none(),
             "old coldkey collateral row must be cleared"
+        );
+        assert!(ColdkeyCollateralHotkeys::<Test>::get(netuid, old_coldkey).is_empty());
+        assert_eq!(
+            ColdkeyCollateralHotkeys::<Test>::get(netuid, new_coldkey).into_inner(),
+            vec![hotkey]
         );
         assert_eq!(
             ColdkeyMinerCollateral::<Test>::get(netuid, old_coldkey),
@@ -2134,8 +2154,10 @@ fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
         );
         let locked = alpha / 2.into();
 
-        MinerCollateral::<Test>::insert(
-            (netuid, hotkey, old_coldkey),
+        seed_collateral_row(
+            netuid,
+            hotkey,
+            old_coldkey,
             MinerCollateralState {
                 locked,
                 drain_ratio: U64F64::from_num(1),
@@ -2143,7 +2165,6 @@ fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
                 earned: AlphaBalance::from(3u64),
             },
         );
-        ColdkeyMinerCollateral::<Test>::insert(netuid, old_coldkey, locked);
 
         // Destination has an active lock → swap_coldkey_locks fails after
         // stake/collateral migration; the storage transaction must roll back.
@@ -2196,8 +2217,8 @@ fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
     });
 }
 
-// Orphaned bond (aggregate non-zero but hotkey not in staking/owned) fails
-// closed — unbounded subnet-wide MinerCollateral scans are not used.
+// Orphaned bond (aggregate non-zero but missing from the collateral-hotkey
+// index) fails closed — unbounded association / prefix scans are not used.
 #[test]
 fn test_do_swap_coldkey_fails_closed_on_orphaned_miner_collateral() {
     new_test_ext(1).execute_with(|| {
@@ -2220,8 +2241,7 @@ fn test_do_swap_coldkey_fails_closed_on_orphaned_miner_collateral() {
             },
         );
         ColdkeyMinerCollateral::<Test>::insert(netuid, old_coldkey, locked);
-        assert!(StakingHotkeys::<Test>::get(old_coldkey).is_empty());
-        assert!(OwnedHotkeys::<Test>::get(old_coldkey).is_empty());
+        assert!(ColdkeyCollateralHotkeys::<Test>::get(netuid, old_coldkey).is_empty());
 
         assert_noop!(
             SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
@@ -2244,6 +2264,43 @@ fn test_do_swap_coldkey_fails_closed_on_orphaned_miner_collateral() {
 }
 
 #[test]
+fn test_coldkey_collateral_positions_cap() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let coldkey = U256::from(1);
+
+        for i in 0..MAX_COLDKEY_COLLATERAL_HOTKEYS {
+            let hotkey = U256::from(10_000u64 + u64::from(i));
+            seed_collateral_row(
+                netuid,
+                hotkey,
+                coldkey,
+                MinerCollateralState {
+                    locked: AlphaBalance::from(1u64),
+                    drain_ratio: U64F64::from_num(1),
+                    min_locked: AlphaBalance::ZERO,
+                    earned: AlphaBalance::ZERO,
+                },
+            );
+        }
+
+        let overflow_hotkey = U256::from(99_999);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &overflow_hotkey);
+        assert_noop!(
+            SubtensorModule::do_set_min_collateral(
+                RuntimeOrigin::signed(coldkey),
+                netuid,
+                overflow_hotkey,
+                AlphaBalance::from(1u64),
+            ),
+            Error::<Test>::ColdkeyCollateralPositionsFull
+        );
+    });
+}
+
+#[test]
 fn test_transfer_miner_collateral_coldkey_merges_existing_dest() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
@@ -2254,8 +2311,10 @@ fn test_transfer_miner_collateral_coldkey_merges_existing_dest() {
         let old_locked = AlphaBalance::from(40u64);
         let dest_locked = AlphaBalance::from(10u64);
 
-        MinerCollateral::<Test>::insert(
-            (netuid, hotkey, old_coldkey),
+        seed_collateral_row(
+            netuid,
+            hotkey,
+            old_coldkey,
             MinerCollateralState {
                 locked: old_locked,
                 drain_ratio: U64F64::from_num(0.5),
@@ -2263,10 +2322,10 @@ fn test_transfer_miner_collateral_coldkey_merges_existing_dest() {
                 earned: AlphaBalance::from(5u64),
             },
         );
-        ColdkeyMinerCollateral::<Test>::insert(netuid, old_coldkey, old_locked);
-
-        MinerCollateral::<Test>::insert(
-            (netuid, hotkey, new_coldkey),
+        seed_collateral_row(
+            netuid,
+            hotkey,
+            new_coldkey,
             MinerCollateralState {
                 locked: dest_locked,
                 drain_ratio: U64F64::from_num(0.25),
@@ -2274,14 +2333,13 @@ fn test_transfer_miner_collateral_coldkey_merges_existing_dest() {
                 earned: AlphaBalance::from(8u64),
             },
         );
-        ColdkeyMinerCollateral::<Test>::insert(netuid, new_coldkey, dest_locked);
 
-        SubtensorModule::transfer_miner_collateral_coldkey(
+        assert_ok!(SubtensorModule::transfer_miner_collateral_coldkey(
             netuid,
             &hotkey,
             &old_coldkey,
             &new_coldkey,
-        );
+        ));
 
         assert!(MinerCollateral::<Test>::get((netuid, hotkey, old_coldkey)).is_none());
         assert_eq!(

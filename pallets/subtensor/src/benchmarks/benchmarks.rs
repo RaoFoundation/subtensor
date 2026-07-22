@@ -492,6 +492,16 @@ mod pallet_benchmarks {
             old_coldkey.clone(),
         ));
 
+        // Worst case: migrate the full bounded collateral-hotkey index plus
+        // lineage / aggregate updates that the legacy weight omitted.
+        let locked = AlphaBalance::from(1_000_000_u64);
+        seed_miner_collateral_position::<T>(netuid, &hotkey1, &old_coldkey, locked);
+        for i in 1..MAX_COLDKEY_COLLATERAL_HOTKEYS {
+            let extra_hot: T::AccountId = account("collateral_hot", i, 0);
+            Owner::<T>::insert(&extra_hot, &old_coldkey);
+            seed_miner_collateral_position::<T>(netuid, &extra_hot, &old_coldkey, locked);
+        }
+
         #[extrinsic_call]
         _(RawOrigin::Signed(old_coldkey), new_coldkey);
     }
@@ -533,6 +543,16 @@ mod pallet_benchmarks {
             additional: vec![],
         };
         IdentitiesV2::<T>::insert(&old_coldkey, identity);
+
+        // Worst case: migrate the full bounded collateral-hotkey index plus
+        // lineage / aggregate updates that the legacy weight omitted.
+        let locked = AlphaBalance::from(1_000_000_u64);
+        seed_miner_collateral_position::<T>(netuid, &hotkey1, &old_coldkey, locked);
+        for i in 1..MAX_COLDKEY_COLLATERAL_HOTKEYS {
+            let extra_hot: T::AccountId = account("collateral_hot", i, 0);
+            Owner::<T>::insert(&extra_hot, &old_coldkey);
+            seed_miner_collateral_position::<T>(netuid, &extra_hot, &old_coldkey, locked);
+        }
 
         #[extrinsic_call]
         _(
@@ -1226,6 +1246,9 @@ mod pallet_benchmarks {
             },
         );
         ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, already_locked);
+        ColdkeyCollateralHotkeys::<T>::mutate(netuid, &coldkey, |hotkeys| {
+            let _ = hotkeys.try_push(hot.clone());
+        });
 
         // Bound at max so the measured path still exercises the buy leg;
         // production callers pass spot × (1 + tolerance).

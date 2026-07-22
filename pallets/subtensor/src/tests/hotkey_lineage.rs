@@ -129,6 +129,9 @@ fn test_all_subnets_swap_records_lineage_for_residual_collateral() {
             },
         );
         ColdkeyMinerCollateral::<Test>::insert(netuid_residual, coldkey, locked);
+        ColdkeyCollateralHotkeys::<Test>::mutate(netuid_residual, coldkey, |hotkeys| {
+            hotkeys.try_push(h0).unwrap();
+        });
 
         assert!(!SubtensorModule::is_hotkey_registered_on_network(
             netuid_residual,
@@ -187,6 +190,9 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
             },
         );
         ColdkeyMinerCollateral::<Test>::insert(netuid, coldkey, locked);
+        ColdkeyCollateralHotkeys::<Test>::mutate(netuid, coldkey, |hotkeys| {
+            hotkeys.try_push(h0).unwrap();
+        });
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_noop!(

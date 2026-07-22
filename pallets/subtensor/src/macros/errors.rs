@@ -339,8 +339,12 @@ mod errors {
         InsufficientAlphaBalance,
         /// Coldkey swap could not fully migrate miner collateral: the old
         /// coldkey's [`ColdkeyMinerCollateral`] aggregate remained non-zero
-        /// after moving every staking/owned hotkey row. Failing closed avoids
-        /// under-locking the destination unstake guard.
+        /// after migrating every indexed collateral hotkey. Failing closed
+        /// avoids under-locking the destination unstake guard.
         ColdkeyCollateralIncomplete,
+        /// This coldkey already has the maximum number of distinct hotkeys
+        /// with miner collateral on the subnet
+        /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
+        ColdkeyCollateralPositionsFull,
     }
 }

@@ -27,6 +27,33 @@ pub(super) fn add_balance_to_coldkey_account<T: Config>(coldkey: &T::AccountId, 
 /// This helper funds an account with:
 /// - 2x burn fee
 /// - 100x DefaultMinStake
+/// Seed a standing collateral row and keep the coldkey index in sync.
+pub(super) fn seed_miner_collateral_position<T: Config>(
+    netuid: NetUid,
+    hotkey: &T::AccountId,
+    coldkey: &T::AccountId,
+    locked: AlphaBalance,
+) {
+    MinerCollateral::<T>::insert(
+        (netuid, hotkey, coldkey),
+        MinerCollateralState {
+            locked,
+            drain_ratio: U64F64::saturating_from_num(1),
+            min_locked: AlphaBalance::ZERO,
+            earned: AlphaBalance::ZERO,
+        },
+    );
+    let aggregate = ColdkeyMinerCollateral::<T>::get(netuid, coldkey).saturating_add(locked);
+    ColdkeyMinerCollateral::<T>::insert(netuid, coldkey, aggregate);
+    ColdkeyCollateralHotkeys::<T>::mutate(netuid, coldkey, |hotkeys| {
+        if !hotkeys.iter().any(|h| h == hotkey) {
+            hotkeys
+                .try_push(hotkey.clone())
+                .expect("benchmark collateral index within MAX_COLDKEY_COLLATERAL_HOTKEYS");
+        }
+    });
+}
+
 pub(super) fn fund_for_registration<T: Config>(netuid: NetUid, who: &T::AccountId) {
     let burn = Subtensor::<T>::get_burn(netuid);
     let min_stake = DefaultMinStake::<T>::get();
@@ -338,6 +365,11 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
                     },
                 );
                 ColdkeyMinerCollateral::<T>::insert(netuid, &coldkey, locked);
+                ColdkeyCollateralHotkeys::<T>::mutate(netuid, &coldkey, |hotkeys| {
+                    if !hotkeys.iter().any(|h| h == &hotkey) {
+                        let _ = hotkeys.try_push(hotkey.clone());
+                    }
+                });
             }
 
             if uid < MAINNET_VALIDATORS_PER_SUBNET {

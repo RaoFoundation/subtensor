@@ -87,6 +87,58 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Record `hotkey` in [`ColdkeyCollateralHotkeys`] when a collateral row
+    /// appears for `(netuid, coldkey)`.
+    fn index_coldkey_collateral_hotkey(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        ColdkeyCollateralHotkeys::<T>::try_mutate(netuid, coldkey, |hotkeys| {
+            if hotkeys.iter().any(|h| h == hotkey) {
+                return Ok(());
+            }
+            hotkeys
+                .try_push(hotkey.clone())
+                .map_err(|_| Error::<T>::ColdkeyCollateralPositionsFull)
+        })
+    }
+
+    /// Drop `hotkey` from [`ColdkeyCollateralHotkeys`] when its collateral row
+    /// is removed.
+    fn deindex_coldkey_collateral_hotkey(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) {
+        let mut hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, coldkey);
+        let before = hotkeys.len();
+        hotkeys.retain(|h| h != hotkey);
+        if hotkeys.len() == before {
+            return;
+        }
+        if hotkeys.is_empty() {
+            ColdkeyCollateralHotkeys::<T>::remove(netuid, coldkey);
+        } else {
+            ColdkeyCollateralHotkeys::<T>::insert(netuid, coldkey, hotkeys);
+        }
+    }
+
+    /// Keep [`ColdkeyCollateralHotkeys`] aligned with whether a
+    /// [`MinerCollateral`] row exists for `(netuid, hotkey, coldkey)`.
+    fn sync_coldkey_collateral_hotkey_index(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        if MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey)) {
+            Self::index_coldkey_collateral_hotkey(netuid, coldkey, hotkey)
+        } else {
+            Self::deindex_coldkey_collateral_hotkey(netuid, coldkey, hotkey);
+            Ok(())
+        }
+    }
+
     /// Alpha that can leave this `(coldkey, hotkey, netuid)` position without
     /// violating that position's miner collateral or the coldkey's conviction
     /// lock.
@@ -346,7 +398,7 @@ impl<T: Config> Pallet<T> {
         let total_locked = Self::credit_miner_collateral(
             netuid, hotkey, coldkey, lock_alpha,
             true, // re-snapshot drain ratio on registration
-        );
+        )?;
 
         Self::deposit_event(Event::CollateralLocked {
             netuid,
@@ -367,7 +419,12 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         alpha: AlphaBalance,
         resnapshot_drain: bool,
-    ) -> AlphaBalance {
+    ) -> Result<AlphaBalance, Error<T>> {
+        // Reserve the index slot before writing the row so a full cap fails
+        // closed with no storage side effects.
+        if !MinerCollateral::<T>::contains_key((netuid, hotkey, coldkey)) {
+            Self::index_coldkey_collateral_hotkey(netuid, coldkey, hotkey)?;
+        }
         let old_locked = Self::get_miner_collateral_locked(netuid, hotkey, coldkey);
         let new_locked =
             MinerCollateral::<T>::mutate(
@@ -392,7 +449,7 @@ impl<T: Config> Pallet<T> {
                 },
             );
         Self::adjust_coldkey_miner_collateral(coldkey, netuid, old_locked, new_locked);
-        new_locked
+        Ok(new_locked)
     }
 
     /// Re-snapshot a standing collateral entry's drain ratio to the subnet's
@@ -470,6 +527,8 @@ impl<T: Config> Pallet<T> {
             });
         let new_locked = Self::get_miner_collateral_locked(netuid, hotkey, owner);
         Self::adjust_coldkey_miner_collateral(owner, netuid, old_locked, new_locked);
+        // Settle only updates / removes existing rows; index shrink cannot fail.
+        let _ = Self::sync_coldkey_collateral_hotkey_index(netuid, hotkey, owner);
         captured
     }
 
@@ -553,7 +612,7 @@ impl<T: Config> Pallet<T> {
                         stake_now.saturating_sub(locked_now) >= from_stake,
                         Error::<T>::StakeUnavailable
                     );
-                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, from_stake, false);
+                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, from_stake, false)?;
                     added = added.saturating_add(from_stake);
                 }
 
@@ -573,7 +632,7 @@ impl<T: Config> Pallet<T> {
                         false,
                     )?;
                     ensure!(!bought.is_zero(), Error::<T>::AmountTooLow);
-                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, bought, false);
+                    Self::credit_miner_collateral(netuid, &hotkey, &coldkey, bought, false)?;
                     added = added.saturating_add(bought);
                 }
 
@@ -622,6 +681,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NonAssociatedColdKey
         );
 
+        let existed = MinerCollateral::<T>::contains_key((netuid, &hotkey, &coldkey));
+        if !existed && !min_locked.is_zero() {
+            // Fail before creating a row if the coldkey is already at the cap.
+            Self::index_coldkey_collateral_hotkey(netuid, &coldkey, &hotkey)?;
+        }
+
         MinerCollateral::<T>::mutate_exists((netuid, &hotkey, &coldkey), |maybe_state| {
             match maybe_state {
                 Some(state) => {
@@ -642,6 +707,9 @@ impl<T: Config> Pallet<T> {
                 }
             }
         });
+        if !MinerCollateral::<T>::contains_key((netuid, &hotkey, &coldkey)) {
+            Self::deindex_coldkey_collateral_hotkey(netuid, &coldkey, &hotkey);
+        }
 
         Self::deposit_event(Event::MinCollateralSet {
             netuid,
@@ -680,30 +748,35 @@ impl<T: Config> Pallet<T> {
         new_hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         netuid: NetUid,
-    ) {
+    ) -> Result<(), Error<T>> {
         let Some(old_state) = MinerCollateral::<T>::take((netuid, old_hotkey, coldkey)) else {
-            return;
+            return Ok(());
         };
         MinerCollateral::<T>::mutate((netuid, new_hotkey, coldkey), |maybe_state| {
             Self::merge_miner_collateral_state(maybe_state, old_state);
         });
+        // Deindex the vacated old hotkey before indexing the destination so a
+        // coldkey already at the position cap can still rename in place.
+        Self::deindex_coldkey_collateral_hotkey(netuid, coldkey, old_hotkey);
+        Self::sync_coldkey_collateral_hotkey_index(netuid, new_hotkey, coldkey)
     }
 
     /// Move the collateral entry when a coldkey is swapped. The hotkey is
     /// unchanged; only the coldkey leg of the key moves. Merge rules match
-    /// [`Self::swap_miner_collateral`]. Updates [`ColdkeyMinerCollateral`] for
-    /// both coldkeys. No-op when the source row is absent.
+    /// [`Self::swap_miner_collateral`]. Updates [`ColdkeyMinerCollateral`] and
+    /// [`ColdkeyCollateralHotkeys`] for both coldkeys. No-op when the source
+    /// row is absent.
     pub fn transfer_miner_collateral_coldkey(
         netuid: NetUid,
         hotkey: &T::AccountId,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
-    ) {
+    ) -> Result<(), Error<T>> {
         if old_coldkey == new_coldkey {
-            return;
+            return Ok(());
         }
         let Some(old_state) = MinerCollateral::<T>::take((netuid, hotkey, old_coldkey)) else {
-            return;
+            return Ok(());
         };
         let moved_locked = old_state.locked;
         Self::adjust_coldkey_miner_collateral(
@@ -712,21 +785,23 @@ impl<T: Config> Pallet<T> {
             moved_locked,
             AlphaBalance::ZERO,
         );
+        Self::deindex_coldkey_collateral_hotkey(netuid, old_coldkey, hotkey);
         let dest_before = Self::get_miner_collateral_locked(netuid, hotkey, new_coldkey);
         MinerCollateral::<T>::mutate((netuid, hotkey, new_coldkey), |maybe_state| {
             Self::merge_miner_collateral_state(maybe_state, old_state);
         });
         let dest_after = Self::get_miner_collateral_locked(netuid, hotkey, new_coldkey);
         Self::adjust_coldkey_miner_collateral(new_coldkey, netuid, dest_before, dest_after);
+        Self::sync_coldkey_collateral_hotkey_index(netuid, hotkey, new_coldkey)
     }
 
     /// Migrate every miner-collateral row for `old_coldkey` on `netuid` onto
     /// `new_coldkey`.
     ///
-    /// Walks the coldkey's staking and owned hotkeys (bounded by that account's
-    /// associations — not a full-subnet `MinerCollateral` prefix scan). Skips
-    /// when the aggregate is already zero. Requires the aggregate to clear
-    /// afterward so an orphaned row fails closed rather than under-locking the
+    /// Walks the bounded [`ColdkeyCollateralHotkeys`] index (not unbounded
+    /// `StakingHotkeys` / `OwnedHotkeys` association vectors). Skips when the
+    /// aggregate is already zero. Requires the aggregate to clear afterward so
+    /// an unindexed / orphaned row fails closed rather than under-locking the
     /// destination unstake guard.
     pub fn transfer_coldkey_miner_collateral(
         netuid: NetUid,
@@ -736,14 +811,9 @@ impl<T: Config> Pallet<T> {
         if ColdkeyMinerCollateral::<T>::get(netuid, old_coldkey).is_zero() {
             return Ok(());
         }
-        let mut hotkeys: Vec<T::AccountId> = StakingHotkeys::<T>::get(old_coldkey);
-        for owned in OwnedHotkeys::<T>::get(old_coldkey) {
-            if !hotkeys.contains(&owned) {
-                hotkeys.push(owned);
-            }
-        }
+        let hotkeys = ColdkeyCollateralHotkeys::<T>::get(netuid, old_coldkey);
         for hotkey in hotkeys {
-            Self::transfer_miner_collateral_coldkey(netuid, &hotkey, old_coldkey, new_coldkey);
+            Self::transfer_miner_collateral_coldkey(netuid, &hotkey, old_coldkey, new_coldkey)?;
         }
         ensure!(
             ColdkeyMinerCollateral::<T>::get(netuid, old_coldkey).is_zero(),

@@ -53,6 +53,7 @@
     "CodeTooLarge",
     "ColdKeyAlreadyAssociated",
     "ColdkeyCollateralIncomplete",
+    "ColdkeyCollateralPositionsFull",
     "ColdkeySwapAlreadyDisputed",
     "ColdkeySwapAnnounced",
     "ColdkeySwapAnnouncementNotFound",
