@@ -1794,7 +1794,7 @@
     },
     "HotKeyHasCollateral": {
       "code": "policy_violation",
-      "description": "This hotkey still has standing miner registration collateral and does not hold validator permit on that subnet (or on a subnet involved in an all-subnet swap). Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and bond to a fresh key and defeat validator blacklists. Keys with validator permit may still swap. Drain the bond through earned incentive, or obtain permit, before swapping.",
+      "description": "This hotkey still has standing miner registration collateral and does not hold validator permit on that subnet (or on a subnet involved in an all-subnet swap). Hotkey swap is blocked for bonded miners so a cheap swap cannot move the UID and bond to a fresh key and defeat validator blacklists. Keys with validator permit may still swap. Drain the bond through earned emission, or obtain permit, before swapping.",
       "docs_url": "/docs/errors/chain/HotKeyHasCollateral",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyHasCollateral/content.md",
       "pallets": [

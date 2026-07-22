@@ -10,8 +10,8 @@ the lock is under it, earned emission is captured into the lock until
 the floor is met — so a miner tracking a validator-published collateral
 requirement does not need to keep re-locking drained funds. Raising the
 floor above the current lock does not require fresh capital: the shortfall
-fills from future emission (use `add_collateral` to fund it immediately).
-Zero clears the floor and restores pure drain behavior.
+fills from future emission (use `add_collateral` to fund it
+immediately). Zero clears the floor and restores pure drain behavior.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -83,6 +83,6 @@ pub fn set_min_collateral(
 }
 ```
 
-Delegates to [`do_set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L616).
+Delegates to [`do_set_min_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L629).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
