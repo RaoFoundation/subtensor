@@ -393,6 +393,38 @@ fn test_validate_unsigned_write_pulse() {
 }
 
 #[test]
+fn validate_unsigned_accepts_first_live_round_as_storage_anchor() {
+    // On a fresh chain the current drand round is far beyond the normal catch-up
+    // window. It must be admitted so `write_pulse` can anchor both round markers.
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        assert_eq!(LastStoredRound::<Test>::get(), 0);
+        assert_eq!(OldestStoredRound::<Test>::get(), 0);
+
+        let pulse = Pulse {
+            round: crate::MAX_PULSES_TO_FETCH + 1,
+            randomness: frame_support::BoundedVec::truncate_from(vec![0u8; 32]),
+            signature: frame_support::BoundedVec::truncate_from(vec![1u8; 96]),
+        };
+        let pulses_payload = PulsesPayload {
+            block_number,
+            pulses: vec![pulse],
+            public: alice.public(),
+        };
+        let signature = alice.sign(&pulses_payload.encode());
+        let call = Call::write_pulse {
+            pulses_payload,
+            signature: Some(signature),
+        };
+
+        assert_ok!(Drand::validate_unsigned(TransactionSource::Local, &call));
+    });
+}
+
+#[test]
 fn validate_unsigned_rejects_round_too_far_ahead() {
     // A round that would leap LastStoredRound by more than the offchain worker ever
     // submits in one run is not a legitimate catch-up pulse. Drop it at the mempool

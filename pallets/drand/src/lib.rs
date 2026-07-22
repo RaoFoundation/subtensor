@@ -690,12 +690,10 @@ impl<T: Config> Pallet<T> {
                     return InvalidTransaction::Stale.into();
                 }
 
-                // Reject rounds that would advance LastStoredRound too far in a single
-                // step. A leap past unfillable rounds wedges the reveals and timelocks
-                // that reference them (#2794). `MAX_PULSES_TO_FETCH` is the most rounds
-                // the offchain worker ever submits in one catch-up run, so anything
-                // further ahead is not a legitimate pulse and is dropped before dispatch.
-                if r > last.saturating_add(MAX_PULSES_TO_FETCH) {
+                // A fresh chain's live round exceeds the catch-up window. Let the
+                // first pulse establish the anchor, matching `write_pulse`.
+                let is_first_storage = last == 0 && OldestStoredRound::<T>::get() == 0;
+                if !is_first_storage && r > last.saturating_add(MAX_PULSES_TO_FETCH) {
                     return InvalidTransaction::Stale.into();
                 }
 
