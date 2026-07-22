@@ -11,7 +11,8 @@ own transaction lands.
 
 ## How it works
 
-After each successful registration, `bump_registration_price_after_registration`
+After each successful registration,
+[`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L517-L541)
 (in `pallets/subtensor/src/subnets/registration.rs`) sets
 
 ```
@@ -27,10 +28,13 @@ toward [`min_burn`](/docs/hyperparameters/min-burn). The steady-state
 registration rate the pair supports is where bumps and decay cancel:
 `half_life × log2(mult)` blocks per registration.
 
-The value is stored in `BurnIncreaseMult` as U64F64 fixed-point (raw bits
+The value is stored in
+[`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L2731) as U64F64
+fixed-point (raw bits
 divided by 2^64 give the real multiplier); the default is **1.26** (~3
 registrations to double the price). The owner-set extrinsic
-(`sudo_set_burn_increase_mult` in `pallets/admin-utils/src/lib.rs`) requires
+([`sudo_set_burn_increase_mult`](/code/pallets/admin-utils/src/lib.rs#L2176-L2214)
+in `pallets/admin-utils/src/lib.rs`) requires
 the value to be **between 1 and 3** inclusive and rejects the root subnet,
 which does not use the bump path.
 

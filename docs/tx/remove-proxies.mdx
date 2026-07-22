@@ -12,7 +12,7 @@ permanently (there is no key to recover a pure proxy with).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | `Proxy.remove_proxies` |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.remove_proxies`](/code/pallets/proxy/src/lib.rs#L304-L310) |
 
 ## Parameters
 
@@ -57,7 +57,7 @@ result = sub.execute_tool("remove_proxies", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.remove_proxies` — [`pallets/proxy/src/lib.rs#L306`](/code/pallets/proxy/src/lib.rs#L306):
+`Proxy.remove_proxies` — [`pallets/proxy/src/lib.rs#L306`](/code/pallets/proxy/src/lib.rs#L304-L310):
 
 ```rust
 #[pallet::call_index(3)]

@@ -7,7 +7,9 @@
         {
             "name": "dev",
             "timeout": 120000,
-            "envVars": ["DEBUG_COLORS=1"],
+            "envVars": [
+                "DEBUG_COLORS=1"
+            ],
             "testFileDir": [
                 "suites/dev"
             ],
@@ -15,7 +17,9 @@
                 "generate-types.sh"
             ],
             "multiThreads": true,
-            "reporters": ["basic"],
+            "reporters": [
+                "basic"
+            ],
             "foundation": {
                 "type": "dev",
                 "launchSpec": [
@@ -44,10 +48,12 @@
         {
             "name": "zombienet_staking",
             "timeout": 600000,
-            "testFileDir": ["suites/zombienet_staking"],
+            "testFileDir": [
+                "suites/zombienet_staking"
+            ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -63,16 +69,24 @@
                 {
                     "name": "Node",
                     "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"]
+                    "endpoints": [
+                        "ws://127.0.0.1:9947"
+                    ]
                 }
             ]
-        }, {
+        },
+        {
             "name": "zombienet_shield",
             "timeout": 600000,
-            "testFileDir": ["suites/zombienet_shield"],
+            "envVars": [
+                "SHIELD_RUNTIME=release"
+            ],
+            "testFileDir": [
+                "suites/zombienet_shield"
+            ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -88,124 +102,17 @@
                 {
                     "name": "Node",
                     "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"],
+                    "endpoints": [
+                        "ws://127.0.0.1:9947"
+                    ],
                     "descriptor": "subtensor"
                 },
                 {
                     "name": "NodeFull",
                     "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9950"],
-                    "descriptor": "subtensor"
-                }
-            ]
-        },
-        {
-            "name": "zombienet_shield_a",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_shield"],
-            "include": [
-                "suites/zombienet_shield/00.01-basic.test.ts"
-            ],
-            "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
-                    "configPath": "./configs/zombie_extended.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"],
-                    "descriptor": "subtensor"
-                },
-                {
-                    "name": "NodeFull",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9950"],
-                    "descriptor": "subtensor"
-                }
-            ]
-        },
-        {
-            "name": "zombienet_shield_b",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_shield"],
-            "include": [
-                "suites/zombienet_shield/03-timing.test.ts",
-                "suites/zombienet_shield/04-mortality.test.ts"
-            ],
-            "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
-                    "configPath": "./configs/zombie_extended.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"],
-                    "descriptor": "subtensor"
-                },
-                {
-                    "name": "NodeFull",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9950"],
-                    "descriptor": "subtensor"
-                }
-            ]
-        },
-        {
-            "name": "zombienet_shield_c",
-            "timeout": 600000,
-            "testFileDir": ["suites/zombienet_shield"],
-            "include": [
-                "suites/zombienet_shield/00.00-basic.test.ts",
-                "suites/zombienet_shield/01-scaling.test.ts",
-                "suites/zombienet_shield/02-edge-cases.test.ts"
-            ],
-            "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
-            ],
-            "foundation": {
-                "type": "zombie",
-                "zombieSpec": {
-                    "configPath": "./configs/zombie_extended.json",
-                    "skipBlockCheck": []
-                }
-            },
-            "vitestArgs": {
-                "bail": 1
-            },
-            "connections": [
-                {
-                    "name": "Node",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"],
-                    "descriptor": "subtensor"
-                },
-                {
-                    "name": "NodeFull",
-                    "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9950"],
+                    "endpoints": [
+                        "ws://127.0.0.1:9950"
+                    ],
                     "descriptor": "subtensor"
                 }
             ]
@@ -213,10 +120,12 @@
         {
             "name": "zombienet_coldkey_swap",
             "timeout": 600000,
-            "testFileDir": ["suites/zombienet_coldkey_swap"],
+            "testFileDir": [
+                "suites/zombienet_coldkey_swap"
+            ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -232,17 +141,22 @@
                 {
                     "name": "Node",
                     "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"]
+                    "endpoints": [
+                        "ws://127.0.0.1:9947"
+                    ]
                 }
             ]
-        }, {
+        },
+        {
             "name": "zombienet_evm",
             "timeout": 600000,
-            "testFileDir": ["suites/zombienet_evm"],
+            "testFileDir": [
+                "suites/zombienet_evm"
+            ],
             "runScripts": [
-                "generate-types.sh",
-                "generate-ink-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh",
+                "generate-ink-types.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -258,23 +172,30 @@
                 {
                     "name": "Node",
                     "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"],
+                    "endpoints": [
+                        "ws://127.0.0.1:9947"
+                    ],
                     "descriptor": "subtensor"
                 },
                 {
                     "name": "EVM",
                     "type": "ethers",
-                    "endpoints": ["http://127.0.0.1:9947"],
+                    "endpoints": [
+                        "http://127.0.0.1:9947"
+                    ],
                     "descriptor": "evm"
                 }
             ]
-        }, {
+        },
+        {
             "name": "zombienet_subnets",
             "timeout": 600000,
-            "testFileDir": ["suites/zombienet_subnets"],
+            "testFileDir": [
+                "suites/zombienet_subnets"
+            ],
             "runScripts": [
-                "generate-types.sh",
-                "build-spec.sh"
+                "build-spec.sh",
+                "generate-types-from-chain-spec.sh"
             ],
             "foundation": {
                 "type": "zombie",
@@ -290,49 +211,75 @@
                 {
                     "name": "Node",
                     "type": "papi",
-                    "endpoints": ["ws://127.0.0.1:9947"]
+                    "endpoints": [
+                        "ws://127.0.0.1:9947"
+                    ]
                 }
             ]
-        }, {
+        },
+        {
             "name": "smoke_devnet",
-            "testFileDir": ["suites/smoke"],
+            "testFileDir": [
+                "suites/smoke"
+            ],
             "foundation": {
                 "type": "read_only"
             },
-            "reporters": ["basic","html"],
+            "reporters": [
+                "basic",
+                "html"
+            ],
             "connections": [
                 {
                     "name": "node",
                     "type": "polkadotJs",
-                    "endpoints": ["wss://dev.chain.opentensor.ai:443"]
+                    "endpoints": [
+                        "wss://dev.chain.opentensor.ai:443"
+                    ]
                 }
             ]
-        }, {
+        },
+        {
             "name": "smoke_mainnet",
-            "testFileDir": ["suites/smoke"],
+            "testFileDir": [
+                "suites/smoke"
+            ],
             "foundation": {
                 "type": "read_only"
             },
-            "reporters": ["basic","html"],
+            "reporters": [
+                "basic",
+                "html"
+            ],
             "connections": [
                 {
                     "name": "node",
                     "type": "polkadotJs",
-                    "endpoints": ["wss://openrpc.taostats.io"]
+                    "endpoints": [
+                        "wss://openrpc.taostats.io"
+                    ]
                 }
             ]
-        }, {
+        },
+        {
             "name": "smoke_testnet",
-            "testFileDir": ["suites/smoke"],
+            "testFileDir": [
+                "suites/smoke"
+            ],
             "foundation": {
                 "type": "read_only"
             },
-            "reporters": ["basic","html"],
+            "reporters": [
+                "basic",
+                "html"
+            ],
             "connections": [
                 {
                     "name": "node",
                     "type": "polkadotJs",
-                    "endpoints": ["wss://test.finney.opentensor.ai:443"]
+                    "endpoints": [
+                        "wss://test.finney.opentensor.ai:443"
+                    ]
                 }
             ]
         }

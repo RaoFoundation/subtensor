@@ -457,6 +457,7 @@ mod tests {
                 "Balances::transfer_allow_death",
                 "Balances::transfer_all",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
@@ -465,11 +466,13 @@ mod tests {
                 "Balances::transfer_keep_alive",
                 "Balances::transfer_allow_death",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
+                "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",
                 "SubtensorModule::remove_stake",
@@ -478,6 +481,7 @@ mod tests {
                 "SubtensorModule::unstake_all",
                 "SubtensorModule::unstake_all_alpha",
                 "SubtensorModule::move_stake",
+                "SubtensorModule::set_min_collateral",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
                 "SubtensorModule::set_root_claim_type",

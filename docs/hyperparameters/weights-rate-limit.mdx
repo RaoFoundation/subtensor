@@ -11,13 +11,19 @@ block, which would bloat chain state and make consensus inputs noisy.
 ## How it works
 
 The chain tracks each UID's last submission block (`LastUpdate`).
-`check_rate_limit` (`pallets/subtensor/src/subnets/weights.rs`) passes when
+[`check_rate_limit`](/code/pallets/subtensor/src/subnets/weights.rs#L1023-L1043)
+(`pallets/subtensor/src/subnets/weights.rs`) passes when
 `current_block - last_update >= weights_rate_limit`; a UID that has never
-submitted always passes. Too-frequent calls fail with `SettingWeightsTooFast`.
+submitted always passes. Too-frequent calls fail with
+[`SettingWeightsTooFast`](/code/pallets/subtensor/src/macros/errors.rs#L81).
 
 Which call is limited depends on the commit-reveal setting. With commit-reveal
-off, the limit applies to `set_weights` itself. With it on, the limit applies
-to the **commit** (failing with `CommittingWeightsTooFast`), and the reveal is
+off, the limit applies to
+[`set_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L70-L82)
+itself. With it on, the limit applies
+to the **commit** (failing with
+[`CommittingWeightsTooFast`](/code/pallets/subtensor/src/macros/errors.rs#L186)),
+and the reveal is
 exempt — the commit already paid the cooldown, and updates `LastUpdate` at
 commit time.
 

@@ -139,7 +139,22 @@ export function HyperparamYuma3Chart() {
   return (
     <ExplainerPanel
       title="yuma3_enabled: classic vs Yuma3 dividends"
-      caption="Two validators, two miners: V1 splits its weight 50/50, V2 puts everything on M1. Classic (off) column-normalizes ΔB = W ∘ S, so stake is baked into each miner's bond column. Yuma3 (on) keeps bonds as each validator's own weight proportions (get_bonds_fixed_proportion), sums normalized bonds × incentive per validator, then scales by stake once. Bonds shown at steady state."
+      caption={
+        <>
+          Two validators, two miners: V1 splits its weight 50/50, V2 puts everything on M1.
+          Classic (off) column-normalizes ΔB = W ∘ S, so stake is baked into each miner&apos;s
+          bond column. Yuma3 (on) keeps bonds as each validator&apos;s own weight proportions
+          (
+          <a
+            href="/code/pallets/subtensor/src/epoch/run_epoch.rs#L1230-L1238"
+            className="underline"
+          >
+            get_bonds_fixed_proportion
+          </a>
+          ), sums normalized bonds × incentive per validator, then scales by stake once. Bonds
+          shown at steady state.
+        </>
+      }
     >
       <div className="h-56">
         <Bar data={data} options={options} plugins={[barLabelPlugin]} />

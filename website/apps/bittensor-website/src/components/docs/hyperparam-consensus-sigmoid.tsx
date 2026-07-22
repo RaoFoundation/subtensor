@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -44,14 +44,37 @@ function sigmoidPoints(rho: number, kappa: number): {x: number; y: number}[] {
   });
 }
 
-const CAPTIONS: Record<string, string> = {
-  rho: 'rho is the temperature of the trust sigmoid, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). The dashed ghost curves fix rho at 2 and 40 — slide rho between them and watch the curve snap from a gentle ramp into a near-step at kappa.',
-  kappa:
-    'kappa is the midpoint of the trust sigmoid, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). The dashed marker is the majority threshold — alignment crossing kappa flips trust through 0.5, from mostly-distrusted to mostly-trusted. Slide kappa to move the crossing.',
+const SIGMOID_SAFE_LINK = (
+  <a href="/code/pallets/subtensor/src/epoch/math.rs#L198-L207" className="underline">
+    sigmoid_safe in epoch/math.rs
+  </a>
+);
+
+const CAPTIONS: Record<string, ReactNode> = {
+  rho: (
+    <>
+      rho is the temperature of the trust sigmoid, {SIGMOID_SAFE_LINK}: trust = 1 / (1 +
+      e^(−rho × (x − kappa))). The dashed ghost curves fix rho at 2 and 40 — slide rho between
+      them and watch the curve snap from a gentle ramp into a near-step at kappa.
+    </>
+  ),
+  kappa: (
+    <>
+      kappa is the midpoint of the trust sigmoid, {SIGMOID_SAFE_LINK}: trust = 1 / (1 + e^(−rho
+      × (x − kappa))). The dashed marker is the majority threshold — alignment crossing kappa
+      flips trust through 0.5, from mostly-distrusted to mostly-trusted. Slide kappa to move
+      the crossing.
+    </>
+  ),
 };
 
-const DEFAULT_CAPTION =
-  'The classic Yuma trust curve, sigmoid_safe in epoch/math.rs: trust = 1 / (1 + e^(−rho × (x − kappa))). kappa is the midpoint, rho the steepness. The live epoch computes consensus as a kappa-weighted median; this sigmoid is the formulation rho parameterizes.';
+const DEFAULT_CAPTION = (
+  <>
+    The classic Yuma trust curve, {SIGMOID_SAFE_LINK}: trust = 1 / (1 + e^(−rho × (x −
+    kappa))). kappa is the midpoint, rho the steepness. The live epoch computes consensus as a
+    kappa-weighted median; this sigmoid is the formulation rho parameterizes.
+  </>
+);
 
 export function HyperparamConsensusSigmoid({ focus }: { focus?: string }) {
   const [rho, setRho] = useState(10);

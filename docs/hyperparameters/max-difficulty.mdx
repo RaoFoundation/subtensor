@@ -13,14 +13,17 @@ during registration rushes.
 
 ## How it works
 
-Storage is `MaxDifficulty` in `pallets/subtensor/src/lib.rs`, accessed via
-`get_max_difficulty` / `set_max_difficulty`
+Storage is [`MaxDifficulty`](/code/pallets/subtensor/src/lib.rs#L2150) in
+`pallets/subtensor/src/lib.rs`, accessed via
+[`get_max_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L500-L502) /
+[`set_max_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L503-L506)
 (`pallets/subtensor/src/utils/misc.rs`). In the classic controller,
 difficulty was rescaled each adjustment interval by registration pressure
 against the target rate, then clamped to the
 \[`min_difficulty`, `max_difficulty`\] band — sustained over-target demand
 walked difficulty up until it hit this ceiling. The mainnet default is
-`u64::MAX / 4` (`SubtensorInitialMaxDifficulty` in `runtime/src/lib.rs`).
+`u64::MAX / 4` ([`SubtensorInitialMaxDifficulty`](/code/runtime/src/lib.rs#L814)
+in `runtime/src/lib.rs`).
 
 On the current runtime PoW registration is deprecated — the `register`
 extrinsic routes to burned registration and nothing adjusts `difficulty`
@@ -36,7 +39,9 @@ against the bold ceiling line:
 btcli sudo get --netuid N --name max_difficulty
 ```
 
-Owner-settable (the AdminUtils extrinsic `sudo_set_max_difficulty` accepts
+Owner-settable (the AdminUtils extrinsic
+[`sudo_set_max_difficulty`](/code/pallets/admin-utils/src/lib.rs#L308-L334)
+accepts
 the subnet owner or root, inside the admin window and subject to the owner
 rate limit):
 

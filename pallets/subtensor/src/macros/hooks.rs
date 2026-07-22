@@ -1,3 +1,4 @@
+#![allow(clippy::crate_in_macro_def)]
 use frame_support::pallet_macros::pallet_section;
 
 /// A [`pallet_section`] that defines the events for a pallet.
@@ -22,17 +23,13 @@ mod hooks {
                 Ok(_) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
+                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
+                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
                 }
             }

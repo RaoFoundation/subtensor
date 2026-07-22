@@ -16,7 +16,7 @@ existing lock on the subnet to move.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | `SubtensorModule.move_lock` |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2280-L2289) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("move_lock", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2315`](/code/pallets/subtensor/src/macros/dispatches.rs#L2315):
+`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2282`](/code/pallets/subtensor/src/macros/dispatches.rs#L2280-L2289):
 
 ```rust
 #[pallet::call_index(137)]
@@ -83,6 +83,6 @@ pub fn move_lock(
 }
 ```
 
-Delegates to [`do_move_lock`](/code/pallets/subtensor/src/staking/lock.rs#L1733).
+Delegates to [`do_move_lock`](/code/pallets/subtensor/src/staking/lock.rs#L1749).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

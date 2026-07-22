@@ -7,11 +7,11 @@ description: Switches the bonds EMA from one flat rate to a per-weight rate that
 
 ## How it works
 
-In the epoch's `compute_bonds` (`pallets/subtensor/src/epoch/run_epoch.rs`), if this flag is on and consensus is non-empty, the chain builds a full matrix of per-pair alphas via `compute_liquid_alpha_values`: each pair's deviation (weight above consensus when increasing a bond, bond above weight when decreasing) is pushed through a sigmoid and mapped into the [`alpha_low`](/docs/hyperparameters/alpha-low)..[`alpha_high`](/docs/hyperparameters/alpha-high) range, with [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) controlling the transition sharpness. Larger deviations get a higher alpha, so those bonds move faster.
+In the epoch's [`compute_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1333-L1360) (`pallets/subtensor/src/epoch/run_epoch.rs`), if this flag is on and consensus is non-empty, the chain builds a full matrix of per-pair alphas via [`compute_liquid_alpha_values`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1415-L1455): each pair's deviation (weight above consensus when increasing a bond, bond above weight when decreasing) is pushed through a sigmoid and mapped into the [`alpha_low`](/docs/hyperparameters/alpha-low)..[`alpha_high`](/docs/hyperparameters/alpha-high) range, with [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) controlling the transition sharpness. Larger deviations get a higher alpha, so those bonds move faster.
 
-When the flag is off, every pair uses the flat rate `1 − bonds_moving_avg / 1,000,000` (`compute_disabled_liquid_alpha`).
+When the flag is off, every pair uses the flat rate `1 − bonds_moving_avg / 1,000,000` ([`compute_disabled_liquid_alpha`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1567-L1577)).
 
-One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) is off, the classic bond code ignores this toggle entirely and always uses [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg). Setting `alpha_low`/`alpha_high` also requires this flag to be on first (`LiquidAlphaDisabled` error otherwise).
+One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) is off, the classic bond code ignores this toggle entirely and always uses [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg). Setting `alpha_low`/`alpha_high` also requires this flag to be on first ([`LiquidAlphaDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L134) error otherwise).
 
 <HyperparamLiquidAlpha focus="liquid_alpha_enabled" />
 

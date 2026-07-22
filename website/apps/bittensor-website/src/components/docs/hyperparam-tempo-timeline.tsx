@@ -167,7 +167,20 @@ export function HyperparamTempoTimeline() {
   return (
     <ExplainerPanel
       title="tempo epoch timeline"
-      caption="Emission accrues every block and pays out when the epoch fires: should_run_epoch (coinbase/run_coinbase.rs) triggers once current_block − LastEpochBlock ≥ tempo. Three epochs shown at an illustrative 1 α/block; each diamond is an epoch boundary where Yuma Consensus runs and the accumulated alpha is distributed."
+      caption={
+        <>
+          Emission accrues every block and pays out when the epoch fires:{' '}
+          <a
+            href="/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1117-L1132"
+            className="underline"
+          >
+            should_run_epoch (coinbase/run_coinbase.rs)
+          </a>{' '}
+          triggers once current_block − LastEpochBlock ≥ tempo. Three epochs shown at an
+          illustrative 1 α/block; each diamond is an epoch boundary where Yuma Consensus runs
+          and the accumulated alpha is distributed.
+        </>
+      }
     >
       <div className="h-52">
         <Line data={data} options={options} plugins={[annotationPlugin]} />

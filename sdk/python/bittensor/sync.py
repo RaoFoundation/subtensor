@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import threading
 import weakref
+from datetime import datetime
 from typing import Any, Callable, Iterator, Optional
 
 from ._substrate import Substrate
@@ -312,8 +313,23 @@ class SyncClient:
         """A Balance tagged with this connection's token symbol (see ``Client.balance``)."""
         return self._client.balance(rao, netuid)
 
+    @property
     def block(self) -> int:
+        """Current chain block number. Reads the chain on every access."""
         return self._call(self._client.block())
+
+    @property
+    def time(self) -> datetime:
+        """UTC timestamp of the current chain head block. Reads the chain on
+        every access; ``timestamp(block=...)`` reads another block's time."""
+        return self._call(self._client.timestamp())
+
+    @property
+    def spec_version(self) -> int:
+        """The connected runtime's ``spec_version``. Reads the chain on access
+        (TTL-cached in the transport, so a runtime upgrade shows up within
+        about a block)."""
+        return self._call(self._client.spec_version())
 
     def timestamp(self, block=None):
         return self._call(self._client.timestamp(block=block))

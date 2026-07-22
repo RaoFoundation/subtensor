@@ -57,8 +57,8 @@ New locks are **decaying** by default. Opt into **perpetual** with
 | **Perpetual** | Fixed | Approaches mass: `c = m − (m − c₀)·e^(−Δt/τ)` |
 | **Decaying** | Exponential decay on `UnlockRate` | Integral of decaying mass — peaks, then falls |
 
-On mainnet today `MaturityRate` is **311,622 blocks** (~43 days) and
-`UnlockRate` is **934,866 blocks** (~130 days). Both are governance-set
+On mainnet today [`MaturityRate`](/code/pallets/subtensor/src/lib.rs#L1654) is **311,622 blocks** (~43 days) and
+[`UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658) is **934,866 blocks** (~130 days). Both are governance-set
 storage values — read them live before planning, do not hardcode them.
 
 <ConvictionModeComparison />
@@ -71,16 +71,16 @@ conviction always equals locked mass.
 
 ## Subnet ownership via conviction
 
-After each epoch, the chain runs `change_subnet_owner_if_needed` when **all** of
+After each epoch, the chain runs [`change_subnet_owner_if_needed`](/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377) when **all** of
 these hold:
 
 1. Subnet age ≥ **ONE_YEAR** (2,629,800 blocks from registration).
-2. **Total aggregate conviction** ≥ 10% of `SubnetAlphaOut`.
+2. **Total aggregate conviction** ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
 3. A hotkey with the highest rolled aggregate conviction resolves to a real
    coldkey owner (not the default account).
 
-The winning hotkey becomes `SubnetOwnerHotkey`; its coldkey becomes
-`SubnetOwner`. If the leader already owns the subnet, nothing changes.
+The winning hotkey becomes [`SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib.rs#L1988); its coldkey becomes
+[`SubnetOwner`](/code/pallets/subtensor/src/lib.rs#L1983). If the leader already owns the subnet, nothing changes.
 
 This is **not** the same as the per-hotkey projection in
 [`subnet-convictions`](/docs/query/subnet-convictions) — that API estimates when

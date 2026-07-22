@@ -305,13 +305,18 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
+        RuntimeCall::SubtensorModule(SubtensorCall::add_collateral),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_min_collateral),
     ]
 );
 
 // Moving staked value to another coldkey — the stake analogue of a transfer.
 call_filter_group!(
     StakeTransferCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake),]
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake_and_hotkey),
+    ]
 );
 
 // Permissionless proof-of-work registration (costs no TAO).
@@ -524,6 +529,8 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_burn_increase_mult),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_cut_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_cut_auto_lock_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_lock_share),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_collateral_drain_ratio),
     ]
 );
 
@@ -611,6 +618,8 @@ call_filter_group!(SmallTransferCalls, [
     RuntimeCall::Balances(BalancesCall::transfer_allow_death)
         where value < SMALL_TRANSFER_LIMIT,
     RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake)
+        where alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
+    RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake_and_hotkey)
         where alpha_amount < SMALL_ALPHA_TRANSFER_LIMIT,
 ]);
 

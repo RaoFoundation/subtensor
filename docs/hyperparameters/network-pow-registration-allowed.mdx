@@ -12,20 +12,26 @@ retired chain-wide.
 
 ## How it works
 
-Storage is `NetworkPowRegistrationAllowed` in
+Storage is
+[`NetworkPowRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L1917) in
 `pallets/subtensor/src/lib.rs`, exposed through the metagraph RPC as
 `pow_registration_allowed`. Two pieces of code make its deprecation
 concrete:
 
-- The migration `migrate_clear_deprecated_registration_maps`
+- The migration
+  [`migrate_clear_deprecated_registration_maps`](/code/pallets/subtensor/src/migrations/migrate_clear_deprecated_registration_maps.rs#L5-L64)
   (`pallets/subtensor/src/migrations/`) cleared every stored entry, so all
   subnets read the storage default.
-- The AdminUtils setter `sudo_set_network_pow_registration_allowed`
+- The AdminUtils setter
+  [`sudo_set_network_pow_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L709-L715)
   (`pallets/admin-utils/src/lib.rs`, call index 20) no longer writes
-  anything — it unconditionally returns the `POWRegistrationDisabled`
+  anything — it unconditionally returns the
+  [`POWRegistrationDisabled`](/code/pallets/admin-utils/src/lib.rs#L151)
   error.
 
-Independently, the PoW `register` extrinsic
+Independently, the PoW
+[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
+extrinsic
 (`pallets/subtensor/src/macros/dispatches.rs`) ignores its work arguments
 and routes to the burned-registration path, so the flag has nothing left to
 gate. Both ends of the wire are cut:

@@ -9,6 +9,33 @@ before it spends anything, every failure returns a machine-readable code with a
 remediation hint, and a `Policy` can hard-bound what a session is allowed to
 do. Nothing here requires parsing human prose.
 
+## Searching these docs
+
+Start with one fetch: [`/llms.txt`](/llms.txt). Every docs link in it is
+already raw markdown (`content.md`), so you can open a page without rewriting
+URLs or scraping HTML.
+
+```bash
+# Curated index (start here)
+curl -s https://www.bittensor.com/llms.txt
+
+# Full docs corpus (for rg, not for stuffing into context)
+curl -s https://www.bittensor.com/llms-full.txt | rg -n '<pattern>'
+
+# One page (same URLs as the links inside llms.txt)
+curl -s https://www.bittensor.com/llms.mdx/docs/quickstart/content.md
+
+# Chain source: search by symbol, or fetch a known path
+curl -s 'https://www.bittensor.com/code/search.json?q=do_move_stake'
+curl -s https://www.bittensor.com/code/raw/pallets/subtensor/src/staking/move_stake.rs
+
+# Heavy exploration: clone the repo (docs live in docs/)
+git clone --depth 1 https://github.com/RaoFoundation/subtensor
+```
+
+Prefer that index plus the JSON catalogs below over dumping
+[`/llms-full.txt`](/llms-full.txt) into context.
+
 ## Discover the operations
 
 ```bash
@@ -24,10 +51,10 @@ bt.reads.list_reads()     # every read: name, params, docs, category
 The same catalogs are published statically by these docs:
 [`/catalog/intents.json`](/catalog/intents.json),
 [`/catalog/reads.json`](/catalog/reads.json),
-[`/catalog/errors.json`](/catalog/errors.json). Each entry includes a
-`docs_url` pointing at its reference page, and every docs page is fetchable as
-raw markdown (see the copy-markdown link on any page, or
-[`/llms-full.txt`](/llms-full.txt) for everything at once).
+[`/catalog/errors.json`](/catalog/errors.json). Each entry includes
+`docs_url` (HTML), `markdown_url` (raw markdown to fetch), and often
+`sources` / `hits` with a `raw_url` into `/code`. Errors live under
+`.codes` (semantic) and `.chain_errors` (exact pallet names); see `.note`.
 
 ## Execute by name
 

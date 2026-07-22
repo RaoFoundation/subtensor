@@ -1,29 +1,35 @@
 name: Deploy Docs
 
-# Every website change on main deploys to Vercel and is aliased to the
-# staging subdomain. Production promotion happens in watch-mainnet-release.yml
-# once a runtime release executes on chain.
+# Website / docs changes on main deploy to staging.bittensor.com.
+# The release-train force-updates the `devnet` / `testnet` mirror branches
+# after each successful chain deploy; those pushes alias to
+# devnet.bittensor.com / testnet.bittensor.com so the docs host matches the
+# code on that network. Production promotion happens in
+# watch-mainnet-release.yml once a runtime release executes on chain.
 
 on:
   push:
-    branches: [main]
+    branches: [main, devnet, testnet]
     paths:
       - "docs/**"
       - "website/**"
+      - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
     inputs:
       production:
-        description: "Deploy to production (bittensor.com) instead of staging"
+        description: "Deploy to production (bittensor.com) instead of the branch alias"
         type: boolean
         default: false
 
 concurrency:
-  group: deploy-docs
+  # Per-alias so a main→staging deploy does not cancel a concurrent
+  # testnet/devnet deploy (or the other way around).
+  group: deploy-docs-${{ inputs.production && 'production' || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy staging docs to Vercel
+    name: Deploy docs to Vercel
     runs-on: [self-hosted, fireactions-turbo-8]
     # Production deploys only run from main (a dispatch on any other ref would
     # otherwise ship unreviewed code) and are gated behind the same environment
@@ -34,7 +40,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DOCS_PROJECT_ID }}
-      # e.g. bittensor.com; the deployment is aliased to staging.<domain>
+      # e.g. bittensor.com; branch aliases are <channel>.$DOCS_DOMAIN
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
     steps:
       - uses: actions/checkout@v4
@@ -47,11 +53,44 @@ jobs:
       - name: Enable corepack (yarn 4)
         run: corepack enable
 
+      - name: Resolve alias and docs network
+        id: target
+        run: |
+          if [ "${{ inputs.production }}" = "true" ]; then
+            echo "alias=" >> "$GITHUB_OUTPUT"
+            echo "docs_network=" >> "$GITHUB_OUTPUT"
+            echo "channel=production" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "${{ github.ref_name }}" in
+            main)
+              echo "alias=staging.$DOCS_DOMAIN" >> "$GITHUB_OUTPUT"
+              echo "docs_network=" >> "$GITHUB_OUTPUT"
+              echo "channel=staging" >> "$GITHUB_OUTPUT"
+              ;;
+            devnet)
+              echo "alias=devnet.$DOCS_DOMAIN" >> "$GITHUB_OUTPUT"
+              echo "docs_network=devnet" >> "$GITHUB_OUTPUT"
+              echo "channel=devnet" >> "$GITHUB_OUTPUT"
+              ;;
+            testnet)
+              echo "alias=testnet.$DOCS_DOMAIN" >> "$GITHUB_OUTPUT"
+              echo "docs_network=testnet" >> "$GITHUB_OUTPUT"
+              echo "channel=testnet" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported ref for docs deploy: ${{ github.ref_name }}" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Build and deploy
         # Run from the repo root: the Vercel project's root directory is
         # website/apps/bittensor-website relative to the repo root, and the
         # CLI resolves it against the cwd (running from website/ doubles the
         # path and fails with ENOENT).
+        env:
+          NEXT_PUBLIC_DOCS_NETWORK: ${{ steps.target.outputs.docs_network }}
         run: |
           if [ "${{ inputs.production }}" = "true" ]; then
             npx --yes vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
@@ -62,20 +101,27 @@ jobs:
             echo "Deployed to https://$DOCS_DOMAIN (production)" >> $GITHUB_STEP_SUMMARY
           else
             npx --yes vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+            # vercel build loads env from the pulled preview file; inject the
+            # network channel so the docs banner is baked into this deploy.
+            if [ -n "$NEXT_PUBLIC_DOCS_NETWORK" ]; then
+              echo "NEXT_PUBLIC_DOCS_NETWORK=$NEXT_PUBLIC_DOCS_NETWORK" >> .vercel/.env.preview.local
+            fi
             npx --yes vercel build --token "$VERCEL_TOKEN"
             url=$(npx --yes vercel deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
             echo "Deployed: $url"
             # `vercel alias set` only accepts domains in the team-level domain
-            # registry; staging.$DOCS_DOMAIN is attached (and verified) at the
-            # project level, so the CLI rejects it with "you don't have access
-            # to the domain". The deployments API honors project domains.
+            # registry; project domains (staging/devnet/testnet.$DOCS_DOMAIN)
+            # are attached at the project level, so the CLI rejects them with
+            # "you don't have access to the domain". The deployments API
+            # honors project domains.
             dep_id=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
               "https://api.vercel.com/v13/deployments/${url#https://}?teamId=$VERCEL_ORG_ID" \
               | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).id')
+            alias="${{ steps.target.outputs.alias }}"
             curl -sf -X POST \
               -H "Authorization: Bearer $VERCEL_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"alias\":\"staging.$DOCS_DOMAIN\"}" \
+              -d "{\"alias\":\"$alias\"}" \
               "https://api.vercel.com/v2/deployments/$dep_id/aliases?teamId=$VERCEL_ORG_ID" > /dev/null
-            echo "Aliased to https://staging.$DOCS_DOMAIN" >> $GITHUB_STEP_SUMMARY
+            echo "Aliased to https://$alias (${{ steps.target.outputs.channel }})" >> $GITHUB_STEP_SUMMARY
           fi

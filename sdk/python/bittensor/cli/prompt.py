@@ -50,6 +50,12 @@ Parser = Callable[[AppContext, str], Any]
 # tokens to include in the skip-the-prompts hint.
 CustomFlow = Callable[[Console, AppContext, dict], list[str]]
 
+# Argv tokens answered interactively this run. Prompt rounds can come from
+# several layers (click's MissingParameter, the command body, the signer
+# confirmation inside submit), so each round only records its answers here and
+# one combined skip-the-prompts hint is printed when the command finishes.
+_entered_tokens: list[str] = []
+
 
 @dataclass
 class PromptSpec:
@@ -137,19 +143,17 @@ def fill_missing(app_ctx: AppContext, missing: list[PromptSpec], kwargs: dict[st
         return
 
     console = Console(stderr=True, highlight=False)
-    entered: list[str] = []
     console.print()
     for spec in missing:
         if kwargs.get(spec.field) is not None:
             continue  # an earlier custom flow already answered this one
         if spec.custom is not None:
-            entered += spec.custom(console, app_ctx, kwargs)
+            _entered_tokens.extend(spec.custom(console, app_ctx, kwargs))
             console.print()
             continue
         kwargs[spec.field], raw = _ask(console, app_ctx, spec)
-        entered += [raw] if spec.positional else [spec.flag, raw]
+        _entered_tokens.extend([raw] if spec.positional else [spec.flag, raw])
         console.print()
-    _print_command_hint(console, [Path(sys.argv[0]).name, *sys.argv[1:], *entered])
 
 
 def _unknown_name_error(kind: str, raw: str, known: list[str]) -> ValueError:
@@ -312,15 +316,24 @@ def signer_specs(
     return specs
 
 
-def _print_command_hint(console: Console, tokens: list[str]) -> None:
-    """Echo the equivalent non-interactive command so the flags are learnable."""
+def _flush_command_hint(exit_code: int) -> None:
+    """Echo the equivalent non-interactive command so the flags are learnable.
+
+    Printed once, when the command finishes successfully, combining the answers
+    from every prompt round of the run (command params, signer confirmation...).
+    """
+    if exit_code != 0 or not _entered_tokens:
+        return
+    tokens = [Path(sys.argv[0]).name, *sys.argv[1:], *_entered_tokens]
+    _entered_tokens.clear()
     command = " ".join(shlex.quote(part) for part in tokens)
     line = Text(overflow="ignore", no_wrap=True)
     line.append("hint:".rjust(7), style=STYLE_HINT)
     line.append(" skip the prompts next time: ", style=STYLE_HINT)
     line.append(command, style=STYLE_COMMAND)
-    console.print(line, soft_wrap=True)
+    console = Console(stderr=True, highlight=False)
     console.print()
+    console.print(line, soft_wrap=True)
 
 
 # --- Generic coverage: drive the whole app and intercept MissingParameter ----
@@ -399,6 +412,7 @@ def run_app(app: typer.Typer) -> None:
         _run_app(app)
     except click_exceptions.Exit as error:
         # typer.Exit raised by our own prompt helpers (abort, missing-in-script).
+        _flush_command_hint(error.exit_code)
         sys.exit(error.exit_code)
 
 
@@ -436,12 +450,10 @@ def _run_app(app: typer.Typer) -> None:
             console.print()
             for spec, param in zip(specs, missing):
                 _, raw = _ask(console, app_ctx, spec)
-                if param.param_type_name == "option":
-                    args += [spec.flag, raw]
-                else:
-                    args.append(raw)
+                entered = [raw] if param.param_type_name != "option" else [spec.flag, raw]
+                args += entered
+                _entered_tokens.extend(entered)
                 console.print()
-            _print_command_hint(console, [Path(sys.argv[0]).name, *args])
             continue
         except click_exceptions.ClickException as error:
             # Mirrors typer's standalone handling: NoArgsIsHelpError prints the
@@ -455,5 +467,7 @@ def _run_app(app: typer.Typer) -> None:
             rich_utils.rich_abort_error()
             sys.exit(1)
         # In non-standalone mode typer returns ``Exit``'s code instead of raising.
-        sys.exit(result if isinstance(result, int) else 0)
+        code = result if isinstance(result, int) else 0
+        _flush_command_hint(code)
+        sys.exit(code)
     raise AssertionError("prompt loop did not converge")

@@ -7,7 +7,7 @@ description: Slope of the liquid-alpha sigmoid mapping consensus deviation to th
 
 ## How it works
 
-For each validator–miner pair, `alpha_sigmoid` (`pallets/subtensor/src/epoch/run_epoch.rs`) computes
+For each validator–miner pair, [`alpha_sigmoid`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1538-L1565) (`pallets/subtensor/src/epoch/run_epoch.rs`) computes
 
 ```
 sigmoid = 1 / (1 + e^(-(steepness / 100) × (diff − 0.5)))
@@ -16,7 +16,7 @@ alpha   = alpha_low + sigmoid × (alpha_high − alpha_low)
 
 where `diff` is the pair's deviation from consensus, clamped to 0..1. The stored i16 is divided by 100, so the default 1000 gives an effective slope of 10: alpha sits near `alpha_low` for small deviations, crosses the midpoint at `diff = 0.5`, and saturates near `alpha_high` beyond it. Steepness near 0 flattens the curve to the midpoint of the range; very large values approximate a hard threshold at 0.5.
 
-Negative steepness inverts the curve — consensus-aligned pairs get the fast rate — and `sudo_set_alpha_sigmoid_steepness` in `pallets/admin-utils/src/lib.rs` reserves that to root: a subnet owner passing a negative value gets `NegativeSigmoidSteepness`.
+Negative steepness inverts the curve — consensus-aligned pairs get the fast rate — and [`sudo_set_alpha_sigmoid_steepness`](/code/pallets/admin-utils/src/lib.rs#L1623-L1655) in `pallets/admin-utils/src/lib.rs` reserves that to root: a subnet owner passing a negative value gets [`NegativeSigmoidSteepness`](/code/pallets/admin-utils/src/lib.rs#L135).
 
 <HyperparamLiquidAlpha focus="alpha_sigmoid_steepness" />
 

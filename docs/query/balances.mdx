@@ -39,3 +39,9 @@ result = sub.read("balances", coldkey_ss58s=[...])
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage `System.Account` — implemented by Substrate's `frame_system`, outside this repository's pallets.
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

@@ -15,18 +15,23 @@ The burn price moves in two ways, and both are clamped into
 
 - Each successful registration multiplies the price by
   [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)
-  (`bump_registration_price_after_registration`). Once the product exceeds
+  ([`bump_registration_price_after_registration`](/code/pallets/subtensor/src/subnets/registration.rs#L517-L541)).
+  Once the product exceeds
   `max_burn`, the price is pinned at `max_burn` — further registrations in the
   same burst cost exactly `max_burn` each.
 - Each block, the price decays exponentially with half-life
   [`burn_half_life`](/docs/hyperparameters/burn-half-life)
-  (`update_registration_prices_for_networks`), pulling it back down from the
+  ([`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)),
+  pulling it back down from the
   ceiling toward [`min_burn`](/docs/hyperparameters/min-burn).
 
-The value lives in `MaxBurn` storage as a rao amount (1 TAO = 1e9 rao); the
-chain default is 100 TAO. The owner-set extrinsic (`sudo_set_max_burn` in
+The value lives in [`MaxBurn`](/code/pallets/subtensor/src/lib.rs#L2140)
+storage as a rao amount (1 TAO = 1e9 rao); the
+chain default is 100 TAO. The owner-set extrinsic
+([`sudo_set_max_burn`](/code/pallets/admin-utils/src/lib.rs#L788-L820) in
 `pallets/admin-utils/src/lib.rs`) requires the new value to be **above 0.1 TAO**
-(`MaxBurnLowerBound`) and **strictly greater than the subnet's current
+([`MaxBurnLowerBound`](/code/runtime/src/lib.rs#L821)) and **strictly greater
+than the subnet's current
 `min_burn`**. A low ceiling makes registration cheap but lets bursts through; a
 high ceiling makes sustained bursts increasingly expensive.
 

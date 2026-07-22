@@ -34,6 +34,14 @@ added automatically::
     btcli call System.set_code --args-file runtime.json --sudo \\
       --multisig-threshold 2 --other-signatories 5OtherA...,5OtherB... \\
       -w suro --yes
+
+``--proxy-for`` wraps the call in ``Proxy.proxy`` so it dispatches as another
+account (e.g. a pure proxy) whose registered delegate is the signing key — or
+the multisig, combining both wrappers. Each signatory approves the same
+``Proxy.proxy`` call::
+
+    btcli call SubtensorModule.set_sn_owner_hotkey --args '{...}' \\
+      --proxy-for sn7-owner --multisig sn7-team -w suro --yes
 """
 
 from __future__ import annotations
@@ -44,6 +52,7 @@ from typing import Any, Optional
 import typer
 
 from .. import calls
+from ..intents.proxy import ProxyTypeChoice
 from . import multisig_helpers as ms_helpers
 from .context import ctx_of
 from .globals import with_tx_globals
@@ -150,19 +159,33 @@ def call(
     signer: str = typer.Option(
         "coldkey", "--signer", help="Which wallet key signs: 'coldkey' or 'hotkey'."
     ),
+    proxy_for: Optional[str] = typer.Option(
+        None,
+        "--proxy-for",
+        help="Dispatch as this account (ss58, proxy-book/address-book name, or local "
+        "wallet name) via Proxy.proxy; the signing key — or the multisig, when "
+        "combined with --multisig — must be its registered proxy.",
+    ),
+    force_proxy_type: Optional[ProxyTypeChoice] = typer.Option(
+        None,
+        "--force-proxy-type",
+        help="Require this exact proxy type to be used (with --proxy-for).",
+    ),
 ):
     """Submit any raw chain call (escape hatch; use `tx` for wrapped intents).
 
     Reaches every Pallet.function the chain exposes, including ones no intent
-    wraps; the call can be wrapped in Sudo.sudo or dispatched through a
-    multisig. Prefer `tx` for day-to-day operations: intents preview effects
-    and validate arguments, while `call` submits exactly what you pass.
+    wraps; the call can be wrapped in Sudo.sudo or Proxy.proxy, or dispatched
+    through a multisig. Prefer `tx` for day-to-day operations: intents preview
+    effects and validate arguments, while `call` submits exactly what you pass.
 
     Example: btcli call System.set_code --args-file runtime.json --sudo --yes
     """
     app_ctx = ctx_of(ctx)
     if signer not in ("coldkey", "hotkey"):
         raise typer.BadParameter("must be 'coldkey' or 'hotkey'", param_hint="--signer")
+    if force_proxy_type is not None and proxy_for is None:
+        raise typer.BadParameter("requires --proxy-for", param_hint="--force-proxy-type")
     threshold, sigs, preset, _signatory_refs = _resolve_multisig(
         app_ctx,
         multisig_name=multisig,
@@ -173,8 +196,13 @@ def call(
     )
     builder = _resolve_builder(target)
     params = _load_params(args, args_file)
+    if proxy_for is not None:
+        proxy_for = app_ctx.resolve_address("proxy_for", proxy_for)
+    proxy_type_value = force_proxy_type.value if force_proxy_type else None
     signing = app_ctx.signer(signer)
     label = target + (" via Sudo.sudo" if sudo else "")
+    if proxy_for:
+        label += f" as {proxy_for} via proxy"
     via_multisig = threshold is not None
     if via_multisig and len(sigs) < threshold:
         raise typer.BadParameter(
@@ -183,11 +211,19 @@ def call(
         )
 
     async def prepare(client):
-        """Build (and, for sudo, nest) the call against live metadata."""
-        inner = builder(**params)
+        """Build the call against live metadata, nesting the wrappers inside-out:
+        the raw call, then Sudo.sudo, then Proxy.proxy (outermost, so the sudo
+        origin can itself be the proxied account)."""
+        built = builder(**params)
         if sudo:
-            return calls.Sudo.sudo(call=await client.compose(inner))
-        return inner
+            built = calls.Sudo.sudo(call=await client.compose(built))
+        if proxy_for:
+            built = calls.Proxy.proxy(
+                real=proxy_for,
+                force_proxy_type=proxy_type_value,
+                call=await client.compose(built),
+            )
+        return built
 
     if app_ctx.dry_run:
         fields: dict[str, Any] = {
@@ -196,6 +232,10 @@ def call(
             "signer": signer,
             "params": _for_display(params),
         }
+        if proxy_for:
+            fields["proxy_for"] = proxy_for
+            if proxy_type_value:
+                fields["force_proxy_type"] = proxy_type_value
         if via_multisig:
 
             async def _dry_run_multisig(client):
@@ -244,6 +284,8 @@ def call(
                 params=params,
                 args_file=args_file,
                 sudo=sudo,
+                proxy_for=proxy_for,
+                force_proxy_type=proxy_type_value,
                 preset=preset,
                 signer_role=signer,
                 result=result,

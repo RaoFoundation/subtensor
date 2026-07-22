@@ -126,9 +126,7 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(119)]
-        #[pallet::weight((Weight::from_parts(15_540_000_000, 0)
-        .saturating_add(T::DbWeight::get().reads(4111))
-        .saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn set_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -213,9 +211,7 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(115)]
-        #[pallet::weight((Weight::from_parts(55_130_000, 0)
-		.saturating_add(T::DbWeight::get().reads(7))
-		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights(), DispatchClass::Normal, Pays::No))]
         pub fn commit_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -318,9 +314,7 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(116)]
-        #[pallet::weight((Weight::from_parts(122_000_000, 0)
-		.saturating_add(T::DbWeight::get().reads(16))
-		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::reveal_mechanism_weights(uids.len() as u32), DispatchClass::Normal, Pays::No))]
         pub fn reveal_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -403,9 +397,7 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(117)]
-        #[pallet::weight((Weight::from_parts(77_750_000, 0)
-		.saturating_add(T::DbWeight::get().reads(7_u64))
-		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_crv3_mechanism_weights(), DispatchClass::Normal, Pays::No))]
         pub fn commit_crv3_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -980,9 +972,7 @@ mod dispatches {
         /// * `BadOrigin`: If the origin is not root.
         ///
         #[pallet::call_index(76)]
-        #[pallet::weight(Weight::from_parts(6_000, 0)
-        .saturating_add(T::DbWeight::get().reads(1))
-        .saturating_add(T::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_min_childkey_take())]
         pub fn sudo_set_min_childkey_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             Self::set_min_childkey_take(take);
@@ -1001,9 +991,7 @@ mod dispatches {
         /// * `BadOrigin`: If the origin is not root.
         ///
         #[pallet::call_index(77)]
-        #[pallet::weight(Weight::from_parts(6_000, 0)
-        .saturating_add(T::DbWeight::get().reads(1))
-        .saturating_add(T::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_childkey_take())]
         pub fn sudo_set_max_childkey_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             Self::set_max_childkey_take(take);
@@ -1087,9 +1075,7 @@ mod dispatches {
         /// 8. **New Children Assignment**: Assigns the new child to the hotkey and updates the parent list for the new child.
         // TODO: Benchmark this call
         #[pallet::call_index(67)]
-        #[pallet::weight((Weight::from_parts(119_000_000, 0)
-		.saturating_add(T::DbWeight::get().reads(6))
-		.saturating_add(T::DbWeight::get().writes(31)), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((<T as Config>::WeightInfo::set_children(children.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn set_children(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -1106,7 +1092,7 @@ mod dispatches {
         /// This function is deprecated; please migrate to
         /// `announce_coldkey_swap` / `coldkey_swap`.
         #[pallet::call_index(73)]
-        #[pallet::weight(T::DbWeight::get().reads(5))]
+        #[pallet::weight(<T as Config>::WeightInfo::schedule_swap_coldkey())]
         #[deprecated(note = "Deprecated, please migrate to `announce_coldkey_swap`/`coldkey_swap`")]
         pub fn schedule_swap_coldkey(
             _origin: OriginFor<T>,
@@ -1644,8 +1630,7 @@ mod dispatches {
 
         /// Sets the pending childkey cooldown (in blocks). Root only.
         #[pallet::call_index(109)]
-        #[pallet::weight(Weight::from_parts(3_000_000, 0)
-			.saturating_add(T::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_pending_childkey_cooldown())]
         pub fn set_pending_childkey_cooldown(
             origin: OriginFor<T>,
             cooldown: u64,
@@ -1863,9 +1848,7 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(118)]
-        #[pallet::weight((Weight::from_parts(84_020_000, 0)
-		.saturating_add(T::DbWeight::get().reads(9_u64))
-		.saturating_add(T::DbWeight::get().writes(2)), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
         pub fn commit_timelocked_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1887,9 +1870,7 @@ mod dispatches {
         /// Remove a subnetwork
         /// The caller must be root
         #[pallet::call_index(120)]
-        #[pallet::weight(Weight::from_parts(119_000_000, 0)
-		.saturating_add(T::DbWeight::get().reads(6))
-		.saturating_add(T::DbWeight::get().writes(31)))]
+        #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
             ensure_root(origin)?;
             Self::do_dissolve_network(netuid)
@@ -2123,9 +2104,7 @@ mod dispatches {
         /// * `SubnetNotExist`: If the subnet does not exist.
         /// * `NotSubnetOwner`: If the caller is not the subnet owner or root.
         #[pallet::call_index(129)]
-        #[pallet::weight(Weight::from_parts(10_000, 0)
-        .saturating_add(T::DbWeight::get().reads(2))
-        .saturating_add(T::DbWeight::get().writes(2)))]
+        #[pallet::weight(<T as Config>::WeightInfo::enable_voting_power_tracking())]
         pub fn enable_voting_power_tracking(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2149,9 +2128,7 @@ mod dispatches {
         /// * `NotSubnetOwner`: If the caller is not the subnet owner or root.
         /// * `VotingPowerTrackingNotEnabled`: If voting power tracking is not enabled.
         #[pallet::call_index(130)]
-        #[pallet::weight(Weight::from_parts(10_000, 0)
-        .saturating_add(T::DbWeight::get().reads(2))
-        .saturating_add(T::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::disable_voting_power_tracking())]
         pub fn disable_voting_power_tracking(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2176,9 +2153,7 @@ mod dispatches {
         /// * `SubnetNotExist`: If the subnet does not exist.
         /// * `InvalidVotingPowerEmaAlpha`: If alpha is greater than 10^18 (1.0).
         #[pallet::call_index(131)]
-        #[pallet::weight(Weight::from_parts(6_000, 0)
-        .saturating_add(T::DbWeight::get().reads(1))
-        .saturating_add(T::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_voting_power_ema_alpha())]
         pub fn sudo_set_voting_power_ema_alpha(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2207,9 +2182,7 @@ mod dispatches {
         ///
         /// The `ColdkeySwapCleared` event is emitted on successful clear.
         #[pallet::call_index(133)]
-        #[pallet::weight(Weight::from_parts(17_890_000, 0)
-        .saturating_add(T::DbWeight::get().reads(2))
-        .saturating_add(T::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::clear_coldkey_swap_announcement())]
         pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let now = <frame_system::Pallet<T>>::block_number();
@@ -2232,13 +2205,7 @@ mod dispatches {
         ///
         /// `limit_price` is expressed in the same TaoCurrency/u64 units as `Burn`.
         #[pallet::call_index(134)]
-        #[pallet::weight((
-            Weight::from_parts(354_200_000, 0)
-                .saturating_add(T::DbWeight::get().reads(47_u64))
-                .saturating_add(T::DbWeight::get().writes(40_u64)),
-            DispatchClass::Normal,
-            Pays::Yes
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::register_limit(), DispatchClass::Normal, Pays::Yes))]
         pub fn register_limit(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2327,7 +2294,7 @@ mod dispatches {
         /// does not unlock through locked-mass decay. Passing `false` returns
         /// the caller's lock to normal decay.
         #[pallet::call_index(138)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(4, 3))]
+        #[pallet::weight(<T as Config>::WeightInfo::set_perpetual_lock())]
         pub fn set_perpetual_lock(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2375,16 +2342,147 @@ mod dispatches {
         /// caller into receiving locked alpha from stake transfers or coldkey
         /// swaps.
         #[pallet::call_index(142)]
-        #[pallet::weight((
-            <T as frame_system::Config>::DbWeight::get().reads_writes(1, 1),
-            DispatchClass::Normal,
-            Pays::Yes
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::set_reject_locked_alpha(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_reject_locked_alpha(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
             Self::set_accept_locked_alpha(&coldkey, !enabled);
             Self::deposit_event(Event::RejectLockedAlphaUpdated { coldkey, enabled });
             Ok(())
+        }
+
+        /// Transfers a specified amount of stake from one coldkey to another, landing it
+        /// on a different hotkey, optionally across subnets.
+        ///
+        /// This is `transfer_stake` generalized to a destination hotkey: it transfers
+        /// ownership of the position and re-delegates it in one atomic call. Use
+        /// `transfer_stake` when the hotkey stays the same, and `move_stake` when only
+        /// the hotkey changes (ownership stays with the signing coldkey).
+        ///
+        /// # Arguments
+        /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
+        /// * `destination_coldkey`: The coldkey to which the stake is transferred.
+        /// * `origin_hotkey`: The hotkey the stake currently sits on.
+        /// * `destination_hotkey`: The hotkey the stake lands on.
+        /// * `origin_netuid`: The network/subnet ID to move stake from.
+        /// * `destination_netuid`: The network/subnet ID to move stake to (for cross-subnet transfer).
+        /// * `alpha_amount`: The amount of stake to transfer.
+        ///
+        /// # Errors
+        /// * `BadOrigin`: The transaction is not signed.
+        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
+        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
+        /// * `HotKeyAccountNotExists`: The `origin_hotkey` or `destination_hotkey` account does not exist.
+        /// * `NotEnoughStakeToWithdraw`: The `(origin_coldkey, origin_hotkey, origin_netuid)` position has less stake than `alpha_amount`.
+        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
+        /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
+        /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
+        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        ///
+        /// # Events
+        /// May emit a `StakeAndHotkeyTransferred` event on success.
+        #[pallet::call_index(143)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::transfer_stake_and_hotkey())]
+        pub fn transfer_stake_and_hotkey(
+            origin: OriginFor<T>,
+            destination_coldkey: T::AccountId,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            alpha_amount: AlphaBalance,
+        ) -> DispatchResult {
+            Self::do_transfer_stake_and_hotkey(
+                origin,
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                origin_netuid,
+                destination_netuid,
+                alpha_amount,
+            )
+        }
+
+        /// Locks about `tao` worth of additional miner collateral on the
+        /// signer's own hotkey.
+        ///
+        /// Prefers free alpha already staked on that `(hotkey, coldkey)`
+        /// position (valued at the subnet moving price) and only buys the
+        /// shortfall with TAO. Used to top up registration collateral
+        /// voluntarily — for example to meet a validator-published
+        /// per-machine requirement on resource subnets. The lock is released
+        /// back through earned incentive exactly like registration
+        /// collateral (it is the same lock), keeps the existing drain-ratio
+        /// snapshot, and is credited against the collateral requirement on
+        /// re-registration.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that owns `hotkey`.
+        /// * `netuid`: The subnet to lock collateral on.
+        /// * `hotkey`: The miner hotkey the collateral attaches to.
+        /// * `tao`: TAO-value of collateral to add. Fully covered by free
+        ///   stake when possible; otherwise the unpaid remainder is bought
+        ///   (that remainder must meet the staking minimum).
+        /// * `limit_price`: Worst alpha price (RAO per alpha) accepted for any
+        ///   TAO→alpha buy of the shortfall. Fill-or-kill: the buy fails with
+        ///   `SlippageTooHigh` instead of executing above this price. Pass the
+        ///   current spot (or spot × (1 + tolerance)) — never the swap max.
+        ///
+        /// # Errors
+        /// * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network.
+        /// * `SubnetNotExists`: The subnet does not exist.
+        /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
+        /// * `NonAssociatedColdKey`: The signer does not own `hotkey`.
+        /// * `AmountTooLow`: `tao` converts to zero alpha, or the buy
+        ///   remainder is below the minimum stake.
+        /// * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder.
+        /// * `SlippageTooHigh`: The shortfall buy would clear above `limit_price`.
+        ///
+        /// # Events
+        /// Emits `CollateralLocked` on success.
+        #[pallet::call_index(144)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_collateral())]
+        pub fn add_collateral(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            tao: TaoBalance,
+            limit_price: TaoBalance,
+        ) -> DispatchResult {
+            Self::do_add_collateral(origin, netuid, hotkey, tao, limit_price)
+        }
+
+        /// Sets the self-maintaining collateral floor for the signer's hotkey
+        /// on a subnet.
+        ///
+        /// The drain never releases the lock below the floor, and while the
+        /// lock is under it, earned miner incentive is captured into the lock
+        /// until the floor is met — so a miner tracking a validator-published
+        /// collateral requirement does not need to keep re-locking drained
+        /// funds. Zero clears the floor and restores pure drain behavior.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that owns `hotkey`.
+        /// * `netuid`: The subnet the floor applies to.
+        /// * `hotkey`: The miner hotkey the floor applies to.
+        /// * `min_locked`: The floor, in alpha; zero clears it.
+        ///
+        /// # Errors
+        /// * `RegistrationNotPermittedOnRootSubnet`: `netuid` is the root network.
+        /// * `SubnetNotExists`: The subnet does not exist.
+        /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
+        /// * `NonAssociatedColdKey`: The signer does not own `hotkey`.
+        ///
+        /// # Events
+        /// Emits `MinCollateralSet` on success.
+        #[pallet::call_index(145)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_min_collateral())]
+        pub fn set_min_collateral(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            hotkey: T::AccountId,
+            min_locked: AlphaBalance,
+        ) -> DispatchResult {
+            Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
     }
 }

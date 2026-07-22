@@ -40,3 +40,9 @@ result = sub.read("delegated", coldkey_ss58="5F...")
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Runtime API [`DelegateInfoRuntimeApi.get_delegated`](/code/pallets/subtensor/src/rpc_info/delegate_info.rs#L159-L187)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

@@ -31,7 +31,7 @@ by running `scripts/srtool/build-srtool-image.sh` followed by
 
 ### The ship lever: `spec_version`
 
-Every deploy job first compares the built runtime's `spec_version`
+Every deploy job first compares the built runtime's [`spec_version`](/code/runtime/src/lib.rs#L238)
 (`runtime/src/lib.rs`) with what the target chain is running, and **no-ops
 unless the build is newer**. Consequences:
 

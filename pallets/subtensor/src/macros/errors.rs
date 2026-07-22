@@ -212,6 +212,11 @@ mod errors {
         SubtokenDisabled,
         /// Too frequent hotkey swap on subnet
         HotKeySwapOnSubnetIntervalNotPassed,
+        /// Hotkey still has standing miner collateral and does not hold
+        /// validator permit on that subnet. Moving a bonded miner UID to a
+        /// fresh hotkey would defeat validator blacklists keyed by hotkey.
+        /// Permitted validators may still swap.
+        HotKeyHasCollateral,
         /// Invalid netuid duplication
         SameNetuid,
         /// The caller does not have enough TAO balance for the operation.

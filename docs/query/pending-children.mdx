@@ -45,3 +45,9 @@ result = sub.read("pending_children", hotkey_ss58="5F...", netuid=1)
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`SubtensorModule.PendingChildKeys`](/code/pallets/subtensor/src/lib.rs#L1317)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

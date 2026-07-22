@@ -14,289 +14,305 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bittensor Extension Bridge</title>
   <style>
+    /* Shared local-page theme (see vault/static/vault.html): bittensor.com's
+       light look — white ground, #292929 ink, thin dark borders, #2f46f4
+       accent, Haffer-style sans + DM Mono labels. */
     :root {
-      color-scheme: dark;
-      --ink: #0e1013;
-      --paper: #f8f9fa;
-      --muted: #9ba1aa;
-      --line: #34383f;
-      --rose: #d15168;
-      --cyan: #68d7ee;
-      --mint: #83e6bd;
+      color-scheme: light;
+      --background: #ffffff;
+      --ink: #292929;
+      --muted: #757575;
+      --line: #262626;
+      --line-soft: #e3e3e3;
+      --accent: #2f46f4;
+      --success: #49c24e;
+      --error: #d93737;
+      --sans: Haffer, HafferSQ, "Helvetica Neue", Arial, system-ui, -apple-system, sans-serif;
+      --mono: "DM Mono", FiraCode, "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body {
+    html, body {
       min-height: 100%;
       margin: 0;
     }
 
     body {
-      overflow: hidden;
-      background: var(--ink);
-      color: var(--paper);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--background);
+      color: var(--ink);
+      font-family: var(--sans);
     }
+
+    /* Top bar: same anatomy as bittensor.com's header (and the vault signing
+       page) — τ logo left in a 105px slot, mono uppercase page name centered,
+       session status right where the site puts its wallet widget. */
+    .topbar {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      padding: 32px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+    }
+
+    .topbar .logo {
+      width: 105px;
+      display: flex;
+      align-items: center;
+    }
+
+    .topbar .logo svg {
+      width: 21px;
+      height: 23px;
+      color: var(--ink);
+    }
+
+    .topbar .page-name {
+      flex-grow: 1;
+      display: flex;
+      justify-content: center;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+
+    .topbar .session {
+      width: 105px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .topbar .session .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+    }
+
+    body[data-bridge-state="ready"] .topbar .session .dot,
+    body[data-bridge-state="authorizing"] .topbar .session .dot { background: var(--accent); }
+    body[data-bridge-state="complete"] .topbar .session .dot { background: var(--success); }
+    body[data-bridge-state="failed"] .topbar .session .dot,
+    body[data-bridge-state="error"] .topbar .session .dot { background: var(--error); }
 
     .shell {
       display: grid;
-      grid-template-columns: minmax(17rem, 34rem) minmax(16rem, 30rem);
-      align-items: center;
+      grid-template-columns: minmax(18rem, 26rem);
       justify-content: center;
-      gap: clamp(2rem, 8vw, 8rem);
-      min-height: 100vh;
-      padding: clamp(2rem, 6vw, 6rem);
-      position: relative;
-      isolation: isolate;
+      align-content: center;
+      gap: clamp(1.5rem, 4vw, 3rem);
+      min-height: calc(100vh - 87px);
+      padding: clamp(1.5rem, 5vw, 4rem);
+      padding-top: 0;
     }
 
-    .shell::before,
-    .shell::after {
-      content: "";
-      position: absolute;
-      z-index: -1;
-      background: var(--line);
-      opacity: 0.34;
+    .status {
+      justify-self: center;
+      text-align: center;
+      max-width: 44rem;
+      margin-bottom: 0.5rem;
     }
 
-    .shell::before {
-      width: 1px;
-      height: 100vh;
-      left: 11vw;
-      top: 0;
+    .status h1 {
+      margin: 0;
+      font-size: clamp(1.7rem, 3.4vw, 2.5rem);
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
     }
 
-    .shell::after {
-      width: 100vw;
-      height: 1px;
-      left: 0;
-      bottom: 13vh;
+    .status p {
+      margin: 0.7rem 0 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.85rem;
     }
 
-    .visual {
-      aspect-ratio: 1;
-      position: relative;
-      width: min(100%, 34rem);
-    }
-
-    .ring {
-      position: absolute;
+    .panel {
       border: 1px solid var(--line);
-      border-radius: 50%;
-      inset: 12%;
+      background: var(--background);
     }
 
-    .ring:nth-child(2) {
-      inset: 25%;
-      border-color: var(--rose);
-      opacity: 0.45;
-    }
-
-    .axis {
-      position: absolute;
-      background: var(--line);
-    }
-
-    .axis-x {
-      width: 76%;
-      height: 1px;
-      left: 12%;
-      top: 50%;
-    }
-
-    .axis-y {
-      width: 1px;
-      height: 76%;
-      left: 50%;
-      top: 12%;
-    }
-
-    .terminal {
-      position: absolute;
-      inset: 31% 18%;
-      border: 1px solid #454a52;
-      background: #16191e;
-      box-shadow: 14px 14px 0 #08090b;
-    }
-
-    .terminal-bar {
+    .panel-bar {
       display: flex;
       align-items: center;
-      gap: 0.45rem;
-      height: 2.3rem;
-      padding: 0 0.8rem;
-      border-bottom: 1px solid #454a52;
+      justify-content: space-between;
+      height: 2.4rem;
+      padding: 0 0.9rem;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
     }
 
-    .terminal-bar span {
-      width: 0.48rem;
-      height: 0.48rem;
+    .panel-bar .dot {
+      width: 0.45rem;
+      height: 0.45rem;
       border-radius: 50%;
-      background: #454a52;
+      background: var(--line-soft);
     }
 
-    .terminal-bar span:first-child {
-      background: var(--rose);
-    }
-
-    .terminal-lines {
+    .panel-body {
+      padding: 1.1rem;
       display: grid;
-      gap: 0.72rem;
-      padding: 1.4rem;
+      gap: 0.9rem;
+      justify-items: center;
     }
 
-    .terminal-lines span {
-      display: block;
-      height: 0.42rem;
-      background: #3a3f47;
+    /* Connected wallet extensions: one row each, with a toggle deciding
+       whether that extension's accounts are offered to btcli. */
+    .ext-list {
+      width: 100%;
+      display: grid;
+      border: 1px solid var(--line-soft);
     }
 
-    .terminal-lines span:nth-child(1) {
-      width: 48%;
-      background: var(--mint);
+    .ext-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      padding: 0.75rem 0.9rem;
     }
 
-    .terminal-lines span:nth-child(2) {
-      width: 79%;
+    .ext-row + .ext-row {
+      border-top: 1px solid var(--line-soft);
     }
 
-    .terminal-lines span:nth-child(3) {
-      width: 61%;
-      background: var(--cyan);
+    .ext-row .ext-id {
+      display: grid;
+      gap: 0.15rem;
+      min-width: 0;
     }
 
-    .node {
-      position: absolute;
-      width: 0.8rem;
-      height: 0.8rem;
-      border: 2px solid var(--ink);
-      border-radius: 50%;
-      background: var(--rose);
-      box-shadow: 0 0 0 1px var(--rose);
+    .ext-row .ext-name {
+      font-size: 0.92rem;
+      color: var(--ink);
     }
 
-    .node-a { left: 10%; top: 48.5%; }
-    .node-b { right: 10%; top: 48.5%; background: var(--cyan); box-shadow: 0 0 0 1px var(--cyan); }
-    .node-c { left: 48.5%; top: 10%; background: var(--mint); box-shadow: 0 0 0 1px var(--mint); }
-    .node-d { left: 48.5%; bottom: 10%; }
-
-    .pulse {
-      position: absolute;
-      width: 0.55rem;
-      height: 0.55rem;
-      left: calc(50% - 0.275rem);
-      top: calc(50% - 0.275rem);
-      border-radius: 50%;
-      background: var(--rose);
-      animation: pulse 2.4s ease-out infinite;
-    }
-
-    .copy {
-      max-width: 28rem;
-    }
-
-    h1 {
-      margin: 0;
-      max-width: 9ch;
-      font-size: clamp(3rem, 7vw, 6.5rem);
-      font-weight: 560;
-      line-height: 0.98;
-      letter-spacing: 0;
-    }
-
-    p {
-      margin: 1.7rem 0 0;
+    .ext-row .ext-detail {
+      font-family: var(--mono);
+      font-size: 0.72rem;
       color: var(--muted);
-      font-size: clamp(1rem, 1.6vw, 1.25rem);
-      letter-spacing: 0;
     }
 
-    body[data-bridge-state="ready"] .pulse {
-      background: var(--mint);
+    .ext-row.disabled .ext-name,
+    .ext-row.disabled .ext-detail {
+      color: var(--line-soft);
     }
 
-    body[data-bridge-state="complete"] .pulse {
-      background: var(--mint);
-      animation: none;
-      box-shadow: 0 0 0 0.75rem rgba(131, 230, 189, 0.16);
+    .ext-toggle {
+      appearance: none;
+      width: 2.1rem;
+      height: 1.15rem;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+      background: var(--background);
     }
 
-    body[data-bridge-state="complete"] .terminal {
-      border-color: var(--mint);
+    .ext-toggle::after {
+      content: "";
+      position: absolute;
+      top: 0.14rem;
+      left: 0.14rem;
+      width: 0.72rem;
+      height: 0.72rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+      transition: transform 120ms ease, background 120ms ease;
     }
 
-    body[data-bridge-state="error"] .pulse,
-    body[data-bridge-state="failed"] .pulse {
-      background: var(--rose);
-      animation-duration: 0.8s;
+    .ext-toggle:checked::after {
+      transform: translateX(0.9rem);
+      background: var(--accent);
     }
 
-    body[data-bridge-state="failed"] .terminal {
-      border-color: var(--rose);
+    .ext-empty {
+      padding: 0.9rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-align: center;
     }
 
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(209, 81, 104, 0.56); }
-      70%, 100% { box-shadow: 0 0 0 2.2rem rgba(209, 81, 104, 0); }
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+      text-align: center;
+      margin: 0;
     }
 
-    @media (max-width: 760px) {
-      .shell {
-        grid-template-columns: 1fr;
-        grid-template-rows: minmax(14rem, 52vh) auto;
-        align-content: center;
-        gap: 1.5rem;
-        padding: 1.5rem 2rem 3rem;
-      }
-
-      .visual {
-        width: min(78vw, 25rem);
-        justify-self: center;
-      }
-
-      .copy {
-        justify-self: center;
-        width: min(78vw, 25rem);
-      }
-
-      h1 {
-        font-size: clamp(2.8rem, 13vw, 5rem);
-      }
+    .hint code {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--ink);
+      border: 1px solid var(--line-soft);
+      padding: 0.05rem 0.3rem;
+      white-space: nowrap;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      .pulse {
-        animation: none;
-        box-shadow: 0 0 0 0.75rem rgba(209, 81, 104, 0.16);
-      }
-    }
+    body[data-bridge-state="ready"] .panel-bar .dot,
+    body[data-bridge-state="authorizing"] .panel-bar .dot { background: var(--accent); }
+    body[data-bridge-state="complete"] .panel-bar .dot { background: var(--success); }
+    body[data-bridge-state="complete"] .panel { border-color: var(--success); }
+    body[data-bridge-state="failed"] .panel-bar .dot,
+    body[data-bridge-state="error"] .panel-bar .dot { background: var(--error); }
+    body[data-bridge-state="failed"] .panel,
+    body[data-bridge-state="error"] .panel { border-color: var(--error); }
+    body[data-bridge-state="failed"] .status h1,
+    body[data-bridge-state="error"] .status h1 { color: var(--error); }
   </style>
 </head>
 <body data-bridge-state="connecting">
-  <main class="shell">
-    <div class="visual" aria-hidden="true">
-      <div class="ring"></div>
-      <div class="ring"></div>
-      <div class="axis axis-x"></div>
-      <div class="axis axis-y"></div>
-      <div class="terminal">
-        <div class="terminal-bar"><span></span><span></span><span></span></div>
-        <div class="terminal-lines"><span></span><span></span><span></span></div>
-      </div>
-      <div class="node node-a"></div>
-      <div class="node node-b"></div>
-      <div class="node node-c"></div>
-      <div class="node node-d"></div>
-      <div class="pulse"></div>
+  <header class="topbar">
+    <div class="logo">
+      <a href="https://bittensor.com" target="_blank" rel="noreferrer" aria-label="Bittensor">
+        <!-- τ logo (website/packages/ui/assets/TaoLogo.svg) -->
+        <svg width="21" height="23" viewBox="0 0 21 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12.5309 17.7832V8.70318C12.5238 7.60933 12.0844 6.56266 11.3087 5.79143C10.533 5.02019 9.48378 4.58695 8.38991 4.58618V19.0972C8.38387 19.6135 8.48312 20.1256 8.6816 20.6023C8.88007 21.0789 9.17361 21.5102 9.54428 21.8696C9.91496 22.2291 10.355 22.5092 10.8376 22.6929C11.3201 22.8766 11.835 22.9601 12.3509 22.9382C13.3561 23.0064 14.353 22.7174 15.1659 22.1222C12.7769 21.8692 12.5309 20.4292 12.5309 17.7832Z" fill="currentColor"/>
+          <path d="M3.775 0.787109C2.77152 0.793711 1.81138 1.19698 1.10414 1.9089C0.396901 2.62083 -2.17165e-05 3.5836 8.91144e-10 4.58711H16.893C17.8965 4.58051 18.8566 4.17724 19.5639 3.46531C20.2711 2.75339 20.668 1.79062 20.668 0.787109H3.775Z" fill="currentColor"/>
+        </svg>
+      </a>
     </div>
-    <div class="copy">
+    <div class="page-name">Extension bridge</div>
+    <div class="session"><span class="dot" aria-hidden="true"></span><span id="session-state">local</span></div>
+  </header>
+  <main class="shell">
+    <div class="status">
       <h1 id="headline">Keep this page open</h1>
       <p id="detail">Switch back to btcli.</p>
     </div>
+
+    <section class="panel">
+      <div class="panel-bar"><span>connected extensions</span><span class="dot" aria-hidden="true"></span></div>
+      <div class="panel-body">
+        <div class="ext-list" id="ext-list">
+          <div class="ext-empty">waiting for wallet extensions…</div>
+        </div>
+        <p class="hint">
+          btcli talks to your wallet extensions through this page. Toggle an
+          extension off to hide its accounts from btcli; signing requests
+          appear as extension popups — approve or reject them there.
+        </p>
+        <p class="hint">
+          Wrong browser? If your wallet lives elsewhere, make this page open
+          there instead: <code>btcli config set extension_browser firefox</code>
+          (or pass <code>--extension-browser</code> per command).
+        </p>
+      </div>
+    </section>
   </main>
   <script type="module">
     import { web3Accounts, web3Enable, web3FromAddress } from "https://esm.sh/@polkadot/extension-dapp@0.46.9";
@@ -304,13 +320,73 @@
     const APP_NAME = "Bittensor SDK";
     const headlineEl = document.getElementById("headline");
     const detailEl = document.getElementById("detail");
+    const extListEl = document.getElementById("ext-list");
     const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
     const bridgeSession = new URLSearchParams(location.search).get("session") || "";
     let ws;
     let extensionsEnabled = false;
+    // Extensions web3Enable authorized: [{name, version}]. Account sources
+    // use the same name key.
+    let knownExtensions = [];
+    let accountsBySource = {};
+    // Page-side extension filter, remembered across bridge sessions.
+    const DISABLED_KEY = "bittensorBridgeDisabledSources";
+    let disabledSources = new Set(JSON.parse(localStorage.getItem(DISABLED_KEY) || "[]"));
+
+    function persistDisabled() {
+      localStorage.setItem(DISABLED_KEY, JSON.stringify([...disabledSources]));
+    }
+
+    function renderExtensions() {
+      if (!knownExtensions.length) {
+        extListEl.innerHTML = '<div class="ext-empty">no wallet extensions connected</div>';
+        return;
+      }
+      extListEl.innerHTML = "";
+      for (const ext of knownExtensions) {
+        const row = document.createElement("div");
+        row.className = "ext-row" + (disabledSources.has(ext.name) ? " disabled" : "");
+        const id = document.createElement("div");
+        id.className = "ext-id";
+        const name = document.createElement("span");
+        name.className = "ext-name";
+        name.textContent = ext.name;
+        const detail = document.createElement("span");
+        detail.className = "ext-detail";
+        const count = (accountsBySource[ext.name] || []).length;
+        detail.textContent = `v${ext.version || "?"} · ${count} account${count === 1 ? "" : "s"}` +
+          (disabledSources.has(ext.name) ? " · hidden from btcli" : "");
+        id.append(name, detail);
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.className = "ext-toggle";
+        toggle.checked = !disabledSources.has(ext.name);
+        toggle.title = toggle.checked
+          ? `hide ${ext.name} accounts from btcli`
+          : `offer ${ext.name} accounts to btcli`;
+        toggle.addEventListener("change", () => {
+          if (toggle.checked) disabledSources.delete(ext.name);
+          else disabledSources.add(ext.name);
+          persistDisabled();
+          renderExtensions();
+        });
+        row.append(id, toggle);
+        extListEl.appendChild(row);
+      }
+    }
+
+    const STATE_LABELS = {
+      connecting: "connecting",
+      ready: "connected",
+      authorizing: "in progress",
+      complete: "complete",
+      failed: "failed",
+      error: "error",
+    };
 
     function setBridgeState(state) {
       document.body.dataset.bridgeState = state;
+      document.getElementById("session-state").textContent = STATE_LABELS[state] || state;
     }
 
     function showCopy(headline, detail) {
@@ -323,14 +399,25 @@
       showCopy(headline, detail);
     }
 
-    function showWaiting() {
+    function showReady() {
       setBridgeState("ready");
-      showCopy("Keep this page open", "Switch back to btcli.");
+      showCopy(
+        "Connected to btcli",
+        "A signing popup appears here when a transaction is ready."
+      );
     }
 
-    function showSigning() {
+    function showSubmitting() {
       setBridgeState("authorizing");
-      showCopy("Approve in your wallet", "Confirm or reject the signature request.");
+      showCopy("Signature sent", "btcli is submitting the transaction…");
+    }
+
+    function showSigning(source) {
+      setBridgeState("authorizing");
+      showCopy(
+        source ? `Approve in ${source}` : "Approve in your wallet",
+        "Confirm or reject the signature request in the extension popup."
+      );
     }
 
     function showSignError(error) {
@@ -344,8 +431,26 @@
       setBridgeState(success ? "complete" : "failed");
       showCopy(
         success ? "Transaction complete" : "Transaction failed",
-        success ? "You can close this page." : "Switch back to btcli."
+        success ? "This tab closes itself in a moment." : "Switch back to btcli."
       );
+      if (success) {
+        closeTabSoon();
+      }
+    }
+
+    // Close this tab once the flow is done. Browsers only let a script close
+    // tabs it (or an external opener) created with no further history — which
+    // is exactly how btcli opens this page. If the browser refuses, fall back
+    // to telling the user.
+    function closeTabSoon(delayMs = 1200) {
+      setTimeout(() => {
+        window.close();
+        setTimeout(() => {
+          if (!document.hidden) {
+            showCopy("Transaction complete", "You can close this tab.");
+          }
+        }, 400);
+      }, delayMs);
     }
 
     async function ensureExtensions() {
@@ -355,16 +460,18 @@
       setBridgeState("authorizing");
       const extensions = await web3Enable(APP_NAME);
       if (!extensions.length) {
+        renderExtensions();
         throw new Error("No compatible wallet extension found. Install Talisman or Polkadot.js in this browser.");
       }
       extensionsEnabled = true;
+      knownExtensions = extensions.map((ext) => ({ name: ext.name, version: ext.version }));
+      renderExtensions();
       setBridgeState("ready");
     }
 
     async function listAccounts() {
       await ensureExtensions();
-      const accounts = await web3Accounts();
-      return accounts.map((account) => ({
+      const accounts = (await web3Accounts()).map((account) => ({
         address: account.address,
         name: account.meta?.name || account.address,
         meta: {
@@ -374,6 +481,29 @@
         source: account.meta?.source || "unknown",
         type: account.type || "sr25519",
       }));
+      accountsBySource = {};
+      for (const account of accounts) {
+        (accountsBySource[account.source] ??= []).push(account);
+      }
+      renderExtensions();
+      return accounts.filter((account) => !disabledSources.has(account.source));
+    }
+
+    function sourceOf(address) {
+      for (const [source, accounts] of Object.entries(accountsBySource)) {
+        if (accounts.some((account) => account.address === address)) return source;
+      }
+      return null;
+    }
+
+    function assertSourceEnabled(address) {
+      const source = sourceOf(address);
+      if (source && disabledSources.has(source)) {
+        throw new Error(
+          `the account belongs to ${source}, which is toggled off on the bridge page — enable it and retry`
+        );
+      }
+      return source;
     }
 
     async function signExtrinsic(params) {
@@ -381,11 +511,12 @@
       if (!payload?.address) {
         throw new Error("missing payload.address");
       }
-      showSigning();
       await ensureExtensions();
+      const source = assertSourceEnabled(payload.address);
+      showSigning(source);
       const injector = await web3FromAddress(payload.address);
       const signature = await injector.signer.signPayload(payload);
-      showWaiting();
+      showSubmitting();
       return signature;
     }
 
@@ -395,15 +526,16 @@
       if (!address || !data) {
         throw new Error("missing address or data");
       }
-      showSigning();
       await ensureExtensions();
+      const source = assertSourceEnabled(address);
+      showSigning(source);
       const injector = await web3FromAddress(address);
       const signature = await injector.signer.signRaw({
         address,
         data,
         type: params?.type || "bytes",
       });
-      showWaiting();
+      showSubmitting();
       return signature;
     }
 
@@ -428,20 +560,28 @@
       ws.onopen = () => {
         ws.send(JSON.stringify({ role: "bridge", session: bridgeSession }));
         setBridgeState("authorizing");
-        showWaiting();
-        listAccounts().catch((error) => {
-          showError(
-            "Authorization failed",
-            error.message || String(error)
-          );
-        });
+        showCopy("Connecting your wallet", "Authorize the extension if it asks.");
+        listAccounts()
+          .then(() => {
+            // Don't clobber a signing prompt that raced ahead of the warm-up.
+            if (headlineEl.textContent === "Connecting your wallet") showReady();
+          })
+          .catch((error) => {
+            showError(
+              "Authorization failed",
+              error.message || String(error)
+            );
+          });
       };
       ws.onclose = (event) => {
-        if (event.code === 1008) {
+        if (event.code === 1008 || event.code === 1012) {
+          // Stale or replaced session: this tab can do nothing further, so
+          // try to get out of the way instead of piling up.
           showError(
             "Stale session",
-            "This bridge tab is stale — close it and run btcli again so a fresh tab opens."
+            "This bridge tab is stale — a fresh one opens with the next btcli run."
           );
+          setTimeout(() => window.close(), 800);
           return;
         }
         setBridgeState("connecting");

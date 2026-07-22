@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..balance import Balance
+from ..settings import tx_docs_url
 from ._money import UNBOUNDED, Money, tao_amount
 from .base import Intent
 
@@ -114,4 +115,5 @@ class Plan:
             "warnings": self.warnings,
             "violations": self.violations,
             "ok": self.ok,
+            "docs_url": tx_docs_url(self.op),
         }

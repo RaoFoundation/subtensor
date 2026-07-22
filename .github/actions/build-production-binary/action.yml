@@ -20,6 +20,9 @@ inputs:
   sccache-writer-secret-access-key:
     description: "Protected writer secret"
     default: ""
+  sccache-local-tier:
+    description: "auto for host-local reads, or disabled for direct R2 maintenance"
+    default: "auto"
 
 runs:
   using: "composite"
@@ -33,6 +36,7 @@ runs:
         sccache-credential-mode: ${{ inputs.sccache-credential-mode }}
         sccache-writer-access-key-id: ${{ inputs.sccache-writer-access-key-id }}
         sccache-writer-secret-access-key: ${{ inputs.sccache-writer-secret-access-key }}
+        sccache-local-tier: ${{ inputs.sccache-local-tier }}
 
     - name: Require protected writer activation
       if: inputs.sccache-credential-mode == 'writer'
@@ -49,10 +53,20 @@ runs:
       if: inputs.arch == 'arm64'
       shell: bash
       run: |
-        cargo install cross \
-          --git https://github.com/cross-rs/cross \
-          --rev 64b5bb4d3d34de062552b9a2093affe77b4ad16a \
-          --locked
+        contract=/etc/fireactions-runner-image/image-contract.env
+        revision=64b5bb4d3d34de062552b9a2093affe77b4ad16a
+        system_bin=/usr/local/bin/cross
+        if [[ -r "$contract" ]] && \
+            grep -Fxq "CROSS_SOURCE_REVISION=$revision" "$contract" && \
+            [[ -x "$system_bin" ]] && "$system_bin" --version; then
+          install -m 0755 "$system_bin" "$HOME/.cargo/bin/cross"
+          echo "Using preinstalled cross from $revision"
+        else
+          cargo install cross \
+            --git https://github.com/cross-rs/cross \
+            --rev "$revision" \
+            --locked
+        fi
 
     - name: Build production binary
       shell: bash
@@ -108,3 +122,8 @@ runs:
 
         install -Dm0755 "$binary" "build/ci_target/${ARCH}/node-subtensor"
         echo "Staged $ARCH binary: $(du -h "build/ci_target/${ARCH}/node-subtensor" | cut -f1)"
+
+    - name: Report production compiler cache
+      if: always()
+      shell: bash
+      run: .github/scripts/sccache-report.sh "Production ${{ inputs.arch }} compiler cache"

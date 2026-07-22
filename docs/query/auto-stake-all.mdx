@@ -40,3 +40,9 @@ result = sub.read("auto_stake_all", coldkey_ss58="5F...")
 ```
 
 Async is the same surface awaited: `async with bt.Subtensor() as client:`.
+
+## On-chain implementation
+
+- Storage [`SubtensorModule.AutoStakeDestination`](/code/pallets/subtensor/src/lib.rs#L1507)
+
+Every file is browsable under [/code](/code) exactly as built into the runtime.

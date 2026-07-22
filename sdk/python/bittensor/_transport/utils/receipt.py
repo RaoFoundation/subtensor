@@ -1,5 +1,7 @@
 from typing import Any, Optional
 
+from ...error_map import DISPATCH_ERRORS
+
 # Wrapper pallets that report an *inner* DispatchResult while the outer
 # extrinsic still emits System.ExtrinsicSuccess. Keyed by (module, event) →
 # attribute holding the Result.
@@ -187,19 +189,24 @@ def build_system_error_message(dispatch_error: dict) -> Optional[dict]:
 
     if "BadOrigin" in dispatch_error:
         name = "BadOrigin"
-        docs = "Bad origin"
     elif "CannotLookup" in dispatch_error:
         name = "CannotLookup"
-        docs = "Cannot lookup"
     elif "Other" in dispatch_error:
         name = "Other"
         docs = "Unspecified error occurred"
     elif "Token" in dispatch_error:
-        name = "Token"
-        docs = dispatch_error["Token"]
+        # The TokenError variant is the useful name ("FundsUnavailable"), not
+        # the "Token" wrapper — downstream classification and `btcli explain`
+        # key on the variant.
+        variant = dispatch_error["Token"]
+        if isinstance(variant, dict) and variant:
+            variant = next(iter(variant))
+        name = str(variant)
 
     if name is None:
         return None
+    if docs is None:
+        _, docs = DISPATCH_ERRORS.get(name, (None, name))
 
     return {
         "type": "System",

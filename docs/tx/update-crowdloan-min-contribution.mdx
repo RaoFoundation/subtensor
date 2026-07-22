@@ -11,7 +11,7 @@ change it, and only while the loan has not been finalized.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Crowdloan | `Crowdloan.update_min_contribution` |
+| `coldkey` | signed account (pallet role may apply) | Crowdloan | [`Crowdloan.update_min_contribution`](/code/pallets/crowdloan/src/lib.rs#L817-L852) |
 
 ## Parameters
 
@@ -63,7 +63,7 @@ result = sub.execute_tool("update_crowdloan_min_contribution", {...}, wallet)
 
 ## On-chain implementation
 
-`Crowdloan.update_min_contribution` — [`pallets/crowdloan/src/lib.rs#L819`](/code/pallets/crowdloan/src/lib.rs#L819):
+`Crowdloan.update_min_contribution` — [`pallets/crowdloan/src/lib.rs#L819`](/code/pallets/crowdloan/src/lib.rs#L817-L852):
 
 ```rust
 #[pallet::call_index(6)]

@@ -11,7 +11,8 @@ earns no dividends.
 ## How it works
 
 Every epoch recomputes permits from scratch
-(`pallets/subtensor/src/epoch/run_epoch.rs`): `is_topk_nonzero(&stake, k)`
+([`pallets/subtensor/src/epoch/run_epoch.rs`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L276-L282)):
+[`is_topk_nonzero(&stake, k)`](/code/pallets/subtensor/src/epoch/math.rs#L227-L241)
 with `k = MaxAllowedValidators` grants permits to the top-`k` neurons by
 stake weight (alpha stake plus TAO stake scaled by `tao_weight`), skipping
 zero-stake neurons; the subnet owner's UID is always permitted. The mainnet
@@ -41,7 +42,8 @@ btcli sudo get --netuid N --name max_validators
 ```
 
 Not settable by the subnet owner — root/governance only
-(`sudo_set_max_allowed_validators` in AdminUtils requires the root origin
+([`sudo_set_max_allowed_validators`](/code/pallets/admin-utils/src/lib.rs#L848-L873)
+in AdminUtils requires the root origin
 and enforces the `max_allowed_uids` ceiling). The value is a plain integer.
 
 ## Related

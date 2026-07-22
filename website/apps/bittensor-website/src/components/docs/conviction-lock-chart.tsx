@@ -136,7 +136,17 @@ export function ConvictionLockChart() {
   return (
     <ExplainerPanel
       title="Perpetual conviction lock"
-      caption="c₁ = m − (m − c₀)·e^(−Δt/τ). Locked mass stays fixed; conviction approaches mass asymptotically (~63% at 1τ)."
+      caption={
+        <>
+          <a
+            href="/code/pallets/subtensor/src/staking/lock.rs#L371-L423"
+            className="underline"
+          >
+            c₁ = m − (m − c₀)·e^(−Δt/τ)
+          </a>
+          . Locked mass stays fixed; conviction approaches mass asymptotically (~63% at 1τ).
+        </>
+      }
     >
       <div className="h-44">
         <Line data={data} options={options} plugins={[annotationPlugin]} />

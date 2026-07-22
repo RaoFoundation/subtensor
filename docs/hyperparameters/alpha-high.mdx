@@ -7,7 +7,7 @@ description: Upper bound of the liquid-alpha bonds EMA range — the smoothing r
 
 ## How it works
 
-Each epoch, `alpha_sigmoid` (`pallets/subtensor/src/epoch/run_epoch.rs`) maps a pair's deviation from consensus into the EMA rate:
+Each epoch, [`alpha_sigmoid`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1538-L1565) (`pallets/subtensor/src/epoch/run_epoch.rs`) maps a pair's deviation from consensus into the EMA rate:
 
 ```
 alpha = alpha_low + sigmoid(diff) × (alpha_high − alpha_low)
@@ -15,7 +15,7 @@ alpha = alpha_low + sigmoid(diff) × (alpha_high − alpha_low)
 
 The deviation is `weight − consensus` when a validator is raising its bond, or `bond − weight` when lowering it (both clamped to 0..1). As deviation grows past 0.5 the sigmoid saturates toward 1 and alpha approaches `alpha_high`; the result is clamped into the `alpha_low`..`alpha_high` window. The resulting per-pair matrix drives the bonds EMA `B(t) = alpha × W + (1 − alpha) × B(t−1)` in `mat_ema_alpha`. Defaults are (45875, 58982) — 0.7 and 0.9 of `u16::MAX`.
 
-Validation in `do_set_alpha_values`: liquid alpha must already be enabled (`LiquidAlphaDisabled`), and `alpha_high` must be at least 1638 (`u16::MAX / 40` ≈ 0.025), else `AlphaHighTooLow`. `alpha_low` may not exceed it.
+Validation in [`do_set_alpha_values`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1579-L1609): liquid alpha must already be enabled ([`LiquidAlphaDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L134)), and `alpha_high` must be at least 1638 (`u16::MAX / 40` ≈ 0.025), else [`AlphaHighTooLow`](/code/pallets/subtensor/src/macros/errors.rs#L136). `alpha_low` may not exceed it.
 
 <HyperparamLiquidAlpha focus="alpha_high" />
 
@@ -31,7 +31,7 @@ Stored as u16 (65535 = 1.0); the CLI accepts the raw integer or a 0..1 fraction 
 btcli sudo set --netuid N --name alpha_high --value 0.9
 ```
 
-On chain, [`alpha_low`](/docs/hyperparameters/alpha-low) and `alpha_high` live in one storage value set by a single `sudo_set_alpha_values` call. The CLI reads the current pair and resubmits it with only `alpha_high` changed, so the other side is preserved.
+On chain, [`alpha_low`](/docs/hyperparameters/alpha-low) and `alpha_high` live in one storage value set by a single [`sudo_set_alpha_values`](/code/pallets/admin-utils/src/lib.rs#L1293-L1316) call. The CLI reads the current pair and resubmits it with only `alpha_high` changed, so the other side is preserved.
 
 ## Related
 

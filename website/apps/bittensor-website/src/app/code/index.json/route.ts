@@ -10,7 +10,9 @@ export function GET() {
     commit: buildCommit(),
     note:
       'Rust source of the Bittensor chain (pallets, runtime, primitives; no tests/mocks/benchmarks). ' +
-      `View at ${codeRoute}/<path> (line anchors: #L<n>), fetch plain text at ${codeRoute}/raw/<path>.`,
+      `View at ${codeRoute}/<path> (line anchors: #L<n> or #L<n>-L<m>), fetch plain text at ${codeRoute}/raw/<path>. ` +
+      `Search paths and contents: ${codeRoute}/search.json?q=<literal>.`,
+    search: `${codeRoute}/search.json?q=<literal>`,
     files: codeFiles(),
   };
   return Response.json(manifest);

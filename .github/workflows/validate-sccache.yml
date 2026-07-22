@@ -6,8 +6,38 @@ on:
       - ".github/actions/rust-setup/**"
       - ".github/actions/sccache-setup/**"
       - ".github/scripts/sccache-configure.sh"
+      - ".github/scripts/sccache-config.py"
       - ".github/scripts/test-sccache-configure.sh"
+      - ".github/scripts/rust-setup-preflight.sh"
+      - ".github/scripts/install-rust-toolchain.sh"
+      - ".github/scripts/test-rust-setup-preflight.sh"
+      - ".github/scripts/sccache-report.sh"
+      - ".github/scripts/test-sccache-report.sh"
+      - ".github/scripts/classify-bittensor-e2e-changes.sh"
+      - ".github/rust-ci-paths.txt"
+      - ".github/scripts/classify-rust-changes.sh"
+      - ".github/scripts/validate-rust-ci-paths.sh"
+      - ".github/scripts/test-rust-ci-paths.sh"
+      - ".github/scripts/build-bittensor-e2e-matrix.py"
+      - ".github/scripts/test-classify-bittensor-e2e-changes.sh"
+      - ".github/scripts/download-artifact.sh"
+      - ".github/scripts/test-download-artifact.sh"
+      - ".github/scripts/select-shared-release-artifact.sh"
+      - ".github/scripts/test-select-shared-release-artifact.sh"
+      - ".github/scripts/prewarm-exact-runtime.sh"
+      - ".github/scripts/test-prewarm-exact-runtime.sh"
+      - ".github/scripts/benchmark-sccache-paired.sh"
+      - ".github/scripts/benchmark-artifact-cache.sh"
+      - ".github/scripts/r2-artifact-mirror.py"
+      - ".github/scripts/publish-artifact-mirror.sh"
+      - ".github/scripts/publish-current-run-artifact-mirror.sh"
+      - ".github/scripts/test-r2-artifact-mirror.py"
+      - ".github/scripts/r2-sccache-warmset.py"
+      - ".github/scripts/test-r2-sccache-warmset.py"
+      - ".github/scripts/snapshot-artifact.sh"
+      - ".github/scripts/test-snapshot-artifact.sh"
       - ".github/workflows/check-bittensor-e2e-tests.yml"
+      - ".github/workflows/docker-localnet.yml"
       - ".github/workflows/check-node-compat.yml"
       - ".github/workflows/mainnet-clone-preview.yml"
       - ".github/workflows/runtime-checks.yml"
@@ -15,6 +45,19 @@ on:
       - ".github/workflows/typescript-e2e.yml"
       - ".github/workflows/validate-sccache.yml"
   workflow_dispatch:
+    inputs:
+      benchmark_host_cache:
+        description: "Run paired cache benchmarks on the turbo-8 production pool"
+        type: boolean
+        default: false
+      benchmark_artifact_cache:
+        description: "Include the large GitHub artifact comparison"
+        type: boolean
+        default: true
+      benchmark_fleet_cache:
+        description: "Sample 20 fresh production-pool placements and report p50/p95"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,4 +70,217 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Test fail-open and writer event gates
-        run: .github/scripts/test-sccache-configure.sh
+        run: |
+          .github/scripts/test-rust-setup-preflight.sh
+          .github/scripts/test-sccache-configure.sh
+          .github/scripts/test-sccache-report.sh
+
+      - name: Test immutable artifact selection and download boundary
+        run: |
+          .github/scripts/test-snapshot-artifact.sh
+          .github/scripts/test-download-artifact.sh
+          .github/scripts/test-select-shared-release-artifact.sh
+          .github/scripts/test-r2-artifact-mirror.py
+          .github/scripts/test-r2-sccache-warmset.py
+          .github/scripts/test-classify-bittensor-e2e-changes.sh
+          .github/scripts/test-rust-ci-paths.sh
+
+      - name: Check benchmark and prewarm script syntax
+        run: |
+          .github/scripts/test-prewarm-exact-runtime.sh
+          bash -n .github/scripts/benchmark-sccache-paired.sh
+          bash -n .github/scripts/benchmark-artifact-cache.sh
+
+  benchmark-sccache-paired:
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_host_cache
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure direct R2 sccache baseline
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: host-cache-benchmark-paired
+          sccache-local-tier: disabled
+
+      - name: Measure paired origin and warm-local reads in one VM
+        env:
+          SKIP_WASM_BUILD: 1
+        run: .github/scripts/benchmark-sccache-paired.sh
+
+  # One clean runtime check per fresh runner placement. The paired benchmark
+  # above controls noise on one VM; this matrix answers the operationally more
+  # important question: what latency does a randomly scheduled CI job see?
+  benchmark-sccache-fleet:
+    name: fleet cache sample ${{ matrix.sample }}/20
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark_fleet_cache
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # Avoid turning the benchmark itself into an artificial load test.
+      max-parallel: 5
+      matrix:
+        sample: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    env:
+      SKIP_WASM_BUILD: 1
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Configure production reader cache
+        uses: ./.github/actions/rust-setup
+        with:
+          cache-key: host-cache-benchmark-fleet
+          sccache-credential-mode: reader
+
+      - name: Measure a clean runtime check
+        id: measure
+        run: |
+          set -euo pipefail
+          cargo clean
+          if [[ "${SCCACHE_ENABLED:-false}" == true ]]; then
+            sccache --zero-stats >/dev/null
+          fi
+          started=$(date -u +%s)
+          cargo check --locked -p node-subtensor-runtime
+          echo "seconds=$(($(date -u +%s) - started))" >> "$GITHUB_OUTPUT"
+
+      - name: Report fleet-sample compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Fleet sample ${{ matrix.sample }} compiler cache" "$RUNNER_TEMP/sccache-fleet-${{ matrix.sample }}"
+
+      - name: Record fleet sample
+        env:
+          SAMPLE: ${{ matrix.sample }}
+          SECONDS: ${{ steps.measure.outputs.seconds }}
+          PLACEMENT: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          stats="$RUNNER_TEMP/sccache-fleet-${SAMPLE}.json"
+          hits=$(jq '([.stats.cache_hits.counts[]?] | add) // 0' "$stats")
+          misses=$(jq '([.stats.cache_misses.counts[]?] | add) // 0' "$stats")
+          enabled=false
+          local_tier=false
+          [[ "${SCCACHE_ENABLED:-false}" != true ]] || enabled=true
+          [[ "${SCCACHE_LOCAL_TIER:-false}" != true ]] || local_tier=true
+          jq -n \
+            --argjson sample "$SAMPLE" \
+            --argjson seconds "$SECONDS" \
+            --arg placement "$PLACEMENT" \
+            --arg backend "${SCCACHE_BACKEND:-disabled}" \
+            --argjson enabled "$enabled" \
+            --argjson local_tier "$local_tier" \
+            --argjson hits "$hits" \
+            --argjson misses "$misses" \
+            '{sample: $sample, seconds: $seconds, placement: $placement,
+              backend: $backend, enabled: $enabled, local_tier: $local_tier,
+              hits: $hits, misses: $misses}' \
+            > "$RUNNER_TEMP/fleet-sample-${SAMPLE}.json"
+
+      - name: Upload fleet sample
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fleet-cache-sample-${{ matrix.sample }}
+          path: |
+            ${{ runner.temp }}/fleet-sample-${{ matrix.sample }}.json
+            ${{ runner.temp }}/sccache-fleet-${{ matrix.sample }}.*
+          if-no-files-found: error
+          retention-days: 7
+
+  benchmark-sccache-fleet-summary:
+    name: fleet cache p50/p95 summary
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.benchmark_fleet_cache
+    needs: benchmark-sccache-fleet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download fleet samples
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fleet-cache-sample-*
+          path: ${{ runner.temp }}/fleet-cache-samples
+          merge-multiple: true
+
+      - name: Summarize fleet distribution
+        env:
+          SAMPLE_DIR: ${{ runner.temp }}/fleet-cache-samples
+        run: |
+          python3 - <<'PY'
+          import collections
+          import json
+          import math
+          import os
+          from pathlib import Path
+
+          expected = 20
+          root = Path(os.environ["SAMPLE_DIR"])
+          samples = [json.loads(path.read_text()) for path in root.glob("fleet-sample-*.json")]
+          samples.sort(key=lambda sample: sample["sample"])
+          seconds = sorted(sample["seconds"] for sample in samples)
+
+          lines = ["### Production-pool sccache distribution", ""]
+          lines.append(f"- Complete samples: {len(samples)}/{expected}")
+          lines.append("- Sampling unit: fresh scheduler placements (physical-host uniqueness is not exposed)")
+          if samples:
+              percentile = lambda p: seconds[math.ceil(p * len(seconds)) - 1]
+              lines.extend([
+                  f"- Compile wall time: p50 {percentile(0.50)}s, p95 {percentile(0.95)}s",
+                  f"- Range: {seconds[0]}s–{seconds[-1]}s; mean {sum(seconds) / len(seconds):.1f}s",
+                  f"- sccache enabled: {sum(sample['enabled'] for sample in samples)}/{len(samples)}",
+                  f"- Host-local route active: {sum(sample['local_tier'] for sample in samples)}/{len(samples)}",
+                  "- Backend routes: " + ", ".join(
+                      f"{name}={count}" for name, count in
+                      sorted(collections.Counter(sample["backend"] for sample in samples).items())
+                  ),
+                  "",
+                  "| Sample | Seconds | Route | Local tier | Hits | Misses | Placement |",
+                  "|---:|---:|---|:---:|---:|---:|---|",
+              ])
+              for sample in samples:
+                  lines.append(
+                      f"| {sample['sample']} | {sample['seconds']} | {sample['backend']} | "
+                      f"{str(sample['local_tier']).lower()} | {sample['hits']} | "
+                      f"{sample['misses']} | {sample['placement']} |"
+                  )
+
+          report = "\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(report)
+          if len(samples) != expected:
+              raise SystemExit(f"expected {expected} complete samples, found {len(samples)}")
+          PY
+
+  benchmark-artifact-cache:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.benchmark_host_cache &&
+      inputs.benchmark_artifact_cache
+    needs: benchmark-sccache-paired
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Select latest trusted mainnet clone snapshot
+        id: snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh select \
+            mainnet-snapshot main "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml 168 \
+            "$GITHUB_OUTPUT" required
+
+      - name: Measure direct and cache-only artifact downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          ARTIFACT_ID: ${{ steps.snapshot.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.snapshot.outputs.artifact-digest }}
+          ARTIFACT_SIZE: ${{ steps.snapshot.outputs.artifact-size-bytes }}
+        run: .github/scripts/benchmark-artifact-cache.sh

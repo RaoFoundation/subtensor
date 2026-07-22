@@ -49,9 +49,7 @@ PROPOSAL_WEIGHT = {"ref_time": 50_000_000_000, "proof_size": 0}
 # Must cover the proxy+setCode proposal's declared weight (v432 measured
 # ~50.5B ref_time / ~13.4k proof_size). Too-low proof_size fails the
 # deployment as_multi with MaxWeightTooLow *after* the outer sudo approval.
-# Sized for headroom as runtimes grow, well under normal max_extrinsic
-# (~2.6T ref_time) so the outer sudo approval still fits a block.
-FINALIZE_WEIGHT = {"ref_time": 200_000_000_000, "proof_size": 1_000_000}
+FINALIZE_WEIGHT = {"ref_time": 80_000_000_000, "proof_size": 50_000}
 
 _MAX_FETCH_BYTES = 64 * 1024 * 1024
 _FETCH_TIMEOUT = 60.0

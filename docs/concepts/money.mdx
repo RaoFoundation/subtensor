@@ -78,7 +78,7 @@ or absent limit price.
 ## Swap fees
 
 Every swap against a pool pays a fee of amount × FeeRate / 65535, where
-`FeeRate` is per-subnet and governance-settable (default 33 ≈ 0.05%). It is
+[`FeeRate`](/code/pallets/swap/src/pallet/mod.rs#L96) is per-subnet and governance-settable (default 33 ≈ 0.05%). It is
 taken from the input side: TAO when staking, alpha when unstaking — and paid
 to the block author (an alpha-side fee is converted to TAO first). Moving
 stake between hotkeys within the same subnet is not a swap and pays no swap
@@ -96,8 +96,10 @@ Two floors to know about:
   is reaped: deactivated, with the remaining dust destroyed. Live value:
   [`existential-deposit`](/docs/query/existential-deposit).
 - **Minimum stake** — staking operations below a chain-configured minimum
+  ([`DefaultMinStake`](/code/pallets/subtensor/src/lib.rs#L1047), enforced in
+  [`stake_utils.rs`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1089-L1102))
   (default 2,000,000 rao = 0.002 TAO, plus the swap fee on top) fail with
-  `AmountTooLow`; unstakes are held to the same floor, both on the amount
+  [`AmountTooLow`](/code/pallets/subtensor/src/macros/errors.rs#L188); unstakes are held to the same floor, both on the amount
   withdrawn and on any dust position left behind.
 
 ## Supply

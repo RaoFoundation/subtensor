@@ -24,6 +24,7 @@ import typer
 from ..intents import REGISTRY
 from ..intents.base import Intent, is_money
 from ..intents.proxy import ProxyTypeChoice
+from ..settings import tx_docs_url
 from . import globals as g
 from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from .prompt import PromptSpec, fill_missing, interactive, signer_specs
@@ -194,14 +195,17 @@ def _privilege_note(intent_cls: type[Intent]) -> Optional[str]:
 
 
 def _command_doc(intent_cls: type[Intent]) -> str:
-    """The intent's docstring plus generated privilege / verify footers, so the
-    required key and the post-submission check are visible on --help."""
+    """The intent's docstring plus generated privilege / verify / docs footers,
+    so the required key, the post-submission check, and the docs page (which
+    carries the on-chain implementation with source links) are visible on
+    --help."""
     parts = [intent_cls.describe()]
     note = _privilege_note(intent_cls)
     if note:
         parts.append(note)
     if intent_cls.verify:
         parts.append(f"Verify afterwards: btcli query {intent_cls.verify.replace('_', '-')}")
+    parts.append(f"Docs: {tx_docs_url(intent_cls.op)}")
     return "\n\n".join(part for part in parts if part)
 
 

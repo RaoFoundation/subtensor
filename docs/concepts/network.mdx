@@ -55,7 +55,11 @@ subnet prices are summed.
 Subnet slots are limited: a subnet holds at most `max_allowed_uids` neurons
 (default 256, and no lower than 64). Registering on a full subnet
 ([`burned-register`](/docs/tx/burned-register)) evicts the lowest-ranked
-non-immune neuron; a freshly registered neuron is protected for an immunity
+non-immune neuron
+([`get_neuron_to_prune`](/code/pallets/subtensor/src/subnets/registration.rs#L280-L356));
+a freshly registered neuron
+([`append_neuron`](/code/pallets/subtensor/src/subnets/uids.rs#L117-L145))
+is protected for an immunity
 period, then competes like everyone else.
 
 A neuron's **stake weight** on a subnet is

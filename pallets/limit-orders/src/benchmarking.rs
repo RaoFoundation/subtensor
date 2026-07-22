@@ -56,6 +56,11 @@ pub fn order_id<T: crate::Config>(order: &crate::VersionedOrder<T::AccountId>) -
 /// - constructs a worst-case `LimitBuy` order (amount = 1 TAO, price = u64::MAX,
 ///   expiry = u64::MAX, fee 1 %, distinct fee recipient), and
 /// - signs it with the generated key.
+// Keep per-order execution stable across benchmark repeats. Use one TAO
+// so every order clears the pallet/subtensor minimum amount checks while
+// avoiding the reserve-draining edge cases caused by very large orders.
+const BENCHMARK_ORDER_AMOUNT: u64 = 1_000_000_000;
+
 fn make_benchmark_orders<T: crate::Config>(
     n: u32,
     netuid: NetUid,
@@ -70,13 +75,14 @@ fn make_benchmark_orders<T: crate::Config>(
         let fee_recipient: T::AccountId = frame_benchmarking::account("fee_recipient", i, 0);
 
         T::SwapInterface::set_up_acc_for_benchmark(&account, &account);
+        T::SwapInterface::set_up_acc_for_benchmark(&fee_recipient, &fee_recipient);
 
         let order = crate::VersionedOrder::V1(crate::Order {
             signer: account.clone(),
             hotkey: account.clone(),
             netuid,
             order_type: OrderType::LimitBuy,
-            amount: 1_000_000_000u64,
+            amount: BENCHMARK_ORDER_AMOUNT,
             limit_price: u64::MAX,
             expiry: u64::MAX,
             fee_rate: Perbill::from_percent(1),
@@ -135,8 +141,10 @@ mod benchmarks {
         assert_eq!(crate::LimitOrdersEnabled::<T>::get(), false);
     }
 
-    /// Worst case: `n` orders each with a distinct signer (coldkey/hotkey) and a
-    /// distinct fee recipient, maximising per-order storage reads and fee transfers.
+    /// Worst case: `n` valid orders each with a distinct signer (coldkey/hotkey)
+    /// and a distinct fee recipient. The benchmark runs in all-or-nothing mode
+    /// and verifies every order is fulfilled, so silently skipped or stale orders
+    /// cannot produce cheaper/noisy measurements across repeats.
     #[benchmark]
     fn execute_orders(n: Linear<1, { T::MaxOrdersPerBatch::get() }>) {
         let netuid = NetUid::from(1u16);
@@ -144,13 +152,30 @@ mod benchmarks {
         T::SwapInterface::set_up_netuid_for_benchmark(netuid);
 
         let orders = make_benchmark_orders::<T>(n, netuid);
+        let order_ids = orders
+            .iter()
+            .map(|signed| order_id::<T>(&signed.order))
+            .collect::<alloc::vec::Vec<_>>();
+
+        // Benchmark externalities are reused across samples/repeats. Remove any
+        // terminal status left by an earlier run so every sample measures the same
+        // successful execution path, rather than the cheaper already-processed path.
+        for id in &order_ids {
+            Orders::<T>::remove(id);
+        }
 
         let bounded_orders: frame_support::BoundedVec<_, T::MaxOrdersPerBatch> =
             frame_support::BoundedVec::try_from(orders).unwrap();
         let caller: T::AccountId = frame_benchmarking::account("caller", 0, 0);
 
+        frame_system::Pallet::<T>::reset_events();
+
         #[extrinsic_call]
-        _(RawOrigin::Signed(caller), bounded_orders, false);
+        _(RawOrigin::Signed(caller), bounded_orders, true);
+
+        for id in order_ids {
+            assert_eq!(Orders::<T>::get(id), Some(crate::OrderStatus::Fulfilled));
+        }
     }
 
     /// Worst case: `n` buy orders each with a distinct signer and fee recipient,
