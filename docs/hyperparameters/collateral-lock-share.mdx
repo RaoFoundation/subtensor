@@ -28,7 +28,8 @@ top-up is staked to the hotkey via the normal staking path and locked
 Standing collateral from a previous registration of the same hotkey is valued
 at the subnet's moving-average price and credited, so a pruned miner re-registers for
 roughly the burned share alone. Locked collateral is excluded from what the
-coldkey can unstake and is released only against earned miner incentive, at
+coldkey can unstake and is released only against earned emission (miner
+incentive and validator dividends), at
 [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio)
 alpha per alpha earned.
 

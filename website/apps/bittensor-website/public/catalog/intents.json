@@ -2,7 +2,7 @@
   {
     "name": "add_collateral",
     "summary": "Lock additional miner collateral on your own hotkey.",
-    "description": "Lock additional miner collateral on your own hotkey.\n\nTops up the hotkey's registration collateral on the subnet \u2014 for example\nto meet a validator-published per-machine requirement on resource\nsubnets. Prefers free alpha already staked on that hotkey (valued at the\nsubnet moving price) and only buys the shortfall with TAO from the\ncoldkey. The signing coldkey must own the hotkey. The locked alpha is\nreal stake (it appreciates with the subnet pool) but is not\nwithdrawable: it is released back to free stake through earned miner\nincentive at the drain ratio snapshot the hotkey already carries,\nsurvives deregistration, and is credited against the collateral\nrequirement on re-registration. There is no direct withdrawal path \u2014\nsee `set_min_collateral` for maintaining a level without re-locking\ndrained funds.\n\nAny TAO\u2192alpha buy is fill-or-kill against `rate_tolerance` above spot\nand must be submitted MEV-shielded \u2014 collateral purchases are not allowed\nto clear unshielded at an unbounded AMM price.",
+    "description": "Lock additional miner collateral on your own hotkey.\n\nTops up the hotkey's registration collateral on the subnet \u2014 for example\nto meet a validator-published per-machine requirement on resource\nsubnets. Prefers free alpha already staked on that hotkey and only buys\nthe shortfall with TAO from the coldkey. The signing coldkey must own\nthe hotkey. The locked alpha is real stake (it appreciates with the\nsubnet pool) but is not withdrawable: it is released back to free stake\nthrough earned emission at the drain ratio snapshot the hotkey already\ncarries, survives deregistration, and is credited against the collateral\nrequirement on re-registration. There is no direct withdrawal path \u2014\nsee `set_min_collateral` for maintaining a level without re-locking\ndrained funds.\n\nAny TAO\u2192alpha buy is fill-or-kill against `rate_tolerance` above spot\nand must be submitted MEV-shielded \u2014 collateral purchases are not allowed\nto clear unshielded at an unbounded AMM price.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -20,7 +20,7 @@
           "type": "integer",
           "description": "Subnet to lock collateral on."
         },
-        "amount_tao": {
+        "amount_alpha": {
           "anyOf": [
             {
               "type": "number"
@@ -31,7 +31,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO-value of collateral to add. Uses free stake on the hotkey first; only the shortfall is bought (that remainder must meet the staking minimum)."
+          "description": "Alpha of collateral to add. Uses free stake on the hotkey first; only the shortfall is bought with TAO (that remainder must meet the staking minimum)."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -44,11 +44,11 @@
       },
       "required": [
         "netuid",
-        "amount_tao"
+        "amount_alpha"
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx add-collateral --netuid <int> --amount-tao <amount|all>",
+    "cli": "btcli tx add-collateral --netuid <int> --amount-alpha <amount|all>",
     "python_class": "AddCollateral",
     "markdown_url": "/llms.mdx/docs/tx/add-collateral/content.md",
     "sources": [
@@ -56,9 +56,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2444,
-        "end_line": 2452,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2442-L2452",
+        "line": 2443,
+        "end_line": 2451,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2441-L2451",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -449,7 +449,7 @@
   {
     "name": "burned_register",
     "summary": "Register a hotkey on a subnet by paying the registration cost.",
-    "description": "Register a hotkey on a subnet by paying the registration cost.\n\nPays the subnet's current floating registration cost from the signing\ncoldkey and assigns the hotkey a UID. When the subnet's collateral lock\nshare (p) is zero, the full cost is burned/recycled. When p > 0, the\n`(1 - p)` share is burned and the `p` share is staked to the hotkey and\nlocked as miner collateral (released only through earned incentive). The\nexact TAO charge is only known at execution time, so a configured spend\ncap blocks this call until raised. Fails with\n`SubNetRegistrationDisabled` while the subnet's `registration_allowed`\ntoggle is off. On a full subnet, registering evicts the non-immune neuron\nwith the lowest emission (ties broken by older registration block, then\nlower UID), and the new UID can itself be evicted once its immunity\nperiod ends. Use `root_register` instead for the root network\n(netuid 0).",
+    "description": "Register a hotkey on a subnet by paying the registration cost.\n\nPays the subnet's current floating registration cost from the signing\ncoldkey and assigns the hotkey a UID. When the subnet's collateral lock\nshare (p) is zero, the full cost is burned/recycled. When p > 0, the\n`(1 - p)` share is burned and the `p` share is staked to the hotkey and\nlocked as miner collateral (released only through earned emission). The\nexact TAO charge is only known at execution time, so a configured spend\ncap blocks this call until raised. Fails with\n`SubNetRegistrationDisabled` while the subnet's `registration_allowed`\ntoggle is off. On a full subnet, registering evicts the non-immune neuron\nwith the lowest emission (ties broken by older registration block, then\nlower UID), and the new UID can itself be evicted once its immunity\nperiod ends. Use `root_register` instead for the root network\n(netuid 0).",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1710,7 +1710,7 @@
   {
     "name": "register_subnet",
     "summary": "Create a new subnet owned by the signing coldkey.",
-    "description": "Create a new subnet owned by the signing coldkey.\n\nRegisters a brand-new subnet with the signing coldkey as its owner and the\nwallet's hotkey as the subnet-owner hotkey. The network registration cost \u2014\npotentially thousands of TAO \u2014 is taken from the coldkey; it doubles after\neach new subnet registration and decays linearly back over the lock\nreduction interval, and is only known at execution time, so a configured\nspend cap blocks this call until raised. The full cost becomes the new\nsubnet's initial TAO pool reserve \u2014 a sunk cost, not a refundable deposit.\nNetwork registrations are rate-limited per coldkey. If the chain is at\nits subnet limit, registering dissolves the non-immune subnet with the\nlowest EMA price to free the slot (the new subnet reuses its netuid).\nThe new subnet starts inactive: call `start_call` once the chain's\nactivation delay has passed to activate it; the subnet's share of TAO\nemission additionally stays off until root enables the subnet's\nemission-enabled flag. This is a major, expensive commitment \u2014 check the\ncurrent cost before sending.",
+    "description": "Create a new subnet owned by the signing coldkey.\n\nRegisters a brand-new subnet with the signing coldkey as its owner and the\nwallet's hotkey as the subnet-owner hotkey. The network registration cost \u2014\npotentially thousands of TAO \u2014 is taken from the coldkey; it doubles after\neach new subnet registration and decays linearly back over the lock\nreduction interval, and is only known at execution time, so a configured\nspend cap blocks this call until raised. The full cost becomes the new\nsubnet's initial TAO pool reserve \u2014 a sunk cost, not a refundable deposit.\nNetwork registrations are rate-limited per coldkey. If capacity is\navailable, the subnet is created in the registration block. If the chain\nis at its subnet limit, registration first queues while the non-immune\nsubnet with the lowest EMA price is dissolved across idle block time; SDK\nexecution waits for the matching `NetworkAdded` event before returning\nby default. The result's `registration_mode` distinguishes the two paths\nand `netuid` is the subnet actually assigned.\nThe new subnet starts inactive: call `start_call` once the chain's\nactivation delay has passed to activate it; the subnet's share of TAO\nemission additionally stays off until root enables the subnet's\nemission-enabled flag. This is a major, expensive commitment \u2014 check the\ncurrent cost before sending.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2840,9 +2840,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2317,
-        "end_line": 2356,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2315-L2356",
+        "line": 2318,
+        "end_line": 2357,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2316-L2357",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
@@ -3098,7 +3098,7 @@
   {
     "name": "set_min_collateral",
     "summary": "Set the self-maintaining collateral floor for your hotkey on a subnet.",
-    "description": "Set the self-maintaining collateral floor for your hotkey on a subnet.\n\nThe collateral drain never releases the lock below the floor, and while\nthe lock is under it, earned miner incentive is captured into the lock\nuntil the floor is met \u2014 so a miner tracking a validator-published\ncollateral requirement does not need to keep re-locking drained funds.\nRaising the floor above the current lock does not require fresh capital:\nthe shortfall fills from future incentive (use `add_collateral` to fund\nit immediately). Zero clears the floor and restores pure drain behavior.",
+    "description": "Set the self-maintaining collateral floor for your hotkey on a subnet.\n\nThe collateral drain never releases the lock below the floor, and while\nthe lock is under it, earned emission is captured into the lock until\nthe floor is met \u2014 so a miner tracking a validator-published collateral\nrequirement does not need to keep re-locking drained funds. Raising the\nfloor above the current lock does not require fresh capital: the shortfall\nfills from future emission (use `add_collateral` to fund it\nimmediately). Zero clears the floor and restores pure drain behavior.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3148,9 +3148,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2479,
-        "end_line": 2486,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2477-L2486",
+        "line": 2478,
+        "end_line": 2485,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2476-L2485",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

@@ -2402,26 +2402,25 @@ mod dispatches {
             )
         }
 
-        /// Locks about `tao` worth of additional miner collateral on the
-        /// signer's own hotkey.
+        /// Locks additional miner collateral (in alpha) on the signer's own
+        /// hotkey.
         ///
         /// Prefers free alpha already staked on that `(hotkey, coldkey)`
-        /// position (valued at the subnet moving price) and only buys the
-        /// shortfall with TAO. Used to top up registration collateral
-        /// voluntarily — for example to meet a validator-published
-        /// per-machine requirement on resource subnets. The lock is released
-        /// back through earned incentive exactly like registration
-        /// collateral (it is the same lock), keeps the existing drain-ratio
-        /// snapshot, and is credited against the collateral requirement on
-        /// re-registration.
+        /// position and only buys the shortfall with TAO. Used to top up
+        /// registration collateral voluntarily — for example to meet a
+        /// validator-published per-machine requirement on resource subnets.
+        /// The lock is released back through earned emission exactly like
+        /// registration collateral (it is the same lock), keeps the existing
+        /// drain-ratio snapshot, and is credited against the collateral
+        /// requirement on re-registration.
         ///
         /// # Arguments
         /// * `origin`: Signed by the coldkey that owns `hotkey`.
         /// * `netuid`: The subnet to lock collateral on.
         /// * `hotkey`: The miner hotkey the collateral attaches to.
-        /// * `tao`: TAO-value of collateral to add. Fully covered by free
+        /// * `alpha`: Alpha of collateral to add. Fully covered by free
         ///   stake when possible; otherwise the unpaid remainder is bought
-        ///   (that remainder must meet the staking minimum).
+        ///   with TAO (that remainder must meet the staking minimum).
         /// * `limit_price`: Worst alpha price (RAO per alpha) accepted for any
         ///   TAO→alpha buy of the shortfall. Fill-or-kill: the buy fails with
         ///   `SlippageTooHigh` instead of executing above this price. Pass the
@@ -2432,8 +2431,8 @@ mod dispatches {
         /// * `SubnetNotExists`: The subnet does not exist.
         /// * `HotKeyAccountNotExists`: The hotkey account does not exist.
         /// * `NonAssociatedColdKey`: The signer does not own `hotkey`.
-        /// * `AmountTooLow`: `tao` converts to zero alpha, or the buy
-        ///   remainder is below the minimum stake.
+        /// * `AmountTooLow`: `alpha` is zero, or the buy remainder is below
+        ///   the minimum stake.
         /// * `NotEnoughBalanceToStake`: The coldkey cannot cover the buy remainder.
         /// * `SlippageTooHigh`: The shortfall buy would clear above `limit_price`.
         ///
@@ -2445,18 +2444,18 @@ mod dispatches {
             origin: OriginFor<T>,
             netuid: NetUid,
             hotkey: T::AccountId,
-            tao: TaoBalance,
+            alpha: AlphaBalance,
             limit_price: TaoBalance,
         ) -> DispatchResult {
-            Self::do_add_collateral(origin, netuid, hotkey, tao, limit_price)
+            Self::do_add_collateral(origin, netuid, hotkey, alpha, limit_price)
         }
 
         /// Sets the self-maintaining collateral floor for the signer's hotkey
         /// on a subnet.
         ///
         /// The drain never releases the lock below the floor, and while the
-        /// lock is under it, earned miner incentive is captured into the lock
-        /// until the floor is met — so a miner tracking a validator-published
+        /// lock is under it, earned emission is captured into the lock until
+        /// the floor is met — so a miner tracking a validator-published
         /// collateral requirement does not need to keep re-locking drained
         /// funds. Zero clears the floor and restores pure drain behavior.
         ///

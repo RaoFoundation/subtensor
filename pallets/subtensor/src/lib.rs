@@ -93,6 +93,14 @@ where
 /// single EVM address.
 pub const MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS: u32 = 32;
 
+/// Maximum number of distinct hotkeys that may hold miner collateral for one
+/// coldkey on a single subnet.
+///
+/// Bounds [`ColdkeyCollateralHotkeys`] so coldkey swaps migrate collateral via
+/// an O(bound) indexed walk instead of scanning unbounded
+/// `StakingHotkeys` / `OwnedHotkeys` association vectors.
+pub const MAX_COLDKEY_COLLATERAL_HOTKEYS: u32 = 32;
+
 /// Account flag bit that opts into receiving locked alpha transfers.
 pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 
@@ -113,7 +121,9 @@ pub mod pallet {
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
     use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
-    use crate::{MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, RateLimitKey};
+    use crate::{
+        MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, RateLimitKey,
+    };
     use frame_support::Twox64Concat;
     use frame_support::{
         BoundedVec,
@@ -366,10 +376,11 @@ pub mod pallet {
     ///
     /// The locked alpha is real stake owned by that coldkey on the hotkey,
     /// flagged non-withdrawable. It is released back to free stake at
-    /// `drain_ratio` alpha per alpha of miner incentive earned, survives
-    /// deregistration, and is credited against the collateral requirement at
-    /// the next registration of the same `(hotkey, coldkey)` pair.
-    #[crate::freeze_struct("2c60af250ccb992b")]
+    /// `drain_ratio` alpha per alpha of hotkey emission earned (miner
+    /// incentive and validator dividends), survives deregistration, and is
+    /// credited against the collateral requirement at the next registration
+    /// of the same `(hotkey, coldkey)` pair.
+    #[crate::freeze_struct("5819399337dfad56")]
     #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
     pub struct MinerCollateralState {
         /// Alpha still locked (non-withdrawable) on this stake position.
@@ -377,15 +388,15 @@ pub mod pallet {
         /// Snapshot of the subnet's drain ratio (k) at the last registration.
         pub drain_ratio: U64F64,
         /// Miner-set floor the lock self-maintains around: the drain never
-        /// releases below it, and while `locked` is under it, earned incentive
+        /// releases below it, and while `locked` is under it, earned emission
         /// is captured into the lock until the floor is met. Zero (the
         /// default) disables the floor and restores pure drain behavior.
         pub min_locked: AlphaBalance,
-        /// Cumulative miner incentive earned while this collateral entry has
-        /// existed (saturating). Observability for validators: compares a
-        /// miner's lifetime extraction against the bond still at risk. Scoped
-        /// to the entry — it disappears with the entry once the lock fully
-        /// drains with no floor set.
+        /// Cumulative hotkey emission (incentive + dividends) earned while
+        /// this collateral entry has existed (saturating). Observability for
+        /// validators: compares lifetime extraction against the bond still at
+        /// risk. Scoped to the entry — it disappears with the entry once the
+        /// lock fully drains with no floor set.
         pub earned: AlphaBalance,
     }
 
@@ -449,7 +460,7 @@ pub mod pallet {
     }
 
     /// Default miner collateral drain ratio (k): one alpha of collateral is
-    /// released per alpha of miner incentive earned.
+    /// released per alpha of hotkey emission earned.
     #[pallet::type_value]
     pub fn DefaultCollateralDrainRatio<T: Config>() -> U64F64 {
         U64F64::from_num(1)
@@ -1241,6 +1252,52 @@ pub mod pallet {
         ValueQuery,
         DefaultZeroU64<T>,
     >;
+
+    /// DMap ( netuid, old_hotkey ) --> new_hotkey | hotkey swap successor on a subnet.
+    ///
+    /// Written on each successful hotkey swap so watchers can follow identity
+    /// without an archive node. Per-subnet because a swap may move a UID on
+    /// one netuid while the old hotkey remains registered elsewhere.
+    #[pallet::storage]
+    pub type HotkeySuccessor<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    /// DMap ( netuid, hotkey ) --> root_hotkey | first hotkey in this subnet's
+    /// swap lineage. Absent means the hotkey is its own root (never swapped
+    /// into, or never recorded). Ban/score against the root, not a single SS58.
+    #[pallet::storage]
+    pub type HotkeyRoot<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    /// MAP ( old_coldkey ) --> new_coldkey | global coldkey swap successor.
+    ///
+    /// Written on each successful coldkey swap so watchers can follow owner
+    /// identity without an archive node. Global (not per-netuid) because a
+    /// coldkey swap moves ownership everywhere at once.
+    #[pallet::storage]
+    pub type ColdkeySuccessor<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
+    /// MAP ( coldkey ) --> root_coldkey | first coldkey in this swap lineage.
+    /// Absent means the coldkey is its own root. Prefer root for owner-keyed
+    /// bans/attribution, not a single SS58.
+    #[pallet::storage]
+    pub type ColdkeyRoot<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
 
     /// Ensures unique IDs for StakeJobs storage map
     #[pallet::storage]
@@ -2806,8 +2863,9 @@ pub mod pallet {
 
     /// MAP ( netuid ) --> CollateralDrainRatio (k)
     ///
-    /// Alpha of locked collateral released per alpha of miner incentive
-    /// earned. Snapshot into `MinerCollateral` at each registration.
+    /// Alpha of locked collateral released per alpha of hotkey emission
+    /// earned (miner incentive and validator dividends). Snapshot into
+    /// `MinerCollateral` at each registration.
     #[pallet::storage]
     pub type CollateralDrainRatio<T> =
         StorageMap<_, Identity, NetUid, U64F64, ValueQuery, DefaultCollateralDrainRatio<T>>;
@@ -2818,7 +2876,7 @@ pub mod pallet {
     /// position on a subnet. Keyed by coldkey so nominators on the same
     /// hotkey are never charged for the owner's bond. The entry persists
     /// across deregistration and is only removed when fully drained through
-    /// earned incentive.
+    /// earned emission.
     #[pallet::storage]
     pub type MinerCollateral<T: Config> = StorageNMap<
         _,
@@ -2844,6 +2902,24 @@ pub mod pallet {
         Blake2_128Concat,
         T::AccountId,
         AlphaBalance,
+        ValueQuery,
+    >;
+
+    /// DMAP ( netuid, coldkey ) --> BoundedVec of hotkeys
+    ///
+    /// Hotkeys with a standing [`MinerCollateral`] row for this coldkey on the
+    /// subnet. Kept in sync by collateral create / remove / swap paths so
+    /// coldkey swaps migrate bonds with a bounded indexed walk (see
+    /// [`MAX_COLDKEY_COLLATERAL_HOTKEYS`]) instead of scanning unbounded
+    /// association vectors.
+    #[pallet::storage]
+    pub type ColdkeyCollateralHotkeys<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<T::AccountId, ConstU32<MAX_COLDKEY_COLLATERAL_HOTKEYS>>,
         ValueQuery,
     >;
 

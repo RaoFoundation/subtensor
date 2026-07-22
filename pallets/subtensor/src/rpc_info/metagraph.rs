@@ -113,7 +113,7 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Miner collateral (per UID; zero when the hotkey has no collateral entry).
     collateral_locked: Vec<Compact<AlphaBalance>>, // Locked collateral per UID
     collateral_min: Vec<Compact<AlphaBalance>>,    // Miner-set collateral floor per UID
-    collateral_earned: Vec<Compact<AlphaBalance>>, // Lifetime incentive earned per UID (since collateral existed)
+    collateral_earned: Vec<Compact<AlphaBalance>>, // Lifetime emission earned per UID (since collateral existed)
 }
 
 #[freeze_struct("bb7420226d39c0eb")]
@@ -223,7 +223,7 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     // Miner collateral (per UID; zero when the hotkey has no collateral entry).
     collateral_locked: Option<Vec<Compact<AlphaBalance>>>, // Locked collateral per UID
     collateral_min: Option<Vec<Compact<AlphaBalance>>>,    // Miner-set collateral floor per UID
-    collateral_earned: Option<Vec<Compact<AlphaBalance>>>, // Lifetime incentive earned per UID
+    collateral_earned: Option<Vec<Compact<AlphaBalance>>>, // Lifetime emission earned per UID
 }
 
 impl<AccountId> SelectiveMetagraph<AccountId>

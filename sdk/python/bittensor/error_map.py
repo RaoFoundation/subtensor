@@ -185,7 +185,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRecoveredPublicKey": _C.INVALID_ARGUMENT,
     "SubtokenDisabled": _C.SUBTOKEN_DISABLED,  # also Swap
     "HotKeySwapOnSubnetIntervalNotPassed": _C.RATE_LIMITED,
-    "HotKeyHasCollateral": _C.POLICY_VIOLATION,
+    "KeepStakeBlockedByCollateral": _C.POLICY_VIOLATION,
     "SameNetuid": _C.INVALID_ARGUMENT,
     "InsufficientTaoBalance": _C.INSUFFICIENT_BALANCE,
     "InsufficientAlphaBalance": _C.INSUFFICIENT_BALANCE,
@@ -224,6 +224,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "SubnetBuybackRateLimitExceeded": _C.RATE_LIMITED,
     "NetworkDissolveAlreadyQueued": _C.ALREADY_EXISTS,
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
+    "ColdkeyCollateralIncomplete": _C.INTERNAL,
+    "ColdkeyCollateralPositionsFull": _C.LIMIT_EXCEEDED,
     "ColdkeySwapAnnounced": _C.ALREADY_EXISTS,
     # The account is frozen because its pending coldkey swap is disputed; all
     # signed calls are blocked until root resolves it via reset_coldkey_swap

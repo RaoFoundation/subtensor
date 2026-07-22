@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 436
+Spec version: 438
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -83,6 +83,10 @@ class SubtensorModule:
     OwnerHyperparamRateLimit = Item('SubtensorModule', 'OwnerHyperparamRateLimit', 'u16')
     DissolveNetworkScheduleDuration = Item('SubtensorModule', 'DissolveNetworkScheduleDuration', 'u32')
     LastHotkeySwapOnNetuid = Item('SubtensorModule', 'LastHotkeySwapOnNetuid', 'u64')
+    HotkeySuccessor = Item('SubtensorModule', 'HotkeySuccessor', 'AccountId32')
+    HotkeyRoot = Item('SubtensorModule', 'HotkeyRoot', 'AccountId32')
+    ColdkeySuccessor = Item('SubtensorModule', 'ColdkeySuccessor', 'AccountId32')
+    ColdkeyRoot = Item('SubtensorModule', 'ColdkeyRoot', 'AccountId32')
     NextStakeJobId = Item('SubtensorModule', 'NextStakeJobId', 'u64')
     TaoWeight = Item('SubtensorModule', 'TaoWeight', 'u64')
     CKBurn = Item('SubtensorModule', 'CKBurn', 'u64')
@@ -306,6 +310,7 @@ class SubtensorModule:
     CollateralDrainRatio = Item('SubtensorModule', 'CollateralDrainRatio', 'FixedU128')
     MinerCollateral = Item('SubtensorModule', 'MinerCollateral', 'MinerCollateralState')
     ColdkeyMinerCollateral = Item('SubtensorModule', 'ColdkeyMinerCollateral', 'AlphaBalance')
+    ColdkeyCollateralHotkeys = Item('SubtensorModule', 'ColdkeyCollateralHotkeys', 'BoundedVec')
     AutoParentDelegationEnabled = Item('SubtensorModule', 'AutoParentDelegationEnabled', 'bool')
     HasMigrationRun = Item('SubtensorModule', 'HasMigrationRun', 'bool')
     PendingChildKeyCooldown = Item('SubtensorModule', 'PendingChildKeyCooldown', 'u64')

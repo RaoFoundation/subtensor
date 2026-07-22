@@ -13,6 +13,7 @@ const staticRoutes = [
   '/intro',
   '/releases',
   '/releases/v431-upgrade',
+  '/releases/v436-upgrade',
   '/wallet',
   '/whitepaper',
 ];

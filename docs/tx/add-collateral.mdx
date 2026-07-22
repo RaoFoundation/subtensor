@@ -7,13 +7,12 @@ description: "Lock additional miner collateral on your own hotkey."
 
 Tops up the hotkey's registration collateral on the subnet — for example
 to meet a validator-published per-machine requirement on resource
-subnets. Prefers free alpha already staked on that hotkey (valued at the
-subnet moving price) and only buys the shortfall with TAO from the
-coldkey. The signing coldkey must own the hotkey. The locked alpha is
-real stake (it appreciates with the subnet pool) but is not
-withdrawable: it is released back to free stake through earned miner
-incentive at the drain ratio snapshot the hotkey already carries,
-survives deregistration, and is credited against the collateral
+subnets. Prefers free alpha already staked on that hotkey and only buys
+the shortfall with TAO from the coldkey. The signing coldkey must own
+the hotkey. The locked alpha is real stake (it appreciates with the
+subnet pool) but is not withdrawable: it is released back to free stake
+through earned emission at the drain ratio snapshot the hotkey already
+carries, survives deregistration, and is credited against the collateral
 requirement on re-registration. There is no direct withdrawal path —
 see `set_min_collateral` for maintaining a level without re-locking
 drained funds.
@@ -24,14 +23,14 @@ to clear unshielded at an unbounded AMM price.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2442-L2452) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2441-L2451) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet to lock collateral on. |
-| `amount_tao` | number \| `"all"` | yes | TAO-value of collateral to add. Uses free stake on the hotkey first; only the shortfall is bought (that remainder must meet the staking minimum). |
+| `amount_alpha` | number \| `"all"` | yes | Alpha of collateral to add. Uses free stake on the hotkey first; only the shortfall is bought with TAO (that remainder must meet the staking minimum). |
 | `hotkey_ss58` | string | no | Miner hotkey the collateral attaches to. Defaults to the wallet hotkey. |
 | `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
@@ -46,10 +45,10 @@ submitting), then submit:
 ```bash
 btcli tx add-collateral \
   --netuid <int> \
-  --amount-tao <amount|all> --dry-run
+  --amount-alpha <amount|all> --dry-run
 btcli tx add-collateral \
   --netuid <int> \
-  --amount-tao <amount|all> -w my_coldkey
+  --amount-alpha <amount|all> -w my_coldkey
 ```
 
 ## Python
@@ -59,7 +58,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.AddCollateral(netuid=1, amount_tao=1.0)
+intent = bt.AddCollateral(netuid=1, amount_alpha=1.0)
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -78,7 +77,7 @@ result = sub.execute_tool("add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2444`](/code/pallets/subtensor/src/macros/dispatches.rs#L2442-L2452):
+`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2443`](/code/pallets/subtensor/src/macros/dispatches.rs#L2441-L2451):
 
 ```rust
 #[pallet::call_index(144)]
@@ -87,13 +86,13 @@ pub fn add_collateral(
     origin: OriginFor<T>,
     netuid: NetUid,
     hotkey: T::AccountId,
-    tao: TaoBalance,
+    alpha: AlphaBalance,
     limit_price: TaoBalance,
 ) -> DispatchResult {
-    Self::do_add_collateral(origin, netuid, hotkey, tao, limit_price)
+    Self::do_add_collateral(origin, netuid, hotkey, alpha, limit_price)
 }
 ```
 
-Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L490).
+Delegates to [`do_add_collateral`](/code/pallets/subtensor/src/subnets/collateral.rs#L545).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

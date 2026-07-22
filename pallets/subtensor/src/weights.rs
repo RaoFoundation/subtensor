@@ -890,13 +890,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	fn swap_coldkey_announced() -> Weight {
+		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
+		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
 		//  Measured:  `2110`
-		//  Estimated: `13000`
-		// Minimum execution time: 326_339_000 picoseconds.
-		Weight::from_parts(334_575_000, 13000)
-			.saturating_add(T::DbWeight::get().reads(39_u64))
-			.saturating_add(T::DbWeight::get().writes(16_u64))
+		//  Estimated: `100000`
+		// Minimum execution time: 450_000_000 picoseconds.
+		Weight::from_parts(450_000_000, 100000)
+			.saturating_add(T::DbWeight::get().reads(250_u64))
+			.saturating_add(T::DbWeight::get().writes(200_u64))
 	}
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
@@ -943,13 +945,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:0 w:1)
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn swap_coldkey() -> Weight {
+		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
+		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
 		//  Measured:  `2166`
-		//  Estimated: `13056`
-		// Minimum execution time: 355_033_000 picoseconds.
-		Weight::from_parts(363_589_000, 13056)
-			.saturating_add(T::DbWeight::get().reads(39_u64))
-			.saturating_add(T::DbWeight::get().writes(20_u64))
+		//  Estimated: `100000`
+		// Minimum execution time: 480_000_000 picoseconds.
+		Weight::from_parts(480_000_000, 100000)
+			.saturating_add(T::DbWeight::get().reads(250_u64))
+			.saturating_add(T::DbWeight::get().writes(210_u64))
 	}
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -4488,13 +4492,15 @@ impl WeightInfo for () {
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	fn swap_coldkey_announced() -> Weight {
+		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
+		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
 		//  Measured:  `2110`
-		//  Estimated: `13000`
-		// Minimum execution time: 326_339_000 picoseconds.
-		Weight::from_parts(334_575_000, 13000)
-			.saturating_add(RocksDbWeight::get().reads(39_u64))
-			.saturating_add(RocksDbWeight::get().writes(16_u64))
+		//  Estimated: `100000`
+		// Minimum execution time: 450_000_000 picoseconds.
+		Weight::from_parts(450_000_000, 100000)
+			.saturating_add(RocksDbWeight::get().reads(250_u64))
+			.saturating_add(RocksDbWeight::get().writes(200_u64))
 	}
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
@@ -4541,13 +4547,15 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:0 w:1)
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn swap_coldkey() -> Weight {
+		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
+		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
 		//  Measured:  `2166`
-		//  Estimated: `13056`
-		// Minimum execution time: 355_033_000 picoseconds.
-		Weight::from_parts(363_589_000, 13056)
-			.saturating_add(RocksDbWeight::get().reads(39_u64))
-			.saturating_add(RocksDbWeight::get().writes(20_u64))
+		//  Estimated: `100000`
+		// Minimum execution time: 480_000_000 picoseconds.
+		Weight::from_parts(480_000_000, 100000)
+			.saturating_add(RocksDbWeight::get().reads(250_u64))
+			.saturating_add(RocksDbWeight::get().writes(210_u64))
 	}
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)

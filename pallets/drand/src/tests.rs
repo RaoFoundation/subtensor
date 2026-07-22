@@ -400,14 +400,19 @@ fn test_authorize_write_pulse() {
 }
 
 #[test]
-fn authorize_accepts_current_round_for_first_pulse() {
+fn authorize_accepts_first_live_round_as_storage_anchor() {
+    // On a fresh chain the current drand round is far beyond the normal catch-up
+    // window. It must be admitted so `write_pulse` can anchor both round markers.
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
         let alice = sp_keyring::Sr25519Keyring::Alice;
         System::set_block_number(block_number);
 
+        assert_eq!(LastStoredRound::<Test>::get(), 0);
+        assert_eq!(OldestStoredRound::<Test>::get(), 0);
+
         let pulse = Pulse {
-            round: 30_000_000,
+            round: crate::MAX_PULSES_TO_FETCH + 1,
             randomness: frame_support::BoundedVec::truncate_from(vec![0u8; 32]),
             signature: frame_support::BoundedVec::truncate_from(vec![1u8; 96]),
         };

@@ -97,6 +97,8 @@ _FALLBACK_AMOUNT_UNITS: dict[tuple[str, str, str], str] = {
     ("SubtensorModule", "transfer_stake", "alpha_amount"): "ALPHA",
     ("SubtensorModule", "transfer_stake_and_hotkey", "alpha_amount"): "ALPHA",
     ("SubtensorModule", "swap_stake", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "add_collateral", "alpha"): "ALPHA",
+    ("SubtensorModule", "add_collateral", "limit_price"): "TAO",
 }
 
 # Call-arg type identities that name a money unit.

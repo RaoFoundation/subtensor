@@ -80,8 +80,11 @@ impl<T: Config> Pallet<T> {
             Self::get_collateral_topup_tao(netuid, &hotkey, &coldkey, registration_cost);
         let total_charge: TaoBalance = burned_share.saturating_add(collateral_topup);
 
+        // `transfer_tao_to_subnet` uses Preservation::Preserve and silently
+        // clips to keep-alive balance. Reject that partial fill up front
+        // (same guard as `do_add_collateral`).
         ensure!(
-            Self::can_remove_balance_from_coldkey_account(&coldkey, total_charge.into()),
+            Self::get_keep_alive_balance(&coldkey) >= total_charge.into(),
             Error::<T>::NotEnoughBalanceToStake
         );
 

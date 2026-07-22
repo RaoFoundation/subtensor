@@ -686,9 +686,9 @@ impl<T: Config> Pallet<T> {
                     return InvalidTransaction::Stale.into();
                 }
 
+                // A fresh chain's live round exceeds the catch-up window. Let the
+                // first pulse establish the anchor, matching `write_pulse`.
                 let is_first_storage = last == 0 && OldestStoredRound::<T>::get() == 0;
-
-                // Allow any initial round, then only rounds the worker can backfill.
                 if !is_first_storage && r > last.saturating_add(MAX_PULSES_TO_FETCH) {
                     return InvalidTransaction::Stale.into();
                 }
