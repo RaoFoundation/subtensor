@@ -57,7 +57,7 @@ while IFS= read -r path; do
   esac
 
   case "$path" in
-    sdk/python/*|sdk/bittensor-core/*|sdk/bittensor-core-py/*|sdk/bittensor-core-wasm/*|Cargo.lock|.github/workflows/runtime-checks.yml)
+    sdk/python/*|sdk/bittensor-core/*|sdk/bittensor-core-py/*|sdk/bittensor-core-wasm/*|Cargo.lock|.github/workflows/runtime-checks.yml|.github/scripts/prepare-sdk-dist.py|.github/scripts/test_prepare_sdk_dist.py)
       python_sdk=true
       ;;
   esac

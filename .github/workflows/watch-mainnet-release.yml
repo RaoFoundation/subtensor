@@ -2,8 +2,9 @@ name: Watch Mainnet Release
 
 # The mainnet upgrade is executed by the triumvirate signing the multisig
 # proposal submitted by the release train (release-train.yml). This watcher
-# polls the chain; once the on-chain spec_version matches main and no
-# release exists for it yet, it cuts the release:
+# polls the chain; once an upgrade executes, it cuts the release. Stable Python
+# publication has its own completion marker so a later run can retry a failed
+# or partial PyPI upload even when the GitHub release already exists:
 #   1. GitHub release v<spec_version>, with the srtool wasm + digest and
 #      multisig call data from the release train attached as assets
 #   2. Docker images via explicit dispatch of docker.yml and
@@ -40,17 +41,20 @@ jobs:
       contents: read
       actions: read # list/download the release-train artifact
     outputs:
-      ready: ${{ steps.compare.outputs.ready }}
+      release_needed: ${{ steps.compare.outputs.release_needed }}
+      python_needed: ${{ steps.compare.outputs.python_needed }}
       spec_version: ${{ steps.compare.outputs.spec_version }}
       sha: ${{ steps.compare.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compare spec versions and existing releases
+      - name: Compare mainnet with release state
         id: compare
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           local_spec=$(grep -Eo 'spec_version: *[0-9]+' runtime/src/lib.rs | head -n 1 | grep -Eo '[0-9]+')
           : ${local_spec:?could not parse spec_version from runtime/src/lib.rs}
 
@@ -58,54 +62,86 @@ jobs:
             -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
             "$MAINNET_HTTP" | jq -r '.result.specVersion')
           : ${chain_spec:?could not fetch chain spec_version}
+          [[ "$local_spec" =~ ^[0-9]+$ && "$chain_spec" =~ ^[0-9]+$ ]] \
+            || { echo "spec_version values must be integers"; exit 1; }
 
           echo "main spec_version:     $local_spec"
           echo "on-chain spec_version: $chain_spec"
 
-          echo "spec_version=$local_spec" >> $GITHUB_OUTPUT
-
-          if [[ "$chain_spec" != "$local_spec" ]]; then
-            echo "Upgrade not executed yet (or main is ahead); nothing to do."
-            echo "ready=false" >> $GITHUB_OUTPUT
+          if [ "$chain_spec" -gt "$local_spec" ]; then
+            echo "Main does not contain the on-chain runtime yet; refusing to publish."
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "python_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "spec_version=$chain_spec" >> "$GITHUB_OUTPUT"
 
           # Match both this workflow's tags (v424) and the legacy scheme
-          # inherited from upstream (v3.4.9-424) so an already-released
-          # runtime is never released twice. Pre-releases don't count: the
-          # release train publishes the proposal as a pre-release v<spec>,
-          # which this workflow promotes to the final release below.
+          # inherited from upstream (v3.4.9-424). Pre-releases do not count.
           if gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
               --json tagName,isPrerelease \
               --jq '.[] | select(.isPrerelease | not) | .tagName' \
-              | grep -Eq "^v${local_spec}$|-${local_spec}$"; then
-            echo "A release for spec_version $local_spec already exists; nothing to do."
-            echo "ready=false" >> $GITHUB_OUTPUT
+              | grep -Eq "^v${chain_spec}$|-${chain_spec}$"; then
+            echo "GitHub release for spec_version $chain_spec is complete."
+            release_needed=false
+          else
+            release_needed=true
+          fi
+
+          # v432 and earlier predate this marker. Every later
+          # release retries until PyPI succeeds and this exact marker is stored.
+          if [ "$chain_spec" -le 432 ]; then
+            echo "v432 Python publication is handled manually."
+            python_needed=false
+          else
+            marker_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${chain_spec}" \
+              --jq '.assets[] | select(.name == "python-publish-complete.json") | .id' \
+              2>/dev/null | head -n 1 || true)
+            if [ -z "$marker_id" ]; then
+              python_needed=true
+            else
+              gh api -H "Accept: application/octet-stream" \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$marker_id" \
+                > /tmp/python-publish-complete.json
+              tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/v${chain_spec}" --jq '.sha')
+              jq -e --arg sha "$tag_sha" --argjson spec "$chain_spec" \
+                '.schema == 1 and .spec_version == $spec and .commit == $sha' \
+                /tmp/python-publish-complete.json >/dev/null \
+                || { echo "invalid Python publish marker for v${chain_spec}"; exit 1; }
+              echo "Stable Python packages are already published."
+              python_needed=false
+            fi
+          fi
+          echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
+          echo "python_needed=$python_needed" >> "$GITHUB_OUTPUT"
+
+          # A valid marker is the durable terminal state. Resolve the expiring
+          # workflow artifact only while release or Python work is pending.
+          if [ "$release_needed" = false ] && [ "$python_needed" = false ]; then
             exit 0
           fi
 
-          # Use the commit recorded by the release train, not HEAD — main may
-          # have advanced with docs-only merges after the multisig proposal.
-          # Resolve the artifact through the provenance gate: fork PRs can plant
-          # a `mainnet-upgrade-<spec>` artifact in this repo's store, and this
-          # commit is what we later publish to PyPI/crates.io and push to
-          # `mainnet`, so it must come from a push of release-train.yml to main.
-          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$local_spec")
-          : ${artifact_id:?no trustworthy mainnet-upgrade-${local_spec} artifact found — did the release train run?}
+          # Resolve what actually runs on chain, not HEAD: main can advance
+          # while a multisig waits for its final signature. The provenance gate
+          # admits artifacts only from release-train.yml pushes to main.
+          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$chain_spec")
+          : ${artifact_id:?no trustworthy mainnet-upgrade-${chain_spec} artifact found — did the release train run?}
+          rm -rf /tmp/release-artifact /tmp/release-artifact.zip
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > /tmp/release-artifact.zip
           unzip -o /tmp/release-artifact.zip -d /tmp/release-artifact
           release_sha=$(jq -r '.commit' /tmp/release-artifact/pending-release.json)
           : ${release_sha:?pending-release.json missing commit field}
+          expected_spec=$(jq -er '.expected_spec_version | numbers' \
+            /tmp/release-artifact/pending-release.json)
+          [ "$expected_spec" = "$chain_spec" ] \
+            || { echo "artifact expects spec $expected_spec, chain runs $chain_spec"; exit 1; }
           echo "Release train commit: $release_sha"
-          echo "sha=$release_sha" >> $GITHUB_OUTPUT
-
-          echo "Chain is upgraded to $local_spec and no release exists yet."
-          echo "ready=true" >> $GITHUB_OUTPUT
+          echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
 
   release:
     name: Cut GitHub release
     needs: check
-    if: needs.check.outputs.ready == 'true'
+    if: needs.check.outputs.release_needed == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     # MIRROR_DEPLOY_KEY lives in the mainnet environment secrets; one
     # approval of the run covers this and the publish jobs below.
@@ -195,7 +231,7 @@ jobs:
   publish-docker:
     name: Dispatch Docker image publishing
     needs: [check, release]
-    if: needs.check.outputs.ready == 'true'
+    if: needs.check.outputs.release_needed == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     permissions:
       actions: write
@@ -213,26 +249,30 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --ref "$tag" -f branch-or-tag="$tag"
 
   # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
-  # sdist) at the released commit; the committed version is published as-is.
+  # sdist) at the released commit; the SDK's committed .dev0 is stamped stable.
   build-core:
     name: Build bittensor-core wheels
-    needs: [check, release]
-    if: needs.check.outputs.ready == 'true'
+    needs: check
+    if: needs.check.outputs.python_needed == 'true'
     uses: ./.github/workflows/build-core-wheels.yml
     with:
       ref: ${{ needs.check.outputs.sha }}
 
   publish-sdk:
-    name: Publish Python SDK to PyPI
+    name: Publish Python packages to PyPI
     needs: [check, release, build-core]
-    if: needs.check.outputs.ready == 'true'
+    if: >-
+      always() &&
+      needs.check.outputs.python_needed == 'true' &&
+      needs.build-core.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
     runs-on: [self-hosted, fireactions-turbo-8]
     # PyPI trusted publishing (OIDC); publishers for `bittensor` and
     # bittensor-core are registered against this workflow + mainnet environment.
     environment: mainnet
     permissions:
       id-token: write
-      contents: read
+      contents: write # attach the durable completion marker to the release
     steps:
       - uses: actions/checkout@v4
         with:
@@ -262,6 +302,9 @@ jobs:
           pattern: core-dist-*
           path: dist
           merge-multiple: true
+
+      - name: Prepare stable SDK distribution
+        run: python3 .github/scripts/prepare-sdk-dist.py
 
       - name: Build SDK wheel and sdist
         working-directory: sdk/python
@@ -302,10 +345,27 @@ jobs:
           uv publish --trusted-publishing always \
             --check-url https://pypi.org/simple/ dist/*
 
+      # This is the only durable state for Python publication. It is written
+      # after uv reports that every distribution was uploaded or already exists.
+      - name: Record successful Python publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.check.outputs.sha }}
+          SPEC_VERSION: ${{ needs.check.outputs.spec_version }}
+        run: |
+          jq -n \
+            --arg sha "$RELEASE_SHA" \
+            --argjson spec "$SPEC_VERSION" \
+            --arg workflow_run "$GITHUB_RUN_ID" \
+            '{schema: 1, spec_version: $spec, commit: $sha, workflow_run: $workflow_run}' \
+            > python-publish-complete.json
+          gh release upload "v${SPEC_VERSION}" --repo "$GITHUB_REPOSITORY" --clobber \
+            python-publish-complete.json
+
   publish-crates:
     name: Publish Rust crates to crates.io
     needs: [check, release]
-    if: needs.check.outputs.ready == 'true'
+    if: needs.check.outputs.release_needed == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     steps:
@@ -341,7 +401,7 @@ jobs:
   promote-website:
     name: Deploy production website and docs
     needs: [check, release]
-    if: needs.check.outputs.ready == 'true'
+    if: needs.check.outputs.release_needed == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: mainnet
     steps:
