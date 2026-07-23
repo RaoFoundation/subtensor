@@ -26,7 +26,7 @@ class System:
     ExtrinsicCount = Item('System', 'ExtrinsicCount', 'u32')
     InherentsApplied = Item('System', 'InherentsApplied', 'bool')
     BlockWeight = Item('System', 'BlockWeight', 'PerDispatchClass')
-    BlockSize = Item('System', 'BlockSize', 'u32')
+    AllExtrinsicsLen = Item('System', 'AllExtrinsicsLen', 'u32')
     BlockHash = Item('System', 'BlockHash', 'H256')
     ExtrinsicData = Item('System', 'ExtrinsicData', 'Vec<u8>')
     Number = Item('System', 'Number', 'u32')
@@ -36,7 +36,6 @@ class System:
     EventCount = Item('System', 'EventCount', 'u32')
     EventTopics = Item('System', 'EventTopics', 'Vec<(u32, u32)>')
     LastRuntimeUpgrade = Item('System', 'LastRuntimeUpgrade', 'LastRuntimeUpgradeInfo')
-    BlocksTillUpgrade = Item('System', 'BlocksTillUpgrade', 'u8')
     UpgradedToU32RefCount = Item('System', 'UpgradedToU32RefCount', 'bool')
     UpgradedToTripleRefCount = Item('System', 'UpgradedToTripleRefCount', 'bool')
     ExecutionPhase = Item('System', 'ExecutionPhase', 'Phase')
@@ -75,7 +74,6 @@ class Balances:
 class TransactionPayment:
     NextFeeMultiplier = Item('TransactionPayment', 'NextFeeMultiplier', 'FixedU128')
     StorageVersion = Item('TransactionPayment', 'StorageVersion', 'Releases')
-    TxPaymentCredit = Item('TransactionPayment', 'TxPaymentCredit', '()')
 
 class SubtensorModule:
     MinActivityCutoff = Item('SubtensorModule', 'MinActivityCutoff', 'u16')
