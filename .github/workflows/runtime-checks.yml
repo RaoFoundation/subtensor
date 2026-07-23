@@ -495,7 +495,8 @@ jobs:
         working-directory: sdk/python
         run: |
           python3 ../../.github/scripts/test_prepare_sdk_dist.py
-          uv sync --locked --all-extras --dev
+          uv sync --python 3.14 --locked --all-extras --dev
+          uv run btcli --version
           uv run ruff check .
           uv run ruff format --check .
           uv run ty check --exit-zero-on-warning bittensor
