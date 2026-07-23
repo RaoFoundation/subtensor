@@ -17,8 +17,7 @@ impl<T: Config> Pallet<T> {
     /// the single-subnet `keep_stake` path, which does not scan stake prefixes.
     pub fn swap_hotkey_v2_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
         if netuid.is_none() || !keep_stake {
-            <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey_v2(
-            )
+            <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
         } else {
             // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
             // LastHotkeySwap, successor clear+insert, root insert.

@@ -859,13 +859,10 @@ mod dispatches {
         /// * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
         /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
         ///   is transferred to the new hotkey.
+        #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
-            if netuid.is_none() || !*keep_stake {
-                <T as crate::pallet::Config>::WeightInfo::swap_hotkey_v2()
-            } else {
-                crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake)
-            },
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
             DispatchClass::Normal,
             Pays::Yes
         ))]
