@@ -2699,11 +2699,14 @@ pub mod pallet {
     ///
     /// A validator's beta basket is a single fund: its holdings are the escrow stake positions
     /// `(hotkey, escrow, netuid)` across subnets (the root slot is the fund's TAO/cash position),
-    /// and its net asset value `N` is the mark-to-market TAO value of those holdings. Stakers'
-    /// entitlements are denominated in *fund shares*, never in any particular subnet's alpha:
-    /// deposits mint `tao_value_added * P / N` shares (so existing holders are not diluted) and
-    /// redemption pays the staker's owed share fraction `owed / P` of every holding, sold
-    /// pro-rata. Because entitlement is decoupled from composition, holdings can be rebalanced
+    /// and its net asset value `N` is the realizable (slippage-aware) TAO value of those
+    /// holdings. Stakers' entitlements are denominated in *fund shares*, never in any particular
+    /// subnet's alpha: deposits mint `value_added * P / N` shares, where `value_added` is the
+    /// realizable NAV the deposit actually added (so existing holders are neither diluted nor
+    /// taxed with the deposit's buy slippage), and redemption pays the staker's owed share
+    /// fraction `owed / P` of every holding, sold pro-rata. Direct deposits
+    /// (`stake_into_basket`) mint the same way, credited via the signed [`BasketClaimed`]
+    /// watermark. Because entitlement is decoupled from composition, holdings can be rebalanced
     /// (validator-directed trading, dissolution conversions) without touching any staker's claim.
     #[pallet::storage]
     pub type BasketShares<T: Config> =
@@ -2736,6 +2739,23 @@ pub mod pallet {
         i128,
         ValueQuery,
     >;
+
+    /// --- MAP ( validator_hotkey ) --> lifetime TAO value deposited into the basket.
+    ///
+    /// Cumulative sum of every dividend deposit's `value_added` (the TAO actually deployed into
+    /// the fund). Together with [`BasketRedeemedTao`] this makes lifetime fund performance
+    /// (`(NAV + redeemed) / deposited`) and deposit-rate metrics computable from two storage
+    /// reads, with no event indexing. Follows the fund across hotkey swaps.
+    #[pallet::storage]
+    pub type BasketDepositedTao<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> lifetime TAO redeemed (claimed) out of the basket.
+    ///
+    /// Cumulative sum of every claim's realized payout. See [`BasketDepositedTao`].
+    #[pallet::storage]
+    pub type BasketRedeemedTao<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
 
     #[pallet::storage] // --- MAP ( u64 ) --> coldkey | Maps coldkeys that have stake to an index
     pub type StakingColdkeysByIndex<T: Config> =

@@ -342,5 +342,9 @@ mod errors {
         /// with miner collateral on the subnet
         /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
         ColdkeyCollateralPositionsFull,
+        /// The validator has no usable basket weights (no root uid, or every weight entry
+        /// is zero / points at a nonexistent subnet), so a direct basket deposit cannot
+        /// be routed.
+        BasketHasNoWeights,
     }
 }

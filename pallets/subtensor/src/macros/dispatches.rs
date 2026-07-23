@@ -1920,6 +1920,44 @@ mod dispatches {
             Ok((Some(weight), Pays::Yes).into())
         }
 
+        /// Stakes TAO from the caller's balance directly into a validator's beta basket.
+        ///
+        /// The TAO is deployed across subnets per the validator's root weight vector
+        /// (exactly like a dividend deposit) and fund shares are minted to the caller at
+        /// the fund's pre-buy realizable NAV, priced against the realizable value the
+        /// deposit added — the depositor bears their own entry slippage and swap fees.
+        /// The credited shares are redeemable through [`Pallet::claim_root`] like any
+        /// dividend-accrued entitlement; they do not require or affect root stake, and
+        /// they do not change any staker's dividend accrual.
+        ///
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
+        /// * `hotkey`: The validator whose basket to deposit into.
+        /// * `amount_staked`: TAO to take from the caller's balance and deploy.
+        ///
+        /// # Events
+        /// * `BasketStakedIn`: On success, with the TAO taken, the realizable value added,
+        ///   and the fund shares credited.
+        ///
+        /// # Errors
+        /// * `HotKeyAccountNotExists`: The hotkey is not a registered account.
+        /// * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value
+        ///   rounds to zero shares.
+        /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
+        /// * `BasketHasNoWeights`: The validator's weight vector filters to nothing.
+        #[pallet::call_index(147)]
+        #[pallet::weight((Weight::from_parts(300_000_000, 0)
+            .saturating_add(T::DbWeight::get().reads(64_u64))
+            .saturating_add(T::DbWeight::get().writes(32_u64)), DispatchClass::Normal, Pays::Yes))]
+        pub fn stake_into_basket(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            amount_staked: TaoBalance,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            Self::do_stake_into_basket(coldkey, hotkey, amount_staked)
+        }
+
         // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are
         // retired: basket redemption is always a full swap to root TAO (no per-coldkey claim
         // type), and there is no auto-claim scheduler to configure. Do not reuse these indices.

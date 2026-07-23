@@ -468,22 +468,41 @@ mod events {
         /// The minimum allowed non-Immune UIDs has been set.
         MinNonImmuneUidsSet(NetUid, u16),
         /// Root emissions have been claimed for a coldkey on all subnets and hotkeys.
-        /// Parameters:
-        /// (coldkey)
         RootClaimed {
             /// Claim coldkey
             coldkey: T::AccountId,
+            /// Total TAO realized across every per-validator redemption and staked on root.
+            tao: TaoBalance,
         },
 
-        /// A validator's beta basket (fund) received a dividend deposit: `tao` of value was
-        /// deployed across subnets per the validator's weight vector, minting `shares` fund
-        /// shares at the pre-deposit NAV.
+        /// A validator's beta basket (fund) received a dividend deposit: the dividend was
+        /// deployed across subnets per the validator's weight vector, adding `tao` of
+        /// realizable NAV to the fund and minting `shares` fund shares at the pre-deposit NAV.
         BasketDeposited {
             /// Validator hotkey whose basket received the deposit.
             hotkey: T::AccountId,
-            /// TAO value added to the fund (marked at moving prices).
+            /// Realizable NAV the deposit added to the fund (post-buy NAV minus the
+            /// pre-buy snapshot; the deposit bears its own buy slippage).
             tao: TaoBalance,
             /// Fund shares minted at the pre-deposit NAV (grows `BasketShares`).
+            shares: u64,
+        },
+
+        /// A staker deposited TAO from their balance directly into a validator's beta
+        /// basket: the TAO was deployed across subnets per the validator's weight vector
+        /// and `shares` fund shares were credited to the staker via their claimed
+        /// watermark.
+        BasketStakedIn {
+            /// Validator hotkey whose basket received the deposit.
+            hotkey: T::AccountId,
+            /// Depositing staker coldkey.
+            coldkey: T::AccountId,
+            /// TAO taken from the staker's balance.
+            tao: TaoBalance,
+            /// Realizable NAV the deposit added to the fund (the mint value basis; the
+            /// depositor bears their own entry slippage and fees).
+            value: TaoBalance,
+            /// Fund shares credited to the staker (grows `BasketShares`).
             shares: u64,
         },
 
