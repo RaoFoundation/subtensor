@@ -242,12 +242,15 @@ fn test_root_basket_accrues_per_weights() {
         assert!(has_fund(&hotkey));
 
         // At a ~1:1 pool price the fund NAV and outstanding shares should match (N/P starts
-        // at 1): the escrow alpha marked at ~1 equals the TAO-denominated shares.
-        assert_abs_diff_eq!(
-            SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64(),
-            fund_shares(&hotkey),
-            epsilon = 10u64,
+        // at 1). NAV is a realizable (slippage-aware, fee-included) quote, so it sits at or
+        // slightly below the TAO-denominated shares minted at deposit.
+        let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let shares = fund_shares(&hotkey);
+        assert!(
+            nav <= shares,
+            "realizable NAV must not exceed shares at N/P=1"
         );
+        assert_abs_diff_eq!(nav, shares, epsilon = shares / 100);
     });
 }
 
@@ -745,19 +748,13 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
         // Equal current root stake, but only Alice is owed the fund.
         assert_eq!(root_stake_of(&hotkey, &alice), root_stake_of(&hotkey, &bob));
         assert!(SubtensorModule::get_basket_owed_shares(&hotkey, &alice) > 0);
-        assert_eq!(
-            SubtensorModule::get_basket_owed_shares(&hotkey, &bob),
-            0
-        );
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 0);
 
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
 
         // Owed entitlements are untouched by the conversion.
         assert!(SubtensorModule::get_basket_owed_shares(&hotkey, &alice) > 0);
-        assert_eq!(
-            SubtensorModule::get_basket_owed_shares(&hotkey, &bob),
-            0
-        );
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 0);
 
         let alice_before = root_stake_of(&hotkey, &alice);
         let bob_before = root_stake_of(&hotkey, &bob);
@@ -1643,7 +1640,10 @@ fn test_root_basket_uid0_holds_as_root_stake() {
         assert_eq!(escrow_alpha(&hotkey, netuid), 0);
 
         // Sell-origin then credit-to-root nets to zero: distribution is TotalStake-neutral.
-        assert_eq!(ts_before, ts_after, "root deposit must be TotalStake-neutral");
+        assert_eq!(
+            ts_before, ts_after,
+            "root deposit must be TotalStake-neutral"
+        );
     });
 }
 
@@ -2079,17 +2079,19 @@ fn test_root_basket_large_magnitudes_no_saturation() {
         BasketShares::<Test>::insert(hotkey, fund_scale);
 
         // Deposit a 2e13-rao dividend directly into the basket (bypassing the emission split,
-        // which is stake-proportional and not what is under test): N/P == 1, so ~2e13 shares
-        // must be minted.
+        // which is stake-proportional and not what is under test): N/P ~= 1, so ~2e13 shares
+        // must be minted. NAV is a realizable quote, so redeeming the whole 2e16 fund against
+        // the 1e18 pool marks ~2% below par (N/P slightly < 1) and the mint lands slightly
+        // above the dividend — far from the ~5x collapse a saturated mint would show.
         let dividend = 20_000_000_000_000u64; // 2e13
         SubtensorModule::distribute_root_alpha_to_basket(&hotkey, netuid, dividend.into());
 
         let minted = fund_shares(&hotkey).saturating_sub(fund_scale);
         assert!(
             minted > dividend / 2 && minted < dividend * 2,
-            "mint saturated or mispriced: minted {minted} for a {dividend} deposit at N/P=1"
+            "mint saturated or mispriced: minted {minted} for a {dividend} deposit at N/P~=1"
         );
-        assert_abs_diff_eq!(minted, dividend, epsilon = dividend / 100);
+        assert_abs_diff_eq!(minted, dividend, epsilon = dividend / 20);
     });
 }
 
@@ -2159,11 +2161,13 @@ fn test_root_basket_unstake_preserves_accrued() {
             epsilon = 1u64
         );
 
-        // And it remains fully claimable.
+        // And it remains fully claimable. The claim executes fee-free while the quoted payout
+        // is a fee-included realizable value, so the realized gain can exceed the quote by up
+        // to the swap fee.
         let root_before = root_stake_of(&hotkey, &coldkey);
         assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey)));
         let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
-        assert_abs_diff_eq!(gain, payout_before, epsilon = 100u64);
+        assert_abs_diff_eq!(gain, payout_before, epsilon = payout_before / 500);
     });
 }
 

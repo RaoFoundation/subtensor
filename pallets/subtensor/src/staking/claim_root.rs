@@ -8,7 +8,7 @@ use sp_runtime::traits::AccountIdConversion;
 use sp_std::collections::btree_map::BTreeMap;
 use substrate_fixed::types::{I96F32, U96F32};
 use subtensor_runtime_common::{NetUidStorageIndex, clear_prefix_with_meter};
-use subtensor_swap_interface::SwapHandler;
+use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
     /// The single global escrow coldkey that custodies every validator's beta basket.
@@ -197,8 +197,21 @@ impl<T: Config> Pallet<T> {
             // is left unchanged. First deposit mints at par. u128 arithmetic: the u64*u64 product
             // can exceed U96F32's 96 integer bits at chain-scale magnitudes, which would silently
             // saturate the mint.
-            let shares: u64 = if shares_outstanding == 0 || nav_before == 0 {
+            let shares: u64 = if shares_outstanding == 0 {
+                // Genuine first deposit: mint at par (1 share per TAO of value added).
                 value_added
+            } else if nav_before == 0 {
+                // Shares are outstanding but the fund marks to zero, so there is no NAV to
+                // price a mint against. A par mint would hand the stale holders
+                // `S_old / (S_old + minted)` of the fresh deposit. Tolerate that only when
+                // the stale shares are rounding dust left by a full drain (capture <= ~1%),
+                // so a drained fund can revive; otherwise fall through to the dust rollback
+                // below and recycle the dividend rather than misprice it.
+                if shares_outstanding <= value_added.saturating_div(100) {
+                    value_added
+                } else {
+                    0
+                }
             } else {
                 u128::from(value_added)
                     .saturating_mul(u128::from(shares_outstanding))
@@ -588,7 +601,8 @@ impl<T: Config> Pallet<T> {
         escrow: &T::AccountId,
         netuid: NetUid,
     ) {
-        let holding_alpha = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid);
+        let holding_alpha =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid);
         if holding_alpha.is_zero() {
             return;
         }
@@ -643,15 +657,11 @@ impl<T: Config> Pallet<T> {
         )
         .inspect_err(|err| log::error!("Error swapping basket alpha for TAO: {err:?}"))?;
 
-        let root_subnet_account_id = Self::get_subnet_account_id(NetUid::ROOT)
-            .ok_or(Error::<T>::RootNetworkDoesNotExist)?;
+        let root_subnet_account_id =
+            Self::get_subnet_account_id(NetUid::ROOT).ok_or(Error::<T>::RootNetworkDoesNotExist)?;
 
-        Self::transfer_tao_from_subnet(
-            netuid,
-            &root_subnet_account_id,
-            out.amount_paid_out.into(),
-        )
-        .inspect_err(|err| log::error!("Error transferring basket TAO from subnet: {err:?}"))?;
+        Self::transfer_tao_from_subnet(netuid, &root_subnet_account_id, out.amount_paid_out.into())
+            .inspect_err(|err| log::error!("Error transferring basket TAO from subnet: {err:?}"))?;
 
         Self::record_protocol_outflow(netuid, out.amount_paid_out);
 
@@ -724,18 +734,27 @@ impl<T: Config> Pallet<T> {
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(amount));
     }
 
-    /// Mark-to-market TAO value of `alpha` on `netuid` at the current pool (spot) price.
-    /// This is a *marked* value (price x amount); actual redemption realizes slightly less
-    /// due to AMM slippage.
-    pub fn alpha_to_tao_value(netuid: NetUid, alpha: u64) -> u64 {
+    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware quote a full redemption
+    /// would fetch right now (net of fees), not the marked spot value `price * amount`. On a
+    /// thin pool a tiny buy can push spot arbitrarily high, letting a marked NAV grow without
+    /// bound (and saturate to `u64::MAX`); the realizable quote is bounded by the pool's TAO
+    /// reserve, so NAV computed from it matches what the fund could actually pay out.
+    pub fn realizable_tao_for_alpha(netuid: NetUid, alpha: u64) -> u64 {
         if alpha == 0 {
             return 0;
         }
-        let price =
-            U96F32::saturating_from_num(T::SwapInterface::current_alpha_price(netuid.into()));
-        U96F32::saturating_from_num(alpha)
-            .saturating_mul(price)
-            .saturating_to_num::<u64>()
+        // Root holdings are TAO held 1:1; nothing to swap.
+        if netuid.is_root() {
+            return alpha;
+        }
+        // Stable-mechanism subnets redeem 1:1 (mirrors `swap_alpha_for_tao`).
+        if SubnetMechanism::<T>::get(netuid) != 1 {
+            return alpha;
+        }
+        let order = GetTaoForAlpha::<T>::with_amount(alpha);
+        T::SwapInterface::sim_swap(netuid.into(), order)
+            .map(|res| res.amount_paid_out.to_u64())
+            .unwrap_or(0)
     }
 
     /// Single source of truth for redemption sizing: a staker's owed shares are worth
@@ -754,11 +773,13 @@ impl<T: Config> Pallet<T> {
         payout.min(nav)
     }
 
-    /// A validator's fund NAV in TAO at spot prices (for views).
+    /// A validator's fund NAV in TAO at realizable (slippage-aware) quotes. This is the single
+    /// valuation used for both deposit share pricing and redemption sizing, so the two can
+    /// never diverge under a manipulated spot price.
     pub fn get_validator_basket_nav_tao(hotkey: &T::AccountId) -> TaoBalance {
         let mut nav: u64 = 0;
         for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
-            nav = nav.saturating_add(Self::alpha_to_tao_value(netuid, alpha.to_u64()));
+            nav = nav.saturating_add(Self::realizable_tao_for_alpha(netuid, alpha.to_u64()));
         }
         nav.into()
     }
@@ -782,12 +803,13 @@ impl<T: Config> Pallet<T> {
         total.into()
     }
 
-    /// A validator's full basket breakdown: per subnet, the alpha held and its TAO value.
+    /// A validator's full basket breakdown: per subnet, the alpha held and its realizable
+    /// TAO value.
     pub fn get_validator_basket(hotkey: &T::AccountId) -> Vec<(NetUid, AlphaBalance, TaoBalance)> {
         Self::get_basket_holdings(hotkey)
             .into_iter()
             .map(|(netuid, alpha)| {
-                let tao = Self::alpha_to_tao_value(netuid, alpha.to_u64());
+                let tao = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
                 (netuid, alpha, tao.into())
             })
             .collect()
@@ -796,11 +818,15 @@ impl<T: Config> Pallet<T> {
     /// Network-wide total beta basket NAV across all validators, in TAO (mark-to-market).
     /// Sampling this over time yields the TAO/day flowing to root stakers.
     pub fn get_root_basket_total_nav_tao() -> TaoBalance {
-        let mut nav: u64 = 0;
+        // Accumulate in u128 so per-validator values near u64::MAX cannot silently pin the
+        // network-wide aggregate at the saturation ceiling.
+        let mut nav: u128 = 0;
         for hotkey in BasketShares::<T>::iter_keys() {
-            nav = nav.saturating_add(Self::get_validator_basket_nav_tao(&hotkey).to_u64());
+            nav = nav.saturating_add(u128::from(
+                Self::get_validator_basket_nav_tao(&hotkey).to_u64(),
+            ));
         }
-        nav.into()
+        u64::try_from(nav).unwrap_or(u64::MAX).into()
     }
 
     /// A validator's beta basket weight vector `w`: the `(subnet, weight)` pairs it deploys its
