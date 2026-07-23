@@ -39,7 +39,7 @@ while IFS= read -r path; do
       runtime=true
       snapshot_ci=true
       ;;
-    *.md|LICENSE|docs/*|website/*|sdk/*|ts-tests/*|eco-tests/*|ink-contract/*|.maintain/*|.vscode/*|.agents/*|.claude/*)
+    *.md|LICENSE|docs/*|website/*|sdk/*|ts-tests/*|eco-tests/*|ink-contract/*|.maintain/*|.vscode/*|.agents/*|.claude/*|.github/scripts/prepare-sdk-dist.py|.github/scripts/test_prepare_sdk_dist.py)
       ;;
     .github/*)
       runtime=true

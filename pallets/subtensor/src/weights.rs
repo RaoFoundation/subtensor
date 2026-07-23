@@ -2631,6 +2631,27 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(k.into())))
 			.saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
 	}
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:1)
+	/// Storage: `SubtensorModule::NextSubnetSaleOfferId` (r:1 w:1)
+	fn create_sale_offer() -> Weight {
+		Weight::from_parts(34_762_000, 4508)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(4_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:0 w:1)
+	fn cancel_sale_offer() -> Weight {
+		Weight::from_parts(12_969_000, 4237)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
+	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -3007,6 +3028,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4198`
 		// Minimum execution time: 10_000_000 picoseconds.
 		Weight::from_parts(10_000_000, 4198)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
+	fn check_subnet_sale_extension() -> Weight {
+		Weight::from_parts(8_342_000, 4028)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
@@ -3429,14 +3456,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:0 w:1)
 	fn dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1080`
 		//  Estimated: `4545`
 		// Minimum execution time: 45_000_000 picoseconds.
 		Weight::from_parts(52_000_000, 4545)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(9_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -3452,14 +3482,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:0 w:1)
 	fn root_dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1080`
 		//  Estimated: `4545`
 		// Minimum execution time: 43_000_000 picoseconds.
 		Weight::from_parts(51_000_000, 4545)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(9_u64))
 	}
 	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
 	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6231,6 +6264,27 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(k.into())))
 			.saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
 	}
+	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetUidToLeaseId` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:1)
+	/// Storage: `SubtensorModule::NextSubnetSaleOfferId` (r:1 w:1)
+	fn create_sale_offer() -> Weight {
+		Weight::from_parts(34_762_000, 4508)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(4_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:0 w:1)
+	fn cancel_sale_offer() -> Weight {
+		Weight::from_parts(12_969_000, 4237)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -6607,6 +6661,12 @@ impl WeightInfo for () {
 		//  Estimated: `4198`
 		// Minimum execution time: 10_000_000 picoseconds.
 		Weight::from_parts(10_000_000, 4198)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+	}
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
+	fn check_subnet_sale_extension() -> Weight {
+		Weight::from_parts(8_342_000, 4028)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
@@ -7029,14 +7089,17 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:0 w:1)
 	fn dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1080`
 		//  Estimated: `4545`
 		// Minimum execution time: 45_000_000 picoseconds.
 		Weight::from_parts(52_000_000, 4545)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(9_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7052,14 +7115,17 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetTAO` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetTAO` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetSaleOffers` (r:1 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:0 w:1)
 	fn root_dissolve_network() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1080`
 		//  Estimated: `4545`
 		// Minimum execution time: 43_000_000 picoseconds.
 		Weight::from_parts(51_000_000, 4545)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(9_u64))
 	}
 	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
 	/// Proof: `SubtensorModule::TransactionKeyLastBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
