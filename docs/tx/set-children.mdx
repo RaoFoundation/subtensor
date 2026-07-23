@@ -26,7 +26,7 @@ is not yet enabled, where they apply immediately.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1081-L1096) |
 
 ## Parameters
 
@@ -79,11 +79,16 @@ result = sub.execute_tool("set_children", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1079`](/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087):
+`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1088`](/code/pallets/subtensor/src/macros/dispatches.rs#L1081-L1096):
 
 ```rust
 #[pallet::call_index(67)]
-#[pallet::weight((<T as Config>::WeightInfo::set_children(children.len() as u32), DispatchClass::Normal, Pays::Yes))]
+#[pallet::weight((
+    <T as Config>::WeightInfo::set_children(children.len() as u32)
+        .saturating_add(crate::Pallet::<T>::set_children_cycle_check_weight()),
+    DispatchClass::Normal,
+    Pays::Yes
+))]
 pub fn set_children(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
@@ -95,6 +100,6 @@ pub fn set_children(
 }
 ```
 
-Delegates to [`do_schedule_children`](/code/pallets/subtensor/src/staking/set_children.rs#L475).
+Delegates to [`do_schedule_children`](/code/pallets/subtensor/src/staking/set_children.rs#L543).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
