@@ -2354,6 +2354,9 @@ impl_runtime_apis! {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
         }
+        fn get_basket_payout(hotkey: AccountId32, coldkey: AccountId32) -> TaoBalance {
+            SubtensorModule::get_basket_payout_tao(&hotkey, &coldkey).into()
+        }
         fn get_validator_basket_nav(hotkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_validator_basket_nav_tao(&hotkey)
         }

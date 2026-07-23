@@ -123,8 +123,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 333,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L333",
+          "line": 329,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L329",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -141,8 +141,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 311,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L311",
+          "line": 307,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L307",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -159,8 +159,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 321,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L321",
+          "line": 317,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L317",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -195,8 +195,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 293,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L293",
+          "line": 289,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L289",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -429,8 +429,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 327,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L327",
+          "line": 323,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L323",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -699,8 +699,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 313,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L313",
+          "line": 309,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L309",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -879,8 +879,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 344,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L344",
+          "line": 340,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L340",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -897,8 +897,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 348,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L348",
+          "line": 344,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L344",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -933,8 +933,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 295,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L295",
+          "line": 291,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L291",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -969,8 +969,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 299,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L299",
+          "line": 295,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L295",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -987,8 +987,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 297,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L297",
+          "line": 293,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L293",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1367,8 +1367,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 287,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L287",
+          "line": 283,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L283",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         },
         {
@@ -1399,8 +1399,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 301,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L301",
+          "line": 297,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L297",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1525,8 +1525,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 331,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L331",
+          "line": 327,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L327",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -1552,8 +1552,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 324,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L324",
+          "line": 320,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L320",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2002,8 +2002,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 339,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L339",
+          "line": 335,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L335",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2091,8 +2091,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 307,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L307",
+          "line": 303,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L303",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2376,24 +2376,6 @@
         "EVM"
       ]
     },
-    "InvalidNumRootClaim": {
-      "code": "invalid_argument",
-      "description": "The value passed to sudo_set_num_root_claims exceeds the compile-time maximum number of root claims. Check the `new_value` argument against the chain's `MAX_NUM_ROOT_CLAIMS` constant and pass a smaller number.",
-      "docs_url": "/docs/errors/chain/InvalidNumRootClaim",
-      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidNumRootClaim/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 275,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L275",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "InvalidOrigin": {
       "code": "not_authorized",
       "description": "The caller is not the crowdloan's creator, which is required for `finalize`, `refund`, `dissolve`, and the update calls. Compare the signing account with the `creator` field of the `Crowdloans` entry for the `crowdloan_id`.",
@@ -2496,8 +2478,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 277,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L277",
+          "line": 275,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L275",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2576,24 +2558,6 @@
         "System"
       ]
     },
-    "InvalidSubnetNumber": {
-      "code": "invalid_argument",
-      "description": "A root-claim call passed an empty subnet set or more subnets than the per-call maximum (claim_root, or KeepSubnets in set_root_claim_type). Check the `subnets` argument is non-empty and within the `MAX_SUBNET_CLAIMS` limit.",
-      "docs_url": "/docs/errors/chain/InvalidSubnetNumber",
-      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidSubnetNumber/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 279,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L279",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "InvalidTickRange": {
       "code": "invalid_argument",
       "description": "Legacy error from the removed V3 user-liquidity code, raised when `tick_low` was not below `tick_high` or a tick failed to convert to a sqrt price. Not raised on current runtimes; check the tick range arguments on older ones.",
@@ -2650,8 +2614,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 285,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L285",
+          "line": 281,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L281",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2848,8 +2812,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 305,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L305",
+          "line": 301,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L301",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -2866,8 +2830,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 335,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L335",
+          "line": 331,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L331",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3225,8 +3189,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 291,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L291",
+          "line": 287,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L287",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -3378,8 +3342,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 309,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L309",
+          "line": 305,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L305",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4189,8 +4153,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 303,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L303",
+          "line": 299,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L299",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4594,8 +4558,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 337,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L337",
+          "line": 333,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L333",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4675,8 +4639,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 289,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L289",
+          "line": 285,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L285",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4854,8 +4818,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 319,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L319",
+          "line": 315,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L315",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5089,8 +5053,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 281,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L281",
+          "line": 277,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L277",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5405,8 +5369,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 315,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L315",
+          "line": 311,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L311",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5513,8 +5477,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 283,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L283",
+          "line": 279,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L279",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5531,8 +5495,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 317,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L317",
+          "line": 313,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L313",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

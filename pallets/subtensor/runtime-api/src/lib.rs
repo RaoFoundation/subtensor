@@ -87,6 +87,8 @@ sp_api::decl_runtime_apis! {
     pub trait BetaBasketRuntimeApi {
         /// Total TAO a coldkey would realize by redeeming all its root beta baskets (marked).
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance;
+        /// TAO a coldkey would realize by redeeming its owed shares on one validator (marked).
+        fn get_basket_payout(hotkey: AccountId32, coldkey: AccountId32) -> TaoBalance;
         /// A validator's beta basket net asset value, in TAO (marked).
         fn get_validator_basket_nav(hotkey: AccountId32) -> TaoBalance;
         /// A validator's basket breakdown: (subnet, alpha held, TAO value) per subnet.

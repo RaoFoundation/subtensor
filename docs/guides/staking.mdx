@@ -136,31 +136,29 @@ Quick reference:
 
 ## Root stake and dividends
 
-Stake on the root network earns dividends from across subnets. Each subnet's
-root dividends are split between TAO and alpha according to the root
-proportion of stake, and the alpha part accrues per subnet until claimed.
+Stake on the root network earns dividends from across subnets through **beta
+baskets**: each root validator runs an escrowed index fund of subnet alpha,
+allocated per its root weights, and root stakers accrue shares of that fund
+in proportion to their root stake.
 
 Unlike subnet staking, root staking and unstaking is not a pool swap: no swap
 fee, no slippage, no MEV exposure — you move TAO in and out at face value.
 See [how money moves](/docs/concepts/money) for the swap mechanics that root
 stake skips.
 
-How the alpha pays out is your choice, set with
-[`set-root-claim-type`](/docs/tx/set-root-claim-type): **Swap** (the chain
-default) sells the alpha dividends into TAO on your root position, **Keep**
-restakes them as alpha on the subnet, and a per-subnet map mixes the two. Read
-your setting with [`root-claim-type`](/docs/query/root-claim-type).
+Check what you're owed and redeem it — one parameterless transaction covers
+every validator you root-stake to, paying out in TAO staked back to root:
 
-You normally don't need to claim at all: every block the chain picks a
-handful of staking coldkeys pseudo-randomly and processes any of their accrued
-dividends that exceed the per-subnet claim threshold (default 500,000 rao;
-settable by the subnet owner or root). Each account comes up automatically
-every few days, depending on how many staking coldkeys exist. Manual
-[`claim-root`](/docs/tx/claim-root) is optional — it just claims sooner and
-takes at most 5 subnets per call. Unclaimed dividends keep accruing — there is
-no deadline. For small positions the extrinsic fee of a manual claim can
-exceed the dividends it collects — let the automatic sweep handle small
-amounts.
+```bash
+btcli stake owed                  # pending TAO, itemized per validator
+btcli stake claim -w my_coldkey   # redeem via claim-root
+```
+
+Per-validator payouts below the claim threshold (default 500,000 rao) are
+skipped and keep accruing — there is no deadline. See the
+[root dividends guide](/docs/guides/root-dividends) for the full basket
+model, the validator-side curation commands, and migration notes from the
+retired per-subnet claim system.
 
 ## Child hotkeys
 

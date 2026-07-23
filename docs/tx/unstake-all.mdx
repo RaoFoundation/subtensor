@@ -17,7 +17,7 @@ staked.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1210-L1214) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1227-L1231) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1212`](/code/pallets/subtensor/src/macros/dispatches.rs#L1210-L1214):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1229`](/code/pallets/subtensor/src/macros/dispatches.rs#L1227-L1231):
 
 ```rust
 #[pallet::call_index(83)]

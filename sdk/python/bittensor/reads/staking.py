@@ -199,24 +199,6 @@ async def staking_hotkeys(view, coldkey_ss58: str) -> list[str]:
 
 
 @read(
-    "root_claim_type",
-    {"coldkey_ss58": "string"},
-    category="Staking",
-    param_docs={"coldkey_ss58": "Coldkey whose root-claim setting to read."},
-)
-async def root_claim_type(view, coldkey_ss58: str) -> dict:
-    """How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets)."""
-    value = await view.query(st.SubtensorModule.RootClaimType, [coldkey_ss58])
-    if isinstance(value, dict):
-        (variant, payload), *_ = value.items()
-        subnets = None
-        if isinstance(payload, dict) and payload.get("subnets") is not None:
-            subnets = [int(n) for n in payload["subnets"]]
-        return {"type": str(variant), "subnets": subnets}
-    return {"type": str(value), "subnets": None}
-
-
-@read(
     "auto_stake",
     {"coldkey_ss58": "string", "netuid": "integer"},
     category="Staking",

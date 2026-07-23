@@ -76,8 +76,6 @@ RAW_ONLY: dict[str, set[str]] = {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",
         "sudo_set_min_childkey_take",
-        "sudo_set_num_root_claims",
-        "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
         "trigger_epoch",

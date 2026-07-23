@@ -129,6 +129,14 @@ pub trait SubtensorCustomApi<BlockHash> {
         coldkey: AccountId32,
         at: Option<BlockHash>,
     ) -> RpcResult<TaoBalance>;
+    /// TAO a staker would realize by redeeming its owed shares on one validator.
+    #[method(name = "betaBasket_getStakerValidatorOwed")]
+    fn get_basket_payout(
+        &self,
+        hotkey: AccountId32,
+        coldkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<TaoBalance>;
     /// A validator's beta basket net asset value, in TAO.
     #[method(name = "betaBasket_getValidatorNav")]
     fn get_validator_basket_nav(
@@ -630,6 +638,24 @@ where
             Err(e) => {
                 Err(Error::RuntimeError(format!("Unable to get root basket owed: {e:?}")).into())
             }
+        }
+    }
+
+    fn get_basket_payout(
+        &self,
+        hotkey: AccountId32,
+        coldkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<TaoBalance> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_basket_payout(at, hotkey, coldkey) {
+            Ok(result) => Ok(result),
+            Err(e) => Err(Error::RuntimeError(format!(
+                "Unable to get staker validator owed: {e:?}"
+            ))
+            .into()),
         }
     }
 

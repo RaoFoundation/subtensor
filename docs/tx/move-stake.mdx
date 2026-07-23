@@ -16,7 +16,7 @@ changes.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1255-L1273) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1272-L1290) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("move_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1257`](/code/pallets/subtensor/src/macros/dispatches.rs#L1255-L1273):
+`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1274`](/code/pallets/subtensor/src/macros/dispatches.rs#L1272-L1290):
 
 ```rust
 #[pallet::call_index(85)]

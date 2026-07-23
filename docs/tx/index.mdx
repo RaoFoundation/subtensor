@@ -76,7 +76,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`associate-evm-key`](/docs/tx/associate-evm-key) | hotkey | signed account (pallet role may apply) | Associate an EVM key with a hotkey on a subnet. |
 | [`associate-hotkey`](/docs/tx/associate-hotkey) | coldkey | signed account (pallet role may apply) | Associate a hotkey with the signing coldkey. |
 | [`burned-register`](/docs/tx/burned-register) | coldkey | signed account (pallet role may apply) | Register a hotkey on a subnet by paying the registration cost. |
-| [`claim-root`](/docs/tx/claim-root) | coldkey | signed account (pallet role may apply) | Claim accumulated root dividends from one or more subnets. |
+| [`claim-root`](/docs/tx/claim-root) | coldkey | signed account (pallet role may apply) | Redeem your accrued root dividends (beta basket shares) as root stake. |
 | [`clear-coldkey-swap-announcement`](/docs/tx/clear-coldkey-swap-announcement) | coldkey | signed account (pallet role may apply) | Cancel a pending coldkey swap announcement (after the reannouncement delay). |
 | [`commit-weights`](/docs/tx/commit-weights) | hotkey | signed account (pallet role may apply) | Timelock-encrypt and commit weights, forcing the commit-reveal path. |
 | [`decrease-take`](/docs/tx/decrease-take) | coldkey | signed account (pallet role may apply) | Decrease the delegate take of a hotkey. |
@@ -101,7 +101,8 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-identity`](/docs/tx/set-identity) | coldkey | signed account (pallet role may apply) | Publish an on-chain identity (name, links, description) for the coldkey. |
 | [`set-min-collateral`](/docs/tx/set-min-collateral) | coldkey | signed account (pallet role may apply) | Set the self-maintaining collateral floor for your hotkey on a subnet. |
 | [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account (pallet role may apply) | Enable or disable perpetual lock mode for a coldkey on a subnet. |
-| [`set-root-claim-type`](/docs/tx/set-root-claim-type) | coldkey | signed account (pallet role may apply) | Set how a coldkey's root alpha emission is claimed. |
+| [`set-root-claim-threshold`](/docs/tx/set-root-claim-threshold) | coldkey | root (chain sudo) | Set the minimum TAO payout for a root dividend claim (root only). |
+| [`set-root-weights`](/docs/tx/set-root-weights) | hotkey | signed account (pallet role may apply) | Set how your root dividends are deployed across subnets (beta basket weights). |
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |
 | [`set-take`](/docs/tx/set-take) | coldkey | signed account (pallet role may apply) | Set the delegate take to an absolute value. |
 | [`set-weights`](/docs/tx/set-weights) | hotkey | signed account (pallet role may apply) | Set validator weights, auto-selecting plaintext or commit-reveal. |

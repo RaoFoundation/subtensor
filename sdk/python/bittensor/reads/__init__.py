@@ -25,6 +25,7 @@ from . import (  # noqa: F401  (imported for registration side effects)
     locks,
     neurons,
     prices,
+    root,
     staking,
     subnets,
     weights,

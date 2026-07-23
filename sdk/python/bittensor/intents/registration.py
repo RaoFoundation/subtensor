@@ -10,16 +10,6 @@ from ._money import UNBOUNDED, Spend
 from .base import Intent
 from .registry import register
 
-# Variants of the runtime's RootClaimTypeEnum (subtensor/pallets/subtensor/src/lib.rs).
-ROOT_CLAIM_TYPES = ("Swap", "Keep", "KeepSubnets")
-
-ROOT_CLAIM_TYPE_HELP = (
-    "How root alpha emission is claimed. One of: "
-    + ", ".join(ROOT_CLAIM_TYPES)
-    + ". Swap converts all alpha emission to TAO, Keep keeps everything as alpha, "
-    "KeepSubnets keeps alpha only on the subnets given via --subnets and swaps the rest."
-)
-
 
 @register
 @dataclass
@@ -194,84 +184,30 @@ class RootRegister(Intent):
 @register
 @dataclass
 class ClaimRoot(Intent):
-    """Claim accumulated root dividends from one or more subnets.
+    """Redeem your accrued root dividends (beta basket shares) as root stake.
 
-    Pays out the signing coldkey's accrued root-stake dividends from the listed
-    subnets. What the payout looks like depends on the coldkey's root claim
-    type (see ``set_root_claim_type``): swapped to TAO, kept as subnet alpha,
-    or a per-subnet mix. At most 5 subnets per call — an empty or longer list
-    fails with ``InvalidSubnetNumber``. Subnets whose accrued dividends are
-    below the per-subnet claim threshold (default 500,000 rao; adjustable by
-    the subnet owner or root) are silently skipped while the transaction
-    still succeeds. Unclaimed dividends simply keep accruing — there is no
-    deadline — but each call pays out only the subnets listed.
+    Root dividends accrue as shares of each validator's beta basket — an
+    escrowed index fund of subnet alpha the chain builds from the validator's
+    root dividends per its root weights (see ``set_root_weights``). This call
+    redeems the signing coldkey's owed shares across every validator it
+    root-stakes to, in one transaction with no parameters: each basket pays
+    out pro-rata (subnet alpha holdings are sold to TAO at the current pool
+    price) and the proceeds are staked back to root on the same validator.
+    Claims whose estimated payout is below the chain's claim threshold
+    (see ``root_claim_threshold``) are silently skipped and keep accruing;
+    there is no deadline. Preview the payout with the ``root_basket_owed``
+    read.
     """
 
     op = "claim_root"
     signer = "coldkey"
     wraps = (("SubtensorModule", "claim_root"),)
 
-    subnets: list[int] = field(
-        metadata={"help": "Netuids to claim accumulated root dividends from; at most 5 per call."}
-    )
-
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.claim_root(subnets=[int(n) for n in self.subnets])
-        )
+        return await substrate.compose(calls.SubtensorModule.claim_root())
 
     def summary(self) -> str:
-        return f"claim root dividends from subnets {self.subnets}"
-
-
-@register
-@dataclass
-class SetRootClaimType(Intent):
-    """Set how a coldkey's root alpha emission is claimed.
-
-    Controls what happens to root dividends when they are claimed (see
-    ``claim_root``): ``Swap`` converts all alpha emission to TAO (the chain
-    default), ``Keep`` keeps everything as subnet alpha, and ``KeepSubnets``
-    keeps alpha on the listed ``subnets`` while swapping the rest. The setting
-    is per-coldkey and persists until changed again; it does not move anything
-    already claimed. Read it back with the ``root_claim_type`` read.
-    """
-
-    op = "set_root_claim_type"
-    signer = "coldkey"
-    wraps = (("SubtensorModule", "set_root_claim_type"),)
-
-    claim_type: str = field(default="Swap", metadata={"help": ROOT_CLAIM_TYPE_HELP})
-    subnets: Optional[list] = field(
-        default=None,
-        metadata={"help": "Netuids to keep alpha on; required for KeepSubnets, invalid otherwise."},
-    )
-
-    def __post_init__(self):
-        if self.claim_type not in ROOT_CLAIM_TYPES:
-            raise ValueError(
-                f"claim_type must be one of {ROOT_CLAIM_TYPES}, got {self.claim_type!r}"
-            )
-        if self.claim_type == "KeepSubnets" and not self.subnets:
-            raise ValueError("claim_type 'KeepSubnets' requires a non-empty subnets list")
-        if self.claim_type != "KeepSubnets" and self.subnets:
-            raise ValueError(
-                f"subnets is only valid for claim_type 'KeepSubnets', not {self.claim_type!r}"
-            )
-
-    async def build(self, substrate, wallet: Any):
-        if self.claim_type == "KeepSubnets":
-            value: Any = {"KeepSubnets": {"subnets": sorted({int(n) for n in self.subnets})}}
-        else:
-            value = self.claim_type
-        return await substrate.compose(
-            calls.SubtensorModule.set_root_claim_type(new_root_claim_type=value)
-        )
-
-    def summary(self) -> str:
-        if self.claim_type == "KeepSubnets":
-            return f"set root claim type to keep alpha on subnets {sorted(self.subnets)}"
-        return f"set root claim type to {self.claim_type}"
+        return "claim root dividends (redeem beta basket shares to root stake)"
 
 
 @register

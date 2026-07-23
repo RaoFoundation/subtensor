@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 437
+Spec version: 438
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -283,11 +283,12 @@ class SubtensorModule:
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')
-    RootClaimType = Item('SubtensorModule', 'RootClaimType', 'RootClaimTypeEnum')
+    BasketShares = Item('SubtensorModule', 'BasketShares', 'u64')
+    BasketRate = Item('SubtensorModule', 'BasketRate', 'FixedI128')
+    BasketClaimed = Item('SubtensorModule', 'BasketClaimed', 'i128')
     StakingColdkeysByIndex = Item('SubtensorModule', 'StakingColdkeysByIndex', 'AccountId32')
     StakingColdkeys = Item('SubtensorModule', 'StakingColdkeys', 'u64')
     NumStakingColdkeys = Item('SubtensorModule', 'NumStakingColdkeys', 'u64')
-    NumRootClaim = Item('SubtensorModule', 'NumRootClaim', 'u64')
     AssociatedEvmAddress = Item('SubtensorModule', 'AssociatedEvmAddress', '(H160, u64)')
     AssociatedUidsByEvmAddress = Item('SubtensorModule', 'AssociatedUidsByEvmAddress', 'BoundedVec')
     SubnetLeases = Item('SubtensorModule', 'SubnetLeases', 'SubnetLease')

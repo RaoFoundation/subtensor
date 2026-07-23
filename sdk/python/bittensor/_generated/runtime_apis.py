@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 437
+Spec version: 438
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -29,6 +29,14 @@ class BabeApi:
     next_epoch = Method('BabeApi', 'next_epoch')
     generate_key_ownership_proof = Method('BabeApi', 'generate_key_ownership_proof')
     submit_report_equivocation_unsigned_extrinsic = Method('BabeApi', 'submit_report_equivocation_unsigned_extrinsic')
+
+class BetaBasketRuntimeApi:
+    get_root_basket_owed = Method('BetaBasketRuntimeApi', 'get_root_basket_owed')
+    get_basket_payout = Method('BetaBasketRuntimeApi', 'get_basket_payout')
+    get_validator_basket_nav = Method('BetaBasketRuntimeApi', 'get_validator_basket_nav')
+    get_validator_basket = Method('BetaBasketRuntimeApi', 'get_validator_basket')
+    get_root_basket_total_nav = Method('BetaBasketRuntimeApi', 'get_root_basket_total_nav')
+    get_validator_weights = Method('BetaBasketRuntimeApi', 'get_validator_weights')
 
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')

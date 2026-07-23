@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 437
+Spec version: 438
 """
 from typing import Any, NamedTuple
 
@@ -20,7 +20,6 @@ class Call(NamedTuple):
 AccountId32 = Any
 AdjustmentDirection = Any
 AlphaBalance = Any
-BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
@@ -42,7 +41,6 @@ PrecompileEnum = Any
 ProxyType = Any
 PulsesPayload = Any
 RecycleOrBurnEnum = Any
-RootClaimTypeEnum = Any
 RuntimeCall = Any
 TaoBalance = Any
 TickIndex = Any
@@ -256,9 +254,9 @@ class SubtensorModule:
         return Call('SubtensorModule', 'burned_register', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
-    def claim_root(subnets: 'BTreeSet') -> Call:
-        "Claims the root emissions for a coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
-        return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
+    def claim_root() -> Call:
+        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's owed fund shares are redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
+        return Call('SubtensorModule', 'claim_root', {})
 
     @staticmethod
     def clear_coldkey_swap_announcement() -> Call:
@@ -481,9 +479,9 @@ class SubtensorModule:
         return Call('SubtensorModule', 'set_reject_locked_alpha', {'enabled': enabled})
 
     @staticmethod
-    def set_root_claim_type(new_root_claim_type: 'RootClaimTypeEnum') -> Call:
-        "Sets the root claim type for the coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey."
-        return Call('SubtensorModule', 'set_root_claim_type', {'new_root_claim_type': new_root_claim_type})
+    def set_root_weights(dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
+        "--- Sets a root validator's beta-basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket.  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use). * `version_key` (u64): the network version key."
+        return Call('SubtensorModule', 'set_root_weights', {'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod
     def set_subnet_identity(netuid: 'NetUid', subnet_name: 'Any', github_repo: 'Any', subnet_contact: 'Any', subnet_url: 'Any', discord: 'Any', description: 'Any', logo_url: 'Any', additional: 'Any') -> Call:
@@ -516,13 +514,8 @@ class SubtensorModule:
         return Call('SubtensorModule', 'sudo_set_min_childkey_take', {'take': take})
 
     @staticmethod
-    def sudo_set_num_root_claims(new_value: 'u64') -> Call:
-        'Sets root claim number (sudo extrinsic). Zero disables auto-claim.'
-        return Call('SubtensorModule', 'sudo_set_num_root_claims', {'new_value': new_value})
-
-    @staticmethod
     def sudo_set_root_claim_threshold(netuid: 'NetUid', new_value: 'u64') -> Call:
-        'Sets root claim threshold for subnet (sudo or owner origin).'
+        '--- Sets the root claim dust threshold (sudo). Basket redemption is fund-level, so only the `NetUid::ROOT` entry is meaningful; other netuids are rejected.'
         return Call('SubtensorModule', 'sudo_set_root_claim_threshold', {'netuid': netuid, 'new_value': new_value})
 
     @staticmethod

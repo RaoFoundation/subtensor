@@ -17,7 +17,7 @@ hitting either cap fails until the window passes. Use
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L809-L813) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L830) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L811`](/code/pallets/subtensor/src/macros/dispatches.rs#L809-L813):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L828`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L830):
 
 ```rust
 #[pallet::call_index(62)]

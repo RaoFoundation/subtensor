@@ -366,11 +366,6 @@ DESCRIPTIONS: dict[str, str] = {
         "being finalized. Check the crowdloan's `creator` field in the crowdloan pallet storage "
         "and submit the call from that coldkey."
     ),
-    "InvalidNumRootClaim": (
-        "The value passed to sudo_set_num_root_claims exceeds the compile-time maximum number "
-        "of root claims. Check the `new_value` argument against the chain's "
-        "`MAX_NUM_ROOT_CLAIMS` constant and pass a smaller number."
-    ),
     "InvalidPort": (
         "The `port` argument to serve_axon or serve_prometheus is 0, which is rejected. Check "
         "the miner or client axon configuration and serve on a non-zero port."
@@ -400,11 +395,6 @@ DESCRIPTIONS: dict[str, str] = {
         "The seal hash recomputed from the supplied `block_number`, `nonce` and key does not "
         "equal the submitted `work`. Verify the PoW solver built the seal for the same key and "
         "block it submits, and that the work bytes were not corrupted in transit."
-    ),
-    "InvalidSubnetNumber": (
-        "A root-claim call passed an empty subnet set or more subnets than the per-call maximum "
-        "(claim_root, or KeepSubnets in set_root_claim_type). Check the `subnets` argument is "
-        "non-empty and within the `MAX_SUBNET_CLAIMS` limit."
     ),
     "InvalidValue": (
         "A generic out-of-range parameter on an admin or sudo call, e.g. mechanism counts, "

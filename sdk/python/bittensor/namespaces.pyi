@@ -84,7 +84,7 @@ class Collateral(_ReadNamespace):
 
         `lock_share` is the fraction of the registration price locked as
         collateral instead of burned (0 disables collateral); `drain_ratio` is
-        the alpha released per alpha of miner incentive earned, snapshot per
+        the alpha released per alpha of hotkey emission earned, snapshot per
         miner at registration.
         """
 
@@ -95,15 +95,15 @@ class Collateral(_ReadNamespace):
         never charged for the owner's bond. When `coldkey_ss58` is omitted, the
         hotkey owner is used.
 
-        `locked_alpha` is non-withdrawable stake released through earned incentive
-        at `drain_ratio` alpha per alpha earned; `min_locked_alpha` is the
-        miner-set floor the lock self-maintains around (the drain stops at it and
-        incentive fills any shortfall); `earned_alpha` is lifetime incentive since
-        the collateral entry existed. Derived: `headroom_alpha` (draining portion
-        above the floor), `shortfall_alpha` (capture in progress below the floor),
-        and `releasable_work_alpha` (incentive still needed to release the
-        headroom). The lock survives deregistration and is credited on
-        re-registration.
+        `locked_alpha` is non-withdrawable stake released through earned emission
+        (miner incentive and validator dividends) at `drain_ratio` alpha per alpha
+        earned; `min_locked_alpha` is the miner-set floor the lock self-maintains
+        around (the drain stops at it and emission fills any shortfall);
+        `earned_alpha` is lifetime emission since the collateral entry existed.
+        Derived: `headroom_alpha` (draining portion above the floor),
+        `shortfall_alpha` (capture in progress below the floor), and
+        `releasable_work_alpha` (emission still needed to release the headroom).
+        The lock survives deregistration and is credited on re-registration.
         """
 
     async def subnet_collateral(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
@@ -389,8 +389,36 @@ class Staking(_ReadNamespace):
         entry have auto-stake unset.
         """
 
-    async def root_claim_type(self, coldkey_ss58: str, *, block: Optional[int] = None) -> dict:
-        """How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets)."""
+    async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:
+        """Total TAO a coldkey would realize by claiming its root dividends now.
+
+        Marks the coldkey's owed beta-basket shares across every validator it
+        root-stakes to at current pool prices (the same slippage-aware valuation
+        the chain uses to size redemptions). This is the "pending TAO" figure
+        behind `claim_root`; per-validator amounts below the claim threshold are
+        still included here even though a claim would skip them.
+        """
+
+    async def root_basket_owed_breakdown(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """A coldkey's pending root dividends, itemized per validator hotkey.
+
+        For each hotkey the coldkey stakes to, the TAO its owed beta-basket
+        shares would realize if claimed now. Zero-owed validators are omitted.
+        """
+
+    async def root_basket_total_nav(self, *, block: Optional[int] = None) -> Balance:
+        """Network-wide total beta basket NAV across all validators, in TAO.
+
+        Sampling this over time yields the TAO/day flowing to root stakers.
+        """
+
+    async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
+        """The minimum TAO payout for a root dividend claim.
+
+        `claim_root` silently skips any per-validator basket redemption whose
+        estimated payout falls below this threshold; the shares keep accruing
+        and pay out once they clear it. Set by root via `set_root_claim_threshold`.
+        """
 
     async def stake(self, coldkey_ss58: str, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Balance:
         """Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0)."""
@@ -421,6 +449,27 @@ class Staking(_ReadNamespace):
 
         Unlike `owned_hotkeys` this includes delegates the coldkey has nominated.
         Use `stake_for_coldkey` for the per-subnet amounts behind each entry.
+        """
+
+    async def validator_basket(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """A validator's beta basket holdings: per subnet, the alpha held and its TAO value.
+
+        The netuid-0 entry is the basket's TAO cash slot (held as root stake, so
+        alpha and value coincide). Values are realizable quotes — what selling
+        the holding would actually fetch at current pool depth — not spot marks.
+        """
+
+    async def validator_basket_nav(self, hotkey_ss58: str, *, block: Optional[int] = None) -> Balance:
+        """A validator's beta basket net asset value in TAO (realizable quote)."""
+
+    async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """A validator's root dividend distribution vector (beta basket weights).
+
+        The `(netuid, weight)` pairs its root dividends are deployed into each
+        epoch, exactly as stored (u16, max-upscaled), plus each destination's
+        normalized `share` of the total. Netuid 0 means "hold as TAO / root
+        stake". An empty list means the validator has no root weights set and
+        its root dividends are recycled.
         """
 
 class Subnets(_ReadNamespace):

@@ -23,6 +23,17 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v438',
+    date: 'July 2026',
+    title: 'Root Reborn',
+    summary:
+      'Root dividends become beta baskets: every root validator runs an escrowed index fund ' +
+      'of subnet alpha, curated by its root weights, and stakers redeem fund shares with one ' +
+      'parameterless claim — plus new betaBasket runtime APIs, btcli commands, and a full ' +
+      'migration of legacy claimable state.',
+    href: '/releases/v438-upgrade',
+  },
+  {
     tag: 'v437',
     date: 'July 2026',
     title: 'Collateral & Key Lineage',
