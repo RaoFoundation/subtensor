@@ -30,8 +30,8 @@ type AdminAll = (SubnetManagementCalls, RootConfigCalls, OwnerKeyCalls);
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management plus root-claim mode selection.
-type StakingAllowed = (StakeManagementCalls, RootClaimTypeCalls);
+/// `Staking`: stake position management.
+type StakingAllowed = StakeManagementCalls;
 
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
@@ -63,7 +63,6 @@ type NonTransferAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -79,7 +78,6 @@ type NonFungibleAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -99,7 +97,6 @@ type NonCriticalAllowed = (
     HotkeySwapCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -484,7 +481,6 @@ mod tests {
                 "SubtensorModule::set_min_collateral",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
-                "SubtensorModule::set_root_claim_type",
             ])
         );
         assert_eq!(

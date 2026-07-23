@@ -271,12 +271,8 @@ mod errors {
         TrimmingWouldExceedMaxImmunePercentage,
         /// Violating the rules of Childkey-Parentkey consistency
         ChildParentInconsistency,
-        /// Invalid number of root claims
-        InvalidNumRootClaim,
         /// Invalid value of root claim threshold
         InvalidRootClaimThreshold,
-        /// Exceeded subnet limit number or zero.
-        InvalidSubnetNumber,
         /// The maximum allowed UIDs times mechanism count should not exceed 256.
         TooManyUIDsPerMechanism,
         /// Voting power tracking is not enabled for this subnet.

@@ -12,10 +12,7 @@ mod dispatches {
     use sp_runtime::{Percent, Saturating, traits::Hash};
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
-    use crate::MAX_NUM_ROOT_CLAIMS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
-    use crate::MAX_SUBNET_CLAIMS;
-
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -79,6 +76,26 @@ mod dispatches {
             } else {
                 Self::do_set_weights(origin, netuid, dests, weights, version_key)
             }
+        }
+
+        /// --- Sets a root validator's beta-basket distribution vector `w` on the root subnet
+        /// (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the
+        /// validator's root dividends to deploy into each subnet's alpha basket.
+        ///
+        /// # Args:
+        /// * `origin`: the root validator hotkey.
+        /// * `dests` (Vec<u16>): destination subnet netuids.
+        /// * `weights` (Vec<u16>): per-subnet weights (normalized on use).
+        /// * `version_key` (u64): the network version key.
+        #[pallet::call_index(146)]
+        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
+        pub fn set_root_weights(
+            origin: OriginFor<T>,
+            dests: Vec<u16>,
+            weights: Vec<u16>,
+            version_key: u64,
+        ) -> DispatchResult {
+            Self::do_set_root_weights(origin, dests, weights, version_key)
         }
 
         /// Sets the caller weights for the incentive mechanism for mechanisms. The call
@@ -1877,6 +1894,12 @@ mod dispatches {
         }
 
         /// Claims the root emissions for a coldkey.
+        ///
+        /// Redemption is fund-level: for every validator the coldkey stakes to, the staker's
+        /// owed fund shares are redeemed as their pro-rata fraction of each basket holding
+        /// (sold to TAO and staked on root). There is no per-subnet selection — the basket is a
+        /// single fund whose composition is independent of staker entitlements.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         ///
@@ -1888,66 +1911,21 @@ mod dispatches {
         ///
         #[pallet::call_index(121)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
-        pub fn claim_root(
-            origin: OriginFor<T>,
-            subnets: BTreeSet<NetUid>,
-        ) -> DispatchResultWithPostInfo {
+        pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
-
-            ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
-            ensure!(
-                subnets.len() <= MAX_SUBNET_CLAIMS,
-                Error::<T>::InvalidSubnetNumber
-            );
 
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::do_root_claim(coldkey, Some(subnets))?;
+            let weight = Self::do_root_claim(coldkey)?;
             Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets the root claim type for the coldkey.
-        /// # Arguments
-        /// * `origin`: The signature of the caller's coldkey.
-        ///
-        /// # Events
-        /// * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey.
-        ///
-        #[pallet::call_index(122)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_root_claim_type())]
-        pub fn set_root_claim_type(
-            origin: OriginFor<T>,
-            new_root_claim_type: RootClaimTypeEnum,
-        ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin)?;
+        // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are
+        // retired: basket redemption is always a full swap to root TAO (no per-coldkey claim
+        // type), and there is no auto-claim scheduler to configure. Do not reuse these indices.
 
-            if let RootClaimTypeEnum::KeepSubnets { subnets } = &new_root_claim_type {
-                ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
-            }
-
-            Self::maybe_add_coldkey_index(&coldkey);
-
-            Self::change_root_claim_type(&coldkey, new_root_claim_type);
-            Ok(())
-        }
-
-        /// Sets root claim number (sudo extrinsic). Zero disables auto-claim.
-        #[pallet::call_index(123)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_num_root_claims())]
-        pub fn sudo_set_num_root_claims(origin: OriginFor<T>, new_value: u64) -> DispatchResult {
-            ensure_root(origin)?;
-
-            ensure!(
-                new_value <= MAX_NUM_ROOT_CLAIMS,
-                Error::<T>::InvalidNumRootClaim
-            );
-
-            NumRootClaim::<T>::set(new_value);
-
-            Ok(())
-        }
-
-        /// Sets root claim threshold for subnet (sudo or owner origin).
+        /// --- Sets the root claim dust threshold (sudo). Basket redemption is fund-level, so
+        /// only the `NetUid::ROOT` entry is meaningful; other netuids are rejected.
         #[pallet::call_index(124)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_root_claim_threshold())]
         pub fn sudo_set_root_claim_threshold(
@@ -1956,7 +1934,10 @@ mod dispatches {
             new_value: u64,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
+            // Claims only ever consult the ROOT entry; accepting other netuids would silently
+            // store an inert value.
+            ensure!(netuid.is_root(), Error::<T>::InvalidRootClaimThreshold);
 
             ensure!(
                 new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),

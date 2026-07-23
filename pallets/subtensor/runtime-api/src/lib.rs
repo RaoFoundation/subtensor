@@ -83,4 +83,17 @@ sp_api::decl_runtime_apis! {
         fn get_proxy_types() -> Vec<ProxyTypeInfo>;
         fn get_proxy_filters(proxy_types: Option<Vec<u8>>) -> Vec<ProxyFilterInfo>;
     }
+
+    pub trait BetaBasketRuntimeApi {
+        /// Total TAO a coldkey would realize by redeeming all its root beta baskets (marked).
+        fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance;
+        /// A validator's beta basket net asset value, in TAO (marked).
+        fn get_validator_basket_nav(hotkey: AccountId32) -> TaoBalance;
+        /// A validator's basket breakdown: (subnet, alpha held, TAO value) per subnet.
+        fn get_validator_basket(hotkey: AccountId32) -> Vec<(NetUid, AlphaBalance, TaoBalance)>;
+        /// Network-wide total beta basket NAV across all validators, in TAO (marked).
+        fn get_root_basket_total_nav() -> TaoBalance;
+        /// A validator's basket weight vector `w`: (subnet, weight) it deploys dividends into.
+        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)>;
+    }
 }

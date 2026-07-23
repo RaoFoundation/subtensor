@@ -14,8 +14,8 @@ use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 use sp_api::ProvideRuntimeApi;
 
 pub use subtensor_custom_rpc_runtime_api::{
-    DelegateInfoRuntimeApi, NeuronInfoRuntimeApi, StakeInfoRuntimeApi, SubnetInfoRuntimeApi,
-    SubnetRegistrationRuntimeApi,
+    BetaBasketRuntimeApi, DelegateInfoRuntimeApi, NeuronInfoRuntimeApi, StakeInfoRuntimeApi,
+    SubnetInfoRuntimeApi, SubnetRegistrationRuntimeApi,
 };
 
 #[rpc(client, server)]
@@ -121,6 +121,38 @@ pub trait SubtensorCustomApi<BlockHash> {
         netuid: NetUid,
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
+
+    /// Total TAO a staker (coldkey) would realize by redeeming all its root beta baskets.
+    #[method(name = "betaBasket_getStakerOwed")]
+    fn get_root_basket_owed(
+        &self,
+        coldkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<TaoBalance>;
+    /// A validator's beta basket net asset value, in TAO.
+    #[method(name = "betaBasket_getValidatorNav")]
+    fn get_validator_basket_nav(
+        &self,
+        hotkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<TaoBalance>;
+    /// A validator's full basket breakdown: SCALE-encoded `Vec<(NetUid, AlphaBalance, TaoBalance)>`.
+    #[method(name = "betaBasket_getValidatorBasket")]
+    fn get_validator_basket(
+        &self,
+        hotkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Vec<u8>>;
+    /// Network-wide total beta basket NAV across all validators, in TAO.
+    #[method(name = "betaBasket_getTotalNav")]
+    fn get_root_basket_total_nav(&self, at: Option<BlockHash>) -> RpcResult<TaoBalance>;
+    /// A validator's basket weight vector: SCALE-encoded `Vec<(NetUid, u16)>` (its strategy).
+    #[method(name = "betaBasket_getValidatorWeights")]
+    fn get_validator_weights(
+        &self,
+        hotkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Vec<u8>>;
 }
 
 pub struct SubtensorCustom<C, P> {
@@ -170,6 +202,7 @@ where
     C::Api: SubnetInfoRuntimeApi<Block>,
     C::Api: StakeInfoRuntimeApi<Block>,
     C::Api: SubnetRegistrationRuntimeApi<Block>,
+    C::Api: BetaBasketRuntimeApi<Block>,
 {
     fn get_delegates(&self, at: Option<<Block as BlockT>::Hash>) -> RpcResult<Vec<u8>> {
         let api = self.client.runtime_api();
@@ -581,6 +614,86 @@ where
         match api.get_coldkey_lock(at, coldkey, netuid) {
             Ok(result) => Ok(result.encode()),
             Err(e) => Err(Error::RuntimeError(format!("Unable to get coldkey lock: {e:?}")).into()),
+        }
+    }
+
+    fn get_root_basket_owed(
+        &self,
+        coldkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<TaoBalance> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_root_basket_owed(at, coldkey) {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                Err(Error::RuntimeError(format!("Unable to get root basket owed: {e:?}")).into())
+            }
+        }
+    }
+
+    fn get_validator_basket_nav(
+        &self,
+        hotkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<TaoBalance> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_validator_basket_nav(at, hotkey) {
+            Ok(result) => Ok(result),
+            Err(e) => Err(Error::RuntimeError(format!(
+                "Unable to get validator basket NAV: {e:?}"
+            ))
+            .into()),
+        }
+    }
+
+    fn get_validator_basket(
+        &self,
+        hotkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_validator_basket(at, hotkey) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => {
+                Err(Error::RuntimeError(format!("Unable to get validator basket: {e:?}")).into())
+            }
+        }
+    }
+
+    fn get_root_basket_total_nav(
+        &self,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<TaoBalance> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_root_basket_total_nav(at) {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                Err(Error::RuntimeError(format!("Unable to get total basket NAV: {e:?}")).into())
+            }
+        }
+    }
+
+    fn get_validator_weights(
+        &self,
+        hotkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_validator_weights(at, hotkey) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => {
+                Err(Error::RuntimeError(format!("Unable to get validator weights: {e:?}")).into())
+            }
         }
     }
 }

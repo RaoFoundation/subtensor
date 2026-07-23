@@ -125,16 +125,14 @@ impl<T: Config> Pallet<T> {
             let new_dest_alpha =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, netuid);
 
-            if !new_dest_alpha.is_zero() {
-                Self::transfer_root_claimed_for_new_keys(
-                    netuid,
-                    &hotkey,
-                    &hotkey,
-                    old_coldkey,
-                    new_coldkey,
-                );
+            if netuid == NetUid::ROOT {
+                // Move the basket claimed watermark once, with the root-subnet iteration —
+                // unconditionally, NOT gated on current root stake: the signed watermark can be
+                // negative with zero stake (claim-then-unstake), which represents accrued owed
+                // shares that must follow the coldkey or be orphaned on the dead key.
+                Self::transfer_basket_claimed_for_new_coldkey(&hotkey, old_coldkey, new_coldkey);
 
-                if netuid == NetUid::ROOT {
+                if !new_dest_alpha.is_zero() {
                     // Register new coldkey with root stake
                     Self::maybe_add_coldkey_index(new_coldkey);
                 }

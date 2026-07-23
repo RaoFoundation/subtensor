@@ -220,56 +220,10 @@ export async function swapStakeLimit(
     await waitForTransactionWithRetry(api, tx, coldkey, "swap_stake_limit");
 }
 
-export type RootClaimType = "Swap" | "Keep" | { type: "KeepSubnets"; subnets: number[] };
-
-export async function getRootClaimType(api: TypedApi<typeof subtensor>, coldkey: string): Promise<RootClaimType> {
-    const result = await api.query.SubtensorModule.RootClaimType.getValue(coldkey);
-    if (result.type === "KeepSubnets") {
-        return { type: "KeepSubnets", subnets: result.value.subnets as number[] };
-    }
-    return result.type as "Swap" | "Keep";
-}
-
-export async function setRootClaimType(
-    api: TypedApi<typeof subtensor>,
-    coldkey: KeyringPair,
-    claimType: RootClaimType
-): Promise<void> {
-    let newRootClaimType;
-    if (typeof claimType === "string") {
-        newRootClaimType = { type: claimType, value: undefined };
-    } else {
-        newRootClaimType = { type: "KeepSubnets", value: { subnets: claimType.subnets } };
-    }
-    const tx = api.tx.SubtensorModule.set_root_claim_type({
-        new_root_claim_type: newRootClaimType,
-    });
-    await waitForTransactionWithRetry(api, tx, coldkey, "set_root_claim_type");
-}
-
-export async function claimRoot(
-    api: TypedApi<typeof subtensor>,
-    coldkey: KeyringPair,
-    subnets: number[]
-): Promise<void> {
-    const tx = api.tx.SubtensorModule.claim_root({
-        subnets: subnets,
-    });
+export async function claimRoot(api: TypedApi<typeof subtensor>, coldkey: KeyringPair): Promise<void> {
+    // Fund-level redemption: no per-subnet selection.
+    const tx = api.tx.SubtensorModule.claim_root();
     await waitForTransactionWithRetry(api, tx, coldkey, "claim_root");
-}
-
-export async function getNumRootClaims(api: TypedApi<typeof subtensor>): Promise<bigint> {
-    return await api.query.SubtensorModule.NumRootClaim.getValue();
-}
-
-export async function sudoSetNumRootClaims(api: TypedApi<typeof subtensor>, newValue: bigint): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
-    const internalCall = api.tx.SubtensorModule.sudo_set_num_root_claims({
-        new_value: newValue,
-    });
-    const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
-    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_num_root_claims");
 }
 
 export async function getRootClaimThreshold(api: TypedApi<typeof subtensor>, netuid: number): Promise<bigint> {
@@ -319,6 +273,8 @@ export async function waitForBlocks(api: TypedApi<typeof subtensor>, numBlocks: 
     }
 }
 
+/// LEGACY per-subnet claimable rates; drained by the seed migration. Kept only for
+/// migration-era assertions.
 export async function getRootClaimable(api: TypedApi<typeof subtensor>, hotkey: string): Promise<Map<number, bigint>> {
     const result = await api.query.SubtensorModule.RootClaimable.getValue(hotkey);
     const claimableMap = new Map<number, bigint>();
@@ -328,6 +284,7 @@ export async function getRootClaimable(api: TypedApi<typeof subtensor>, hotkey: 
     return claimableMap;
 }
 
+/// LEGACY per-subnet claimed watermarks; drained by the seed migration.
 export async function getRootClaimed(
     api: TypedApi<typeof subtensor>,
     netuid: number,
@@ -335,6 +292,41 @@ export async function getRootClaimed(
     coldkey: string
 ): Promise<bigint> {
     return await api.query.SubtensorModule.RootClaimed.getValue(netuid, hotkey, coldkey);
+}
+
+/// Sets a root validator's beta-basket weight vector (the distribution its root dividends are
+/// deployed into). Signed by the validator hotkey; requires a root UID.
+export async function setRootWeights(
+    api: TypedApi<typeof subtensor>,
+    hotkey: KeyringPair,
+    dests: number[],
+    weights: number[]
+): Promise<void> {
+    const tx = api.tx.SubtensorModule.set_root_weights({
+        dests: dests,
+        weights: weights,
+        version_key: 0n,
+    });
+    await waitForTransactionWithRetry(api, tx, hotkey, "set_root_weights");
+}
+
+/// A validator's unified fund-shares-per-root-stake accumulator (I96F32 raw bits).
+export async function getBasketRate(api: TypedApi<typeof subtensor>, hotkey: string): Promise<bigint> {
+    return await api.query.SubtensorModule.BasketRate.getValue(hotkey);
+}
+
+/// A validator's total outstanding basket fund shares.
+export async function getBasketShares(api: TypedApi<typeof subtensor>, hotkey: string): Promise<bigint> {
+    return await api.query.SubtensorModule.BasketShares.getValue(hotkey);
+}
+
+/// A staker's claimed-shares watermark on a validator's fund.
+export async function getBasketClaimed(
+    api: TypedApi<typeof subtensor>,
+    hotkey: string,
+    coldkey: string
+): Promise<bigint> {
+    return await api.query.SubtensorModule.BasketClaimed.getValue(hotkey, coldkey);
 }
 
 export async function isSubtokenEnabled(api: TypedApi<typeof subtensor>, netuid: number): Promise<boolean> {

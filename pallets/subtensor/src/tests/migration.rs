@@ -5162,3 +5162,342 @@ fn test_migrate_dynamic_tempo_idempotent() {
         );
     });
 }
+
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_seed_beta_basket --exact --nocapture
+#[test]
+fn test_migrate_seed_beta_basket() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+
+        // Validator has root stake; a legacy claimable rate exists on `netuid` with no claims yet.
+        let root_stake = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+
+        // rate = 0.5 alpha-principal per unit root stake => gross = 1_000_000 alpha.
+        let rate = I96F32::from_num(0.5);
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, rate);
+        });
+
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            0
+        );
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        // remaining = rate * total_root - claimed = 0.5 * 2_000_000 - 0 = 1_000_000 alpha,
+        // now held by the escrow as the fund's holding on this subnet.
+        let expected_alpha = 1_000_000u64;
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            expected_alpha,
+            epsilon = 10u64,
+        );
+
+        // The legacy per-subnet state was converted into the unified fund and drained.
+        let shares = BasketShares::<Test>::get(hotkey);
+        let fund_rate = BasketRate::<Test>::get(hotkey);
+        assert!(shares > 0, "fund shares must be seeded");
+        assert!(fund_rate > I96F32::from_num(0), "fund rate must be seeded");
+        assert!(
+            RootClaimable::<Test>::get(hotkey).is_empty(),
+            "legacy claimable must be drained"
+        );
+
+        // Conservation: the sole staker's owed shares equal the outstanding fund shares
+        // (Σ owed == P), so the whole seeded fund is claimable and nothing is stranded.
+        assert_abs_diff_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+            shares,
+            epsilon = 10u64,
+        );
+
+        // Idempotent: a second run is a no-op (only reads the flag).
+        let w2 = migrate_seed_beta_basket_v2::<Test>();
+        assert_eq!(w2, <Test as frame_system::Config>::DbWeight::get().reads(1));
+    });
+}
+
+/// Migration edge case: a legacy slot whose claimed watermark exceeds its gross accrual (the
+/// historical overclaim bug) must seed nothing negative — no shares, no escrow position — and
+/// the staker's owed must floor at zero rather than underflow.
+#[test]
+fn test_migrate_seed_beta_basket_overclaimed_slot() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+
+        let root_stake = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+
+        // gross = 0.5 * 2_000_000 = 1_000_000, but claimed = 5_000_000 (overclaimed).
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+        RootClaimed::<Test>::insert((netuid, hotkey, coldkey), 5_000_000u128);
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+
+        // remaining is negative -> floored: no escrow position, no shares.
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            0
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+
+        // The converted watermark exceeds the converted rate * stake, so owed floors at zero.
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+            0
+        );
+
+        // Legacy state drained.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, coldkey)), 0u128);
+    });
+}
+
+/// Migration edge case: multi-subnet legacy state with different prices and a partially-claimed
+/// staker. Each staker's owed TAO value must be preserved exactly through the conversion
+/// (`owed_new = Σ pₛ (rateₛ·stake − claimedₛ)`), and `Σ owed == BasketShares` must hold so the
+/// seeded fund is exactly claimable — nothing stranded, nothing over-promised.
+#[test]
+fn test_migrate_seed_beta_basket_multi_subnet_preserves_owed() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner_a = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let alice = U256::from(1003);
+        let bob = U256::from(1004);
+        let owner_b = U256::from(2001);
+        let hotkey_b = U256::from(2002);
+
+        let netuid_a = add_dynamic_network(&hotkey, &owner_a);
+        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
+
+        // Different fixed conversion prices: p_a = 2.0, p_b = 0.5.
+        SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(2.0));
+        SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(0.5));
+
+        // Alice 1_000_000, Bob 3_000_000 root stake => total 4_000_000.
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &bob,
+            NetUid::ROOT,
+            3_000_000u64.into(),
+        );
+
+        // Legacy rates: 0.5 alpha/stake on A, 0.25 on B. Alice has already claimed part of A.
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid_a, I96F32::from_num(0.5));
+            m.insert(netuid_b, I96F32::from_num(0.25));
+        });
+        let alice_claimed_a = 100_000u128;
+        RootClaimed::<Test>::insert((netuid_a, hotkey, alice), alice_claimed_a);
+
+        // Expected owed in TAO-valued shares at the fixed prices:
+        // Alice: p_a*(0.5*1e6 - 1e5) + p_b*(0.25*1e6) = 2*400_000 + 0.5*250_000 = 925_000
+        // Bob:   p_a*(0.5*3e6)       + p_b*(0.25*3e6) = 2*1_500_000 + 0.5*750_000 = 3_375_000
+        let expected_alice = 925_000u64;
+        let expected_bob = 3_375_000u64;
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+
+        let owed_alice = SubtensorModule::get_basket_owed_shares(&hotkey, &alice);
+        let owed_bob = SubtensorModule::get_basket_owed_shares(&hotkey, &bob);
+        assert_abs_diff_eq!(owed_alice, expected_alice, epsilon = 5u64);
+        assert_abs_diff_eq!(owed_bob, expected_bob, epsilon = 5u64);
+
+        // Conservation: the outstanding fund shares equal the sum of all owed (Σ owed == P).
+        let shares = BasketShares::<Test>::get(hotkey);
+        assert_abs_diff_eq!(shares, owed_alice + owed_bob, epsilon = 10u64);
+
+        // Holdings: the still-outstanding legacy alpha per subnet, unpriced.
+        // A: 0.5*4e6 - 1e5 = 1_900_000 alpha; B: 0.25*4e6 = 1_000_000 alpha.
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid_a)
+                .to_u64(),
+            1_900_000u64,
+            epsilon = 5u64
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid_b)
+                .to_u64(),
+            1_000_000u64,
+            epsilon = 5u64
+        );
+
+        // Legacy maps fully drained for this hotkey.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        assert_eq!(RootClaimed::<Test>::get((netuid_a, hotkey, alice)), 0u128);
+    });
+}
+
+/// Migration regression: a chain that already ran the superseded v1 seed migration (which
+/// consumed the key `"migrate_seed_beta_basket"` and seeded the abandoned per-slot
+/// `BasketPrincipal` model) must still be converted by v2 — this is exactly the name-collision
+/// scenario that would have silently stranded every basket had v2 reused the v1 key.
+///
+/// v1-state specifics v2 must tolerate:
+/// * the escrow already holds the slot alpha (possibly MORE than `remaining`, from
+///   compounding) — no double-staking, and the surplus carries the old `E/P` into `N/P`;
+/// * orphaned `BasketPrincipal` entries — cleared;
+/// * a legacy root-slot (netuid 0) rate with escrow root stake — converted at price 1, capped
+///   at the escrow's actual root stake, and the escrow's root stake is excluded from the
+///   claimant base.
+#[test]
+fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
+    use crate::migrations::migrate_seed_beta_basket::{deprecated, migrate_seed_beta_basket_v2};
+
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+
+        // The v1 migration already ran and consumed its key.
+        HasMigrationRun::<Test>::insert(b"migrate_seed_beta_basket".to_vec(), true);
+
+        // Staker root stake.
+        let root_stake = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+
+        // Legacy v1 state: subnet slot with rate 0.5 => remaining = 1_000_000 alpha, but the
+        // escrow ALREADY holds 1_200_000 (v1 staked 1_000_000 and it compounded by 200_000),
+        // plus the orphaned per-slot principal record.
+        let remaining = 1_000_000u64;
+        let compounded_escrow = 1_200_000u64;
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            compounded_escrow.into(),
+        );
+        deprecated::BasketPrincipal::<Test>::insert(hotkey, netuid, AlphaBalance::from(remaining));
+
+        // Legacy v1 root-slot state: rate 0.1 => gross 200_000, but the escrow only actually
+        // holds 150_000 root stake — the conversion must cap at the real backing.
+        let root_slot_backing = 150_000u64;
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(NetUid::ROOT, I96F32::from_num(0.1));
+        });
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            root_slot_backing.into(),
+        );
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+
+        // v2 ran despite v1's consumed key: the fund is seeded.
+        let shares = BasketShares::<Test>::get(hotkey);
+        let rate = BasketRate::<Test>::get(hotkey);
+        assert!(rate > I96F32::from_num(0), "fund rate must be seeded");
+
+        // Shares = remaining*p (subnet, p=1) + min(gross, backing) (root slot, p=1).
+        assert_abs_diff_eq!(shares, remaining + root_slot_backing, epsilon = 5u64);
+
+        // No double-staking: the escrow's compounded holding is untouched, and the surplus
+        // carries the old slot's E/P multiplier into the fund's N/P (> 1).
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            compounded_escrow,
+            epsilon = 1u64
+        );
+
+        // Orphaned per-slot principal cleared.
+        assert!(!deprecated::BasketPrincipal::<Test>::contains_key(
+            hotkey, netuid
+        ));
+
+        // Legacy claim state drained.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+
+        // The staker's owed is fully backed and claimable: owed == shares (sole staker, no
+        // prior claims), and claiming realizes ~the whole fund.
+        assert_abs_diff_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+            shares,
+            epsilon = 5u64
+        );
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(0));
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        let root_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey)));
+        let gain = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        )
+        .to_u64()
+        .saturating_sub(root_before);
+        // Compounded subnet holding (1_200_000 at price ~1) + root slot backing (150_000).
+        assert!(
+            gain > remaining + root_slot_backing,
+            "claim must realize the compounded fund, got {gain}"
+        );
+    });
+}

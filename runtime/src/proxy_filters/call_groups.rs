@@ -412,14 +412,6 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::claim_root),]
 );
 
-// Selecting how root dividends are claimed (a staking-side setting).
-call_filter_group!(
-    RootClaimTypeCalls,
-    [RuntimeCall::SubtensorModule(
-        SubtensorCall::set_root_claim_type
-    ),]
-);
-
 // A subnet's public identity and token symbol.
 call_filter_group!(
     SubnetIdentityCalls,
@@ -443,6 +435,7 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
@@ -480,7 +473,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_max_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::terminate_lease),
         RuntimeCall::SubtensorModule(SubtensorCall::trigger_epoch),
-        RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_num_root_claims),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_root_claim_threshold),
         RuntimeCall::SubtensorModule(SubtensorCall::enable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::disable_voting_power_tracking),
@@ -687,7 +679,6 @@ type SubtensorSplitCalls = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,

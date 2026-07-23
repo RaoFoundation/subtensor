@@ -42,6 +42,8 @@ mod events {
         ),
         /// a caller successfully sets their weights on a subnetwork.
         WeightsSet(NetUidStorageIndex, u16),
+        /// a root validator set its beta-basket distribution vector (uid on the root subnet).
+        RootWeightsSet(u16),
         /// a new neuron account has been registered to the chain.
         NeuronRegistered(NetUid, u16, T::AccountId),
         /// multiple uids have been concurrently registered.
@@ -473,15 +475,39 @@ mod events {
             coldkey: T::AccountId,
         },
 
-        /// Root claim type for a coldkey has been set.
-        /// Parameters:
-        /// (coldkey, u8)
-        RootClaimTypeSet {
-            /// Claim coldkey
-            coldkey: T::AccountId,
+        /// A validator's beta basket (fund) received a dividend deposit: `tao` of value was
+        /// deployed across subnets per the validator's weight vector, minting `shares` fund
+        /// shares at the pre-deposit NAV.
+        BasketDeposited {
+            /// Validator hotkey whose basket received the deposit.
+            hotkey: T::AccountId,
+            /// TAO value added to the fund (marked at moving prices).
+            tao: TaoBalance,
+            /// Fund shares minted at the pre-deposit NAV (grows `BasketShares`).
+            shares: u64,
+        },
 
-            /// Claim type
-            root_claim_type: RootClaimTypeEnum,
+        /// A staker redeemed (claimed) their owed share of a validator's beta basket: their
+        /// pro-rata fraction of every holding was realized as `tao` and staked onto their root
+        /// position.
+        BasketClaimed {
+            /// Validator hotkey the basket belongs to.
+            hotkey: T::AccountId,
+            /// Staker coldkey that claimed.
+            coldkey: T::AccountId,
+            /// TAO realized and staked on root for the staker.
+            tao: TaoBalance,
+        },
+
+        /// A validator's basket holding on a dissolving subnet was converted into the fund's
+        /// root (TAO) slot. Fund shares and staker entitlements are unaffected.
+        BasketHoldingConverted {
+            /// Validator hotkey whose holding was converted.
+            hotkey: T::AccountId,
+            /// Subnet being dissolved.
+            netuid: NetUid,
+            /// TAO realized and held as the fund's root-slot position.
+            tao: TaoBalance,
         },
 
         /// Voting power tracking has been enabled for a subnet.

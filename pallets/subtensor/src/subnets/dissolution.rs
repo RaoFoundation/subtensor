@@ -124,6 +124,11 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NetworkDissolveAlreadyQueued
         );
 
+        // Convert every validator's beta-basket holding on this subnet into the fund's root
+        // (TAO) slot while the AMM pool is still intact; the deferred cleanup phases below
+        // only handle legacy claim state and generic stake teardown.
+        Self::convert_subnet_basket_holdings_to_root(netuid);
+
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
         // Reduce the total networks count.

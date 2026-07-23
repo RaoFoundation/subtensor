@@ -5,7 +5,9 @@ import {
     burnedRegister,
     forceSetBalance,
     generateKeyringPair,
-    getRootClaimable,
+    getBasketRate,
+    getBasketShares,
+    setRootWeights,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -19,13 +21,15 @@ import {
 } from "../../utils";
 import { subtensor } from "@polkadot-api/descriptors";
 import type { TypedApi } from "polkadot-api";
+import { rootRegister } from "../../utils/subnet.ts";
 import { swapHotkey } from "../../utils/swap.ts";
 import { describeSuite } from "@moonwall/cli";
 import type { KeyringPair } from "@moonwall/util";
 
-// Shared setup: creates two subnets, registers oldHotkey on both,
-// stakes on ROOT and both subnets, waits for RootClaimable to accumulate.
-async function setupTwoSubnetsWithClaimable(
+// Shared setup: creates two subnets, registers oldHotkey on both (and on root), points its
+// basket weight vector at the subnets, stakes on ROOT and both subnets, then waits for the
+// unified basket fund (BasketRate / BasketShares) to accumulate.
+async function setupTwoSubnetsWithBasket(
     api: TypedApi<typeof subtensor>,
     ROOT_NETUID: number,
     log: (msg: string) => void
@@ -70,12 +74,12 @@ async function setupTwoSubnetsWithClaimable(
     for (const netuid of [netuid1, netuid2]) {
         await sudoSetTempo(api, netuid, 5);
         await sudoSetEmaPriceHalvingPeriod(api, netuid, 1);
-        await sudoSetRootClaimThreshold(api, netuid, 0n);
     }
+    await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
     await sudoSetSubnetMovingAlpha(api, BigInt(4294967296));
 
     // Register oldHotkey on both subnets so it appears in epoch hotkey_emission
-    // and receives root_alpha_dividends → RootClaimable on both netuids
+    // and receives root_alpha_dividends
     await burnedRegister(api, netuid1, oldHotkey.address, oldHotkeyColdkey);
     log("oldHotkey registered on netuid1");
     await burnedRegister(api, netuid2, oldHotkey.address, oldHotkeyColdkey);
@@ -91,16 +95,22 @@ async function setupTwoSubnetsWithClaimable(
     await addStake(api, owner1Coldkey, owner1Hotkey.address, netuid1, tao(50));
     await addStake(api, owner2Coldkey, owner2Hotkey.address, netuid2, tao(50));
 
-    const waitBlocks = 90;
-    log(`Waiting ${waitBlocks} blocks for RootClaimable to accumulate on both subnets...`);
-    await waitForBlocks(api, waitBlocks);
+    // Register oldHotkey on the root subnet and point its basket weight vector at both
+    // subnets: without weights, root dividends are recycled and no fund accrues.
+    await rootRegister(api, oldHotkeyColdkey, oldHotkey.address);
+    log("oldHotkey registered on root");
+    await setRootWeights(api, oldHotkey, [netuid1, netuid2], [32768, 32768]);
+    log("Set oldHotkey root weights: 50/50 across netuid1/netuid2");
+
+    log("Waiting 30 blocks for the basket fund to accumulate...");
+    await waitForBlocks(api, 30);
 
     return { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1, netuid2 };
 }
 
 describeSuite({
-    id: "0204_claim-root_hotkey_swap",
-    title: "▶ swap_hotkey RootClaimable per-subnet transfer",
+    id: "0204_swap_hotkey_basket_fund",
+    title: "▶ swap_hotkey basket fund transfer",
     foundationMethods: "zombie",
     testCases: ({ it, context, log }) => {
         let api: TypedApi<typeof subtensor>;
@@ -113,173 +123,125 @@ describeSuite({
 
         it({
             id: "T01",
-            title: "single-subnet swap doesn't move root claimable if it is not root",
+            title: "single-subnet swap doesn't move the basket fund if it is not root",
             test: async () => {
-                const { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1, netuid2 } = await setupTwoSubnetsWithClaimable(
+                const { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1 } = await setupTwoSubnetsWithBasket(
                     api,
                     ROOT_NETUID,
                     log
                 );
 
-                const claimableMapBefore = await getRootClaimable(api, oldHotkey.address);
-                log(
-                    `RootClaimable[oldHotkey] before swap: ${
-                        [...claimableMapBefore.entries()].map(([k, v]) => `netuid${k}=${v}`).join(", ") || "(none)"
-                    }`
-                );
+                const rateBefore = await getBasketRate(api, oldHotkey.address);
+                const sharesBefore = await getBasketShares(api, oldHotkey.address);
+                log(`oldHotkey fund before swap: rate=${rateBefore}, shares=${sharesBefore}`);
 
+                expect(rateBefore, "oldHotkey should have a basket fund before swap").toBeGreaterThan(0n);
+                expect(sharesBefore, "oldHotkey should have fund shares before swap").toBeGreaterThan(0n);
                 expect(
-                    claimableMapBefore.get(netuid1) ?? 0n,
-                    "oldHotkey should have RootClaimable on netuid1 before swap"
-                ).toBeGreaterThan(0n);
-                expect(
-                    claimableMapBefore.get(netuid2) ?? 0n,
-                    "oldHotkey should have RootClaimable on netuid2 before swap"
-                ).toBeGreaterThan(0n);
-                expect(
-                    (await getRootClaimable(api, newHotkey.address)).size,
-                    "newHotkey should have no RootClaimable before swap"
-                ).toBe(0);
+                    await getBasketRate(api, newHotkey.address),
+                    "newHotkey should have no fund before swap"
+                ).toBe(0n);
 
                 // Swap oldHotkey → newHotkey on netuid1 ONLY
                 log(`Swapping oldHotkey → newHotkey on netuid1=${netuid1} only...`);
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address, netuid1);
                 log("Swap done");
 
-                const oldAfter = await getRootClaimable(api, oldHotkey.address);
-                const newAfter = await getRootClaimable(api, newHotkey.address);
-
-                log(
-                    `RootClaimable[oldHotkey] after swap: netuid1=${oldAfter.get(netuid1) ?? 0n}, netuid2=${oldAfter.get(netuid2) ?? 0n}`
-                );
-                log(
-                    `RootClaimable[newHotkey] after swap: netuid1=${newAfter.get(netuid1) ?? 0n}, netuid2=${newAfter.get(netuid2) ?? 0n}`
-                );
-
-                expect(newAfter.get(netuid1) ?? 0n, "newHotkey should not have RootClaimable for netuid1").toEqual(0n);
+                // The fund is tied to the validator's root identity: a non-root swap must not
+                // move any of it.
                 expect(
-                    oldAfter.get(netuid1) ?? 0n,
-                    "oldHotkey should retain RootClaimable for netuid1"
-                ).toBeGreaterThan(0n);
-
+                    await getBasketRate(api, oldHotkey.address),
+                    "oldHotkey must retain its fund rate"
+                ).toBe(rateBefore);
                 expect(
-                    oldAfter.get(netuid2) ?? 0n,
-                    "oldHotkey should retain RootClaimable for netuid2"
-                ).toBeGreaterThan(0n);
-                expect(newAfter.get(netuid2) ?? 0n, "newHotkey should have no RootClaimable for netuid2").toBe(0n);
+                    await getBasketRate(api, newHotkey.address),
+                    "newHotkey must have no fund rate"
+                ).toBe(0n);
+                expect(
+                    await getBasketShares(api, newHotkey.address),
+                    "newHotkey must have no fund shares"
+                ).toBe(0n);
 
-                log(
-                    "✅ Single-subnet swap doesn't transfer RootClaimable for the subnet if it was done for non-root subnet"
-                );
+                log("✅ Non-root single-subnet swap doesn't transfer the basket fund");
             },
         });
 
         it({
             id: "T02",
-            title: "full swap (no netuid) moves RootClaimable for all subnets to newHotkey",
+            title: "full swap (no netuid) moves the whole basket fund to newHotkey",
             test: async () => {
-                const { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1, netuid2 } = await setupTwoSubnetsWithClaimable(
+                const { oldHotkey, oldHotkeyColdkey, newHotkey } = await setupTwoSubnetsWithBasket(
                     api,
                     ROOT_NETUID,
                     log
                 );
 
-                const claimableMapBefore = await getRootClaimable(api, oldHotkey.address);
-                log(
-                    `RootClaimable[oldHotkey] before swap: ${
-                        [...claimableMapBefore.entries()].map(([k, v]) => `netuid${k}=${v}`).join(", ") || "(none)"
-                    }`
-                );
+                const rateBefore = await getBasketRate(api, oldHotkey.address);
+                const sharesBefore = await getBasketShares(api, oldHotkey.address);
+                log(`oldHotkey fund before swap: rate=${rateBefore}, shares=${sharesBefore}`);
 
-                expect(
-                    claimableMapBefore.get(netuid1) ?? 0n,
-                    "oldHotkey should have RootClaimable on netuid1 before swap"
-                ).toBeGreaterThan(0n);
-                expect(
-                    claimableMapBefore.get(netuid2) ?? 0n,
-                    "oldHotkey should have RootClaimable on netuid2 before swap"
-                ).toBeGreaterThan(0n);
+                expect(rateBefore, "oldHotkey should have a basket fund before swap").toBeGreaterThan(0n);
+                expect(sharesBefore, "oldHotkey should have fund shares before swap").toBeGreaterThan(0n);
 
                 // Full swap — no netuid
                 log("Swapping oldHotkey → newHotkey on ALL subnets...");
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address);
                 log("Swap done");
 
-                const oldAfter = await getRootClaimable(api, oldHotkey.address);
-                const newAfter = await getRootClaimable(api, newHotkey.address);
+                expect(
+                    await getBasketRate(api, newHotkey.address),
+                    "newHotkey must have oldHotkey's fund rate"
+                ).toBe(rateBefore);
+                expect(
+                    await getBasketShares(api, newHotkey.address),
+                    "newHotkey must have oldHotkey's fund shares"
+                ).toBe(sharesBefore);
+                expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must have no fund left").toBe(0n);
+                expect(
+                    await getBasketShares(api, oldHotkey.address),
+                    "oldHotkey must have no shares left"
+                ).toBe(0n);
 
-                log(
-                    `RootClaimable[oldHotkey] after swap: netuid1=${oldAfter.get(netuid1) ?? 0n}, netuid2=${oldAfter.get(netuid2) ?? 0n}`
-                );
-                log(
-                    `RootClaimable[newHotkey] after swap: netuid1=${newAfter.get(netuid1) ?? 0n}, netuid2=${newAfter.get(netuid2) ?? 0n}`
-                );
-
-                expect(newAfter.get(netuid1) ?? 0n, "newHotkey should have RootClaimable for netuid1").toBeGreaterThan(
-                    0n
-                );
-                expect(newAfter.get(netuid2) ?? 0n, "newHotkey should have RootClaimable for netuid2").toBeGreaterThan(
-                    0n
-                );
-
-                expect(oldAfter.get(netuid1) ?? 0n, "oldHotkey should have no RootClaimable for netuid1").toBe(0n);
-                expect(oldAfter.get(netuid2) ?? 0n, "oldHotkey should have no RootClaimable for netuid2").toBe(0n);
-
-                log("✅ Full swap correctly transferred RootClaimable for both subnets to newHotkey");
+                log("✅ Full swap correctly transferred the whole basket fund to newHotkey");
             },
         });
 
         it({
             id: "T03",
-            title: "single-subnet swap moves root claimable if it is root",
+            title: "single-subnet swap moves the basket fund if it is root",
             test: async () => {
-                const { oldHotkey, oldHotkeyColdkey, newHotkey, netuid1, netuid2 } = await setupTwoSubnetsWithClaimable(
+                const { oldHotkey, oldHotkeyColdkey, newHotkey } = await setupTwoSubnetsWithBasket(
                     api,
                     ROOT_NETUID,
                     log
                 );
 
-                const claimableMapBefore = await getRootClaimable(api, oldHotkey.address);
-                log(
-                    `RootClaimable[oldHotkey] before swap: ${
-                        [...claimableMapBefore.entries()].map(([k, v]) => `netuid${k}=${v}`).join(", ") || "(none)"
-                    }`
-                );
+                const rateBefore = await getBasketRate(api, oldHotkey.address);
+                const sharesBefore = await getBasketShares(api, oldHotkey.address);
+                log(`oldHotkey fund before swap: rate=${rateBefore}, shares=${sharesBefore}`);
 
-                expect(
-                    claimableMapBefore.get(netuid1) ?? 0n,
-                    "oldHotkey should have RootClaimable on netuid1 before swap"
-                ).toBeGreaterThan(0n);
-                expect(
-                    claimableMapBefore.get(netuid2) ?? 0n,
-                    "oldHotkey should have RootClaimable on netuid2 before swap"
-                ).toBeGreaterThan(0n);
+                expect(rateBefore, "oldHotkey should have a basket fund before swap").toBeGreaterThan(0n);
+                expect(sharesBefore, "oldHotkey should have fund shares before swap").toBeGreaterThan(0n);
 
                 log("Swapping oldHotkey → newHotkey for root subnet...");
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address, 0);
                 log("Swap done");
 
-                const oldAfter = await getRootClaimable(api, oldHotkey.address);
-                const newAfter = await getRootClaimable(api, newHotkey.address);
+                expect(
+                    await getBasketRate(api, newHotkey.address),
+                    "newHotkey must have oldHotkey's fund rate"
+                ).toBe(rateBefore);
+                expect(
+                    await getBasketShares(api, newHotkey.address),
+                    "newHotkey must have oldHotkey's fund shares"
+                ).toBe(sharesBefore);
+                expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must have no fund left").toBe(0n);
+                expect(
+                    await getBasketShares(api, oldHotkey.address),
+                    "oldHotkey must have no shares left"
+                ).toBe(0n);
 
-                log(
-                    `RootClaimable[oldHotkey] after swap: netuid1=${oldAfter.get(netuid1) ?? 0n}, netuid2=${oldAfter.get(netuid2) ?? 0n}`
-                );
-                log(
-                    `RootClaimable[newHotkey] after swap: netuid1=${newAfter.get(netuid1) ?? 0n}, netuid2=${newAfter.get(netuid2) ?? 0n}`
-                );
-
-                expect(newAfter.get(netuid1) ?? 0n, "newHotkey should have RootClaimable for netuid1").toBeGreaterThan(
-                    0n
-                );
-                expect(newAfter.get(netuid2) ?? 0n, "newHotkey should have RootClaimable for netuid2").toBeGreaterThan(
-                    0n
-                );
-
-                expect(oldAfter.get(netuid1) ?? 0n, "oldHotkey should have no RootClaimable for netuid1").toBe(0n);
-                expect(oldAfter.get(netuid2) ?? 0n, "oldHotkey should have no RootClaimable for netuid2").toBe(0n);
-
-                log("✅ Single swap correctly transferred RootClaimable if it is done for root subnet");
+                log("✅ Root swap correctly transferred the basket fund to newHotkey");
             },
         });
     },

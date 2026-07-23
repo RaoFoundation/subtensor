@@ -872,6 +872,90 @@ impl<T: Config> Pallet<T> {
         Self::internal_set_weights(origin, netuid, MechId::MAIN, uids, values, version_key)
     }
 
+    /// Sets a root validator's beta-basket distribution vector `w` on the root subnet (netuid 0).
+    ///
+    /// Unlike normal subnet weights, the `dests` here are interpreted as *subnet netuids* and the
+    /// values as the proportion of the validator's root dividends to deploy into each subnet's
+    /// alpha basket. Stored under `Weights[NetUidStorageIndex::ROOT][uid]` and consumed by
+    /// `distribute_root_alpha_to_basket` during emission.
+    pub fn do_set_root_weights(
+        origin: OriginFor<T>,
+        dests: Vec<u16>,
+        values: Vec<u16>,
+        version_key: u64,
+    ) -> dispatch::DispatchResult {
+        // --- 1. Signed by the root validator hotkey.
+        let hotkey = ensure_signed(origin)?;
+        log::debug!("do_set_root_weights( hotkey:{hotkey:?}, dests:{dests:?}, values:{values:?} )");
+
+        // --- 2. Lengths match.
+        ensure!(
+            Self::uids_match_values(&dests, &values),
+            Error::<T>::WeightVecNotEqualSize
+        );
+
+        // --- 3. Caller must be a registered root validator.
+        ensure!(
+            Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+            Error::<T>::HotKeyNotRegisteredInSubNet
+        );
+
+        // --- 4. Must hold enough stake to set weights.
+        ensure!(
+            Self::check_weights_min_stake(&hotkey, NetUid::ROOT),
+            Error::<T>::NotEnoughStakeToSetWeights
+        );
+
+        // --- 5. Version key must be current.
+        ensure!(
+            Self::check_version_key(NetUid::ROOT, version_key),
+            Error::<T>::IncorrectWeightVersionKey
+        );
+
+        // --- 6. Rate limit on the root weights index.
+        let neuron_uid = Self::get_uid_for_net_and_hotkey(NetUid::ROOT, &hotkey)?;
+        let current_block: u64 = Self::get_current_block_as_u64();
+        ensure!(
+            Self::check_rate_limit(NetUidStorageIndex::ROOT, neuron_uid, current_block),
+            Error::<T>::SettingWeightsTooFast
+        );
+
+        // --- 7. No duplicate destination subnets.
+        ensure!(!Self::has_duplicate_uids(&dests), Error::<T>::DuplicateUids);
+
+        // --- 8. Every destination must be root (uid 0) or an existing subnet. Root is a valid
+        // basket destination: that weight slice is held as root stake (TAO) instead of being
+        // deployed into a subnet, letting a validator opt out of subnet exposure. This must mirror
+        // the consumer filter in `distribute_root_alpha_to_basket`.
+        for dest in dests.iter() {
+            let dest_netuid = NetUid::from(*dest);
+            ensure!(
+                dest_netuid.is_root() || Self::if_subnet_exist(dest_netuid),
+                Error::<T>::UidVecContainInvalidOne
+            );
+        }
+
+        // --- 9. Max-upscale the weights.
+        let max_upscaled_weights: Vec<u16> = vec_u16_max_upscale_to_u16(&values);
+
+        // --- 10. Zip and store under the root weights index (reusing the root weights plumbing).
+        let zipped_weights: Vec<(u16, u16)> = dests
+            .iter()
+            .copied()
+            .zip(max_upscaled_weights.iter().copied())
+            .collect();
+        Weights::<T>::insert(NetUidStorageIndex::ROOT, neuron_uid, zipped_weights);
+
+        // --- 11. Record activity for the rate limit.
+        Self::set_last_update_for_uid(NetUidStorageIndex::ROOT, neuron_uid, current_block);
+
+        // --- 12. Emit event.
+        log::debug!("RootWeightsSet( uid:{neuron_uid:?} )");
+        Self::deposit_event(Event::RootWeightsSet(neuron_uid));
+
+        Ok(())
+    }
+
     /// The implementation for the extrinsic set_weights.
     ///
     /// # Arguments

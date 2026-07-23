@@ -6,10 +6,10 @@ import {
     claimRoot,
     forceSetBalance,
     generateKeyringPair,
+    getBasketClaimed,
+    getBasketRate,
+    getBasketShares,
     getPendingRootAlphaDivs,
-    getRootClaimable,
-    getRootClaimed,
-    getRootClaimType,
     getStake,
     getSubnetAlphaIn,
     getSubnetMovingPrice,
@@ -17,7 +17,7 @@ import {
     getTaoWeight,
     getTotalHotkeyAlpha,
     isSubtokenEnabled,
-    setRootClaimType,
+    setRootWeights,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -47,7 +47,7 @@ describeSuite({
 
         it({
             id: "T0401",
-            title: "should claim root dividends with Keep type (stake to dynamic subnet)",
+            title: "should redeem the basket fund to ROOT stake via claim_root",
             test: async () => {
                 // Setup accounts
                 // - owner1Hotkey/owner1Coldkey: subnet 1 owner
@@ -114,9 +114,8 @@ describeSuite({
                 await sudoSetSubnetMovingAlpha(api, movingAlpha);
                 log("Set SubnetMovingAlpha to 1.0 for fast EMA convergence");
 
-                // Set threshold to 0 to allow claiming any amount
-                await sudoSetRootClaimThreshold(api, netuid1, 0n);
-                await sudoSetRootClaimThreshold(api, netuid2, 0n);
+                // Set threshold to 0 to allow claiming any amount (claims consult the ROOT entry)
+                await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
 
                 // Add stake to ROOT subnet for the staker (makes them eligible for root dividends)
                 const rootStakeAmount = tao(100);
@@ -128,21 +127,25 @@ describeSuite({
                 log(`Root stake: ${rootStake}`);
                 expect(rootStake, "Should have stake on root subnet").toBeGreaterThan(0n);
 
+                // The validator must set its basket weight vector for dividends to be deposited
+                // into the fund (otherwise they are recycled). Route them into subnet 1.
+                await setRootWeights(api, owner1Hotkey, [netuid1], [65535]);
+                log("Set root weights: 100% to netuid1");
+
                 // Add stake to both dynamic subnets (owner stake to enable emissions flow)
                 const subnetStakeAmount = tao(50);
                 await addStake(api, owner1Coldkey, owner1HotkeyAddress, netuid1, subnetStakeAmount);
                 await addStake(api, owner2Coldkey, owner2HotkeyAddress, netuid2, subnetStakeAmount);
                 log(`Added ${subnetStakeAmount} owner stake to subnets ${netuid1} and ${netuid2}`);
 
-                // Get initial stake on subnet 1 for the staker (should be 0)
-                const stakerSubnetStakeBefore = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, netuid1);
-                log(`Staker subnet stake before claim: ${stakerSubnetStakeBefore}`);
-
-                // Set root claim type to Keep (keep alpha on subnet instead of swapping to TAO)
-                await setRootClaimType(api, stakerColdkey, "Keep");
-                const claimType = await getRootClaimType(api, stakerColdkeyAddress);
-                log(`Root claim type: ${claimType}`);
-                expect(claimType).toBe("Keep");
+                // Snapshot the staker's ROOT stake before the claim (redemption pays to root).
+                const stakerRootStakeBefore = await getStake(
+                    api,
+                    owner1HotkeyAddress,
+                    stakerColdkeyAddress,
+                    ROOT_NETUID
+                );
+                log(`Staker root stake before claim: ${stakerRootStakeBefore}`);
 
                 // Wait for blocks to:
                 // 1. Allow moving prices to converge (need sum > 1.0 for root_sell_flag)
@@ -182,29 +185,35 @@ describeSuite({
                 const totalHotkeyAlpha1 = await getTotalHotkeyAlpha(api, owner1HotkeyAddress, netuid1);
                 log(`TotalHotkeyAlpha for hotkey1 on netuid1: ${totalHotkeyAlpha1}`);
 
-                // Check if there are any claimable dividends
-                const claimable = await getRootClaimable(api, owner1HotkeyAddress);
-                const claimableStr = [...claimable.entries()].map(([k, v]) => `[${k}: ${v.toString()}]`).join(", ");
-                log(`RootClaimable entries for hotkey1: ${claimableStr || "(none)"}`);
+                // Check the validator's basket fund state
+                const basketRate = await getBasketRate(api, owner1HotkeyAddress);
+                const basketShares = await getBasketShares(api, owner1HotkeyAddress);
+                log(`BasketRate: ${basketRate}, BasketShares: ${basketShares}`);
 
-                // Call claim_root to claim dividends for subnet 1
-                await claimRoot(api, stakerColdkey, [netuid1]);
+                // Call claim_root: redeems the staker's owed fund shares to ROOT stake.
+                await claimRoot(api, stakerColdkey);
                 log("Called claim_root");
 
-                // Get stake on subnet 1 after claim
-                const stakerSubnetStakeAfter = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, netuid1);
-                log(`Staker subnet stake after claim: ${stakerSubnetStakeAfter}`);
+                // Get ROOT stake after claim
+                const stakerRootStakeAfter = await getStake(
+                    api,
+                    owner1HotkeyAddress,
+                    stakerColdkeyAddress,
+                    ROOT_NETUID
+                );
+                log(`Staker root stake after claim: ${stakerRootStakeAfter}`);
 
-                // Check RootClaimed value
-                const rootClaimed = await getRootClaimed(api, netuid1, owner1HotkeyAddress, stakerColdkeyAddress);
-                log(`RootClaimed value: ${rootClaimed}`);
+                // Check the claimed-shares watermark
+                const basketClaimed = await getBasketClaimed(api, owner1HotkeyAddress, stakerColdkeyAddress);
+                log(`BasketClaimed value: ${basketClaimed}`);
 
                 // Verify dividends were claimed
-                expect(stakerSubnetStakeAfter, "Stake should increase after claiming root dividends").toBeGreaterThan(
-                    stakerSubnetStakeBefore
-                );
+                expect(
+                    stakerRootStakeAfter,
+                    "ROOT stake should increase after claiming root dividends"
+                ).toBeGreaterThan(stakerRootStakeBefore);
                 log(
-                    `✅ Root claim successful: stake increased from ${stakerSubnetStakeBefore} to ${stakerSubnetStakeAfter}`
+                    `✅ Root claim successful: root stake increased from ${stakerRootStakeBefore} to ${stakerRootStakeAfter}`
                 );
             },
         });
@@ -264,9 +273,8 @@ describeSuite({
                 await sudoSetSubnetMovingAlpha(api, movingAlpha);
                 log("Set SubnetMovingAlpha to 1.0 for fast EMA convergence");
 
-                // Set threshold to 0 to allow claiming any amount
-                await sudoSetRootClaimThreshold(api, netuid1, 0n);
-                await sudoSetRootClaimThreshold(api, netuid2, 0n);
+                // Set threshold to 0 to allow claiming any amount (claims consult the ROOT entry)
+                await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
 
                 // Add stake to ROOT subnet for the staker
                 const rootStakeAmount = tao(100);
@@ -277,17 +285,15 @@ describeSuite({
                 const rootStakeBefore = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, ROOT_NETUID);
                 log(`Root stake before: ${rootStakeBefore}`);
 
+                // Route the validator's basket into subnet 1 so dividends are deposited.
+                await setRootWeights(api, owner1Hotkey, [netuid1], [65535]);
+                log("Set root weights: 100% to netuid1");
+
                 // Add stake to both dynamic subnets (owner stake to enable emissions flow)
                 const subnetStakeAmount = tao(50);
                 await addStake(api, owner1Coldkey, owner1HotkeyAddress, netuid1, subnetStakeAmount);
                 await addStake(api, owner2Coldkey, owner2HotkeyAddress, netuid2, subnetStakeAmount);
                 log(`Added ${subnetStakeAmount} owner stake to subnets ${netuid1} and ${netuid2}`);
-
-                // Set root claim type to Swap (swap alpha to TAO and add to ROOT stake)
-                await setRootClaimType(api, stakerColdkey, "Swap");
-                const claimType = await getRootClaimType(api, stakerColdkeyAddress);
-                log(`Root claim type: ${claimType}`);
-                expect(claimType).toBe("Swap");
 
                 // Wait for blocks
                 const blocksToWait = 25;
@@ -306,22 +312,22 @@ describeSuite({
                 const pendingDivs1 = await getPendingRootAlphaDivs(api, netuid1);
                 log(`PendingRootAlphaDivs netuid1: ${pendingDivs1}`);
 
-                // Check claimable
-                const claimable = await getRootClaimable(api, owner1HotkeyAddress);
-                const claimableStr = [...claimable.entries()].map(([k, v]) => `[${k}: ${v.toString()}]`).join(", ");
-                log(`RootClaimable entries for hotkey1: ${claimableStr || "(none)"}`);
+                // Check the validator's basket fund state
+                const basketRate = await getBasketRate(api, owner1HotkeyAddress);
+                const basketShares = await getBasketShares(api, owner1HotkeyAddress);
+                log(`BasketRate: ${basketRate}, BasketShares: ${basketShares}`);
 
-                // Call claim_root - with Swap type, dividends are swapped to TAO and added to ROOT stake
-                await claimRoot(api, stakerColdkey, [netuid1]);
-                log("Called claim_root with Swap type");
+                // Call claim_root - the fund is redeemed to TAO and added to ROOT stake
+                await claimRoot(api, stakerColdkey);
+                log("Called claim_root");
 
                 // Get ROOT stake after claim
                 const rootStakeAfter = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, ROOT_NETUID);
                 log(`Root stake after claim: ${rootStakeAfter}`);
 
-                // Check RootClaimed value
-                const rootClaimed = await getRootClaimed(api, netuid1, owner1HotkeyAddress, stakerColdkeyAddress);
-                log(`RootClaimed value: ${rootClaimed}`);
+                // Check the claimed-shares watermark
+                const basketClaimed = await getBasketClaimed(api, owner1HotkeyAddress, stakerColdkeyAddress);
+                log(`BasketClaimed value: ${basketClaimed}`);
 
                 // With Swap type, ROOT stake should increase (not dynamic subnet stake)
                 expect(rootStakeAfter, "ROOT stake should increase after claiming with Swap type").toBeGreaterThan(
@@ -343,12 +349,8 @@ describeSuite({
 
                 await forceSetBalance(api, coldkeyAddress);
 
-                // Set root claim type to Keep
-                await setRootClaimType(api, coldkey, "Keep");
-
-                // Try to claim on a non-existent subnet (should succeed but be a no-op)
-                // According to Rust tests, claiming on unrelated subnets returns Ok but does nothing
-                await claimRoot(api, coldkey, [1]);
+                // Claim with no basket accrued (should succeed but be a no-op)
+                await claimRoot(api, coldkey);
 
                 log("✅ claim_root with no dividends executed successfully (no-op).");
             },

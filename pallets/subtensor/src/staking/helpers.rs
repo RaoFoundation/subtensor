@@ -230,6 +230,14 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         netuid: NetUid,
     ) {
+        // The beta-basket escrow holds validator fund holdings `(hotkey, escrow, netuid)`, which
+        // are not nominations. Sweeping one would force-unstake the holding into the keyless
+        // escrow account (stranded, no controller) while leaving `BasketShares` untouched,
+        // silently shrinking the fund NAV that backs every staker's `owed * N/P` payout.
+        if *coldkey == Self::get_beta_escrow_account_id() {
+            return;
+        }
+
         // Verify if the account is a nominator account by checking ownership of the hotkey by the coldkey.
         if !Self::coldkey_owns_hotkey(coldkey, hotkey) {
             // If the stake is non-zero and below the minimum required, it's considered a small nomination and needs to be cleared.
