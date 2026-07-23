@@ -124,19 +124,16 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NetworkDissolveAlreadyQueued
         );
 
+        // Cancel any active sale before marking the subnet as nonexistent.
+        if SubnetSaleOffers::<T>::contains_key(netuid) {
+            Self::do_cancel_sale_offer(None, netuid)?;
+        }
+
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
-
-        // Release sale-time account freezes immediately. The remaining subnet
-        // storage is removed asynchronously, but these account-wide locks must
-        // not survive once the offer's subnet no longer exists.
-        if let Some(offer) = SubnetSaleOffers::<T>::take(netuid) {
-            SubnetSaleFrozenColdkeys::<T>::remove(&offer.seller_coldkey);
-            SubnetSaleFrozenHotkeys::<T>::remove(&offer.seller_hotkey);
-        }
 
         dissolved_networks.push(netuid);
         DissolveCleanupQueue::<T>::set(dissolved_networks);
