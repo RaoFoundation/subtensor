@@ -44,6 +44,7 @@ jobs:
       release_needed: ${{ steps.compare.outputs.release_needed }}
       python_needed: ${{ steps.compare.outputs.python_needed }}
       spec_version: ${{ steps.compare.outputs.spec_version }}
+      release_tag: ${{ steps.compare.outputs.release_tag }}
       sha: ${{ steps.compare.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -78,15 +79,22 @@ jobs:
 
           # Match both this workflow's tags (v424) and the legacy scheme
           # inherited from upstream (v3.4.9-424). Pre-releases do not count.
-          if gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
-              --json tagName,isPrerelease \
-              --jq '.[] | select(.isPrerelease | not) | .tagName' \
-              | grep -Eq "^v${chain_spec}$|-${chain_spec}$"; then
+          release_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
+            --json tagName,isDraft,isPrerelease \
+            | jq -r --arg exact "v${chain_spec}" --arg suffix "-${chain_spec}" \
+              '.[] |
+               select(.isDraft == false and .isPrerelease == false) |
+               select(.tagName == $exact or (.tagName | endswith($suffix))) |
+               .tagName' \
+            | head -n 1)
+          if [ -n "$release_tag" ]; then
             echo "GitHub release for spec_version $chain_spec is complete."
             release_needed=false
           else
+            release_tag="v${chain_spec}"
             release_needed=true
           fi
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
           # v432 and earlier predate this marker. Every later
           # release retries until PyPI succeeds and this exact marker is stored.
@@ -94,7 +102,7 @@ jobs:
             echo "v432 Python publication is handled manually."
             python_needed=false
           else
-            marker_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${chain_spec}" \
+            marker_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/${release_tag}" \
               --jq '.assets[] | select(.name == "python-publish-complete.json") | .id' \
               2>/dev/null | head -n 1 || true)
             if [ -z "$marker_id" ]; then
@@ -103,7 +111,7 @@ jobs:
               gh api -H "Accept: application/octet-stream" \
                 "repos/$GITHUB_REPOSITORY/releases/assets/$marker_id" \
                 > /tmp/python-publish-complete.json
-              tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/v${chain_spec}" --jq '.sha')
+              tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/${release_tag}" --jq '.sha')
               jq -e --arg sha "$tag_sha" --argjson spec "$chain_spec" \
                 '.schema == 1 and .spec_version == $spec and .commit == $sha' \
                 /tmp/python-publish-complete.json >/dev/null \
@@ -118,6 +126,18 @@ jobs:
           # A valid marker is the durable terminal state. Resolve the expiring
           # workflow artifact only while release or Python work is pending.
           if [ "$release_needed" = false ] && [ "$python_needed" = false ]; then
+            exit 0
+          fi
+
+          # Once the GitHub release exists, its immutable tag is sufficient
+          # provenance for a Python-only retry. Do not keep the retry path
+          # dependent on the release train's 90-day workflow artifact.
+          if [ "$release_needed" = false ]; then
+            release_sha=$(gh api \
+              "repos/$GITHUB_REPOSITORY/commits/${release_tag}" --jq '.sha')
+            : ${release_sha:?could not resolve released commit from $release_tag}
+            echo "Retrying Python publication from $release_tag at $release_sha"
+            echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -310,23 +330,23 @@ jobs:
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
 
-      # Second half of the v432 recovery: refuse to publish anything but the
-      # intended stable artifacts, so a failed stamp can never leak
-      # 11.0.0.dev0 to PyPI.
-      - name: Verify stable artifacts (v432 recovery)
-        if: needs.check.outputs.spec_version == '432' && needs.check.outputs.sha == '8586e65ec279644a6837cf25b12333064c77474e'
+      # Refuse to publish development or release-candidate artifacts from the
+      # stable channel. Also require the complete SDK/core platform set.
+      - name: Verify stable artifacts
         run: |
+          sdk_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/python/pyproject.toml | head -n 1)
+          core_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
+          : ${sdk_version:?could not parse stable SDK version}
+          : ${core_version:?could not parse stable core version}
+          [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "SDK version is not stable: $sdk_version"; exit 1; }
+          [[ "$core_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "core version is not stable: $core_version"; exit 1; }
           ls -la dist
-          test -f dist/bittensor-11.0.0-py3-none-any.whl
-          test -f dist/bittensor-11.0.0.tar.gz
-          compgen -G 'dist/bittensor_core-0.1.0-*.whl' >/dev/null
-          test -f dist/bittensor_core-0.1.0.tar.gz
-          for f in dist/*; do
-            # *0rc* not *rc*: "aarch64" in wheel platform tags contains "rc"
-            case "$f" in
-              *dev*|*0rc*) echo "unexpected pre-release artifact: $f"; exit 1 ;;
-            esac
-          done
+          test -f "dist/bittensor-${sdk_version}-py3-none-any.whl"
+          test -f "dist/bittensor-${sdk_version}.tar.gz"
+          compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
+          test -f "dist/bittensor_core-${core_version}.tar.gz"
 
       # PEP 740 provenance: sign every dist with this job's OIDC identity.
       # Must happen here, not in build-core-wheels.yml — PyPI only accepts
@@ -359,7 +379,8 @@ jobs:
             --arg workflow_run "$GITHUB_RUN_ID" \
             '{schema: 1, spec_version: $spec, commit: $sha, workflow_run: $workflow_run}' \
             > python-publish-complete.json
-          gh release upload "v${SPEC_VERSION}" --repo "$GITHUB_REPOSITORY" --clobber \
+          gh release upload "${{ needs.check.outputs.release_tag }}" \
+            --repo "$GITHUB_REPOSITORY" --clobber \
             python-publish-complete.json
 
   publish-crates:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from importlib.metadata import version as package_version
 
 import pytest
 from typer.testing import CliRunner
@@ -77,7 +78,7 @@ class TestOffline:
     def test_version(self):
         result = invoke("--version")
         assert result.exit_code == 0
-        assert "11.0.0" in result.output
+        assert result.output.strip() == package_version("bittensor")
 
     def test_tools_catalog(self):
         result = invoke("tools")

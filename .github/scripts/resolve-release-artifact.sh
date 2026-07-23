@@ -31,8 +31,8 @@ repo_id=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.id')
 # Newest-first so that, among equally-trusted artifacts, we take the latest.
 artifacts=$(gh api \
   "repos/$GITHUB_REPOSITORY/actions/artifacts?name=mainnet-upgrade-${spec}&per_page=100" \
-  --paginate --slurp \
-  | jq -c '[.[].artifacts[]] | sort_by(.created_at) | reverse')
+  --paginate \
+  | jq -sc '[.[].artifacts[]] | sort_by(.created_at) | reverse')
 
 count=$(jq 'length' <<<"$artifacts")
 i=0

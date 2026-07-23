@@ -321,6 +321,29 @@ jobs:
           : ${base:?could not parse base version from sdk/python/pyproject.toml}
           core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
           : ${core_base:?could not parse base version from sdk/bittensor-core-py/pyproject.toml}
+
+          # PyPI versions are immutable. Reject an already-published stable
+          # base before producing more release candidates that can never be
+          # promoted to a final release.
+          for package_version in "bittensor:${base}" "bittensor-core:${core_base}"; do
+            package=${package_version%%:*}
+            version=${package_version#*:}
+            status=$(curl -sS --connect-timeout 10 --max-time 30 \
+              -o /dev/null -w '%{http_code}' \
+              "https://pypi.org/pypi/${package}/${version}/json")
+            case "$status" in
+              404) ;;
+              200)
+                echo "${package} ${version} is already published; bump the base version."
+                exit 1
+                ;;
+              *)
+                echo "PyPI availability check for ${package} ${version} returned HTTP ${status}."
+                exit 1
+                ;;
+            esac
+          done
+
           echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
           echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 

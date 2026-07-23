@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bittensor"
-version = "11.0.0.dev0"
+version = "11.0.1.dev0"
 description = "A lean Python SDK (import bittensor) and CLI (btcli) for the Bittensor chain."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -18,7 +18,7 @@ dependencies = [
     # Keys, keyfiles, timelock, ML-KEM crypto, and the SCALE codec/runtime
     # engine: the in-repo Rust core, built against the same crate revisions
     # as the runtime.
-    "bittensor-core>=0.1.0,<0.2.0",
+    "bittensor-core>=0.1.1,<0.2.0",
     # `btcli` terminal UI. The CLI is a first-class part of the package, so
     # its dependencies are unconditional.
     "typer>=0.12.0",
