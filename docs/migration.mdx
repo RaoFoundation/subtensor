@@ -38,8 +38,14 @@ equivalent.
 | Wallet | `bittensor_wallet` (separate package) | included: `bittensor.wallet` |
 | Python | 3.10+ | 3.10–3.13 |
 
+<Callout type="warning">
+Check `python --version` before removing any package. Bittensor 11 supports
+Python 3.10–3.13, not 3.14. On Python 3.14, keep `bittensor-cli` 9.23.2
+installed until you have switched this environment to Python 3.13.
+</Callout>
+
 ```bash
-uv pip install bittensor          # library + btcli, one package
+uv pip install "bittensor>=11,<12"  # library + btcli, one package
 ```
 
 The `[cli]` and `[evm]` extras still parse (`bittensor[cli]` installs fine)
@@ -55,16 +61,24 @@ Order matters in an environment that already has the old stack, because
 `bittensor-cli` 9.x and `bittensor` 11.x both own the `btcli` command:
 
 ```bash
-pip uninstall -y bittensor-cli bittensor-wallet
-pip install -U bittensor
+python -m pip install -U "bittensor>=11,<12"
+python -m pip uninstall -y bittensor-cli bittensor-wallet
+python -m pip install --force-reinstall --no-deps "bittensor>=11,<12"
+btcli --version
 ```
 
-If you upgraded first and uninstalled `bittensor-cli` after, pip deletes the
-`btcli` script (it is still listed in the old package's file manifest).
-Nothing is lost — reinstate it with:
+The first command deliberately verifies that v11 can install **before**
+removing the working legacy CLI. The explicit version floor makes an
+unsupported Python version or an old requirements pin fail loudly while the
+old `btcli` remains intact.
+
+Uninstalling `bittensor-cli` deletes the shared `btcli` script because it is
+still listed in the old package's file manifest. The final reinstall restores
+the v11 script. If an earlier migration stopped between those two commands,
+reinstate it with:
 
 ```bash
-pip install --force-reinstall --no-deps bittensor
+python -m pip install --force-reinstall --no-deps "bittensor>=11,<12"
 ```
 
 While a stale `bittensor-cli` is still installed, the v11 `btcli` prints a
@@ -74,8 +88,10 @@ Two version pitfalls that fail *silently*:
 
 - **Python 3.14**: v10 allowed it, v11 supports 3.10–3.13. On a 3.14
   interpreter `pip install -U bittensor` quietly keeps 10.x (pip picks the
-  newest release whose `requires-python` matches). If `btcli --version`
-  still says 9.x/10.x after upgrading, check `python --version` first.
+  newest release whose `requires-python` matches), and the v10 SDK does not
+  contain `btcli`. Switch to Python 3.13 and run the safe upgrade above. If
+  you must remain on 3.14, restore the legacy command with
+  `python -m pip install --force-reinstall "bittensor-cli==9.23.2"`.
 - **Pinned requirements**: anything pinning `bittensor<11` or
   `bittensor~=10` keeps working against v10 untouched — the new
   package changes nothing until you move the pin.
