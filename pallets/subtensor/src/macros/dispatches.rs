@@ -1076,12 +1076,7 @@ mod dispatches {
         /// 8. **New Children Assignment**: Assigns the new child to the hotkey and updates the parent list for the new child.
         // TODO: Benchmark this call
         #[pallet::call_index(67)]
-        #[pallet::weight((
-            <T as Config>::WeightInfo::set_children(children.len() as u32)
-                .saturating_add(crate::Pallet::<T>::set_children_cycle_check_weight()),
-            DispatchClass::Normal,
-            Pays::Yes
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::set_children(children.len() as u32), DispatchClass::Normal, Pays::Yes))]
         pub fn set_children(
             origin: OriginFor<T>,
             hotkey: T::AccountId,

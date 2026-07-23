@@ -17,7 +17,7 @@ deadline — but each call pays out only the subnets listed.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1895-L1913) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1890-L1908) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1897`](/code/pallets/subtensor/src/macros/dispatches.rs#L1895-L1913):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1892`](/code/pallets/subtensor/src/macros/dispatches.rs#L1890-L1908):
 
 ```rust
 #[pallet::call_index(121)]
