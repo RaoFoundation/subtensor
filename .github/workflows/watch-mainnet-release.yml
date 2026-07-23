@@ -142,8 +142,12 @@ jobs:
           release_json=""
           if release_json=$(gh api \
               "repos/$GITHUB_REPOSITORY/releases/tags/${release_tag}" 2>/dev/null); then
-            is_draft=$(jq -er '.draft | booleans' <<<"$release_json")
-            is_prerelease=$(jq -er '.prerelease | booleans' <<<"$release_json")
+            is_draft=$(jq -er \
+              '.draft | if type == "boolean" then tostring else error("draft must be boolean") end' \
+              <<<"$release_json")
+            is_prerelease=$(jq -er \
+              '.prerelease | if type == "boolean" then tostring else error("prerelease must be boolean") end' \
+              <<<"$release_json")
             if [ "$is_draft" = false ] && [ "$is_prerelease" = false ]; then
               release_needed=false
               target_sha=$(jq -er \
@@ -292,7 +296,9 @@ jobs:
           # rewritten by a retry.
           if release_json=$(gh api \
               "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null); then
-            is_prerelease=$(jq -er '.prerelease | booleans' <<<"$release_json")
+            is_prerelease=$(jq -er \
+              '.prerelease | if type == "boolean" then tostring else error("prerelease must be boolean") end' \
+              <<<"$release_json")
             [ "$is_prerelease" = true ] \
               || { echo "release $tag is already final; refusing to rewrite it"; exit 1; }
             target_sha=$(jq -er \
