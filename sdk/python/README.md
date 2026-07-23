@@ -32,7 +32,7 @@ Almost everything is a projection of the chain's own runtime metadata:
 
 ## Install
 
-Requires Python 3.10–3.13. Using [uv](https://docs.astral.sh/uv/):
+Requires Python 3.10–3.14. Using [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv venv && source .venv/bin/activate

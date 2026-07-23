@@ -36,7 +36,7 @@ equivalent.
 | SDK | `bittensor` 10.x | `bittensor` 11.x |
 | CLI | `bittensor-cli` 9.x (separate package) | included in `bittensor` |
 | Wallet | `bittensor_wallet` (separate package) | included: `bittensor.wallet` |
-| Python | 3.10+ | 3.10–3.13 |
+| Python | 3.10+ | 3.10–3.14 |
 
 ```bash
 uv pip install bittensor          # library + btcli, one package
@@ -70,18 +70,14 @@ pip install --force-reinstall --no-deps bittensor
 While a stale `bittensor-cli` is still installed, the v11 `btcli` prints a
 warning with this fix on every run.
 
-Two version pitfalls that fail *silently*:
+One version pitfall fails *silently*:
 
-- **Python 3.14**: v10 allowed it, v11 supports 3.10–3.13. On a 3.14
-  interpreter `pip install -U bittensor` quietly keeps 10.x (pip picks the
-  newest release whose `requires-python` matches). If `btcli --version`
-  still says 9.x/10.x after upgrading, check `python --version` first.
 - **Pinned requirements**: anything pinning `bittensor<11` or
   `bittensor~=10` keeps working against v10 untouched — the new
   package changes nothing until you move the pin.
 
 Platform support: wheels ship for Linux (x86_64, aarch64) and macOS
-(Apple Silicon and Intel), Python 3.10–3.13 — the same coverage as the old
+(Apple Silicon and Intel), Python 3.10–3.14 — the same coverage as the old
 stack. Windows is unsupported natively (as before); use WSL. On any other
 platform pip falls back to a source build, which requires a Rust toolchain.
 
