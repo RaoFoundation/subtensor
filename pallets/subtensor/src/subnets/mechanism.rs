@@ -208,7 +208,7 @@ impl<T: Config> Pallet<T> {
             // Check the length
             ensure!(!split.is_empty(), Error::<T>::InvalidValue);
             ensure!(
-                split.len() <= u8::from(MechanismCountCurrent::<T>::get(netuid)) as usize,
+                split.len() == u8::from(MechanismCountCurrent::<T>::get(netuid)) as usize,
                 Error::<T>::InvalidValue
             );
 
