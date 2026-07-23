@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v438',
+    date: 'July 2026',
+    title: 'Interfaces & Reliability',
+    summary:
+      'Bounded EVM staking views, Ledger-friendly limit-order signatures, exact mechanism ' +
+      'emission splits, predictable epoch counters, repaired testnet warp sync, and a more ' +
+      'recoverable release train.',
+    href: '/releases/v438-upgrade',
+  },
+  {
     tag: 'v437',
     date: 'July 2026',
     title: 'Collateral & Key Lineage',

@@ -3,6 +3,12 @@ pragma solidity ^0.8.0;
 address constant ISTAKING_ADDRESS = 0x0000000000000000000000000000000000000805;
 
 interface IStaking {
+    /// A coldkey's non-zero alpha stake position on a subnet.
+    struct StakeInfo {
+        bytes32 hotkey;
+        uint256 stake;
+    }
+
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey`.
      *
@@ -152,6 +158,23 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
+     * @dev Returns non-zero alpha stake positions for up to 64 caller-supplied
+     * distinct hotkeys. Duplicate hotkeys revert. Callers that need more must
+     * split their hotkeys across calls.
+     * This function does not read the coldkey's unbounded historical hotkey index.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet to query.
+     * @param hotkeys The distinct candidate hotkeys to query (maximum 64).
+     * @return positions Non-zero hotkey and alpha stake pairs.
+     */
+    function getStakeInfoForColdkeyAndNetuid(
+        bytes32 coldkey,
+        uint256 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (StakeInfo[] memory positions);
+
+    /**
      * @dev Delegates staking to a proxy account.
      *
      * @param delegate The public key (32 bytes) of the delegate.
@@ -204,6 +227,17 @@ interface IStaking {
      * @return The minimum required stake for a nominator.
      */
     function getNominatorMinRequiredStake() external view returns (uint256);
+
+    /**
+     * @dev Returns DefaultMinStake. This is a base value only; operation fees,
+     * price conversion, and full-unstake rules can change the accepted amount.
+     *
+     * @return defaultMinStake The current DefaultMinStake value in rao.
+     */
+    function getDefaultMinStake()
+        external
+        view
+        returns (uint256 defaultMinStake);
 
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.
@@ -340,7 +374,7 @@ interface IStaking {
     function allowance(
         address sourceAddress,
         address spenderAddress,
-        uint256 netuid,
+        uint256 netuid
     ) external view returns (uint256);
 
     /**

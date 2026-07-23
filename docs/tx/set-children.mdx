@@ -26,7 +26,7 @@ is not yet enabled, where they apply immediately.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1078-L1088) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("set_children", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1079`](/code/pallets/subtensor/src/macros/dispatches.rs#L1077-L1087):
+`SubtensorModule.set_children` — [`pallets/subtensor/src/macros/dispatches.rs#L1080`](/code/pallets/subtensor/src/macros/dispatches.rs#L1078-L1088):
 
 ```rust
 #[pallet::call_index(67)]

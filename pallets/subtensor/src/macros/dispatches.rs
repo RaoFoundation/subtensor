@@ -859,6 +859,7 @@ mod dispatches {
         /// * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
         /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
         ///   is transferred to the new hotkey.
+        #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
             crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
@@ -2309,7 +2310,11 @@ mod dispatches {
         /// Use `AdminUtils::sudo_set_tempo` to change subnet tempo.
         #[deprecated(note = "Use `AdminUtils::sudo_set_tempo` instead")]
         #[pallet::call_index(139)]
-        #[pallet::weight((Weight::from_parts(0, 0), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::set_tempo(),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn set_tempo(_origin: OriginFor<T>, _netuid: NetUid, _tempo: u16) -> DispatchResult {
             Ok(())
         }
@@ -2319,7 +2324,11 @@ mod dispatches {
         /// Use `AdminUtils::sudo_set_activity_cutoff_factor` to change the factor.
         #[deprecated(note = "Use `AdminUtils::sudo_set_activity_cutoff_factor` instead")]
         #[pallet::call_index(140)]
-        #[pallet::weight((Weight::from_parts(0, 0), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((
+            <T as crate::pallet::Config>::WeightInfo::set_activity_cutoff_factor(),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn set_activity_cutoff_factor(
             _origin: OriginFor<T>,
             _netuid: NetUid,

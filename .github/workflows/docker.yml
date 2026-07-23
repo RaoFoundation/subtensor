@@ -1,16 +1,17 @@
 name: Publish Docker Image
 
-# Node images publish when a network mirror moves, on runtime releases, and on
-# demand. Releases cut by watch-mainnet-release.yml use the default
-# GITHUB_TOKEN, which never emits `release: published`; the watcher therefore
-# dispatches this workflow directly with the release tag. Release-version tags
-# (vN) move :latest; network mirror tags do not.
+# Node images publish whenever main or a network mirror moves, on runtime
+# releases, and on demand. Main advances the development-facing :main tag.
+# Releases cut by watch-mainnet-release.yml use the default GITHUB_TOKEN, which
+# never emits `release: published`; the watcher therefore dispatches this
+# workflow directly with the release tag. Release-version tags (vN) move
+# :latest; branch tags do not.
 
 on:
   release:
     types: [published]
   push:
-    branches: [devnet, testnet]
+    branches: [main, devnet, testnet]
   workflow_dispatch:
     inputs:
       tag:

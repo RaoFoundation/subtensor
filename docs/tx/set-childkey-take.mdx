@@ -14,7 +14,7 @@ minimum and maximum childkey take bounds, and rate-limits only increases
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L925-L937) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L926-L938) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("set_childkey_take", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_childkey_take` — [`pallets/subtensor/src/macros/dispatches.rs#L927`](/code/pallets/subtensor/src/macros/dispatches.rs#L925-L937):
+`SubtensorModule.set_childkey_take` — [`pallets/subtensor/src/macros/dispatches.rs#L928`](/code/pallets/subtensor/src/macros/dispatches.rs#L926-L938):
 
 ```rust
 #[pallet::call_index(75)]

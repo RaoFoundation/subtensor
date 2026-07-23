@@ -391,10 +391,17 @@ impl<T: Config> Pallet<T> {
         let mut epochs_run_this_block: u32 = 0;
 
         for &netuid in subnets.iter() {
-            // Increment blocks since last *successful* step (existing semantics).
-            BlocksSinceLastStep::<T>::mutate(netuid, |total| *total = total.saturating_add(1));
+            // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
+            // record that a due epoch missed its slot while avoiding an unbounded
+            // public counter when the epoch is repeatedly deferred or its input
+            // state remains inconsistent.
+            let tempo = Self::get_tempo(netuid);
+            let max_blocks_since_last_step = u64::from(tempo).saturating_add(1);
+            BlocksSinceLastStep::<T>::mutate(netuid, |total| {
+                *total = total.saturating_add(1).min(max_blocks_since_last_step)
+            });
 
-            if !Self::should_run_epoch(netuid, current_block) {
+            if !Self::should_run_epoch_with_tempo(netuid, current_block, tempo) {
                 continue;
             }
 
@@ -1143,6 +1150,12 @@ impl<T: Config> Pallet<T> {
     /// * `bool`: True if the epoch should run, false otherwise.
     pub fn should_run_epoch(netuid: NetUid, current_block: u64) -> bool {
         let tempo = Self::get_tempo(netuid);
+        Self::should_run_epoch_with_tempo(netuid, current_block, tempo)
+    }
+
+    /// Same predicate as `should_run_epoch`, using an already-loaded tempo so
+    /// callers that also need the tempo do not charge a duplicate storage read.
+    fn should_run_epoch_with_tempo(netuid: NetUid, current_block: u64, tempo: u16) -> bool {
         if tempo == 0 {
             return false;
         }
@@ -1150,7 +1163,7 @@ impl<T: Config> Pallet<T> {
         if pending > 0 && current_block >= pending {
             return true;
         }
-        if BlocksSinceLastStep::<T>::get(netuid) > MAX_TEMPO as u64 {
+        if BlocksSinceLastStep::<T>::get(netuid) > u64::from(tempo) {
             return true;
         }
         let last = LastEpochBlock::<T>::get(netuid);
@@ -1161,7 +1174,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the number of blocks remaining before the next automatic epoch under the
     /// stateful scheduler (period `tempo`, anchored on `LastEpochBlock`). Does NOT account for:
     ///     - `PendingEpochAt` (owner-triggered manual fire — could happen sooner),
-    ///     - `BlocksSinceLastStep > MAX_TEMPO` safety-net,
+    ///     - `BlocksSinceLastStep > tempo` safety-net,
     ///     - per-block-cap defer (could push the actual fire one or more blocks later)
     /// Used by the admin-freeze-window predicate and external tooling. Returns `u64::MAX` when
     /// `tempo == 0` (legacy defensive short-circuit).
@@ -1178,7 +1191,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the absolute block number at which the next epoch is expected to fire for the
     /// given subnet, considering both the automatic schedule (`LastEpochBlock + tempo`) and
     /// any owner-triggered `PendingEpochAt`. Returns `None` if `tempo == 0` (subnet does not run).
-    /// Does NOT account for the per-block cap deferral or the `BlocksSinceLastStep > MAX_TEMPO`
+    /// Does NOT account for the per-block cap deferral or the `BlocksSinceLastStep > tempo`
     /// safety-net (which can fire earlier under extreme drift).
     pub fn get_next_epoch_start_block(netuid: NetUid) -> Option<u64> {
         let tempo = Self::get_tempo(netuid);
