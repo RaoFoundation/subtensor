@@ -1,4 +1,5 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
+import {Code} from '@/app/components/Code/Code';
 import {Link} from '@raofoundation/ui';
 import type {Metadata} from 'next';
 import {Suspense} from 'react';
@@ -209,12 +210,13 @@ const page = () => {
             precompile never walks the coldkey&apos;s unbounded historical hotkey index, so its work
             and gas remain proportional to the request.
           </p>
-          <pre className={styles.code_block}>
-            {`IStaking.StakeInfo[] memory positions =
+          <Code
+            language='rust'
+            code={`IStaking.StakeInfo[] memory positions =
     staking.getStakeInfoForColdkeyAndNetuid(coldkey, netuid, hotkeys);
 
 uint256 baseMinimum = staking.getDefaultMinStake();`}
-          </pre>
+          />
           <EvmStakeReadDiagram />
           <p className={styles.graph_caption}>
             The contract chooses at most 64 distinct candidate hotkeys. The precompile charges for
@@ -246,14 +248,15 @@ uint256 baseMinimum = staking.getDefaultMinStake();`}
             signers can sign the wrapped order hash; both paths verify against the same signer and
             derive the same on-chain order ID.
           </p>
-          <pre className={styles.code_block}>
-            {`raw       = SCALE(versioned_order)
+          <Code
+            language='rust'
+            code={`raw       = SCALE(versioned_order)
 order_id  = blake2_256(raw)
 wrapped   = "<Bytes>" ++ order_id ++ "</Bytes>"
 
 accepted  = sr25519(raw | wrapped) or ed25519(raw | wrapped)
 rejected  = ecdsa`}
-          </pre>
+          />
         </section>
 
         <section className={styles.section}>
