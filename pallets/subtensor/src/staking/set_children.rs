@@ -4,6 +4,13 @@ use sp_runtime::PerU16;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use subtensor_runtime_common::NetUid;
 
+/// Maximum number of existing child edges followed from a proposed child.
+/// Keeping this deliberately small bounds both execution time and hierarchy depth.
+pub const MAX_CHILDKEY_REACHABILITY_DEPTH: u8 = 4;
+
+/// Maximum number of distinct hotkeys inspected by one cycle check.
+pub const MAX_CHILDKEY_REACHABILITY_NODES: u32 = 32;
+
 pub struct PCRelations<T: Config> {
     /// The distinguished `hotkey` this structure is built around.
     pivot: T::AccountId,
@@ -157,6 +164,67 @@ impl<T: Config> PCRelations<T> {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Weight reserved for the bounded cycle check. Each visited hotkey reads
+    /// `PendingChildKeys` and, when no pending replacement exists, `ChildKeys`.
+    pub fn set_children_cycle_check_weight() -> Weight {
+        T::DbWeight::get().reads(MAX_CHILDKEY_REACHABILITY_NODES.saturating_mul(2).into())
+    }
+
+    /// Reject a proposed `parent -> children` update when a child can already
+    /// reach `parent`. Pending child updates take precedence over active edges,
+    /// matching the graph that will exist once the pending queue is applied.
+    ///
+    /// The walk fails closed when either bound is reached. This prevents an
+    /// attacker from constructing an expensive graph and also places a small
+    /// upper bound on childkey hierarchy depth.
+    fn ensure_bounded_childkey_reachability(
+        parent: &T::AccountId,
+        netuid: NetUid,
+        children: &[(u64, T::AccountId)],
+    ) -> DispatchResult {
+        let mut seen = BTreeSet::<T::AccountId>::new();
+        let mut stack = Vec::<(T::AccountId, u8)>::new();
+
+        for (_, child) in children {
+            ensure!(child != parent, Error::<T>::InvalidChild);
+            if seen.insert(child.clone()) {
+                ensure!(
+                    seen.len() <= MAX_CHILDKEY_REACHABILITY_NODES as usize,
+                    Error::<T>::ChildParentInconsistency
+                );
+                stack.push((child.clone(), 0));
+            }
+        }
+
+        while let Some((hotkey, depth)) = stack.pop() {
+            let descendants = PendingChildKeys::<T>::try_get(netuid, &hotkey)
+                .map(|(pending, _)| pending)
+                .unwrap_or_else(|_| ChildKeys::<T>::get(&hotkey, netuid));
+
+            if descendants.is_empty() {
+                continue;
+            }
+
+            ensure!(
+                depth < MAX_CHILDKEY_REACHABILITY_DEPTH,
+                Error::<T>::ChildParentInconsistency
+            );
+
+            for (_, descendant) in descendants {
+                ensure!(descendant != *parent, Error::<T>::ChildParentInconsistency);
+                if seen.insert(descendant.clone()) {
+                    ensure!(
+                        seen.len() <= MAX_CHILDKEY_REACHABILITY_NODES as usize,
+                        Error::<T>::ChildParentInconsistency
+                    );
+                    stack.push((descendant, depth.saturating_add(1)));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Set childkeys vector making sure there are no empty vectors in the state
     fn set_childkeys(parent: T::AccountId, netuid: NetUid, childkey_vec: Vec<(u64, T::AccountId)>) {
         if childkey_vec.is_empty() {
@@ -525,6 +593,7 @@ impl<T: Config> Pallet<T> {
         //  - Bipartite separation (no A <-> B relations)
         let relations = Self::load_child_parent_relations(&hotkey, netuid)?;
         relations.ensure_pending_consistency(&children)?;
+        Self::ensure_bounded_childkey_reachability(&hotkey, netuid, &children)?;
 
         // Check that the parent key has at least the minimum own stake
         // if children vector is not empty
