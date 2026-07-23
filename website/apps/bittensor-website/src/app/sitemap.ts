@@ -14,15 +14,13 @@ const staticRoutes = [
   '/releases',
   '/releases/v431-upgrade',
   '/releases/v436-upgrade',
+  '/releases/v438-upgrade',
   '/wallet',
   '/whitepaper',
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const pages = [
-    ...staticRoutes,
-    ...source.getPages().map((page) => page.url),
-  ];
+  const pages = [...staticRoutes, ...source.getPages().map((page) => page.url)];
 
   return pages.map((path) => ({
     url: `${siteUrl}${path === '/' ? '' : path}`,
