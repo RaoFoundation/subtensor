@@ -425,6 +425,30 @@ fn split_emissions_even_division() {
 }
 
 #[test]
+fn split_emissions_treats_legacy_malformed_split_as_unset() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(5u16);
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(3u8));
+
+        for split in [vec![u16::MAX], vec![u16::MAX, 0, 0, 0]] {
+            MechanismEmissionSplit::<Test>::insert(netuid, split.clone());
+
+            let out = SubtensorModule::split_emissions(netuid, AlphaBalance::from(10u64));
+
+            assert_eq!(
+                out,
+                vec![
+                    AlphaBalance::from(4u64),
+                    AlphaBalance::from(3u64),
+                    AlphaBalance::from(3u64),
+                ]
+            );
+            assert_eq!(MechanismEmissionSplit::<Test>::get(netuid), Some(split));
+        }
+    });
+}
+
+#[test]
 fn split_emissions_rounding_to_first() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(6u16);
