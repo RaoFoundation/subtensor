@@ -108,7 +108,9 @@ serde_with = { version = "3.14.0", default-features = false }
 smallvec = "1.13.2"
 tracing = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "=0.3.20" }
+# Keep this pinned: 0.3.20 escapes ANSI sequences embedded by Substrate's
+# informant, causing color codes such as `\x1b[37m` to be printed literally.
+tracing-subscriber = { version = "=0.3.19" }
 litep2p = { git = "https://github.com/paritytech/litep2p", tag = "v0.7.0", default-features = false }
 syn = { version = "2.0.106", default-features = false }
 quote = { version = "1", default-features = false }
