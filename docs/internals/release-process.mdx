@@ -62,11 +62,13 @@ independent image builds run.
 
 ### The mainnet multisig ceremony
 
-CI never upgrades mainnet directly. The train's final job submits a **multisig
-proposal**: the CI key is one half of a 2-of-2 deployment multisig that holds
-a `SudoUncheckedSetCode` proxy on the sudo key. The triumvirate then approves
-the proposal 2-of-3 **out-of-band** — no GitHub credential can unilaterally
-change the mainnet runtime. Until they sign, nothing happens on chain.
+CI never upgrades mainnet directly. Before any on-chain action, the train
+reserves the immutable `v<spec_version>` tag at the exact source commit. Its
+final job then submits a **multisig proposal**: the CI key is one half of a
+2-of-2 deployment multisig that holds a `SudoUncheckedSetCode` proxy on the
+sudo key. The triumvirate then approves the proposal 2-of-3 **out-of-band** —
+no GitHub credential can unilaterally change the mainnet runtime. Until they
+sign, nothing happens on chain.
 
 For rehearsal, the `mainnet-clone` PR label spins up a live clone of mainnet
 running your runtime with a public endpoint
@@ -75,8 +77,10 @@ running your runtime with a public endpoint
 ## The release watcher
 
 `watch-mainnet-release.yml` polls mainnet every 10 minutes. When an upgrade
-executes, it resolves the release-train artifact for the `spec_version`
-actually running on chain and cuts the release:
+executes, it resolves the release-train artifact whose commit matches the
+immutable tag and whose runtime hash matches the finalized on-chain `:code`.
+It moves the protected `mainnet` mirror to that exact commit before cutting
+the release:
 
 1. **GitHub release** `v<spec_version>`
 2. **Production Docker images** tagged `v<spec_version>` and `latest`
@@ -89,16 +93,18 @@ actually running on chain and cuts the release:
 This ordering means the release always reflects what is *actually running on
 mainnet*, not what was merged.
 
-Stable Python publication has an independent completion marker attached to the
-GitHub release. The marker is written only after PyPI accepts every SDK and
-`bittensor-core` distribution, so a failed or partial upload is retried on the
-next watcher run even if the GitHub release already exists or the release-train
-artifact has expired. Retries use the release's provenance manifest and require
-its commit to still match the release target, tag, and protected `mainnet`
-mirror. The SDK's committed `X.Y.Z.dev0` version is stamped to `X.Y.Z` for this
-build. The release train rejects a base SDK or core version that already exists
-on PyPI before publishing release candidates. The already-deployed v432 release
-predates the marker and is recovered manually.
+PyPI is the terminal state for stable Python publication. The watcher requires
+the SDK wheel and source distribution plus the full `bittensor-core` Linux and
+macOS wheel matrix and source distribution. Every file must carry a PEP 740
+attestation from this repository's mainnet release workflow. A failed or
+partial upload is retried on the next watcher run even if the GitHub release
+already exists or the release-train artifact has expired. Retries require the
+release target, immutable tag, protected `mainnet` mirror, and finalized
+runtime bytes to agree. The SDK's committed `X.Y.Z.dev0` version is stamped to
+`X.Y.Z` for this build. The release train rejects a base SDK or core version
+that already exists on PyPI before publishing release candidates. Releases
+through v432 predate automated stable Python publication and are handled as
+historical state.
 
 The watcher explicitly dispatches `docker.yml` and `docker-localnet.yml`
 because releases created with the default `GITHUB_TOKEN` do not emit another
