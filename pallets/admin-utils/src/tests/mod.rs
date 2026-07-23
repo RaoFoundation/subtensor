@@ -1887,21 +1887,60 @@ fn test_sudo_non_root_cannot_set_evm_chain_id() {
 fn test_schedule_grandpa_change() {
     new_test_ext().execute_with(|| {
         assert_eq!(Grandpa::grandpa_authorities(), vec![]);
+        pallet_grandpa::CurrentSetId::<Test>::put(3);
 
         let bob: GrandpaId = ed25519::Pair::from_legacy_string("//Bob", None)
             .public()
             .into();
 
+        assert_noop!(
+            AdminUtils::schedule_grandpa_change(
+                RuntimeOrigin::root(),
+                vec![(bob.clone(), 1)],
+                41,
+                None
+            ),
+            crate::Error::<Test>::GrandpaChangeDelayMustBeZero
+        );
+        assert_eq!(Grandpa::current_set_id(), 3);
+
         assert_ok!(AdminUtils::schedule_grandpa_change(
             RuntimeOrigin::root(),
             vec![(bob.clone(), 1)],
-            41,
+            0,
             None
         ));
 
-        Grandpa::on_finalize(42);
+        assert_eq!(Grandpa::current_set_id(), 4);
+        assert_noop!(
+            AdminUtils::schedule_grandpa_change(
+                RuntimeOrigin::root(),
+                vec![(bob.clone(), 1)],
+                0,
+                None
+            ),
+            pallet_grandpa::Error::<Test>::ChangePending
+        );
+        assert_eq!(Grandpa::current_set_id(), 4);
+
+        Grandpa::on_finalize(System::block_number());
 
         assert_eq!(Grandpa::grandpa_authorities(), vec![(bob, 1)]);
+        assert_eq!(Grandpa::current_set_id(), 4);
+    });
+}
+
+#[test]
+fn grandpa_set_id_overflow_does_not_schedule_change() {
+    new_test_ext().execute_with(|| {
+        pallet_grandpa::CurrentSetId::<Test>::put(u64::MAX);
+
+        assert_noop!(
+            AdminUtils::schedule_grandpa_change(RuntimeOrigin::root(), Vec::new(), 0, None),
+            sp_runtime::ArithmeticError::Overflow
+        );
+        assert!(!pallet_grandpa::PendingChange::<Test>::exists());
+        assert_eq!(Grandpa::current_set_id(), u64::MAX);
     });
 }
 
