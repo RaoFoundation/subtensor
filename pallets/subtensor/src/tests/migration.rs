@@ -2871,6 +2871,39 @@ fn test_migrate_kappa_map_to_default() {
 }
 
 #[test]
+fn test_migrate_clear_root_basket_weights() {
+    new_test_ext(1).execute_with(|| {
+        const MIG_NAME: &[u8] = b"clear_root_basket_weights";
+        let root = NetUidStorageIndex::ROOT;
+        let subnet = NetUidStorageIndex::from(NetUid::from(1u16));
+
+        Weights::<Test>::insert(root, 0u16, vec![(1u16, u16::MAX), (2u16, 32768)]);
+        Weights::<Test>::insert(root, 3u16, vec![(0u16, u16::MAX)]);
+        Weights::<Test>::insert(subnet, 0u16, vec![(1u16, 1000)]);
+
+        assert_eq!(Weights::<Test>::iter_prefix(root).count(), 2);
+        assert_eq!(Weights::<Test>::iter_prefix(subnet).count(), 1);
+        assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+
+        let w = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
+        assert!(!w.is_zero());
+
+        assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+        assert_eq!(Weights::<Test>::iter_prefix(root).count(), 0);
+        assert_eq!(Weights::<Test>::get(root, 0u16), vec![]);
+        assert_eq!(
+            Weights::<Test>::get(subnet, 0u16),
+            vec![(1u16, 1000)],
+            "subnet weights must be untouched"
+        );
+
+        let w2 = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
+        assert_eq!(Weights::<Test>::iter_prefix(root).count(), 0);
+        assert!(w2.ref_time() <= w.ref_time());
+    });
+}
+
+#[test]
 fn test_migrate_remove_tao_dividends() {
     const MIGRATION_NAME: &str = "migrate_remove_tao_dividends";
     let pallet_name = "SubtensorModule";

@@ -2369,6 +2369,15 @@ impl_runtime_apis! {
         fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)> {
             SubtensorModule::get_validator_root_weights(&hotkey)
         }
+        fn get_validator_basket_summary(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketSummary<AccountId32> {
+            SubtensorModule::get_validator_basket_summary(&hotkey)
+        }
+        fn get_all_validator_baskets() -> Vec<pallet_subtensor::rpc_info::basket_info::BasketSummary<AccountId32>> {
+            SubtensorModule::get_all_validator_baskets()
+        }
+        fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)> {
+            SubtensorModule::get_root_basket_positions(&coldkey)
+        }
     }
 
     impl subtensor_custom_rpc_runtime_api::ProxyFilterRuntimeApi<Block> for Runtime {

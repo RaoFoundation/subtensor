@@ -8,7 +8,7 @@ from typing import Optional
 import typer
 
 from ...balance import Balance
-from ...intents import ClaimRoot, SetAutoStake, SetChildkeyTake, SetChildren
+from ...intents import SetAutoStake, SetChildkeyTake, SetChildren
 from ...reads import StakePosition
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -27,7 +27,7 @@ app = typer.Typer(no_args_is_help=True, help="Query and manage stake.")
 
 PANEL_MOVE = "Add & move stake"
 PANEL_POSITIONS = "Positions"
-PANEL_AUTO = "Auto-stake & claims"
+PANEL_AUTO = "Auto-stake"
 PANEL_DELEGATION = "Delegation"
 
 _NETUID_HELP = "Numeric identifier of the subnet the command operates on."
@@ -209,91 +209,6 @@ def set_auto_stake(
     """
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(SetAutoStake(netuid=netuid, hotkey_ss58=hotkey_ss58))
-
-
-@app.command("owed", rich_help_panel=PANEL_AUTO)
-@with_globals
-def basket_owed(
-    ctx: typer.Context,
-    coldkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
-    ),
-):
-    """Show pending root dividends (beta basket TAO owed to a coldkey).
-
-    Root dividends accrue as shares of each validator's beta basket; this
-    shows the TAO those shares would realize if claimed now, itemized per
-    validator, with the network claim threshold for reference (per-validator
-    amounts below it are skipped by a claim and keep accruing).
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-
-    async def _fetch(client):
-        snapshot = await client.at()
-        return (
-            await snapshot.read("root_basket_owed_breakdown", coldkey_ss58=owner),
-            await snapshot.read("root_claim_threshold"),
-        )
-
-    rows, threshold = app_ctx.run(_fetch)
-    total = Balance(sum(entry["owed_tao"].rao for entry in rows))
-    table_rows = [[entry["hotkey"], str(entry["owed_tao"])] for entry in rows]
-    app_ctx.output.table(
-        f"pending root dividends of {owner}", ["validator hotkey", "owed"], table_rows, rows
-    )
-    app_ctx.output.message(f"total owed: {total} (claim threshold per validator: {threshold})")
-
-
-@app.command("basket", rich_help_panel=PANEL_AUTO)
-@with_globals
-def basket_show(
-    ctx: typer.Context,
-    hotkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
-    ),
-):
-    """Show a validator's beta basket: per-subnet holdings and NAV.
-
-    The basket is the escrowed index fund built from the validator's root
-    dividends per its root weights (`btcli weights set-root`). Values are
-    realizable TAO quotes at current pool depth. The netuid-0 row is the
-    basket's TAO cash slot.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-
-    async def _fetch(client):
-        snapshot = await client.at()
-        return (
-            await snapshot.read("validator_basket", hotkey_ss58=hotkey),
-            await snapshot.read("validator_basket_nav", hotkey_ss58=hotkey),
-        )
-
-    rows, nav = app_ctx.run(_fetch)
-    if not rows:
-        app_ctx.output.detail("basket", {"hotkey": hotkey, "holdings": [], "nav": str(nav)})
-        return
-    table_rows = [[entry["netuid"], str(entry["alpha"]), str(entry["value_tao"])] for entry in rows]
-    app_ctx.output.table(
-        f"beta basket of {hotkey}", ["netuid", "holding", "value"], table_rows, rows
-    )
-    app_ctx.output.message(f"basket NAV: {nav}")
-
-
-@app.command("claim", rich_help_panel=PANEL_AUTO)
-@with_tx_globals
-def claim(ctx: typer.Context):
-    """Claim root dividends: redeem your beta basket shares as root stake.
-
-    One parameterless transaction redeems the wallet coldkey's owed basket
-    shares across every validator it root-stakes to; the payout is staked
-    back to root on the same validator. Per-validator payouts below the
-    claim threshold are skipped and keep accruing. Preview with
-    `btcli stake owed`.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(ClaimRoot())
 
 
 child_app = typer.Typer(no_args_is_help=True, help="Child hotkey delegation.")

@@ -161,6 +161,25 @@ pub trait SubtensorCustomApi<BlockHash> {
         hotkey: AccountId32,
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
+    /// Full explorer-facing basket summary for one validator: SCALE-encoded `BasketSummary`
+    /// (NAV realizable + spot, shares, lifetime deposited/redeemed, weights, holdings).
+    #[method(name = "betaBasket_getValidatorSummary")]
+    fn get_validator_basket_summary(
+        &self,
+        hotkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Vec<u8>>;
+    /// Summaries for every validator with an active basket: SCALE-encoded `Vec<BasketSummary>`.
+    #[method(name = "betaBasket_getAllBaskets")]
+    fn get_all_validator_baskets(&self, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
+    /// A staker's positions across its validators: SCALE-encoded
+    /// `Vec<(AccountId32, u64 shares, TaoBalance payout)>`.
+    #[method(name = "betaBasket_getStakerPositions")]
+    fn get_root_basket_positions(
+        &self,
+        coldkey: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<Vec<u8>>;
 }
 
 pub struct SubtensorCustom<C, P> {
@@ -720,6 +739,53 @@ where
             Err(e) => {
                 Err(Error::RuntimeError(format!("Unable to get validator weights: {e:?}")).into())
             }
+        }
+    }
+
+    fn get_validator_basket_summary(
+        &self,
+        hotkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_validator_basket_summary(at, hotkey) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => Err(Error::RuntimeError(format!(
+                "Unable to get validator basket summary: {e:?}"
+            ))
+            .into()),
+        }
+    }
+
+    fn get_all_validator_baskets(&self, at: Option<<Block as BlockT>::Hash>) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_all_validator_baskets(at) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => Err(Error::RuntimeError(format!(
+                "Unable to get all validator baskets: {e:?}"
+            ))
+            .into()),
+        }
+    }
+
+    fn get_root_basket_positions(
+        &self,
+        coldkey: AccountId32,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+
+        match api.get_root_basket_positions(at, coldkey) {
+            Ok(result) => Ok(result.encode()),
+            Err(e) => Err(Error::RuntimeError(format!(
+                "Unable to get root basket positions: {e:?}"
+            ))
+            .into()),
         }
     }
 }

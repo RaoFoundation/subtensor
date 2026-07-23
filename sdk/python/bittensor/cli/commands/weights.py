@@ -80,7 +80,8 @@ def set_weights(
 
 @app.command(
     "set-root",
-    epilog='Example: btcli weights set-root --weights "0:0.2,4:0.3,8:0.5"',
+    hidden=True,
+    epilog='Moved to `btcli root set-weights`. Example: --weights "0:0.2,4:0.3,8:0.5"',
 )
 @with_tx_globals
 def set_root_weights(
@@ -96,15 +97,9 @@ def set_root_weights(
         0, "--version-key", help=SetRootWeights.field_help("version_key")
     ),
 ):
-    """Set how your root dividends are deployed across subnets (beta basket).
-
-    Signed by the hotkey, which must be a registered root validator. Each
-    epoch the chain sells your root dividend for TAO and buys the listed
-    subnets' alpha into your beta basket in these proportions; root stakers
-    redeem the basket with `btcli stake claim`. Without root weights set,
-    your root dividends are recycled.
-    """
+    """Deprecated: use ``btcli root set-weights``."""
     app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.output.message("[dim]deprecated: use `btcli root set-weights`[/dim]")
     pairs = _parse_weight_pairs(weights)
     app_ctx.submit(
         SetRootWeights(
@@ -115,7 +110,7 @@ def set_root_weights(
     )
 
 
-@app.command("get-root")
+@app.command("get-root", hidden=True)
 @with_globals
 def get_root_weights(
     ctx: typer.Context,
@@ -123,18 +118,16 @@ def get_root_weights(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
 ):
-    """Show a validator's root dividend weights (beta basket allocation).
-
-    Lists the subnets the validator's root dividends are deployed into and
-    each destination's share. Netuid 0 is the TAO cash slot. An empty result
-    means no root weights are set and the validator's dividends are recycled.
-    """
+    """Deprecated: use ``btcli root get-weights``."""
     app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.output.message("[dim]deprecated: use `btcli root get-weights`[/dim]")
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     rows = app_ctx.run(lambda c: c.read("validator_root_weights", hotkey_ss58=hotkey))
     if not rows:
         app_ctx.output.detail("root weights", {"hotkey": hotkey, "weights": []})
-        app_ctx.output.message("no root weights set: this validator's root dividends are recycled")
+        app_ctx.output.message(
+            "no custom root weights set: dividends default to 100% root (TAO in the basket)"
+        )
         return
     table_rows = [[r["netuid"], f"{r['share']:.2%}", r["weight"]] for r in rows]
     app_ctx.output.table(

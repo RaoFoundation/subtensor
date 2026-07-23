@@ -448,9 +448,9 @@ class SetRootWeights(Intent):
     quantized to u16 before submission, and zero weights are dropped. Signed
     by the hotkey, which must be registered on the root network and hold the
     minimum stake to set weights; the root weights rate limit applies, and
-    every destination must be netuid 0 or an existing subnet. A validator
-    with no root weights set has its root dividends recycled — set this
-    vector to start accruing a basket. Read it back with the
+    every destination must be netuid 0 or an existing subnet. Validators
+    with no stored root weights default to 100% root (TAO in the basket);
+    set this vector to customize subnet allocation. Read it back with the
     ``validator_root_weights`` read.
     """
 
