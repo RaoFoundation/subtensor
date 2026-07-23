@@ -94,11 +94,11 @@ GitHub release. The marker is written only after PyPI accepts every SDK and
 `bittensor-core` distribution, so a failed or partial upload is retried on the
 next watcher run even if the GitHub release already exists or the release-train
 artifact has expired. Retries use the release's provenance manifest and require
-its commit to still match both the release target and tag. The SDK's committed
-`X.Y.Z.dev0` version is stamped to `X.Y.Z` for this build. The release train
-rejects a base SDK or core version that already exists on PyPI before
-publishing release candidates. The already-deployed v432 release predates the
-marker and is recovered manually.
+its commit to still match the release target, tag, and protected `mainnet`
+mirror. The SDK's committed `X.Y.Z.dev0` version is stamped to `X.Y.Z` for this
+build. The release train rejects a base SDK or core version that already exists
+on PyPI before publishing release candidates. The already-deployed v432 release
+predates the marker and is recovered manually.
 
 The watcher explicitly dispatches `docker.yml` and `docker-localnet.yml`
 because releases created with the default `GITHUB_TOKEN` do not emit another
