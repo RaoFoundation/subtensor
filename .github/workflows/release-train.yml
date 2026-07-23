@@ -669,7 +669,9 @@ jobs:
           )
           if release_json=$(gh api \
               "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null); then
-            is_prerelease=$(jq -er '.prerelease | booleans' <<<"$release_json")
+            is_prerelease=$(jq -er \
+              '.prerelease | if type == "boolean" then tostring else error("prerelease must be boolean") end' \
+              <<<"$release_json")
             [ "$is_prerelease" = true ] \
               || { echo "release $tag is already final; refusing to overwrite it"; exit 1; }
             target_sha=$(jq -er \
