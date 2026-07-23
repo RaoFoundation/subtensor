@@ -1,0 +1,137 @@
+name: Request Docs Preview
+
+# Secret-free PR gate for docs previews.
+#
+# Trust boundary: this workflow runs untrusted PR HEAD and must never receive
+# VERCEL_TOKEN, GoDaddy credentials, or any other deploy secret. Same-repo PRs
+# can edit this file; keeping it credential-free closes that path.
+#
+# Build output is sealed and handed to the default-branch
+# `Deploy Docs Preview` workflow (`workflow_run`), which alone holds secrets
+# and never checks out or executes PR code.
+#
+# Requires repository variables (not secrets — these are public project IDs):
+#   VERCEL_ORG_ID
+#   VERCEL_DOCS_PROJECT_ID
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "docs/**"
+      - "website/**"
+      - ".github/workflows/request-docs-preview.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build PR docs preview (no secrets)
+    if: >
+      github.event.action != 'closed' &&
+      !github.event.pull_request.head.repo.fork &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, fireactions-turbo-8]
+    concurrency:
+      group: request-docs-preview-build-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      # Public project identifiers only — never a deploy token.
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Require public Vercel project vars
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ]; then
+            echo "Set repository variables VERCEL_ORG_ID and VERCEL_DOCS_PROJECT_ID" >&2
+            echo "(project/org IDs are not secrets; the deploy token stays on the trusted workflow)." >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (yarn 4)
+        run: corepack enable
+
+      - name: Assemble Vercel prebuilt output (no deploy token)
+        run: |
+          set -euo pipefail
+          mkdir -p .vercel
+          # Full project settings (framework / rootDirectory / node) — same
+          # payload `vercel pull` writes. IDs + settings are not secrets; the
+          # deploy token stays off this workflow.
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync(".vercel/project.json", JSON.stringify({
+              projectId: process.env.VERCEL_PROJECT_ID,
+              orgId: process.env.VERCEL_ORG_ID,
+              projectName: "subtensor",
+              settings: {
+                framework: "nextjs",
+                devCommand: null,
+                installCommand: null,
+                buildCommand: null,
+                outputDirectory: null,
+                rootDirectory: "website/apps/bittensor-website",
+                directoryListing: false,
+                nodeVersion: "24.x",
+              },
+            }, null, 2));
+          '
+          # Local assemble only — do not pass --token.
+          npx --yes vercel@56.4.1 build
+          test -f .vercel/output/functions/_global-error.func/.vc-config.json
+          test -d website/node_modules
+
+      - name: Seal prebuilt output for trusted deploy
+        run: |
+          set -euo pipefail
+          # Include website/node_modules: Next NFT traces resolve there during
+          # `vercel deploy --prebuilt`. Dereference links so the trusted
+          # extractor never has to honor PR-controlled symlinks/hardlinks.
+          tar --create --gzip --file=docs-preview-sealed.tgz \
+            --hard-dereference --dereference \
+            .vercel/output website/node_modules
+          printf '%s\n' "${{ github.event.pull_request.number }}" > docs-preview-pr-number.txt
+          printf '%s\n' "deploy" > docs-preview-action.txt
+
+      - name: Upload sealed prebuilt output
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-${{ github.event.pull_request.number }}
+          path: |
+            docs-preview-sealed.tgz
+            docs-preview-pr-number.txt
+            docs-preview-action.txt
+          retention-days: 1
+
+  request-cleanup:
+    name: Request preview cleanup (no secrets)
+    if: >
+      github.event.action == 'closed' &&
+      !github.event.pull_request.head.repo.fork &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, fireactions-turbo-8]
+    steps:
+      - name: Upload cleanup marker
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${{ github.event.pull_request.number }}" > docs-preview-pr-number.txt
+          printf '%s\n' "cleanup" > docs-preview-action.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-${{ github.event.pull_request.number }}
+          path: |
+            docs-preview-pr-number.txt
+            docs-preview-action.txt
+          retention-days: 1
