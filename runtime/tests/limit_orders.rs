@@ -20,8 +20,8 @@ use pallet_limit_orders::{
 use pallet_subtensor::{SubnetAlphaIn, SubnetMechanism, SubnetTAO};
 use sp_core::{Get, H256, Pair};
 use sp_keyring::Sr25519Keyring;
-use sp_runtime::traits::AccountIdConversion;
-use sp_runtime::{MultiSignature, Perbill};
+use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Verify};
+use sp_runtime::{MultiSignature, MultiSigner, Perbill};
 use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance, Token};
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -294,18 +294,19 @@ fn cancel_order_works() {
     });
 }
 
-/// An order signed with an Ed25519 key is rejected at validation time even
+/// An order signed with an ECDSA key is rejected at validation time even
 /// though the signature itself is cryptographically valid. The order must not
 /// appear in the Orders storage map after the batch runs.
 #[test]
-fn execute_orders_ed25519_signature_rejected() {
+fn execute_orders_ecdsa_signature_rejected() {
     new_test_ext().execute_with(|| {
-        let alice_id = Sr25519Keyring::Alice.to_account_id();
+        let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
+        let ecdsa_id = MultiSigner::from(pair.public()).into_account();
         let bob_id = Sr25519Keyring::Bob.to_account_id();
         let fee_recipient = Sr25519Keyring::Charlie.to_account_id();
 
         let order = VersionedOrder::V1(Order {
-            signer: alice_id.clone(),
+            signer: ecdsa_id.clone(),
             hotkey: bob_id,
             netuid: NetUid::from(1u16),
             order_type: OrderType::LimitBuy,
@@ -322,19 +323,19 @@ fn execute_orders_ed25519_signature_rejected() {
         });
         let id = order_id(&order);
 
-        // Sign with ed25519 — valid signature, wrong scheme.
-        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
-        let ed_sig = ed_pair.sign(&order.encode());
+        // The signature matches the order signer; only the scheme is unsupported.
+        let signature = MultiSignature::Ecdsa(pair.sign(&order.encode()));
+        assert!(signature.verify(order.encode().as_slice(), &ecdsa_id));
         let signed = SignedOrder {
             order,
-            signature: MultiSignature::Ed25519(ed_sig),
+            signature,
             partial_fill: None,
         };
 
         let orders = make_order_batch(vec![signed]);
 
         assert_ok!(LimitOrders::execute_orders(
-            RuntimeOrigin::signed(alice_id),
+            RuntimeOrigin::signed(ecdsa_id),
             orders,
             false,
         ));
@@ -447,6 +448,45 @@ fn limit_buy_order_executes_and_stakes_alpha() {
                 && staked <= AlphaBalance::from(expected_alpha),
             "alice should hold approximately min_default_stake alpha after a LimitBuy order executes (got {staked:?})"
         );
+    });
+}
+
+/// A Ledger-style, wrapped Sr25519 signature is accepted by the runtime and
+/// executes the signed order.
+#[test]
+fn execute_orders_wrapped_sr25519_signature_executes() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        let bob_id = Sr25519Keyring::Bob.to_account_id();
+        let relayer = Sr25519Keyring::Charlie.to_account_id();
+
+        setup_subnet(netuid);
+        fund_account(&alice_id);
+        let _ = SubtensorModule::create_account_if_non_existent(&alice_id, &bob_id);
+
+        let mut signed = make_signed_order(
+            alice,
+            bob_id,
+            netuid,
+            OrderType::LimitBuy,
+            min_default_stake().into(),
+            u64::MAX,
+            u64::MAX,
+            Perbill::zero(),
+            relayer.clone(),
+        );
+        let id = order_id(&signed.order);
+        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        signed.signature = MultiSignature::Sr25519(alice.pair().sign(&payload));
+
+        assert_ok!(LimitOrders::execute_orders(
+            RuntimeOrigin::signed(relayer),
+            make_order_batch(vec![signed]),
+            false,
+        ));
+        assert_eq!(Orders::<Runtime>::get(id), Some(OrderStatus::Fulfilled));
     });
 }
 
