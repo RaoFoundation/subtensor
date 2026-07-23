@@ -350,6 +350,7 @@ impl frame_system::Config for Runtime {
     type ExtensionsWeightInfo = frame_system::SubstrateExtensionsWeight<Runtime>;
     type DispatchExtension = (
         pallet_subtensor::CheckColdkeySwap<Runtime>,
+        pallet_subtensor::CheckSubnetSale<Runtime>,
         pallet_subtensor::CheckWeights<Runtime>,
         pallet_subtensor::CheckRateLimits<Runtime>,
         pallet_subtensor::CheckDelegateTake<Runtime>,

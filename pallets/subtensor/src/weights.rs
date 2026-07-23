@@ -84,6 +84,8 @@ pub trait WeightInfo {
 	fn remove_stake_full_limit() -> Weight;
 	fn register_leased_network(k: u32, ) -> Weight;
 	fn terminate_lease(k: u32, ) -> Weight;
+	fn create_sale_offer() -> Weight;
+	fn cancel_sale_offer() -> Weight;
 	fn update_symbol() -> Weight;
 	fn commit_timelocked_weights() -> Weight;
 	fn set_coldkey_auto_stake_hotkey() -> Weight;
@@ -99,6 +101,7 @@ pub trait WeightInfo {
 	fn associate_evm_key() -> Weight;
 	fn trigger_epoch() -> Weight;
 	fn check_coldkey_swap_extension() -> Weight;
+	fn check_subnet_sale_extension() -> Weight;
 	fn check_weights_extension() -> Weight;
 	fn check_rate_limits_extension() -> Weight;
 	fn check_delegate_take_extension() -> Weight;

@@ -3,6 +3,7 @@ mod check_delegate_take;
 mod check_evm_key_association;
 mod check_rate_limits;
 mod check_serving_endpoints;
+mod check_subnet_sale;
 mod check_weights;
 
 use crate::{Call, Config};
@@ -14,6 +15,7 @@ pub use check_delegate_take::*;
 pub use check_evm_key_association::*;
 pub use check_rate_limits::*;
 pub use check_serving_endpoints::*;
+pub use check_subnet_sale::*;
 pub use check_weights::*;
 
 pub(crate) type CallOf<T> = <T as frame_system::Config>::RuntimeCall;

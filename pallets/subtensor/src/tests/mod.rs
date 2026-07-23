@@ -28,6 +28,7 @@ mod neuron_info;
 mod recycle_alpha;
 mod registration;
 mod remove_data_tests;
+mod sale_offer;
 mod serving;
 mod staking;
 mod staking2;

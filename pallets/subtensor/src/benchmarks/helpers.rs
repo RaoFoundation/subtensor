@@ -452,6 +452,24 @@ pub(super) fn signature_for_associate_evm_key<T: Config>(
     ecdsa::Signature::from_raw(signature)
 }
 
+pub(super) fn setup_subnet_sale_offer<T: Config>()
+-> (NetUid, T::AccountId, T::AccountId, T::AccountId, TaoBalance) {
+    let netuid = NetUid::from(1);
+    let seller: T::AccountId = whitelisted_caller();
+    let owner_hotkey: T::AccountId = account("owner_hotkey", 0, 0);
+    let authorized_buyer: T::AccountId = account("authorized_buyer", 0, 0);
+    let price = TaoBalance::from(1_000_000_000_u64);
+
+    Subtensor::<T>::init_new_network(netuid, 1);
+    SubnetOwner::<T>::insert(netuid, seller.clone());
+    assert_ok!(Subtensor::<T>::set_subnet_owner_hotkey(
+        netuid,
+        &owner_hotkey
+    ));
+
+    (netuid, seller, owner_hotkey, authorized_buyer, price)
+}
+
 pub(super) fn setup_worst_case_registered_subnet<T: Config>(
     label: &'static str,
     netuid: NetUid,
