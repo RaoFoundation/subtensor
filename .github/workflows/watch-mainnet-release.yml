@@ -2,9 +2,11 @@ name: Watch Mainnet Release
 
 # The mainnet upgrade is executed by the triumvirate signing the multisig
 # proposal submitted by the release train (release-train.yml). This watcher
-# polls the chain; once an upgrade executes, it cuts the release. Stable Python
-# publication has its own completion marker so a later run can retry a failed
-# or partial PyPI upload even when the GitHub release already exists:
+# polls the finalized chain state; once an upgrade executes, it cuts the
+# release. The immutable release tag, protected mainnet mirror, and finalized
+# runtime hash must all identify the same release-train commit. PyPI itself is
+# the terminal state for stable Python publication, so a later run can retry a
+# failed or partial upload:
 #   1. GitHub release v<spec_version>, with the srtool wasm + digest and
 #      multisig call data from the release train attached as assets
 #   2. Docker images via explicit dispatch of docker.yml and
@@ -14,9 +16,10 @@ name: Watch Mainnet Release
 #   3. Python SDK + bittensor-core wheels to PyPI
 #   4. Publishable Rust crates to crates.io
 #   5. Production website/docs deployment on Vercel
-#   6. The `mainnet` branch is force-updated to the release-train commit,
-#      so it always contains the code running on mainnet (the devnet and
-#      testnet branches are updated by release-train.yml at deploy time)
+#   6. Before finalizing the GitHub release, the `mainnet` branch is
+#      force-updated to the release-train commit, so it always contains the
+#      code running on mainnet (the devnet and testnet branches are updated by
+#      release-train.yml at deploy time)
 
 on:
   schedule:
@@ -44,7 +47,12 @@ jobs:
       release_needed: ${{ steps.compare.outputs.release_needed }}
       python_needed: ${{ steps.compare.outputs.python_needed }}
       spec_version: ${{ steps.compare.outputs.spec_version }}
+      release_tag: ${{ steps.compare.outputs.release_tag }}
       sha: ${{ steps.compare.outputs.sha }}
+      artifact_id: ${{ steps.compare.outputs.artifact_id }}
+      code_hash: ${{ steps.compare.outputs.code_hash }}
+      sdk_version: ${{ steps.compare.outputs.sdk_version }}
+      core_version: ${{ steps.compare.outputs.core_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,15 +66,27 @@ jobs:
           local_spec=$(grep -Eo 'spec_version: *[0-9]+' runtime/src/lib.rs | head -n 1 | grep -Eo '[0-9]+')
           : ${local_spec:?could not parse spec_version from runtime/src/lib.rs}
 
+          finalized_head=$(curl -sf -H "Content-Type: application/json" \
+            -d '{"id":1,"jsonrpc":"2.0","method":"chain_getFinalizedHead","params":[]}' \
+            "$MAINNET_HTTP" | jq -er \
+              '.result | strings | select(test("^0x[0-9a-f]{64}$"))')
+          runtime_request=$(jq -cn --arg block "$finalized_head" \
+            '{id: 1, jsonrpc: "2.0", method: "state_getRuntimeVersion", params: [$block]}')
           chain_spec=$(curl -sf -H "Content-Type: application/json" \
-            -d '{"id":1,"jsonrpc":"2.0","method":"state_getRuntimeVersion","params":[]}' \
-            "$MAINNET_HTTP" | jq -r '.result.specVersion')
-          : ${chain_spec:?could not fetch chain spec_version}
+            -d "$runtime_request" "$MAINNET_HTTP" | jq -er '.result.specVersion')
+          code_hash_request=$(jq -cn --arg block "$finalized_head" \
+            '{id: 1, jsonrpc: "2.0", method: "state_getStorageHash",
+              params: ["0x3a636f6465", $block]}')
+          chain_code_hash=$(curl -sf -H "Content-Type: application/json" \
+            -d "$code_hash_request" "$MAINNET_HTTP" | jq -er \
+              '.result | strings | select(test("^0x[0-9a-f]{64}$"))')
           [[ "$local_spec" =~ ^[0-9]+$ && "$chain_spec" =~ ^[0-9]+$ ]] \
             || { echo "spec_version values must be integers"; exit 1; }
 
           echo "main spec_version:     $local_spec"
           echo "on-chain spec_version: $chain_spec"
+          echo "finalized block:       $finalized_head"
+          echo "runtime code hash:     $chain_code_hash"
 
           if [ "$chain_spec" -gt "$local_spec" ]; then
             echo "Main does not contain the on-chain runtime yet; refusing to publish."
@@ -75,68 +95,120 @@ jobs:
             exit 0
           fi
           echo "spec_version=$chain_spec" >> "$GITHUB_OUTPUT"
+          echo "code_hash=$chain_code_hash" >> "$GITHUB_OUTPUT"
 
-          # Match both this workflow's tags (v424) and the legacy scheme
-          # inherited from upstream (v3.4.9-424). Pre-releases do not count.
-          if gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
-              --json tagName,isPrerelease \
-              --jq '.[] | select(.isPrerelease | not) | .tagName' \
-              | grep -Eq "^v${chain_spec}$|-${chain_spec}$"; then
-            echo "GitHub release for spec_version $chain_spec is complete."
-            release_needed=false
-          else
-            release_needed=true
-          fi
-
-          # v432 and earlier predate this marker. Every later
-          # release retries until PyPI succeeds and this exact marker is stored.
+          # Old releases used several tag formats and predate automated stable
+          # Python publication. They are terminal historical state, not inputs
+          # to the immutable release flow below.
           if [ "$chain_spec" -le 432 ]; then
-            echo "v432 Python publication is handled manually."
-            python_needed=false
-          else
-            marker_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${chain_spec}" \
-              --jq '.assets[] | select(.name == "python-publish-complete.json") | .id' \
-              2>/dev/null | head -n 1 || true)
-            if [ -z "$marker_id" ]; then
-              python_needed=true
-            else
-              gh api -H "Accept: application/octet-stream" \
-                "repos/$GITHUB_REPOSITORY/releases/assets/$marker_id" \
-                > /tmp/python-publish-complete.json
-              tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/v${chain_spec}" --jq '.sha')
-              jq -e --arg sha "$tag_sha" --argjson spec "$chain_spec" \
-                '.schema == 1 and .spec_version == $spec and .commit == $sha' \
-                /tmp/python-publish-complete.json >/dev/null \
-                || { echo "invalid Python publish marker for v${chain_spec}"; exit 1; }
-              echo "Stable Python packages are already published."
-              python_needed=false
-            fi
-          fi
-          echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
-          echo "python_needed=$python_needed" >> "$GITHUB_OUTPUT"
-
-          # A valid marker is the durable terminal state. Resolve the expiring
-          # workflow artifact only while release or Python work is pending.
-          if [ "$release_needed" = false ] && [ "$python_needed" = false ]; then
+            release_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
+              --json tagName,isDraft,isPrerelease \
+              | jq -r --arg exact "v${chain_spec}" --arg suffix "-${chain_spec}" \
+                '.[] |
+                 select(.isDraft == false and .isPrerelease == false) |
+                 select(.tagName == $exact or (.tagName | endswith($suffix))) |
+                 .tagName' \
+              | head -n 1)
+            : ${release_tag:?historical runtime v${chain_spec} has no final GitHub release}
+            echo "Historical release $release_tag is complete; Python was handled manually."
+            echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "python_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Resolve what actually runs on chain, not HEAD: main can advance
-          # while a multisig waits for its final signature. The provenance gate
-          # admits artifacts only from release-train.yml pushes to main.
-          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$chain_spec")
-          : ${artifact_id:?no trustworthy mainnet-upgrade-${chain_spec} artifact found — did the release train run?}
-          rm -rf /tmp/release-artifact /tmp/release-artifact.zip
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > /tmp/release-artifact.zip
-          unzip -o /tmp/release-artifact.zip -d /tmp/release-artifact
-          release_sha=$(jq -r '.commit' /tmp/release-artifact/pending-release.json)
-          : ${release_sha:?pending-release.json missing commit field}
-          expected_spec=$(jq -er '.expected_spec_version | numbers' \
-            /tmp/release-artifact/pending-release.json)
-          [ "$expected_spec" = "$chain_spec" ] \
-            || { echo "artifact expects spec $expected_spec, chain runs $chain_spec"; exit 1; }
-          echo "Release train commit: $release_sha"
+          release_tag="v${chain_spec}"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+          # The release train reserves this exact lightweight tag before
+          # submitting the multisig. Never accept an ambiguously named branch.
+          tag_json=$(gh api \
+            "repos/$GITHUB_REPOSITORY/git/ref/tags/${release_tag}")
+          tag_type=$(jq -er '.object.type' <<<"$tag_json")
+          [ "$tag_type" = commit ] \
+            || { echo "release tag must be a lightweight Git tag, found $tag_type"; exit 1; }
+          release_sha=$(jq -er '.object.sha' <<<"$tag_json")
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "release tag did not resolve to a Git commit"; exit 1; }
+          status=$(gh api \
+            "repos/$GITHUB_REPOSITORY/compare/${release_sha}...main" --jq '.status')
+          case "$status" in
+            ahead|identical) ;;
+            *) echo "tagged commit $release_sha is not an ancestor of main"; exit 1 ;;
+          esac
           echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
+
+          release_needed=true
+          release_json=""
+          if release_json=$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/${release_tag}" 2>/dev/null); then
+            is_draft=$(jq -er '.draft | booleans' <<<"$release_json")
+            is_prerelease=$(jq -er '.prerelease | booleans' <<<"$release_json")
+            if [ "$is_draft" = false ] && [ "$is_prerelease" = false ]; then
+              release_needed=false
+              target_sha=$(jq -er \
+                '.target_commitish | strings | select(test("^[0-9a-f]{40}$"))' \
+                <<<"$release_json")
+              [ "$target_sha" = "$release_sha" ] \
+                || { echo "release target $target_sha does not match tag $release_sha"; exit 1; }
+            fi
+          fi
+
+          # Once final, the independently protected mainnet branch must point
+          # to the tag before any downstream publication is considered.
+          if [ "$release_needed" = false ]; then
+            mainnet_json=$(gh api \
+              "repos/$GITHUB_REPOSITORY/git/ref/heads/mainnet")
+            mainnet_type=$(jq -er '.object.type' <<<"$mainnet_json")
+            [ "$mainnet_type" = commit ] \
+              || { echo "protected mainnet mirror did not resolve to a commit"; exit 1; }
+            mainnet_sha=$(jq -er '.object.sha' <<<"$mainnet_json")
+            [ "$release_sha" = "$mainnet_sha" ] \
+              || { echo "protected mainnet mirror $mainnet_sha does not match release commit $release_sha"; exit 1; }
+          fi
+
+          # Derive the exact stable Python versions from the immutable tag,
+          # never from the moving default branch or mutable release metadata.
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/sdk/python/pyproject.toml?ref=${release_sha}" \
+            > /tmp/release-sdk-pyproject.toml
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/sdk/bittensor-core-py/pyproject.toml?ref=${release_sha}" \
+            > /tmp/release-core-pyproject.toml
+          versions=$(python3 .github/scripts/release-python-versions.py \
+            /tmp/release-sdk-pyproject.toml /tmp/release-core-pyproject.toml)
+          sdk_version=$(jq -er '.sdk' <<<"$versions")
+          core_version=$(jq -er '.core' <<<"$versions")
+          echo "sdk_version=$sdk_version" >> "$GITHUB_OUTPUT"
+          echo "core_version=$core_version" >> "$GITHUB_OUTPUT"
+
+          if [ "$release_needed" = true ]; then
+            # The exact artifact is needed only until its bytes have been
+            # verified and attached to the final release.
+            artifact_id=$(.github/scripts/resolve-release-artifact.sh \
+              "$chain_spec" "$release_sha" "$chain_code_hash")
+            : ${artifact_id:?no artifact matches the immutable tag and finalized runtime}
+            echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+            python_needed=true
+          elif python3 .github/scripts/check-python-release.py \
+              --sdk-version "$sdk_version" \
+              --core-version "$core_version" \
+              --repository "$GITHUB_REPOSITORY"; then
+            echo "Stable Python packages are complete on PyPI."
+            python_needed=false
+          else
+            python_status=$?
+            if [ "$python_status" -eq 1 ]; then
+              echo "Stable Python publication is incomplete and will be retried."
+              python_needed=true
+            else
+              echo "PyPI could not provide authoritative release state."
+              exit "$python_status"
+            fi
+          fi
+
+          echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
+          echo "python_needed=$python_needed" >> "$GITHUB_OUTPUT"
 
   release:
     name: Cut GitHub release
@@ -168,12 +240,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           spec="${{ needs.check.outputs.spec_version }}"
-          artifact_id=$(.github/scripts/resolve-release-artifact.sh "$spec")
-          : ${artifact_id:?no trustworthy mainnet-upgrade-${spec} artifact found — did the release train run?}
+          artifact_id="${{ needs.check.outputs.artifact_id }}"
+          : ${artifact_id:?check job did not resolve a release artifact}
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > artifact.zip
+          python3 .github/scripts/verify-release-artifact.py artifact.zip \
+            --spec "$spec" \
+            --commit "${{ needs.check.outputs.sha }}" \
+            --code-hash "${{ needs.check.outputs.code_hash }}"
           mkdir -p wasm
           unzip -o artifact.zip -d wasm
           ls -la wasm
+
+      # Mirror first. If this protected push fails, the proposal stays a
+      # pre-release and the next scheduled watcher run can retry safely.
+      - name: Point mainnet branch at released commit
+        run: |
+          release_sha="${{ needs.check.outputs.sha }}"
+          git push --force origin "${release_sha}:refs/heads/mainnet"
+          mirrored_sha=$(git ls-remote origin refs/heads/mainnet | awk '{print $1}')
+          [ "$mirrored_sha" = "$release_sha" ] \
+            || { echo "mainnet mirror is $mirrored_sha, expected $release_sha"; exit 1; }
 
       - name: Create or promote release with runtime assets
         env:
@@ -190,43 +276,51 @@ jobs:
           )
           [ -f wasm/upgrade-manifest.json ] && assets+=(wasm/upgrade-manifest.json)
 
-          # The release train published the proposal as a pre-release at this
-          # tag; the upgrade has now executed on chain, so promote it to the
-          # final release. Assets are re-uploaded from the provenance-gated
-          # workflow artifact so the release always carries the trusted bytes.
-          # Fall back to creating the release for trains that predate the
-          # proposal pre-release flow.
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' || true)
-            if [ -n "$tag_sha" ] && [ "$tag_sha" != "$RELEASE_SHA" ]; then
-              echo "tag $tag points at $tag_sha but the released commit is $RELEASE_SHA;"
-              echo "the proposal pre-release does not match the executed upgrade — resolve manually."
-              exit 1
-            fi
-            notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-              -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" --jq '.body' || true)
-            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
-            gh release edit "$tag" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "Runtime ${SPEC_VERSION}" \
-              ${notes:+--notes "$notes"} \
-              --prerelease=false \
-              --latest
+          tag_json=$(gh api \
+            "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")
+          tag_type=$(jq -er '.object.type' <<<"$tag_json")
+          [ "$tag_type" = commit ] \
+            || { echo "release tag $tag must be a lightweight Git tag, found $tag_type"; exit 1; }
+          tag_sha=$(jq -er '.object.sha' <<<"$tag_json")
+          [ "$tag_sha" = "$RELEASE_SHA" ] \
+            || { echo "tag $tag points at $tag_sha, expected $RELEASE_SHA"; exit 1; }
+
+          # The release train published the proposal as a pre-release. Assets
+          # are re-uploaded from the exact artifact verified against finalized
+          # on-chain bytes, then the same release is promoted. A missing
+          # pre-release is recoverable, but an existing final release is not
+          # rewritten by a retry.
+          if release_json=$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null); then
+            is_prerelease=$(jq -er '.prerelease | booleans' <<<"$release_json")
+            [ "$is_prerelease" = true ] \
+              || { echo "release $tag is already final; refusing to rewrite it"; exit 1; }
+            target_sha=$(jq -er \
+              '.target_commitish | strings | select(test("^[0-9a-f]{40}$"))' \
+              <<<"$release_json")
+            [ "$target_sha" = "$RELEASE_SHA" ] \
+              || { echo "release target $target_sha does not match $RELEASE_SHA"; exit 1; }
           else
+            # Create only a pre-release here. If a later asset upload fails,
+            # the next watcher run can safely resume instead of finding an
+            # incomplete final release.
             gh release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$RELEASE_SHA" \
-              --title "Runtime ${SPEC_VERSION}" \
-              --generate-notes \
-              "${assets[@]}"
+              --prerelease \
+              --title "Runtime ${SPEC_VERSION} (finalizing)" \
+              --notes "Runtime finalized on chain; release assets are being attached."
           fi
 
-      # Mirror: the mainnet branch always points at the code now running on
-      # mainnet (the release-train commit, not HEAD of main). Pushed over
-      # SSH with the mirror deploy key configured by the checkout above,
-      # the only actor allowed past the network-branch-mirrors ruleset.
-      - name: Point mainnet branch at released commit
-        run: git push --force origin "${{ needs.check.outputs.sha }}:refs/heads/mainnet"
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" --jq '.body' || true)
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+          gh release edit "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Runtime ${SPEC_VERSION}" \
+            ${notes:+--notes "$notes"} \
+            --prerelease=false \
+            --latest
 
   publish-docker:
     name: Dispatch Docker image publishing
@@ -272,7 +366,7 @@ jobs:
     environment: mainnet
     permissions:
       id-token: write
-      contents: write # attach the durable completion marker to the release
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -310,23 +404,30 @@ jobs:
         working-directory: sdk/python
         run: uv build --out-dir ../../dist
 
-      # Second half of the v432 recovery: refuse to publish anything but the
-      # intended stable artifacts, so a failed stamp can never leak
-      # 11.0.0.dev0 to PyPI.
-      - name: Verify stable artifacts (v432 recovery)
-        if: needs.check.outputs.spec_version == '432' && needs.check.outputs.sha == '8586e65ec279644a6837cf25b12333064c77474e'
+      # Refuse to publish development or release-candidate artifacts from the
+      # stable channel. Also require the complete SDK/core platform set.
+      - name: Verify stable artifacts
+        env:
+          EXPECTED_SDK_VERSION: ${{ needs.check.outputs.sdk_version }}
+          EXPECTED_CORE_VERSION: ${{ needs.check.outputs.core_version }}
         run: |
+          sdk_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/python/pyproject.toml | head -n 1)
+          core_version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
+          : ${sdk_version:?could not parse stable SDK version}
+          : ${core_version:?could not parse stable core version}
+          [[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "SDK version is not stable: $sdk_version"; exit 1; }
+          [[ "$core_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "core version is not stable: $core_version"; exit 1; }
+          [ "$sdk_version" = "$EXPECTED_SDK_VERSION" ] \
+            || { echo "SDK version $sdk_version != expected $EXPECTED_SDK_VERSION"; exit 1; }
+          [ "$core_version" = "$EXPECTED_CORE_VERSION" ] \
+            || { echo "core version $core_version != expected $EXPECTED_CORE_VERSION"; exit 1; }
           ls -la dist
-          test -f dist/bittensor-11.0.0-py3-none-any.whl
-          test -f dist/bittensor-11.0.0.tar.gz
-          compgen -G 'dist/bittensor_core-0.1.0-*.whl' >/dev/null
-          test -f dist/bittensor_core-0.1.0.tar.gz
-          for f in dist/*; do
-            # *0rc* not *rc*: "aarch64" in wheel platform tags contains "rc"
-            case "$f" in
-              *dev*|*0rc*) echo "unexpected pre-release artifact: $f"; exit 1 ;;
-            esac
-          done
+          test -f "dist/bittensor-${sdk_version}-py3-none-any.whl"
+          test -f "dist/bittensor-${sdk_version}.tar.gz"
+          compgen -G "dist/bittensor_core-${core_version}-*.whl" >/dev/null
+          test -f "dist/bittensor_core-${core_version}.tar.gz"
 
       # PEP 740 provenance: sign every dist with this job's OIDC identity.
       # Must happen here, not in build-core-wheels.yml — PyPI only accepts
@@ -345,22 +446,30 @@ jobs:
           uv publish --trusted-publishing always \
             --check-url https://pypi.org/simple/ dist/*
 
-      # This is the only durable state for Python publication. It is written
-      # after uv reports that every distribution was uploaded or already exists.
-      - name: Record successful Python publication
+      # PyPI is the authoritative terminal state. Its JSON and Integrity APIs
+      # can lag an upload briefly, so poll for the complete SDK/core platform
+      # set and the trusted-publisher attestation on every file.
+      - name: Verify complete publication on PyPI
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SHA: ${{ needs.check.outputs.sha }}
-          SPEC_VERSION: ${{ needs.check.outputs.spec_version }}
+          SDK_VERSION: ${{ needs.check.outputs.sdk_version }}
+          CORE_VERSION: ${{ needs.check.outputs.core_version }}
         run: |
-          jq -n \
-            --arg sha "$RELEASE_SHA" \
-            --argjson spec "$SPEC_VERSION" \
-            --arg workflow_run "$GITHUB_RUN_ID" \
-            '{schema: 1, spec_version: $spec, commit: $sha, workflow_run: $workflow_run}' \
-            > python-publish-complete.json
-          gh release upload "v${SPEC_VERSION}" --repo "$GITHUB_REPOSITORY" --clobber \
-            python-publish-complete.json
+          for attempt in $(seq 1 12); do
+            status=0
+            python3 .github/scripts/check-python-release.py \
+              --sdk-version "$SDK_VERSION" \
+              --core-version "$CORE_VERSION" \
+              --repository "$GITHUB_REPOSITORY" || status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then
+              echo "PyPI state not authoritative yet (attempt $attempt/12); retrying."
+              sleep 10
+            fi
+          done
+          echo "PyPI did not expose the complete attested release within two minutes."
+          exit 1
 
   publish-crates:
     name: Publish Rust crates to crates.io
