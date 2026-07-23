@@ -233,16 +233,6 @@ mod errors {
         LeaseHasNoEndBlock,
         /// Lease has not ended.
         LeaseHasNotEnded,
-        /// Active subnet sale offer already exists for this subnet.
-        SaleOfferAlreadyExists,
-        /// No active subnet sale offer exists for this subnet.
-        SaleOfferNotFound,
-        /// The subnet is under an active lease and cannot be listed for sale.
-        SubnetIsLeased,
-        /// The seller coldkey is locked by an active subnet sale offer.
-        ColdkeyLockedDuringSale,
-        /// The subnet owner hotkey is locked by an active subnet sale offer.
-        HotkeyLockedDuringSale,
         /// An overflow occurred.
         Overflow,
         /// Beneficiary does not own hotkey.

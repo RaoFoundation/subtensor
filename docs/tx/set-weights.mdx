@@ -22,7 +22,7 @@ unless you specifically need to force one path.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L128-L143), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L1859-L1877) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L128-L143), [`SubtensorModule.commit_timelocked_mechanism_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L1856-L1874) |
 
 ## Parameters
 
@@ -98,7 +98,7 @@ pub fn set_mechanism_weights(
 
 Delegates to [`get_commit_reveal_weights_enabled`](/code/pallets/subtensor/src/utils/misc.rs#L607), [`do_set_mechanism_weights`](/code/pallets/subtensor/src/subnets/weights.rs#L916).
 
-`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L1861`](/code/pallets/subtensor/src/macros/dispatches.rs#L1859-L1877):
+`SubtensorModule.commit_timelocked_mechanism_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L1858`](/code/pallets/subtensor/src/macros/dispatches.rs#L1856-L1874):
 
 ```rust
 #[pallet::call_index(118)]

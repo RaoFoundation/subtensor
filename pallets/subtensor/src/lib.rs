@@ -117,12 +117,9 @@ pub const ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA: u128 = 1u128 << 0;
 pub mod pallet {
     use crate::migrations;
     use crate::staking::lock::LockState;
-    use crate::subnets::{
-        dissolution::DissolveCleanupStatus,
-        leasing::{LeaseId, SubnetLeaseOf},
-        sale_offer::{SaleOfferId, SubnetSaleOfferOf},
-        subnet::NetworkRegistrationInfo,
-    };
+    use crate::subnets::dissolution::DissolveCleanupStatus;
+    use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
+    use crate::subnets::subnet::NetworkRegistrationInfo;
     use crate::weights::WeightInfo;
     use crate::{
         MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, RateLimitKey,
@@ -141,7 +138,7 @@ pub mod pallet {
     use pallet_drand::types::RoundNumber;
     use runtime_common::prod_or_fast;
     use share_pool::SafeFloat;
-    use sp_core::{ConstU32, ConstU64, H160, H256};
+    use sp_core::{ConstU32, H160, H256};
     use sp_runtime::PerU16;
     use sp_runtime::traits::{Dispatchable, TrailingZeroInput};
     use sp_std::collections::btree_map::BTreeMap;
@@ -2785,30 +2782,7 @@ pub mod pallet {
     pub type AccumulatedLeaseDividends<T: Config> =
         StorageMap<_, Twox64Concat, LeaseId, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
 
-    /// ===========================
-    /// ==== Subnet Sale Offers ====
-    /// ===========================
-    /// --- ITEM ( next_sale_offer_id ) | The next subnet sale offer id.
-    #[pallet::storage]
-    pub type NextSubnetSaleOfferId<T: Config> =
-        StorageValue<_, SaleOfferId, ValueQuery, ConstU64<0>>;
-
-    /// --- MAP ( netuid ) --> subnet sale offer | Active sale offer for a subnet.
-    #[pallet::storage]
-    pub type SubnetSaleOffers<T: Config> =
-        StorageMap<_, Twox64Concat, NetUid, SubnetSaleOfferOf<T>, OptionQuery>;
-
-    /// --- MAP ( coldkey ) --> () | Owner coldkeys frozen by an active subnet sale offer.
-    #[pallet::storage]
-    pub type SubnetSaleFrozenColdkeys<T: Config> =
-        StorageMap<_, Identity, T::AccountId, (), OptionQuery>;
-
-    /// --- MAP ( hotkey ) --> () | Owner hotkeys frozen by an active subnet sale offer.
-    #[pallet::storage]
-    pub type SubnetSaleFrozenHotkeys<T: Config> =
-        StorageMap<_, Identity, T::AccountId, (), OptionQuery>;
-
-    /// --- ITEM ( CommitRevealWeightsVersion )
+    /// ITEM ( CommitRevealWeightsVersion )
     #[pallet::storage]
     pub type CommitRevealWeightsVersion<T> =
         StorageValue<_, u16, ValueQuery, DefaultCommitRevealWeightsVersion<T>>;

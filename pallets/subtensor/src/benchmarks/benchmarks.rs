@@ -1885,55 +1885,6 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn create_sale_offer() {
-        let (netuid, seller, owner_hotkey, authorized_buyer, price) =
-            setup_subnet_sale_offer::<T>();
-
-        #[extrinsic_call]
-        _(
-            RawOrigin::Signed(seller.clone()),
-            netuid,
-            price,
-            Some(authorized_buyer.clone()),
-        );
-
-        let offer = SubnetSaleOffers::<T>::get(netuid).unwrap();
-        assert_eq!(offer.id, 0);
-        assert_eq!(offer.netuid, netuid);
-        assert_eq!(offer.seller_coldkey, seller);
-        assert_eq!(offer.seller_hotkey, owner_hotkey);
-        assert_eq!(offer.authorized_buyer, Some(authorized_buyer));
-        assert_eq!(offer.price, price.into());
-        assert_eq!(offer.created_at, frame_system::Pallet::<T>::block_number());
-        assert!(SubnetSaleFrozenColdkeys::<T>::contains_key(
-            &offer.seller_coldkey
-        ));
-        assert!(SubnetSaleFrozenHotkeys::<T>::contains_key(
-            &offer.seller_hotkey
-        ));
-    }
-
-    #[benchmark]
-    fn cancel_sale_offer() {
-        let (netuid, seller, owner_hotkey, authorized_buyer, price) =
-            setup_subnet_sale_offer::<T>();
-
-        assert_ok!(Subtensor::<T>::create_sale_offer(
-            RawOrigin::Signed(seller.clone()).into(),
-            netuid,
-            price,
-            Some(authorized_buyer),
-        ));
-
-        #[extrinsic_call]
-        _(RawOrigin::Signed(seller.clone()), netuid);
-
-        assert!(!SubnetSaleOffers::<T>::contains_key(netuid));
-        assert!(!SubnetSaleFrozenColdkeys::<T>::contains_key(seller));
-        assert!(!SubnetSaleFrozenHotkeys::<T>::contains_key(owner_hotkey));
-    }
-
-    #[benchmark]
     fn update_symbol() {
         let coldkey: T::AccountId = whitelisted_caller();
         let netuid = NetUid::from(1);
@@ -2397,26 +2348,6 @@ mod pallet_benchmarks {
             assert_eq!(
                 CheckColdkeySwap::<T>::check(&coldkey, &call),
                 Err(Error::<T>::ColdkeySwapDisputed)
-            );
-        }
-    }
-
-    #[benchmark]
-    fn check_subnet_sale_extension() {
-        let who: T::AccountId = account("who", 0, 1);
-        let hotkey: T::AccountId = account("hotkey", 0, 1);
-        let call = runtime_call::<T>(Call::<T>::register_network { hotkey });
-
-        // Freeze `who` as an owner hotkey only. This exercises the worst case: the coldkey
-        // lookup misses (so the check does not return early) and the hotkey lookup hits, so
-        // both storage reads are performed.
-        SubnetSaleFrozenHotkeys::<T>::insert(&who, ());
-
-        #[block]
-        {
-            assert_eq!(
-                CheckSubnetSale::<T>::check(&who, &call),
-                Err(Error::<T>::HotkeyLockedDuringSale)
             );
         }
     }

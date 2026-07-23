@@ -2497,31 +2497,5 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
-
-        /// Create a sale offer for an owned subnet.
-        ///
-        /// While the offer exists, the seller coldkey, subnet, and owner hotkey are locked.
-        /// The seller can optionally restrict the future buyer to a specific coldkey.
-        #[pallet::call_index(146)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::create_sale_offer())]
-        pub fn create_sale_offer(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            price: TaoBalance,
-            authorized_buyer: Option<T::AccountId>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            Self::do_create_sale_offer(who, netuid, price, authorized_buyer)
-        }
-
-        /// Cancel an active subnet sale offer.
-        ///
-        /// The seller that created the offer or root can cancel it.
-        #[pallet::call_index(147)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::cancel_sale_offer())]
-        pub fn cancel_sale_offer(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-            let maybe_who = crate::system::ensure_signed_or_root(origin)?;
-            Self::do_cancel_sale_offer(maybe_who, netuid)
-        }
     }
 }

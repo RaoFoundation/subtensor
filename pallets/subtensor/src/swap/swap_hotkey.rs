@@ -123,14 +123,6 @@ impl<T: Config> Pallet<T> {
             });
         }
 
-        // 5.2 Ensure the old hotkey is not frozen by an active subnet sale offer.
-        // Swapping it would rewrite SubnetOwnerHotkey while the sale freeze maps still
-        // reference the old hotkey, bypassing the freeze and leaving it frozen forever.
-        ensure!(
-            !SubnetSaleFrozenHotkeys::<T>::contains_key(old_hotkey),
-            Error::<T>::HotkeyLockedDuringSale
-        );
-
         // 6. Get the current block number
         let block: u64 = Self::get_current_block_as_u64();
 

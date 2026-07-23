@@ -59,16 +59,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Proxy::LastCallResult` (r:0 w:1)
 	/// Proof: `Proxy::LastCallResult` (`max_values`: None, `max_size`: Some(47), added: 2522, mode: `MaxEncodedLen`)
 	/// The range of component `p` is `[1, 19]`.
 	fn proxy(p: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `672 + p * (37 ±0)`
+		//  Measured:  `637 + p * (37 ±0)`
 		//  Estimated: `4254 + p * (37 ±0)`
 		// Minimum execution time: 27_311_000 picoseconds.
 		Weight::from_parts(28_486_266, 4254)
@@ -88,17 +84,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Proxy::LastCallResult` (r:0 w:1)
 	/// Proof: `Proxy::LastCallResult` (`max_values`: None, `max_size`: Some(47), added: 2522, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 74]`.
 	/// The range of component `p` is `[1, 19]`.
 	fn proxy_announced(a: u32, p: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `929 + a * (68 ±0) + p * (37 ±0)`
+		//  Measured:  `894 + a * (68 ±0) + p * (37 ±0)`
 		//  Estimated: `8615 + a * (68 ±0) + p * (37 ±0)`
 		// Minimum execution time: 53_721_000 picoseconds.
 		Weight::from_parts(54_823_542, 8615)
@@ -283,16 +275,12 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Proxy::LastCallResult` (r:0 w:1)
 	/// Proof: `Proxy::LastCallResult` (`max_values`: None, `max_size`: Some(47), added: 2522, mode: `MaxEncodedLen`)
 	/// The range of component `p` is `[1, 19]`.
 	fn proxy(p: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `672 + p * (37 ±0)`
+		//  Measured:  `637 + p * (37 ±0)`
 		//  Estimated: `4254 + p * (37 ±0)`
 		// Minimum execution time: 27_311_000 picoseconds.
 		Weight::from_parts(28_486_266, 4254)
@@ -312,17 +300,13 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Proxy::LastCallResult` (r:0 w:1)
 	/// Proof: `Proxy::LastCallResult` (`max_values`: None, `max_size`: Some(47), added: 2522, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 74]`.
 	/// The range of component `p` is `[1, 19]`.
 	fn proxy_announced(a: u32, p: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `929 + a * (68 ±0) + p * (37 ±0)`
+		//  Measured:  `894 + a * (68 ±0) + p * (37 ±0)`
 		//  Estimated: `8615 + a * (68 ±0) + p * (37 ±0)`
 		// Minimum execution time: 53_721_000 picoseconds.
 		Weight::from_parts(54_823_542, 8615)

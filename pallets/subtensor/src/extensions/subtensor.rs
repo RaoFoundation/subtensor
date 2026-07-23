@@ -1,6 +1,6 @@
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
-    CheckServingEndpoints, CheckSubnetSale, CheckWeights, Config, Error, guards::applicable_call,
+    CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
@@ -88,7 +88,6 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         };
 
         CheckColdkeySwap::<T>::check(who, call)?;
-        CheckSubnetSale::<T>::check(who, call)?;
 
         if let Some(call) = applicable_call(call, CheckWeights::<T>::applies_to) {
             CheckWeights::<T>::check(who, call)?;
@@ -127,7 +126,6 @@ where
     fn weight(&self, call: &CallOf<T>) -> Weight {
         use DispatchExtension as DE;
         <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
-            .saturating_add(<CheckSubnetSale<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
@@ -159,8 +157,8 @@ mod tests {
     use super::SubtensorTransactionExtension;
     use crate::{
         CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
-        CheckServingEndpoints, CheckSubnetSale, CheckWeights, ColdkeySwapAnnouncements,
-        ColdkeySwapDisputes, SubnetSaleFrozenColdkeys, tests::mock::*,
+        CheckServingEndpoints, CheckWeights, ColdkeySwapAnnouncements, ColdkeySwapDisputes,
+        tests::mock::*,
     };
     use frame_support::{
         assert_ok,
@@ -199,7 +197,6 @@ mod tests {
     fn expected_transaction_extension_weight(call: &RuntimeCall) -> frame_support::weights::Weight {
         use DispatchExtension as DE;
         <CheckColdkeySwap<Test> as DE<RuntimeCall>>::weight(call)
-            .saturating_add(<CheckSubnetSale<Test> as DE<RuntimeCall>>::weight(call))
             .saturating_add(<CheckWeights<Test> as DE<RuntimeCall>>::weight(call))
             .saturating_add(<CheckRateLimits<Test> as DE<RuntimeCall>>::weight(call))
             .saturating_add(<CheckDelegateTake<Test> as DE<RuntimeCall>>::weight(call))
@@ -278,19 +275,6 @@ mod tests {
             assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
             let err = validate_signed(hotkey, &call).unwrap_err();
             assert_eq!(err, CustomTransactionError::RateLimitExceeded.into());
-        });
-    }
-
-    #[test]
-    fn validate_rejects_sale_frozen_coldkey_call() {
-        new_test_ext(1).execute_with(|| {
-            let seller = U256::from(1);
-            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
-
-            SubnetSaleFrozenColdkeys::<Test>::insert(seller, ());
-
-            let err = validate_signed(seller, &call).unwrap_err();
-            assert_eq!(err, CustomTransactionError::BadRequest.into());
         });
     }
 

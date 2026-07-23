@@ -53,10 +53,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[0, 1000]`.
 	fn batch(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -72,10 +68,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn as_derivative() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `518`
@@ -88,10 +80,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[0, 1000]`.
 	fn batch_all(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -114,10 +102,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[0, 1000]`.
 	fn force_batch(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -140,10 +124,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn if_else() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `518`
@@ -167,10 +147,6 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[0, 1000]`.
 	fn batch(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -186,10 +162,6 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn as_derivative() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `518`
@@ -202,10 +174,6 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[0, 1000]`.
 	fn batch_all(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -228,10 +196,6 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[0, 1000]`.
 	fn force_batch(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -254,10 +218,6 @@ impl WeightInfo for () {
 	/// Proof: `SafeMode::EnteredUntil` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::ColdkeySwapAnnouncements` (r:1 w:0)
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenColdkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetSaleFrozenHotkeys` (r:1 w:0)
-	/// Proof: `SubtensorModule::SubnetSaleFrozenHotkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn if_else() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `518`

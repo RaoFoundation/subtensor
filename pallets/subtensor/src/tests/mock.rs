@@ -197,7 +197,6 @@ impl system::Config for Test {
     type Block = Block;
     type DispatchExtension = (
         crate::CheckColdkeySwap<Test>,
-        crate::CheckSubnetSale<Test>,
         crate::CheckWeights<Test>,
         crate::CheckRateLimits<Test>,
         crate::CheckDelegateTake<Test>,
