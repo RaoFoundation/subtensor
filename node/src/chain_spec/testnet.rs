@@ -3,6 +3,8 @@
 
 use super::*;
 
+const TESTNET_PROTOCOL_ID: &str = "bittensor-testnet";
+
 pub fn finney_testnet_config() -> Result<ChainSpec, String> {
     let path: PathBuf = std::path::PathBuf::from("./snapshot.json");
     let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;
@@ -55,7 +57,7 @@ pub fn finney_testnet_config() -> Result<ChainSpec, String> {
             .parse()
             .unwrap(),
     ])
-    .with_protocol_id("bittensor")
+    .with_protocol_id(TESTNET_PROTOCOL_ID)
     .with_id("bittensor")
     .with_chain_type(ChainType::Development)
     .with_genesis_config_patch(testnet_genesis(
@@ -131,4 +133,31 @@ fn testnet_genesis(
             "key": Some(root_key),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_in_specs_use_testnet_protocol_id() {
+        for (name, spec) in [
+            (
+                "plain",
+                include_str!("../../../chainspecs/plain_spec_testfinney.json"),
+            ),
+            (
+                "raw",
+                include_str!("../../../chainspecs/raw_spec_testfinney.json"),
+            ),
+        ] {
+            let spec: serde_json::Value =
+                serde_json::from_str(spec).expect("checked-in chain spec should be valid");
+            assert_eq!(
+                spec.get("protocolId").and_then(serde_json::Value::as_str),
+                Some(TESTNET_PROTOCOL_ID),
+                "{name} testnet chain spec has an unexpected protocol ID"
+            );
+        }
+    }
 }
