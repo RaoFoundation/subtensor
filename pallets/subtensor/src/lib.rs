@@ -2092,7 +2092,7 @@ pub mod pallet {
     pub type MinerBurned<T> =
         StorageMap<_, Identity, NetUid, U96F32, ValueQuery, DefaultMinerBurned<T>>;
 
-    /// MAP ( netuid ) --> blocks_since_last_step
+    /// MAP ( netuid ) --> blocks_since_last_step, capped at the subnet's `tempo + 1`
     #[pallet::storage]
     pub type BlocksSinceLastStep<T> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultBlocksSinceLastStep<T>>;
