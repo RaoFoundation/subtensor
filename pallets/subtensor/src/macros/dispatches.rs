@@ -1946,16 +1946,20 @@ mod dispatches {
         /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
         /// * `BasketHasNoWeights`: The validator's weight vector filters to nothing.
         #[pallet::call_index(147)]
-        #[pallet::weight((Weight::from_parts(300_000_000, 0)
-            .saturating_add(T::DbWeight::get().reads(64_u64))
-            .saturating_add(T::DbWeight::get().writes(32_u64)), DispatchClass::Normal, Pays::Yes))]
+        // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
+        // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
+        // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
+        // from the real slot and holding counts and refunded post-dispatch, mirroring
+        // `claim_root`.
+        #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
         pub fn stake_into_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             amount_staked: TaoBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin)?;
-            Self::do_stake_into_basket(coldkey, hotkey, amount_staked)
+            let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
+            Ok((Some(weight), Pays::Yes).into())
         }
 
         // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are

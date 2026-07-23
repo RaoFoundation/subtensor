@@ -2725,10 +2725,14 @@ pub mod pallet {
 
     /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
     ///
-    /// Signed on purpose: stake-change rebasing (`claimed ± rate * delta`) must be exact in both
-    /// directions. With an unsigned floor, unstaking root before claiming would clip the rebase
-    /// at zero, silently forfeiting the staker's accrued entitlement and permanently stranding
-    /// the matching shares (and their escrow value) in the fund.
+    /// Signed on purpose, for two reasons. First, stake-change rebasing
+    /// (`claimed ± rate * delta`) must be exact in both directions: with an unsigned floor,
+    /// unstaking root before claiming would clip the rebase at zero, silently forfeiting the
+    /// staker's accrued entitlement and permanently stranding the matching shares (and their
+    /// escrow value) in the fund. Second, this map doubles as the grant ledger for direct
+    /// deposits: `stake_into_basket` credits its minted shares by *decrementing* the watermark
+    /// (`owed = rate * root_stake - claimed`), so a persistent negative value is an intentional
+    /// unconditional share grant, not a rebasing artifact.
     #[pallet::storage]
     pub type BasketClaimed<T: Config> = StorageDoubleMap<
         _,
@@ -2740,10 +2744,13 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// --- MAP ( validator_hotkey ) --> lifetime TAO value deposited into the basket.
+    /// --- MAP ( validator_hotkey ) --> lifetime realizable TAO value deposited into the basket.
     ///
-    /// Cumulative sum of every dividend deposit's `value_added` (the TAO actually deployed into
-    /// the fund). Together with [`BasketRedeemedTao`] this makes lifetime fund performance
+    /// Cumulative sum of every deposit's `value_added`: the realizable NAV the deposit actually
+    /// added (net of buy slippage and fees), deliberately less than the raw TAO deployed. Both
+    /// dividend deposits and direct `stake_into_basket` deposits accumulate here, and dividend
+    /// deposits add their full `value_added` even though only the stakers' attribution fraction
+    /// mints shares. Together with [`BasketRedeemedTao`] this makes lifetime fund performance
     /// (`(NAV + redeemed) / deposited`) and deposit-rate metrics computable from two storage
     /// reads, with no event indexing. Follows the fund across hotkey swaps.
     #[pallet::storage]

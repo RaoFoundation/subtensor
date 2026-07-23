@@ -24,19 +24,18 @@ pub fn migrate_clear_root_basket_weights<T: Config>() -> Weight {
 
     log::info!("Running migration '{mig_name_str}'");
 
-    let root = NetUidStorageIndex::ROOT;
-    let before = Weights::<T>::iter_prefix(root).count() as u64;
-
-    let result = Weights::<T>::clear_prefix(root, u32::MAX, None);
+    // Bounded by construction: `Weights[ROOT]` holds at most one entry per root uid, and
+    // the root network is hard-capped at 64 uids (`MaxAllowedUids[ROOT] = 64`, set at
+    // genesis and in `migrate_create_root_network`), so a single-block clear is safe.
+    let result = Weights::<T>::clear_prefix(NetUidStorageIndex::ROOT, u32::MAX, None);
     let removed = result.unique as u64;
 
-    total_weight = total_weight.saturating_add(T::DbWeight::get().reads(before));
-    total_weight = total_weight.saturating_add(T::DbWeight::get().writes(removed));
+    total_weight = total_weight.saturating_add(T::DbWeight::get().reads_writes(removed, removed));
 
     if result.maybe_cursor.is_some() {
         log::error!(
             "Migration '{mig_name_str}' did not finish clearing Weights[ROOT]; \
-             {removed} entries removed of {before} visited"
+             {removed} entries removed"
         );
     } else {
         log::info!(
