@@ -159,6 +159,26 @@ snap = await client.at(block)          # Snapshot: same read surface, one block
 bal = await snap.balances.get("5F...")
 ```
 
+### Low-level Substrate RPC
+
+In v10, `.substrate` exposed the underlying connection and its full transport
+surface. Starting in v11.0.2, the name exists again as a controlled read-only
+view:
+
+```python
+# Blocking
+health = bt.Subtensor("test").substrate.rpc_request("system_health")
+
+# Async
+async with bt.Subtensor("test") as client:
+    health = await client.substrate.rpc_request("system_health")
+```
+
+Only explicitly approved standard read RPCs are accepted. There is no `.raw`
+connection, websocket session, signing helper, subscription API, or direct
+transaction submission compatibility with v10. Use `execute(...)` or
+`submit_call(...)` for mutations.
+
 ## Environment variables and configuration
 
 | v10 SDK / v9 CLI | v11 |

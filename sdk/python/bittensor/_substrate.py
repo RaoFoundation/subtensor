@@ -15,7 +15,16 @@ network at all).
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Protocol, TypeVar
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Optional,
+    Protocol,
+    TypeVar,
+    runtime_checkable,
+)
 
 from ._transport import SubstrateConnection
 from ._transport.contract import (
@@ -27,6 +36,7 @@ from ._transport.contract import (
 from ._transport.errors import StateDiscardedError, SubstrateRequestException
 from .balance import Balance
 from .result import (
+    BittensorError,
     ChainError,
     ConnectionNotReady,
     ExtrinsicResult,
@@ -35,6 +45,78 @@ from .result import (
 from .settings import DEFAULT_ERA_PERIOD, SS58_FORMAT, explorer_extrinsic_url
 
 T = TypeVar("T")
+
+# Public low-level access is deliberately an exact allowlist. Prefix checks
+# would make newly-added or node-specific RPC methods public by accident.
+_READ_ONLY_RPC_METHODS = frozenset(
+    {
+        "account_nextIndex",
+        "author_hasKey",
+        "author_hasSessionKeys",
+        "author_pendingExtrinsics",
+        "beefy_getFinalizedHead",
+        "chain_getBlock",
+        "chain_getBlockHash",
+        "chain_getFinalizedHead",
+        "chain_getHead",
+        "chain_getHeader",
+        "childstate_getKeys",
+        "childstate_getKeysPaged",
+        "childstate_getReadProof",
+        "childstate_getStorage",
+        "childstate_getStorageHash",
+        "childstate_getStorageSize",
+        "grandpa_proveFinality",
+        "grandpa_roundState",
+        "mmr_generateProof",
+        "mmr_root",
+        "payment_queryFeeDetails",
+        "payment_queryInfo",
+        "rpc_methods",
+        "state_call",
+        "state_getKeys",
+        "state_getKeysPaged",
+        "state_getMetadata",
+        "state_getPairs",
+        "state_getReadProof",
+        "state_getRuntimeVersion",
+        "state_getStorage",
+        "state_getStorageAt",
+        "state_getStorageHash",
+        "state_getStorageSize",
+        "state_queryStorage",
+        "state_queryStorageAt",
+        "sync_state_genSyncSpec",
+        "system_accountNextIndex",
+        "system_chain",
+        "system_chainType",
+        "system_dryRun",
+        "system_health",
+        "system_localListenAddresses",
+        "system_localPeerId",
+        "system_name",
+        "system_nodeRoles",
+        "system_peers",
+        "system_properties",
+        "system_syncState",
+        "system_version",
+    }
+)
+
+
+def _require_read_only_rpc_method(method: str) -> None:
+    if not isinstance(method, str) or method not in _READ_ONLY_RPC_METHODS:
+        raise BittensorError(
+            f"RPC method {method!r} is not an approved read-only method. "
+            "Use client.execute(...) or client.submit_call(...) for transactions."
+        )
+
+
+@runtime_checkable
+class _RpcRequester(Protocol):
+    """Optional capability for injected backends that support low-level reads."""
+
+    async def rpc_request(self, method: str, params: Optional[list] = None) -> Any: ...
 
 
 class Substrate(Protocol):
@@ -246,6 +328,30 @@ class Substrate(Protocol):
         ...
 
 
+class ReadOnlySubstrate:
+    """Controlled low-level RPC view exposed as :attr:`Client.substrate`.
+
+    Only explicitly approved read-only JSON-RPC methods are accepted. The
+    underlying chain-access backend and transport are intentionally not
+    exposed.
+    """
+
+    __slots__ = ("__backend",)
+
+    def __init__(self, backend: Substrate):
+        self.__backend = backend
+
+    async def rpc_request(self, method: str, params: Optional[list] = None) -> Any:
+        """Call an approved read-only JSON-RPC method and return its ``result``."""
+        _require_read_only_rpc_method(method)
+        if not isinstance(self.__backend, _RpcRequester):
+            raise BittensorError(
+                "This injected substrate backend does not support the optional "
+                "read-only RPC capability `rpc_request(method, params)`."
+            )
+        return await self.__backend.rpc_request(method, params)
+
+
 class RpcSubstrate:
     def __init__(
         self,
@@ -343,6 +449,11 @@ class RpcSubstrate:
             self._archive_substrate = None
 
     # Reads ------------------------------------------------------------------
+
+    async def rpc_request(self, method: str, params: Optional[list] = None) -> Any:
+        """Call an approved read-only JSON-RPC method through the resilient transport."""
+        _require_read_only_rpc_method(method)
+        return await self._read(lambda raw: raw.rpc_request(method, params))
 
     async def block_hash(self, block: Optional[int] = None) -> str:
         if block is None:

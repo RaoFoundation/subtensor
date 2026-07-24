@@ -74,6 +74,31 @@ info = await client.runtime(bt.runtime_api.NeuronInfoRuntimeApi.get_neurons_lite
 The `bt.storage`, `bt.constants`, `bt.runtime_api`, and `bt.calls` modules
 are generated from chain metadata and cover the entire runtime surface.
 
+## Low-level read-only RPC
+
+For standard node RPCs that are not represented by the generated runtime
+surface, `client.substrate` provides one controlled method:
+
+```python
+# Async
+async with bt.Subtensor("test") as client:
+    health = await client.substrate.rpc_request("system_health")
+
+# Blocking (connects lazily)
+sub = bt.Subtensor("test")
+health = sub.substrate.rpc_request("system_health")
+```
+
+`rpc_request()` returns the JSON-RPC `result` value. It accepts an explicit
+allowlist of standard read-only `chain_*`, `state_*`, account-index, and system
+health methods. Subscriptions, transaction RPCs, and unclassified custom
+methods are rejected before anything is sent to the node.
+
+Unlike v10, `client.substrate` is not the underlying connection. It does not
+expose `.raw`, websocket sessions, caches, signing, or submission helpers.
+Submit mutations through `execute(...)` or `submit_call(...)`; `_substrate` and
+everything under `bittensor._transport` remain private implementation details.
+
 ## Typed results: the metagraph
 
 The richest typed result is the metagraph — a whole subnet as one object.

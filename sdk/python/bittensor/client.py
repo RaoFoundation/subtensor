@@ -25,7 +25,7 @@ from typing import Any, AsyncIterator, Optional, Union
 from . import config
 from . import reads as read_registry
 from ._generated import storage as _st
-from ._substrate import RpcSubstrate, Substrate
+from ._substrate import ReadOnlySubstrate, RpcSubstrate, Substrate
 from ._transport.contract import UnsignedExtrinsic
 from .balance import Balance
 from .executor import Executor
@@ -178,6 +178,7 @@ class Client:
                 archive_endpoints=archive_endpoints,
                 retry_forever=retry_forever,
             )
+        self.substrate = ReadOnlySubstrate(self._substrate)
         self._executor = Executor(self._substrate, policy=policy)
 
         # Typed read namespaces: projections over the read registry

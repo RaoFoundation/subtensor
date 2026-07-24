@@ -39,7 +39,7 @@ import logging as _logging
 from . import evm, http_auth, intents, reads, timelock, wallets
 from ._generated import calls, constants, storage
 from ._generated import runtime_apis as runtime_api
-from ._substrate import RpcSubstrate, Substrate
+from ._substrate import ReadOnlySubstrate, RpcSubstrate, Substrate
 from ._subtensor import Subtensor, close_shared_clients, set_weights
 from ._transport.contract import SigningContext, UnsignedExtrinsic
 from .balance import Balance, UnitMismatchError, alpha, rao, tao
@@ -128,6 +128,7 @@ __all__ = [
     # Client(substrate=...) accepts any Substrate implementation.
     "Substrate",
     "RpcSubstrate",
+    "ReadOnlySubstrate",
     "Snapshot",
     "BlockHeader",
     "BlockInfo",

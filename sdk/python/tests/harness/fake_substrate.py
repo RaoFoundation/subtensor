@@ -140,6 +140,9 @@ class FakeSubstrate:
         self._constants: dict[tuple[str, str], Any] = dict(DEFAULT_CONSTANTS)
         # (api, method) -> value, or callable(params) -> value
         self._runtime: dict[tuple[str, str], Any] = dict(DEFAULT_RUNTIME)
+        # JSON-RPC method -> value, or callable(params) -> value.
+        self._rpc: dict[str, Any] = {}
+        self.rpc_requests: list[tuple[str, Optional[list]]] = []
 
         self.fee = Balance.from_rao(124_414)
         self.weight = {"ref_time": 1_000_000, "proof_size": 3_593}
@@ -172,6 +175,10 @@ class FakeSubstrate:
         """``value`` may be a plain result or a callable of the params list."""
         self._runtime[(api, method)] = value
 
+    def seed_rpc(self, method: str, value: Any) -> None:
+        """``value`` may be a plain result or a callable of the params list."""
+        self._rpc[method] = value
+
     def queue_result(self, result: ExtrinsicResult) -> None:
         self.pending_results.append(result)
 
@@ -197,6 +204,12 @@ class FakeSubstrate:
         self.closed = True
 
     # -- reads -----------------------------------------------------------------
+
+    async def rpc_request(self, method: str, params: Optional[list] = None) -> Any:
+        forwarded_params = None if params is None else list(params)
+        self.rpc_requests.append((method, forwarded_params))
+        value = self._rpc.get(method)
+        return value(forwarded_params) if callable(value) else value
 
     async def block_hash(self, block: Optional[int] = None) -> str:
         return f"0x{(self.block if block is None else block):064x}"

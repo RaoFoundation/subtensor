@@ -19,7 +19,7 @@ import weakref
 from datetime import datetime
 from typing import Any, Callable, Iterator, Optional
 
-from ._substrate import Substrate
+from ._substrate import ReadOnlySubstrate, Substrate
 from .client import BlockHeader, Client
 from .intents import Policy
 from .namespaces import NAMESPACES
@@ -121,6 +121,19 @@ class _SyncNamespace:
         return wrapper
 
 
+class _SyncReadOnlySubstrate:
+    """Typed blocking facade over :class:`ReadOnlySubstrate`."""
+
+    __slots__ = ("_call", "_target")
+
+    def __init__(self, target: ReadOnlySubstrate, call: Callable[[Any], Any]):
+        self._target = target
+        self._call = call
+
+    def rpc_request(self, method: str, params: Optional[list] = None) -> Any:
+        return self._call(self._target.rpc_request(method, params))
+
+
 class SyncSnapshot:
     """Blocking facade over a block-pinned :class:`Snapshot`.
 
@@ -183,6 +196,7 @@ class SyncSnapshot:
 class SyncClient:
     # Explicit so type checkers see the same namespace surface as ``Client``
     # (a loop of setattr alone is invisible to them).
+    substrate: _SyncReadOnlySubstrate
     balances: _SyncNamespace
     chain: _SyncNamespace
     delegation: _SyncNamespace
@@ -224,6 +238,7 @@ class SyncClient:
         # completely cold.
         self._loop_thread: Optional[_Loop] = None
         self._finalizer: Optional[weakref.finalize] = None
+        self.substrate = _SyncReadOnlySubstrate(self._client.substrate, self._call)
         # Keep in sync with namespaces.NAMESPACES / Client (explicit so type
         # checkers see each attribute; a setattr loop is invisible to them).
         self.balances = _SyncNamespace(self._client.balances, self._call)

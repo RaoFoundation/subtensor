@@ -191,6 +191,23 @@ async def main():
 asyncio.run(main())
 ```
 
+For low-level standard node reads, `substrate.rpc_request()` returns the
+JSON-RPC `result`:
+
+```python
+# Blocking (connects lazily)
+health = bt.Subtensor("test").substrate.rpc_request("system_health")
+
+# Async
+async with bt.Subtensor("test") as client:
+    health = await client.substrate.rpc_request("system_health")
+```
+
+This is an allowlisted, read-only view, not the raw v10 Substrate connection.
+Subscriptions, transaction RPCs, and unknown custom methods are rejected
+before network dispatch. It exposes no `.raw`, websocket, signing, or
+submission helpers; use `execute(...)` or `submit_call(...)` for mutations.
+
 ### Writing: intents, plan, execute
 
 A mutation is an **intent** — a serializable dataclass. `plan` previews it
