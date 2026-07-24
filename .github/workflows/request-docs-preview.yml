@@ -17,6 +17,7 @@ on:
       - "docs/**"
       - "website/**"
       - ".github/docs-preview-vercel/**"
+      - ".github/scripts/docs_preview_*.py"
       - ".github/workflows/request-docs-preview.yml"
 
 permissions:
@@ -37,6 +38,7 @@ jobs:
       vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
     runs-on: ubuntu-24.04
     env:
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_DOCS_PREVIEW_PROJECT_ID }}
       VERCEL_PRODUCTION_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
@@ -47,23 +49,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Require a dedicated preview project
+      - name: Validate the dedicated preview configuration
         run: |
-          set -euo pipefail
-          id_pattern='^[A-Za-z0-9_-]+$'
-          if ! [[ "${VERCEL_ORG_ID}" =~ ${id_pattern} ]] ||
-             ! [[ "${VERCEL_PROJECT_ID}" =~ ${id_pattern} ]] ||
-             ! [[ "${VERCEL_PRODUCTION_PROJECT_ID}" =~ ${id_pattern} ]] ||
-             [ "${#VERCEL_ORG_ID}" -gt 128 ] ||
-             [ "${#VERCEL_PROJECT_ID}" -gt 128 ] ||
-             [ "${#VERCEL_PRODUCTION_PROJECT_ID}" -gt 128 ]; then
-            echo "Set valid VERCEL_ORG_ID, VERCEL_DOCS_PROJECT_ID, and VERCEL_DOCS_PREVIEW_PROJECT_ID repository variables." >&2
-            exit 1
-          fi
-          if [ "${VERCEL_PROJECT_ID}" = "${VERCEL_PRODUCTION_PROJECT_ID}" ]; then
-            echo "VERCEL_DOCS_PREVIEW_PROJECT_ID must identify a dedicated, non-production project." >&2
-            exit 1
-          fi
+          python3 .github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            validate-config \
+            --production-project-id "${VERCEL_PRODUCTION_PROJECT_ID}" \
+            --docs-domain "${DOCS_DOMAIN}"
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -85,27 +78,14 @@ jobs:
       - name: Assemble Vercel prebuilt output (no deploy token)
         run: |
           set -euo pipefail
-          mkdir -p .vercel
-          node -e '
-            const fs = require("fs");
-            fs.writeFileSync(".vercel/project.json", JSON.stringify({
-              projectId: process.env.VERCEL_PROJECT_ID,
-              orgId: process.env.VERCEL_ORG_ID,
-              settings: {
-                framework: "nextjs",
-                devCommand: null,
-                installCommand: null,
-                buildCommand: null,
-                outputDirectory: null,
-                rootDirectory: "website/apps/bittensor-website",
-                directoryListing: false,
-                nodeVersion: "24.x",
-              },
-            }, null, 2));
-          '
+          python3 .github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            link-project \
+            --directory "${GITHUB_WORKSPACE}" \
+            --include-build-settings
           .github/docs-preview-vercel/node_modules/.bin/vercel build
           test -d .vercel/output
-          test -d website/node_modules
 
       - name: Seal prebuilt output for trusted validation
         env:
@@ -115,9 +95,10 @@ jobs:
           case "${PR_NUMBER}" in
             ''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;;
           esac
-          tar --create --gzip --file=docs-preview-sealed.tgz \
-            --hard-dereference --dereference \
-            .vercel/output website/node_modules
+          python3 .github/scripts/docs_preview_bundle.py \
+            seal \
+            "${GITHUB_WORKSPACE}" \
+            "${GITHUB_WORKSPACE}/docs-preview-sealed.tgz"
           printf '%s\n' "${PR_NUMBER}" > docs-preview-pr-number.txt
           printf '%s\n' "deploy" > docs-preview-action.txt
 

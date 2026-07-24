@@ -2,8 +2,8 @@ name: Deploy Docs Preview
 
 # Trusted half of docs previews. GitHub loads workflow_run workflows from the
 # default branch. This job checks out only that branch, never PR HEAD, and
-# validates the PR-produced artifact before any deployment credential is
-# introduced. It stays disabled until VERCEL_DOCS_PREVIEW_PROJECT_ID is set.
+# validates the PR-produced artifact before any deployment credential appears.
+# The preview project and *.preview.DOCS_DOMAIN must be provisioned in advance.
 
 on:
   workflow_run:
@@ -15,12 +15,11 @@ permissions:
   contents: read
   pull-requests: write
 
-# Domain, deployment, and cleanup changes are globally serialized. Retain every
-# pending run; each run re-checks PR state and head SHA before changing Vercel.
+# Serialize each PR while allowing unrelated previews in parallel. GitHub may
+# replace an older pending run; every run reconciles the PR's current state.
 concurrency:
-  group: docs-preview-domain-dns
+  group: docs-preview-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
-  queue: max
 
 jobs:
   deploy:
@@ -47,200 +46,35 @@ jobs:
             .github/docs-preview-vercel
             .github/scripts
 
-      - name: Require a dedicated preview project
+      - name: Validate the dedicated preview configuration
         run: |
-          set -euo pipefail
-          id_pattern='^[A-Za-z0-9_-]+$'
-          if ! [[ "${VERCEL_ORG_ID}" =~ ${id_pattern} ]] ||
-             ! [[ "${VERCEL_PREVIEW_PROJECT_ID}" =~ ${id_pattern} ]] ||
-             ! [[ "${VERCEL_PRODUCTION_PROJECT_ID}" =~ ${id_pattern} ]] ||
-             [ "${#VERCEL_ORG_ID}" -gt 128 ] ||
-             [ "${#VERCEL_PREVIEW_PROJECT_ID}" -gt 128 ] ||
-             [ "${#VERCEL_PRODUCTION_PROJECT_ID}" -gt 128 ]; then
-            echo "Set valid VERCEL_ORG_ID, VERCEL_DOCS_PROJECT_ID, and VERCEL_DOCS_PREVIEW_PROJECT_ID repository variables." >&2
-            exit 1
-          fi
-          if [ "${VERCEL_PREVIEW_PROJECT_ID}" = "${VERCEL_PRODUCTION_PROJECT_ID}" ]; then
-            echo "VERCEL_DOCS_PREVIEW_PROJECT_ID must identify a dedicated, non-production project." >&2
-            exit 1
-          fi
-          domain_pattern='^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'
-          if ! [[ "${DOCS_DOMAIN}" =~ ${domain_pattern} ]] ||
-             [[ "${DOCS_DOMAIN}" == *..* ]] ||
-             [ "${#DOCS_DOMAIN}" -gt 253 ]; then
-            echo "DOCS_DOMAIN must be a valid lowercase DNS name." >&2
-            exit 1
-          fi
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            validate-config \
+            --production-project-id "${VERCEL_PRODUCTION_PROJECT_ID}" \
+            --docs-domain "${DOCS_DOMAIN}"
 
-      - name: Resolve and validate the producing artifact
+      - name: Resolve, download, and authorize the producing artifact
         id: meta
         env:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
           WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
-          REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
-          case "${WORKFLOW_HEAD_SHA}" in
-            *[!0-9a-f]*|'') echo "invalid workflow head SHA" >&2; exit 1 ;;
-          esac
-          case "${WORKFLOW_RUN_ID}" in
-            *[!0-9]*|'') echo "invalid workflow run ID" >&2; exit 1 ;;
-          esac
-
-          pr=$(node -e '
-            const pulls = JSON.parse(process.env.WORKFLOW_PULL_REQUESTS || "[]");
-            const numbers = [...new Set(
-              pulls.map((pull) => pull && pull.number).filter(Number.isSafeInteger)
-            )];
-            if (numbers.length > 1) {
-              process.stderr.write("workflow_run is associated with multiple PRs\n");
-              process.exit(1);
-            }
-            if (numbers.length === 1) process.stdout.write(String(numbers[0]));
-          ')
-          if [ -z "${pr}" ]; then
-            associated=$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${REPO}/commits/${WORKFLOW_HEAD_SHA}/pulls")
-            count=$(jq \
-              --arg sha "${WORKFLOW_HEAD_SHA}" \
-              --arg repo "${REPO}" \
-              '[.[] | select(.head.sha == $sha and .head.repo.full_name == $repo)] | length' \
-              <<<"${associated}")
-            if [ "${count}" != "1" ]; then
-              echo "expected exactly one same-repository PR for ${WORKFLOW_HEAD_SHA}, found ${count}" >&2
-              exit 1
-            fi
-            pr=$(jq -r \
-              --arg sha "${WORKFLOW_HEAD_SHA}" \
-              --arg repo "${REPO}" \
-              '.[] | select(.head.sha == $sha and .head.repo.full_name == $repo) | .number' \
-              <<<"${associated}")
-          fi
-          case "${pr}" in
-            *[!0-9]*|'') echo "invalid PR number" >&2; exit 1 ;;
-          esac
-
-          artifact_name="docs-preview-${pr}"
-          artifact_response=$(gh api \
-            "repos/${REPO}/actions/runs/${WORKFLOW_RUN_ID}/artifacts?name=${artifact_name}&per_page=100")
-          artifact_count=$(jq -r '.total_count' <<<"${artifact_response}")
-          if [ "${artifact_count}" != "1" ]; then
-            echo "expected one ${artifact_name} artifact, found ${artifact_count}" >&2
-            exit 1
-          fi
-          artifact_size=$(jq -r '.artifacts[0].size_in_bytes' <<<"${artifact_response}")
-          artifact_id=$(jq -r '.artifacts[0].id' <<<"${artifact_response}")
-          artifact_expired=$(jq -r '.artifacts[0].expired' <<<"${artifact_response}")
-          case "${artifact_size}" in
-            *[!0-9]*|'') echo "invalid artifact size" >&2; exit 1 ;;
-          esac
-          case "${artifact_id}" in
-            *[!0-9]*|'') echo "invalid artifact ID" >&2; exit 1 ;;
-          esac
-          if [ "${artifact_expired}" != "false" ] || [ "${artifact_size}" -gt 2200000000 ]; then
-            echo "artifact is expired or exceeds the 2.2 GB download limit" >&2
-            exit 1
-          fi
-
-          artifact_zip="${RUNNER_TEMP}/docs-preview-artifact.zip"
-          curl --fail --location --silent --show-error \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${REPO}/actions/artifacts/${artifact_id}/zip" \
-            --output "${artifact_zip}"
-          python3 trusted-source/.github/scripts/docs_preview_artifact.py \
-            "${artifact_zip}" \
-            "${GITHUB_WORKSPACE}/artifact"
-          if [ "$(wc -c < artifact/docs-preview-action.txt)" -gt 16 ] ||
-             [ "$(wc -c < artifact/docs-preview-pr-number.txt)" -gt 32 ]; then
-            echo "artifact control file is too large" >&2
-            exit 1
-          fi
-
-          mapfile -t action_lines < artifact/docs-preview-action.txt
-          mapfile -t pr_lines < artifact/docs-preview-pr-number.txt
-          if [ "${#action_lines[@]}" -ne 1 ] || [ "${#pr_lines[@]}" -ne 1 ]; then
-            echo "artifact control files must each contain exactly one line" >&2
-            exit 1
-          fi
-          action="${action_lines[0]%$'\r'}"
-          artifact_pr="${pr_lines[0]%$'\r'}"
-          if [ "${artifact_pr}" != "${pr}" ]; then
-            echo "artifact PR ${artifact_pr} does not match workflow PR ${pr}" >&2
-            exit 1
-          fi
-
-          mapfile -t files < <(find artifact -mindepth 1 -type f -printf '%P\n' | LC_ALL=C sort)
-          case "${action}" in
-            deploy)
-              expected=(
-                "docs-preview-action.txt"
-                "docs-preview-pr-number.txt"
-                "docs-preview-sealed.tgz"
-              )
-              ;;
-            cleanup)
-              expected=("docs-preview-action.txt" "docs-preview-pr-number.txt")
-              ;;
-            *)
-              echo "invalid docs-preview action: ${action}" >&2
-              exit 1
-              ;;
-          esac
-          if [ "${files[*]}" != "${expected[*]}" ]; then
-            echo "artifact contains an unexpected file set" >&2
-            printf 'actual: %s\n' "${files[*]}" >&2
-            exit 1
-          fi
-
-          echo "pr=${pr}" >> "${GITHUB_OUTPUT}"
-          echo "action=${action}" >> "${GITHUB_OUTPUT}"
-          echo "alias=pr-${pr}.preview.${DOCS_DOMAIN}" >> "${GITHUB_OUTPUT}"
-          echo "url=https://pr-${pr}.preview.${DOCS_DOMAIN}" >> "${GITHUB_OUTPUT}"
-
-      - name: Reconcile artifact intent with current PR state
-        id: authorize
-        env:
-          ACTION: ${{ steps.meta.outputs.action }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.meta.outputs.pr }}
-          REPO: ${{ github.repository }}
-          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          pull=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
-          state=$(jq -r '.state' <<<"${pull}")
-          current_sha=$(jq -r '.head.sha' <<<"${pull}")
-          current_repo=$(jq -r '.head.repo.full_name // ""' <<<"${pull}")
-
-          mode=noop
-          case "${ACTION}:${state}" in
-            deploy:open)
-              if [ "${current_sha}" = "${WORKFLOW_HEAD_SHA}" ] &&
-                 [ "${current_repo}" = "${REPO}" ]; then
-                mode=deploy
-              fi
-              ;;
-            deploy:closed|cleanup:closed)
-              mode=cleanup
-              ;;
-            cleanup:open)
-              mode=noop
-              ;;
-            *)
-              echo "unexpected PR state ${state}" >&2
-              exit 1
-              ;;
-          esac
-          echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved artifact action ${ACTION} and PR state ${state} to ${mode}." >> "${GITHUB_STEP_SUMMARY}"
+          python3 trusted-source/.github/scripts/docs_preview_github.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            prepare \
+            --workflow-pulls-json "${WORKFLOW_PULL_REQUESTS}" \
+            --workflow-head-sha "${WORKFLOW_HEAD_SHA}" \
+            --workflow-run-id "${WORKFLOW_RUN_ID}" \
+            --docs-domain "${DOCS_DOMAIN}" \
+            --artifact-zip "${RUNNER_TEMP}/docs-preview-artifact.zip" \
+            --artifact-directory "${GITHUB_WORKSPACE}/artifact"
 
       - name: Set up Node.js
-        if: steps.authorize.outputs.mode == 'deploy'
+        if: steps.meta.outputs.mode == 'deploy'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
@@ -248,7 +82,7 @@ jobs:
           cache-dependency-path: trusted-source/.github/docs-preview-vercel/package-lock.json
 
       - name: Install locked Vercel CLI (no secrets)
-        if: steps.authorize.outputs.mode == 'deploy'
+        if: steps.meta.outputs.mode == 'deploy'
         id: vercel-cli
         run: |
           set -euo pipefail
@@ -259,53 +93,54 @@ jobs:
           "${cli}" --version
           echo "bin=${cli}" >> "${GITHUB_OUTPUT}"
 
-      - name: Stream-validate and extract untrusted bundle (no secrets)
-        if: steps.authorize.outputs.mode == 'deploy'
+      - name: Validate and extract the self-contained bundle (no secrets)
+        if: steps.meta.outputs.mode == 'deploy'
         id: extract
         run: |
           set -euo pipefail
           deploy_root="${RUNNER_TEMP}/docs-preview-deploy"
           test ! -e "${deploy_root}"
           python3 trusted-source/.github/scripts/docs_preview_bundle.py \
+            extract \
             "${GITHUB_WORKSPACE}/artifact/docs-preview-sealed.tgz" \
             "${deploy_root}"
           echo "root=${deploy_root}" >> "${GITHUB_OUTPUT}"
 
-      - name: Reject Preview environment variables
-        if: steps.authorize.outputs.mode == 'deploy'
+      - name: Audit preview project and pre-provisioned domain
+        if: steps.meta.outputs.mode == 'deploy'
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -euo pipefail
           python3 trusted-source/.github/scripts/docs_preview_vercel.py \
             --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
             --team-id "${VERCEL_ORG_ID}" \
-            audit-environment
+            audit-project \
+            --preview-domain "*.preview.${DOCS_DOMAIN}"
 
       - name: Re-check PR head immediately before deployment
-        if: steps.authorize.outputs.mode == 'deploy'
+        if: steps.meta.outputs.mode == 'deploy'
         id: recheck
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.meta.outputs.pr }}
-          REPO: ${{ github.repository }}
           WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          set -euo pipefail
-          pull=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
-          state=$(jq -r '.state' <<<"${pull}")
-          current_sha=$(jq -r '.head.sha' <<<"${pull}")
-          current_repo=$(jq -r '.head.repo.full_name // ""' <<<"${pull}")
-          authorized=false
-          if [ "${state}" = "open" ] &&
-             [ "${current_sha}" = "${WORKFLOW_HEAD_SHA}" ] &&
-             [ "${current_repo}" = "${REPO}" ]; then
-            authorized=true
-          fi
-          echo "authorized=${authorized}" >> "${GITHUB_OUTPUT}"
-          if [ "${authorized}" != "true" ]; then
-            echo "Deployment became stale while queued; a newer run will reconcile the preview." >> "${GITHUB_STEP_SUMMARY}"
-          fi
+          python3 trusted-source/.github/scripts/docs_preview_github.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            recheck \
+            --pr-number "${PR_NUMBER}" \
+            --workflow-head-sha "${WORKFLOW_HEAD_SHA}"
+
+      - name: Link validated output to the preview project
+        if: steps.recheck.outputs.authorized == 'true'
+        env:
+          DEPLOY_ROOT: ${{ steps.extract.outputs.root }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            link-project \
+            --directory "${DEPLOY_ROOT}"
 
       - name: Deploy validated prebuilt output
         if: steps.recheck.outputs.authorized == 'true'
@@ -320,21 +155,14 @@ jobs:
           set -euo pipefail
           test -n "${VERCEL_TOKEN}"
           test -x "${VERCEL_BIN}"
-          cd "${DEPLOY_ROOT}"
-          mkdir -p .vercel website/apps/bittensor-website
-          node -e '
-            const fs = require("fs");
-            fs.writeFileSync(".vercel/project.json", JSON.stringify({
-              projectId: process.env.VERCEL_PREVIEW_PROJECT_ID,
-              orgId: process.env.VERCEL_ORG_ID,
-            }));
-          '
-
           token="${VERCEL_TOKEN}"
           unset VERCEL_TOKEN
+          cli_home="${RUNNER_TEMP}/vercel-cli-home"
+          mkdir -m 700 "${cli_home}"
+          cd "${DEPLOY_ROOT}"
           url=$(env -i \
             CI=true \
-            HOME="${HOME}" \
+            HOME="${cli_home}" \
             PATH="${PATH}" \
             TMPDIR="${RUNNER_TEMP}" \
             "${VERCEL_BIN}" deploy \
@@ -344,104 +172,17 @@ jobs:
               --token "${token}" \
               --meta "docsPreviewPr=${PR_NUMBER}" \
               --meta "docsPreviewSha=${WORKFLOW_HEAD_SHA}")
-          if ! [[ "${url}" =~ ^https://[A-Za-z0-9.-]+$ ]]; then
-            echo "Vercel CLI returned an invalid deployment URL" >&2
-            exit 1
-          fi
+          VERCEL_TOKEN="${token}" \
+            python3 "${GITHUB_WORKSPACE}/trusted-source/.github/scripts/docs_preview_vercel.py" \
+              --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+              --team-id "${VERCEL_ORG_ID}" \
+              deployment-id \
+              --deployment-url "${url}"
 
-          details=$(curl -fsS \
-            -H "Authorization: Bearer ${token}" \
-            "https://api.vercel.com/v13/deployments/${url#https://}?teamId=${VERCEL_ORG_ID}")
-          deployment_id=$(node -e '
-            const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
-            if (typeof data.id !== "string" || !/^dpl_[A-Za-z0-9]+$/.test(data.id)) {
-              process.exit(1);
-            }
-            process.stdout.write(data.id);
-          ' <<<"${details}")
-          echo "deployment_id=${deployment_id}" >> "${GITHUB_OUTPUT}"
-          echo "deployment_url=${url}" >> "${GITHUB_OUTPUT}"
-          echo "Created deployment ${deployment_id}." >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Register and verify domain
-        if: steps.recheck.outputs.authorized == 'true'
-        env:
-          ALIAS: ${{ steps.meta.outputs.alias }}
-          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
-          GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          response=$(curl -sS -X POST \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"${ALIAS}\"}" \
-            "https://api.vercel.com/v10/projects/${VERCEL_PREVIEW_PROJECT_ID}/domains?teamId=${VERCEL_ORG_ID}" \
-            || true)
-          if ! node -e '
-            const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
-            if (typeof data.name !== "string") process.exit(1);
-          ' <<<"${response}"; then
-            response=$(curl -fsS \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "https://api.vercel.com/v9/projects/${VERCEL_PREVIEW_PROJECT_ID}/domains/${ALIAS}?teamId=${VERCEL_ORG_ID}")
-          fi
-
-          verified=$(node -e '
-            const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
-            process.stdout.write(data.verified === true ? "yes" : "no");
-          ' <<<"${response}")
-          if [ "${verified}" != "yes" ]; then
-            challenge=$(node -e '
-              const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
-              const record = (data.verification || []).find((item) => item.type === "TXT");
-              if (!record || typeof record.value !== "string") process.exit(1);
-              process.stdout.write(record.value);
-            ' <<<"${response}")
-
-            existing=$(curl -fsS \
-              -H "Authorization: sso-key ${GODADDY_API_KEY}:${GODADDY_API_SECRET}" \
-              "https://api.godaddy.com/v1/domains/${DOCS_DOMAIN}/records/TXT/_vercel")
-            payload=$(EXISTING_JSON="${existing}" CHALLENGE="${challenge}" node -e '
-              const records = JSON.parse(process.env.EXISTING_JSON);
-              const values = new Set(records.map((record) => record.data));
-              values.add(process.env.CHALLENGE);
-              process.stdout.write(JSON.stringify(
-                [...values].sort().map((data) => ({data, ttl: 600}))
-              ));
-            ')
-            curl -fsS -X PUT \
-              -H "Authorization: sso-key ${GODADDY_API_KEY}:${GODADDY_API_SECRET}" \
-              -H "Content-Type: application/json" \
-              -d "${payload}" \
-              "https://api.godaddy.com/v1/domains/${DOCS_DOMAIN}/records/TXT/_vercel" \
-              > /dev/null
-
-            verified=no
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
-              verification=$(curl -sS -X POST \
-                -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-                "https://api.vercel.com/v9/projects/${VERCEL_PREVIEW_PROJECT_ID}/domains/${ALIAS}/verify?teamId=${VERCEL_ORG_ID}" \
-                || true)
-              if node -e '
-                const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
-                if (data.verified !== true) process.exit(1);
-              ' <<<"${verification}"; then
-                verified=yes
-                break
-              fi
-              sleep 15
-            done
-            if [ "${verified}" != "yes" ]; then
-              echo "timed out verifying ${ALIAS}" >&2
-              exit 1
-            fi
-          fi
-
-      # Keep the alias switch in its own step. Once this step starts, its
-      # remote result can be ambiguous after a network error, so rollback must
-      # preserve the new deployment instead of risking a broken stable alias.
-      - name: Switch stable alias
+      # Once alias switching starts, its remote result can be ambiguous after a
+      # network error. Preserve the new deployment rather than risk breaking
+      # the stable alias by rolling it back.
+      - name: Switch stable preview alias
         id: alias
         if: steps.recheck.outputs.authorized == 'true'
         env:
@@ -449,14 +190,12 @@ jobs:
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -euo pipefail
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"alias\":\"${ALIAS}\"}" \
-            "https://api.vercel.com/v2/deployments/${DEPLOYMENT_ID}/aliases?teamId=${VERCEL_ORG_ID}" \
-            > /dev/null
-          echo "Aliased to https://${ALIAS}." >> "${GITHUB_STEP_SUMMARY}"
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            set-alias \
+            --deployment-id "${DEPLOYMENT_ID}" \
+            --alias "${ALIAS}"
 
       - name: Delete superseded deployments for this PR
         if: always() && steps.alias.outcome == 'success'
@@ -465,7 +204,6 @@ jobs:
           PR_NUMBER: ${{ steps.meta.outputs.pr }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -euo pipefail
           python3 trusted-source/.github/scripts/docs_preview_vercel.py \
             --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
             --team-id "${VERCEL_ORG_ID}" \
@@ -481,61 +219,38 @@ jobs:
           PREVIEW_URL: ${{ steps.meta.outputs.url }}
           PR_NUMBER: ${{ steps.meta.outputs.pr }}
         run: |
-          set -euo pipefail
-          marker="<!-- docs-preview-url -->"
-          body=$(printf '%s\n' \
-            "${marker}" \
-            "<!-- docs-preview-deployment:${DEPLOYMENT_ID} -->" \
-            "### Docs preview" \
-            "" \
-            "${PREVIEW_URL}/docs" \
-            "" \
-            "Stable for this PR; it updates after each docs or website change.")
-          existing=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" \
-            --jq '[.[] | select(.body | contains("<!-- docs-preview-url -->"))] | .[0].id // empty')
-          if [ -n "${existing}" ]; then
-            gh api --method PATCH \
-              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
-              -f body="${body}" > /dev/null
-          else
-            gh api --method POST \
-              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-              -f body="${body}" > /dev/null
-          fi
+          python3 trusted-source/.github/scripts/docs_preview_github.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            comment \
+            --pr-number "${PR_NUMBER}" \
+            --deployment-id "${DEPLOYMENT_ID}" \
+            --preview-url "${PREVIEW_URL}"
 
-      - name: Remove closed PR domain
-        if: steps.authorize.outputs.mode == 'cleanup'
+      - name: Remove closed PR alias
+        if: steps.meta.outputs.mode == 'cleanup'
         env:
           ALIAS: ${{ steps.meta.outputs.alias }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -euo pipefail
-          code=$(curl -sS -o "${RUNNER_TEMP}/delete-domain.json" -w "%{http_code}" \
-            -X DELETE \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "https://api.vercel.com/v9/projects/${VERCEL_PREVIEW_PROJECT_ID}/domains/${ALIAS}?teamId=${VERCEL_ORG_ID}" \
-            || true)
-          case "${code}" in
-            200|204|404) ;;
-            *) echo "failed to remove ${ALIAS} (HTTP ${code})" >&2; exit 1 ;;
-          esac
-          echo "Removed ${ALIAS} from the preview project." >> "${GITHUB_STEP_SUMMARY}"
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            remove-alias \
+            --alias "${ALIAS}"
 
       - name: Delete closed PR deployments
-        if: always() && steps.authorize.outputs.mode == 'cleanup'
+        if: always() && steps.meta.outputs.mode == 'cleanup'
         env:
           PR_NUMBER: ${{ steps.meta.outputs.pr }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -euo pipefail
           python3 trusted-source/.github/scripts/docs_preview_vercel.py \
             --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
             --team-id "${VERCEL_ORG_ID}" \
             delete-pr-deployments \
             --pr-number "${PR_NUMBER}"
 
-      - name: Roll back a failed new deployment
+      - name: Roll back an unpromoted failed deployment
         if: >-
           failure() &&
           steps.deploy.outputs.deployment_id != '' &&
@@ -544,13 +259,13 @@ jobs:
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -u
-          curl -sS -X DELETE \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "https://api.vercel.com/v13/deployments/${DEPLOYMENT_ID}?teamId=${VERCEL_ORG_ID}" \
-            > /dev/null || true
-          echo "Rolled back failed deployment ${DEPLOYMENT_ID}." >> "${GITHUB_STEP_SUMMARY}"
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            delete-deployment \
+            --deployment-id "${DEPLOYMENT_ID}" \
+            || true
 
       - name: Report a stale or superseded run
-        if: steps.authorize.outputs.mode == 'noop'
+        if: steps.meta.outputs.mode == 'noop'
         run: echo "No external state was changed." >> "${GITHUB_STEP_SUMMARY}"

@@ -40,6 +40,12 @@ EOCD_STRUCT = struct.Struct("<4s4H2LH")
 COPY_CHUNK_BYTES = 1024 * 1024
 
 
+@dataclass(frozen=True)
+class ArtifactIntent:
+    action: str
+    pr_number: str
+
+
 def _write_all(fd: int, data: bytes) -> None:
     view = memoryview(data)
     while view:
@@ -186,6 +192,54 @@ def extract_artifact(
         if isinstance(error, ArtifactError):
             raise
         raise ArtifactError(f"failed to extract artifact ZIP: {error}") from error
+
+
+def read_intent(directory: Path, expected_pr_number: str) -> ArtifactIntent:
+    """Read the already-extracted control files as a strict two-value contract."""
+
+    expected_files = {
+        "deploy": ALLOWED_FILES,
+        "cleanup": {
+            "docs-preview-action.txt",
+            "docs-preview-pr-number.txt",
+        },
+    }
+    actual_files = {
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+
+    def one_line(name: str, maximum: int) -> str:
+        path = directory / name
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            raise ArtifactError(f"cannot read artifact control file {name}") from error
+        if not raw or len(raw) > maximum or b"\0" in raw:
+            raise ArtifactError(f"invalid artifact control file {name}")
+        lines = raw.splitlines()
+        if len(lines) != 1:
+            raise ArtifactError(f"artifact control file {name} must contain one line")
+        try:
+            value = lines[0].decode("ascii")
+        except UnicodeDecodeError as error:
+            raise ArtifactError(f"artifact control file {name} is not ASCII") from error
+        if not value:
+            raise ArtifactError(f"artifact control file {name} is empty")
+        return value
+
+    action = one_line("docs-preview-action.txt", 16)
+    pr_number = one_line("docs-preview-pr-number.txt", 32)
+    if action not in expected_files:
+        raise ArtifactError(f"invalid docs-preview action: {action}")
+    if not pr_number.isdigit() or pr_number != expected_pr_number:
+        raise ArtifactError(
+            f"artifact PR {pr_number} does not match workflow PR {expected_pr_number}"
+        )
+    if actual_files != expected_files[action]:
+        raise ArtifactError("artifact contains an unexpected file set")
+    return ArtifactIntent(action=action, pr_number=pr_number)
 
 
 def _parse_args(arguments: Optional[Iterable[str]] = None) -> argparse.Namespace:

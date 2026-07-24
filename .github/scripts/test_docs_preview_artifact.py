@@ -6,7 +6,13 @@ import warnings
 import zipfile
 from pathlib import Path
 
-from docs_preview_artifact import ArtifactError, Limits, extract_artifact
+from docs_preview_artifact import (
+    ArtifactError,
+    ArtifactIntent,
+    Limits,
+    extract_artifact,
+    read_intent,
+)
 
 
 class DocsPreviewArtifactTests(unittest.TestCase):
@@ -57,6 +63,13 @@ class DocsPreviewArtifactTests(unittest.TestCase):
                 self.assertEqual(
                     (self.destination / "docs-preview-action.txt").read_bytes(),
                     entries[0][1],
+                )
+                self.assertEqual(
+                    read_intent(self.destination, "42"),
+                    ArtifactIntent(
+                        action=entries[0][1].decode().strip(),
+                        pr_number="42",
+                    ),
                 )
 
     def test_rejects_paths_duplicates_and_extra_entries(self):
@@ -117,6 +130,30 @@ class DocsPreviewArtifactTests(unittest.TestCase):
                 with self.assertRaises(ArtifactError):
                     extract_artifact(self.archive, destination, limits=limits)
                 self.assertFalse(destination.exists())
+
+    def test_intent_rejects_mismatch_multiline_and_action_shape(self):
+        cases = [
+            ("deploy\n", "41\n", "42"),
+            ("deploy\ncleanup\n", "42\n", "42"),
+            ("unknown\n", "42\n", "42"),
+            ("deploy\n", "not-a-number\n", "42"),
+        ]
+        for index, (action, pr_number, expected_pr) in enumerate(cases):
+            with self.subTest(index=index):
+                directory = self.root / f"intent-{index}"
+                directory.mkdir()
+                (directory / "docs-preview-action.txt").write_text(
+                    action,
+                    encoding="ascii",
+                )
+                (directory / "docs-preview-pr-number.txt").write_text(
+                    pr_number,
+                    encoding="ascii",
+                )
+                if action.startswith("deploy"):
+                    (directory / "docs-preview-sealed.tgz").write_bytes(b"bundle")
+                with self.assertRaises(ArtifactError):
+                    read_intent(directory, expected_pr)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -36,10 +37,10 @@ class Limits:
     max_metadata_member_bytes: int = 1024 * 1024
     max_metadata_total_bytes: int = 32 * 1024 * 1024
     max_json_bytes: int = 5 * 1024 * 1024
-    max_trace_references: int = 400_000
+    max_file_path_references: int = 400_000
 
 
-ALLOWED_ROOTS = (".vercel/output", "website/node_modules")
+ALLOWED_ROOTS = (".vercel/output",)
 COPY_CHUNK_BYTES = 1024 * 1024
 TAR_BLOCK_BYTES = 512
 
@@ -75,6 +76,19 @@ def _normalise_member_name(raw_name: str, max_path_bytes: int) -> str:
     if not any(name == root or name.startswith(root + "/") for root in ALLOWED_ROOTS):
         raise BundleError(f"unexpected archive path: {raw_name!r}")
     return name
+
+
+def _normalise_relative_path(raw_name: object, label: str, max_path_bytes: int) -> str:
+    if not isinstance(raw_name, str) or not raw_name:
+        raise BundleError(f"{label} must be a non-empty string")
+    if "\x00" in raw_name or "\\" in raw_name or raw_name.startswith("/"):
+        raise BundleError(f"unsafe {label}: {raw_name!r}")
+    if len(raw_name.encode("utf-8", errors="surrogateescape")) > max_path_bytes:
+        raise BundleError(f"{label} is too long: {raw_name!r}")
+    parts = raw_name.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise BundleError(f"unsafe {label}: {raw_name!r}")
+    return "/".join(parts)
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -153,7 +167,10 @@ def _parse_pax(payload: bytes, limits: Limits) -> None:
                 raise BundleError("invalid PAX path encoding") from error
             _normalise_member_name(path, limits.max_path_bytes)
         elif key in {"mtime", "atime", "ctime"}:
-            if len(value) > 64 or re.fullmatch(rb"-?[0-9]+(?:\.[0-9]+)?", value) is None:
+            if (
+                len(value) > 64
+                or re.fullmatch(rb"-?[0-9]+(?:\.[0-9]+)?", value) is None
+            ):
                 raise BundleError(f"invalid PAX timestamp: {key}")
         else:
             raise BundleError(f"unsupported PAX key: {key}")
@@ -224,7 +241,9 @@ def _preflight_tar(archive: Path, limits: Limits) -> None:
             else:
                 if type_flag in (b"\0", b"0"):
                     if size > limits.max_file_bytes:
-                        raise BundleError(f"tar member exceeds {limits.max_file_bytes} bytes")
+                        raise BundleError(
+                            f"tar member exceeds {limits.max_file_bytes} bytes"
+                        )
                     content_bytes += size
                     if content_bytes > limits.max_total_bytes:
                         raise BundleError(
@@ -266,62 +285,153 @@ def _preflight_tar(archive: Path, limits: Limits) -> None:
                 raise BundleError("tar archive has excessive trailing padding")
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant {value}")
+
+
 def _load_json(path: Path, limits: Limits) -> object:
     size = path.stat().st_size
     if size > limits.max_json_bytes:
         raise BundleError(f"JSON metadata is too large: {path} ({size} bytes)")
     try:
         with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            return json.load(handle, parse_constant=_reject_json_constant)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise BundleError(f"invalid JSON metadata in {path}: {error}") from error
+
+
+def _file_path_map(
+    config_path: Path,
+    config: dict,
+    root: Path,
+    limits: Limits,
+) -> dict[str, Path]:
+    raw_map = config.get("filePathMap")
+    if raw_map is None:
+        return {}
+    if not isinstance(raw_map, dict):
+        raise BundleError(f"filePathMap is not an object: {config_path}")
+    if len(raw_map) > limits.max_file_path_references:
+        raise BundleError(f"filePathMap has too many entries: {config_path}")
+
+    resolved_root = root.resolve()
+    entries: dict[str, Path] = {}
+    for raw_bundle_path, raw_source_path in raw_map.items():
+        bundle_path = _normalise_relative_path(
+            raw_bundle_path,
+            f"filePathMap bundle path in {config_path}",
+            limits.max_path_bytes,
+        )
+        source_path = _normalise_relative_path(
+            raw_source_path,
+            f"filePathMap source path in {config_path}",
+            limits.max_path_bytes,
+        )
+        resolved_source = (resolved_root / source_path).resolve()
+        if not _is_within(resolved_source, resolved_root):
+            raise BundleError(f"filePathMap escapes the deployment root: {config_path}")
+        if not resolved_source.is_file():
+            raise BundleError(
+                f"filePathMap references a missing regular file: {resolved_source}"
+            )
+        entries[bundle_path] = resolved_source
+    return entries
 
 
 def _validate_vercel_paths(root: Path, limits: Limits) -> None:
     output = root / ".vercel" / "output"
-    node_modules = root / "website" / "node_modules"
     if not output.is_dir():
         raise BundleError("bundle is missing .vercel/output")
-    if not node_modules.is_dir():
-        raise BundleError("bundle is missing website/node_modules")
 
     configs = sorted(output.rglob(".vc-config.json"))
     if not configs:
         raise BundleError("bundle has no Vercel function configuration")
 
+    reference_count = 0
     for config_path in configs:
         config = _load_json(config_path, limits)
         if not isinstance(config, dict):
             raise BundleError(f"function configuration is not an object: {config_path}")
+        file_path_map = _file_path_map(config_path, config, root, limits)
+        reference_count += len(file_path_map)
+        if reference_count > limits.max_file_path_references:
+            raise BundleError("too many Vercel filePathMap references")
+
         handler = config.get("handler")
         if handler is None:
             continue
-        if not isinstance(handler, str) or not handler or "\\" in handler:
-            raise BundleError(f"invalid function handler in {config_path}")
-        function_root = config_path.parent.resolve()
-        handler_path = (function_root / handler).resolve()
-        if not _is_within(handler_path, function_root):
-            raise BundleError(f"function handler escapes its function directory: {config_path}")
-        if not handler_path.is_file():
-            raise BundleError(f"function handler does not exist: {handler_path}")
+        handler = _normalise_relative_path(
+            handler,
+            f"function handler in {config_path}",
+            limits.max_path_bytes,
+        )
+        physical_handler = config_path.parent / handler
+        if handler not in file_path_map and not physical_handler.is_file():
+            raise BundleError(f"function handler does not exist: {config_path}")
 
+
+def seal_bundle(
+    source_root: Path,
+    archive: Path,
+    limits: Optional[Limits] = None,
+) -> None:
+    """Materialize Vercel file references inside Build Output and seal only it."""
+
+    limits = limits or Limits()
+    source_root = source_root.resolve()
+    archive = archive.resolve()
+    output = source_root / ".vercel" / "output"
+    if not output.is_dir():
+        raise BundleError("build is missing .vercel/output")
+    internal = output / ".docs-preview-files"
+    internal.mkdir(parents=True, exist_ok=True)
+
+    configs = sorted(output.rglob(".vc-config.json"))
+    if not configs:
+        raise BundleError("build has no Vercel function configuration")
     reference_count = 0
-    resolved_root = root.resolve()
-    for trace_path in sorted(output.rglob("*.nft.json")):
-        trace = _load_json(trace_path, limits)
-        if not isinstance(trace, dict) or not isinstance(trace.get("files"), list):
-            raise BundleError(f"invalid NFT trace: {trace_path}")
-        for reference in trace["files"]:
-            reference_count += 1
-            if reference_count > limits.max_trace_references:
-                raise BundleError("too many NFT trace references")
-            if not isinstance(reference, str) or not reference or "\\" in reference:
-                raise BundleError(f"invalid NFT trace path in {trace_path}")
-            resolved = (trace_path.parent / reference).resolve()
-            if not _is_within(resolved, resolved_root):
-                raise BundleError(f"NFT trace escapes the deployment root: {trace_path}")
-            if not resolved.is_file():
-                raise BundleError(f"NFT trace references a missing file: {resolved}")
+    for config_path in configs:
+        config = _load_json(config_path, limits)
+        if not isinstance(config, dict):
+            raise BundleError(f"function configuration is not an object: {config_path}")
+        entries = _file_path_map(config_path, config, source_root, limits)
+        reference_count += len(entries)
+        if reference_count > limits.max_file_path_references:
+            raise BundleError("too many Vercel filePathMap references")
+        if not entries:
+            continue
+
+        rewritten = {}
+        for bundle_path, source_path in entries.items():
+            source_relative = source_path.relative_to(source_root).as_posix()
+            if _is_within(source_path, output):
+                materialized_relative = source_relative
+            else:
+                digest = hashlib.sha256(source_relative.encode("utf-8")).hexdigest()
+                materialized = internal / digest
+                if not materialized.exists():
+                    shutil.copy2(source_path, materialized, follow_symlinks=True)
+                materialized_relative = materialized.relative_to(source_root).as_posix()
+            rewritten[bundle_path] = materialized_relative
+
+        config["filePathMap"] = rewritten
+        temporary = config_path.with_name(config_path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(config, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        os.replace(temporary, config_path)
+
+    _validate_vercel_paths(source_root, limits)
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    if archive.exists():
+        raise BundleError(f"archive already exists: {archive}")
+    try:
+        with tarfile.open(archive, mode="w:gz", dereference=True) as bundle:
+            bundle.add(output, arcname=".vercel/output", recursive=True)
+    except (OSError, tarfile.TarError) as error:
+        archive.unlink(missing_ok=True)
+        raise BundleError(f"failed to seal bundle: {error}") from error
 
 
 def _copy_member(source: object, destination_fd: int, expected_size: int) -> None:
@@ -380,7 +490,9 @@ def extract_bundle(
             for member in tar_handle:
                 member_count += 1
                 if member_count > limits.max_members:
-                    raise BundleError(f"archive has more than {limits.max_members} members")
+                    raise BundleError(
+                        f"archive has more than {limits.max_members} members"
+                    )
                 name = _normalise_member_name(member.name, limits.max_path_bytes)
                 if name in seen:
                     raise BundleError(f"duplicate archive member: {name}")
@@ -390,7 +502,9 @@ def extract_bundle(
                     raise BundleError(f"links and special files are forbidden: {name}")
                 size = member.size if member.isreg() else 0
                 if size < 0 or size > limits.max_file_bytes:
-                    raise BundleError(f"archive member is too large: {name} ({size} bytes)")
+                    raise BundleError(
+                        f"archive member is too large: {name} ({size} bytes)"
+                    )
                 total_bytes += size
                 if total_bytes > limits.max_total_bytes:
                     raise BundleError(
@@ -402,7 +516,9 @@ def extract_bundle(
                     raise BundleError(f"archive path escapes extraction root: {name}")
                 if member.isdir():
                     if target.exists() and not target.is_dir():
-                        raise BundleError(f"archive directory conflicts with a file: {name}")
+                        raise BundleError(
+                            f"archive directory conflicts with a file: {name}"
+                        )
                     target.mkdir(parents=True, exist_ok=True)
                     continue
 
@@ -417,7 +533,9 @@ def extract_bundle(
                 try:
                     fd = os.open(target, flags, mode)
                 except OSError as error:
-                    raise BundleError(f"cannot create extracted file {name}: {error}") from error
+                    raise BundleError(
+                        f"cannot create extracted file {name}: {error}"
+                    ) from error
                 try:
                     _copy_member(extracted, fd, size)
                 finally:
@@ -436,15 +554,30 @@ def extract_bundle(
 
 def _parse_args(arguments: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("archive", type=Path)
-    parser.add_argument("destination", type=Path)
+    commands = parser.add_subparsers(dest="command", required=True)
+    extract = commands.add_parser(
+        "extract", help="validate and extract a sealed bundle"
+    )
+    extract.add_argument("archive", type=Path)
+    extract.add_argument("destination", type=Path)
+    seal = commands.add_parser(
+        "seal",
+        help="materialize Vercel file references and create a self-contained bundle",
+    )
+    seal.add_argument("source_root", type=Path)
+    seal.add_argument("archive", type=Path)
     return parser.parse_args(arguments)
 
 
 def main(arguments: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(arguments)
     try:
-        extract_bundle(args.archive, args.destination)
+        if args.command == "extract":
+            extract_bundle(args.archive, args.destination)
+        elif args.command == "seal":
+            seal_bundle(args.source_root, args.archive)
+        else:
+            raise AssertionError(args.command)
     except BundleError as error:
         print(f"docs preview bundle rejected: {error}", file=os.sys.stderr)
         return 1

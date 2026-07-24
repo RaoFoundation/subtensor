@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from docs_preview_bundle import BundleError, Limits, extract_bundle
+from docs_preview_bundle import BundleError, Limits, extract_bundle, seal_bundle
 
 
 def file_entry(name, content=b"x", mode=0o644):
@@ -20,29 +20,22 @@ def directory_entry(name):
 
 
 def valid_entries(prefix=""):
-    function = f"{prefix}.vercel/output/functions/app.func"
+    output = f"{prefix}.vercel/output"
+    function = f"{output}/functions/app.func"
+    materialized = f"{output}/.docs-preview-files/library"
+    config = {
+        "runtime": "nodejs20.x",
+        "handler": "index.js",
+        "filePathMap": {
+            "index.js": ".vercel/output/.docs-preview-files/library",
+        },
+    }
     return [
-        directory_entry(f"{prefix}.vercel/output"),
+        directory_entry(output),
         directory_entry(function),
-        file_entry(
-            f"{function}/.vc-config.json",
-            json.dumps({"runtime": "nodejs20.x", "handler": "index.js"}).encode(),
-        ),
-        file_entry(f"{function}/index.js", b"module.exports = {}"),
-        file_entry(
-            f"{function}/index.nft.json",
-            json.dumps(
-                {
-                    "version": 1,
-                    "files": [
-                        "index.js",
-                        "../../../../website/node_modules/pkg/index.js",
-                    ],
-                }
-            ).encode(),
-        ),
-        directory_entry(f"{prefix}website/node_modules/pkg"),
-        file_entry(f"{prefix}website/node_modules/pkg/index.js", b"module.exports = 1"),
+        directory_entry(f"{output}/.docs-preview-files"),
+        file_entry(f"{function}/.vc-config.json", json.dumps(config).encode()),
+        file_entry(materialized, b"module.exports = {}"),
     ]
 
 
@@ -98,23 +91,34 @@ class DocsPreviewBundleTests(unittest.TestCase):
         write_archive(self.archive, entries)
         with self.assertRaises(BundleError):
             extract_bundle(self.archive, self.destination, limits=limits)
-        self.assertFalse(self.destination.exists(), "failed extraction must not be published")
+        self.assertFalse(
+            self.destination.exists(), "failed extraction must not be published"
+        )
         self.assertEqual(
             list(self.root.glob(".deploy.*")),
             [],
             "failed extraction must remove its staging directory",
         )
 
-    def test_extracts_valid_bundle(self):
+    @staticmethod
+    def replace_config(entries, config):
+        index = next(
+            i for i, entry in enumerate(entries) if entry[1].endswith(".vc-config.json")
+        )
+        entries[index] = file_entry(
+            entries[index][1],
+            json.dumps(config).encode(),
+        )
+
+    def test_extracts_valid_self_contained_bundle(self):
         self.extract(valid_entries())
         self.assertTrue(
             (
-                self.destination
-                / ".vercel/output/functions/app.func/.vc-config.json"
+                self.destination / ".vercel/output/functions/app.func/.vc-config.json"
             ).is_file()
         )
         self.assertTrue(
-            (self.destination / "website/node_modules/pkg/index.js").is_file()
+            (self.destination / ".vercel/output/.docs-preview-files/library").is_file()
         )
 
     def test_accepts_explicit_dot_slash_prefix(self):
@@ -122,18 +126,17 @@ class DocsPreviewBundleTests(unittest.TestCase):
         self.assertTrue((self.destination / ".vercel/output").is_dir())
 
     def test_accepts_bounded_long_name_metadata(self):
-        long_path = "website/node_modules/" + "/".join(["nested"] * 20) + "/index.js"
-        entries = valid_entries() + [file_entry(long_path)]
-        self.extract(entries)
+        long_path = ".vercel/output/" + "/".join(["nested"] * 20) + "/index.js"
+        self.extract(valid_entries() + [file_entry(long_path)])
         self.assertTrue((self.destination / long_path).is_file())
 
     def test_rejects_traversal_absolute_backslash_and_empty_components(self):
         unsafe_names = [
-            "../../website/node_modules/escape",
-            "/website/node_modules/escape",
-            "website\\node_modules\\escape",
-            "website//node_modules/escape",
-            "website/./node_modules/escape",
+            "../../.vercel/output/escape",
+            "/.vercel/output/escape",
+            ".vercel\\output\\escape",
+            ".vercel/output//escape",
+            ".vercel/output/./escape",
         ]
         for index, name in enumerate(unsafe_names):
             with self.subTest(name=name):
@@ -150,14 +153,14 @@ class DocsPreviewBundleTests(unittest.TestCase):
     def test_rejects_links_and_special_files(self):
         for index, entry in enumerate(
             [
-                ("symlink", "website/node_modules/link", b"/etc/passwd", 0o777),
+                ("symlink", ".vercel/output/link", b"/etc/passwd", 0o777),
                 (
                     "hardlink",
-                    "website/node_modules/link",
-                    b"website/node_modules/pkg/index.js",
+                    ".vercel/output/link",
+                    b".vercel/output/.docs-preview-files/library",
                     0o644,
                 ),
-                ("fifo", "website/node_modules/pipe", b"", 0o644),
+                ("fifo", ".vercel/output/pipe", b"", 0o644),
             ]
         ):
             with self.subTest(kind=entry[0]):
@@ -171,37 +174,24 @@ class DocsPreviewBundleTests(unittest.TestCase):
     def test_rejects_duplicate_member(self):
         self.assert_rejected(
             valid_entries()
-            + [file_entry("website/node_modules/pkg/index.js", b"replacement")]
-        )
-
-    def test_rejects_pax_size_override_before_tarfile_parses_it(self):
-        self.assert_rejected(
-            valid_entries()
             + [
-                (
-                    "pax-size",
-                    "website/node_modules/pkg/override.js",
-                    b"x",
-                    0o644,
+                file_entry(
+                    ".vercel/output/.docs-preview-files/library",
+                    b"replacement",
                 )
             ]
         )
 
-    def test_rejects_unsupported_pax_parser_inputs(self):
-        self.assert_rejected(
-            valid_entries()
-            + [
-                (
-                    "pax-unknown",
-                    "website/node_modules/pkg/override.js",
-                    b"x",
-                    0o644,
+    def test_rejects_pax_overrides_before_tarfile_parses_them(self):
+        for kind in ("pax-size", "pax-unknown"):
+            with self.subTest(kind=kind):
+                self.assert_rejected(
+                    valid_entries()
+                    + [(kind, ".vercel/output/override.js", b"x", 0o644)]
                 )
-            ]
-        )
 
     def test_enforces_tar_metadata_member_limit(self):
-        long_path = "website/node_modules/" + "/".join(["nested"] * 20) + "/index.js"
+        long_path = ".vercel/output/" + "/".join(["nested"] * 20) + "/index.js"
         self.assert_rejected(
             valid_entries() + [file_entry(long_path)],
             limits=Limits(max_metadata_member_bytes=8),
@@ -224,36 +214,60 @@ class DocsPreviewBundleTests(unittest.TestCase):
                     extract_bundle(self.archive, destination, limits=limits)
                 self.assertFalse(destination.exists())
 
-    def test_rejects_nft_path_escape_and_missing_reference(self):
+    def test_rejects_file_path_map_escape_and_missing_reference(self):
         for index, reference in enumerate(
-            ["../../../../../outside", "../../../../website/node_modules/missing.js"]
+            ["../../proc/self/cmdline", ".vercel/output/missing.js"]
         ):
             entries = valid_entries()
-            trace_index = next(
-                i for i, entry in enumerate(entries) if entry[1].endswith(".nft.json")
+            self.replace_config(
+                entries,
+                {
+                    "runtime": "nodejs20.x",
+                    "handler": "index.js",
+                    "filePathMap": {"index.js": reference},
+                },
             )
-            entries[trace_index] = file_entry(
-                entries[trace_index][1],
-                json.dumps({"version": 1, "files": [reference]}).encode(),
+            archive = self.root / f"reference-{index}.tgz"
+            destination = self.root / f"reference-{index}"
+            write_archive(archive, entries)
+            with self.assertRaises(BundleError):
+                extract_bundle(archive, destination)
+            self.assertFalse(destination.exists())
+
+    def test_rejects_unsafe_file_path_map_bundle_paths(self):
+        for index, bundle_path in enumerate(
+            ["../index.js", "/index.js", "dir\\index.js", "dir//index.js"]
+        ):
+            entries = valid_entries()
+            self.replace_config(
+                entries,
+                {
+                    "runtime": "nodejs20.x",
+                    "handler": "index.js",
+                    "filePathMap": {
+                        bundle_path: ".vercel/output/.docs-preview-files/library"
+                    },
+                },
             )
-            archive = self.root / f"trace-{index}.tgz"
-            destination = self.root / f"trace-{index}"
+            archive = self.root / f"bundle-path-{index}.tgz"
+            destination = self.root / f"bundle-path-{index}"
             write_archive(archive, entries)
             with self.assertRaises(BundleError):
                 extract_bundle(archive, destination)
             self.assertFalse(destination.exists())
 
     def test_rejects_handler_escape_and_missing_handler(self):
-        for index, handler in enumerate(
-            ["../../../../website/node_modules/pkg/index.js", "missing.js"]
-        ):
+        for index, handler in enumerate(["../index.js", "missing.js"]):
             entries = valid_entries()
-            config_index = next(
-                i for i, entry in enumerate(entries) if entry[1].endswith(".vc-config.json")
-            )
-            entries[config_index] = file_entry(
-                entries[config_index][1],
-                json.dumps({"runtime": "nodejs20.x", "handler": handler}).encode(),
+            self.replace_config(
+                entries,
+                {
+                    "runtime": "nodejs20.x",
+                    "handler": handler,
+                    "filePathMap": {
+                        "index.js": ".vercel/output/.docs-preview-files/library"
+                    },
+                },
             )
             archive = self.root / f"handler-{index}.tgz"
             destination = self.root / f"handler-{index}"
@@ -264,12 +278,20 @@ class DocsPreviewBundleTests(unittest.TestCase):
 
     def test_rejects_nul_in_handler_and_cleans_staging(self):
         entries = valid_entries()
-        config_index = next(
+        self.replace_config(
+            entries,
+            {"runtime": "nodejs20.x", "handler": "index.js\u0000"},
+        )
+        self.assert_rejected(entries)
+
+    def test_rejects_non_standard_json_constants(self):
+        entries = valid_entries()
+        index = next(
             i for i, entry in enumerate(entries) if entry[1].endswith(".vc-config.json")
         )
-        entries[config_index] = file_entry(
-            entries[config_index][1],
-            json.dumps({"runtime": "nodejs20.x", "handler": "index.js\u0000"}).encode(),
+        entries[index] = file_entry(
+            entries[index][1],
+            b'{"runtime":"nodejs20.x","handler":NaN}',
         )
         self.assert_rejected(entries)
 
@@ -279,20 +301,57 @@ class DocsPreviewBundleTests(unittest.TestCase):
             extract_bundle(self.archive, self.destination)
         self.assertFalse(self.destination.exists())
 
-    def test_rejects_excessive_trace_references(self):
-        entries = valid_entries()
-        trace_index = next(
-            i for i, entry in enumerate(entries) if entry[1].endswith(".nft.json")
+    def test_rejects_excessive_file_path_map_references(self):
+        self.assert_rejected(
+            valid_entries(),
+            limits=Limits(max_file_path_references=0),
         )
-        entries[trace_index] = file_entry(
-            entries[trace_index][1],
-            json.dumps({"version": 1, "files": ["index.js", "index.js"]}).encode(),
+
+    def test_seal_materializes_external_references_and_rewrites_config(self):
+        source = self.root / "source"
+        function = source / ".vercel/output/functions/app.func"
+        dependency = source / "website/node_modules/pkg/index.js"
+        function.mkdir(parents=True)
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text("module.exports = 1", encoding="utf-8")
+        config = {
+            "runtime": "nodejs20.x",
+            "handler": "index.js",
+            "filePathMap": {"index.js": "website/node_modules/pkg/index.js"},
+        }
+        config_path = function / ".vc-config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        seal_bundle(source, self.archive)
+        rewritten = json.loads(config_path.read_text(encoding="utf-8"))
+        materialized = rewritten["filePathMap"]["index.js"]
+        self.assertTrue(materialized.startswith(".vercel/output/.docs-preview-files/"))
+
+        extract_bundle(self.archive, self.destination)
+        self.assertTrue((self.destination / materialized).is_file())
+        self.assertFalse((self.destination / "website").exists())
+
+    def test_seal_rejects_reference_that_resolves_outside_source_root(self):
+        source = self.root / "source"
+        function = source / ".vercel/output/functions/app.func"
+        function.mkdir(parents=True)
+        (function / ".vc-config.json").write_text(
+            json.dumps(
+                {
+                    "runtime": "nodejs20.x",
+                    "handler": "index.js",
+                    "filePathMap": {"index.js": "../outside.js"},
+                }
+            ),
+            encoding="utf-8",
         )
-        self.assert_rejected(entries, limits=Limits(max_trace_references=1))
+        with self.assertRaises(BundleError):
+            seal_bundle(source, self.archive)
+        self.assertFalse(self.archive.exists())
 
     def test_preserves_only_executable_or_non_executable_modes(self):
         entries = valid_entries()
-        script = "website/node_modules/pkg/tool"
+        script = ".vercel/output/tool"
         entries.append(file_entry(script, b"#!/bin/sh\n", mode=0o4777))
         self.extract(entries)
         extracted_mode = os.stat(self.destination / script).st_mode & 0o7777
