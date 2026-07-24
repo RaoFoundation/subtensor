@@ -1351,6 +1351,19 @@ mod tests {
                 ),
                 U256::from(registration_block),
             );
+
+            pallet_subtensor::NetworkRegisteredAt::<Runtime>::remove(netuid);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getNetworkRegistrationBlock(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::zero(),
+            );
         });
     }
 
