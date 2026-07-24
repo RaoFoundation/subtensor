@@ -61,10 +61,10 @@ const STAKE_INFO_READS_PER_HOTKEY: u64 = 7;
 const STAKE_INFO_INPUT_GAS_PER_HOTKEY: u64 = 64;
 const MAX_STAKE_INFO_HOTKEYS: usize = 64;
 const MAX_CONVICTION_HOTKEYS: usize = 64;
-// Individual state reads the lock row, mode, owner hotkey, and global rates.
-const COLDKEY_LOCK_READS: u64 = 5;
-// Aggregate state reads the owner hotkey, global rates, and up to four buckets.
-const HOTKEY_LOCK_READS: u64 = 7;
+// Individual state reads the lock row, mode, owner hotkey, global rates, and current block.
+const COLDKEY_LOCK_READS: u64 = 6;
+// Aggregate state reads the owner hotkey, global rates, current block, and up to four buckets.
+const HOTKEY_LOCK_READS: u64 = 8;
 
 /// Prefix for the Allowances map in Substrate storage.
 pub struct AllowancesPrefix;
@@ -533,6 +533,8 @@ where
     /// Return one coldkey's lock, rolled forward to the current block.
     ///
     /// Conviction is returned as exact unsigned Q64.64 bits.
+    /// `exists` is false if the rolled lock has crossed the cleanup threshold,
+    /// even when its stale storage row has not yet been removed.
     #[precompile::public("getColdkeyLock(bytes32,uint256)")]
     #[precompile::view]
     fn get_coldkey_lock(
@@ -561,10 +563,11 @@ where
             owner_lock,
             perpetual,
         );
+        let exists = !lock.is_zero();
         let hotkey: [u8; 32] = hotkey.into();
 
         Ok((
-            true,
+            exists,
             hotkey.into(),
             lock.locked_mass.to_u64().into(),
             lock.conviction.to_bits(),
@@ -594,12 +597,10 @@ where
 
         let mut locked = AlphaBalance::ZERO;
         let mut conviction = U64F64::from_bits(0);
-        let mut exists = false;
         let mut add_bucket = |maybe_lock: Option<pallet_subtensor::staking::lock::LockState>,
                               owner_lock: bool,
                               perpetual_lock: bool| {
             if let Some(lock) = maybe_lock {
-                exists = true;
                 let (lock, _) = pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
                     lock,
                     now,
@@ -632,6 +633,7 @@ where
             );
         }
 
+        let exists = locked > AlphaBalance::ZERO || conviction > U64F64::from_bits(0);
         Ok((exists, locked.to_u64().into(), conviction.to_bits()))
     }
 
@@ -1995,6 +1997,125 @@ mod tests {
                     RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(HOTKEY_LOCK_READS),
                 )
                 .execute_returns((false, U256::zero(), 0_u128));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_reports_expired_unpersisted_locks_as_nonexistent() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1124);
+            let coldkey = mapped_account(caller);
+            let hotkey = AccountId::from([0x65; 32]);
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            pallet_subtensor::SubnetOwnerHotkey::<Runtime>::insert(netuid, &hotkey);
+            pallet_subtensor::UnlockRate::<Runtime>::set(1);
+            pallet_subtensor::MaturityRate::<Runtime>::set(1);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("lockStake(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(5_000_000_000_u64),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            assert!(pallet_subtensor::Lock::<Runtime>::contains_key((
+                &coldkey, netuid, &hotkey
+            )));
+            assert!(pallet_subtensor::DecayingOwnerLock::<Runtime>::contains_key(netuid));
+
+            frame_system::Pallet::<Runtime>::set_block_number(100);
+            let raw_lock = pallet_subtensor::Lock::<Runtime>::get((&coldkey, netuid, &hotkey))
+                .expect("stale individual lock remains in storage");
+            let (rolled_lock, _) =
+                pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
+                    raw_lock,
+                    100,
+                    pallet_subtensor::UnlockRate::<Runtime>::get(),
+                    pallet_subtensor::MaturityRate::<Runtime>::get(),
+                    true,
+                    false,
+                );
+            assert!(rolled_lock.is_zero());
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getColdkeyLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(coldkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(COLDKEY_LOCK_READS),
+                )
+                .execute_returns((
+                    false,
+                    H256::from_slice(hotkey.as_ref()),
+                    U256::zero(),
+                    0_u128,
+                    100_u64,
+                    false,
+                ));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getHotkeyLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(HOTKEY_LOCK_READS),
+                )
+                .execute_returns((false, U256::zero(), 0_u128));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getHotkeyConvictions(uint256,bytes32[])"),
+                        (
+                            U256::from(TEST_NETUID_U16),
+                            vec![H256::from_slice(hotkey.as_ref())],
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(stake_info_validation_cost(1).saturating_add(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(HOTKEY_LOCK_READS),
+                ))
+                .execute_returns(vec![0_u128]);
+
+            // View calls roll state in memory only, so this exercises stale rows.
+            assert!(pallet_subtensor::Lock::<Runtime>::contains_key((
+                &coldkey, netuid, &hotkey
+            )));
+            assert!(pallet_subtensor::DecayingOwnerLock::<Runtime>::contains_key(netuid));
         });
     }
 

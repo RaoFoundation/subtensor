@@ -307,7 +307,8 @@ interface IStaking {
      * @dev Returns a coldkey's lock rolled forward to the current block.
      *
      * `conviction` is exact unsigned Q64.64 bits. Divide it by 2^64 to obtain
-     * conviction in alpha rao.
+     * conviction in alpha rao. `exists` is false once the rolled lock crosses
+     * the runtime cleanup threshold, even if its stale storage row remains.
      */
     function getColdkeyLock(
         bytes32 coldkey,
@@ -318,7 +319,8 @@ interface IStaking {
      * @dev Returns rolled aggregate lock state targeting a hotkey.
      *
      * Perpetual and decaying buckets are combined. For the subnet owner hotkey,
-     * the owner-specific buckets are included as well.
+     * the owner-specific buckets are included as well. `exists` is derived
+     * from the rolled aggregate, so fully expired stale buckets do not count.
      */
     function getHotkeyLock(
         bytes32 hotkey,
