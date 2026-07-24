@@ -121,6 +121,8 @@ pub trait WeightInfo {
 	fn sudo_set_voting_power_ema_alpha() -> Weight;
 	fn register_limit() -> Weight;
 	fn set_perpetual_lock() -> Weight;
+	fn set_tempo() -> Weight;
+	fn set_activity_cutoff_factor() -> Weight;
 	fn set_reject_locked_alpha() -> Weight;
 }
 
@@ -3747,6 +3749,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(122_559_000, 7166)
 			.saturating_add(T::DbWeight::get().reads(11_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
+	}
+	fn set_tempo() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 783_000 picoseconds.
+		Weight::from_parts(887_000, 0)
+	}
+	fn set_activity_cutoff_factor() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 803_000 picoseconds.
+		Weight::from_parts(891_000, 0)
 	}
 	/// Storage: `SubtensorModule::AccountFlags` (r:1 w:1)
 	/// Proof: `SubtensorModule::AccountFlags` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7383,6 +7399,20 @@ impl WeightInfo for () {
 		Weight::from_parts(122_559_000, 7166)
 			.saturating_add(RocksDbWeight::get().reads(11_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
+	}
+	fn set_tempo() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 783_000 picoseconds.
+		Weight::from_parts(887_000, 0)
+	}
+	fn set_activity_cutoff_factor() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 803_000 picoseconds.
+		Weight::from_parts(891_000, 0)
 	}
 	/// Storage: `SubtensorModule::AccountFlags` (r:1 w:1)
 	/// Proof: `SubtensorModule::AccountFlags` (`max_values`: None, `max_size`: None, mode: `Measured`)

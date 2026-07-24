@@ -26,6 +26,7 @@ clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true, features = ["thread-pool"] }
 serde = { workspace = true, features = ["derive"] }
 hex.workspace = true
+hex-literal.workspace = true
 tokio = { workspace = true, features = ["time", "rt", "net"] }
 
 # Storage import

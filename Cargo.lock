@@ -8936,6 +8936,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "futures",
  "hex",
+ "hex-literal",
  "jsonrpsee",
  "log",
  "memmap2 0.9.11",

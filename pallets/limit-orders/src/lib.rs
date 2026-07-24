@@ -131,18 +131,18 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
 }
 
 /// The envelope the admin submits on-chain: the versioned order payload plus
-/// the user's signature over the SCALE-encoded `VersionedOrder`.
+/// the user's signature over the order.
 ///
 /// Signature verification is performed against `order.inner().signer` (the AccountId)
-/// directly. Only sr25519 signatures are accepted; ed25519 and ecdsa variants
-/// of `MultiSignature` are rejected at validation time.
+/// directly. Sr25519 and ed25519 signatures over either the SCALE-encoded order or its
+/// `<Bytes>`-wrapped blake2-256 hash are accepted; ecdsa is rejected at validation time.
 #[freeze_struct("9dd5a8ac812dc504")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
 )]
 pub struct SignedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     pub order: VersionedOrder<AccountId>,
-    /// Sr25519 signature over `SCALE_ENCODE(VersionedOrder)`.
+    /// Sr25519 or ed25519 signature over the raw order or its wrapped hash.
     pub signature: MultiSignature,
     /// Whether we want a partial fill for this order
     pub partial_fill: Option<u64>,
@@ -614,10 +614,22 @@ pub mod pallet {
                 Error::<T>::ChainIdMismatch
             );
             ensure!(
-                matches!(signed_order.signature, MultiSignature::Sr25519(_))
-                    && signed_order
-                        .signature
-                        .verify(signed_order.order.encode().as_slice(), &order.signer),
+                matches!(
+                    signed_order.signature,
+                    MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
+                ) && (signed_order
+                    .signature
+                    .verify(signed_order.order.encode().as_slice(), &order.signer)
+                    || signed_order.signature.verify(
+                        [
+                            b"<Bytes>".as_slice(),
+                            order_id.as_bytes(),
+                            b"</Bytes>".as_slice(),
+                        ]
+                        .concat()
+                        .as_slice(),
+                        &order.signer,
+                    )),
                 Error::<T>::InvalidSignature
             );
             let order_status = Orders::<T>::get(order_id);

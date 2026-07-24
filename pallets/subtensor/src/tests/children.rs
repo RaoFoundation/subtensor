@@ -3713,7 +3713,7 @@ fn test_dynamic_parent_child_relationships() {
         assert!((rel_stake_child1_0 - I96F32::from_num(50_000) / total_tao).abs() <= epsilon);
         assert!((rel_stake_child2_0 - I96F32::from_num(30_000) / total_tao).abs() <= epsilon);
 
-        mock_set_children(&coldkey_parent, &parent, netuid, &[(u64::MAX / 2, child1)]);
+        mock_set_children_no_epochs(netuid, &parent, &[(u64::MAX / 2, child1)]);
 
         step_block(2);
 
@@ -3736,7 +3736,6 @@ fn test_dynamic_parent_child_relationships() {
 
         // Step blocks to allow for emission distribution
         step_block(11);
-        step_rate_limit(&TransactionType::SetChildren, netuid);
 
         // Get total stake after first payout
         let total_stake_1 = SubtensorModule::get_stake_for_hotkey_on_subnet(&parent, netuid)
@@ -3745,10 +3744,9 @@ fn test_dynamic_parent_child_relationships() {
         log::info!("total_stake_1: {total_stake_1:?}");
 
         // Change parent-child relationships
-        mock_set_children(
-            &coldkey_parent,
-            &parent,
+        mock_set_children_no_epochs(
             netuid,
+            &parent,
             &[(u64::MAX / 4, child1), (u64::MAX / 3, child2)],
         );
 
@@ -3766,8 +3764,8 @@ fn test_dynamic_parent_child_relationships() {
         let stake_child1_2 = SubtensorModule::get_inherited_for_hotkey_on_subnet(&child1, netuid);
         let stake_child2_2 = SubtensorModule::get_inherited_for_hotkey_on_subnet(&child2, netuid);
         let total_parent_stake = SubtensorModule::get_stake_for_hotkey_on_subnet(&parent, netuid);
-        let _total_child1_stake = SubtensorModule::get_stake_for_hotkey_on_subnet(&child1, netuid);
-        let _total_child2_stake = SubtensorModule::get_stake_for_hotkey_on_subnet(&child2, netuid);
+        let total_child1_stake = SubtensorModule::get_stake_for_hotkey_on_subnet(&child1, netuid);
+        let total_child2_stake = SubtensorModule::get_stake_for_hotkey_on_subnet(&child2, netuid);
 
         log::info!("Final stakes:");
         log::info!("Parent stake: {stake_parent_2}");
@@ -3789,46 +3787,36 @@ fn test_dynamic_parent_child_relationships() {
 
         // Precise assertions with tolerance
         log::info!("total_emission: {total_emission:?}");
-        let expected_parent_stake = ((I96F32::from_num(u64::from(stake_parent_0))
-            + total_emission * rel_stake_parent_0)
-            * I96F32::from_num(5))
-            / I96F32::from_num(12);
+        let expected_parent_stake =
+            I96F32::from_num(total_parent_stake) * I96F32::from_num(5) / I96F32::from_num(12);
         assert!(
             (I96F32::from_num(stake_parent_2) - expected_parent_stake).abs()
                 / expected_parent_stake
                 <= TOLERANCE,
             "Parent stake should be close to {expected_parent_stake:?}, but was {stake_parent_2}"
         );
-        // Parent stake calculation:
-        // Initial stake: 500,000
-        // First epoch: 1/2 parent_stake
-        // Second epoch: 5/12 parent_stake
+        // The final relationship leaves the parent with 1 - 1/4 - 1/3 = 5/12
+        // of its current direct stake.
 
-        let expected_child1_stake = total_emission * rel_stake_child1_0
-            + I96F32::from_num(stake_child1_0 + total_parent_stake / 4.into());
+        let expected_child1_stake = I96F32::from_num(total_child1_stake)
+            + I96F32::from_num(total_parent_stake) / I96F32::from_num(4);
         assert!(
             (I96F32::from_num(stake_child1_2) - expected_child1_stake).abs()
                 / expected_child1_stake
                 <= TOLERANCE,
             "Child1 stake should be close to {expected_child1_stake:?}, but was {stake_child1_2}"
         );
-        // Child1 stake calculation:
-        // Initial stake: 50,000
-        // First epoch: 1/2 parent_stake + child1_stake
-        // Second epoch: 1/4 parent_stake + child1_stake
+        // Child1 inherits 1/4 of the parent's current direct stake.
 
-        let expected_child2_stake = total_emission * rel_stake_child2_0
-            + I96F32::from_num(u64::from(stake_child2_0 + total_parent_stake / 3.into()));
+        let expected_child2_stake = I96F32::from_num(total_child2_stake)
+            + I96F32::from_num(total_parent_stake) / I96F32::from_num(3);
         assert!(
             (I96F32::from_num(stake_child2_2) - expected_child2_stake).abs()
                 / expected_child2_stake
                 <= TOLERANCE,
             "Child2 stake should be close to {expected_child2_stake:?}, but was {stake_child2_2}"
         );
-        // Child2 stake calculation:
-        // Initial stake: 30,000
-        // First epoch: child2_stake
-        // Second epoch: 1/3 parent_stake + child2_stake
+        // Child2 inherits 1/3 of the parent's current direct stake.
 
         // Additional checks for parent-child relationships
         let parent_children: Vec<(u64, U256)> = SubtensorModule::get_children(&parent, netuid);

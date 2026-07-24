@@ -1409,7 +1409,10 @@ fn collect_fees_no_transfer_when_zero_fees() {
 use crate::Error;
 use codec::Encode;
 use sp_core::Pair;
-use sp_runtime::MultiSignature;
+use sp_runtime::{
+    MultiSignature, MultiSigner,
+    traits::{IdentifyAccount, Verify},
+};
 use subtensor_swap_interface::OrderSwapInterface;
 
 fn make_valid_signed_order() -> (crate::SignedOrder<AccountId>, sp_core::H256) {
@@ -1474,14 +1477,102 @@ fn is_order_valid_invalid_signature_returns_error() {
 }
 
 #[test]
-fn is_order_valid_non_sr25519_signature_returns_error() {
+fn is_order_valid_accepts_raw_ed25519_signature() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        let (signed, _) = make_valid_signed_order();
+        let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer: AccountId::from(ed_pair.public()),
+            ..signed.order.inner().clone()
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        let signature = ed_pair.sign(&order.encode());
+        let signed = crate::SignedOrder {
+            order,
+            signature: MultiSignature::Ed25519(signature),
+            partial_fill: None,
+        };
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
+fn is_order_valid_accepts_wrapped_sr25519_signature() {
     new_test_ext().execute_with(|| {
         MockTime::set(1_000_000);
         MockSwap::set_price(1.0);
         let (mut signed, id) = make_valid_signed_order();
+        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        signed.signature = MultiSignature::Sr25519(AccountKeyring::Alice.pair().sign(&payload));
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
+fn is_order_valid_accepts_wrapped_ed25519_signature() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        let (signed, _) = make_valid_signed_order();
         let ed_pair = sp_core::ed25519::Pair::from_legacy_string("//Alice", None);
-        let ed_sig = ed_pair.sign(&signed.order.encode());
-        signed.signature = MultiSignature::Ed25519(ed_sig);
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer: AccountId::from(ed_pair.public()),
+            ..signed.order.inner().clone()
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        let payload = [b"<Bytes>".as_slice(), id.as_bytes(), b"</Bytes>".as_slice()].concat();
+        let signed = crate::SignedOrder {
+            order,
+            signature: MultiSignature::Ed25519(ed_pair.sign(&payload)),
+            partial_fill: None,
+        };
+        let price = MockSwap::current_alpha_price(netuid());
+        assert_ok!(LimitOrders::<Test>::is_order_valid(
+            &signed,
+            id,
+            1_000_000,
+            price,
+            &bob()
+        ));
+    });
+}
+
+#[test]
+fn is_order_valid_ecdsa_signature_returns_error() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        let (signed, _) = make_valid_signed_order();
+        let pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
+        let signer = MultiSigner::from(pair.public()).into_account();
+        let order = crate::VersionedOrder::V1(crate::Order {
+            signer,
+            ..signed.order.inner().clone()
+        });
+        let id = H256(sp_io::hashing::blake2_256(&order.encode()));
+        let signature = MultiSignature::Ecdsa(pair.sign(&order.encode()));
+        assert!(signature.verify(order.encode().as_slice(), &order.inner().signer));
+        let signed = crate::SignedOrder {
+            order,
+            signature,
+            partial_fill: None,
+        };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
             LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),

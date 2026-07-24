@@ -21,12 +21,10 @@ fn sign_order<T: crate::Config>(
     public: sp_core::sr25519::Public,
     order: &crate::VersionedOrder<T::AccountId>,
 ) -> crate::SignedOrder<T::AccountId> {
-    let sig = sp_io::crypto::sr25519_sign(
-        sp_core::crypto::key_types::ACCOUNT,
-        &public,
-        &order.encode(),
-    )
-    .unwrap();
+    let order_hash = sp_io::hashing::blake2_256(&order.encode());
+    let payload = [b"<Bytes>".as_slice(), &order_hash, b"</Bytes>".as_slice()].concat();
+    let sig = sp_io::crypto::sr25519_sign(sp_core::crypto::key_types::ACCOUNT, &public, &payload)
+        .unwrap();
     crate::SignedOrder {
         order: order.clone(),
         signature: MultiSignature::Sr25519(sig),
