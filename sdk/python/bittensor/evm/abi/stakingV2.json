@@ -623,11 +623,6 @@
             "type": "uint128"
           },
           {
-            "internalType": "uint64",
-            "name": "last_update",
-            "type": "uint64"
-          },
-          {
             "internalType": "bool",
             "name": "is_perpetual",
             "type": "bool"

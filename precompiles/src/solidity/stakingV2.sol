@@ -15,7 +15,6 @@ interface IStaking {
         bytes32 hotkey;
         uint256 locked_mass;
         uint128 conviction;
-        uint64 last_update;
         bool is_perpetual;
     }
 

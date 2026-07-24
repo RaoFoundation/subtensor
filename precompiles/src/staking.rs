@@ -541,7 +541,7 @@ where
         handle: &mut impl PrecompileHandle,
         coldkey: H256,
         netuid: U256,
-    ) -> EvmResult<(bool, H256, U256, u128, u64, bool)> {
+    ) -> EvmResult<(bool, H256, U256, u128, bool)> {
         handle.record_db_reads::<R>(COLDKEY_LOCK_READS)?;
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = NetUid::from(try_u16_from_u256(netuid)?);
@@ -550,7 +550,7 @@ where
         let Some((hotkey, lock)) =
             pallet_subtensor::Lock::<R>::iter_prefix((&coldkey, netuid)).next()
         else {
-            return Ok((false, H256::zero(), U256::zero(), 0, 0, perpetual));
+            return Ok((false, H256::zero(), U256::zero(), 0, perpetual));
         };
 
         let now = pallet_subtensor::Pallet::<R>::get_current_block_as_u64();
@@ -571,7 +571,6 @@ where
             hotkey.into(),
             lock.locked_mass.to_u64().into(),
             lock.conviction.to_bits(),
-            lock.last_update,
             perpetual,
         ))
     }
@@ -1764,7 +1763,6 @@ mod tests {
                     H256::from_slice(origin_hotkey.as_ref()),
                     U256::from(expected.locked_mass.to_u64()),
                     expected.conviction.to_bits(),
-                    expected.last_update,
                     true,
                 ));
 
@@ -1978,7 +1976,7 @@ mod tests {
                 .expect_cost(
                     RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(COLDKEY_LOCK_READS),
                 )
-                .execute_returns((false, H256::zero(), U256::zero(), 0_u128, 0_u64, true));
+                .execute_returns((false, H256::zero(), U256::zero(), 0_u128, true));
 
             precompiles
                 .prepare_test(
@@ -2071,7 +2069,6 @@ mod tests {
                     H256::from_slice(hotkey.as_ref()),
                     U256::zero(),
                     0_u128,
-                    100_u64,
                     false,
                 ));
 
