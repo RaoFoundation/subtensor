@@ -95,11 +95,11 @@ class Collateral(_ReadNamespace):
         never charged for the owner's bond. When `coldkey_ss58` is omitted, the
         hotkey owner is used.
 
-        `locked_alpha` is non-withdrawable stake released through earned emission
-        (miner incentive and validator dividends) at `drain_ratio` alpha per alpha
-        earned; `min_locked_alpha` is the miner-set floor the lock self-maintains
-        around (the drain stops at it and emission fills any shortfall);
-        `earned_alpha` is lifetime emission since the collateral entry existed.
+        `locked_alpha` is non-withdrawable stake released at `drain_ratio` alpha
+        per alpha of total hotkey emission. The drain stops at `min_locked_alpha`;
+        below that floor, miner incentive or validator take is captured to refill
+        it. `earned_alpha` is lifetime total hotkey emission since the collateral
+        entry existed.
         Derived: `headroom_alpha` (draining portion above the floor),
         `shortfall_alpha` (capture in progress below the floor), and
         `releasable_work_alpha` (emission still needed to release the headroom).

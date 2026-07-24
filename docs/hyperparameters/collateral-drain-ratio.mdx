@@ -26,9 +26,9 @@ released = min(locked − min_locked, k × emission)
 
 from the hotkey's lock back to withdrawable stake, where `min_locked` is the
 optional self-maintained floor (zero unless set via `set_min_collateral`;
-while the lock is under the floor, emission is captured into the lock
-instead). The release is keyed to the registered hotkey even when miner
-incentive is redirected by auto-stake. At `k = 1` (the default) collateral
+while the lock is under the floor, miner incentive or validator take is
+captured instead). The release is keyed to the registered hotkey even when
+miner incentive is redirected by auto-stake. At `k = 1` (the default) collateral
 releases one-for-one with earned emission; at `k = 0.5` a hotkey must earn
 two alpha per alpha released; at `k = 2` half the lock's worth of emission
 releases all of it.

@@ -227,15 +227,15 @@ hotkey along with everything else
 
 ### Enforcement: the off-chain blacklist
 
-The chain never adjudicates miner behavior — there is no ban extrinsic. The
-teeth are simpler: validators score miners off-chain, and a validator that
-concludes a hotkey is cheating simply **stops evaluating it**. Zero incentive
-means zero collateral release, forever. The lock strands — economically
-confiscated, without any judicial machinery:
+The chain never adjudicates miner behavior — there is no ban extrinsic.
+Validators score miners off-chain, and a validator that concludes a hotkey is
+cheating simply **stops evaluating it**. That cuts miner incentive. A miner-only
+hotkey with no other emission stops releasing collateral; a validator hotkey
+may continue draining through dividends.
 
 - It is **stake-weighted by construction**: one validator refusing to score
-  you reduces your incentive by its weight in consensus; a supermajority
-  blacklist freezes your collateral outright.
+  you reduces miner incentive by its weight in consensus; a supermajority
+  blacklist cuts it to zero.
 - It is **reversible**: if validators resume evaluating (wrong call, or the
   miner reformed), the lock resumes draining.
 - Nobody profits from it: frozen collateral pays no one, so there is no
@@ -330,7 +330,7 @@ btcli sudo set --netuid 51 --name collateral_drain_ratio --value 1.0    # k = 1
 ```
 
 The subnet publishes its policy in validator code: **25α of collateral per
-machine**. Sizing the deposit in incentive-terms matters: if one machine
+machine**. Sizing the deposit in emission terms matters: if one machine
 earns ~1α/tempo, a 25α deposit at `k = 1` takes ~25 tempos of scored work to
 drain — so an exiting miner's wind-down lasts about one rental term, which is
 exactly the notice period the business wants.
@@ -346,13 +346,13 @@ btcli collateral set-min --netuid 51 --min-alpha 100 -w my_coldkey -H my_hotkey
 
 Both the top-up and the floor are in alpha. The floor stops the drain at
 100α, and if the lock ever dips under (say the miner raises the floor for
-a fifth machine before funding it), incentive fills the gap automatically.
-No re-locking, no bot.
+a fifth machine before funding it), miner incentive or validator take fills
+the gap automatically. No re-locking, no bot.
 
 **Validator enforcement** — collateral rides the metagraph, so the check
 costs zero extra calls: every neuron row carries `collateral_locked`,
-`collateral_min` (the miner's floor), and `collateral_earned` (lifetime
-incentive since the bond existed):
+`collateral_min` (the miner's floor), and `collateral_earned` (lifetime hotkey
+emission since the bond existed):
 
 ```python
 import bittensor as bt
@@ -378,7 +378,7 @@ For hotkeys *not* in the metagraph — deregistered miners whose bonds persist
 on the subnet with `uid` (None when deregistered), owning `coldkey`, and the
 derived terms `headroom_alpha` (portion actively draining above the floor),
 `shortfall_alpha` (capture in progress below it), and
-`releasable_work_alpha` (incentive still needed to release the headroom).
+`releasable_work_alpha` (emission still needed to release the headroom).
 
 **Exit protocol** — the deposit leaves through the same door it drains
 through:

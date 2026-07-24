@@ -35,7 +35,7 @@ def _collateral_record(view, netuid: int, hotkey: str, coldkey: str, state: Any)
     drain_ratio = _fixed_to_float(state.get("drain_ratio"))
     # Derived terms: headroom is the portion actively draining (locked above
     # the floor); shortfall is capture in progress (floor above the lock);
-    # releasable work is the incentive still needed to release the headroom.
+    # releasable work is the emission still needed to release the headroom.
     headroom = max(locked - min_locked, 0)
     shortfall = max(min_locked - locked, 0)
     return {
@@ -73,11 +73,11 @@ async def miner_collateral(
     never charged for the owner's bond. When `coldkey_ss58` is omitted, the
     hotkey owner is used.
 
-    `locked_alpha` is non-withdrawable stake released through earned emission
-    (miner incentive and validator dividends) at `drain_ratio` alpha per alpha
-    earned; `min_locked_alpha` is the miner-set floor the lock self-maintains
-    around (the drain stops at it and emission fills any shortfall);
-    `earned_alpha` is lifetime emission since the collateral entry existed.
+    `locked_alpha` is non-withdrawable stake released at `drain_ratio` alpha
+    per alpha of total hotkey emission. The drain stops at `min_locked_alpha`;
+    below that floor, miner incentive or validator take is captured to refill
+    it. `earned_alpha` is lifetime total hotkey emission since the collateral
+    entry existed.
     Derived: `headroom_alpha` (draining portion above the floor),
     `shortfall_alpha` (capture in progress below the floor), and
     `releasable_work_alpha` (emission still needed to release the headroom).

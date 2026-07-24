@@ -332,9 +332,9 @@ HYPERPARAMS: dict[str, Hyperparam] = {
     ),
     "collateral_drain_ratio": Hyperparam(
         "fixed128",
-        "Alpha of locked miner collateral released per alpha of incentive "
-        "earned. U64F64 fixed-point, snapshot per miner at registration; must "
-        "be positive and at most 10.",
+        "Alpha of locked miner collateral released per alpha of total hotkey "
+        "emission earned. U64F64 fixed-point, snapshot per miner at "
+        "registration; must be positive and at most 10.",
         short="collateral released per α earned",
         minimum=1,
         maximum=10 * FIXED128_ONE,
