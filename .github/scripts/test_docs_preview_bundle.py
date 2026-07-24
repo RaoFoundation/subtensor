@@ -307,6 +307,12 @@ class DocsPreviewBundleTests(unittest.TestCase):
             limits=Limits(max_file_path_references=0),
         )
 
+    def test_rejects_excessive_file_path_map_entries_per_config(self):
+        self.assert_rejected(
+            valid_entries(),
+            limits=Limits(max_file_path_references_per_config=0),
+        )
+
     def test_seal_materializes_external_references_and_rewrites_config(self):
         source = self.root / "source"
         function = source / ".vercel/output/functions/app.func"

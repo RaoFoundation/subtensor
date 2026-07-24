@@ -37,12 +37,23 @@ class Limits:
     max_metadata_member_bytes: int = 1024 * 1024
     max_metadata_total_bytes: int = 32 * 1024 * 1024
     max_json_bytes: int = 5 * 1024 * 1024
-    max_file_path_references: int = 400_000
+    max_file_path_references: int = 20_000_000
+    max_file_path_references_per_config: int = 10_000
 
 
 ALLOWED_ROOTS = (".vercel/output",)
 COPY_CHUNK_BYTES = 1024 * 1024
 TAR_BLOCK_BYTES = 512
+
+
+class _FilePathCache:
+    """Cache repeated paths across the thousands of generated function configs."""
+
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+        self.bundle_paths: dict[str, str] = {}
+        self.source_paths: dict[str, str] = {}
+        self.resolved_sources: dict[str, Path] = {}
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -303,37 +314,57 @@ def _load_json(path: Path, limits: Limits) -> object:
 def _file_path_map(
     config_path: Path,
     config: dict,
-    root: Path,
     limits: Limits,
+    cache: _FilePathCache,
 ) -> dict[str, Path]:
     raw_map = config.get("filePathMap")
     if raw_map is None:
         return {}
     if not isinstance(raw_map, dict):
         raise BundleError(f"filePathMap is not an object: {config_path}")
-    if len(raw_map) > limits.max_file_path_references:
+    if len(raw_map) > limits.max_file_path_references_per_config:
         raise BundleError(f"filePathMap has too many entries: {config_path}")
 
-    resolved_root = root.resolve()
     entries: dict[str, Path] = {}
     for raw_bundle_path, raw_source_path in raw_map.items():
-        bundle_path = _normalise_relative_path(
-            raw_bundle_path,
-            f"filePathMap bundle path in {config_path}",
-            limits.max_path_bytes,
+        bundle_path = (
+            cache.bundle_paths.get(raw_bundle_path)
+            if isinstance(raw_bundle_path, str)
+            else None
         )
-        source_path = _normalise_relative_path(
-            raw_source_path,
-            f"filePathMap source path in {config_path}",
-            limits.max_path_bytes,
-        )
-        resolved_source = (resolved_root / source_path).resolve()
-        if not _is_within(resolved_source, resolved_root):
-            raise BundleError(f"filePathMap escapes the deployment root: {config_path}")
-        if not resolved_source.is_file():
-            raise BundleError(
-                f"filePathMap references a missing regular file: {resolved_source}"
+        if bundle_path is None:
+            bundle_path = _normalise_relative_path(
+                raw_bundle_path,
+                f"filePathMap bundle path in {config_path}",
+                limits.max_path_bytes,
             )
+            cache.bundle_paths[raw_bundle_path] = bundle_path
+
+        source_path = (
+            cache.source_paths.get(raw_source_path)
+            if isinstance(raw_source_path, str)
+            else None
+        )
+        if source_path is None:
+            source_path = _normalise_relative_path(
+                raw_source_path,
+                f"filePathMap source path in {config_path}",
+                limits.max_path_bytes,
+            )
+            cache.source_paths[raw_source_path] = source_path
+
+        resolved_source = cache.resolved_sources.get(source_path)
+        if resolved_source is None:
+            resolved_source = (cache.root / source_path).resolve()
+            if not _is_within(resolved_source, cache.root):
+                raise BundleError(
+                    f"filePathMap escapes the deployment root: {config_path}"
+                )
+            if not resolved_source.is_file():
+                raise BundleError(
+                    f"filePathMap references a missing regular file: {resolved_source}"
+                )
+            cache.resolved_sources[source_path] = resolved_source
         entries[bundle_path] = resolved_source
     return entries
 
@@ -348,11 +379,12 @@ def _validate_vercel_paths(root: Path, limits: Limits) -> None:
         raise BundleError("bundle has no Vercel function configuration")
 
     reference_count = 0
+    cache = _FilePathCache(root)
     for config_path in configs:
         config = _load_json(config_path, limits)
         if not isinstance(config, dict):
             raise BundleError(f"function configuration is not an object: {config_path}")
-        file_path_map = _file_path_map(config_path, config, root, limits)
+        file_path_map = _file_path_map(config_path, config, limits, cache)
         reference_count += len(file_path_map)
         if reference_count > limits.max_file_path_references:
             raise BundleError("too many Vercel filePathMap references")
@@ -390,11 +422,12 @@ def seal_bundle(
     if not configs:
         raise BundleError("build has no Vercel function configuration")
     reference_count = 0
+    cache = _FilePathCache(source_root)
     for config_path in configs:
         config = _load_json(config_path, limits)
         if not isinstance(config, dict):
             raise BundleError(f"function configuration is not an object: {config_path}")
-        entries = _file_path_map(config_path, config, source_root, limits)
+        entries = _file_path_map(config_path, config, limits, cache)
         reference_count += len(entries)
         if reference_count > limits.max_file_path_references:
             raise BundleError("too many Vercel filePathMap references")
