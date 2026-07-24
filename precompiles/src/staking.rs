@@ -48,7 +48,8 @@ use precompile_utils::prelude::{Address, BoundedVec, revert};
 use sp_core::{H160, H256, U256};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto};
 use sp_std::vec;
-use subtensor_runtime_common::{NetUid, ProxyType, Token};
+use substrate_fixed::types::U64F64;
+use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
@@ -59,6 +60,11 @@ const STAKE_INFO_READS_PER_HOTKEY: u64 = 7;
 // Conservative charge for decoding and validating each 32-byte hotkey.
 const STAKE_INFO_INPUT_GAS_PER_HOTKEY: u64 = 64;
 const MAX_STAKE_INFO_HOTKEYS: usize = 64;
+const MAX_CONVICTION_HOTKEYS: usize = 64;
+// Individual state reads the lock row, mode, owner hotkey, and global rates.
+const COLDKEY_LOCK_READS: u64 = 5;
+// Aggregate state reads the owner hotkey, global rates, and up to four buckets.
+const HOTKEY_LOCK_READS: u64 = 7;
 
 /// Prefix for the Allowances map in Substrate storage.
 pub struct AllowancesPrefix;
@@ -451,6 +457,241 @@ where
         Ok(pallet_subtensor::DefaultMinStake::<R>::get()
             .to_u64()
             .into())
+    }
+
+    /// Lock existing subnet alpha and begin building conviction for `hotkey`.
+    #[precompile::public("lockStake(bytes32,uint256,uint256)")]
+    #[precompile::payable]
+    fn lock_stake(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        amount_alpha: U256,
+        netuid: U256,
+    ) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::lock_stake {
+            hotkey: R::AccountId::from(hotkey.0),
+            netuid: NetUid::from(try_u16_from_u256(netuid)?),
+            amount: try_u64_from_u256(amount_alpha)?.into(),
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    /// Re-point the caller's lock on a subnet to another hotkey.
+    #[precompile::public("moveLock(bytes32,uint256)")]
+    #[precompile::payable]
+    fn move_lock(
+        handle: &mut impl PrecompileHandle,
+        destination_hotkey: H256,
+        netuid: U256,
+    ) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::move_lock {
+            destination_hotkey: R::AccountId::from(destination_hotkey.0),
+            netuid: NetUid::from(try_u16_from_u256(netuid)?),
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    /// Select perpetual or normally decaying behavior for the caller's lock.
+    #[precompile::public("setPerpetualLock(uint256,bool)")]
+    #[precompile::payable]
+    fn set_perpetual_lock(
+        handle: &mut impl PrecompileHandle,
+        netuid: U256,
+        enabled: bool,
+    ) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::set_perpetual_lock {
+            netuid: NetUid::from(try_u16_from_u256(netuid)?),
+            enabled,
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    /// Set whether the caller rejects incoming stake that carries a lock.
+    #[precompile::public("setRejectLockedAlpha(bool)")]
+    #[precompile::payable]
+    fn set_reject_locked_alpha(handle: &mut impl PrecompileHandle, enabled: bool) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::set_reject_locked_alpha { enabled };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    /// Return one coldkey's lock, rolled forward to the current block.
+    ///
+    /// Conviction is returned as exact unsigned Q64.64 bits.
+    #[precompile::public("getColdkeyLock(bytes32,uint256)")]
+    #[precompile::view]
+    fn get_coldkey_lock(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        netuid: U256,
+    ) -> EvmResult<(bool, H256, U256, u128, u64, bool)> {
+        handle.record_db_reads::<R>(COLDKEY_LOCK_READS)?;
+        let coldkey = R::AccountId::from(coldkey.0);
+        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let perpetual = pallet_subtensor::DecayingLock::<R>::get(&coldkey, netuid) == Some(false);
+
+        let Some((hotkey, lock)) =
+            pallet_subtensor::Lock::<R>::iter_prefix((&coldkey, netuid)).next()
+        else {
+            return Ok((false, H256::zero(), U256::zero(), 0, 0, perpetual));
+        };
+
+        let now = pallet_subtensor::Pallet::<R>::get_current_block_as_u64();
+        let owner_lock = hotkey == pallet_subtensor::SubnetOwnerHotkey::<R>::get(netuid);
+        let (lock, _) = pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
+            lock,
+            now,
+            pallet_subtensor::UnlockRate::<R>::get(),
+            pallet_subtensor::MaturityRate::<R>::get(),
+            owner_lock,
+            perpetual,
+        );
+        let hotkey: [u8; 32] = hotkey.into();
+
+        Ok((
+            true,
+            hotkey.into(),
+            lock.locked_mass.to_u64().into(),
+            lock.conviction.to_bits(),
+            lock.last_update,
+            perpetual,
+        ))
+    }
+
+    /// Return the rolled aggregate lock and conviction for a hotkey.
+    ///
+    /// This combines perpetual and decaying general buckets and, when the
+    /// hotkey is the subnet owner, both owner buckets.
+    #[precompile::public("getHotkeyLock(bytes32,uint256)")]
+    #[precompile::view]
+    fn get_hotkey_lock(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: U256,
+    ) -> EvmResult<(bool, U256, u128)> {
+        handle.record_db_reads::<R>(HOTKEY_LOCK_READS)?;
+        let hotkey = R::AccountId::from(hotkey.0);
+        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let now = pallet_subtensor::Pallet::<R>::get_current_block_as_u64();
+        let unlock_rate = pallet_subtensor::UnlockRate::<R>::get();
+        let maturity_rate = pallet_subtensor::MaturityRate::<R>::get();
+        let is_owner = hotkey == pallet_subtensor::SubnetOwnerHotkey::<R>::get(netuid);
+
+        let mut locked = AlphaBalance::ZERO;
+        let mut conviction = U64F64::from_bits(0);
+        let mut exists = false;
+        let mut add_bucket = |maybe_lock: Option<pallet_subtensor::staking::lock::LockState>,
+                              owner_lock: bool,
+                              perpetual_lock: bool| {
+            if let Some(lock) = maybe_lock {
+                exists = true;
+                let (lock, _) = pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
+                    lock,
+                    now,
+                    unlock_rate,
+                    maturity_rate,
+                    owner_lock,
+                    perpetual_lock,
+                );
+                locked = locked.saturating_add(lock.locked_mass);
+                conviction = conviction.saturating_add(lock.conviction);
+            }
+        };
+
+        add_bucket(
+            pallet_subtensor::HotkeyLock::<R>::get(netuid, &hotkey),
+            false,
+            true,
+        );
+        add_bucket(
+            pallet_subtensor::DecayingHotkeyLock::<R>::get(netuid, &hotkey),
+            false,
+            false,
+        );
+        if is_owner {
+            add_bucket(pallet_subtensor::OwnerLock::<R>::get(netuid), true, true);
+            add_bucket(
+                pallet_subtensor::DecayingOwnerLock::<R>::get(netuid),
+                true,
+                false,
+            );
+        }
+
+        Ok((exists, locked.to_u64().into(), conviction.to_bits()))
+    }
+
+    /// Return exact rolled conviction for up to 64 distinct candidate hotkeys.
+    ///
+    /// This bounded form avoids the runtime's unbounded all-hotkey scan. The
+    /// returned values align one-for-one with `hotkeys`.
+    #[precompile::public("getHotkeyConvictions(uint256,bytes32[])")]
+    #[precompile::view]
+    fn get_hotkey_convictions(
+        handle: &mut impl PrecompileHandle,
+        netuid: U256,
+        hotkeys: BoundedVec<H256, ConstU32<{ MAX_CONVICTION_HOTKEYS as u32 }>>,
+    ) -> EvmResult<Vec<u128>> {
+        let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
+        handle.record_cost(hotkey_count.saturating_mul(STAKE_INFO_INPUT_GAS_PER_HOTKEY))?;
+        let hotkeys: Vec<H256> = hotkeys.into();
+        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+
+        let mut seen = BTreeSet::new();
+        for hotkey in &hotkeys {
+            if !seen.insert(hotkey) {
+                return Err(revert("duplicate conviction hotkey"));
+            }
+        }
+
+        handle.record_db_reads::<R>(hotkey_count.saturating_mul(HOTKEY_LOCK_READS))?;
+
+        Ok(hotkeys
+            .into_iter()
+            .map(|hotkey| {
+                let hotkey = R::AccountId::from(hotkey.0);
+                pallet_subtensor::Pallet::<R>::hotkey_conviction(&hotkey, netuid).to_bits()
+            })
+            .collect())
+    }
+
+    /// Return the global lock decay and conviction maturity timescales.
+    #[precompile::public("getLockRates()")]
+    #[precompile::view]
+    fn get_lock_rates(handle: &mut impl PrecompileHandle) -> EvmResult<(u64, u64)> {
+        handle.record_db_reads::<R>(2)?;
+        Ok((
+            pallet_subtensor::UnlockRate::<R>::get(),
+            pallet_subtensor::MaturityRate::<R>::get(),
+        ))
+    }
+
+    /// Return whether a coldkey rejects incoming locked alpha.
+    #[precompile::public("getRejectLockedAlpha(bytes32)")]
+    #[precompile::view]
+    fn get_reject_locked_alpha(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+    ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
+        let coldkey = R::AccountId::from(coldkey.0);
+        Ok(pallet_subtensor::Pallet::<R>::account_rejects_locked_alpha(
+            &coldkey,
+        ))
     }
 
     #[precompile::public("addProxy(bytes32)")]
@@ -1444,6 +1685,373 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
                 .execute_returns(U256::from(threshold.to_u64()));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_manages_and_reads_stake_lock_lifecycle() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1120);
+            let coldkey = mapped_account(caller);
+            let origin_hotkey = AccountId::from([0x61; 32]);
+            let destination_hotkey = AccountId::from([0x62; 32]);
+            let locked = 8_000_000_000_u64;
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &origin_hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            pallet_subtensor::Owner::<Runtime>::insert(&origin_hotkey, &coldkey);
+            pallet_subtensor::Owner::<Runtime>::insert(&destination_hotkey, &coldkey);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("lockStake(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(origin_hotkey.as_ref()),
+                            U256::from(locked),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setPerpetualLock(uint256,bool)"),
+                        (U256::from(TEST_NETUID_U16), true),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::DecayingLock::<Runtime>::get(&coldkey, netuid),
+                Some(false)
+            );
+
+            frame_system::Pallet::<Runtime>::set_block_number(1_000);
+            let expected = pallet_subtensor::Pallet::<Runtime>::get_coldkey_lock(&coldkey, netuid)
+                .expect("lock exists");
+            assert_eq!(expected.locked_mass.to_u64(), locked);
+            assert!(expected.conviction > U64F64::from_num(0));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getColdkeyLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(coldkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(COLDKEY_LOCK_READS),
+                )
+                .execute_returns((
+                    true,
+                    H256::from_slice(origin_hotkey.as_ref()),
+                    U256::from(expected.locked_mass.to_u64()),
+                    expected.conviction.to_bits(),
+                    expected.last_update,
+                    true,
+                ));
+
+            let expected_hotkey_conviction =
+                pallet_subtensor::Pallet::<Runtime>::hotkey_conviction(&origin_hotkey, netuid);
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getHotkeyLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(origin_hotkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(HOTKEY_LOCK_READS),
+                )
+                .execute_returns((
+                    true,
+                    U256::from(expected.locked_mass.to_u64()),
+                    expected_hotkey_conviction.to_bits(),
+                ));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("moveLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(destination_hotkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            let moved =
+                pallet_subtensor::Lock::<Runtime>::get((&coldkey, netuid, &destination_hotkey))
+                    .expect("lock moved to destination");
+            assert_eq!(moved.locked_mass, expected.locked_mass);
+            assert_eq!(moved.conviction, expected.conviction);
+            assert!(!pallet_subtensor::Lock::<Runtime>::contains_key((
+                &coldkey,
+                netuid,
+                &origin_hotkey
+            )));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setPerpetualLock(uint256,bool)"),
+                        (U256::from(TEST_NETUID_U16), false),
+                    ),
+                )
+                .execute_returns(());
+            frame_system::Pallet::<Runtime>::set_block_number(2_000);
+            let decayed = pallet_subtensor::Pallet::<Runtime>::get_coldkey_lock(&coldkey, netuid)
+                .expect("decaying lock remains above the cleanup threshold");
+            assert!(decayed.locked_mass < moved.locked_mass);
+            assert_eq!(
+                pallet_subtensor::DecayingLock::<Runtime>::get(&coldkey, netuid),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_exposes_lock_rates_conviction_batches_and_recipient_flag() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1121);
+            let coldkey = mapped_account(caller);
+            let hotkey = AccountId::from([0x63; 32]);
+            let empty_hotkey = AccountId::from([0x64; 32]);
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            ensure_hotkey_exists(&empty_hotkey);
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("lockStake(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(5_000_000_000_u64),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+            frame_system::Pallet::<Runtime>::set_block_number(1_000);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(selector_u32("getLockRates()"), ()),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(2))
+                .execute_returns((
+                    pallet_subtensor::UnlockRate::<Runtime>::get(),
+                    pallet_subtensor::MaturityRate::<Runtime>::get(),
+                ));
+
+            let candidates = vec![
+                H256::from_slice(hotkey.as_ref()),
+                H256::from_slice(empty_hotkey.as_ref()),
+            ];
+            let expected = vec![
+                pallet_subtensor::Pallet::<Runtime>::hotkey_conviction(&hotkey, netuid).to_bits(),
+                0,
+            ];
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getHotkeyConvictions(uint256,bytes32[])"),
+                        (U256::from(TEST_NETUID_U16), candidates),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    stake_info_validation_cost(2).saturating_add(
+                        RuntimeHelper::<Runtime>::db_read_gas_cost()
+                            .saturating_mul(2 * HOTKEY_LOCK_READS),
+                    ),
+                )
+                .execute_returns(expected);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getRejectLockedAlpha(bytes32)"),
+                        (H256::from_slice(coldkey.as_ref()),),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns(true);
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(selector_u32("setRejectLockedAlpha(bool)"), (false,)),
+                )
+                .execute_returns(());
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getRejectLockedAlpha(bytes32)"),
+                        (H256::from_slice(coldkey.as_ref()),),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns(false);
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_reports_empty_lock_and_preconfigured_perpetual_mode() {
+        new_test_ext().execute_with(|| {
+            setup_staking_subnet();
+            let caller = addr_from_index(0x1123);
+            let coldkey = mapped_account(caller);
+            let hotkey = hotkey();
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setPerpetualLock(uint256,bool)"),
+                        (U256::from(TEST_NETUID_U16), true),
+                    ),
+                )
+                .execute_returns(());
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getColdkeyLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(coldkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(COLDKEY_LOCK_READS),
+                )
+                .execute_returns((false, H256::zero(), U256::zero(), 0_u128, 0_u64, true));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getHotkeyLock(bytes32,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(HOTKEY_LOCK_READS),
+                )
+                .execute_returns((false, U256::zero(), 0_u128));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_rejects_invalid_lock_inputs() {
+        new_test_ext().execute_with(|| {
+            setup_staking_subnet();
+            let caller = addr_from_index(0x1122);
+            let coldkey = mapped_account(caller);
+            let hotkey = hotkey();
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("lockStake(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(u64::MAX) + U256::one(),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_error(ExitError::Other(
+                    "the value is outside of u64 bounds".into(),
+                ));
+
+            let requested = H256::from_slice(hotkey.as_ref());
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getHotkeyConvictions(uint256,bytes32[])"),
+                        (U256::from(TEST_NETUID_U16), vec![requested, requested]),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(stake_info_validation_cost(2))
+                .execute_reverts(|output| output == b"duplicate conviction hotkey");
+
+            let too_many_hotkeys = vec![requested; MAX_CONVICTION_HOTKEYS + 1];
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getHotkeyConvictions(uint256,bytes32[])"),
+                        (U256::from(TEST_NETUID_U16), too_many_hotkeys),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(0)
+                .execute_reverts(|output| output == b"hotkeys: Value is too large for length");
         });
     }
 
