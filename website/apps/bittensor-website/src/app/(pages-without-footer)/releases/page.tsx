@@ -23,6 +23,15 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v439',
+    date: 'July 2026',
+    title: 'Conviction for Contracts',
+    summary:
+      'EVM access to stake locks and miner conviction, rolled lock views, bounded conviction ' +
+      'queries, locked-alpha transfer policy, and subnet owner-cut auto-lock controls.',
+    href: '/releases/v439-upgrade',
+  },
+  {
     tag: 'v438',
     date: 'July 2026',
     title: 'Interfaces & Reliability',
