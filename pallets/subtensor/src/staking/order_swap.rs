@@ -1,3 +1,4 @@
+//! Benchmark-only helpers for staking AMM buy/sell order paths.
 use super::*;
 use frame_support::transactional;
 use substrate_fixed::types::U64F64;
