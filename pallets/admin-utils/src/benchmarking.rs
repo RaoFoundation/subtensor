@@ -1,4 +1,7 @@
-//! Benchmarking setup
+//! Runtime benchmarks for `pallet-admin-utils` dispatchables.
+//!
+//! Each benchmark clears the admin freeze window so root calls are not blocked by the
+//! default freeze-window setup used elsewhere in tests.
 #![cfg(feature = "runtime-benchmarks")]
 #![allow(clippy::arithmetic_side_effects)]
 #![allow(clippy::unwrap_used)]
