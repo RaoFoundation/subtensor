@@ -81,3 +81,38 @@ pallets/commitments/src/lib.rs
 ```
 - proposed by: w1-runtime
 - status: pending
+
+## ensure_sn_owner_or_root_with_limits -> ensure_subnet_owner_or_root_with_limits
+- reason: `sn` abbreviation is opaque next to sibling `ensure_subnet_owner_or_root`; spell out `subnet`.
+- hits:
+```
+pallets/subtensor/src/utils/misc/origin_and_admin.rs
+pallets/admin-utils/src/lib.rs
+pallets/subtensor/src/tests/ensure.rs
+```
+- proposed by: w2-src-utils
+- status: pending
+
+## record_owner_rl -> record_owner_rate_limits
+- reason: `rl` abbreviation hides that this stamps [`TransactionType`] last-block markers after owner admin calls.
+- hits:
+```
+pallets/subtensor/src/utils/misc/origin_and_admin.rs
+pallets/admin-utils/src/lib.rs
+```
+- proposed by: w2-src-utils
+- status: pending
+
+## uid_lookup -> associated_uids_for_evm_key
+- reason: name does not say EVM reverse-index lookup; collides with the `UidLookup` precompile module name in search results.
+- hits:
+```
+pallets/subtensor/src/utils/evm.rs
+pallets/subtensor/src/lib.rs
+pallets/subtensor/src/migrations/migrate_associated_evm_address_index.rs
+pallets/admin-utils/src/tests/uids_validators.rs
+precompiles/src/uid_lookup.rs
+precompiles/src/lib.rs
+```
+- proposed by: w2-src-utils
+- status: pending

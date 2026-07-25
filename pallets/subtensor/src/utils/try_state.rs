@@ -1,7 +1,9 @@
+//! Try-runtime invariants for stake accounting (`try-runtime` feature only).
+
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    /// Checks the sum of all stakes matches the [`TotalStake`].
+    /// Checks that Σ `SubnetTAO` (minus non-root network min-lock) equals [`TotalStake`].
     #[allow(dead_code)]
     pub(crate) fn check_total_stake() -> Result<(), sp_runtime::TryRuntimeError> {
         // Calculate the total staked amount

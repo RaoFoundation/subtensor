@@ -1,13 +1,20 @@
+//! Per-subnet validator voting-power EMA tracking.
+//!
+//! When enabled (`VotingPowerTrackingEnabled`), epoch processing updates [`VotingPower`]
+//! for validators with a permit using stake + [`VotingPowerEmaAlpha`]. Disabling is
+//! scheduled with a [`VOTING_POWER_DISABLE_GRACE_PERIOD_BLOCKS`] delay before entries clear.
+
 use super::*;
 use crate::epoch::run_epoch::EpochTerms;
 use alloc::collections::BTreeMap;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 
-/// 14 days in blocks (assuming ~12 second blocks)
-/// 14 * 24 * 60 * 60 / 12 = 100800 blocks
+/// Grace period after a disable request before tracking stops and [`VotingPower`] is cleared.
+///
+/// 14 days at ~12s blocks: `14 * 24 * 60 * 60 / 12 = 100800`.
 pub const VOTING_POWER_DISABLE_GRACE_PERIOD_BLOCKS: u64 = 100800;
 
-/// Maximum alpha value (1.0 represented as u64 with 18 decimals)
+/// EMA alpha of 1.0 in 18-decimal fixed point (`10^18`).
 pub const MAX_VOTING_POWER_EMA_ALPHA: u64 = 1_000_000_000_000_000_000;
 
 impl<T: Config> Pallet<T> {

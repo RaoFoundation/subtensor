@@ -1,3 +1,12 @@
+//! Hotkey ↔ EVM address association: EIP-191 recover, forward map, reverse index.
+//!
+//! Storage:
+//! - [`AssociatedEvmAddress`] — `(netuid, uid) → (H160, block)`
+//! - [`AssociatedUidsByEvmAddress`] — `(netuid, H160) → [(uid, block), …]` (capped)
+//!
+//! Agents often land here via `do_associate_evm_key`, `uid_lookup`, or the EVM
+//! `UidLookup` precompile (which wraps [`Self::uid_lookup`]).
+
 use super::*;
 use alloc::string::ToString;
 use frame_support::ensure;
@@ -8,14 +17,16 @@ use sp_std::collections::btree_map::BTreeMap;
 use sp_std::vec::Vec;
 use subtensor_runtime_common::NetUid;
 
-const MESSAGE_PREFIX: &str = "\x19Ethereum Signed Message:\n";
+/// Ethereum personal_sign / EIP-191 prefix (`"\x19Ethereum Signed Message:\n"`).
+const EIP191_MESSAGE_PREFIX: &str = "\x19Ethereum Signed Message:\n";
 
 impl<T: Config> Pallet<T> {
+    /// Keccak-256 of the EIP-191 personal_sign wrapper around `message`.
     pub(crate) fn hash_message_eip191<M: AsRef<[u8]>>(message: M) -> [u8; 32] {
         let msg_len = message.as_ref().len().to_string();
         keccak_256(
             &[
-                MESSAGE_PREFIX.as_bytes(),
+                EIP191_MESSAGE_PREFIX.as_bytes(),
                 msg_len.as_bytes(),
                 message.as_ref(),
             ]
@@ -121,6 +132,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Write forward map + reverse index for `(netuid, uid) ↔ evm_key` at `block_associated`.
+    ///
+    /// If the UID already pointed at a different EVM key, that UID is removed from the old
+    /// reverse-index bucket before the new association is upserted.
     pub fn set_associated_evm_address(
         netuid: NetUid,
         uid: u16,
@@ -137,12 +152,14 @@ impl<T: Config> Pallet<T> {
         AssociatedEvmAddress::<T>::insert(netuid, uid, (evm_key, block_associated));
     }
 
+    /// Remove the association for `(netuid, uid)` from both forward and reverse maps.
     pub fn remove_associated_evm_address(netuid: NetUid, uid: u16) {
         if let Some((evm_key, _)) = AssociatedEvmAddress::<T>::take(netuid, uid) {
             Self::remove_uid_from_evm_address_index(netuid, evm_key, uid);
         }
     }
 
+    /// Wipe all EVM associations for `netuid` (subnet dissolve / full reset).
     pub fn clear_associated_evm_addresses(netuid: NetUid) {
         let _ = AssociatedEvmAddress::<T>::clear_prefix(netuid, u32::MAX, None);
         let _ = AssociatedUidsByEvmAddress::<T>::clear_prefix(netuid, u32::MAX, None);
@@ -220,6 +237,9 @@ impl<T: Config> Pallet<T> {
         });
     }
 
+    /// UIDs associated with `evm_key` on `netuid`, oldest association block first, capped at `limit`.
+    ///
+    /// Backing storage is [`AssociatedUidsByEvmAddress`]. Wrapped by the `UidLookup` precompile.
     pub fn uid_lookup(netuid: NetUid, evm_key: H160, limit: u16) -> Vec<(u16, u64)> {
         let mut ret_val = AssociatedUidsByEvmAddress::<T>::get(netuid, evm_key)
             .into_iter()
@@ -229,6 +249,7 @@ impl<T: Config> Pallet<T> {
         ret_val
     }
 
+    /// Reject re-association of `uid` on `netuid` until [`T::EvmKeyAssociateRateLimit`] blocks elapse.
     pub fn ensure_evm_key_associate_rate_limit(netuid: NetUid, uid: u16) -> DispatchResult {
         let now = Self::get_current_block_as_u64();
         let block_associated = match AssociatedEvmAddress::<T>::get(netuid, uid) {
