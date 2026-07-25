@@ -1,3 +1,8 @@
+//! Checked and fall-back arithmetic helpers for primitive integers and `substrate_fixed` types.
+//!
+//! Prefer these over panicking `/` or silent wrapping when implementing emission, pricing,
+//! and stake math that must tolerate edge cases (zero divisors, negative roots, etc.).
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::result_unit_err)]
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
@@ -8,15 +13,15 @@ use core::f64::consts::LN_2;
 use sp_arithmetic::traits::UniqueSaturatedInto;
 use substrate_fixed::traits::Fixed;
 
-/// Safe division trait
+/// Division that never panics: zero divisor yields a caller-supplied or `Default` value.
 pub trait SafeDiv {
-    /// Safe division that returns supplied default value for division by zero
+    /// `self / rhs`, or `def` when `rhs` is zero.
     fn safe_div_or(self, rhs: Self, def: Self) -> Self;
-    /// Safe division that returns default value for division by zero
+    /// `self / rhs`, or `Default::default()` when `rhs` is zero.
     fn safe_div(self, rhs: Self) -> Self;
 }
 
-/// Implementation of safe division trait for primitive types
+/// Implement [`SafeDiv`] for the listed primitive integer types via `checked_div`.
 macro_rules! impl_safe_div_for_primitive {
     ($($t:ty),*) => {
         $(
@@ -34,7 +39,11 @@ macro_rules! impl_safe_div_for_primitive {
 }
 impl_safe_div_for_primitive!(u8, u16, u32, u64, u128, i8, i16, i32, i64, usize);
 
+/// Extra checked ops on [`Fixed`] values used by subnet pricing and emission math.
 pub trait FixedExt: Fixed {
+    /// Integer power via binary exponentiation; `None` for `0^negative`.
+    ///
+    /// Negative exponents compute `1 / base^|exp|` with saturating intermediate muls.
     fn checked_pow<E>(&self, exponent: E) -> Option<Self>
     where
         E: UniqueSaturatedInto<i32>,
@@ -73,7 +82,9 @@ pub trait FixedExt: Fixed {
         Some(result)
     }
 
-    /// Safe sqrt with good precision
+    /// Non-negative square root by bisection until `|x/mid - mid| <= epsilon`, or 128 iterations.
+    ///
+    /// Returns `None` for negative `self`.
     fn checked_sqrt(&self, epsilon: Self) -> Option<Self> {
         let zero = Self::saturating_from_num(0);
         let one = Self::saturating_from_num(1);
@@ -119,7 +130,9 @@ pub trait FixedExt: Fixed {
         Some(middle)
     }
 
-    /// Natural logarithm (base e)
+    /// Natural logarithm (`ln`); `None` for non-positive inputs.
+    ///
+    /// Scales into `[1, 2)` then applies an 8-term Taylor series for `ln(1+z)`.
     fn checked_ln(&self) -> Option<Self> {
         if *self <= Self::from_num(0) {
             return None;
@@ -172,7 +185,9 @@ pub trait FixedExt: Fixed {
         ln_y.checked_add(exp_ln2)
     }
 
-    /// Logarithm with arbitrary base
+    /// Logarithm at arbitrary `base` via change-of-base (`ln(x) / ln(base)`).
+    ///
+    /// Returns `None` for non-positive `self`, or base `<= 0` or `== 1`.
     fn checked_log(&self, base: Self) -> Option<Self> {
         // Check for invalid base
         if base <= Self::from_num(0) || base == Self::from_num(1) {
@@ -186,7 +201,7 @@ pub trait FixedExt: Fixed {
         ln_x.checked_div(ln_base)
     }
 
-    /// Returns the largest integer less than or equal to the fixed-point number.
+    /// Largest integer `<= self` (floor toward −∞ for negatives with a fractional part).
     fn checked_floor(&self) -> Option<Self> {
         // Approach using the integer and fractional parts
         if *self >= Self::from_num(0) {
@@ -207,6 +222,7 @@ pub trait FixedExt: Fixed {
         int_part.checked_sub(Self::from_num(1))
     }
 
+    /// Absolute difference `|self - b|` using saturating subtraction.
     fn abs_diff(&self, b: Self) -> Self {
         if *self < b {
             b.saturating_sub(*self)
@@ -215,10 +231,12 @@ pub trait FixedExt: Fixed {
         }
     }
 
+    /// `self / rhs`, or `def` when division fails (e.g. zero divisor).
     fn safe_div_or(&self, rhs: Self, def: Self) -> Self {
         self.checked_div(rhs).unwrap_or(def)
     }
 
+    /// `self / rhs`, or the fixed-point default when division fails.
     fn safe_div(&self, rhs: Self) -> Self {
         self.checked_div(rhs).unwrap_or_default()
     }

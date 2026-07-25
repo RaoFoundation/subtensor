@@ -1,3 +1,9 @@
+//! Traits and result types for subnet TAO↔alpha AMM swaps and limit-order execution.
+//!
+//! - [`SwapEngine`] / [`SwapHandler`]: pool swap and protocol-liquidity operations
+//! - [`OrderSwapInterface`]: buy/sell that also move user balances / stake
+//! - [`order`]: typed buy (`GetAlphaForTao`) and sell (`GetTaoForAlpha`) orders
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::too_many_arguments)]
 use core::ops::Neg;
@@ -11,7 +17,12 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
 mod order;
 
+/// Low-level AMM engine that executes a typed [`Order`] against a subnet pool.
 pub trait SwapEngine<O: Order>: DefaultPriceLimit<O::PaidIn, O::PaidOut> {
+    /// Execute `order` on `netuid`, respecting `price_limit`.
+    ///
+    /// `drop_fees` skips fee charging; `should_rollback` asks the engine to revert
+    /// pool mutations after computing the result (simulation / quote path).
     fn swap(
         netuid: NetUid,
         order: O,
@@ -21,7 +32,9 @@ pub trait SwapEngine<O: Order>: DefaultPriceLimit<O::PaidIn, O::PaidOut> {
     ) -> Result<SwapResult<O::PaidIn, O::PaidOut>, DispatchError>;
 }
 
+/// Runtime-facing swap API: execute or simulate orders, quote fees/prices, manage protocol liquidity.
 pub trait SwapHandler {
+    /// Execute a typed order through the implementing [`SwapEngine`].
     fn swap<O: Order>(
         netuid: NetUid,
         order: O,
@@ -31,6 +44,7 @@ pub trait SwapHandler {
     ) -> Result<SwapResult<O::PaidIn, O::PaidOut>, DispatchError>
     where
         Self: SwapEngine<O>;
+    /// Quote an order without committing pool state (`should_rollback`-style simulation).
     fn sim_swap<O: Order>(
         netuid: NetUid,
         order: O,
@@ -38,20 +52,31 @@ pub trait SwapHandler {
     where
         Self: SwapEngine<O>;
 
+    /// Approximate fee charged for swapping `amount` on `netuid` (same token type in/out of fee).
     fn approx_fee_amount<T: Token>(netuid: NetUid, amount: T) -> T;
+    /// Spot price: TAO per alpha on `netuid` (fixed-point).
     fn current_alpha_price(netuid: NetUid) -> U64F64;
+    /// Upper bound used when a call site wants “no effective max price”.
     fn max_price<C: Token>() -> C;
+    /// Lower bound used when a call site wants “no effective min price”.
     fn min_price<C: Token>() -> C;
+    /// Apply protocol-owned liquidity deltas; returns the applied `(tao, alpha)` amounts.
     fn adjust_protocol_liquidity(
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
+    /// Protocol-owned alpha sitting outside the AMM reserves for `netuid`.
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
+    /// Protocol-owned TAO sitting outside the AMM reserves for `netuid`.
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
+    /// Zero both protocol liquidity reservoirs for `netuid`.
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);
+    /// Drain protocol liquidity into the pool (or remove it), metering weight; `false` if unfinished.
     fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
+    /// Initialize swap state for a new/activated subnet; optional starting price.
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>);
+    /// How much alpha `tao_amount` would buy at the current pool state (no execution).
     fn get_alpha_amount_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
 }
 
@@ -70,8 +95,6 @@ pub trait OrderSwapInterface<AccountId> {
     /// coldkey balance, and sets the staking rate-limit flag for `(hotkey,
     /// coldkey, netuid)` after a successful stake. Pass `false` for internal
     /// pallet-intermediary swaps that must bypass these user-facing guards.
-    /// Buy alpha with TAO: debit `tao_amount` from `coldkey`'s free balance,
-    /// credit resulting alpha as stake at `hotkey` on `netuid`.
     ///
     /// **Implementations MUST be transactional** (wrap in
     /// `frame_support::storage::with_transaction` or annotate with
@@ -95,8 +118,6 @@ pub trait OrderSwapInterface<AccountId> {
     /// balance, and checks that the staking rate-limit flag is not set for
     /// `(hotkey, coldkey, netuid)` (i.e. the account did not stake this
     /// block). Pass `false` for internal pallet-intermediary swaps.
-    /// Sell alpha for TAO: remove `alpha_amount` from `coldkey`'s stake at
-    /// `hotkey` on `netuid`, credit resulting TAO to `coldkey`'s free balance.
     ///
     /// **Implementations MUST be transactional** (wrap in
     /// `frame_support::storage::with_transaction` or annotate with
@@ -189,15 +210,17 @@ pub trait OrderSwapInterface<AccountId> {
     fn set_up_acc_for_benchmark(_hotkey: &AccountId, _coldkey: &AccountId) {}
 }
 
+/// Provides a default limit price for an order's paid-in / paid-out token pair.
 pub trait DefaultPriceLimit<PaidIn, PaidOut>
 where
     PaidIn: Token,
     PaidOut: Token,
 {
+    /// Default price limit in units of `C` (typically “no binding limit”).
     fn default_price_limit<C: Token>() -> C;
 }
 
-/// Externally used swap result (for RPC)
+/// Swap fill sizes and fees returned to RPC / extrinsic callers (`PaidIn` / `PaidOut` tokens).
 #[freeze_struct("6a03533fc53ccfb8")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SwapResult<PaidIn, PaidOut>
@@ -216,19 +239,23 @@ where
     PaidIn: Token,
     PaidOut: Token,
 {
+    /// Signed reserve delta for the paid-in side (positive = reserve increases).
     pub fn paid_in_reserve_delta(&self) -> i128 {
         self.amount_paid_in.to_u64() as i128
     }
 
+    /// [`Self::paid_in_reserve_delta`] clamped to `i64`.
     pub fn paid_in_reserve_delta_i64(&self) -> i64 {
         self.paid_in_reserve_delta()
             .clamp(i64::MIN as i128, i64::MAX as i128) as i64
     }
 
+    /// Signed reserve delta for the paid-out side (negative = reserve decreases).
     pub fn paid_out_reserve_delta(&self) -> i128 {
         (self.amount_paid_out.to_u64() as i128).neg()
     }
 
+    /// [`Self::paid_out_reserve_delta`] clamped to `i64`.
     pub fn paid_out_reserve_delta_i64(&self) -> i64 {
         (self.amount_paid_out.to_u64() as i128)
             .neg()
