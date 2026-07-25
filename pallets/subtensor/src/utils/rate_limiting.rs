@@ -1,8 +1,19 @@
+//! Transaction and hyperparameter rate-limit keys for Subtensor extrinsics.
+//!
+//! [`TransactionType`] maps to a `u16` stored in [`TransactionKeyLastBlock`] (or special-cased
+//! storage for network register / SN owner hotkey / owner hyperparams). Those `u16` codes are
+//! frozen wire/storage discriminants — append new variants at the end; do not renumber.
+//!
+//! [`Hyperparameter`] discriminants are likewise frozen (used inside
+//! [`RateLimitKey::OwnerHyperparamUpdate`]).
+
 use subtensor_runtime_common::NetUid;
 
 use super::*;
 
-/// Enum representing different types of transactions
+/// Extrinsic / admin action categories that share the rate-limit storage path.
+///
+/// `Into<u16>` values are persisted; see module docs before reordering variants.
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub enum TransactionType {
@@ -21,7 +32,7 @@ pub enum TransactionType {
 }
 
 impl TransactionType {
-    /// Get the rate limit for a specific transaction type
+    /// Global (non-subnet) rate limit in blocks for this transaction type.
     pub fn rate_limit<T: Config>(&self) -> u64 {
         match self {
             Self::SetChildren => 150, // 30 minutes
@@ -35,6 +46,7 @@ impl TransactionType {
         }
     }
 
+    /// Subnet-scoped rate limit in blocks (tempo-multiplied for owner hyperparams / weights key).
     pub fn rate_limit_on_subnet<T: Config>(&self, netuid: NetUid) -> u64 {
         #[allow(clippy::match_single_binding)]
         match self {
@@ -53,6 +65,7 @@ impl TransactionType {
         }
     }
 
+    /// Whether `key` may submit this global transaction type at the current block.
     pub fn passes_rate_limit<T: Config>(&self, key: &T::AccountId) -> bool {
         let block = Pallet::<T>::get_current_block_as_u64();
         let limit = self.rate_limit::<T>();
@@ -61,12 +74,13 @@ impl TransactionType {
         Self::check_passes_rate_limit(limit, block, last_block)
     }
 
+    /// `true` when `last_block == 0` (never used) or `block - last_block >= limit`.
     pub fn check_passes_rate_limit(limit: u64, block: u64, last_block: u64) -> bool {
         // Allow the first transaction (when last_block is 0) or if the rate limit has passed
         last_block == 0 || block.saturating_sub(last_block) >= limit
     }
 
-    /// Check if a transaction should be rate limited on a specific subnet
+    /// Whether `hotkey` may submit this transaction type on `netuid` at the current block.
     pub fn passes_rate_limit_on_subnet<T: Config>(
         &self,
         hotkey: &T::AccountId,
@@ -79,7 +93,7 @@ impl TransactionType {
         Self::check_passes_rate_limit(limit, block, last_block)
     }
 
-    /// Get the block number of the last transaction for a specific key, and transaction type
+    /// Block of the last global transaction for `key` and this type.
     pub fn last_block<T: Config>(&self, key: &T::AccountId) -> u64 {
         match self {
             Self::RegisterNetwork => Pallet::<T>::get_network_last_lock_block(),
@@ -87,8 +101,7 @@ impl TransactionType {
         }
     }
 
-    /// Get the block number of the last transaction for a specific hotkey, network, and transaction
-    /// type
+    /// Block of the last subnet-scoped transaction for `hotkey` / `netuid` / this type.
     pub fn last_block_on_subnet<T: Config>(&self, hotkey: &T::AccountId, netuid: NetUid) -> u64 {
         match self {
             Self::RegisterNetwork => Pallet::<T>::get_network_last_lock_block(),
@@ -105,8 +118,7 @@ impl TransactionType {
         }
     }
 
-    /// Set the block number of the last transaction for a specific hotkey, network, and transaction
-    /// type
+    /// Record `block` as the last submission time for this type on `netuid`.
     pub fn set_last_block_on_subnet<T: Config>(
         &self,
         key: &T::AccountId,
@@ -131,7 +143,7 @@ impl TransactionType {
     }
 }
 
-/// Implement conversion from TransactionType to u16
+/// Frozen `u16` codes persisted in [`TransactionKeyLastBlock`] — do not renumber.
 impl From<TransactionType> for u16 {
     fn from(tx_type: TransactionType) -> Self {
         match tx_type {
@@ -151,7 +163,7 @@ impl From<TransactionType> for u16 {
     }
 }
 
-/// Implement conversion from u16 to TransactionType
+/// Inverse of [`From<TransactionType> for u16`]; unknown codes map to [`TransactionType::Unknown`].
 impl From<u16> for TransactionType {
     fn from(value: u16) -> Self {
         match value {
@@ -177,6 +189,10 @@ impl From<Hyperparameter> for TransactionType {
     }
 }
 
+/// Owner-settable subnet hyperparameters used as rate-limit sub-keys.
+///
+/// Explicit discriminants are stored on-chain via [`RateLimitKey::OwnerHyperparamUpdate`] —
+/// append only; do not renumber existing variants.
 #[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, Debug, TypeInfo)]
 #[non_exhaustive]
 pub enum Hyperparameter {
@@ -221,40 +237,50 @@ impl<T: Config> Pallet<T> {
     // ==== Rate Limiting =====
     // ========================
 
+    /// Clear the last generic tx-block marker for `key`.
     pub fn remove_last_tx_block(key: &T::AccountId) {
         Self::remove_rate_limited_last_block(&RateLimitKey::LastTxBlock(key.clone()))
     }
+    /// Record the last generic tx-block for `key`.
     pub fn set_last_tx_block(key: &T::AccountId, block: u64) {
         Self::set_rate_limited_last_block(&RateLimitKey::LastTxBlock(key.clone()), block);
     }
+    /// Last block at which `key` submitted a generic rate-limited tx.
     pub fn get_last_tx_block(key: &T::AccountId) -> u64 {
         Self::get_rate_limited_last_block(&RateLimitKey::LastTxBlock(key.clone()))
     }
 
+    /// Clear the last delegate-take tx-block marker for `key`.
     pub fn remove_last_tx_block_delegate_take(key: &T::AccountId) {
         Self::remove_rate_limited_last_block(&RateLimitKey::LastTxBlockDelegateTake(key.clone()))
     }
+    /// Record the last delegate-take tx-block for `key`.
     pub fn set_last_tx_block_delegate_take(key: &T::AccountId, block: u64) {
         Self::set_rate_limited_last_block(
             &RateLimitKey::LastTxBlockDelegateTake(key.clone()),
             block,
         );
     }
+    /// Last block at which `key` updated delegate take.
     pub fn get_last_tx_block_delegate_take(key: &T::AccountId) -> u64 {
         Self::get_rate_limited_last_block(&RateLimitKey::LastTxBlockDelegateTake(key.clone()))
     }
+    /// Last block at which `key` updated childkey take.
     pub fn get_last_tx_block_childkey_take(key: &T::AccountId) -> u64 {
         Self::get_rate_limited_last_block(&RateLimitKey::LastTxBlockChildKeyTake(key.clone()))
     }
+    /// Clear the last childkey-take tx-block marker for `key`.
     pub fn remove_last_tx_block_childkey(key: &T::AccountId) {
         Self::remove_rate_limited_last_block(&RateLimitKey::LastTxBlockChildKeyTake(key.clone()))
     }
+    /// Record the last childkey-take tx-block for `key`.
     pub fn set_last_tx_block_childkey(key: &T::AccountId, block: u64) {
         Self::set_rate_limited_last_block(
             &RateLimitKey::LastTxBlockChildKeyTake(key.clone()),
             block,
         );
     }
+    /// `true` if `current_block - prev_tx_block` is still within the global tx rate limit.
     pub fn exceeds_tx_rate_limit(prev_tx_block: u64, current_block: u64) -> bool {
         let rate_limit: u64 = Self::get_tx_rate_limit();
         if rate_limit == 0 || prev_tx_block == 0 {
@@ -263,6 +289,7 @@ impl<T: Config> Pallet<T> {
 
         current_block.saturating_sub(prev_tx_block) <= rate_limit
     }
+    /// `true` if `current_block - prev_tx_block` is still within the delegate-take rate limit.
     pub fn exceeds_tx_delegate_take_rate_limit(prev_tx_block: u64, current_block: u64) -> bool {
         let rate_limit: u64 = Self::get_tx_delegate_take_rate_limit();
         if rate_limit == 0 || prev_tx_block == 0 {
