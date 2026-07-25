@@ -1,3 +1,17 @@
+//! # Limit Orders Pallet
+//!
+//! Lets users sign off-chain **limit / take-profit / stop-loss** orders that an
+//! authorized relayer later submits for on-chain execution against a subnet's
+//! TAO↔alpha pool.
+//!
+//! - [`Call::execute_orders`] — per-order pool swaps (best-effort or all-or-nothing)
+//! - [`Call::execute_batched_orders`] — netted single-pool swap for one `netuid`
+//! - [`Call::cancel_order`] — signer registers a terminal cancellation intent
+//! - [`Call::set_pallet_status`] — root enable/disable switch
+//!
+//! Only the blake2-256 order hash is stored (`Orders`); the full signed payload
+//! is supplied at execution or cancel time.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -105,7 +119,7 @@ pub struct Order<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> 
     /// EVM-compatible chain ID that this order is bound to.
     /// Prevents replay of testnet-signed orders on mainnet and vice versa.
     pub chain_id: u64,
-    /// Wether partial fills are enabled
+    /// Whether partial fills are enabled for this order.
     pub partial_fills_enabled: bool,
 }
 
@@ -136,15 +150,16 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
 /// Signature verification is performed against `order.inner().signer` (the AccountId)
 /// directly. Sr25519 and ed25519 signatures over either the SCALE-encoded order or its
 /// `<Bytes>`-wrapped blake2-256 hash are accepted; ecdsa is rejected at validation time.
-#[freeze_struct("9dd5a8ac812dc504")]
+#[freeze_struct("dfa1bee7fec7fcc9")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
 )]
 pub struct SignedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
+    /// Versioned order payload the signature covers (currently `V1` only).
     pub order: VersionedOrder<AccountId>,
     /// Sr25519 or ed25519 signature over the raw order or its wrapped hash.
     pub signature: MultiSignature,
-    /// Whether we want a partial fill for this order
+    /// When `Some(n)`, execute only `n` of the remaining amount (requires relayer + partial fills).
     pub partial_fill: Option<u64>,
 }
 
@@ -248,19 +263,19 @@ pub mod pallet {
 
     // ── Storage ───────────────────────────────────────────────────────────────
 
-    /// Tracks the on-chain status of a known `OrderId`.
-    /// Absent ⇒ never seen (still executable if valid).
-    /// Present ⇒ Fulfilled or Cancelled (both are terminal).
+    /// Status of a known order hash (`OrderId` = blake2-256 of the versioned payload).
+    ///
+    /// Absent ⇒ never seen (still executable if valid). Present ⇒ `Fulfilled`,
+    /// `PartiallyFilled`, or `Cancelled` (`Fulfilled` / `Cancelled` are terminal).
     #[pallet::storage]
     pub type Orders<T: Config> = StorageMap<_, Blake2_128Concat, H256, OrderStatus, OptionQuery>;
 
-    /// Switch to enable/disable the pallet.
-    /// Defaults to `false` so bare node deployments are safe; genesis sets it to `true`.
+    /// Master switch for all limit-order extrinsics.
+    /// Defaults to `false` (safe for bare upgrades); genesis / root sets `true`.
     #[pallet::storage]
     pub type LimitOrdersEnabled<T: Config> = StorageValue<_, bool, ValueQuery, ConstBool<false>>;
 
-    /// Tracks which named migrations have already been applied.
-    /// Keyed by a short migration name; value is always `true`.
+    /// Idempotency flags for named on-runtime-upgrade migrations (value always `true` once run).
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
         StorageMap<_, Identity, BoundedVec<u8, MigrationKeyMaxLen>, bool, ValueQuery>;
@@ -306,7 +321,7 @@ pub mod pallet {
             /// Number of orders that were successfully executed.
             executed_count: u32,
         },
-        /// Root has either enabled(true) or disabled(false) the pallet
+        /// Root toggled `LimitOrdersEnabled` (`true` = enabled, `false` = disabled).
         LimitOrdersPalletStatusChanged { enabled: bool },
     }
 
@@ -318,7 +333,7 @@ pub mod pallet {
         InvalidSignature,
         /// The order has already been Fulfilled or Cancelled.
         OrderAlreadyProcessed,
-        /// Order has been cancelled
+        /// The order was cancelled and can never be executed.
         OrderCancelled,
         /// The order's expiry timestamp is in the past.
         OrderExpired,
@@ -332,15 +347,15 @@ pub mod pallet {
         RootNetUidNotAllowed,
         /// An order in the batch targets a different netuid than the batch netuid parameter.
         OrderNetUidMismatch,
-        /// Limit orders are disabled
+        /// Pallet is disabled via `LimitOrdersEnabled` / `set_pallet_status`.
         LimitOrdersDisabled,
-        /// Relayer not the same as specified in the order
+        /// Caller is not in the order's authorized `relayer` list.
         RelayerMissMatch,
-        /// Partial fills not enabled for this order
+        /// Order payload has `partial_fills_enabled = false` but a partial fill was requested.
         PartialFillsNotEnabled,
-        /// Incorrect partial fill amount provided
+        /// Partial fill amount is zero, exceeds remaining, or `None` against an already partial order.
         IncorrectPartialFillAmount,
-        /// A relayer must be set on the order when using partial fills
+        /// Partial fills require a non-empty `relayer` allow-list on the order payload.
         RelayerRequiredForPartialFill,
         /// The order's chain_id does not match the current chain.
         ChainIdMismatch,
@@ -477,7 +492,7 @@ pub mod pallet {
                 Error::<T>::LimitOrdersDisabled
             );
 
-            Self::do_execute_batched_orders(netuid, orders, relayer)
+            Self::execute_netted_batch(netuid, orders, relayer)
         }
 
         /// Register a cancellation intent for an order.
@@ -510,11 +525,10 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Set a status for the limit orders pallet
+        /// Enable or disable the pallet (`true` = on, `false` = off). Root-only.
         ///
-        /// Must be called by root
-        /// It allows disabling or enabling the pallet
-        /// true means enabling, false means disabling
+        /// Enabling requires the configured `PalletHotkey` to already be registered
+        /// to the pallet intermediary account; otherwise returns `PalletHotkeyNotRegistered`.
         #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::set_pallet_status())]
         pub fn set_pallet_status(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
@@ -810,13 +824,13 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Thin orchestrator for `execute_batched_orders`.
+        /// Netted batch pipeline for `execute_batched_orders`:
+        /// classify → collect → single pool swap → pro-rata distribute → fees.
         ///
-        /// All-or-nothing: any `Err` returned here (e.g. a `ZeroShareInBatch` rejection
-        /// during distribution) rolls back the whole batch — including the up-front
-        /// `collect_assets` debits and the pool swap — via FRAME's default per-dispatch
-        /// storage layer, so no signer is left debited without receiving output.
-        fn do_execute_batched_orders(
+        /// All-or-nothing: any `Err` (e.g. `ZeroShareInBatch`) rolls back the whole
+        /// batch — including `collect_assets` and the pool swap — via FRAME's
+        /// per-dispatch storage layer, so no signer is debited without output.
+        fn execute_netted_batch(
             netuid: NetUid,
             orders: BoundedVec<SignedOrder<T::AccountId>, T::MaxOrdersPerBatch>,
             relayer: T::AccountId,
