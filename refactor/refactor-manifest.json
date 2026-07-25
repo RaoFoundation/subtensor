@@ -881,10 +881,20 @@
       "id": "w2-test-children",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
+      "status": "done",
       "notes": "Split ~4705-line test file into concept-named modules under tests/children/",
       "files": [
-        "pallets/subtensor/src/tests/children.rs"
+        "pallets/subtensor/src/tests/children/mod.rs",
+        "pallets/subtensor/src/tests/children/helpers.rs",
+        "pallets/subtensor/src/tests/children/schedule_singular.rs",
+        "pallets/subtensor/src/tests/children/schedule_multiple.rs",
+        "pallets/subtensor/src/tests/children/pending_children.rs",
+        "pallets/subtensor/src/tests/children/childkey_take.rs",
+        "pallets/subtensor/src/tests/children/inherited_stake.rs",
+        "pallets/subtensor/src/tests/children/child_weights.rs",
+        "pallets/subtensor/src/tests/children/child_emission.rs",
+        "pallets/subtensor/src/tests/children/child_dividends.rs",
+        "pallets/subtensor/src/tests/children/root_validators.rs"
       ]
     },
     {
