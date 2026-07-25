@@ -85,27 +85,6 @@ def _coerce(field_annotation: str, value: Any) -> Any:
     return [cast(part.strip()) for part in text.split(",") if part.strip()]
 
 
-def _resolve_nested_addresses(app_ctx: AppContext, value: Any) -> Any:
-    """Resolve address-book and wallet names inside structured JSON arguments.
-
-    Complex intents such as ``batch`` and ``remove_stakes`` carry child address
-    fields inside dictionaries, beyond the top-level ``*_ss58`` handling below.
-    Applying the same name resolver recursively keeps their CLI behavior
-    consistent with ordinary generated transaction options.
-    """
-    if isinstance(value, list):
-        return [_resolve_nested_addresses(app_ctx, item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    resolved = {}
-    for key, item in value.items():
-        if key.endswith("_ss58") and isinstance(item, str):
-            resolved[key] = app_ctx.resolve_address(key, item)
-        else:
-            resolved[key] = _resolve_nested_addresses(app_ctx, item)
-    return resolved
-
-
 _TRUE = {"y", "yes", "true", "1"}
 _FALSE = {"n", "no", "false", "0"}
 
@@ -175,7 +154,9 @@ def _placeholder(annotation: str) -> Optional[str]:
     if _is_dict(annotation):
         return "JSON"
     if _is_list(annotation):
-        return "comma-separated"
+        return (
+            "comma-separated" if base in {f"list[{scalar}]" for scalar in _SCALAR_TYPES} else "JSON"
+        )
     return None
 
 
@@ -204,6 +185,25 @@ def _unit_help(field_name: str) -> Optional[str]:
     if field_name.endswith("_rao"):
         return "Amount in rao (1 TAO = 1e9 rao)."
     return None
+
+
+def _resolve_proxy_options(
+    app_ctx: AppContext,
+    proxy_for: Optional[str],
+    force_proxy_type: Optional[ProxyTypeChoice],
+) -> tuple[Optional[str], Optional[str]]:
+    """Normalize the proxy options shared by generated and hand-written tx commands."""
+    resolved_proxy = (
+        proxy_for
+        if proxy_for in (None, "self")
+        else app_ctx.resolve_address("proxy_for", proxy_for)
+    )
+    resolved_type = (
+        str(getattr(force_proxy_type, "value", force_proxy_type))
+        if force_proxy_type is not None
+        else None
+    )
+    return resolved_proxy, resolved_type
 
 
 def _privilege_note(intent_cls: type[Intent]) -> Optional[str]:
@@ -278,14 +278,10 @@ def _make_command(intent_cls: type[Intent]):
         # `self` is a sentinel (bypass the configured proxy_for default, see
         # AppContext.submit), so it must reach submit unresolved.
         raw_proxy_for = kwargs.pop("proxy_for", None)
-        proxy_for = (
-            raw_proxy_for
-            if raw_proxy_for in (None, "self")
-            else app_ctx.resolve_address("proxy_for", raw_proxy_for)
-        )
         force_proxy_type = kwargs.pop("force_proxy_type", None) if global_proxy_type else None
-        if force_proxy_type is not None:
-            force_proxy_type = str(getattr(force_proxy_type, "value", force_proxy_type))
+        proxy_for, force_proxy_type = _resolve_proxy_options(
+            app_ctx, raw_proxy_for, force_proxy_type
+        )
         for f in specs:
             if f.name.endswith("_ss58"):
                 kwargs[f.name] = app_ctx.resolve_address(f.name, kwargs.get(f.name))
@@ -302,15 +298,17 @@ def _make_command(intent_cls: type[Intent]):
                         f"invalid value for `--{f.name.replace('_', '-')}`: {error}"
                     )
                     raise typer.Exit(2)
-        args = {
-            f.name: _coerce(str(f.type), kwargs[f.name])
-            for f in specs
-            if kwargs.get(f.name) is not None
-        }
-        args = {name: _resolve_nested_addresses(app_ctx, value) for name, value in args.items()}
-        app_ctx.submit(
-            intent_cls.from_args(args), proxy_for=proxy_for, force_proxy_type=force_proxy_type
-        )
+        try:
+            args = {
+                f.name: _coerce(str(f.type), kwargs[f.name])
+                for f in specs
+                if kwargs.get(f.name) is not None
+            }
+            intent = intent_cls.from_args(args)
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            app_ctx.output.error(f"invalid arguments for `{intent_cls.op}`: {error}")
+            raise typer.Exit(2)
+        app_ctx.submit(intent, proxy_for=proxy_for, force_proxy_type=force_proxy_type)
 
     # Synthesize the signature Typer introspects: ctx first, then one keyword
     # option per intent field, typed and defaulted from the dataclass.

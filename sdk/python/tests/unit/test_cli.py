@@ -20,7 +20,7 @@ from bittensor.cli.main import app
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import BOB
+from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT
 
 runner = CliRunner()
 
@@ -106,11 +106,32 @@ class TestOffline:
         ):
             assert op in result.output
 
-    def test_remove_many_help_requires_structured_json(self):
-        result = invoke("stake", "remove-many", "--help")
+    def test_stake_remove_help_keeps_one_command_for_single_and_multiple(self):
+        result = invoke("stake", "remove", "--help")
         assert result.exit_code == 0
-        assert "JSON array of stake positions" in result.output
-        assert "Comma-separated values" not in result.output
+        assert "--hotkey" in result.output
+        assert "--hotkeys" in result.output
+        assert "-in" in result.output
+        assert "--all-hotkeys" in result.output
+        assert "--exclude-hotkeys" in result.output
+        assert "--positions" not in result.output
+
+        group = invoke("stake", "--help")
+        assert group.exit_code == 0
+        assert "remove-many" not in group.output
+
+    def test_structured_tx_input_reports_a_clean_usage_error(self):
+        result = invoke(
+            "--json",
+            "--yes",
+            "tx",
+            "remove-stakes",
+            "--positions",
+            "validator-a,validator-b",
+        )
+        assert result.exit_code == 2
+        assert "invalid arguments for `remove_stakes`" in result.output
+        assert "Traceback" not in result.output
 
     def test_query_group_help(self):
         result = invoke("query", "--help")
@@ -183,35 +204,54 @@ class TestTransactions:
         assert (call.module, call.function) == ("Balances", "transfer_keep_alive")
         assert call.params["value"] == 1_500_000_000
 
-    def test_stake_remove_many_resolves_nested_names_and_submits_atomic_batch(
-        self, fake: FakeSubstrate
+    @pytest.mark.parametrize("amount_flag", ["--amount-alpha", "--amount"])
+    def test_stake_remove_singular_keeps_the_existing_call_shape(
+        self, fake: FakeSubstrate, amount_flag: str
+    ):
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "remove",
+            "--hotkey",
+            BOB,
+            "--netuid",
+            "1",
+            amount_flag,
+            "1.25",
+            "--no-slippage-protection",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("SubtensorModule", "remove_stake")
+        assert call.params == {
+            "hotkey": BOB,
+            "netuid": 1,
+            "amount_unstaked": 1_250_000_000,
+        }
+
+    @pytest.mark.parametrize("selector_flag", ["--hotkeys", "--include-hotkeys", "-in"])
+    def test_stake_remove_resolves_multiple_hotkey_aliases_and_submits_atomic_batch(
+        self, fake: FakeSubstrate, selector_flag: str
     ):
         saved = invoke("--json", "addresses", "add", "validator-two", BOB)
         assert saved.exit_code == 0, saved.output
-        positions = json.dumps(
-            [
-                {
-                    "hotkey_ss58": "validator-two",
-                    "netuid": 1,
-                    "amount_alpha": "1.25",
-                },
-                {
-                    "hotkey_ss58": BOB,
-                    "netuid": 2,
-                    "amount_alpha": 2,
-                    "slippage_protection": False,
-                },
-            ]
-        )
 
         result = invoke(
             "--json",
             "--yes",
             "--no-mev-shield",
             "stake",
-            "remove-many",
-            "--positions",
-            positions,
+            "remove",
+            selector_flag,
+            f"validator-two,{BOB_HOT}",
+            "--netuid",
+            "1",
+            "--amount-alpha",
+            "1.25",
+            "--no-slippage-protection",
         )
 
         assert result.exit_code == 0, result.output
@@ -219,8 +259,88 @@ class TestTransactions:
         assert payload["success"] is True
         call = fake.last_call
         assert (call.module, call.function) == ("Utility", "batch_all")
-        assert [child.params["hotkey"] for child in call.params["calls"]] == [BOB, BOB]
-        assert [child.params["netuid"] for child in call.params["calls"]] == [1, 2]
+        assert [child.params["hotkey"] for child in call.params["calls"]] == [BOB, BOB_HOT]
+        assert [child.params["netuid"] for child in call.params["calls"]] == [1, 1]
+
+    def test_stake_remove_all_hotkeys_uses_live_positions_and_exclusions(
+        self, fake: FakeSubstrate, wallet_dir: str
+    ):
+        coldkey = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed_runtime(
+            "StakeInfoRuntimeApi",
+            "get_stake_info_for_coldkey",
+            [
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 1_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 2_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": ALICE_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 3_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": ALICE_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 2,
+                    "stake": 4_000_000_000,
+                    "is_registered": True,
+                },
+            ],
+        )
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "remove",
+            "--all-hotkeys",
+            "-ex",
+            BOB_HOT,
+            "--netuid",
+            "1",
+            "--amount-alpha",
+            "1",
+            "--no-slippage-protection",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        assert [child.params["hotkey"] for child in call.params["calls"]] == [BOB, ALICE_HOT]
+
+    def test_stake_remove_rejects_conflicting_selection_flags(self, fake: FakeSubstrate):
+        result = invoke(
+            "--json",
+            "--yes",
+            "stake",
+            "remove",
+            "--hotkey",
+            BOB,
+            "--hotkeys",
+            BOB_HOT,
+            "--netuid",
+            "1",
+            "--amount-alpha",
+            "all",
+        )
+
+        assert result.exit_code == 2
+        assert "choose only one" in result.output
+        assert fake.submissions == []
 
     def test_failed_extrinsic_exits_nonzero(self, fake: FakeSubstrate):
         from bittensor.result import ChainError, ExtrinsicResult

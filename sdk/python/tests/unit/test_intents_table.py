@@ -508,18 +508,26 @@ class TestStakingMoneyUnits:
 
 
 class TestRemoveStakes:
-    def test_typed_positions_and_dicts_normalize_and_roundtrip(self):
-        from bittensor.intents import RemoveStakes, StakeRemoval
+    def test_python_boundary_requires_typed_remove_stake_intents(self):
+        from bittensor.intents import RemoveStakes
+
+        with pytest.raises(TypeError, match="must be RemoveStake intents"):
+            RemoveStakes(
+                positions=[{"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": 1}]  # type: ignore[list-item]
+            )
+
+    def test_typed_positions_and_json_boundary_roundtrip(self):
+        from bittensor.intents import RemoveStake, RemoveStakes
 
         intent = RemoveStakes(
             positions=[
-                StakeRemoval(hotkey_ss58=BOB, netuid=1, amount_alpha="1.25"),
-                {
-                    "hotkey_ss58": BOB_HOT,
-                    "netuid": 2,
-                    "amount_alpha": "all",
-                    "slippage_protection": False,
-                },
+                RemoveStake(hotkey_ss58=BOB, netuid=1, amount_alpha="1.25"),
+                RemoveStake(
+                    hotkey_ss58=BOB_HOT,
+                    netuid=2,
+                    amount_alpha="all",
+                    slippage_protection=False,
+                ),
             ]
         )
 
@@ -534,17 +542,17 @@ class TestRemoveStakes:
     async def test_builds_one_atomic_batch_with_per_position_protection(
         self, substrate: FakeSubstrate, wallet
     ):
-        from bittensor.intents import RemoveStakes
+        from bittensor.intents import RemoveStake, RemoveStakes
 
         intent = RemoveStakes(
             positions=[
-                {"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": "1.25"},
-                {
-                    "hotkey_ss58": BOB_HOT,
-                    "netuid": 2,
-                    "amount_alpha": 2,
-                    "slippage_protection": False,
-                },
+                RemoveStake(hotkey_ss58=BOB, netuid=1, amount_alpha="1.25"),
+                RemoveStake(
+                    hotkey_ss58=BOB_HOT,
+                    netuid=2,
+                    amount_alpha=2,
+                    slippage_protection=False,
+                ),
             ]
         )
         call = await intent.build(substrate, wallet)
@@ -570,7 +578,7 @@ class TestRemoveStakes:
     async def test_all_resolves_each_position_for_the_signing_coldkey(
         self, substrate: FakeSubstrate, wallet
     ):
-        from bittensor.intents import RemoveStakes
+        from bittensor.intents import RemoveStake, RemoveStakes
 
         stakes = {(BOB, 1): 3_000_000_000, (BOB_HOT, 2): 4_000_000_000}
         substrate.seed_runtime(
@@ -580,18 +588,18 @@ class TestRemoveStakes:
         )
         call = await RemoveStakes(
             positions=[
-                {
-                    "hotkey_ss58": BOB,
-                    "netuid": 1,
-                    "amount_alpha": "all",
-                    "slippage_protection": False,
-                },
-                {
-                    "hotkey_ss58": BOB_HOT,
-                    "netuid": 2,
-                    "amount_alpha": "all",
-                    "slippage_protection": False,
-                },
+                RemoveStake(
+                    hotkey_ss58=BOB,
+                    netuid=1,
+                    amount_alpha="all",
+                    slippage_protection=False,
+                ),
+                RemoveStake(
+                    hotkey_ss58=BOB_HOT,
+                    netuid=2,
+                    amount_alpha="all",
+                    slippage_protection=False,
+                ),
             ]
         ).build(substrate, wallet)
 
@@ -604,10 +612,10 @@ class TestRemoveStakes:
         ("positions", "match"),
         [
             ([], "at least one position"),
-            ([{"hotkey_ss58": BOB, "netuid": 1}], "missing fields"),
+            ([{"hotkey_ss58": BOB, "netuid": 1}], "amount_alpha"),
             (
                 [{"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": 1, "typo": True}],
-                "unknown fields",
+                "Unknown arguments",
             ),
             (
                 [
@@ -619,10 +627,8 @@ class TestRemoveStakes:
         ],
     )
     def test_rejects_invalid_positions(self, positions, match):
-        from bittensor.intents import RemoveStakes
-
         with pytest.raises(ValueError, match=match):
-            RemoveStakes(positions=positions)
+            build("remove_stakes", {"positions": positions})
 
     def test_schema_describes_position_objects(self):
         from bittensor.intents import RemoveStakes

@@ -12,9 +12,11 @@ entire batch is rolled back. This is the v11 replacement for the legacy
 `unstake_multiple` helper and the old CLI's multi-hotkey flags, with
 explicit per-position currency and price protection.
 
-Python callers may pass `StakeRemoval` objects or equivalent plain
-dictionaries. CLI and agent callers pass the positions as a JSON array.
-A hotkey/subnet pair may appear only once.
+Python callers pass ordinary `RemoveStake` intents. The named-tool/JSON
+boundary accepts the equivalent dictionaries and normalizes them before
+construction. Positions on the same subnet share one pool and execute in
+list order, so earlier removals can move the price seen by later ones. A
+hotkey/subnet pair may appear only once.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |

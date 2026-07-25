@@ -1999,7 +1999,7 @@
   {
     "name": "remove_stakes",
     "summary": "Atomically unstake multiple hotkey/subnet positions for one coldkey.",
-    "description": "Atomically unstake multiple hotkey/subnet positions for one coldkey.\n\nEach position names its hotkey, subnet, alpha amount (or `all`), and\noptional slippage settings. All positions are composed into one\n`Utility.batch_all` extrinsic: either every removal succeeds or the\nentire batch is rolled back. This is the v11 replacement for the legacy\n`unstake_multiple` helper and the old CLI's multi-hotkey flags, with\nexplicit per-position currency and price protection.\n\nPython callers may pass `StakeRemoval` objects or equivalent plain\ndictionaries. CLI and agent callers pass the positions as a JSON array.\nA hotkey/subnet pair may appear only once.",
+    "description": "Atomically unstake multiple hotkey/subnet positions for one coldkey.\n\nEach position names its hotkey, subnet, alpha amount (or `all`), and\noptional slippage settings. All positions are composed into one\n`Utility.batch_all` extrinsic: either every removal succeeds or the\nentire batch is rolled back. This is the v11 replacement for the legacy\n`unstake_multiple` helper and the old CLI's multi-hotkey flags, with\nexplicit per-position currency and price protection.\n\nPython callers pass ordinary `RemoveStake` intents. The named-tool/JSON\nboundary accepts the equivalent dictionaries and normalizes them before\nconstruction. Positions on the same subnet share one pool and execute in\nlist order, so earlier removals can move the price seen by later ones. A\nhotkey/subnet pair may appear only once.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2044,7 +2044,7 @@
                     ]
                   }
                 ],
-                "description": "Alpha to unstake from this position, or `all`."
+                "description": "How much to unstake from this position, or ``all``."
               },
               "slippage_protection": {
                 "type": "boolean",
