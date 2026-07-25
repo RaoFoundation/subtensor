@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+//! Host-function / arkworks argument builders used by benchmarks and local crypto tests.
+
 #![allow(dead_code)]
 
 use crate::verifier::ArkScale;
@@ -21,11 +23,13 @@ use ark_ec::AffineRepr;
 use ark_scale::hazmat::ArkScaleProjective;
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::{UniformRand, test_rng, vec, vec::Vec};
+/// Scalar field of an affine curve point group.
 pub type ScalarFieldFor<AffineT> = <AffineT as AffineRepr>::ScalarField;
 
-// `words_count` is the scalar length in words, with 1 word assumed to be 64 bits.
-// Most significant bit is set.
-fn make_scalar(words_count: u32) -> Vec<u64> {
+/// Random scalar as `words_count` little-endian `u64` limbs with MSB of the first limb set.
+///
+/// Arkworks treats the limb vector as **big endian** for scalar encoding.
+fn random_scalar_words(words_count: u32) -> Vec<u64> {
     let mut scalar: Vec<_> = (0..words_count as usize)
         .map(|_| u64::rand(&mut test_rng()))
         .collect();
@@ -34,31 +38,41 @@ fn make_scalar(words_count: u32) -> Vec<u64> {
     scalar
 }
 
-fn make_base<Group: UniformRand>() -> Group {
+/// Uniform random element of `Group` from the test RNG.
+fn random_group_element<Group: UniformRand>() -> Group {
     Group::rand(&mut test_rng())
 }
 
-// `words_count` is the scalar length in words, with 1 word assumed to be 64 bits.
-// Most significant bit is set.
+/// Pair `(base, scalar_limbs)` for scalar-mul host-function inputs.
 pub fn make_scalar_args<Group: UniformRand>(
     words_count: u32,
 ) -> (ArkScale<Group>, ArkScale<Vec<u64>>) {
-    (make_base::<Group>().into(), make_scalar(words_count).into())
+    (
+        random_group_element::<Group>().into(),
+        random_scalar_words(words_count).into(),
+    )
 }
 
-// `words_count` is the scalar length in words, with 1 word assumed to be 64 bits.
-// Most significant bit is set.
+/// Projective variant of [`make_scalar_args`].
 pub fn make_scalar_args_projective<Group: UniformRand>(
     words_count: u32,
 ) -> (ArkScaleProjective<Group>, ArkScale<Vec<u64>>) {
-    (make_base::<Group>().into(), make_scalar(words_count).into())
+    (
+        random_group_element::<Group>().into(),
+        random_scalar_words(words_count).into(),
+    )
 }
 
+/// Pair of random points for pairing host-function inputs.
 pub fn make_pairing_args<GroupA: UniformRand, GroupB: UniformRand>()
 -> (ArkScale<GroupA>, ArkScale<GroupB>) {
-    (make_base::<GroupA>().into(), make_base::<GroupB>().into())
+    (
+        random_group_element::<GroupA>().into(),
+        random_group_element::<GroupB>().into(),
+    )
 }
 
+/// Random MSM bases and scalars of the given `size`.
 pub fn make_msm_args<Group: ark_ec::VariableBaseMSM>(
     size: u32,
 ) -> (ArkScale<Vec<Group>>, ArkScale<Vec<Group::ScalarField>>) {
@@ -72,6 +86,7 @@ pub fn make_msm_args<Group: ark_ec::VariableBaseMSM>(
     (bases, scalars)
 }
 
+/// Uncompressed canonical serialization of an arkworks argument.
 pub fn serialize_argument(argument: impl CanonicalSerialize) -> Vec<u8> {
     let mut buf = vec![0; argument.serialized_size(Compress::No)];
     argument

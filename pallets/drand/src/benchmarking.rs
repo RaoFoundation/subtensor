@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//! Benchmarking setup for pallet-drand
+//! Runtime benchmarks for `set_beacon_config`, `write_pulse`, and `set_oldest_stored_round`.
 use super::*;
 
 #[allow(unused)]
