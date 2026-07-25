@@ -1,3 +1,8 @@
+//! Free-balance view precompile for Substrate coldkeys (`INDEX` 2062).
+//!
+//! `getFreeBalance(bytes32)` returns `pallet_balances` free balance for the given
+//! 32-byte account id — not total, reserved, or reducible balance.
+
 use core::marker::PhantomData;
 
 use pallet_evm::PrecompileHandle;
@@ -7,6 +12,7 @@ use sp_core::{H256, U256};
 use crate::PrecompileExt;
 use crate::PrecompileHandleExt;
 
+/// Read-only precompile for coldkey free balance lookups from EVM.
 pub struct BalancePrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for BalancePrecompile<R>
@@ -25,6 +31,7 @@ where
     R::AccountId: From<[u8; 32]>,
     <R as pallet_balances::Config>::Balance: Into<U256>,
 {
+    /// Free balance of `coldkey` (excludes reserved/held amounts; ignores freeze for the value).
     #[precompile::public("getFreeBalance(bytes32)")]
     #[precompile::view]
     fn get_free_balance(handle: &mut impl PrecompileHandle, coldkey: H256) -> EvmResult<U256> {

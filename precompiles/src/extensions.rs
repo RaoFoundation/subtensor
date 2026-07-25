@@ -1,3 +1,9 @@
+//! Shared helpers for Subtensor EVM precompiles: gas metering, call dispatch, enable gates.
+//!
+//! [`PrecompileHandleExt`] extends Frontier's `PrecompileHandle` with Substrate account
+//! mapping and runtime-call dispatch. [`PrecompileExt`] binds each precompile's frozen
+//! `INDEX` address and gates execution through `PrecompileEnable`.
+
 extern crate alloc;
 
 use alloc::format;
@@ -16,7 +22,9 @@ use sp_runtime::traits::{Dispatchable, ExtensionPostDispatchWeightHandler};
 use sp_std::vec::Vec;
 use subtensor_runtime_common::with_evm_context;
 
+/// `PrecompileHandle` helpers used by Subtensor precompile method bodies.
 pub(crate) trait PrecompileHandleExt: PrecompileHandle {
+    /// Maps the EVM caller (`context().caller`) to a Substrate `AccountId`.
     fn caller_account_id<R>(&self) -> R::AccountId
     where
         R: frame_system::Config + pallet_evm::Config,
@@ -25,6 +33,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         <R as pallet_evm::Config>::AddressMapping::into_account_id(self.context().caller)
     }
 
+    /// Charges gas for `reads` DB reads using the runtime's read gas cost.
     fn record_db_reads<R>(&mut self, reads: u64) -> EvmResult<()>
     where
         R: frame_system::Config + pallet_evm::Config,
@@ -33,6 +42,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         Ok(())
     }
 
+    /// Charges gas for `writes` DB writes using the runtime's write gas cost.
     fn record_db_writes<R>(&mut self, writes: u64) -> EvmResult<()>
     where
         R: frame_system::Config + pallet_evm::Config,
@@ -42,6 +52,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         Ok(())
     }
 
+    /// Converts `apparent_value` (msg.value) from EVM balance units to Substrate balance.
     fn try_convert_apparent_value<R>(&self) -> EvmResult<U256>
     where
         R: pallet_evm::Config,
@@ -56,7 +67,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         Ok(result.into())
     }
 
-    /// Dispatches a runtime call, but also checks and records the gas costs.
+    /// Dispatches a runtime call under `origin`, metering weight as EVM gas (and refunding unused).
     fn try_dispatch_runtime_call<R, Call>(
         &mut self,
         call: Call,
@@ -99,7 +110,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
             Ok(mut post_info) => {
                 post_info.set_extension_weight(&info);
                 log::debug!("Dispatch succeeded. Post info: {post_info:?}");
-                self.charge_and_refund_after_dispatch::<R, Call>(&info, &post_info)?;
+                self.refund_unused_dispatch_gas::<R, Call>(&info, &post_info)?;
 
                 Ok(())
             }
@@ -108,7 +119,7 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
                 let mut post_info = e.post_info;
                 post_info.set_extension_weight(&info);
                 log::info!("Precompile dispatch failed. message as: {e:?}");
-                self.charge_and_refund_after_dispatch::<R, Call>(&info, &post_info)?;
+                self.refund_unused_dispatch_gas::<R, Call>(&info, &post_info)?;
 
                 Err(PrecompileFailure::Error {
                     exit_status: ExitError::Other(
@@ -119,7 +130,8 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
         }
     }
 
-    fn charge_and_refund_after_dispatch<R, Call>(
+    /// After dispatch, charges actual weight as gas and refunds the pre-reserved weight surplus.
+    fn refund_unused_dispatch_gas<R, Call>(
         &mut self,
         info: &DispatchInfo,
         post_info: &PostDispatchInfo,
@@ -152,11 +164,15 @@ pub(crate) trait PrecompileHandleExt: PrecompileHandle {
 
 impl<T> PrecompileHandleExt for T where T: PrecompileHandle {}
 
+/// Marker trait: frozen `INDEX` → `H160`, derived Substrate account, and admin enable gate.
 pub trait PrecompileExt<AccountId: From<[u8; 32]>>: Precompile {
+    /// Frozen precompile address index (`H160::from_low_u64_be(INDEX)`). Do not change.
     const INDEX: u64;
 
-    // ss58 public key i.e., the contract sends funds it received to the destination address from
-    // the method parameter.
+    /// Substrate account id for this precompile contract (`blake2_256(b"evm:" || address)`).
+    ///
+    /// Used when the contract itself is the signed origin (e.g. balance transfer from the
+    /// precompile's own balance).
     fn account_id() -> AccountId {
         let hash = H160::from_low_u64_be(Self::INDEX);
         let prefix = b"evm:";
@@ -171,6 +187,7 @@ pub trait PrecompileExt<AccountId: From<[u8; 32]>>: Precompile {
         hash.into()
     }
 
+    /// Runs `execute` only when `PrecompileEnable` for `precompile_enum` is true; else errors.
     fn try_execute<R>(
         handle: &mut impl PrecompileHandle,
         precompile_enum: PrecompileEnum,

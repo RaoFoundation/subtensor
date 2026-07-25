@@ -1,3 +1,10 @@
+//! Ed25519 signature verification precompile (`INDEX` 1026).
+//!
+//! Linear-cost precompile: input is raw bytes
+//! `[pad4 | msg32 | pubkey32 | sig64]`; returns a 32-byte word with `1` in the
+//! last byte on success. Gas base is 6000 (higher than EIP-665's 2000) because
+//! Ed25519 verify is more expensive than secp256k1 recover in practice.
+
 extern crate alloc;
 
 use alloc::vec::Vec;
@@ -8,6 +15,7 @@ use fp_evm::{ExitError, ExitSucceed, LinearCostPrecompile, PrecompileFailure};
 
 use crate::{PrecompileExt, parse_slice};
 
+/// Ed25519 verify precompile (Frontier linear-cost style, not Solidity ABI codec).
 pub struct Ed25519Verify<A>(PhantomData<A>);
 
 impl<A> PrecompileExt<A> for Ed25519Verify<A>

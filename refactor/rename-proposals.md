@@ -34,16 +34,13 @@ support/linting/src/require_extrinsic_benchmarks.rs
 - proposed by: w1-utility
 - status: pending
 
-## maybe_initialize_palswap -> maybe_initialize_swap_balancer
-- reason: public helper that lazily creates per-netuid `SwapBalancer` / `PalSwapInitialized`; "palswap" is an internal nickname that does not match glossary/search terms (`balancer`, `swap`). Hits outside w1-swap in subtensor coinbase tests.
+## parse_slice -> precompile_input_slice
+- reason: private helper that bounds-checks raw precompile calldata slices for ed25519/sr25519 verify; name `parse_slice` is too generic for grep
 - hits:
 ```
-pallets/swap/src/pallet/impls.rs
-pallets/swap/src/pallet/migrations/migrate_swapv3_to_balancer.rs
-pallets/swap/src/pallet/tests/swap_initialization.rs
-pallets/swap/src/pallet/tests/clear_protocol_liquidity.rs
-pallets/swap/src/pallet/tests/swap_execution.rs
-pallets/subtensor/src/tests/coinbase.rs
+precompiles/src/lib.rs
+precompiles/src/ed25519.rs
+precompiles/src/sr25519.rs
 ```
-- proposed by: w1-swap
+- proposed by: w1-precompiles-a
 - status: pending
