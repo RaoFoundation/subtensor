@@ -1,3 +1,9 @@
+//! Consensus mechanism adapters for Aura, Babe, and hybrid Aura→Babe import.
+//!
+//! [`ConsensusMechanism`] lets `service` / `command` stay generic while Aura and
+//! Babe supply import queues, inherent providers, authorship, and RPC extras.
+//! [`hybrid_import_queue`] verifies either digest style during the migration.
+
 mod aura_consensus;
 mod babe_consensus;
 mod consensus_mechanism;

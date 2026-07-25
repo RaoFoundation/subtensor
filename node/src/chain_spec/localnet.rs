@@ -1,8 +1,14 @@
+//! Local development chain-spec (`--chain local` / `--chain dev`).
+//!
+//! Uses seed-derived Alice-style authorities; `single_authority` enables a
+//! one-validator topology for solo node runs.
+
 // Allowed since it's actually better to panic during chain setup when there is an error
 #![allow(clippy::unwrap_used)]
 
 use super::*;
 
+/// Build a localnet / solo-dev `ChainSpec` with seed-derived PoA authorities.
 pub fn localnet_config(single_authority: bool) -> Result<ChainSpec, String> {
     let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;
 

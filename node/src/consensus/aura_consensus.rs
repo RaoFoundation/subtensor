@@ -1,3 +1,8 @@
+//! Aura [`ConsensusMechanism`] implementation, including hybrid import for Babe handoff.
+//!
+//! Builds a hybrid Aura/Babe import queue so the node can verify the first Babe
+//! digests before switching authorship to Babe.
+
 use crate::consensus::hybrid_import_queue::HybridBlockImport;
 use crate::consensus::{ConsensusMechanism, StartAuthoringParams};
 use crate::{
@@ -32,6 +37,7 @@ use stc_shield::InherentDataProvider as ShieldInherentDataProvider;
 use std::{error::Error, sync::Arc};
 use stp_shield::ShieldKeystorePtr;
 
+/// Aura consensus adapter used until the chain produces Babe digests.
 pub struct AuraConsensus;
 
 impl ConsensusMechanism for AuraConsensus {

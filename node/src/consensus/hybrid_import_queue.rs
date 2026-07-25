@@ -1,3 +1,8 @@
+//! Import queue that verifies both Aura and Babe digests during consensus migration.
+//!
+//! Digest inspection (`is_babe_digest`) chooses Babe vs Aura verification so the
+//! node can sync across the Aura→Babe boundary without restarting mid-import.
+
 use crate::client::FullClient;
 use crate::conditional_evm_block_import::ConditionalEVMBlockImport;
 use crate::service::GrandpaBlockImport;
@@ -288,6 +293,7 @@ where
     ))
 }
 
+/// True when the block digest carries a Babe engine id (vs Aura-only).
 fn is_babe_digest(digest: &Digest) -> bool {
     digest
         .logs()

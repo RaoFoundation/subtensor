@@ -1,3 +1,8 @@
+//! CLI dispatch for the Subtensor node: load chain-spec, run subcommands, start Aura/Babe.
+//!
+//! On missing BabeApi the Babe path falls back to Aura; Aura can signal a handoff
+//! back to Babe via `custom_service_signal` when a Babe block appears.
+
 use std::sync::{Arc, atomic::AtomicBool};
 
 use crate::{
@@ -57,7 +62,7 @@ impl SubstrateCli for Cli {
     }
 }
 
-// Parse and run command line arguments
+/// Parse CLI args and dispatch the selected subcommand or full-node service.
 pub fn run() -> sc_cli::Result<()> {
     let cmd = Cli::command();
     let arg_matches = cmd.get_matches();
@@ -262,6 +267,9 @@ pub fn run() -> sc_cli::Result<()> {
     }
 }
 
+/// Resolve whether history gap-backfill should be skipped for this invocation.
+///
+/// Explicit `--history-backfill` wins; otherwise `build-patched-spec` defaults to skip.
 fn resolve_skip_history_backfill(cli: &Cli, arg_matches: &ArgMatches) -> bool {
     // We keep a single global `--history-backfill` flag, but `build-patched-spec` should default to
     // `skip` when the operator didn't set the flag explicitly. This preserves `keep` as the default
@@ -276,6 +284,7 @@ fn resolve_skip_history_backfill(cli: &Cli, arg_matches: &ArgMatches) -> bool {
     matches!(&cli.subcommand, Some(Subcommand::CloneState(_)))
 }
 
+/// Start a Babe full node, falling back to Aura when the runtime lacks BabeApi.
 #[allow(clippy::expect_used)]
 fn start_babe_service(
     arg_matches: &ArgMatches,
@@ -284,7 +293,7 @@ fn start_babe_service(
     let cli = Cli::from_arg_matches(arg_matches).expect("Bad arg_matches");
     let runner = cli.create_runner(&cli.run)?;
     match runner.run_node_until_exit(|config| async move {
-        let config = customise_config(arg_matches, config);
+        let config = apply_node_rpc_defaults(arg_matches, config);
         service::build_full::<BabeConsensus>(
             config,
             cli.eth,
@@ -323,6 +332,7 @@ fn start_babe_service(
     }
 }
 
+/// Start an Aura full node; restarts as Babe when `custom_service_signal` is set.
 #[allow(clippy::expect_used)]
 fn start_aura_service(
     arg_matches: &ArgMatches,
@@ -339,7 +349,7 @@ fn start_aura_service(
     let custom_service_signal = Arc::new(AtomicBool::new(false));
     let custom_service_signal_clone = custom_service_signal.clone();
     match runner.run_node_until_exit(|config| async move {
-        let config = customise_config(arg_matches, config);
+        let config = apply_node_rpc_defaults(arg_matches, config);
         service::build_full::<AuraConsensus>(
             config,
             cli.eth,
@@ -360,8 +370,9 @@ fn start_aura_service(
     }
 }
 
+/// Apply Subtensor RPC / heap-page defaults when the operator did not override them.
 #[allow(clippy::expect_used)]
-fn customise_config(arg_matches: &ArgMatches, config: Configuration) -> Configuration {
+fn apply_node_rpc_defaults(arg_matches: &ArgMatches, config: Configuration) -> Configuration {
     let cli = Cli::from_arg_matches(arg_matches).expect("Bad arg_matches");
 
     let mut config = override_default_heap_pages(config, 60_000);
@@ -388,7 +399,7 @@ fn customise_config(arg_matches: &ArgMatches, config: Configuration) -> Configur
     config
 }
 
-/// Override default heap pages
+/// Set WASM executor `default_heap_pages` while preserving the rest of `Configuration`.
 fn override_default_heap_pages(config: Configuration, pages: u64) -> Configuration {
     Configuration {
         impl_name: config.impl_name,

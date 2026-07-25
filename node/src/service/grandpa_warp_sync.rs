@@ -1,3 +1,8 @@
+//! GRANDPA warp-sync hard-fork / initial-set-id patches for known genesis hashes.
+//!
+//! Testnet uses authority-set checkpoints; other chain types patch an initial set id
+//! so warp sync can resume across historical Grandpa set changes.
+
 use node_subtensor_runtime::opaque::Block;
 use sc_chain_spec::ChainType;
 use sc_consensus_grandpa::{AuthoritySetHardFork, warp_proof::HardForks};
@@ -8,11 +13,15 @@ const TESTNET_GENESIS: H256 = H256(hex_literal::hex!(
     "8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
 ));
 
+/// Warp-sync configuration chosen from genesis hash + chain type.
 pub(super) enum Config {
+    /// Hard-forked authority checkpoints for the known testnet genesis.
     TestnetCheckpoints(Vec<AuthoritySetHardFork<Block>>),
+    /// Initial Grandpa set id override for non-testnet chains.
     InitialSetId(u64),
 }
 
+/// Select warp-sync hard-fork config for this chain genesis / type.
 pub(super) fn config(genesis_hash: H256, chain_type: ChainType) -> Config {
     if genesis_hash == TESTNET_GENESIS {
         Config::TestnetCheckpoints(testnet_checkpoints())
@@ -46,6 +55,7 @@ impl Config {
     }
 }
 
+/// Authority list at the testnet hard-fork checkpoint used for warp proofs.
 #[allow(clippy::expect_used)]
 fn testnet_authorities() -> AuthorityList {
     [

@@ -1,8 +1,15 @@
+//! Block import that routes pre-/post-Frontier eras and optional history-gap skip.
+//!
+//! Blocks before the mainnet Frontier upgrade (#4345557) use the inner import;
+//! later blocks go through Frontier. When history backfill is skipped, initial-sync
+//! imports clear `create_gap` so Substrate does not schedule gap reconstruction.
+
 use sc_consensus::{BlockCheckParams, BlockImport, BlockImportParams, ImportResult};
 use sp_consensus::{BlockOrigin, Error as ConsensusError};
 use sp_runtime::traits::{Block as BlockT, Header};
 use std::marker::PhantomData;
 
+/// Dual-path block import: native before Frontier activation, Frontier afterward.
 pub struct ConditionalEVMBlockImport<B: BlockT, I, F> {
     inner: I,
     frontier_block_import: F,
@@ -34,6 +41,7 @@ where
     F: BlockImport<B>,
     F::Error: Into<ConsensusError>,
 {
+    /// Wrap an inner + Frontier import with optional history-gap suppression.
     pub fn new(inner: I, frontier_block_import: F, skip_history_backfill: bool) -> Self {
         Self {
             inner,

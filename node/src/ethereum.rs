@@ -1,3 +1,9 @@
+//! Frontier / Ethereum-compatibility wiring for the Subtensor node.
+//!
+//! Owns eth CLI config, Frontier backend partials, mapping-sync background tasks,
+//! and the private helpers that merge Eth/Net/Web3/Debug RPC modules.
+//! RPC method strings come from Frontier crates — do not rename those selectors.
+
 use crate::rpc::EthDeps;
 use fc_rpc::{
     Debug, DebugApiServer, Eth, EthApiServer, EthConfig, EthDevSigner, EthFilter,
@@ -28,9 +34,10 @@ use std::{
 
 use crate::client::{FullBackend, FullClient};
 
+/// Frontier offchain database backend for Ethereum state indexing.
 pub type FrontierBackend = fc_db::Backend<Block, FullClient>;
 
-/// Avalailable frontier backend types.
+/// Available frontier backend types.
 #[derive(Debug, Copy, Clone, Default, clap::ValueEnum)]
 pub enum BackendType {
     /// Either RocksDb or ParityDb as per inherited from the global backend settings.
@@ -89,16 +96,22 @@ pub struct EthConfiguration {
     pub frontier_sql_backend_cache_size: u64,
 }
 
+/// Directory under the node base path used for Frontier DB files for this chain.
 pub fn db_config_dir(config: &Configuration) -> PathBuf {
     config.base_path.config_dir(config.chain_spec.id())
 }
 
+/// In-memory Frontier components shared by Eth RPC (filter pool + fee history).
 pub struct FrontierPartialComponents {
+    /// Optional Eth filter pool for `eth_newFilter` / log subscriptions.
     pub filter_pool: Option<FilterPool>,
+    /// Shared fee-history cache filled by the Frontier maintenance task.
     pub fee_history_cache: FeeHistoryCache,
+    /// Cap on fee-history cache entries.
     pub fee_history_cache_limit: FeeHistoryCacheLimit,
 }
 
+/// Allocate Frontier filter-pool and fee-history caches from eth CLI config.
 pub fn new_frontier_partial(
     config: &EthConfiguration,
 ) -> Result<FrontierPartialComponents, ServiceError> {
@@ -109,6 +122,7 @@ pub fn new_frontier_partial(
     })
 }
 
+/// Spawn Frontier mapping-sync, filter-pool, and fee-history maintenance tasks.
 #[allow(clippy::too_many_arguments)]
 pub async fn spawn_frontier_tasks(
     task_manager: &TaskManager,
@@ -193,7 +207,8 @@ pub async fn spawn_frontier_tasks(
     );
 }
 
-fn extend_rpc_aet_api<P, CT, CIDP, EC>(
+/// Merge the core `eth_*` JSON-RPC API into `io`.
+fn extend_rpc_eth_api<P, CT, CIDP, EC>(
     io: &mut RpcModule<()>,
     deps: &EthDeps<P, CT, CIDP>,
     pending_consensus_data_provider: Option<Box<dyn fc_rpc::pending::ConsensusDataProvider<Block>>>,
@@ -240,6 +255,7 @@ where
     Ok(())
 }
 
+/// Merge Eth filter RPC (`eth_newFilter`, etc.) when a filter pool is configured.
 fn extend_rpc_eth_filter<P, CT, CIDP>(
     io: &mut RpcModule<()>,
     deps: &EthDeps<P, CT, CIDP>,
@@ -272,7 +288,7 @@ where
     Ok(())
 }
 
-// Function for EthPubSub merge
+/// Merge Eth pubsub subscription RPC handlers.
 fn extend_rpc_eth_pubsub<P, CT, CIDP>(
     io: &mut RpcModule<()>,
     deps: &EthDeps<P, CT, CIDP>,
@@ -308,6 +324,7 @@ where
     Ok(())
 }
 
+/// Merge `net_*` peer-count RPC helpers.
 fn extend_rpc_net<P, CT, CIDP>(
     io: &mut RpcModule<()>,
     deps: &EthDeps<P, CT, CIDP>,
@@ -334,6 +351,7 @@ where
     Ok(())
 }
 
+/// Merge `web3_*` client-version helpers.
 fn extend_rpc_web3<P, CT, CIDP>(
     io: &mut RpcModule<()>,
     deps: &EthDeps<P, CT, CIDP>,
@@ -353,6 +371,7 @@ where
     Ok(())
 }
 
+/// Merge Frontier debug tracing RPC.
 fn extend_rpc_debug<P, CT, CIDP>(
     io: &mut RpcModule<()>,
     deps: &EthDeps<P, CT, CIDP>,
@@ -380,7 +399,9 @@ where
     Ok(())
 }
 
-/// Extend RpcModule with Eth RPCs
+/// Extend `RpcModule` with Frontier Eth / Net / Web3 / Debug RPCs.
+///
+/// Does not change Frontier method name strings registered for clients.
 pub fn create_eth<P, CT, CIDP, EC>(
     mut io: RpcModule<()>,
     deps: EthDeps<P, CT, CIDP>,
@@ -404,7 +425,7 @@ where
     CIDP: CreateInherentDataProviders<Block, ()> + Send + Clone + 'static,
     EC: EthConfig<Block, FullClient>,
 {
-    extend_rpc_aet_api::<P, CT, CIDP, EC>(&mut io, &deps, pending_consensus_data_provider)?;
+    extend_rpc_eth_api::<P, CT, CIDP, EC>(&mut io, &deps, pending_consensus_data_provider)?;
     extend_rpc_eth_filter::<P, CT, CIDP>(&mut io, &deps)?;
     extend_rpc_eth_pubsub::<P, CT, CIDP>(
         &mut io,
