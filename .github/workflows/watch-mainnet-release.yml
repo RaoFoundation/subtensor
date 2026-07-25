@@ -350,10 +350,9 @@ jobs:
       needs.check.result == 'success' &&
       needs.check.outputs.docker_needed == 'true' &&
       (needs.release.result == 'success' || needs.release.result == 'skipped')
-    # This job only checks out the helper and polls GitHub; keep build runners
-    # available for the child image workflows that do the CPU-heavy work.
+    # This job only queries GitHub/GHCR; keep build runners available for the
+    # child image workflows that do the CPU-heavy work.
     runs-on: ubuntu-latest
-    timeout-minutes: 180
     permissions:
       actions: write
       contents: read
@@ -369,8 +368,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Dispatch the current workflow definition with an immutable release tag
-      # and expected source SHA, then verify the resulting registry identity.
-      # A startup failure is retried; a real build failure remains terminal.
+      # and expected source SHA. Scheduled watcher runs reconcile GHCR until
+      # the terminal registry identity exists, without duplicating active work.
       - name: Ensure release image is published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

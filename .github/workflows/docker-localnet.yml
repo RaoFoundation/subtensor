@@ -33,7 +33,7 @@ concurrency:
   # Isolate it from ordinary main publication so a later push cannot cancel
   # an in-flight immutable release build.
   group: docker-localnet-${{ inputs.expected-sha || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ inputs.expected-sha == '' }}
 
 permissions:
   contents: read
