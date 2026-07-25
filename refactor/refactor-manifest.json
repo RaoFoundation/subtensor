@@ -705,7 +705,7 @@
       "id": "w2-rpc",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "done",
       "notes": "RPC method strings and runtime API trait/method names frozen",
       "files": [
         "pallets/subtensor/rpc/src/lib.rs",

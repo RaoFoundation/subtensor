@@ -398,3 +398,22 @@ sdk/python/tests/fixtures/shape_corpus/corpus.json
 - proposed by: w2-src-extensions
 - status: pending
 - note: `SubtensorTransactionExtension` type name and `IDENTIFIER` string stay frozen (extrinsic format / runtime wiring in `runtime/src/lib.rs`, `node/src/benchmarking.rs`, tests).
+## SubtensorCustom -> SubtensorCustomRpc
+- reason: handler type name does not say it is the JSON-RPC adapter; `Custom` alone is opaque next to runtime-api crates named `subtensor-custom-rpc*`.
+- hits:
+```
+pallets/subtensor/rpc/src/lib.rs
+node/src/rpc.rs
+```
+- proposed by: w2-rpc
+- status: pending
+
+## SubtensorCustomApi -> SubtensorCustomRpcApi
+- reason: jsonrpsee RPC trait; align with `SubtensorCustomRpc` and make `rg SubtensorCustomRpc` find trait + handler + generated `*Server`. Hits `SubtensorCustomApiServer` in node wiring.
+- hits:
+```
+pallets/subtensor/rpc/src/lib.rs
+node/src/rpc.rs
+```
+- proposed by: w2-rpc
+- status: pending
