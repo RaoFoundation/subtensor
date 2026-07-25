@@ -1131,17 +1131,19 @@
       "id": "w3-rename-queue",
       "wave": 3,
       "task": "cross-cutting",
-      "status": "pending",
-      "notes": "Process rename-proposals.md serially",
+      "status": "merged",
+      "notes": "Process rename-proposals.md serially; path-agnostic precompile fingerprint",
       "files": [
-        "refactor/rename-proposals.md"
+        "refactor/rename-proposals.md",
+        "scripts/extract_metadata_fingerprint.py",
+        "refactor/metadata-baseline.txt"
       ]
     },
     {
       "id": "w3-glossary",
       "wave": 3,
       "task": "cross-cutting",
-      "status": "pending",
+      "status": "merged",
       "notes": "Glossary consistency pass; finalize AGENTS.md",
       "files": [
         "AGENTS.md",

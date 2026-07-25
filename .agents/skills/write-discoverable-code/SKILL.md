@@ -11,9 +11,10 @@ Coding agents navigate this repo with `rg` / filename search, not a dependency g
 
 1. **Exported / crate-visible symbols: 2–3 words, one domain word.** Prefer `calculate_subnet_emission` over `calculate`. Package/module path counts as a word only when call sites use the qualified path in source (`swap::NewClient`-style); FRAME dispatchables and free functions need the domain word in the identifier itself.
 2. **One spelling per concept.** Follow the glossary in root `AGENTS.md`. Do not introduce `organization` beside `org`, or `network_id` beside `NetUid`.
-3. **Files and modules are search terms.** Name files after the concept they own (`smtp_settings.py` → here: `folder_fallbacks.rs`, `hmac_payload_signer.rs`). Prefer `email/message_rendering.rs` over a 5k-line grab-bag.
-4. **Tests named after source.** `staking/add_stake.rs` → tests that cover it live under a discoverable name (`tests/add_stake.rs` or a module clearly about add-stake). Avoid dumping unrelated cases into one monolith when splitting is cheap.
-5. **Mark legacy `@deprecated` / `#[deprecated]`** when keeping a path temporarily. Prefer deletion.
+3. **Spell out common abbreviations in new helpers.** Prefer `subnet` over `sn`, `rate_limit` over `rl`, and full domain words over opaque stubs (`Custom`, `I`, `Impl` as the only distinguisher). Boolean helpers should read as predicates (`subnet_exists`, `should_accumulate_…`), not `if_*`. Extrinsic-body helpers should not share a `do_*` prefix with the dispatchable — use `perform_*` / a concept verb.
+4. **Files and modules are search terms.** Name files after the concept they own (`smtp_settings.py` → here: `folder_fallbacks.rs`, `hmac_payload_signer.rs`). Prefer `email/message_rendering.rs` over a 5k-line grab-bag. Precompile `INDEX` / Solidity selectors are path-agnostic in the metadata fingerprint, so `foo.rs` → `foo/mod.rs` splits are safe when those values stay put.
+5. **Tests named after source.** `staking/add_stake.rs` → tests that cover it live under a discoverable name (`tests/add_stake.rs` or a module clearly about add-stake). Avoid dumping unrelated cases into one monolith when splitting is cheap.
+6. **Mark legacy `@deprecated` / `#[deprecated]`** when keeping a path temporarily. Prefer deletion.
 
 ### Do not rename (Tier A–D)
 

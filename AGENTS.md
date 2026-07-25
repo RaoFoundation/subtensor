@@ -29,10 +29,14 @@ Canonical layout doc: [`docs/internals/repo-layout.mdx`](docs/internals/repo-lay
 | `hotkey` / `coldkey` | `hot_key`, `cold_key` |
 | `tao` / `alpha` | inventing synonyms for the same asset |
 | `stake` | mixing `bond` / `delegation` for the same storage amount |
-| `subnet` | `network` when you mean a Bittensor subnet (except historical names) |
+| `subnet` | `network` when you mean a Bittensor subnet (except historical names); never abbreviate as `sn` in new helpers (`ensure_sn_owner` → `ensure_subnet_owner`) |
 | `uid` | `neuron_index` for the per-subnet uid |
 | `tempo` | `epoch_length` for the subnet tempo parameter |
 | `emission` | `reward_mint` for coinbase emission |
+| `rate_limit` / `rate_limits` | `rl` in identifiers (`record_owner_rl` → `record_owner_rate_limits`) |
+| `*_exists` / `should_*` predicates | `if_*` boolean helpers (`if_subnet_exist` → `subnet_exists`) |
+| `perform_*` / concept verb for extrinsic bodies | bare `do_*` next to a same-named dispatchable (`do_swap_hotkey` → `perform_hotkey_swap`) |
+| domain word in RPC/handler types | opaque `Custom` alone (`SubtensorCustom` → `SubtensorCustomRpc`) |
 
 When a frozen on-chain name already uses a different spelling, keep the frozen name; do not invent a parallel alias.
 
