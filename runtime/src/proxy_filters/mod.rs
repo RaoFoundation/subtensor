@@ -1,3 +1,12 @@
+//! Proxy-type allow-lists for `pallet_subtensor_proxy`.
+//!
+//! Policy lives here as additive unions of inventory groups from
+//! [`call_groups`]. [`proxy_type_filter`] is the executable gate used by
+//! [`InstanceFilter`]; [`get_proxy_filters`] / [`get_all_proxy_type_infos`]
+//! expose the same sets to runtime APIs so clients cannot drift from on-chain
+//! checks. Deprecated proxies (`Triumvirate`, `Senate`, `Governance`,
+//! `RootWeights`) allow nothing.
+
 mod call_groups;
 
 use alloc::{format, vec::Vec};

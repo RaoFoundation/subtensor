@@ -45,3 +45,38 @@ refactor/metadata-baseline.txt
 ```
 - proposed by: w1-precompiles-b
 - status: pending
+
+## CommitmentsI -> CommitmentsPurgeBridge
+- reason: runtime adapter that forwards `purge_netuid` into pallet_commitments; `CommitmentsI` is an opaque abbreviation. Same name is re-declared in several test mocks.
+- hits:
+```
+runtime/src/lib.rs
+eco-tests/src/mock.rs
+chain-extensions/src/mock.rs
+precompiles/src/mock.rs
+pallets/transaction-fee/src/tests/mock.rs
+```
+- proposed by: w1-runtime
+- status: pending
+
+## GrandpaInterfaceImpl -> GrandpaAuthorityInterface
+- reason: mirror the clearer `AuraAuthorityInterface` naming for the admin-utils Grandpa bridge.
+- hits:
+```
+runtime/src/lib.rs
+pallets/admin-utils/src/tests/mock.rs
+```
+- proposed by: w1-runtime
+- status: pending
+
+## TempoInterface -> SubtensorTempoBridge
+- reason: runtime/commitments tempo lookup via Subtensor epoch index; name collides with trait-shaped helpers in pallet mocks.
+- hits:
+```
+runtime/src/lib.rs
+pallets/subtensor/src/tests/mock.rs
+pallets/commitments/src/mock.rs
+pallets/commitments/src/lib.rs
+```
+- proposed by: w1-runtime
+- status: pending

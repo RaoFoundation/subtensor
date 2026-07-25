@@ -1,3 +1,11 @@
+//! Transaction extension that rejects sudo calls signed by anyone but the
+//! configured sudo key.
+//!
+//! Drop-in check in the runtime's [`CustomTxExtension`](crate::CustomTxExtension)
+//! pipeline. Non-sudo calls and unsigned origins pass through unchanged.
+//! `IDENTIFIER` and SCALE layout are frozen — do not rename the type or alter
+//! its encoding without a client migration.
+
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::dispatch::{DispatchInfo, PostDispatchInfo};
 use frame_support::traits::IsSubType;
@@ -13,7 +21,12 @@ use sp_runtime::transaction_validity::{InvalidTransaction, TransactionSource};
 use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
 
-#[freeze_struct("99dce71278b36b44")]
+/// Rejects `pallet_sudo` calls whose signer is not the on-chain sudo key.
+///
+/// Returns `InvalidTransaction::BadSigner` when no sudo key is configured or
+/// when the signer differs. Never alters origin; sudo dispatch still enforces
+/// its own checks.
+#[freeze_struct("290a37b979472932")]
 #[derive(Default, Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 pub struct SudoTransactionExtension<T: Config + Send + Sync + TypeInfo>(pub PhantomData<T>);
 
