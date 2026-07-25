@@ -39,7 +39,11 @@ fn assert_has_event<T: Config>(generic_event: <T as frame_system::pallet::Config
     frame_system::Pallet::<T>::assert_has_event(generic_event.into());
 }
 
-fn add_proxies<T: Config>(n: u32, maybe_who: Option<T::AccountId>) -> Result<(), &'static str> {
+/// Seed `n` default-type proxy delegates on `maybe_who` (or the whitelisted caller).
+fn seed_benchmark_proxies<T: Config>(
+    n: u32,
+    maybe_who: Option<T::AccountId>,
+) -> Result<(), &'static str> {
     let caller = maybe_who.unwrap_or_else(whitelisted_caller);
     T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value() / 2u32.into());
     for i in 0..n {
@@ -55,7 +59,8 @@ fn add_proxies<T: Config>(n: u32, maybe_who: Option<T::AccountId>) -> Result<(),
     Ok(())
 }
 
-fn add_announcements<T: Config>(
+/// Seed `n` pending announcements from `maybe_who` against `maybe_real` (creating a proxy if needed).
+fn seed_benchmark_announcements<T: Config>(
     n: u32,
     maybe_who: Option<T::AccountId>,
     maybe_real: Option<T::AccountId>,
@@ -93,7 +98,7 @@ mod benchmarks {
 
     #[benchmark]
     fn proxy(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         // In this case the caller is the "target" proxy
         let caller: T::AccountId = account("target", p - 1, SEED);
         T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value() / 2u32.into());
@@ -121,7 +126,7 @@ mod benchmarks {
         a: Linear<0, { T::MaxPending::get() - 1 }>,
         p: Linear<1, { T::MaxProxies::get() - 1 }>,
     ) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         // In this case the caller is the "target" proxy
         let caller: T::AccountId = account("pure", 0, SEED);
         let delegate: T::AccountId = account("target", p - 1, SEED);
@@ -137,7 +142,7 @@ mod benchmarks {
             real_lookup.clone(),
             T::CallHasher::hash_of(&call),
         )?;
-        add_announcements::<T>(a, Some(delegate.clone()), None)?;
+        seed_benchmark_announcements::<T>(a, Some(delegate.clone()), None)?;
 
         #[extrinsic_call]
         _(
@@ -158,7 +163,7 @@ mod benchmarks {
         a: Linear<0, { T::MaxPending::get() - 1 }>,
         p: Linear<1, { T::MaxProxies::get() - 1 }>,
     ) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         // In this case the caller is the "target" proxy
         let caller: T::AccountId = account("target", p - 1, SEED);
         T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value() / 2u32.into());
@@ -172,7 +177,7 @@ mod benchmarks {
             real_lookup.clone(),
             T::CallHasher::hash_of(&call),
         )?;
-        add_announcements::<T>(a, Some(caller.clone()), None)?;
+        seed_benchmark_announcements::<T>(a, Some(caller.clone()), None)?;
 
         #[extrinsic_call]
         _(
@@ -192,7 +197,7 @@ mod benchmarks {
         a: Linear<0, { T::MaxPending::get() - 1 }>,
         p: Linear<1, { T::MaxProxies::get() - 1 }>,
     ) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         // In this case the caller is the "target" proxy
         let caller: T::AccountId = account("target", p - 1, SEED);
         let caller_lookup = T::Lookup::unlookup(caller.clone());
@@ -207,7 +212,7 @@ mod benchmarks {
             real_lookup,
             T::CallHasher::hash_of(&call),
         )?;
-        add_announcements::<T>(a, Some(caller.clone()), None)?;
+        seed_benchmark_announcements::<T>(a, Some(caller.clone()), None)?;
 
         #[extrinsic_call]
         _(
@@ -227,14 +232,14 @@ mod benchmarks {
         a: Linear<0, { T::MaxPending::get() - 1 }>,
         p: Linear<1, { T::MaxProxies::get() - 1 }>,
     ) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         // In this case the caller is the "target" proxy
         let caller: T::AccountId = account("target", p - 1, SEED);
         T::Currency::make_free_balance_be(&caller, BalanceOf::<T>::max_value() / 2u32.into());
         // ... and "real" is the traditional caller. This is not a typo.
         let real: T::AccountId = whitelisted_caller();
         let real_lookup = T::Lookup::unlookup(real.clone());
-        add_announcements::<T>(a, Some(caller.clone()), None)?;
+        seed_benchmark_announcements::<T>(a, Some(caller.clone()), None)?;
         let call: <T as Config>::RuntimeCall =
             frame_system::Call::<T>::remark { remark: vec![] }.into();
         let call_hash = T::CallHasher::hash_of(&call);
@@ -256,7 +261,7 @@ mod benchmarks {
 
     #[benchmark]
     fn add_proxy(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();
         let real = T::Lookup::unlookup(account("target", T::MaxProxies::get(), SEED));
 
@@ -276,7 +281,7 @@ mod benchmarks {
 
     #[benchmark]
     fn remove_proxy(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();
         let delegate = T::Lookup::unlookup(account("target", 0, SEED));
 
@@ -296,7 +301,7 @@ mod benchmarks {
 
     #[benchmark]
     fn remove_proxies(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();
 
         #[extrinsic_call]
@@ -310,7 +315,7 @@ mod benchmarks {
 
     #[benchmark]
     fn create_pure(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();
 
         #[extrinsic_call]
@@ -352,7 +357,7 @@ mod benchmarks {
         let pure_account =
             Pallet::<T>::pure_account(&caller, &T::ProxyType::default(), 0, None).unwrap();
 
-        add_proxies::<T>(p, Some(pure_account.clone()))?;
+        seed_benchmark_proxies::<T>(p, Some(pure_account.clone()))?;
         ensure!(
             Proxies::<T>::contains_key(&pure_account),
             "pure proxy not created"
@@ -493,7 +498,7 @@ mod benchmarks {
 
     #[benchmark]
     fn set_real_pays_fee(p: Linear<1, { T::MaxProxies::get() - 1 }>) -> Result<(), BenchmarkError> {
-        add_proxies::<T>(p, None)?;
+        seed_benchmark_proxies::<T>(p, None)?;
         let caller: T::AccountId = whitelisted_caller();
         let delegate: T::AccountId = account("target", 0, SEED);
         let delegate_lookup = T::Lookup::unlookup(delegate.clone());

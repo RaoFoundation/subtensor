@@ -16,20 +16,26 @@
 // limitations under the License.
 
 //! # Proxy Pallet
-//! A pallet allowing accounts to give permission to other accounts to dispatch types of calls from
-//! their signed origin.
 //!
-//! The accounts to which permission is delegated may be required to announce the action that they
-//! wish to execute some duration prior to execution happens. In this case, the target account may
-//! reject the announcement and in doing so, veto the execution.
+//! Lets a **real** (delegator) account authorize **delegate** accounts to dispatch filtered
+//! [`RuntimeCall`](Config::RuntimeCall)s as if signed by the real account.
+//!
+//! Delayed proxies require an [`announce`](Pallet::announce) of the call hash and a waiting period
+//! before [`proxy_announced`](Pallet::proxy_announced); the real account can
+//! [`reject_announcement`](Pallet::reject_announcement) to veto. Pure accounts
+//! ([`create_pure`](Pallet::create_pure) / [`kill_pure`](Pallet::kill_pure)) are keyless accounts
+//! controlled only through proxy. Optional [`RealPaysFee`] lets the real account pay extrinsic fees
+//! for a delegate's proxy calls.
 //!
 //! - [`Config`]
 //! - [`Call`]
+//! - [`Proxies`] / [`Announcements`] / [`RealPaysFee`]
 
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod benchmarking;
+mod impls;
 mod tests;
 pub mod weights;
 
@@ -54,8 +60,8 @@ pub type BlockNumberFor<T> =
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
-/// The parameters under which a particular account has a proxy relationship with some other
-/// account.
+/// One delegate entry under a real account: who may act, which call subset,
+/// and announcement delay.
 #[derive(
     Encode,
     Decode,
@@ -72,28 +78,28 @@ type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup
 )]
 #[freeze_struct("a37bb67fe5520678")]
 pub struct ProxyDefinition<AccountId, ProxyType, BlockNumber> {
-    /// The account which may act on behalf of another.
+    /// Delegate account authorized to act on behalf of the real (storage-map key) account.
     pub delegate: AccountId,
-    /// A value defining the subset of calls that it is allowed to make.
+    /// Call subset this delegate may dispatch (`InstanceFilter` / privilege rules apply).
     pub proxy_type: ProxyType,
-    /// The number of blocks that an announcement must be in place for before the corresponding
-    /// call may be dispatched. If zero, then no announcement is needed.
+    /// Blocks an announcement must age before `proxy_announced` may run.
+    /// If zero, then no announcement is needed and immediate `proxy` is allowed.
     pub delay: BlockNumber,
 }
 
-/// Details surrounding a specific instance of an announcement to make a call.
+/// Pending delayed-proxy announcement: call hash posted by a delegate against a real account.
 #[derive(Encode, Decode, Clone, Copy, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 #[freeze_struct("4c1b5c8c3bc489ad")]
 pub struct Announcement<AccountId, Hash, BlockNumber> {
-    /// The account which made the announcement.
+    /// Real account on whose behalf the announced call will run.
     real: AccountId,
-    /// The hash of the call to be made.
+    /// Hash of the call that must later be supplied to `proxy_announced`.
     call_hash: Hash,
-    /// The height at which the announcement was made.
+    /// Block number when the announcement was recorded (delay measured from here).
     height: BlockNumber,
 }
 
-/// The type of deposit
+/// Which reserved-balance bucket [`Event::DepositPoked`] refers to.
 #[derive(
     Encode,
     Decode,
@@ -107,9 +113,9 @@ pub struct Announcement<AccountId, Hash, BlockNumber> {
     DecodeWithMemTracking,
 )]
 pub enum DepositKind {
-    /// Proxy registration deposit
+    /// Deposit locked against `Proxies` entries for the account.
     Proxies,
-    /// Announcement deposit
+    /// Deposit locked against pending `Announcements` for the account.
     Announcements,
 }
 
@@ -449,7 +455,7 @@ pub mod pallet {
                 pending
                     .try_push(announcement)
                     .map_err(|_| Error::<T>::TooMany)?;
-                let new_deposit = Self::rejig_deposit(
+                let new_deposit = Self::recompute_reserved_deposit(
                     &who,
                     *deposit,
                     T::AnnouncementDepositBase::get(),
@@ -492,7 +498,9 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let real = T::Lookup::lookup(real)?;
-            Self::edit_announcements(&who, |ann| ann.real != real || ann.call_hash != call_hash)?;
+            Self::retain_proxy_announcements(&who, |ann| {
+                ann.real != real || ann.call_hash != call_hash
+            })?;
 
             Ok(())
         }
@@ -519,7 +527,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let delegate = T::Lookup::lookup(delegate)?;
-            Self::edit_announcements(&delegate, |ann| {
+            Self::retain_proxy_announcements(&delegate, |ann| {
                 ann.real != who || ann.call_hash != call_hash
             })?;
 
@@ -560,7 +568,7 @@ pub mod pallet {
 
             let call_hash = T::CallHasher::hash_of(&call);
             let now = T::BlockNumberProvider::current_block_number();
-            Self::edit_announcements(&delegate, |ann| {
+            Self::retain_proxy_announcements(&delegate, |ann| {
                 ann.real != real
                     || ann.call_hash != call_hash
                     || now.saturating_sub(ann.height) < def.delay
@@ -589,7 +597,7 @@ pub mod pallet {
             // Check and update proxy deposits
             Proxies::<T>::try_mutate_exists(&who, |maybe_proxies| -> DispatchResult {
                 let (proxies, old_deposit) = maybe_proxies.take().unwrap_or_default();
-                let maybe_new_deposit = Self::rejig_deposit(
+                let maybe_new_deposit = Self::recompute_reserved_deposit(
                     &who,
                     old_deposit,
                     T::ProxyDepositBase::get(),
@@ -630,7 +638,7 @@ pub mod pallet {
             // Check and update announcement deposits
             Announcements::<T>::try_mutate_exists(&who, |maybe_announcements| -> DispatchResult {
                 let (announcements, old_deposit) = maybe_announcements.take().unwrap_or_default();
-                let maybe_new_deposit = Self::rejig_deposit(
+                let maybe_new_deposit = Self::recompute_reserved_deposit(
                     &who,
                     old_deposit,
                     T::AnnouncementDepositBase::get(),
@@ -717,55 +725,54 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A proxy was executed correctly, with the given.
+        /// A proxied call finished; `result` is the inner dispatch outcome (filter failures included).
         ProxyExecuted { result: DispatchResult },
-        /// A pure account has been created by new proxy with given
-        /// disambiguation index and proxy type.
+        /// A keyless pure account was spawned; `who` is the initial delegate over `pure`.
         PureCreated {
             pure: T::AccountId,
             who: T::AccountId,
             proxy_type: T::ProxyType,
             disambiguation_index: u16,
         },
-        /// A pure proxy was killed by its spawner.
+        /// Pure account removed; deposit unreserved to `spawner`. Funds left on `pure` are lost.
         PureKilled {
-            // The pure proxy account that was destroyed.
+            /// The pure proxy account that was destroyed.
             pure: T::AccountId,
-            // The account that created the pure proxy.
+            /// The account that created the pure proxy.
             spawner: T::AccountId,
-            // The proxy type of the pure proxy that was destroyed.
+            /// The proxy type of the pure proxy that was destroyed.
             proxy_type: T::ProxyType,
-            // The index originally passed to `create_pure` when this pure proxy was created.
+            /// The index originally passed to `create_pure` when this pure proxy was created.
             disambiguation_index: u16,
         },
-        /// An announcement was placed to make a call in the future.
+        /// Delegate announced `call_hash` for a future delayed proxy on behalf of `real`.
         Announced {
             real: T::AccountId,
             proxy: T::AccountId,
             call_hash: CallHashOf<T>,
         },
-        /// A proxy was added.
+        /// `delegator` authorized `delegatee` with `proxy_type` and announcement `delay`.
         ProxyAdded {
             delegator: T::AccountId,
             delegatee: T::AccountId,
             proxy_type: T::ProxyType,
             delay: BlockNumberFor<T>,
         },
-        /// A proxy was removed.
+        /// Proxy relationship removed (exact `proxy_type` + `delay` match).
         ProxyRemoved {
             delegator: T::AccountId,
             delegatee: T::AccountId,
             proxy_type: T::ProxyType,
             delay: BlockNumberFor<T>,
         },
-        /// A deposit stored for proxies or announcements was poked / updated.
+        /// Reserved deposit for proxies or announcements was recomputed (e.g. via `poke_deposit`).
         DepositPoked {
             who: T::AccountId,
             kind: DepositKind,
             old_deposit: BalanceOf<T>,
             new_deposit: BalanceOf<T>,
         },
-        /// The real-pays-fee setting was updated for a proxy relationship.
+        /// Fee-payer preference for `(real, delegate)` proxy calls was set (`pays_fee == true` → real pays).
         RealPaysFeeSet {
             real: T::AccountId,
             delegate: T::AccountId,
@@ -775,38 +782,39 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        /// There are too many proxies registered or too many announcements pending.
+        /// `MaxProxies` or `MaxPending` capacity exceeded.
         TooMany,
-        /// Proxy registration not found.
+        /// No matching proxy definition or announcement to edit/remove.
         NotFound,
-        /// Sender is not a proxy of the account to be proxied.
+        /// Caller is not a registered delegate for the target real account.
         NotProxy,
-        /// A call which is incompatible with the proxy type's filter was attempted.
+        /// Inner call failed the `ProxyType` instance filter.
         Unproxyable,
-        /// Account is already a proxy.
+        /// Identical proxy definition (or pure account identity) already exists.
         Duplicate,
-        /// Call may not be made by proxy because it may escalate its privileges.
+        /// Proxy attempted a privilege-escalating call (e.g. broader `add_proxy` / `kill_pure`).
         NoPermission,
-        /// Announcement, if made at all, was made too recently.
+        /// Delayed proxy missing a mature announcement for this call hash.
         Unannounced,
-        /// Cannot add self as proxy.
+        /// Delegator tried to add itself as its own delegate.
         NoSelfProxy,
-        /// Invariant violated: deposit recomputation returned None after updating announcements.
+        /// Announcement deposit recomputation returned `None` while announcements remain (logic bug).
         AnnouncementDepositInvariantViolated,
-        /// Failed to derive a valid account id from the provided entropy.
+        /// `AccountId` could not be decoded from pure-account entropy.
         InvalidDerivedAccountId,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<SystemBlockNumberFor<T>> for Pallet<T> {
         fn on_finalize(_n: SystemBlockNumberFor<T>) {
-            // clear this map on end of each block
+            // Ephemeral per-block cache for the latest proxied dispatch result.
             let _ = LastCallResult::<T>::clear(u32::MAX, None);
         }
     }
 
-    /// The set of account proxies. Maps the account which has delegated to the accounts
-    /// which are being delegated to, together with the amount held on deposit.
+    /// Delegator → `(sorted proxy definitions, reserved deposit)`.
+    ///
+    /// Deposit is `ProxyDepositBase + ProxyDepositFactor * len` while non-empty.
     #[pallet::storage]
     pub type Proxies<T: Config> = StorageMap<
         _,
@@ -822,7 +830,9 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// The announcements made by the proxy (key).
+    /// Delegate → `(pending announcements, reserved deposit)`.
+    ///
+    /// Deposit is `AnnouncementDepositBase + AnnouncementDepositFactor * len` while non-empty.
     #[pallet::storage]
     pub type Announcements<T: Config> = StorageMap<
         _,
@@ -835,15 +845,13 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// The result of the last call made by the proxy (key).
+    /// Latest proxied dispatch result keyed by the **real** account; cleared each block in `on_finalize`.
     #[pallet::storage]
     pub type LastCallResult<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, DispatchResult, OptionQuery>;
 
-    /// Tracks which (real, delegate) pairs have opted in to the real account paying
-    /// transaction fees for proxy calls made by the delegate.
-    /// Existence of an entry means the real account pays; absence means the delegate pays
-    /// (default).
+    /// Opt-in: when `(real, delegate)` is present, the real account pays fees for that delegate's
+    /// proxy extrinsics; absent means the delegate pays (default). Cleared when the proxy is removed.
     #[pallet::storage]
     pub type RealPaysFee<T: Config> = StorageDoubleMap<
         _,
@@ -869,286 +877,5 @@ pub mod pallet {
         pub fn is_superset(to_check: T::ProxyType, against: T::ProxyType) -> bool {
             to_check.is_superset(&against)
         }
-    }
-}
-
-impl<T: Config> Pallet<T> {
-    /// Public function to proxies storage.
-    pub fn proxies(
-        account: T::AccountId,
-    ) -> (
-        BoundedVec<ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>, T::MaxProxies>,
-        BalanceOf<T>,
-    ) {
-        Proxies::<T>::get(account)
-    }
-
-    /// Public function to announcements storage.
-    pub fn announcements(
-        account: T::AccountId,
-    ) -> (
-        BoundedVec<Announcement<T::AccountId, CallHashOf<T>, BlockNumberFor<T>>, T::MaxPending>,
-        BalanceOf<T>,
-    ) {
-        Announcements::<T>::get(account)
-    }
-
-    /// Calculate the address of an pure account.
-    ///
-    /// - `who`: The spawner account.
-    /// - `proxy_type`: The type of the proxy that the sender will be registered as over the
-    ///   new account. This will almost always be the most permissive `ProxyType` possible to
-    ///   allow for maximum flexibility.
-    /// - `index`: A disambiguation index, in case this is called multiple times in the same
-    ///   transaction (e.g. with `utility::batch`). Unless you're using `batch` you probably just
-    ///   want to use `0`.
-    /// - `maybe_when`: The block height and extrinsic index of when the pure account was
-    ///   created. None to use current block height and extrinsic index.
-    pub fn pure_account(
-        who: &T::AccountId,
-        proxy_type: &T::ProxyType,
-        index: u16,
-        maybe_when: Option<(BlockNumberFor<T>, u32)>,
-    ) -> Result<T::AccountId, DispatchError> {
-        let (height, ext_index) = maybe_when.unwrap_or_else(|| {
-            (
-                T::BlockNumberProvider::current_block_number(),
-                frame_system::Pallet::<T>::extrinsic_index().unwrap_or_default(),
-            )
-        });
-        let entropy = (
-            b"modlpy/proxy____",
-            who,
-            height,
-            ext_index,
-            proxy_type,
-            index,
-        )
-            .using_encoded(blake2_256);
-
-        T::AccountId::decode(&mut TrailingZeroInput::new(entropy.as_ref()))
-            .map_err(|_| Error::<T>::InvalidDerivedAccountId.into())
-    }
-
-    /// Register a proxy account for the delegator that is able to make calls on its behalf.
-    ///
-    /// Parameters:
-    /// - `delegator`: The delegator account.
-    /// - `delegatee`: The account that the `delegator` would like to make a proxy.
-    /// - `proxy_type`: The permissions allowed for this proxy account.
-    /// - `delay`: The announcement period required of the initial proxy. Will generally be
-    ///   zero.
-    pub fn add_proxy_delegate(
-        delegator: &T::AccountId,
-        delegatee: T::AccountId,
-        proxy_type: T::ProxyType,
-        delay: BlockNumberFor<T>,
-    ) -> DispatchResult {
-        ensure!(delegator != &delegatee, Error::<T>::NoSelfProxy);
-        Proxies::<T>::try_mutate(delegator, |(proxies, deposit)| {
-            let proxy_def = ProxyDefinition {
-                delegate: delegatee.clone(),
-                proxy_type: proxy_type.clone(),
-                delay,
-            };
-            let i = proxies
-                .binary_search(&proxy_def)
-                .err()
-                .ok_or(Error::<T>::Duplicate)?;
-            proxies
-                .try_insert(i, proxy_def)
-                .map_err(|_| Error::<T>::TooMany)?;
-            let new_deposit = Self::deposit(proxies.len() as u32);
-            if new_deposit > *deposit {
-                T::Currency::reserve(delegator, new_deposit.saturating_sub(*deposit))?;
-            } else if new_deposit < *deposit {
-                T::Currency::unreserve(delegator, (*deposit).saturating_sub(new_deposit));
-            }
-            *deposit = new_deposit;
-            Self::deposit_event(Event::<T>::ProxyAdded {
-                delegator: delegator.clone(),
-                delegatee,
-                proxy_type,
-                delay,
-            });
-            Ok(())
-        })
-    }
-
-    /// Unregister a proxy account for the delegator.
-    ///
-    /// Parameters:
-    /// - `delegator`: The delegator account.
-    /// - `delegatee`: The account that the `delegator` would like to make a proxy.
-    /// - `proxy_type`: The permissions allowed for this proxy account.
-    /// - `delay`: The announcement period required of the initial proxy. Will generally be
-    ///   zero.
-    pub fn remove_proxy_delegate(
-        delegator: &T::AccountId,
-        delegatee: T::AccountId,
-        proxy_type: T::ProxyType,
-        delay: BlockNumberFor<T>,
-    ) -> DispatchResult {
-        Proxies::<T>::try_mutate_exists(delegator, |x| {
-            let (mut proxies, old_deposit) = x.take().ok_or(Error::<T>::NotFound)?;
-            let proxy_def = ProxyDefinition {
-                delegate: delegatee.clone(),
-                proxy_type: proxy_type.clone(),
-                delay,
-            };
-            let i = proxies
-                .binary_search(&proxy_def)
-                .ok()
-                .ok_or(Error::<T>::NotFound)?;
-            proxies.remove(i);
-            let new_deposit = Self::deposit(proxies.len() as u32);
-            if new_deposit > old_deposit {
-                T::Currency::reserve(delegator, new_deposit.saturating_sub(old_deposit))?;
-            } else if new_deposit < old_deposit {
-                T::Currency::unreserve(delegator, old_deposit.saturating_sub(new_deposit));
-            }
-            if !proxies.is_empty() {
-                *x = Some((proxies, new_deposit))
-            }
-            // Clean up real-pays-fee flag for this specific proxy relationship
-            RealPaysFee::<T>::remove(delegator, &delegatee);
-
-            Self::deposit_event(Event::<T>::ProxyRemoved {
-                delegator: delegator.clone(),
-                delegatee,
-                proxy_type,
-                delay,
-            });
-            Ok(())
-        })
-    }
-
-    pub fn deposit(num_proxies: u32) -> BalanceOf<T> {
-        if num_proxies == 0 {
-            Zero::zero()
-        } else {
-            T::ProxyDepositBase::get()
-                .saturating_add(T::ProxyDepositFactor::get().saturating_mul(num_proxies.into()))
-        }
-    }
-
-    fn rejig_deposit(
-        who: &T::AccountId,
-        old_deposit: BalanceOf<T>,
-        base: BalanceOf<T>,
-        factor: BalanceOf<T>,
-        len: usize,
-    ) -> Result<Option<BalanceOf<T>>, DispatchError> {
-        let new_deposit = if len == 0 {
-            BalanceOf::<T>::zero()
-        } else {
-            base.saturating_add(factor.saturating_mul((len as u32).into()))
-        };
-        if new_deposit > old_deposit {
-            T::Currency::reserve(who, new_deposit.saturating_sub(old_deposit))?;
-        } else if new_deposit < old_deposit {
-            let excess = old_deposit.saturating_sub(new_deposit);
-            let remaining_unreserved = T::Currency::unreserve(who, excess);
-            if !remaining_unreserved.is_zero() {
-                defensive!(
-                    "Failed to unreserve full amount. (Requested, Actual)",
-                    (excess, excess.saturating_sub(remaining_unreserved))
-                );
-            }
-        }
-        Ok(if len == 0 { None } else { Some(new_deposit) })
-    }
-
-    fn edit_announcements<
-        F: FnMut(&Announcement<T::AccountId, CallHashOf<T>, BlockNumberFor<T>>) -> bool,
-    >(
-        delegate: &T::AccountId,
-        f: F,
-    ) -> DispatchResult {
-        Announcements::<T>::try_mutate_exists(delegate, |x| {
-            let (mut pending, old_deposit) = x.take().ok_or(Error::<T>::NotFound)?;
-            let orig_pending_len = pending.len();
-            pending.retain(f);
-            ensure!(orig_pending_len > pending.len(), Error::<T>::NotFound);
-            *x = Self::rejig_deposit(
-                delegate,
-                old_deposit,
-                T::AnnouncementDepositBase::get(),
-                T::AnnouncementDepositFactor::get(),
-                pending.len(),
-            )?
-            .map(|deposit| (pending, deposit));
-            Ok(())
-        })
-    }
-
-    pub fn find_proxy(
-        real: &T::AccountId,
-        delegate: &T::AccountId,
-        force_proxy_type: Option<T::ProxyType>,
-    ) -> Result<ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>, DispatchError> {
-        let f = |x: &ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>| -> bool {
-            &x.delegate == delegate && force_proxy_type.as_ref().is_none_or(|y| &x.proxy_type == y)
-        };
-        Ok(Proxies::<T>::get(real)
-            .0
-            .into_iter()
-            .find(f)
-            .ok_or(Error::<T>::NotProxy)?)
-    }
-
-    fn do_proxy(
-        def: ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>,
-        real: T::AccountId,
-        call: <T as Config>::RuntimeCall,
-    ) {
-        use frame::traits::{InstanceFilter as _, OriginTrait as _};
-        // This is a freshly authenticated new account, the origin restrictions doesn't apply.
-        let mut origin: T::RuntimeOrigin = frame_system::RawOrigin::Signed(real.clone()).into();
-        origin.add_filter(move |c: &<T as frame_system::Config>::RuntimeCall| {
-            let c = <T as Config>::RuntimeCall::from_ref(c);
-            // We make sure the proxy call does access this pallet to change modify proxies.
-            match c.is_sub_type() {
-                // Proxy call cannot add or remove a proxy with more permissions than it already
-                // has.
-                Some(Call::add_proxy { proxy_type, .. })
-                | Some(Call::remove_proxy { proxy_type, .. })
-                    if !def.proxy_type.is_superset(proxy_type) =>
-                {
-                    false
-                }
-                // Proxy call cannot remove all proxies or kill pure proxies unless it has full
-                // permissions.
-                Some(Call::remove_proxies { .. }) | Some(Call::kill_pure { .. })
-                    if def.proxy_type != T::ProxyType::default() =>
-                {
-                    false
-                }
-                _ => def.proxy_type.filter(c),
-            }
-        });
-        let e = call.dispatch(origin);
-
-        LastCallResult::<T>::insert(real, e.map(|_| ()).map_err(|e| e.error));
-
-        Self::deposit_event(Event::ProxyExecuted {
-            result: e.map(|_| ()).map_err(|e| e.error),
-        });
-    }
-
-    /// Removes all proxy delegates for a given delegator.
-    ///
-    /// Parameters:
-    /// - `delegator`: The delegator account.
-    pub fn remove_all_proxy_delegates(delegator: &T::AccountId) {
-        let (_, old_deposit) = Proxies::<T>::take(delegator);
-        T::Currency::unreserve(delegator, old_deposit);
-        // Clean up all real-pays-fee flags for this delegator
-        let _ = RealPaysFee::<T>::clear_prefix(delegator, u32::MAX, None);
-    }
-
-    /// Check if the real account has opted in to paying fees for a specific delegate.
-    pub fn is_real_pays_fee(real: &T::AccountId, delegate: &T::AccountId) -> bool {
-        RealPaysFee::<T>::contains_key(real, delegate)
     }
 }
