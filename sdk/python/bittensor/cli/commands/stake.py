@@ -37,6 +37,7 @@ _NETUID_HELP = "Numeric identifier of the subnet the command operates on."
 for _alias, _op in (
     ("add", "add_stake"),
     ("remove", "remove_stake"),
+    ("remove-many", "remove_stakes"),
     ("move", "move_stake"),
     ("transfer", "transfer_stake"),
     ("swap", "swap_stake"),

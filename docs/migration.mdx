@@ -347,7 +347,8 @@ a limit price).
 | `unstake(wallet, netuid, hotkey_ss58, amount)` | `bt.RemoveStake(hotkey_ss58=..., netuid=..., amount_alpha=...)` (accepts `"all"`) |
 | `unstake(..., safe_unstaking=True)` | `bt.RemoveStakeLimit(...)` |
 | `unstake_all(wallet, netuid, hotkey_ss58)` | `bt.UnstakeAll(hotkey_ss58=...)` / `bt.UnstakeAllAlpha(...)` |
-| `add_stake_multiple` / `unstake_multiple` | `bt.Batch(intents=[...])` |
+| `add_stake_multiple` | `bt.Batch(intents=[bt.AddStake(...), ...])` |
+| `unstake_multiple` | `bt.RemoveStakes(positions=[bt.StakeRemoval(...), ...])` (atomic) |
 | `move_stake(...)` | `bt.MoveStake(origin_hotkey_ss58, origin_netuid, dest_hotkey_ss58, dest_netuid, amount_alpha)` |
 | `swap_stake(...)` | `bt.SwapStake(hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
 | `transfer_stake(...)` | `bt.TransferStake(dest_coldkey_ss58, hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
@@ -670,8 +671,9 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `wallet history` | `wallet history` (works again, mainnet indexer) |
 | `stake add --amount` | `stake add` / `tx add-stake --amount-tao` |
 | `stake remove --amount` | `stake remove` / `tx remove-stake --amount-alpha` (accepts `all`) |
+| `stake remove --include-hotkeys` / `--all-hotkeys` | `stake remove-many --positions '<json>'` / `tx remove-stakes` (atomic) |
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
-| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
+| `stake list` / `move` / `transfer` / `swap` | same names |
 | `stake auto` / `set-auto` / `set-claim` / `process-claim` | same names |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |
 | `sudo set --param NAME --value V` | `sudo set --name NAME --value V` / `tx set-hyperparameter` |

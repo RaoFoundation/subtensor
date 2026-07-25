@@ -84,6 +84,7 @@
     "unstake-all-alpha",
     "update-symbol",
     "---Utility---",
-    "batch"
+    "batch",
+    "remove-stakes"
   ]
 }

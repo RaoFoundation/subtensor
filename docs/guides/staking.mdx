@@ -59,6 +59,33 @@ await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha=
 `"all"` resolves to the full position at build time — only the remove-stake
 variants accept it.
 
+To exit several hotkey/subnet positions for the same coldkey, use
+[`remove-stakes`](/docs/tx/remove-stakes). It composes every removal into one
+atomic extrinsic: either they all succeed or none of them changes stake.
+Amounts and slippage protection are explicit per position:
+
+```bash
+btcli stake remove-many --positions '[
+  {"hotkey_ss58":"validator-a","netuid":1,"amount_alpha":"all"},
+  {"hotkey_ss58":"validator-b","netuid":2,"amount_alpha":"25",
+   "rate_tolerance":0.1}
+]' --dry-run
+```
+
+```python
+intent = bt.RemoveStakes(positions=[
+    bt.StakeRemoval(hotkey_ss58="5F...", netuid=1, amount_alpha="all"),
+    bt.StakeRemoval(hotkey_ss58="5G...", netuid=2, amount_alpha=25,
+                    rate_tolerance=0.1),
+])
+await client.execute(intent, wallet)
+```
+
+The CLI resolves hotkey names inside the JSON just like top-level `--hotkey`
+options. This replaces the pre-v11 multi-hotkey flags and SDK
+`unstake_multiple` helper; unlike the legacy helper's sequence of independent
+transactions, this operation is all-or-nothing.
+
 To bound the execution price instead of accepting whatever the pool gives, use
 [`add-stake-limit`](/docs/tx/add-stake-limit) /
 [`remove-stake-limit`](/docs/tx/remove-stake-limit). Compute the limit from the

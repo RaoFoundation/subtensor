@@ -41,6 +41,12 @@ INTENT_SAMPLES: dict[str, dict] = {
         "limit_price_rao": 10**9,
     },
     "remove_stake": {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_alpha": 1.0},
+    "remove_stakes": {
+        "positions": [
+            {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_alpha": 1.0},
+            {"hotkey_ss58": BOB, "netuid": 2, "amount_alpha": 2.0},
+        ]
+    },
     "remove_stake_limit": {
         "hotkey_ss58": BOB_HOT,
         "netuid": 1,

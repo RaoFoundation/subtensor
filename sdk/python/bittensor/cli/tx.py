@@ -75,12 +75,35 @@ def _coerce(field_annotation: str, value: Any) -> Any:
         return json.loads(value) if isinstance(value, str) else value
     if not _is_list(field_annotation):
         return value
+    if isinstance(value, list):
+        return value
     text = str(value).strip()
     if text.startswith("["):
         return json.loads(text)
     inner = _base_annotation(field_annotation)
     cast = int if inner == "list[int]" else float if inner == "list[float]" else str
     return [cast(part.strip()) for part in text.split(",") if part.strip()]
+
+
+def _resolve_nested_addresses(app_ctx: AppContext, value: Any) -> Any:
+    """Resolve address-book and wallet names inside structured JSON arguments.
+
+    Complex intents such as ``batch`` and ``remove_stakes`` carry child address
+    fields inside dictionaries, beyond the top-level ``*_ss58`` handling below.
+    Applying the same name resolver recursively keeps their CLI behavior
+    consistent with ordinary generated transaction options.
+    """
+    if isinstance(value, list):
+        return [_resolve_nested_addresses(app_ctx, item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    resolved = {}
+    for key, item in value.items():
+        if key.endswith("_ss58") and isinstance(item, str):
+            resolved[key] = app_ctx.resolve_address(key, item)
+        else:
+            resolved[key] = _resolve_nested_addresses(app_ctx, item)
+    return resolved
 
 
 _TRUE = {"y", "yes", "true", "1"}
@@ -159,10 +182,12 @@ def _placeholder(annotation: str) -> Optional[str]:
 def _list_note(annotation: str) -> Optional[str]:
     """Input-shape cue for typed list options (e.g. ``list[int]`` netuids).
 
-    Bare ``list`` fields (pairs like set_children) document their own JSON
-    shape in the field help, so they carry no generic note.
+    Structured lists (e.g. stake-position objects) and bare ``list`` fields
+    (pairs like set_children) document their own JSON shape in field help, so
+    they carry no misleading comma-separated cue.
     """
-    if _base_annotation(annotation).startswith("list["):
+    base = _base_annotation(annotation)
+    if base in {f"list[{scalar}]" for scalar in _SCALAR_TYPES}:
         return "Comma-separated values (e.g. 1,2) or a JSON list."
     return None
 
@@ -282,6 +307,7 @@ def _make_command(intent_cls: type[Intent]):
             for f in specs
             if kwargs.get(f.name) is not None
         }
+        args = {name: _resolve_nested_addresses(app_ctx, value) for name, value in args.items()}
         app_ctx.submit(
             intent_cls.from_args(args), proxy_for=proxy_for, force_proxy_type=force_proxy_type
         )

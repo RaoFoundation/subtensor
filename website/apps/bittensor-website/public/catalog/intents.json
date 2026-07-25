@@ -1997,6 +1997,95 @@
     ]
   },
   {
+    "name": "remove_stakes",
+    "summary": "Atomically unstake multiple hotkey/subnet positions for one coldkey.",
+    "description": "Atomically unstake multiple hotkey/subnet positions for one coldkey.\n\nEach position names its hotkey, subnet, alpha amount (or `all`), and\noptional slippage settings. All positions are composed into one\n`Utility.batch_all` extrinsic: either every removal succeeds or the\nentire batch is rolled back. This is the v11 replacement for the legacy\n`unstake_multiple` helper and the old CLI's multi-hotkey flags, with\nexplicit per-position currency and price protection.\n\nPython callers may pass `StakeRemoval` objects or equivalent plain\ndictionaries. CLI and agent callers pass the positions as a JSON array.\nA hotkey/subnet pair may appear only once.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Utility",
+        "batch_all"
+      ]
+    ],
+    "docs_url": "/docs/tx/remove-stakes",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "positions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "hotkey_ss58": {
+                "type": "string",
+                "description": "Hotkey the stake is held on (the validator backing the position)."
+              },
+              "netuid": {
+                "type": "integer",
+                "description": "Subnet the stake lives on (netuid 0 is the root network)."
+              },
+              "amount_alpha": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$",
+                    "description": "decimal string, for amounts too large for an exact float"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "all"
+                    ]
+                  }
+                ],
+                "description": "Alpha to unstake from this position, or `all`."
+              },
+              "slippage_protection": {
+                "type": "boolean",
+                "description": "Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price."
+              },
+              "rate_tolerance": {
+                "type": "number",
+                "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
+              }
+            },
+            "required": [
+              "hotkey_ss58",
+              "netuid",
+              "amount_alpha"
+            ],
+            "additionalProperties": false
+          },
+          "description": "JSON array of stake positions. Each object requires hotkey_ss58, netuid, and amount_alpha (a number or `all`), and may set slippage_protection and rate_tolerance."
+        }
+      },
+      "required": [
+        "positions"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx remove-stakes --positions '<json-array>'",
+    "python_class": "RemoveStakes",
+    "markdown_url": "/llms.mdx/docs/tx/remove-stakes/content.md",
+    "sources": [
+      {
+        "pallet": "Utility",
+        "call": "batch_all",
+        "path": "pallets/utility/src/lib.rs",
+        "line": 314,
+        "end_line": 362,
+        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "raw_url": "/code/raw/pallets/utility/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "reset_axon",
     "summary": "Reset (stop serving) this hotkey's axon endpoint on a subnet.",
     "description": "Reset (stop serving) this hotkey's axon endpoint on a subnet.\n\nRepublishes the axon record as a placeholder (ip 0, port 1, protocol 4) so\nvalidators stop routing traffic to the old address; the storage entry is\nnot removed. Signed by the hotkey. Use this when taking a miner offline or\nbefore moving it, then publish the new address with `serve_axon` when it\nis back up.",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, cast
 
 from .._generated import calls
 from .._generated.runtime_apis import StakeInfoRuntimeApi, SwapRuntimeApi
@@ -11,7 +11,8 @@ from ..result import BittensorError
 from ..settings import RAO_PER_TAO
 from ..signing import public_view
 from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
-from .base import Intent
+from .base import Intent, money_schema
+from .batch import Batch
 from .registry import register
 
 # Default slippage-protection tolerance: the pool price may move at most this
@@ -242,6 +243,175 @@ class RemoveStake(Intent):
         if self.amount_alpha == ALL:
             return ["removes the entire stake from this hotkey on this subnet"]
         return []
+
+
+@dataclass
+class StakeRemoval:
+    """One position in a `RemoveStakes` atomic unstake.
+
+    ``amount_alpha`` is denominated in the position's subnet currency and may
+    be ``"all"``. The slippage settings intentionally live on each position:
+    pools are independent, so callers can choose a different tolerance (or an
+    explicit unprotected exit) for each one.
+    """
+
+    hotkey_ss58: str
+    netuid: int
+    amount_alpha: Money
+    slippage_protection: bool = True
+    rate_tolerance: float = DEFAULT_RATE_TOLERANCE
+
+    def __post_init__(self):
+        # Reuse the single-position intent as the source of truth for money
+        # units and slippage validation.
+        intent = RemoveStake(
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=self.netuid,
+            amount_alpha=self.amount_alpha,
+            slippage_protection=self.slippage_protection,
+            rate_tolerance=self.rate_tolerance,
+        )
+        self.amount_alpha = intent.amount_alpha
+
+    def to_intent(self) -> RemoveStake:
+        return RemoveStake(
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=self.netuid,
+            amount_alpha=self.amount_alpha,
+            slippage_protection=self.slippage_protection,
+            rate_tolerance=self.rate_tolerance,
+        )
+
+
+@register
+@dataclass
+class RemoveStakes(Intent):
+    """Atomically unstake multiple hotkey/subnet positions for one coldkey.
+
+    Each position names its hotkey, subnet, alpha amount (or ``all``), and
+    optional slippage settings. All positions are composed into one
+    ``Utility.batch_all`` extrinsic: either every removal succeeds or the
+    entire batch is rolled back. This is the v11 replacement for the legacy
+    ``unstake_multiple`` helper and the old CLI's multi-hotkey flags, with
+    explicit per-position currency and price protection.
+
+    Python callers may pass `StakeRemoval` objects or equivalent plain
+    dictionaries. CLI and agent callers pass the positions as a JSON array.
+    A hotkey/subnet pair may appear only once.
+    """
+
+    op = "remove_stakes"
+    signer = "coldkey"
+    wraps = (("Utility", "batch_all"),)
+    mev_shield_default = True
+
+    positions: list[StakeRemoval | dict] = field(
+        metadata={
+            "help": "JSON array of stake positions. Each object requires "
+            "hotkey_ss58, netuid, and amount_alpha (a number or `all`), and may "
+            "set slippage_protection and rate_tolerance."
+        }
+    )
+
+    def __post_init__(self):
+        if not self.positions:
+            raise ValueError("remove_stakes requires at least one position")
+
+        normalized: list[StakeRemoval] = []
+        seen: set[tuple[str, int]] = set()
+        allowed = {
+            "hotkey_ss58",
+            "netuid",
+            "amount_alpha",
+            "slippage_protection",
+            "rate_tolerance",
+        }
+        for index, entry in enumerate(self.positions):
+            if isinstance(entry, StakeRemoval):
+                position = entry
+            elif isinstance(entry, dict):
+                unknown = set(entry) - allowed
+                if unknown:
+                    raise ValueError(
+                        f"unknown fields in remove_stakes position {index}: {sorted(unknown)}"
+                    )
+                missing = {"hotkey_ss58", "netuid", "amount_alpha"} - set(entry)
+                if missing:
+                    raise ValueError(
+                        f"missing fields in remove_stakes position {index}: {sorted(missing)}"
+                    )
+                position = StakeRemoval(**entry)
+            else:
+                raise TypeError(
+                    "remove_stakes positions must be StakeRemoval objects or dictionaries; "
+                    f"position {index} is {type(entry).__name__}"
+                )
+
+            key = (position.hotkey_ss58, position.netuid)
+            if key in seen:
+                raise ValueError(
+                    "remove_stakes contains the same hotkey/subnet position twice: "
+                    f"{position.hotkey_ss58} on netuid {position.netuid}"
+                )
+            seen.add(key)
+            normalized.append(position)
+
+        # Preserve the normalized, exact-money form in serialization while
+        # retaining a narrowed view for the methods below.
+        self.positions = cast(list[StakeRemoval | dict], normalized)
+        self._positions = normalized
+        self._batch = Batch(intents=[position.to_intent() for position in normalized])
+
+    @classmethod
+    def json_schema(cls) -> dict[str, Any]:
+        amount_schema = money_schema(allow_all=True)
+        amount_schema["description"] = "Alpha to unstake from this position, or `all`."
+        position_schema = {
+            "type": "object",
+            "properties": {
+                "hotkey_ss58": {"type": "string", "description": STAKE_HOTKEY_HELP},
+                "netuid": {"type": "integer", "description": NETUID_HELP},
+                "amount_alpha": amount_schema,
+                "slippage_protection": {
+                    "type": "boolean",
+                    "description": SLIPPAGE_PROTECTION_HELP,
+                },
+                "rate_tolerance": {
+                    "type": "number",
+                    "description": RATE_TOLERANCE_HELP,
+                },
+            },
+            "required": ["hotkey_ss58", "netuid", "amount_alpha"],
+            "additionalProperties": False,
+        }
+        return {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": position_schema,
+                    "description": cls.field_help("positions"),
+                }
+            },
+            "required": ["positions"],
+            "additionalProperties": False,
+        }
+
+    async def build(self, substrate, wallet: Any):
+        return await self._batch.build(substrate, wallet)
+
+    def summary(self) -> str:
+        return f"atomically unstake {len(self._positions)} stake positions"
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        return await self._batch.effects(substrate, signer_address)
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return await self._batch.warnings(substrate, signer_address)
+
+    def touches_netuids(self) -> list[int]:
+        return sorted({position.netuid for position in self._positions})
 
 
 @register

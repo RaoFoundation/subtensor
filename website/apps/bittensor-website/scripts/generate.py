@@ -136,6 +136,8 @@ def cli_placeholder(field_name: str, fragment: dict) -> str:
     if t == "number":
         return "<number>"
     if t == "array":
+        if fragment.get("items", {}).get("type") == "object":
+            return "'<json-array>'"
         return "<a,b,c>"
     if t == "object":
         return "'<json>'"

@@ -97,8 +97,20 @@ class TestOffline:
     def test_tx_group_lists_every_intent(self):
         result = invoke("tx", "--help")
         assert result.exit_code == 0
-        for op in ("add-stake", "transfer", "set-weights", "create-crowdloan"):
+        for op in (
+            "add-stake",
+            "remove-stakes",
+            "transfer",
+            "set-weights",
+            "create-crowdloan",
+        ):
             assert op in result.output
+
+    def test_remove_many_help_requires_structured_json(self):
+        result = invoke("stake", "remove-many", "--help")
+        assert result.exit_code == 0
+        assert "JSON array of stake positions" in result.output
+        assert "Comma-separated values" not in result.output
 
     def test_query_group_help(self):
         result = invoke("query", "--help")
@@ -170,6 +182,45 @@ class TestTransactions:
         call, _signer, _ = fake.submissions[-1]
         assert (call.module, call.function) == ("Balances", "transfer_keep_alive")
         assert call.params["value"] == 1_500_000_000
+
+    def test_stake_remove_many_resolves_nested_names_and_submits_atomic_batch(
+        self, fake: FakeSubstrate
+    ):
+        saved = invoke("--json", "addresses", "add", "validator-two", BOB)
+        assert saved.exit_code == 0, saved.output
+        positions = json.dumps(
+            [
+                {
+                    "hotkey_ss58": "validator-two",
+                    "netuid": 1,
+                    "amount_alpha": "1.25",
+                },
+                {
+                    "hotkey_ss58": BOB,
+                    "netuid": 2,
+                    "amount_alpha": 2,
+                    "slippage_protection": False,
+                },
+            ]
+        )
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "remove-many",
+            "--positions",
+            positions,
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["success"] is True
+        call = fake.last_call
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        assert [child.params["hotkey"] for child in call.params["calls"]] == [BOB, BOB]
+        assert [child.params["netuid"] for child in call.params["calls"]] == [1, 2]
 
     def test_failed_extrinsic_exits_nonzero(self, fake: FakeSubstrate):
         from bittensor.result import ChainError, ExtrinsicResult

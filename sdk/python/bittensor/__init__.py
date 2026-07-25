@@ -56,7 +56,7 @@ from .extension import (
     stop_bridge_daemon,
 )
 from .intents import REGISTRY as _INTENT_REGISTRY
-from .intents import Intent, Plan, Policy
+from .intents import Intent, Plan, Policy, StakeRemoval
 from .ledger import LedgerError, LedgerSigner
 from .metagraph import Metagraph, MetagraphNeuron, NeuronCommitment
 from .multisig import Multisig
@@ -179,6 +179,7 @@ __all__ = [
     "Intent",
     "Plan",
     "Policy",
+    "StakeRemoval",
     "Multisig",
     "Signer",
     "KeyedWallet",

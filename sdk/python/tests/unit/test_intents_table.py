@@ -507,6 +507,135 @@ class TestStakingMoneyUnits:
         assert intent.amount_alpha == Balance.from_tao(1.0)
 
 
+class TestRemoveStakes:
+    def test_typed_positions_and_dicts_normalize_and_roundtrip(self):
+        from bittensor.intents import RemoveStakes, StakeRemoval
+
+        intent = RemoveStakes(
+            positions=[
+                StakeRemoval(hotkey_ss58=BOB, netuid=1, amount_alpha="1.25"),
+                {
+                    "hotkey_ss58": BOB_HOT,
+                    "netuid": 2,
+                    "amount_alpha": "all",
+                    "slippage_protection": False,
+                },
+            ]
+        )
+
+        assert intent.positions[0].amount_alpha == Balance.from_alpha("1.25", 1)
+        assert intent.positions[1].amount_alpha == "all"
+        encoded = intent.to_dict()
+        assert encoded["positions"][0]["amount_alpha"] == "1.25"
+        assert encoded["positions"][1]["amount_alpha"] == "all"
+        assert build("remove_stakes", encoded).to_dict() == encoded
+
+    @pytest.mark.asyncio
+    async def test_builds_one_atomic_batch_with_per_position_protection(
+        self, substrate: FakeSubstrate, wallet
+    ):
+        from bittensor.intents import RemoveStakes
+
+        intent = RemoveStakes(
+            positions=[
+                {"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": "1.25"},
+                {
+                    "hotkey_ss58": BOB_HOT,
+                    "netuid": 2,
+                    "amount_alpha": 2,
+                    "slippage_protection": False,
+                },
+            ]
+        )
+        call = await intent.build(substrate, wallet)
+
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        first, second = call.params["calls"]
+        assert (first.module, first.function) == ("SubtensorModule", "remove_stake_limit")
+        assert first.params == {
+            "hotkey": BOB,
+            "netuid": 1,
+            "amount_unstaked": 1_250_000_000,
+            "limit_price": 950_000_000,
+            "allow_partial": False,
+        }
+        assert (second.module, second.function) == ("SubtensorModule", "remove_stake")
+        assert second.params == {
+            "hotkey": BOB_HOT,
+            "netuid": 2,
+            "amount_unstaked": 2_000_000_000,
+        }
+
+    @pytest.mark.asyncio
+    async def test_all_resolves_each_position_for_the_signing_coldkey(
+        self, substrate: FakeSubstrate, wallet
+    ):
+        from bittensor.intents import RemoveStakes
+
+        stakes = {(BOB, 1): 3_000_000_000, (BOB_HOT, 2): 4_000_000_000}
+        substrate.seed_runtime(
+            "StakeInfoRuntimeApi",
+            "get_stake_info_for_hotkey_coldkey_netuid",
+            lambda params: {"stake": stakes[(params[0], params[2])]},
+        )
+        call = await RemoveStakes(
+            positions=[
+                {
+                    "hotkey_ss58": BOB,
+                    "netuid": 1,
+                    "amount_alpha": "all",
+                    "slippage_protection": False,
+                },
+                {
+                    "hotkey_ss58": BOB_HOT,
+                    "netuid": 2,
+                    "amount_alpha": "all",
+                    "slippage_protection": False,
+                },
+            ]
+        ).build(substrate, wallet)
+
+        assert [child.params["amount_unstaked"] for child in call.params["calls"]] == [
+            3_000_000_000,
+            4_000_000_000,
+        ]
+
+    @pytest.mark.parametrize(
+        ("positions", "match"),
+        [
+            ([], "at least one position"),
+            ([{"hotkey_ss58": BOB, "netuid": 1}], "missing fields"),
+            (
+                [{"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": 1, "typo": True}],
+                "unknown fields",
+            ),
+            (
+                [
+                    {"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": 1},
+                    {"hotkey_ss58": BOB, "netuid": 1, "amount_alpha": 2},
+                ],
+                "same hotkey/subnet position twice",
+            ),
+        ],
+    )
+    def test_rejects_invalid_positions(self, positions, match):
+        from bittensor.intents import RemoveStakes
+
+        with pytest.raises(ValueError, match=match):
+            RemoveStakes(positions=positions)
+
+    def test_schema_describes_position_objects(self):
+        from bittensor.intents import RemoveStakes
+
+        schema = RemoveStakes.json_schema()
+        positions = schema["properties"]["positions"]
+        assert positions["minItems"] == 1
+        assert positions["items"]["required"] == ["hotkey_ss58", "netuid", "amount_alpha"]
+        assert positions["items"]["additionalProperties"] is False
+        amount_options = positions["items"]["properties"]["amount_alpha"]["anyOf"]
+        assert {"type": "string", "enum": ["all"]} in amount_options
+
+
 class TestProportionInputs:
     """Normalized-proportion ergonomics on takes and child proportions: a
     value with a decimal point is the human 0..1 form (converted to the raw
