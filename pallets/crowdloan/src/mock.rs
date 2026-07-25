@@ -1,3 +1,8 @@
+//! Test runtime and helpers for `pallet-crowdloan`.
+//!
+//! Provides [`Test`] (system + balances + crowdloan + preimage + [`pallet_test`]),
+//! [`TestState`] for genesis balances/block number, and helpers such as
+//! [`noop_call`] / [`run_to_block`] used by extrinsic unit tests.
 #![cfg(test)]
 #![allow(
     clippy::arithmetic_side_effects,
@@ -143,7 +148,10 @@ impl pallet_crowdloan::Config for Test {
     type MaxContributors = MaxContributors;
 }
 
-// A test pallet used to test some behavior of the crowdloan pallet
+/// Companion pallet whose calls are used as crowdloan finalize payloads in tests.
+///
+/// Extrinsics read [`pallet_crowdloan::CurrentCrowdloanId`] to assert finalize wiring
+/// (transfer raised funds, record id, or fail on purpose).
 #[allow(unused)]
 #[frame_support::pallet(dev_mode)]
 pub(crate) mod pallet_test {
@@ -221,6 +229,7 @@ impl pallet_test::Config for Test {
     type Currency = Balances;
 }
 
+/// Builder for a [`Test`] externalities with optional balances and starting block.
 pub(crate) struct TestState {
     block_number: BlockNumberFor<Test>,
     balances: Vec<(AccountOf<Test>, BalanceOf<Test>)>,

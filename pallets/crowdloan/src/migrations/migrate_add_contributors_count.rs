@@ -1,9 +1,16 @@
+//! Backfill [`crate::CrowdloanInfo::contributors_count`] onto pre-existing crowdloans.
+//!
+//! Reads the previous layout ([`old_storage::OldCrowdloanInfo`], without the count
+//! field), counts [`crate::Contributions`] keys per id, and rewrites
+//! [`crate::Crowdloans`]. Idempotent via migration name `migrate_add_contributors_count`.
+
 use alloc::string::String;
 use frame_support::{BoundedVec, migration::storage_key_iter, traits::Get, weights::Weight};
 use subtensor_macros::freeze_struct;
 
 use crate::*;
 
+/// Pre-migration SCALE layout of crowdloan info (no `contributors_count` field).
 mod old_storage {
     use super::*;
 
@@ -23,6 +30,7 @@ mod old_storage {
     }
 }
 
+/// Populate `contributors_count` from contribution map cardinality; skip if already run.
 pub fn migrate_add_contributors_count<T: Config>() -> Weight {
     let migration_name = BoundedVec::truncate_from(b"migrate_add_contributors_count".to_vec());
     let mut weight = T::DbWeight::get().reads(1);
