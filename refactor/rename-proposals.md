@@ -145,3 +145,23 @@ precompiles/src/lib.rs
 ```
 - proposed by: w2-src-utils
 - status: pending
+
+## return_per_1000_tao_test -> delegator_return_per_1000_tao_test
+- reason: test wrapper for private `delegator_return_per_1000_tao`; keep the domain word `delegator` so it greps with the production helper (renamed in-shard).
+- hits:
+```
+pallets/subtensor/src/rpc_info/delegate_info.rs
+pallets/subtensor/src/tests/delegate_info.rs
+```
+- proposed by: w2-src-rpc_info
+- status: pending
+
+## maybe_coldkey_for_hotkey -> owning_coldkey_for_hotkey_if_set
+- reason: name does not say this is an `Owner` lookup returning `Option`; used from transaction-payment fee path.
+- hits:
+```
+pallets/subtensor/src/rpc_info/delegate_info.rs
+runtime/src/transaction_payment_wrapper.rs
+```
+- proposed by: w2-src-rpc_info
+- status: pending

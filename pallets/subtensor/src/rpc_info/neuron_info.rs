@@ -1,3 +1,5 @@
+//! Per-uid neuron RPC views (`NeuronInfo` / `NeuronInfoLite`).
+
 use super::*;
 use frame_support::pallet_prelude::{Decode, Encode};
 extern crate alloc;
@@ -5,7 +7,12 @@ use codec::Compact;
 use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex};
 
-#[freeze_struct("77daa43c02912b80")]
+/// Full per-uid neuron view including sparse weights and bonds matrices.
+///
+/// `rank`, `trust`, and `pruning_score` are legacy fields (zeros / max); they are no longer
+/// computed on-chain. `stake` currently carries a single owner-coldkey total, not a full
+/// coldkey→stake map.
+#[freeze_struct("23b656b0f34441f5")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct NeuronInfo<AccountId: TypeInfo + Encode + Decode> {
     hotkey: AccountId,
@@ -15,22 +22,29 @@ pub struct NeuronInfo<AccountId: TypeInfo + Encode + Decode> {
     active: bool,
     axon_info: AxonInfo,
     prometheus_info: PrometheusInfo,
-    stake: Vec<(AccountId, Compact<AlphaBalance>)>, // map of coldkey to stake on this neuron/hotkey (includes delegations)
+    /// Owner coldkey paired with total hotkey alpha on this subnet (not a full nominator map).
+    stake: Vec<(AccountId, Compact<AlphaBalance>)>,
+    /// Deprecated: always 0.
     rank: Compact<u16>,
     emission: Compact<AlphaBalance>,
     incentive: Compact<PerU16>,
     consensus: Compact<PerU16>,
+    /// Deprecated: always 0.
     trust: Compact<PerU16>,
     validator_trust: Compact<PerU16>,
     dividends: Compact<PerU16>,
     last_update: Compact<u64>,
     validator_permit: bool,
-    weights: Vec<(Compact<u16>, Compact<u16>)>, // Vec of (uid, weight)
-    bonds: Vec<(Compact<u16>, Compact<u16>)>,   // Vec of (uid, bond)
+    /// Sparse `(target_uid, weight)` pairs with weight > 0.
+    weights: Vec<(Compact<u16>, Compact<u16>)>,
+    /// Sparse `(target_uid, bond)` pairs with bond > 0.
+    bonds: Vec<(Compact<u16>, Compact<u16>)>,
+    /// Deprecated: always `u16::MAX`.
     pruning_score: Compact<u16>,
 }
 
-#[freeze_struct("1d61b46ca68a1e02")]
+/// [`NeuronInfo`] without weights/bonds — cheaper for list endpoints.
+#[freeze_struct("8bd1725e22406377")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct NeuronInfoLite<AccountId: TypeInfo + Encode + Decode> {
     hotkey: AccountId,
@@ -40,21 +54,25 @@ pub struct NeuronInfoLite<AccountId: TypeInfo + Encode + Decode> {
     active: bool,
     axon_info: AxonInfo,
     prometheus_info: PrometheusInfo,
-    stake: Vec<(AccountId, Compact<AlphaBalance>)>, // map of coldkey to stake on this neuron/hotkey (includes delegations)
+    /// Owner coldkey paired with total hotkey alpha on this subnet (not a full nominator map).
+    stake: Vec<(AccountId, Compact<AlphaBalance>)>,
+    /// Deprecated: always 0.
     rank: Compact<u16>,
     emission: Compact<AlphaBalance>,
     incentive: Compact<PerU16>,
     consensus: Compact<PerU16>,
+    /// Deprecated: always 0.
     trust: Compact<PerU16>,
     validator_trust: Compact<PerU16>,
     dividends: Compact<PerU16>,
     last_update: Compact<u64>,
     validator_permit: bool,
-    // has no weights or bonds
+    /// Deprecated: always `u16::MAX`.
     pruning_score: Compact<u16>,
 }
 
 impl<T: Config> Pallet<T> {
+    /// All neurons on `netuid`, or empty if the subnet does not exist.
     pub fn get_neurons(netuid: NetUid) -> Vec<NeuronInfo<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
             return Vec::new();
@@ -63,7 +81,7 @@ impl<T: Config> Pallet<T> {
         let mut neurons = Vec::new();
         let n = Self::get_subnetwork_n(netuid);
         for uid in 0..n {
-            let neuron = match Self::get_neuron_subnet_exists(netuid, uid) {
+            let neuron = match Self::neuron_info_for_existing_subnet_uid(netuid, uid) {
                 Some(n) => n,
                 None => break, // No more neurons
             };
@@ -73,7 +91,11 @@ impl<T: Config> Pallet<T> {
         neurons
     }
 
-    fn get_neuron_subnet_exists(netuid: NetUid, uid: u16) -> Option<NeuronInfo<T::AccountId>> {
+    /// Full [`NeuronInfo`] for `uid` on an existing subnet; `None` if the uid has no hotkey.
+    fn neuron_info_for_existing_subnet_uid(
+        netuid: NetUid,
+        uid: u16,
+    ) -> Option<NeuronInfo<T::AccountId>> {
         let hotkey = match Self::get_hotkey_for_net_and_uid(netuid, uid) {
             Ok(h) => h,
             Err(_) => return None,
@@ -145,15 +167,17 @@ impl<T: Config> Pallet<T> {
         Some(neuron)
     }
 
+    /// One full neuron, or `None` if the subnet or uid is missing.
     pub fn get_neuron(netuid: NetUid, uid: u16) -> Option<NeuronInfo<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
             return None;
         }
 
-        Self::get_neuron_subnet_exists(netuid, uid)
+        Self::neuron_info_for_existing_subnet_uid(netuid, uid)
     }
 
-    fn get_neuron_lite_subnet_exists(
+    /// Lite neuron for `uid` on an existing subnet; `None` if the uid has no hotkey.
+    fn neuron_info_lite_for_existing_subnet_uid(
         netuid: NetUid,
         uid: u16,
     ) -> Option<NeuronInfoLite<T::AccountId>> {
@@ -206,6 +230,7 @@ impl<T: Config> Pallet<T> {
         Some(neuron)
     }
 
+    /// Lite neurons for every uid on `netuid`, or empty if the subnet does not exist.
     pub fn get_neurons_lite(netuid: NetUid) -> Vec<NeuronInfoLite<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
             return Vec::new();
@@ -214,7 +239,7 @@ impl<T: Config> Pallet<T> {
         let mut neurons: Vec<NeuronInfoLite<T::AccountId>> = Vec::new();
         let n = Self::get_subnetwork_n(netuid);
         for uid in 0..n {
-            let neuron = match Self::get_neuron_lite_subnet_exists(netuid, uid) {
+            let neuron = match Self::neuron_info_lite_for_existing_subnet_uid(netuid, uid) {
                 Some(n) => n,
                 None => break, // No more neurons
             };
@@ -224,11 +249,12 @@ impl<T: Config> Pallet<T> {
         neurons
     }
 
+    /// One lite neuron, or `None` if the subnet or uid is missing.
     pub fn get_neuron_lite(netuid: NetUid, uid: u16) -> Option<NeuronInfoLite<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
             return None;
         }
 
-        Self::get_neuron_lite_subnet_exists(netuid, uid)
+        Self::neuron_info_lite_for_existing_subnet_uid(netuid, uid)
     }
 }

@@ -586,7 +586,7 @@
       "id": "w2-src-rpc_info",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "done",
       "notes": "pallet-subtensor src/rpc_info",
       "files": [
         "pallets/subtensor/src/rpc_info/delegate_info.rs",

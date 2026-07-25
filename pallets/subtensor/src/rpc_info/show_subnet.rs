@@ -1,3 +1,5 @@
+//! Compact per-uid subnet state RPC view (`SubnetState`).
+
 use super::*;
 extern crate alloc;
 use crate::epoch::math::*;
@@ -7,7 +9,12 @@ use sp_runtime::PerU16;
 use substrate_fixed::types::I64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("b48b8accfd0ac902")]
+/// Per-uid vectors for a subnet: keys, consensus scores, stakes, and emission history.
+///
+/// `pruning_score`, `trust`, and `rank` are deprecated empty vectors. `emission_history` is
+/// last emission per hotkey across all subnets (outer index = subnet order from
+/// [`Pallet::get_all_subnet_netuids`]).
+#[freeze_struct("8a7c09d1eba9df6a")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetState<AccountId: TypeInfo + Encode + Decode> {
     netuid: Compact<NetUid>,
@@ -15,44 +22,32 @@ pub struct SubnetState<AccountId: TypeInfo + Encode + Decode> {
     coldkeys: Vec<AccountId>,
     active: Vec<bool>,
     validator_permit: Vec<bool>,
+    /// Deprecated: always empty.
     pruning_score: Vec<Compact<u16>>,
     last_update: Vec<Compact<u64>>,
     emission: Vec<Compact<AlphaBalance>>,
     dividends: Vec<Compact<PerU16>>,
     incentives: Vec<Compact<PerU16>>,
     consensus: Vec<Compact<PerU16>>,
+    /// Deprecated: always empty.
     trust: Vec<Compact<PerU16>>,
+    /// Deprecated: always empty.
     rank: Vec<Compact<u16>>,
     block_at_registration: Vec<Compact<u64>>,
     alpha_stake: Vec<Compact<AlphaBalance>>,
     tao_stake: Vec<Compact<TaoBalance>>,
     total_stake: Vec<Compact<TaoBalance>>,
     emission_history: Vec<Vec<Compact<AlphaBalance>>>,
-    // identities: Vec<ChainIdentityOf>,
-    // tao_stake: Compact<u64>,
-    // incentive: Compact<u16>,
-    // consensus: Compact<u16>,
-    // trust: Compact<u16>,
-    // validator_trust: Compact<u16>,
-    // dividends: Compact<u16>,
-    // // has no weights or bonds
 }
 
 impl<T: Config> Pallet<T> {
-    /// Retrieves the emission history for a list of hotkeys across all subnets.
+    /// Last hotkey emission on each subnet for the given hotkeys.
     ///
-    /// This function iterates over all subnets and collects the last emission value
-    /// for each hotkey in the provided list. The result is a vector of vectors, where
-    /// each inner vector contains the emission values for a specific subnet.
-    ///
-    /// # Arguments
-    ///
-    /// * `hotkeys`: A vector of hotkeys (account IDs) for which the emission history is to be retrieved.
-    ///
-    /// # Returns
-    ///
-    /// * `Vec<Vec<Compact<u64>>>`: A vector of vectors containing the emission history for each hotkey across all subnets.
-    pub fn get_emissions_history(hotkeys: Vec<T::AccountId>) -> Vec<Vec<Compact<AlphaBalance>>> {
+    /// Outer vector follows [`Self::get_all_subnet_netuids`]; each inner vector aligns with
+    /// `hotkeys`.
+    fn last_emission_history_across_subnets(
+        hotkeys: Vec<T::AccountId>,
+    ) -> Vec<Vec<Compact<AlphaBalance>>> {
         let mut result: Vec<Vec<Compact<AlphaBalance>>> = vec![];
         for netuid in Self::get_all_subnet_netuids() {
             let mut hotkeys_emissions: Vec<Compact<AlphaBalance>> = vec![];
@@ -66,21 +61,7 @@ impl<T: Config> Pallet<T> {
         result
     }
 
-    /// Retrieves the state of a specific subnet.
-    ///
-    /// This function gathers various metrics and data points for a given subnet, identified by its `netuid`.
-    /// It collects information such as hotkeys, coldkeys, block at registration, active status, validator permits,
-    /// pruning scores, last updates, emissions, dividends, incentives, consensus, trust, rank, local stake, global stake,
-    /// stake weight, and emission history.
-    ///
-    /// # Arguments
-    ///
-    /// * `netuid`: The unique identifier of the subnet for which the state is to be retrieved.
-    ///
-    /// # Returns
-    ///
-    /// * `Option<SubnetState<T::AccountId>>`: An optional `SubnetState` struct containing the collected data for the subnet.
-    ///   Returns `None` if the subnet does not exist.
+    /// [`SubnetState`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_state(netuid: NetUid) -> Option<SubnetState<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
             return None;
@@ -89,14 +70,12 @@ impl<T: Config> Pallet<T> {
         let mut hotkeys: Vec<T::AccountId> = vec![];
         let mut coldkeys: Vec<T::AccountId> = vec![];
         let mut block_at_registration: Vec<Compact<u64>> = vec![];
-        // let mut identities: Vec<ChainIdentityOf> = vec![];
         for uid in 0..n {
             let hotkey = Keys::<T>::get(netuid, uid);
             let coldkey = Owner::<T>::get(hotkey.clone());
             hotkeys.push(hotkey);
             coldkeys.push(coldkey);
             block_at_registration.push(BlockAtRegistration::<T>::get(netuid, uid).into());
-            // identities.push( Identities::<T>::get( coldkey.clone() ) );
         }
         let active: Vec<bool> = Active::<T>::get(netuid);
         let validator_permit: Vec<bool> = ValidatorPermit::<T>::get(netuid);
@@ -141,7 +120,7 @@ impl<T: Config> Pallet<T> {
             .iter()
             .map(|xi| Compact::from(TaoBalance::from(fixed64_to_u64(*xi))))
             .collect();
-        let emission_history = Self::get_emissions_history(hotkeys.clone());
+        let emission_history = Self::last_emission_history_across_subnets(hotkeys.clone());
         Some(SubnetState {
             netuid: netuid.into(),
             hotkeys,
