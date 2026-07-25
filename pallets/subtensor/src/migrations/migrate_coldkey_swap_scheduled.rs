@@ -17,7 +17,9 @@ pub mod deprecated_coldkey_swap_scheduled_format {
         StorageMap<Pallet<T>, Blake2_128Concat, AccountIdOf<T>, (), ValueQuery>;
 }
 
-/// Migrate the ColdkeySwapScheduled map to the new storage format
+/// Migrates `ColdkeySwapScheduled` into the post-schedule storage layout used by coldkey-swap scheduling.
+///
+/// Idempotency key (frozen): `migrate_coldkey_swap_scheduled`.
 pub fn migrate_coldkey_swap_scheduled<T: Config>() -> Weight {
     use deprecated_coldkey_swap_scheduled_format as old;
 

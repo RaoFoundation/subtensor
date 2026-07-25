@@ -2,6 +2,9 @@ use super::*;
 use alloc::string::String;
 use frame_support::{traits::Get, weights::Weight};
 
+/// Widens every `SubnetVolume` value from `u64` to `u128` in place via `translate`.
+///
+/// Idempotency key (frozen): `migrate_subnet_volume`.
 pub fn migrate_subnet_volume<T: Config>() -> Weight {
     let migration_name = b"migrate_subnet_volume".to_vec();
 

@@ -3,14 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_std::vec::Vec;
 
-/// Backfill the reverse index `AssociatedUidsByEvmAddress` from the existing
-/// `AssociatedEvmAddress` forward map. One-time, idempotent, guarded by `HasMigrationRun`.
+/// Backfill reverse index `AssociatedUidsByEvmAddress` from existing `AssociatedEvmAddress` rows.
 ///
-/// This scans the whole forward map in a single block. That is safe because the map is tiny: it
-/// grows only through `do_associate_evm_key`, an opt-in, signature-gated, rate-limited extrinsic.
-/// Measured on 2026-07-07, the entire map holds **100 entries on Finney and 20 on testnet**, with a
-/// largest single-`(netuid, evm_key)` bucket of **3** (against the cap of 32). There is no realistic
-/// chain state in which this scan is expensive, so no chunked / multi-block migration is warranted.
+/// Idempotency key (frozen): `migrate_associated_evm_address_index`.
 pub fn migrate_associated_evm_address_index<T: Config>() -> Weight {
     let migration_name = b"migrate_associated_evm_address_index".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

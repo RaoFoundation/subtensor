@@ -16,17 +16,9 @@ struct HotkeySwapFix {
     new_hotkey_ss58: &'static str,
 }
 
-/// Cleans up leftover `RootClaimable` state on new hotkeys produced by the buggy
-/// `perform_hotkey_swap_on_one_subnet`, which unconditionally moved the entire
-/// `RootClaimable` map from the old hotkey to the new hotkey during a
-/// single-subnet swap.
+/// Cleans leftover `RootClaimable` state on hotkeys produced by a buggy root-claim overclaim path.
 ///
-/// These new hotkeys have no root stake (root swaps are and were guarded), so the
-/// transferred claimable state produces no legitimate yield and only blocks future
-/// flows. For each affected new hotkey we check that it truly holds no root-subnet
-/// alpha and, if so, remove its `RootClaimable` entry. `RootClaimed` watermarks
-/// are intentionally left in place — scanning that map does not fit in a single
-/// block.
+/// Idempotency key (frozen): `migrate_fix_root_claimed_overclaim`.
 pub fn migrate_fix_root_claimed_overclaim<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_root_claimed_overclaim".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

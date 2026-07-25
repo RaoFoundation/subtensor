@@ -1,3 +1,13 @@
+//! Storage migrations for `SubtensorModule`.
+//!
+//! Each `migrate_*` module is typically a one-shot runtime upgrade step. Prefer searching the frozen
+//! [`HasMigrationRun`] key string (e.g. `rg 'migrate_remove_stake_map'`) — those byte strings must never be renamed
+//! once applied on a live chain, or the migration would re-run.
+//!
+//! Helpers in this file:
+//! - [`migrate_storage`]: clear a pallet storage prefix and mark a migration name complete
+//! - [`remove_prefix`]: clear a prefix without touching [`HasMigrationRun`]
+
 use super::*;
 use alloc::string::String;
 use frame_support::pallet_prelude::Weight;
@@ -76,6 +86,11 @@ pub mod migrate_to_v2_fixed_total_stake;
 pub mod migrate_transfer_ownership_to_foundation;
 pub mod migrate_upgrade_revealed_commitments;
 
+/// Clears an entire storage prefix under a pallet and records completion in [`HasMigrationRun`].
+///
+/// `migration_name` is the frozen idempotency key (must never be renamed once applied on a live chain).
+/// `pallet_name` / `storage_name` are Twox128-hashed to form the clear_prefix key.
+/// If `clear_prefix` leaves entries (`SomeRemaining`), the migration is **not** marked complete so it can retry.
 pub(crate) fn migrate_storage<T: Config>(
     migration_name: &'static str,
     pallet_name: &'static str,
@@ -124,6 +139,9 @@ pub(crate) fn migrate_storage<T: Config>(
     weight
 }
 
+/// Clears all keys under `module`/`old_map` (Twox128 prefix) and accrues write weight for removed entries.
+///
+/// Unlike [`migrate_storage`], this helper does **not** consult or update [`HasMigrationRun`]; callers own idempotency.
 pub(crate) fn remove_prefix<T: Config>(module: &str, old_map: &str, weight: &mut Weight) {
     let mut prefix = Vec::new();
     prefix.extend_from_slice(&twox_128(module.as_bytes()));

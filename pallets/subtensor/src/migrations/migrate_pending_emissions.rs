@@ -10,6 +10,10 @@ pub mod deprecated_pending_emission_format {
         StorageMap<Pallet<T>, Identity, NetUid, AlphaBalance, ValueQuery>;
 }
 
+/// Splits legacy `PendingEmission` into `PendingServerEmission` / `PendingValidatorEmission`
+/// (50/50 with root-alpha adjustment), then clears the old map.
+///
+/// Idempotency key (frozen): `migrate_pending_emissions`.
 pub fn migrate_pending_emissions<T: Config>() -> Weight {
     let migration_name = b"migrate_pending_emissions".to_vec();
     let mut weight: Weight = T::DbWeight::get().reads(1);

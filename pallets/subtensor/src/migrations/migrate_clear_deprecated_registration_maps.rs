@@ -2,6 +2,10 @@ use super::*;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 
+/// Clears deprecated registration tracking maps (`NetworkPowRegistrationAllowed`,
+/// `POWRegistrationsThisInterval`, `BurnRegistrationsThisInterval`) without touching the new-model storage.
+///
+/// Idempotency key (frozen): `migrate_clear_deprecated_registration_maps_v1`.
 pub fn migrate_clear_deprecated_registration_maps<T: Config>() -> Weight {
     let migration_name = b"migrate_clear_deprecated_registration_maps_v1".to_vec();
     let mut weight: Weight = T::DbWeight::get().reads(1);

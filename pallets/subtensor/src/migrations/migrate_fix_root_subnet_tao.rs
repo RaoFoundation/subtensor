@@ -2,6 +2,10 @@ use super::migrate_init_total_issuance::migrate_init_total_issuance;
 use super::*;
 use alloc::string::String;
 
+/// Sets root `SubnetTAO` to the sum of all hotkeys' `TotalHotkeyAlpha` on `NetUid::ROOT`, then
+/// re-runs total-issuance init so counters stay consistent.
+///
+/// Idempotency key (frozen): `migrate_fix_root_subnet_tao`.
 pub fn migrate_fix_root_subnet_tao<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_root_subnet_tao".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

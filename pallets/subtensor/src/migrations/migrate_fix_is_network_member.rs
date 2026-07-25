@@ -3,6 +3,9 @@ use alloc::string::String;
 use frame_support::{traits::Get, weights::Weight};
 use log;
 
+/// Rebuilds the `IsNetworkMember` index so membership matches current subnet key maps.
+///
+/// Idempotency key (frozen): `migrate_fix_is_network_member`.
 pub fn migrate_fix_is_network_member<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_is_network_member".to_vec();
 

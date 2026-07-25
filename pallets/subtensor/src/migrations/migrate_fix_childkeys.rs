@@ -1,6 +1,9 @@
 use super::*;
 use alloc::string::String;
 
+/// Repairs `ChildKeys` / `ParentKeys` linkage inconsistencies from an earlier childkey bug.
+///
+/// Idempotency key (frozen): `migrate_fix_childkeys`.
 pub fn migrate_fix_childkeys<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_childkeys".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

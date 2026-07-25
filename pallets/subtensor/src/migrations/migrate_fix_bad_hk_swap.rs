@@ -258,6 +258,10 @@ pub fn try_restore_shares<T: Config>() -> Weight {
     weight
 }
 
+/// Mainnet-only remediation for a bad hotkey-swap: restores alpha shares for a hardcoded
+/// affected hotkey/netuid using a fixed coldkey delta table (`try_restore_shares`).
+///
+/// No-ops on non-mainnet genesis. Idempotency key (frozen): `migrate_fix_bad_hk_swap`.
 pub fn migrate_fix_bad_hk_swap<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_bad_hk_swap".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

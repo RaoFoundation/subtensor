@@ -3,6 +3,9 @@ use crate::HasMigrationRun;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 
+/// Force-disables `CommitRevealWeightsEnabled` for every subnet (emergency / cutover helper).
+///
+/// Idempotency key (frozen): `disable_commit_reveal_v1`.
 pub fn migrate_disable_commit_reveal<T: Config>() -> Weight {
     const MIG_NAME: &[u8] = b"disable_commit_reveal_v1";
 

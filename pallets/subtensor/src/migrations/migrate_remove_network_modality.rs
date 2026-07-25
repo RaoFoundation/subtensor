@@ -13,6 +13,9 @@ pub mod deprecated_network_modality_format {
         StorageMap<Pallet<T>, Identity, NetUid, u16, ValueQuery>;
 }
 
+/// Deletes deprecated `NetworkModality` per-netuid entries (feature removed).
+///
+/// Idempotency key (frozen): `migrate_remove_network_modality`.
 pub fn migrate_remove_network_modality<T: Config>() -> Weight {
     const MIG_NAME: &[u8] = b"migrate_remove_network_modality";
 

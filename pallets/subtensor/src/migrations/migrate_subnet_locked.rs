@@ -5,6 +5,9 @@ use log;
 use scale_info::prelude::string::String;
 use subtensor_runtime_common::NetUid;
 
+/// Restores `SubnetLocked` amounts for subnets after a lock-accounting regression.
+///
+/// Idempotency key (frozen): `migrate_restore_subnet_locked`.
 pub fn migrate_restore_subnet_locked<T: Config>() -> Weight {
     // Track whether we've already run this migration
     let migration_name = b"migrate_restore_subnet_locked".to_vec();

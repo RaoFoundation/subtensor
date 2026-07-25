@@ -17,6 +17,10 @@ pub mod deprecated_swap_maps {
         StorageMap<Pallet<T>, Identity, NetUid, AlphaBalance, ValueQuery>;
 }
 
+/// Folds deprecated user-provided swap liquidity (`SubnetTaoProvided` / `SubnetAlphaInProvided`) into
+/// `SubnetTAO` / `SubnetAlphaIn` reserves, then clears those obsolete maps.
+///
+/// Idempotency key (frozen): `migrate_cleanup_swap_v3`.
 pub fn migrate_cleanup_swap_v3<T: Config>() -> Weight {
     let migration_name = b"migrate_cleanup_swap_v3".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

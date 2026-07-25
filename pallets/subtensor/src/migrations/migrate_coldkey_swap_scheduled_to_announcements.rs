@@ -50,6 +50,11 @@ pub mod deprecated {
     }
 }
 
+/// Migrates scheduled coldkey swaps into the announcement model: clears old schedule-duration values,
+/// rewrites future `ColdkeySwapScheduled` entries into `ColdkeySwapAnnouncements`, and cancels matching
+/// scheduler call entries for the old `swap_coldkey` extrinsic.
+///
+/// Idempotency key (frozen): `migrate_coldkey_swap_scheduled_to_announcements`.
 pub fn migrate_coldkey_swap_scheduled_to_announcements<T: Config + pallet_scheduler::Config>()
 -> Weight {
     let migration_name = b"migrate_coldkey_swap_scheduled_to_announcements".to_vec();

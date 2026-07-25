@@ -3,6 +3,9 @@ use crate::HasMigrationRun;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 
+/// Sets `SubtokenEnabled`: root always `true`; other subnets `true` iff `FirstEmissionBlockNumber` is set.
+///
+/// Idempotency key (frozen): `migrate_set_subtoken_enabled`.
 pub fn migrate_set_subtoken_enabled<T: Config>() -> Weight {
     let migration_name = b"migrate_set_subtoken_enabled".to_vec();
 

@@ -4,6 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_io::{KillStorageResult, hashing::twox_128, storage::clear_prefix};
 
+/// Clears the legacy `Stake` double map after stake moved to alpha/share-based storage.
+///
+/// Idempotency key (frozen): `migrate_remove_stake_map`.
 pub fn migrate_remove_stake_map<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_stake_map".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

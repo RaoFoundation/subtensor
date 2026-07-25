@@ -24,6 +24,9 @@ enum RateLimitKeyV0<AccountId> {
     LastTxBlockDelegateTake(AccountId),
 }
 
+/// Rewrites `LastRateLimitedBlock` keys into the typed `RateLimitKey` encoding used by current rate-limit checks.
+///
+/// Idempotency key (frozen): `migrate_rate_limit_keys`.
 pub fn migrate_rate_limit_keys<T: Config>() -> Weight
 where
     T::AccountId: Ord + Clone,

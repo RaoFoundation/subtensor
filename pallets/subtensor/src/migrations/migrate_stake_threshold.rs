@@ -13,6 +13,9 @@ pub mod deprecated_weights_min_stake {
     pub(super) type WeightsMinStake<T: Config> = StorageValue<Pallet<T>, u64, ValueQuery>;
 }
 
+/// Copies deprecated `WeightsMinStake` into `StakeThreshold`, then kills the old storage value.
+///
+/// Idempotency key (frozen): `migrate_stake_threshold`.
 pub fn migrate_stake_threshold<T: Config>() -> Weight {
     let migration_name = b"migrate_stake_threshold".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

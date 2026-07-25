@@ -5,6 +5,9 @@ use frame_support::{traits::Get, weights::Weight};
 
 use super::*;
 
+/// Enables network registration on every non-root subnet where it is currently disabled.
+///
+/// Idempotency key (frozen): `migrate_set_registration_enable`.
 pub fn migrate_set_registration_enable<T: Config>() -> Weight {
     let migration_name = b"migrate_set_registration_enable".to_vec();
 

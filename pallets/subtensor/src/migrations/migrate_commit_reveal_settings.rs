@@ -7,6 +7,10 @@ use subtensor_runtime_common::NetUid;
 
 use super::*;
 
+/// Enables commit-reveal weights on all non-root subnets and ensures `RevealPeriodEpochs` is at least
+/// `MIN_COMMIT_REVEAL_PEROIDS` when previously zero.
+///
+/// Idempotency key (frozen): `migrate_commit_reveal_settings`.
 pub fn migrate_commit_reveal_settings<T: Config>() -> Weight {
     let migration_name = b"migrate_commit_reveal_settings".to_vec();
 

@@ -3,6 +3,10 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Sets network last-lock so `get_network_lock_cost()` evaluates to 2_500 TAO at the current block
+/// (writes last-lock = 1_250 TAO rao and last-lock block = now).
+///
+/// Idempotency key (frozen): `migrate_network_lock_cost_2500`.
 pub fn migrate_network_lock_cost_2500<T: Config>() -> Weight {
     const RAO_PER_TAO: u64 = 1_000_000_000;
     const TARGET_COST_TAO: u64 = 2_500;
