@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf, applicable_call};
+use super::{CallOf, RuntimeCallOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -11,15 +11,18 @@ use sp_std::marker::PhantomData;
 
 /// Dispatch extension for EVM-key association preconditions.
 ///
-/// Signed EVM-key association calls are checked for subnet registration and
-/// cooldown before dispatch; unrelated calls and non-signed origins pass through.
+/// Signed `associate_evm_key` calls require the signer hotkey to be registered on
+/// `netuid` and outside the association cooldown; unrelated calls and non-signed
+/// origins pass through. Signature / EIP-191 validation remains in the extrinsic.
 pub struct CheckEvmKeyAssociation<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckEvmKeyAssociation<T> {
+    /// Whether this guard should charge weight / run for `call`.
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(call, Call::associate_evm_key { .. })
     }
 
+    /// Ensure `who` is registered on `netuid` and past the EVM-associate rate limit.
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::associate_evm_key { netuid, .. } => {
@@ -38,7 +41,7 @@ impl<T> DispatchExtension<CallOf<T>> for CheckEvmKeyAssociation<T>
 where
     T: Config,
     CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
@@ -49,7 +52,7 @@ where
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
         call: &CallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {
