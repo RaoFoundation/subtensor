@@ -11,7 +11,7 @@
       "id": "w1-admin-utils",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/admin-utils/src/benchmarking.rs",
@@ -24,7 +24,7 @@
       "id": "w1-alpha-assets",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/alpha-assets/src/lib.rs",
@@ -36,7 +36,7 @@
       "id": "w1-commitments",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/commitments/src/benchmarking.rs",
@@ -50,7 +50,7 @@
       "id": "w1-crowdloan",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/crowdloan/src/benchmarking.rs",
@@ -65,7 +65,7 @@
       "id": "w1-drand",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/drand/src/benchmarking.rs",
@@ -86,7 +86,7 @@
       "id": "w1-limit-orders",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/limit-orders/src/benchmarking.rs",
@@ -104,7 +104,7 @@
       "id": "w1-shield",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/shield/src/benchmarking.rs",
@@ -120,7 +120,7 @@
       "id": "w1-transaction-fee",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/transaction-fee/src/lib.rs",
@@ -132,7 +132,7 @@
       "id": "w1-proxy",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/proxy/src/benchmarking.rs",
@@ -144,7 +144,7 @@
       "id": "w1-utility",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs on storage/calls/events/errors; rename private helpers; split files >1000 lines",
       "files": [
         "pallets/utility/src/benchmarking.rs",
@@ -156,7 +156,7 @@
       "id": "w1-swap",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Pallet swap + rpc + runtime-api; freeze Solidity/RPC strings",
       "files": [
         "pallets/swap/rpc/src/lib.rs",
@@ -178,7 +178,7 @@
       "id": "w1-node",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "",
       "files": [
         "node/build.rs",
@@ -212,7 +212,7 @@
       "id": "w1-common",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "",
       "files": [
         "common/src/currency.rs",
@@ -226,7 +226,7 @@
       "id": "w1-primitives",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "",
       "files": [
         "primitives/safe-math/src/lib.rs",
@@ -239,7 +239,7 @@
       "id": "w1-support",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "",
       "files": [
         "support/linting/src/forbid_as_primitive.rs",
@@ -349,7 +349,7 @@
       "id": "w1-chain-extensions",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "",
       "files": [
         "chain-extensions/src/lib.rs",
@@ -362,7 +362,7 @@
       "id": "w1-runtime",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Internal renames + docs; construct_runtime names/indices frozen",
       "files": [
         "runtime/build.rs",
@@ -462,7 +462,7 @@
       "id": "w1-precompiles-a",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "INDEX values and #[precompile::public] selectors frozen",
       "files": [
         "precompiles/src/address_mapping.rs",
@@ -481,7 +481,7 @@
       "id": "w1-precompiles-b",
       "wave": 1,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "INDEX values and #[precompile::public] selectors frozen",
       "files": [
         "precompiles/src/mock.rs",
