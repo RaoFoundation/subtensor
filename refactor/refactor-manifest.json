@@ -508,7 +508,11 @@
         "pallets/subtensor/src/coinbase/mod.rs",
         "pallets/subtensor/src/coinbase/reveal_commits.rs",
         "pallets/subtensor/src/coinbase/root.rs",
-        "pallets/subtensor/src/coinbase/run_coinbase.rs",
+        "pallets/subtensor/src/coinbase/run_coinbase/dividend_distribution.rs",
+        "pallets/subtensor/src/coinbase/run_coinbase/drain_pending_emissions.rs",
+        "pallets/subtensor/src/coinbase/run_coinbase/emission_injection.rs",
+        "pallets/subtensor/src/coinbase/run_coinbase/fixed_point.rs",
+        "pallets/subtensor/src/coinbase/run_coinbase/mod.rs",
         "pallets/subtensor/src/coinbase/subnet_emissions.rs",
         "pallets/subtensor/src/coinbase/tao.rs",
         "pallets/subtensor/src/coinbase/tempo_control.rs"

@@ -1,9 +1,13 @@
-/// This file contains all critical operations with TAO and Alpha:
-///
-///   - Minting, burning, recycling, and transferring
-///   - Reading colkey TAO balances
-///   - Access to subnet TAO reserves
-///
+//! TAO currency operations for Subtensor: mint, burn, recycle, transfer, and registration locks.
+//!
+//! Deliberately does **not** treat the subnet account's free balance as the pool reserve —
+//! use [`Pallet::get_subnet_tao`] ([`SubnetTAO`]) because the account may also hold locked TAO.
+//!
+//! Mint workflow for the coinbase:
+//! 1. [`Pallet::mint_tao`] in block emission
+//! 2. [`Pallet::spend_tao`] while distributing to subnets
+//! 3. [`Pallet::recycle_credit`] for any leftover credit
+//!
 use frame_support::traits::{
     Imbalance, LockableCurrency, WithdrawReasons,
     fungible::Mutate,
@@ -18,10 +22,12 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 
 use super::*;
 
-pub type BalanceOf<T> =
+/// Currency balance type for Subtensor's TAO (`Config::Currency`).
+pub type TaoCurrencyBalanceOf<T> =
     <<T as Config>::Currency as fungible::Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
-pub type CreditOf<T> = Credit<<T as frame_system::Config>::AccountId, <T as Config>::Currency>;
+/// Fungible credit (imbalance) produced by [`Pallet::mint_tao`] / withdraw paths.
+pub type TaoCreditOf<T> = Credit<<T as frame_system::Config>::AccountId, <T as Config>::Currency>;
 
 pub const MAX_TAO_ISSUANCE: u64 = 21_000_000_000_000_000_u64;
 
@@ -36,13 +42,13 @@ impl<T: Config> Pallet<T> {
         SubnetTAO::<T>::get(netuid)
     }
 
-    /// Internal function that transfers TAO and allows the origin account to be reaped.
-    ///
-    /// Dust collection is handled by the runtime's Balances `DustRemoval` implementation.
-    fn transfer_allow_death_update_ti(
+    /// Transfer TAO allowing the origin account to be reaped (existential-deposit dust
+    /// handled by the runtime Balances `DustRemoval` impl). Does not touch pallet
+    /// [`TotalIssuance`] — name historically suggested otherwise.
+    fn transfer_tao_allow_death(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
+        amount: TaoCurrencyBalanceOf<T>,
     ) -> DispatchResult {
         <T as pallet::Config>::Currency::transfer(
             origin_coldkey,
@@ -61,7 +67,7 @@ impl<T: Config> Pallet<T> {
     pub fn transfer_tao(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
+        amount: TaoCurrencyBalanceOf<T>,
     ) -> DispatchResult {
         // Get full balance including ED
         let max_transferrable = Self::get_coldkey_balance(origin_coldkey);
@@ -70,7 +76,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InsufficientTaoBalance
         );
 
-        Self::transfer_allow_death_update_ti(origin_coldkey, destination_coldkey, amount)
+        Self::transfer_tao_allow_death(origin_coldkey, destination_coldkey, amount)
     }
 
     /// Transfer all transferable TAO from `origin_coldkey` to `destination_coldkey`,
@@ -96,7 +102,7 @@ impl<T: Config> Pallet<T> {
         );
 
         if !amount_to_transfer.is_zero() {
-            Self::transfer_allow_death_update_ti(
+            Self::transfer_tao_allow_death(
                 origin_coldkey,
                 destination_coldkey,
                 amount_to_transfer,
@@ -128,8 +134,8 @@ impl<T: Config> Pallet<T> {
     pub fn transfer_tao_to_subnet(
         netuid: NetUid,
         origin_coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
-    ) -> Result<BalanceOf<T>, DispatchError> {
+        amount: TaoCurrencyBalanceOf<T>,
+    ) -> Result<TaoCurrencyBalanceOf<T>, DispatchError> {
         if amount.is_zero() {
             return Ok(0.into());
         }
@@ -164,25 +170,23 @@ impl<T: Config> Pallet<T> {
     pub fn transfer_tao_from_subnet(
         netuid: NetUid,
         coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
+        amount: TaoCurrencyBalanceOf<T>,
     ) -> DispatchResult {
         let subnet_account: T::AccountId =
             Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
         Self::transfer_tao(&subnet_account, coldkey, amount)
     }
 
-    /// Permanently remove TAO amount from existence by moving to the burn
-    /// address. Does not effect issuance rate
-    pub fn burn_tao(coldkey: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+    /// Move TAO to the burn address. Does **not** reduce pallet [`TotalIssuance`].
+    pub fn burn_tao(coldkey: &T::AccountId, amount: TaoCurrencyBalanceOf<T>) -> DispatchResult {
         let burn_address: T::AccountId = T::BurnAccountId::get().into_account_truncating();
         Self::transfer_tao(coldkey, &burn_address, amount)?;
         Ok(())
     }
 
-    /// Remove TAO from existence and reduce total issuance.
-    /// Effects issuance rate by reducing TI.
-    /// Does not allow the account to drop below ED.
-    pub fn recycle_tao(coldkey: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+    /// Destroy TAO and reduce pallet [`TotalIssuance`] (affects the emission schedule).
+    /// Preserves the account existential deposit.
+    pub fn recycle_tao(coldkey: &T::AccountId, amount: TaoCurrencyBalanceOf<T>) -> DispatchResult {
         // Ensure that the coldkey doesn't drop below ED
         let max_preserving_amount = <T as Config>::Currency::reducible_balance(
             coldkey,
@@ -212,15 +216,16 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Whether `coldkey` has at least `amount` transferable (expendable) balance.
     pub fn can_remove_balance_from_coldkey_account(
         coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
+        amount: TaoCurrencyBalanceOf<T>,
     ) -> bool {
         amount <= Self::get_coldkey_balance(coldkey)
     }
 
     /// Returns the full coldkey balance including existential deposit
-    pub fn get_coldkey_balance(coldkey: &T::AccountId) -> BalanceOf<T> {
+    pub fn get_coldkey_balance(coldkey: &T::AccountId) -> TaoCurrencyBalanceOf<T> {
         <T as Config>::Currency::reducible_balance(
             coldkey,
             Preservation::Expendable,
@@ -228,8 +233,8 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// Returns the balance that can be transfered without killing account
-    pub fn get_keep_alive_balance(coldkey: &T::AccountId) -> BalanceOf<T> {
+    /// Reducible balance that preserves the account (keep-alive / above ED).
+    pub fn get_keep_alive_balance(coldkey: &T::AccountId) -> TaoCurrencyBalanceOf<T> {
         <T as Config>::Currency::reducible_balance(
             coldkey,
             Preservation::Preserve,
@@ -237,13 +242,11 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// Create TAO and return the imbalance.
+    /// Issue up to `amount` TAO (hard-capped at [`MAX_TAO_ISSUANCE`]) and bump [`TotalIssuance`].
     ///
-    /// The mint workflow is following:
-    ///   1. mint_tao in block_emission
-    ///   2. spend_tao in run_coinbase (distribute to subnets)
-    ///   3. None should be left, so burn the remainder using burn_credit for records
-    pub fn mint_tao(amount: BalanceOf<T>) -> CreditOf<T> {
+    /// Coinbase path: mint here → [`Pallet::spend_tao`] in run_coinbase → [`Pallet::recycle_credit`]
+    /// for any leftover.
+    pub fn mint_tao(amount: TaoCurrencyBalanceOf<T>) -> TaoCreditOf<T> {
         // Hard-limit maximum issuance to 21M TAO. Never issue more.
         let current_issuance = <T as Config>::Currency::total_issuance();
 
@@ -264,9 +267,9 @@ impl<T: Config> Pallet<T> {
     /// Return the remaining credit or error
     pub fn spend_tao(
         coldkey: &T::AccountId,
-        credit: CreditOf<T>,
-        part: BalanceOf<T>,
-    ) -> Result<CreditOf<T>, CreditOf<T>> {
+        credit: TaoCreditOf<T>,
+        part: TaoCurrencyBalanceOf<T>,
+    ) -> Result<TaoCreditOf<T>, TaoCreditOf<T>> {
         // Reject overspending.
         if credit.peek() < part {
             return Err(credit);
@@ -286,8 +289,8 @@ impl<T: Config> Pallet<T> {
     /// changing total issuance.
     pub fn withdraw_tao_as_credit(
         coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
-    ) -> Result<CreditOf<T>, DispatchError> {
+        amount: TaoCurrencyBalanceOf<T>,
+    ) -> Result<TaoCreditOf<T>, DispatchError> {
         let credit = <T as Config>::Currency::withdraw(
             coldkey,
             amount,
@@ -299,8 +302,8 @@ impl<T: Config> Pallet<T> {
         Ok(credit)
     }
 
-    /// Finalizes the unused part of the minted TAO.
-    pub fn recycle_credit(credit: CreditOf<T>) {
+    /// Drop leftover minted credit and subtract it from pallet [`TotalIssuance`].
+    pub fn recycle_credit(credit: TaoCreditOf<T>) {
         let amount = credit.peek();
         if !amount.is_zero() {
             // Some credit is remaining: Decrease subtensor pallet total issuance
@@ -315,10 +318,12 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Pallet-tracked total TAO issuance ([`TotalIssuance`]), used by the emission curve.
     pub fn get_total_issuance() -> TaoBalance {
         TotalIssuance::<T>::get()
     }
 
+    /// 8-byte Balances lock id: `rglk` prefix + little-endian `lock_id`.
     fn get_network_registration_lock_identifier(lock_id: u32) -> [u8; 8] {
         let mut id: frame_support::traits::LockIdentifier = [0; 8];
         id[..4].copy_from_slice(&TAO_REGISTRATION_LOCK_PREFIX);
@@ -326,9 +331,10 @@ impl<T: Config> Pallet<T> {
         id
     }
 
+    /// Lock `amount` TAO on `coldkey` under the network-registration lock id.
     pub fn lock_network_registration_cost(
         coldkey: &T::AccountId,
-        amount: BalanceOf<T>,
+        amount: TaoCurrencyBalanceOf<T>,
         lock_id: u32,
     ) -> DispatchResult {
         ensure!(
@@ -348,6 +354,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Remove the network-registration Balances lock for `lock_id` on `coldkey`.
     pub fn unlock_network_registration_cost(
         coldkey: &T::AccountId,
         lock_id: u32,

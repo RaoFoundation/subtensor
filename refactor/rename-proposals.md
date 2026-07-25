@@ -145,3 +145,57 @@ precompiles/src/lib.rs
 ```
 - proposed by: w2-src-utils
 - status: pending
+
+## get_shares -> subnet_emission_shares
+- reason: `get_shares` is opaque at search time; name should say these are per-subnet TAO emission weights (price-EMA + miner-burn). Used from coinbase and tests.
+- hits:
+```
+pallets/subtensor/src/coinbase/subnet_emissions.rs
+pallets/subtensor/src/tests/subnet_emissions.rs
+```
+- proposed by: w2-src-coinbase
+- status: pending
+
+## inject_and_maybe_swap -> inject_pool_liquidity_and_swap_excess
+- reason: clarifies that this materializes tao_in/alpha_in into the pool and swaps excess_tao for protocol alpha; "maybe" hides the always-attempted swap path when excess > 0.
+- hits:
+```
+pallets/subtensor/src/coinbase/run_coinbase/emission_injection.rs
+pallets/subtensor/src/tests/coinbase.rs
+```
+- proposed by: w2-src-coinbase
+- status: pending
+
+## get_subnet_terms -> compute_subnet_emission_terms
+- reason: "terms" alone is ambiguous; this splits block TAO emission into tao_in/alpha_in/alpha_out/excess_tao per the dTAO injection cap.
+- hits:
+```
+pallets/subtensor/src/coinbase/run_coinbase/emission_injection.rs
+pallets/subtensor/src/tests/coinbase.rs
+```
+- proposed by: w2-src-coinbase
+- status: pending
+
+## drain_pending -> drain_pending_subnet_emissions
+- reason: `drain_pending` does not say what is drained; this takes pending server/validator/root/owner alpha on epoch fire.
+- hits:
+```
+pallets/subtensor/src/coinbase/run_coinbase/drain_pending_emissions.rs
+pallets/subtensor/src/coinbase/run_coinbase/mod.rs
+pallets/subtensor/src/tests/coinbase.rs
+```
+- proposed by: w2-src-coinbase
+- status: pending
+
+## get_network_root_sell_flag -> should_accumulate_root_alpha_dividends
+- reason: boolean name should read as a predicate; "root sell" is jargon for whether root alpha divs are accumulated vs recycled when total EMA price ≤ 1.
+- hits:
+```
+pallets/subtensor/src/coinbase/run_coinbase/emission_injection.rs
+pallets/subtensor/src/coinbase/run_coinbase/mod.rs
+pallets/subtensor/src/tests/coinbase.rs
+pallets/subtensor/src/tests/claim_root.rs
+```
+- proposed by: w2-src-coinbase
+- status: pending
+

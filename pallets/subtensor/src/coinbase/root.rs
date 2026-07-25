@@ -15,6 +15,11 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
+//! Root-subnet registration, network lock-cost schedule, and prune-candidate selection.
+//!
+//! Also hosts thin getters/setters for network immunity / min-lock / rate-limit last-block
+//! storage used by registration and admin paths.
+
 use super::*;
 use safe_math::*;
 use substrate_fixed::types::{I64F64, U64F64};
@@ -232,46 +237,59 @@ impl<T: Config> Pallet<T> {
         lock_cost
     }
 
+    /// Block at which `netuid` was registered ([`NetworkRegisteredAt`]).
     pub fn get_network_registered_block(netuid: NetUid) -> u64 {
         NetworkRegisteredAt::<T>::get(netuid)
     }
+    /// Registration-order counter for `netuid` ([`RegisteredSubnetCounter`]).
     pub fn get_registered_subnet_counter(netuid: NetUid) -> u64 {
         RegisteredSubnetCounter::<T>::get(netuid)
     }
+    /// Blocks of immunity from pruning after registration.
     pub fn get_network_immunity_period() -> u64 {
         NetworkImmunityPeriod::<T>::get()
     }
+    /// Set the network immunity period (emits [`Event::NetworkImmunityPeriodSet`]).
     pub fn set_network_immunity_period(net_immunity_period: u64) {
         NetworkImmunityPeriod::<T>::set(net_immunity_period);
         Self::deposit_event(Event::NetworkImmunityPeriodSet(net_immunity_period));
     }
+    /// Set delay before `start_call` is allowed on a new subnet.
     pub fn set_start_call_delay(delay: u64) {
         StartCallDelay::<T>::set(delay);
         Self::deposit_event(Event::StartCallDelaySet(delay));
     }
+    /// Set the floor for [`Pallet::get_network_lock_cost`].
     pub fn set_network_min_lock(net_min_lock: TaoBalance) {
         NetworkMinLockCost::<T>::set(net_min_lock);
         Self::deposit_event(Event::NetworkMinLockCostSet(net_min_lock));
     }
+    /// Minimum network registration lock cost.
     pub fn get_network_min_lock() -> TaoBalance {
         NetworkMinLockCost::<T>::get()
     }
+    /// Record the lock cost paid by the most recent network registration.
     pub fn set_network_last_lock(net_last_lock: TaoBalance) {
         NetworkLastLockCost::<T>::set(net_last_lock);
     }
+    /// Lock cost paid by the most recent network registration.
     pub fn get_network_last_lock() -> TaoBalance {
         NetworkLastLockCost::<T>::get()
     }
+    /// Block of the last network registration (via [`RateLimitKey::NetworkLastRegistered`]).
     pub fn get_network_last_lock_block() -> u64 {
         Self::get_rate_limited_last_block(&RateLimitKey::NetworkLastRegistered)
     }
+    /// Stamp the last network-registration block for rate limiting / lock decay.
     pub fn set_network_last_lock_block(block: u64) {
         Self::set_rate_limited_last_block(&RateLimitKey::NetworkLastRegistered, block);
     }
+    /// Set how quickly [`Pallet::get_network_lock_cost`] decays toward the minimum.
     pub fn set_lock_reduction_interval(interval: u64) {
         NetworkLockReductionInterval::<T>::set(interval);
         Self::deposit_event(Event::NetworkLockCostReductionIntervalSet(interval));
     }
+    /// Lock-cost reduction interval, scaled by current block emission vs 1 TAO.
     pub fn get_lock_reduction_interval() -> u64 {
         let interval: I64F64 =
             I64F64::saturating_from_num(NetworkLockReductionInterval::<T>::get());
@@ -286,16 +304,20 @@ impl<T: Config> Pallet<T> {
         let halved_interval: I64F64 = interval.saturating_mul(halving);
         halved_interval.saturating_to_num::<u64>()
     }
+    /// Last block when `rate_limit_key` was used ([`LastRateLimitedBlock`]).
     pub fn get_rate_limited_last_block(rate_limit_key: &RateLimitKey<T::AccountId>) -> u64 {
         LastRateLimitedBlock::<T>::get(rate_limit_key)
     }
+    /// Record that `rate_limit_key` was used at `block`.
     pub fn set_rate_limited_last_block(rate_limit_key: &RateLimitKey<T::AccountId>, block: u64) {
         LastRateLimitedBlock::<T>::insert(rate_limit_key, block);
     }
+    /// Clear the last-used block for `rate_limit_key`.
     pub fn remove_rate_limited_last_block(rate_limit_key: &RateLimitKey<T::AccountId>) {
         LastRateLimitedBlock::<T>::remove(rate_limit_key);
     }
 
+    /// Lowest moving-price non-root subnet outside its immunity period (ties → earliest registration).
     pub fn get_network_to_prune() -> Option<NetUid> {
         let current_block: u64 = Self::get_current_block_as_u64();
 
