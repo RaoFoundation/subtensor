@@ -1,3 +1,8 @@
+//! Default subnet token symbols and human-readable name tables.
+//!
+//! [`SYMBOLS`] is indexed by netuid for the default glyph; [`get_name_for_subnet`]
+//! maps netuid to a UTF-8 name used in RPC / UI surfaces.
+
 use super::*;
 use sp_std::collections::btree_set::BTreeSet;
 use subtensor_runtime_common::NetUid;
@@ -469,6 +474,7 @@ pub static SYMBOLS: [&[u8]; 439] = [
 
 /// Returns the Unicode symbol as a Vec<u8> for a given netuid.
 impl<T: Config> Pallet<T> {
+    /// Human-readable UTF-8 name for `netuid` from the static name table.
     pub fn get_name_for_subnet(netuid: NetUid) -> Vec<u8> {
         SubnetIdentitiesV3::<T>::try_get(netuid)
             .and_then(|identity| {
@@ -924,6 +930,7 @@ impl<T: Config> Pallet<T> {
             })
     }
 
+    /// Default token symbol bytes for `netuid` from [`SYMBOLS`] (falls back to root symbol).
     pub fn get_symbol_for_subnet(netuid: NetUid) -> Vec<u8> {
         SYMBOLS
             .get(u16::from(netuid) as usize)
@@ -931,6 +938,7 @@ impl<T: Config> Pallet<T> {
             .to_vec()
     }
 
+    /// First unused symbol from [`SYMBOLS`], preferring the netuid-default slot.
     pub fn get_next_available_symbol(netuid: NetUid) -> Vec<u8> {
         let used_symbols: BTreeSet<Vec<u8>> = TokenSymbol::<T>::iter_values().collect();
 
@@ -957,6 +965,7 @@ impl<T: Config> Pallet<T> {
         available_symbol.unwrap_or(DEFAULT_SYMBOL.to_vec())
     }
 
+    /// Error unless `symbol` is in the static [`SYMBOLS`] table (excluding root).
     pub fn ensure_symbol_exists(symbol: &[u8]) -> DispatchResult {
         if !SYMBOLS.iter().skip(1).any(|s| s == &symbol) {
             return Err(Error::<T>::SymbolDoesNotExist.into());
@@ -965,6 +974,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Error if `symbol` is already assigned in [`TokenSymbol`].
     pub fn ensure_symbol_available(symbol: &[u8]) -> DispatchResult {
         if TokenSymbol::<T>::iter_values().any(|s| s == symbol) {
             return Err(Error::<T>::SymbolAlreadyInUse.into());

@@ -1,3 +1,8 @@
+//! Per-subnet uid allocation: append, replace, trim, and hotkey lookups.
+//!
+//! [`Uids`] / [`Keys`] are the bidirectional hotkey↔uid maps; emission and
+//! consensus vectors are kept aligned with [`SubnetworkN`].
+
 use super::*;
 use frame_support::storage::IterableStorageDoubleMap;
 use sp_runtime::{PerU16, Percent};
@@ -148,6 +153,7 @@ impl<T: Config> Pallet<T> {
         Self::clear_stale_hotkey_successor(netuid, new_hotkey);
     }
 
+    /// Prune lowest-emission non-immune neurons until `SubnetworkN` fits `max_n`.
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
         // Reasonable limits
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);

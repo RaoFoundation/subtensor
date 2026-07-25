@@ -253,4 +253,69 @@ pallets/subtensor/src/tests/mechanism.rs
 pallets/subtensor/src/tests/weights.rs
 ```
 - proposed by: w2-src-epoch
+## if_subnet_exist -> subnet_exists
+- reason: `if_` prefix reads as a statement; boolean helpers elsewhere use `is_`/`*_exists`. Hits span many shards (dispatches, staking, rpc_info, runtime, admin-utils).
+- hits:
+```
+pallets/subtensor/src/subnets/subnet.rs
+pallets/subtensor/src/macros/dispatches.rs
+pallets/subtensor/src/lib.rs
+pallets/subtensor/src/coinbase/root.rs
+pallets/subtensor/src/coinbase/tempo_control.rs
+pallets/subtensor/src/staking/*.rs
+pallets/subtensor/src/rpc_info/*.rs
+pallets/subtensor/src/swap/swap_hotkey.rs
+pallets/subtensor/src/utils/*.rs
+pallets/admin-utils/src/lib.rs
+runtime/src/lib.rs
+chain-extensions/src/lib.rs
+pallets/subtensor/src/tests/*.rs
+pallets/subtensor/src/migrations/*.rs
+```
+- proposed by: w2-src-subnets
+- status: pending
+
+## get_netuid -> netuid_from_mechanism_storage_index
+- reason: bare `get_netuid` hides that the argument is a packed mechanism [`NetUidStorageIndex`], not a raw netuid lookup.
+- hits:
+```
+pallets/subtensor/src/subnets/mechanism.rs
+pallets/subtensor/src/utils/misc/consensus_params.rs
+```
+- proposed by: w2-src-subnets
+- status: pending
+
+## set_element_at -> set_vec_element_at
+- reason: generic helper used when clearing/replacing neuron vectors; name should say it mutates a slice/vec slot.
+- hits:
+```
+pallets/subtensor/src/subnets/uids.rs
+pallets/subtensor/src/tests/uids.rs
+```
+- proposed by: w2-src-subnets
+- status: pending
+
+## is_uid_exist_on_network -> uid_exists_on_network
+- reason: grammar (`is_uid_exist`); weights module (same directory but outside this shard's file list) also calls it.
+- hits:
+```
+pallets/subtensor/src/subnets/uids.rs
+pallets/subtensor/src/subnets/weights.rs
+```
+- proposed by: w2-src-subnets
+- status: pending
+
+## is_subnet_account_id -> netuid_for_subnet_account
+- reason: returns `Option<NetUid>`, not a bool; name should not start with `is_`.
+- hits:
+```
+pallets/subtensor/src/subnets/subnet.rs
+pallets/subtensor/src/utils/misc/subnet_hyperparams.rs
+pallets/subtensor/src/swap/swap_hotkey.rs
+pallets/subtensor/src/staking/helpers.rs
+pallets/subtensor/src/macros/errors.rs
+runtime/tests/account_conversion.rs
+pallets/subtensor/src/tests/subnet.rs
+```
+- proposed by: w2-src-subnets
 - status: pending
