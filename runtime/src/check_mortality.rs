@@ -1,3 +1,11 @@
+//! Mortality / era check with a short-period cap for shield encrypted txs.
+//!
+//! Drop-in replacement for [`frame_system::CheckMortality`] in
+//! [`SystemTxExtension`](crate::SystemTxExtension). Shares
+//! `IDENTIFIER = "CheckMortality"` and identical SCALE encoding; only
+//! [`pallet_shield::Call::submit_encrypted`] is additionally restricted to a
+//! mortal era ≤ [`MAX_SHIELD_ERA_PERIOD`].
+
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::marker::PhantomData;
 use frame_support::pallet_prelude::TypeInfo;

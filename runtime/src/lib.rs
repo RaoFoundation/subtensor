@@ -1,3 +1,26 @@
+//! # node-subtensor runtime
+//!
+//! Composes FRAME pallets into the Bittensor/Subtensor chain runtime: staking and
+//! subnets (`SubtensorModule`), TAO↔alpha swap, EVM/Frontier, proxies, commitments,
+//! crowdloan, shield, contracts, and limit orders.
+//!
+//! ## Frozen surfaces
+//!
+//! - `construct_runtime!` pallet **names and indices** are wire-stable (Twox128
+//!   storage prefixes). Never rename or renumber them.
+//! - Signed extension `IDENTIFIER` strings and SCALE layouts in
+//!   [`check_mortality`], [`check_nonce`], [`sudo_wrapper`], and
+//!   [`transaction_payment_wrapper`] are client-facing.
+//!
+//! ## Search anchors
+//!
+//! | Module / type | Role |
+//! |---------------|------|
+//! | `proxy_filters` | ProxyType allow-lists + runtime API metadata |
+//! | `fee_filters` | Extrinsics whose fees charge the hotkey's coldkey |
+//! | `Migrations` | On-upgrade migration tuple wired into [`Executive`] |
+//! | [`SystemTxExtension`] / [`CustomTxExtension`] | Signed tx validation pipeline |
+
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
@@ -132,6 +155,7 @@ impl frame_system::offchain::SigningTypes for Runtime {
     type Signature = Signature;
 }
 
+/// Resolves the current / next-next Aura author for MevShield key announcement.
 pub struct FindAuraAuthors;
 impl pallet_shield::FindAuthors<Runtime> for FindAuraAuthors {
     fn find_current_author() -> Option<AuraId> {
@@ -270,6 +294,10 @@ parameter_types! {
     pub const SS58Prefix: u8 = 42;
 }
 
+/// Rejects Utility batch calls that nest another Utility batch (one level only).
+///
+/// Combined with SafeMode in `BaseCallFilter` so nested `batch` / `batch_all` /
+/// `force_batch` cannot amplify dispatch depth through Utility.
 pub struct NoNestingCallFilter;
 
 impl Contains<RuntimeCall> for NoNestingCallFilter {
@@ -433,6 +461,7 @@ parameter_types! {
     pub const DisallowPermissionlessRelease: Option<BlockNumber> = None;
 }
 
+/// Calls still dispatchable while SafeMode is entered (sudo, multisig, weights, …).
 pub struct SafeModeWhitelistedCalls;
 impl Contains<RuntimeCall> for SafeModeWhitelistedCalls {
     fn contains(call: &RuntimeCall) -> bool {
@@ -498,8 +527,7 @@ impl pallet_balances::Config for Runtime {
 
 impl pallet_alpha_assets::Config for Runtime {}
 
-// Implement AuthorshipInfo trait for Runtime to satisfy pallet transaction
-// fee OnUnbalanced trait bounds
+/// Looks up the Aura block author account from the current digest (fee credit sink).
 pub struct BlockAuthorFromAura<F>(core::marker::PhantomData<F>);
 
 impl<F: FindAuthor<u32>> BlockAuthorFromAura<F> {
@@ -600,8 +628,9 @@ impl pallet_proxy::Config for Runtime {
     type BlockNumberProvider = System;
 }
 
-pub struct Proxier;
-impl ProxyInterface<AccountId> for Proxier {
+/// Adds/removes `SubnetLeaseBeneficiary` proxy delegates for leased subnets.
+pub struct LeaseBeneficiaryProxy;
+impl ProxyInterface<AccountId> for LeaseBeneficiaryProxy {
     fn add_lease_beneficiary_proxy(lease: &AccountId, beneficiary: &AccountId) -> DispatchResult {
         pallet_proxy::Pallet::<Runtime>::add_proxy_delegate(
             lease,
@@ -624,6 +653,7 @@ impl ProxyInterface<AccountId> for Proxier {
     }
 }
 
+/// Forwards subnet commitment purge into `pallet_commitments` on network dissolve.
 pub struct CommitmentsI;
 impl CommitmentsInterface for CommitmentsI {
     fn purge_netuid(
@@ -700,7 +730,8 @@ parameter_types! {
     pub const CommitmentFieldDeposit: Balance = TaoBalance::ZERO; // Free
 }
 
-#[subtensor_macros::freeze_struct("7c76bd954afbb54e")]
+/// Max metadata fields per commitment (`MaxCommitFieldsInner`).
+#[subtensor_macros::freeze_struct("7da615b380d4c27b")]
 #[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo)]
 pub struct MaxCommitFields;
 impl Get<u32> for MaxCommitFields {
@@ -709,9 +740,10 @@ impl Get<u32> for MaxCommitFields {
     }
 }
 
-#[subtensor_macros::freeze_struct("c39297f5eb97ee82")]
-pub struct AllowCommitments;
-impl CanCommit<AccountId> for AllowCommitments {
+/// Allows commitment only when `address` is a hotkey registered on an existing subnet.
+#[subtensor_macros::freeze_struct("9ec6b2e99dec0ac9")]
+pub struct RegisteredHotkeyCanCommit;
+impl CanCommit<AccountId> for RegisteredHotkeyCanCommit {
     #[cfg(not(feature = "runtime-benchmarks"))]
     fn can_commit(netuid: NetUid, address: &AccountId) -> bool {
         SubtensorModule::if_subnet_exist(netuid)
@@ -724,6 +756,7 @@ impl CanCommit<AccountId> for AllowCommitments {
     }
 }
 
+/// On metadata commit, resets validator bonds targeting the committing hotkey (per mechanism).
 pub struct ResetBondsOnCommit;
 impl OnMetadataCommitment<AccountId> for ResetBondsOnCommit {
     #[cfg(not(feature = "runtime-benchmarks"))]
@@ -740,8 +773,9 @@ impl OnMetadataCommitment<AccountId> for ResetBondsOnCommit {
     fn on_metadata_commitment(_: NetUid, _: &AccountId) {}
 }
 
-pub struct GetCommitmentsStruct;
-impl GetCommitments<AccountId> for GetCommitmentsStruct {
+/// Reads per-subnet commitment blobs from `pallet_commitments` for Subtensor RPCs.
+pub struct SubnetCommitmentsLookup;
+impl GetCommitments<AccountId> for SubnetCommitmentsLookup {
     fn get_commitments(netuid: NetUid) -> Vec<(AccountId, Vec<u8>)> {
         pallet_commitments::Pallet::<Runtime>::get_commitments(netuid)
     }
@@ -751,7 +785,7 @@ impl pallet_commitments::Config for Runtime {
     type Currency = Balances;
     type WeightInfo = pallet_commitments::weights::SubstrateWeight<Runtime>;
 
-    type CanCommit = AllowCommitments;
+    type CanCommit = RegisteredHotkeyCanCommit;
     type OnMetadataCommitment = ResetBondsOnCommit;
 
     type MaxFields = MaxCommitFields;
@@ -760,6 +794,7 @@ impl pallet_commitments::Config for Runtime {
     type TempoInterface = TempoInterface;
 }
 
+/// Maps `(netuid, block)` to the subnet epoch index via Subtensor tempo.
 pub struct TempoInterface;
 impl pallet_commitments::GetTempoInterface for TempoInterface {
     fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64 {
@@ -931,9 +966,9 @@ impl pallet_subtensor::Config for Runtime {
     type SwapInterface = Swap;
     type KeySwapOnSubnetCost = SubtensorInitialKeySwapOnSubnetCost;
     type HotkeySwapOnSubnetInterval = HotkeySwapOnSubnetInterval;
-    type ProxyInterface = Proxier;
+    type ProxyInterface = LeaseBeneficiaryProxy;
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
-    type GetCommitments = GetCommitmentsStruct;
+    type GetCommitments = SubnetCommitmentsLookup;
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
     type AlphaAssets = AlphaAssets;
@@ -984,13 +1019,15 @@ use crate::sudo_wrapper::SudoTransactionExtension;
 use crate::transaction_payment_wrapper::ChargeTransactionPaymentWrapper;
 use sp_runtime::BoundedVec;
 
-pub struct AuraPalletIntrf;
-impl pallet_admin_utils::AuraInterface<AuraId, ConstU32<32>> for AuraPalletIntrf {
+/// Admin-utils bridge: applies Aura authority set changes from sudo/governance.
+pub struct AuraAuthorityInterface;
+impl pallet_admin_utils::AuraInterface<AuraId, ConstU32<32>> for AuraAuthorityInterface {
     fn change_authorities(new: BoundedVec<AuraId, ConstU32<32>>) {
         Aura::change_authorities(new);
     }
 }
 
+/// Admin-utils bridge: schedules Grandpa authority set changes.
 pub struct GrandpaInterfaceImpl;
 impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
     fn schedule_change(
@@ -1005,7 +1042,7 @@ impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
 impl pallet_admin_utils::Config for Runtime {
     type AuthorityId = AuraId;
     type MaxAuthorities = ConstU32<32>;
-    type Aura = AuraPalletIntrf;
+    type Aura = AuraAuthorityInterface;
     type Grandpa = GrandpaInterfaceImpl;
     type Balance = Balance;
     type WeightInfo = pallet_admin_utils::weights::SubstrateWeight<Runtime>;
@@ -1069,6 +1106,7 @@ parameter_types! {
 /// difference factor is 9 decimals, or 10^9
 const EVM_TO_SUBSTRATE_DECIMALS: u64 = 1_000_000_000_u64;
 
+/// Converts between Substrate 9-decimal TAO balances and EVM 18-decimal Wei amounts.
 pub struct SubtensorEvmBalanceConverter;
 
 impl BalanceConverter for SubtensorEvmBalanceConverter {
@@ -1302,6 +1340,7 @@ parameter_types! {
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
 }
 
+/// Deterministic pallet account used as the limit-orders system hotkey.
 pub struct LimitOrdersPalletHotkey;
 impl Get<AccountId> for LimitOrdersPalletHotkey {
     fn get() -> AccountId {
@@ -1367,9 +1406,9 @@ parameter_types! {
     pub const ContractMaxDelegateDependencies: u32 = 32;
 }
 
+/// Contracts may only dispatch `Proxy::proxy` (no direct Subtensor/Balances calls).
 pub struct ContractCallFilter;
 
-/// Whitelist dispatchables that are allowed to be called from contracts
 impl Contains<RuntimeCall> for ContractCallFilter {
     fn contains(call: &RuntimeCall) -> bool {
         match call {
@@ -1416,6 +1455,9 @@ impl pallet_contracts::Config for Runtime {
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
+//
+// FROZEN: pallet names and numeric indices below are on-chain storage prefixes.
+// Removing a pallet leaves a hole; never reuse an index for a different pallet.
 construct_runtime!(
     pub struct Runtime
     {
@@ -1464,7 +1506,8 @@ pub type Address = sp_runtime::MultiAddress<AccountId, ()>;
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 // Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
-// The extensions to the basic transaction logic.
+
+/// Stock FRAME checks plus Subtensor mortality/nonce (era cap for shield txs).
 pub type SystemTxExtension = (
     frame_system::CheckNonZeroSender<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
@@ -1474,6 +1517,7 @@ pub type SystemTxExtension = (
     check_nonce::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
 );
+/// Fee routing, sudo signer gate, shield validity, Subtensor guards, Drand priority.
 pub type CustomTxExtension = (
     ChargeTransactionPaymentWrapper<Runtime>,
     SudoTransactionExtension<Runtime>,
@@ -1481,15 +1525,18 @@ pub type CustomTxExtension = (
     pallet_subtensor::SubtensorTransactionExtension<Runtime>,
     pallet_drand::drand_priority::DrandPriority<Runtime>,
 );
+/// Full signed-extension pipeline attached to every extrinsic.
 pub type TxExtension = (
     SystemTxExtension,
     CustomTxExtension,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
+/// On-upgrade migrations run by [`Executive`] after each runtime upgrade.
+///
+/// Kept permanent: re-syncs total issuance each upgrade so tiny floating-point
+/// rounding drift (fractions of a cent) cannot accumulate.
 type Migrations = (
-    // Leave this migration in the runtime, so every runtime upgrade tiny rounding errors (fractions of fractions
-    // of a cent) are cleaned up. These tiny rounding errors occur due to floating point coversion.
     pallet_subtensor::migrations::migrate_init_total_issuance::initialise_total_issuance::Migration<
         Runtime,
     >,

@@ -1,3 +1,8 @@
+//! Builds the runtime WASM blob when compiling with `std`.
+//!
+//! With the `metadata-hash` feature, embeds a metadata hash for token `TAO`
+//! (9 decimals) so clients can verify metadata against the runtime binary.
+
 fn main() {
     #[cfg(all(feature = "std", not(feature = "metadata-hash")))]
     {

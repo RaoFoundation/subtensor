@@ -1,3 +1,16 @@
+//! Transaction-payment extension with proxy `RealPaysFee` and coldkey fee routing.
+//!
+//! Wraps FRAME's [`ChargeTransactionPayment`] and, before charging:
+//! 1. Prefer a proxy real that opted into `RealPaysFee` (up to two nesting levels /
+//!    homogeneous proxy batches).
+//! 2. Else charge an owned hotkey's coldkey for allow-listed calls
+//!    ([`ColdkeyFeeCallFilter`] / `fee_filters`).
+//!
+//! Priority is class-based ([`NORMAL_DISPATCH_BASE_PRIORITY`] /
+//! [`OPERATIONAL_DISPATCH_PRIORITY`]), not tip-based. Coldkey-paid tips are
+//! zeroed so a hotkey cannot drain its owner via tip. `IDENTIFIER` and SCALE
+//! layout are frozen.
+
 use crate::{NORMAL_DISPATCH_BASE_PRIORITY, OPERATIONAL_DISPATCH_PRIORITY, Weight};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_election_provider_support::private::sp_arithmetic::traits::SaturatedConversion;
@@ -35,7 +48,9 @@ pub trait ColdkeyFeeCallFilter<Call> {
     fn charges_coldkey(call: &Call) -> bool;
 }
 
-#[freeze_struct("f003cde1f9da4a90")]
+/// SCALE-compatible wrapper around [`ChargeTransactionPayment`] with Subtensor
+/// fee-payer resolution (proxy `RealPaysFee`, then coldkey allow-list).
+#[freeze_struct("808d9c4ddeec2af0")]
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct ChargeTransactionPaymentWrapper<T: Config> {

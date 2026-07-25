@@ -1,5 +1,10 @@
-// Customized from the original implementation in the Polkadot SDK.
-// https://github.com/paritytech/polkadot-sdk/blob/b600af050d6b6c8da59ae2a2a793ee2d8827ab1e/substrate/frame/system/src/extensions/check_nonce.rs
+//! Account nonce check for the signed transaction extension pipeline.
+//!
+//! Customized from the Polkadot SDK
+//! ([`check_nonce`](https://github.com/paritytech/polkadot-sdk/blob/b600af050d6b6c8da59ae2a2a793ee2d8827ab1e/substrate/frame/system/src/extensions/check_nonce.rs)):
+//! declares DbWeight for the account read/mutate pair and refunds it for
+//! non-signed origins. `IDENTIFIER = "CheckNonce"` and compact nonce encoding
+//! match stock FRAME so clients stay compatible.
 
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
