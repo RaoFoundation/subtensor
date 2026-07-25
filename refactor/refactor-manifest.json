@@ -499,7 +499,7 @@
       "id": "w2-src-coinbase",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "pallet-subtensor src/coinbase",
       "files": [
         "pallets/subtensor/src/coinbase/alpha.rs",
@@ -522,7 +522,7 @@
       "id": "w2-src-epoch",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "pallet-subtensor src/epoch",
       "files": [
         "pallets/subtensor/src/epoch/math/ema_interpolate.rs",
@@ -546,7 +546,7 @@
       "id": "w2-src-staking",
       "wave": 2,
       "task": "discoverability",
-      "status": "done",
+      "status": "merged",
       "notes": "pallet-subtensor src/staking",
       "files": [
         "pallets/subtensor/src/staking/account.rs",
@@ -591,7 +591,7 @@
       "id": "w2-src-subnets",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "pallet-subtensor src/subnets",
       "files": [
         "pallets/subtensor/src/subnets/collateral.rs",
@@ -613,7 +613,7 @@
       "id": "w2-src-swap",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "pallet-subtensor src/swap",
       "files": [
         "pallets/subtensor/src/swap/coldkey_lineage.rs",
@@ -627,7 +627,7 @@
       "id": "w2-src-rpc_info",
       "wave": 2,
       "task": "discoverability",
-      "status": "done",
+      "status": "merged",
       "notes": "pallet-subtensor src/rpc_info",
       "files": [
         "pallets/subtensor/src/rpc_info/delegate_info.rs",
@@ -644,7 +644,7 @@
       "id": "w2-src-utils",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "pallet-subtensor src/utils",
       "files": [
         "pallets/subtensor/src/utils/cleanup.rs",
@@ -667,7 +667,7 @@
       "id": "w2-src-guards",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "pallet-subtensor src/guards",
       "files": [
         "pallets/subtensor/src/guards/check_coldkey_swap.rs",
@@ -683,7 +683,7 @@
       "id": "w2-src-extensions",
       "wave": 2,
       "task": "discoverability",
-      "status": "done",
+      "status": "merged",
       "notes": "pallet-subtensor src/extensions",
       "files": [
         "pallets/subtensor/src/extensions/mod.rs",
@@ -694,7 +694,7 @@
       "id": "w2-src-benchmarks",
       "wave": 2,
       "task": "discoverability",
-      "status": "done",
+      "status": "merged",
       "notes": "pallet-subtensor src/benchmarks",
       "files": [
         "pallets/subtensor/src/benchmarks/benchmarks.rs",
@@ -705,7 +705,7 @@
       "id": "w2-rpc",
       "wave": 2,
       "task": "discoverability",
-      "status": "done",
+      "status": "merged",
       "notes": "RPC method strings and runtime API trait/method names frozen",
       "files": [
         "pallets/subtensor/rpc/src/lib.rs",
@@ -716,7 +716,7 @@
       "id": "w2-docs-storage",
       "wave": 2,
       "task": "docs-only",
-      "status": "pending",
+      "status": "merged",
       "notes": "DOCS ONLY on #[pallet::storage] items; do not rename types",
       "files": [
         "pallets/subtensor/src/lib.rs"
@@ -726,7 +726,7 @@
       "id": "w2-docs-dispatches",
       "wave": 2,
       "task": "docs-only",
-      "status": "pending",
+      "status": "merged",
       "notes": "DOCS ONLY; call names and call_index frozen",
       "files": [
         "pallets/subtensor/src/macros/dispatches.rs"
@@ -736,7 +736,7 @@
       "id": "w2-docs-events",
       "wave": 2,
       "task": "docs-only",
-      "status": "pending",
+      "status": "merged",
       "notes": "DOCS ONLY; variant order and names frozen",
       "files": [
         "pallets/subtensor/src/macros/events.rs"
@@ -746,7 +746,7 @@
       "id": "w2-docs-errors",
       "wave": 2,
       "task": "docs-only",
-      "status": "pending",
+      "status": "merged",
       "notes": "DOCS ONLY; variant order and names frozen",
       "files": [
         "pallets/subtensor/src/macros/errors.rs"
@@ -756,7 +756,7 @@
       "id": "w2-docs-migrations",
       "wave": 2,
       "task": "docs-only",
-      "status": "pending",
+      "status": "merged",
       "notes": "DOCS ONLY; migration name strings frozen",
       "files": [
         "pallets/subtensor/src/migrations/migrate_associated_evm_address_index.rs",
@@ -838,7 +838,7 @@
       "id": "w2-docs-macros-other",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "merged",
       "notes": "Docs + safe internal renames in remaining macros",
       "files": [
         "pallets/subtensor/src/macros/config.rs",
@@ -851,7 +851,7 @@
       "id": "w2-test-weights",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~6248-line test file into concept-named modules under tests/weights/",
       "files": [
         "pallets/subtensor/src/tests/weights/mod.rs",
@@ -871,7 +871,7 @@
       "id": "w2-test-staking",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~6006-line test file into concept-named modules under tests/staking/ mirroring staking/",
       "files": [
         "pallets/subtensor/src/tests/staking/mod.rs",
@@ -891,7 +891,7 @@
       "id": "w2-test-migration",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~5167-line migration tests into concept modules under tests/migration/",
       "files": [
         "pallets/subtensor/src/tests/migration/mod.rs",
@@ -921,7 +921,7 @@
       "id": "w2-test-children",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~4705-line test file into concept-named modules under tests/children/",
       "files": [
         "pallets/subtensor/src/tests/children/mod.rs",
@@ -941,7 +941,7 @@
       "id": "w2-test-coinbase",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~4705-line test file into concept-named modules under tests/coinbase/",
       "files": [
         "pallets/subtensor/src/tests/coinbase/mod.rs",
@@ -973,7 +973,7 @@
       "id": "w2-test-locks",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~5087-line test file into concept-named modules under tests/locks/",
       "files": [
         "pallets/subtensor/src/tests/locks/mod.rs",
@@ -1005,7 +1005,7 @@
       "id": "w2-test-epoch",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~3973-line test file into concept-named modules under tests/epoch/",
       "files": [
         "pallets/subtensor/src/tests/epoch/mod.rs",
@@ -1028,7 +1028,7 @@
       "id": "w2-test-networks",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~3863-line test file into concept-named modules under tests/networks/",
       "files": [
         "pallets/subtensor/src/tests/networks/mod.rs",
@@ -1053,7 +1053,7 @@
       "id": "w2-test-swap_hotkey_with_subnet",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~3251-line test file into concept-named modules under tests/swap_hotkey_with_subnet/",
       "files": [
         "pallets/subtensor/src/tests/swap_hotkey_with_subnet/mod.rs",
@@ -1070,7 +1070,7 @@
       "id": "w2-test-math",
       "wave": 2,
       "task": "split-and-name",
-      "status": "done",
+      "status": "merged",
       "notes": "Split ~2601-line test file into concept-named modules under tests/math/",
       "files": [
         "pallets/subtensor/src/tests/math/mod.rs",
@@ -1087,7 +1087,7 @@
       "id": "w2-test-remainder",
       "wave": 2,
       "task": "discoverability",
-      "status": "done",
+      "status": "merged",
       "notes": "Wire mod.rs after giant splits land; improve smaller test modules",
       "files": [
         "pallets/subtensor/src/tests/mod.rs",
