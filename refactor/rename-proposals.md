@@ -15,4 +15,11 @@ Format:
 
 ---
 
-(none yet)
+## do_proxy -> dispatch_filtered_proxy_call
+- reason: private helper that dispatches a call as the real account under ProxyType filters; name `do_proxy` is vague and collides with the `proxy` extrinsic in search results
+- hits:
+  - pallets/proxy/src/impls.rs
+  - pallets/proxy/src/lib.rs
+  - pallets/subtensor/src/guards/check_coldkey_swap.rs (comment only)
+- proposed by: w1-proxy
+- status: pending
