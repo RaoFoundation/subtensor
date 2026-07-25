@@ -1,9 +1,17 @@
+//! Wire types for the Subtensor contracts chain extension: function ids, status codes, query payloads.
+//!
+//! [`FunctionId`] discriminants and [`Output`] status codes are ABI-stable for ink! contracts
+//! (see `ink-contract/`). Do not renumber, reorder, or reuse ids/codes.
+
 use codec::{Decode, Encode};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use sp_runtime::{DispatchError, ModuleError};
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 
+/// Chain-extension function selector (`u16`), matching ink `#[ink(function = N)]`.
+///
+/// Discriminants are **frozen wire ABI** — append only; never reuse retired values.
 #[repr(u16)]
 #[derive(TryFromPrimitive, IntoPrimitive, Decode, Encode)]
 pub enum FunctionId {
@@ -27,6 +35,7 @@ pub enum FunctionId {
     BurnAlphaV1 = 17,
     AddStakeRecycleV1 = 18,
     AddStakeBurnV1 = 19,
+    /// Like [`Self::AddStakeV1`] but signs as `env.origin()` (extrinsic caller), not the contract.
     CallerAddStakeV1 = 20,
     CallerRemoveStakeV1 = 21,
     CallerUnstakeAllV1 = 22,
@@ -46,31 +55,53 @@ pub enum FunctionId {
     GetStakeAvailabilityV1 = 36,
 }
 
-#[freeze_struct("5dc33d60abed5c08")]
+/// Whether `netuid` currently exists and its registration-generation counter.
+///
+/// SCALE layout is frozen; field order must not change without a contract ABI bump.
+#[freeze_struct("4dde9cfa4daec13")]
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, Debug, scale_info::TypeInfo)]
 pub struct SubnetRegistrationState {
+    /// Subnet identifier queried by the contract.
     pub netuid: NetUid,
+    /// `true` when the subnet is currently registered.
     pub exists: bool,
+    /// Monotonic generation counter for this netuid slot (survives dissolve/reuse).
     pub registered_subnet_counter: u64,
 }
 
-#[freeze_struct("bf4c1e249109618")]
+/// Coldkey lock snapshot returned to contracts (conviction stored as fixed-point bits).
+///
+/// SCALE layout is frozen; field order must not change without a contract ABI bump.
+#[freeze_struct("99a43eb00de9d491")]
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, Debug, scale_info::TypeInfo)]
 pub struct ColdkeyLock {
+    /// Alpha mass currently locked under conviction.
     pub locked_mass: AlphaBalance,
+    /// Conviction as `U64F64` bit pattern (not a human-readable float).
     pub conviction_bits: u128,
+    /// Block number of the last lock update.
     pub last_update: u64,
 }
 
-#[freeze_struct("fb12f00479cf6990")]
+/// Stake total / locked / available breakdown for a coldkey on a subnet.
+///
+/// SCALE layout is frozen; field order must not change without a contract ABI bump.
+#[freeze_struct("f6860805b7a1f2cc")]
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, Debug, scale_info::TypeInfo)]
 pub struct StakeAvailability {
+    /// Subnet whose stake availability was queried.
     pub netuid: NetUid,
+    /// Total alpha stake for the coldkey on this subnet.
     pub total: AlphaBalance,
+    /// Portion locked (unavailable to withdraw/recycle freely).
     pub locked: AlphaBalance,
+    /// `total - locked` (clamped); spendable for remove/recycle/burn paths.
     pub available: AlphaBalance,
 }
 
+/// Converging status code returned to ink via `RetVal::Converging(code as u32)`.
+///
+/// Discriminants are **frozen wire ABI** (ink `FromStatusCode`). Do not reorder variants.
 #[derive(PartialEq, Eq, Copy, Clone, Encode, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum Output {
@@ -123,6 +154,10 @@ pub enum Output {
 }
 
 impl From<DispatchError> for Output {
+    /// Map pallet/`DispatchError` messages onto the frozen [`Output`] ABI codes.
+    ///
+    /// Unmapped module errors become [`Output::RuntimeError`]. Proxy pallet errors use short
+    /// FRAME names (`TooMany`, `Duplicate`, …) rather than the `Proxy*` Output labels.
     fn from(input: DispatchError) -> Self {
         let error_text = match input {
             DispatchError::Module(ModuleError { message, .. }) => message,
