@@ -3,6 +3,7 @@ name: Localnet Publication Contract
 on:
   pull_request:
     paths:
+      - ".github/workflows/docker.yml"
       - ".github/workflows/docker-localnet.yml"
       - ".github/workflows/check-localnet-publication.yml"
       - ".github/scripts/resolve-localnet-image.sh"

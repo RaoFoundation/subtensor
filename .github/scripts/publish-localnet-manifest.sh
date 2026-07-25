@@ -58,5 +58,7 @@ docker buildx imagetools create \
   --annotation "index:org.opencontainers.image.description=Subtensor local development network for CI and local testing" \
   --annotation "index:org.opencontainers.image.source=https://github.com/RaoFoundation/subtensor" \
   --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
+  --annotation "index:org.opencontainers.image.revision=$SHA" \
+  --annotation "index:org.opencontainers.image.version=$TAG" \
   "$amd64_source" \
   "$arm64_source"

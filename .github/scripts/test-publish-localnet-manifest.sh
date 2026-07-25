@@ -41,6 +41,8 @@ assert_case() {
     --annotation "index:org.opencontainers.image.description=Subtensor local development network for CI and local testing"
     --annotation "index:org.opencontainers.image.source=https://github.com/RaoFoundation/subtensor"
     --annotation "index:org.opencontainers.image.licenses=Apache-2.0"
+    --annotation "index:org.opencontainers.image.revision=$sha"
+    --annotation "index:org.opencontainers.image.version=pr-2928"
     "$image@sha256:0000000000000000000000000000000000000000000000000000000000000000"
     "$image@sha256:0000000000000000000000000000000000000000000000000000000000000001"
   )

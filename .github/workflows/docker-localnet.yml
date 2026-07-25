@@ -1,4 +1,5 @@
 name: Publish Localnet Docker Image
+run-name: Release image ${{ inputs.branch-or-tag || github.ref_name }} from ${{ inputs.expected-sha || github.sha }}
 
 # Localnet images are the chain-in-a-box used by SDK/btcli e2e harnesses.
 # The release train force-moves the devnet/testnet mirror branch only after
@@ -22,9 +23,16 @@ on:
         description: "PR number to build (e.g. 2283). Creates tag pr-{number} and does not move :latest."
         required: false
         default: ""
+      expected-sha:
+        description: "Require the selected source ref to resolve to this commit"
+        required: false
+        default: ""
 
 concurrency:
-  group: docker-localnet-${{ github.ref }}
+  # Release recovery dispatches the current workflow definition from main.
+  # Isolate it from ordinary main publication so a later push cannot cancel
+  # an in-flight immutable release build.
+  group: docker-localnet-${{ inputs.expected-sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -105,7 +113,17 @@ jobs:
 
       - name: Record source commit
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          EXPECTED_SHA: ${{ inputs.expected-sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [[ -n "$EXPECTED_SHA" ]]; then
+            [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+              || { echo "expected-sha must be a full lowercase commit SHA"; exit 1; }
+            [[ "$sha" == "$EXPECTED_SHA" ]] \
+              || { echo "selected source $sha does not match expected $EXPECTED_SHA"; exit 1; }
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   # Build node binaries for both runtimes on both architectures.
   artifacts:

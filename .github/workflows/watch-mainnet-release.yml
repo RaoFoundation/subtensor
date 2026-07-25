@@ -363,16 +363,14 @@ jobs:
         include:
           - name: node
             workflow: docker.yml
-            input_name: tag
           - name: localnet
             workflow: docker-localnet.yml
-            input_name: branch-or-tag
     steps:
       - uses: actions/checkout@v4
 
-      # Dispatch at the immutable release tag, then follow the child run to a
-      # terminal conclusion. A startup failure is retried; a real build failure
-      # remains terminal and visible on this watcher run.
+      # Dispatch the current workflow definition with an immutable release tag
+      # and expected source SHA, then verify the resulting registry identity.
+      # A startup failure is retried; a real build failure remains terminal.
       - name: Ensure release image is published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -380,8 +378,6 @@ jobs:
           tag="v${{ needs.check.outputs.spec_version }}"
           .github/scripts/release-docker-publication.sh ensure \
             "${{ matrix.workflow }}" \
-            "$tag" \
-            "${{ matrix.input_name }}" \
             "$tag" \
             "${{ needs.check.outputs.sha }}"
 

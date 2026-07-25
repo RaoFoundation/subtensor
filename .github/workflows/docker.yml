@@ -1,4 +1,5 @@
 name: Publish Docker Image
+run-name: Release image ${{ inputs.tag || github.ref_name }} from ${{ inputs.expected-sha || github.sha }}
 
 # Node images publish whenever main or a network mirror moves, on runtime
 # releases, and on demand. Main advances the development-facing :main tag.
@@ -18,9 +19,16 @@ on:
         description: "Ref to build and Docker tag to publish (defaults to the dispatching ref)"
         required: false
         default: ""
+      expected-sha:
+        description: "Require the selected source ref to resolve to this commit"
+        required: false
+        default: ""
 
 concurrency:
-  group: docker-${{ github.ref }}
+  # Release recovery dispatches the current workflow definition from main.
+  # Isolate it from ordinary main publication so a later push cannot cancel
+  # an in-flight immutable release build.
+  group: docker-${{ inputs.expected-sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -41,7 +49,17 @@ jobs:
 
       - name: Resolve immutable source revision
         id: ref
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          EXPECTED_SHA: ${{ inputs.expected-sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [[ -n "$EXPECTED_SHA" ]]; then
+            [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+              || { echo "expected-sha must be a full lowercase commit SHA"; exit 1; }
+            [[ "$sha" == "$EXPECTED_SHA" ]] \
+              || { echo "selected source $sha does not match expected $EXPECTED_SHA"; exit 1; }
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   binary:
     name: production binary (${{ matrix.platform.arch }})
@@ -181,3 +199,6 @@ jobs:
           tags: |
             ${{ env.image }}:${{ env.tag }}
             ${{ env.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}
+          annotations: |
+            index:org.opencontainers.image.revision=${{ needs.setup.outputs.sha }}
+            index:org.opencontainers.image.version=${{ env.tag }}
