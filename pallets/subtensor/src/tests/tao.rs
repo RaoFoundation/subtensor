@@ -1,3 +1,7 @@
+//! TAO issuance / ED-sensitive balance tests using [`crate::tests::mock_high_ed`].
+//!
+//! Covers max issuance, dust, and fungible inspect edge cases.
+
 #![allow(
     unused,
     clippy::indexing_slicing,

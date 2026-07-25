@@ -1,3 +1,8 @@
+//! End-to-end subnet dissolution / cleanup netuid reuse tests.
+//!
+//! Production path: [`crate::subnets::dissolution`].
+//! Guards against reusing a netuid while cleanup is still in progress.
+
 #![allow(
     clippy::unwrap_used,
     clippy::indexing_slicing,

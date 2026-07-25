@@ -1,3 +1,7 @@
+//! Tests for recycling alpha into a subnet ([`crate::staking::recycle_alpha`]).
+//!
+//! Covers recycle amount bounds, ownership, and reserve accounting.
+
 use super::mock;
 use super::mock::*;
 use crate::*;

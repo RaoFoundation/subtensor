@@ -1,3 +1,7 @@
+//! Unit tests for [`crate::utils::cleanup`] `remove_storage_entries_for_netuid`.
+//!
+//! Exercises read/write weight budgeting and deferred removals during dissolve cleanup.
+
 #![allow(clippy::unwrap_used)]
 
 use super::mock::*;
@@ -7,15 +11,18 @@ use subtensor_runtime_common::NetUid;
 
 type TestEntry = (NetUid, u64);
 
-fn db_read() -> Weight {
+/// Single DB-read weight unit for budget tests.
+fn db_read_weight() -> Weight {
     <Test as frame_system::Config>::DbWeight::get().reads(1)
 }
 
-fn db_writes(n: u64) -> Weight {
+/// `n` DB-write weight units for budget tests.
+fn db_write_weight(n: u64) -> Weight {
     <Test as frame_system::Config>::DbWeight::get().writes(n)
 }
 
-fn run_cleanup(
+/// Drive [`SubtensorModule::remove_storage_entries_for_netuid`] and collect removed ids.
+fn run_remove_storage_entries_cleanup(
     weight_meter: &mut WeightMeter,
     entries: Vec<TestEntry>,
     target: NetUid,
@@ -40,7 +47,7 @@ fn remove_storage_entries_for_netuid_empty_iterator() {
         let mut weight_meter = WeightMeter::with_limit(limit);
 
         let (read_all, last_item, removed) =
-            run_cleanup(&mut weight_meter, vec![], NetUid::from(1), 1);
+            run_remove_storage_entries_cleanup(&mut weight_meter, vec![], NetUid::from(1), 1);
 
         assert!(read_all);
         assert!(last_item.is_none());
@@ -60,15 +67,16 @@ fn remove_storage_entries_for_netuid_removes_matching_entries() {
         ];
         let mut weight_meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
 
-        let (read_all, last_item, removed) = run_cleanup(&mut weight_meter, entries, target, 1);
+        let (read_all, last_item, removed) =
+            run_remove_storage_entries_cleanup(&mut weight_meter, entries, target, 1);
 
         assert!(read_all);
         assert_eq!(last_item, Some((NetUid::from(1), 30)));
         assert_eq!(removed, vec![10, 30]);
 
-        let expected = db_read()
+        let expected = db_read_weight()
             .saturating_mul(3)
-            .saturating_add(db_writes(1).saturating_mul(2));
+            .saturating_add(db_write_weight(1).saturating_mul(2));
         assert_eq!(weight_meter.consumed(), expected);
     });
 }
@@ -84,12 +92,13 @@ fn remove_storage_entries_for_netuid_skips_non_matching_entries() {
         ];
         let mut weight_meter = WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
 
-        let (read_all, last_item, removed) = run_cleanup(&mut weight_meter, entries, target, 1);
+        let (read_all, last_item, removed) =
+            run_remove_storage_entries_cleanup(&mut weight_meter, entries, target, 1);
 
         assert!(read_all);
         assert_eq!(last_item, Some((NetUid::from(3), 30)));
         assert!(removed.is_empty());
-        assert_eq!(weight_meter.consumed(), db_read().saturating_mul(3));
+        assert_eq!(weight_meter.consumed(), db_read_weight().saturating_mul(3));
     });
 }
 
@@ -103,10 +112,11 @@ fn remove_storage_entries_for_netuid_stops_when_read_budget_exhausted() {
             (NetUid::from(1), 30),
         ];
         // Budget for two reads only; the third entry is never scanned.
-        let limit = db_read().saturating_mul(2);
+        let limit = db_read_weight().saturating_mul(2);
         let mut weight_meter = WeightMeter::with_limit(limit);
 
-        let (read_all, last_item, removed) = run_cleanup(&mut weight_meter, entries, target, 1);
+        let (read_all, last_item, removed) =
+            run_remove_storage_entries_cleanup(&mut weight_meter, entries, target, 1);
 
         assert!(!read_all);
         assert_eq!(last_item, Some((NetUid::from(2), 20)));
@@ -121,10 +131,13 @@ fn remove_storage_entries_for_netuid_stops_when_write_budget_exhausted() {
         let target = NetUid::from(1);
         let entries = vec![(NetUid::from(1), 10), (NetUid::from(1), 20)];
         // Two reads and one write: first match is removed, second match reads but cannot write.
-        let limit = db_read().saturating_mul(2).saturating_add(db_writes(1));
+        let limit = db_read_weight()
+            .saturating_mul(2)
+            .saturating_add(db_write_weight(1));
         let mut weight_meter = WeightMeter::with_limit(limit);
 
-        let (read_all, last_item, removed) = run_cleanup(&mut weight_meter, entries, target, 1);
+        let (read_all, last_item, removed) =
+            run_remove_storage_entries_cleanup(&mut weight_meter, entries, target, 1);
 
         assert!(!read_all);
         assert_eq!(last_item, Some((NetUid::from(1), 10)));
@@ -140,13 +153,17 @@ fn remove_storage_entries_for_netuid_respects_writes_per_match() {
         let entries = vec![(NetUid::from(1), 10), (NetUid::from(1), 20)];
         let writes_per_match = 2_u64;
         // Two reads and two writes: first match is removed, second match reads but cannot write.
-        let limit = db_read()
+        let limit = db_read_weight()
             .saturating_mul(2)
-            .saturating_add(db_writes(writes_per_match));
+            .saturating_add(db_write_weight(writes_per_match));
         let mut weight_meter = WeightMeter::with_limit(limit);
 
-        let (read_all, last_item, removed) =
-            run_cleanup(&mut weight_meter, entries, target, writes_per_match);
+        let (read_all, last_item, removed) = run_remove_storage_entries_cleanup(
+            &mut weight_meter,
+            entries,
+            target,
+            writes_per_match,
+        );
 
         assert!(!read_all);
         assert_eq!(last_item, Some((NetUid::from(1), 10)));

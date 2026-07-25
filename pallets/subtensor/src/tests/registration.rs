@@ -1,3 +1,7 @@
+//! Tests for neuron and burned registration ([`crate::subnets`] registration paths).
+//!
+//! Covers cost curves, immunity, rate limits, and root-neuron registration.
+
 #![allow(clippy::unwrap_used)]
 
 use crate::*;

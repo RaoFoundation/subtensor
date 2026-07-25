@@ -1,4 +1,9 @@
+//! Tests for RPC delegate-info helpers ([`crate::rpc_info::delegate_info`]).
+//!
+//! Covers `return_per_1000_tao` and `get_delegated` stake/take aggregation.
+
 #![allow(clippy::expect_used)]
+
 use super::mock::*;
 
 use codec::Compact;

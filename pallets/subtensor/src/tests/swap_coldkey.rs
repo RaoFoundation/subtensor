@@ -1,3 +1,7 @@
+//! Tests for full coldkey swap ([`crate::swap::swap_coldkey`]).
+//!
+//! Covers ownership transfer, scheduled execution, stake/locks, and fee paths.
+
 #![allow(
     unused,
     clippy::expect_used,

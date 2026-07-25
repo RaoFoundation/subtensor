@@ -1,4 +1,9 @@
+//! Tests for subnet emission share / price-flow math ([`crate::coinbase`]).
+//!
+//! Covers `inplace_pow_normalize`, emission shares, and root-prop interactions.
+
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
+
 use super::mock::*;
 use crate::*;
 use alloc::{collections::BTreeMap, vec::Vec};

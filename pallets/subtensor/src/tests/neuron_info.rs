@@ -1,3 +1,7 @@
+//! Tests for RPC neuron-info getters ([`crate::rpc_info`]).
+//!
+//! Covers `get_neuron` / `get_neurons` empty and populated cases.
+
 use super::mock::*;
 
 use sp_core::U256;

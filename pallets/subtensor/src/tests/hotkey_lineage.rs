@@ -1,3 +1,7 @@
+//! Tests for hotkey-swap lineage recording ([`crate::swap::hotkey_lineage`]).
+//!
+//! Verifies tip/chain updates and rollback when a swap fails mid-flight.
+
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use frame_support::{assert_noop, assert_ok};

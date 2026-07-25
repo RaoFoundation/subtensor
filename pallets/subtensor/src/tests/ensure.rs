@@ -1,4 +1,9 @@
+//! Tests for subnet-owner / root / admin-window origin guards.
+//!
+//! Production path: [`crate::utils::misc::origin_and_admin`].
+
 #![allow(clippy::expect_used)]
+
 use frame_support::{assert_noop, assert_ok};
 use frame_system::Config;
 use sp_core::U256;

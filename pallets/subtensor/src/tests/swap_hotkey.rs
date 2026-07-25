@@ -1,3 +1,7 @@
+//! Tests for full hotkey swap ([`crate::swap::swap_hotkey`]).
+//!
+//! For subnet-scoped swap, see [`crate::tests::swap_hotkey_with_subnet`].
+
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use approx::assert_abs_diff_eq;

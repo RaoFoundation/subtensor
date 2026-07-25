@@ -1,3 +1,7 @@
+//! Tests for moving stake across hotkeys / subnets ([`crate::staking::move_stake`]).
+//!
+//! Covers limit orders, fees, partial moves, and cross-subnet alpha accounting.
+
 #![allow(clippy::unwrap_used)]
 
 use approx::assert_abs_diff_eq;

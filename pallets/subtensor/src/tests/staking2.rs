@@ -1,3 +1,7 @@
+//! Additional staking / dynamic-mechanism swap tests beyond [`crate::tests::staking`].
+//!
+//! Covers TAO↔alpha stake base cases and fee/dispatch-info checks.
+
 #![allow(clippy::unwrap_used)]
 
 use frame_support::{

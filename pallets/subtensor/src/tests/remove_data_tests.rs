@@ -1,3 +1,7 @@
+//! Tests for purging hotkey/coldkey associated storage on removal.
+//!
+//! Covers dissolve/cleanup data wipe for stake indexes, serves, and identities.
+
 #![allow(clippy::expect_used, clippy::indexing_slicing, clippy::unwrap_used)]
 
 use super::mock::*;

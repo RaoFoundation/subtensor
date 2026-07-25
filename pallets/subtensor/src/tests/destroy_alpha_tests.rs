@@ -1,3 +1,8 @@
+//! Tests for dissolve-path destroy of alpha in/out stakes.
+//!
+//! Production path: [`crate::staking::remove_stake::destroy_alpha`].
+//! Covers settle, clean-alpha resume under weight limits, and multi-block issuance.
+
 #![allow(clippy::expect_used, clippy::indexing_slicing, clippy::unwrap_used)]
 
 use super::mock::*;
@@ -7,7 +12,7 @@ use sp_core::U256;
 use subtensor_runtime_common::TaoBalance;
 use subtensor_swap_interface::SwapHandler;
 
-fn setup_staked_subnet() -> (U256, U256, NetUid) {
+fn setup_destroy_alpha_staked_subnet() -> (U256, U256, NetUid) {
     let owner_cold = U256::from(1001);
     let owner_hot = U256::from(1002);
     let netuid = add_dynamic_network(&owner_hot, &owner_cold);
@@ -39,7 +44,7 @@ fn setup_staked_subnet() -> (U256, U256, NetUid) {
 #[test]
 fn test_destroy_alpha_in_out_stakes_get_total_alpha_value() {
     new_test_ext(0).execute_with(|| {
-        let (_, _, netuid) = setup_staked_subnet();
+        let (_, _, netuid) = setup_destroy_alpha_staked_subnet();
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
         assert!(
@@ -79,7 +84,7 @@ fn test_destroy_alpha_in_out_stakes_get_total_alpha_value() {
 #[test]
 fn test_destroy_alpha_in_out_stakes_settle_stakes() {
     new_test_ext(0).execute_with(|| {
-        let (_, _, netuid) = setup_staked_subnet();
+        let (_, _, netuid) = setup_destroy_alpha_staked_subnet();
         run_destroy_alpha_get_total_and_settle(netuid);
     });
 }
@@ -87,7 +92,7 @@ fn test_destroy_alpha_in_out_stakes_settle_stakes() {
 #[test]
 fn test_destroy_alpha_in_out_stakes_clean_alpha() {
     new_test_ext(0).execute_with(|| {
-        let (_, owner_hot, netuid) = setup_staked_subnet();
+        let (_, owner_hot, netuid) = setup_destroy_alpha_staked_subnet();
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
         let mut status = dissolve_cleanup_status(netuid);
@@ -141,7 +146,7 @@ fn test_destroy_alpha_in_out_stakes_clean_alpha() {
 #[test]
 fn test_destroy_alpha_in_out_stakes_clear_hotkey_totals() {
     new_test_ext(0).execute_with(|| {
-        let (_, owner_hot, netuid) = setup_staked_subnet();
+        let (_, owner_hot, netuid) = setup_destroy_alpha_staked_subnet();
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
         let mut status = dissolve_cleanup_status(netuid);
@@ -195,7 +200,7 @@ fn test_destroy_alpha_in_out_stakes_clear_hotkey_totals() {
 #[test]
 fn test_destroy_alpha_in_out_stakes_clear_locks() {
     new_test_ext(0).execute_with(|| {
-        let (owner_cold, owner_hot, netuid) = setup_staked_subnet();
+        let (owner_cold, owner_hot, netuid) = setup_destroy_alpha_staked_subnet();
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
         let mut status = dissolve_cleanup_status(netuid);
@@ -265,7 +270,7 @@ fn test_destroy_alpha_in_out_stakes_clear_locks() {
 #[test]
 fn test_destroy_alpha_in_out_stakes() {
     new_test_ext(0).execute_with(|| {
-        let (_, _, netuid) = setup_staked_subnet();
+        let (_, _, netuid) = setup_destroy_alpha_staked_subnet();
         let mut status = run_destroy_alpha_get_total_and_settle(netuid);
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
@@ -279,7 +284,7 @@ fn test_destroy_alpha_in_out_stakes() {
 #[test]
 fn test_destroy_alpha_clean_alpha_resumes_with_limited_weight() {
     new_test_ext(0).execute_with(|| {
-        let (_, _, netuid) = setup_staked_subnet();
+        let (_, _, netuid) = setup_destroy_alpha_staked_subnet();
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = WeightMeter::with_limit(w);
         let mut status = dissolve_cleanup_status(netuid);

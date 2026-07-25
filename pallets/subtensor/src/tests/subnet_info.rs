@@ -1,3 +1,7 @@
+//! Tests for RPC subnet hyperparams V3 ([`crate::rpc_info::subnet_info`]).
+//!
+//! `EXPECTED_V3_NAMES` is the client contract: add a name here when adding a hyperparam.
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use super::mock::*;
@@ -50,7 +54,7 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"collateral_drain_ratio",
 ];
 
-fn find<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {
+fn find_hyperparam_value<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {
     &params
         .iter()
         .find(|e| e.name == name)
@@ -136,106 +140,118 @@ fn test_get_subnet_hyperparams_v3_values_reflect_storage() {
 
         // Bool variants
         assert_eq!(
-            find(p, b"registration_allowed"),
+            find_hyperparam_value(p, b"registration_allowed"),
             &HyperparamValue::Bool(false)
         );
         assert_eq!(
-            find(p, b"commit_reveal_weights_enabled"),
+            find_hyperparam_value(p, b"commit_reveal_weights_enabled"),
             &HyperparamValue::Bool(true)
         );
         assert_eq!(
-            find(p, b"liquid_alpha_enabled"),
+            find_hyperparam_value(p, b"liquid_alpha_enabled"),
             &HyperparamValue::Bool(true)
         );
         assert_eq!(
-            find(p, b"bonds_reset_enabled"),
+            find_hyperparam_value(p, b"bonds_reset_enabled"),
             &HyperparamValue::Bool(true)
         );
-        assert_eq!(find(p, b"owner_cut_enabled"), &HyperparamValue::Bool(true));
         assert_eq!(
-            find(p, b"owner_cut_auto_lock_enabled"),
+            find_hyperparam_value(p, b"owner_cut_enabled"),
+            &HyperparamValue::Bool(true)
+        );
+        assert_eq!(
+            find_hyperparam_value(p, b"owner_cut_auto_lock_enabled"),
             &HyperparamValue::Bool(true)
         );
 
         // U16 variants
-        assert_eq!(find(p, b"kappa"), &HyperparamValue::U16(Compact(12)));
         assert_eq!(
-            find(p, b"immunity_period"),
+            find_hyperparam_value(p, b"kappa"),
+            &HyperparamValue::U16(Compact(12))
+        );
+        assert_eq!(
+            find_hyperparam_value(p, b"immunity_period"),
             &HyperparamValue::U16(Compact(13))
         );
         assert_eq!(
-            find(p, b"min_allowed_weights"),
+            find_hyperparam_value(p, b"min_allowed_weights"),
             &HyperparamValue::U16(Compact(14))
         );
-        assert_eq!(find(p, b"tempo"), &HyperparamValue::U16(Compact(16)));
         assert_eq!(
-            find(p, b"activity_cutoff"),
+            find_hyperparam_value(p, b"tempo"),
+            &HyperparamValue::U16(Compact(16))
+        );
+        assert_eq!(
+            find_hyperparam_value(p, b"activity_cutoff"),
             &HyperparamValue::U64(Compact(22))
         );
         assert_eq!(
-            find(p, b"activity_cutoff_factor"),
+            find_hyperparam_value(p, b"activity_cutoff_factor"),
             &HyperparamValue::U32(Compact(1375))
         );
         assert_eq!(
-            find(p, b"target_regs_per_interval"),
+            find_hyperparam_value(p, b"target_regs_per_interval"),
             &HyperparamValue::U16(Compact(24))
         );
         assert_eq!(
-            find(p, b"burn_half_life"),
+            find_hyperparam_value(p, b"burn_half_life"),
             &HyperparamValue::U16(Compact(33))
         );
         assert_eq!(
-            find(p, b"max_regs_per_block"),
+            find_hyperparam_value(p, b"max_regs_per_block"),
             &HyperparamValue::U16(Compact(28))
         );
         assert_eq!(
-            find(p, b"max_validators"),
+            find_hyperparam_value(p, b"max_validators"),
             &HyperparamValue::U16(Compact(30))
         );
-        assert_eq!(find(p, b"yuma_version"), &HyperparamValue::U16(Compact(3)));
+        assert_eq!(
+            find_hyperparam_value(p, b"yuma_version"),
+            &HyperparamValue::U16(Compact(3))
+        );
         // Effective min childkey take = max(global, per-subnet).
         assert_eq!(
-            find(p, b"min_childkey_take"),
+            find_hyperparam_value(p, b"min_childkey_take"),
             &HyperparamValue::U16(Compact(32))
         );
 
         // U64 variants
         assert_eq!(
-            find(p, b"weights_version"),
+            find_hyperparam_value(p, b"weights_version"),
             &HyperparamValue::U64(Compact(19))
         );
         assert_eq!(
-            find(p, b"weights_rate_limit"),
+            find_hyperparam_value(p, b"weights_rate_limit"),
             &HyperparamValue::U64(Compact(20))
         );
         assert_eq!(
-            find(p, b"bonds_moving_avg"),
+            find_hyperparam_value(p, b"bonds_moving_avg"),
             &HyperparamValue::U64(Compact(27))
         );
         assert_eq!(
-            find(p, b"serving_rate_limit"),
+            find_hyperparam_value(p, b"serving_rate_limit"),
             &HyperparamValue::U64(Compact(29))
         );
 
         // TaoBalance variants
         assert_eq!(
-            find(p, b"min_burn"),
+            find_hyperparam_value(p, b"min_burn"),
             &HyperparamValue::TaoBalance(Compact(TaoBalance::from(25u64)))
         );
         assert_eq!(
-            find(p, b"max_burn"),
+            find_hyperparam_value(p, b"max_burn"),
             &HyperparamValue::TaoBalance(Compact(TaoBalance::from(26u64)))
         );
 
         // I32F32 variant
         assert_eq!(
-            find(p, b"alpha_sigmoid_steepness"),
+            find_hyperparam_value(p, b"alpha_sigmoid_steepness"),
             &HyperparamValue::I32F32(I32F32::saturating_from_num(5))
         );
 
         // U64F64 variant
         assert_eq!(
-            find(p, b"burn_increase_mult"),
+            find_hyperparam_value(p, b"burn_increase_mult"),
             &HyperparamValue::U64F64(U64F64::saturating_from_num(2))
         );
     });
@@ -249,7 +265,7 @@ fn test_get_subnet_hyperparams_v3_yuma_version_reflects_flag() {
 
         SubtensorModule::set_yuma3_enabled(netuid, false);
         assert_eq!(
-            find(
+            find_hyperparam_value(
                 &SubtensorModule::get_subnet_hyperparams_v3(netuid).unwrap(),
                 b"yuma_version",
             ),
@@ -258,7 +274,7 @@ fn test_get_subnet_hyperparams_v3_yuma_version_reflects_flag() {
 
         SubtensorModule::set_yuma3_enabled(netuid, true);
         assert_eq!(
-            find(
+            find_hyperparam_value(
                 &SubtensorModule::get_subnet_hyperparams_v3(netuid).unwrap(),
                 b"yuma_version",
             ),

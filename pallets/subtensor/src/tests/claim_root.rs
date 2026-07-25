@@ -1,3 +1,7 @@
+//! Tests for root alpha claims ([`crate::staking::claim_root`]).
+//!
+//! Covers claim thresholds, pending dividends, dissolve interaction, and claim types.
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use super::mock::run_block_idle;
