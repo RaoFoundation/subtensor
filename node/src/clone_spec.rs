@@ -37,6 +37,7 @@ const RPC_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const GRANDPA_AUTHORITIES_WELL_KNOWN_KEY: &[u8] = b":grandpa_authorities";
 
 /// Execute `build-patched-spec`: sync network state, export raw chainspec, apply clone patch.
+/// Sync, export-state, and patch a live chain into a local test chainspec.
 pub fn run(cmd: &CloneStateCmd, skip_history_backfill: bool) -> sc_cli::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
@@ -49,6 +50,7 @@ pub fn run(cmd: &CloneStateCmd, skip_history_backfill: bool) -> sc_cli::Result<(
         .map_err(sc_cli::Error::Application)
 }
 
+/// Async body of [`run`]: spawn sync node, wait, export raw state, apply patch.
 async fn async_run(cmd: &CloneStateCmd, skip_history_backfill: bool) -> CloneResult<()> {
     let validators = selected_validators(cmd);
     let selected_names = validators
@@ -262,6 +264,7 @@ fn export_raw_state(
     Ok(())
 }
 
+/// Snapshot of `system_syncState` + `system_health` used for sync completion.
 struct SyncStatus {
     current: u64,
     highest: u64,
@@ -269,6 +272,7 @@ struct SyncStatus {
     is_syncing: bool,
 }
 
+/// Query RPC sync/health fields used to decide when the temp node is near head.
 async fn query_sync_status(rpc_client: &HttpClient) -> CloneResult<SyncStatus> {
     let sync = rpc_call(rpc_client, "system_syncState").await?;
     let health = rpc_call(rpc_client, "system_health").await?;
@@ -299,6 +303,7 @@ async fn rpc_call(rpc_client: &HttpClient, method: &str) -> CloneResult<Value> {
         .map_err(Into::into)
 }
 
+/// Parse a JSON object field as `u64` (number, decimal string, or `0x` hex).
 fn parse_u64_field(value: &Value, field: &str) -> Option<u64> {
     let field_value = value.get(field)?;
 
@@ -337,6 +342,7 @@ fn database_arg(database: sc_cli::Database) -> &'static str {
     }
 }
 
+/// Resolve Alice/Bob/Charlie seeds from CLI flags (defaults to Alice only).
 fn selected_validators(cmd: &CloneStateCmd) -> Vec<&'static str> {
     let explicit = cmd.alice || cmd.bob || cmd.charlie;
     let mut selected = Vec::new();
@@ -374,6 +380,7 @@ fn patch_raw_chainspec_file(
     Ok(())
 }
 
+/// Patch authorities, sudo, session keys, and top-level identity fields on a raw spec.
 fn patch_raw_spec(spec: &mut Value, validators: &[&'static str]) -> CloneResult<()> {
     let sudo = validators
         .first()

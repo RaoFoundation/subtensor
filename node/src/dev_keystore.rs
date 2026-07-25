@@ -1,3 +1,5 @@
+//! Fixed shield keystore for single-validator manual-seal / local-dev nodes.
+
 use stc_shield::MemoryShieldKeystore;
 use stp_shield::{Result as TraitResult, ShieldKeystore};
 
@@ -19,6 +21,7 @@ pub struct DevShieldKeystore {
 }
 
 impl DevShieldKeystore {
+    /// Capture one ML-KEM pair, roll it to current, then freeze rotation.
     #[allow(clippy::expect_used)]
     pub fn new() -> Self {
         let inner = MemoryShieldKeystore::new();

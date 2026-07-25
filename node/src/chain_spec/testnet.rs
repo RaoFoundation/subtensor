@@ -1,3 +1,8 @@
+//! Finney testnet chain-spec (`--chain test_finney` / default empty id).
+//!
+//! Genesis state is loaded from `./snapshot.json` like mainnet, with a distinct
+//! protocol id for the public test network.
+
 // Allowed since it's actually better to panic during chain setup when there is an error
 #![allow(clippy::unwrap_used)]
 
@@ -5,6 +10,7 @@ use super::*;
 
 const TESTNET_PROTOCOL_ID: &str = "bittensor-testnet";
 
+/// Build the Finney testnet `ChainSpec` from the local nakamoto snapshot file.
 pub fn finney_testnet_config() -> Result<ChainSpec, String> {
     let path: PathBuf = std::path::PathBuf::from("./snapshot.json");
     let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;

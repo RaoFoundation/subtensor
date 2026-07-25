@@ -1,3 +1,5 @@
+//! Trait abstracting Aura vs Babe node wiring (import queue, IDPs, authorship, RPC).
+
 use jsonrpsee::Methods;
 use node_subtensor_runtime::opaque::Block;
 use sc_client_api::AuxStore;
@@ -30,6 +32,7 @@ use crate::client::FullClient;
 use crate::service::BIQ;
 use crate::service::FullSelectChain;
 
+/// Parameters bundled for consensus authorship startup.
 pub struct StartAuthoringParams<C, SC, I, PF, SO, L, CIDP, BS> {
     /// The duration of a slot.
     pub slot_duration: SlotDuration,

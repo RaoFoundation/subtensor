@@ -1,7 +1,7 @@
-//! A collection of node-specific RPC methods.
-//! Substrate provides the `sc-rpc` crate, which defines the core RPC layer
-//! used by Substrate nodes. This file extends those RPC definitions with
-//! capabilities that are specific to this project's runtime configuration.
+//! Assemble Subtensor full-node JSON-RPC: system, payment, custom, swap, manual-seal, Eth.
+//!
+//! Substrate `sc-rpc` supplies the core layer; this module merges runtime-specific
+//! APIs and Frontier eth deps. Client-facing RPC method name strings must stay stable.
 
 #![warn(missing_docs)]
 
@@ -95,7 +95,9 @@ pub struct FullDeps<P, CT, CIDP> {
     pub eth: EthDeps<P, CT, CIDP>,
 }
 
-/// Instantiate all full RPC extensions.
+/// Instantiate all full RPC extensions (Subtensor custom + Frontier eth + optional manual seal).
+///
+/// Does not alter registered RPC method name strings.
 pub fn create_full<P, CT, CIDP>(
     deps: FullDeps<P, CT, CIDP>,
     subscription_task_executor: SubscriptionTaskExecutor,

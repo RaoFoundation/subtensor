@@ -1,3 +1,8 @@
+//! CLI argument types for the Subtensor node binary.
+//!
+//! Covers sealing mode, initial Aura/Babe consensus choice, Frontier eth flags,
+//! history-backfill policy, and the `build-patched-spec` clone-state subcommand.
+
 use crate::{
     client::{FullBackend, FullClient},
     consensus::{AuraConsensus, BabeConsensus},
@@ -12,6 +17,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Top-level Subtensor node CLI (run flags + optional subcommand).
 #[derive(Debug, clap::Parser)]
 pub struct Cli {
     #[command(subcommand)]
@@ -45,6 +51,7 @@ pub struct Cli {
     pub history_backfill: HistoryBackfill,
 }
 
+/// Node subcommands (keys, chain ops, benchmarks, patched-spec clone).
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
@@ -147,6 +154,7 @@ pub struct CloneStateCmd {
     pub charlie: bool,
 }
 
+/// Whether to keep or skip historical gap-backfill during sync.
 #[derive(Debug, Clone, Copy, clap::ValueEnum, Default)]
 pub enum HistoryBackfill {
     #[default]
@@ -208,9 +216,9 @@ pub enum SupportedConsensusMechanism {
     Aura,
 }
 
-// Convinience methods for static dispatch of different service methods with
-// different consensus mechanisms.
+/// Convenience methods for static dispatch of service entrypoints per consensus.
 impl SupportedConsensusMechanism {
+    /// Build chain-ops components for this consensus mechanism.
     pub fn new_chain_ops(
         &self,
         config: &mut Configuration,

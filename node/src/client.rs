@@ -1,3 +1,9 @@
+//! Full-client and WASM-executor type aliases for the Subtensor node.
+//!
+//! Host functions always include runtime-benchmark shims because historical
+//! genesis state was built with them; they are no-ops unless the runtime is
+//! compiled with `runtime-benchmarks`.
+
 use node_subtensor_runtime::{RuntimeApi, opaque::Block};
 use polkadot_sdk::cumulus_primitives_proof_size_hostfunction::storage_proof_size::HostFunctions as ProofSize;
 use sc_executor::WasmExecutor;
@@ -17,4 +23,5 @@ pub type HostFunctions = (
     sp_crypto_ec_utils::bls12_381::host_calls::HostFunctions,
     ProofSize,
 );
+/// WASM executor wired with [`HostFunctions`].
 pub type RuntimeExecutor = WasmExecutor<HostFunctions>;
