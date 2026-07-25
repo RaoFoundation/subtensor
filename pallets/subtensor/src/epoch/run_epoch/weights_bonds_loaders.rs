@@ -40,7 +40,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Output unnormalized sparse weights, input weights are assumed to be row max-upscaled in u16.
-    pub fn get_weights_sparse(netuid_index: NetUidStorageIndex) -> Vec<Vec<(u16, I32F32)>> {
+    pub fn unnormalized_weights_sparse(netuid_index: NetUidStorageIndex) -> Vec<Vec<(u16, I32F32)>> {
         let (netuid, _) = Self::get_netuid_and_subid(netuid_index).unwrap_or_default();
         let n = Self::get_subnetwork_n(netuid) as usize;
         let mut weights: Vec<Vec<(u16, I32F32)>> = vec![vec![]; n];

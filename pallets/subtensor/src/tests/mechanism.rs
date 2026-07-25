@@ -1400,7 +1400,7 @@ fn test_reveal_crv3_commits_sub_success() {
 
         // Verify weights applied under the selected mecid index
         let idx = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
-        let weights_sparse = SubtensorModule::get_weights_sparse(idx);
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(idx);
         let row = weights_sparse.get(uid1 as usize).cloned().unwrap_or_default();
         assert!(!row.is_empty(), "expected weights set for validator uid1 under mecid");
 

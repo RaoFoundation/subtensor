@@ -15,7 +15,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         limit_price: TaoBalance,
         validate: bool,
     ) -> Result<AlphaBalance, DispatchError> {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subtoken_enabled(netuid)?;
         if validate {
             ensure!(
@@ -59,7 +59,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         limit_price: TaoBalance,
         validate: bool,
     ) -> Result<TaoBalance, DispatchError> {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subtoken_enabled(netuid)?;
         if validate {
             Self::validate_remove_stake(
@@ -116,7 +116,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         validate_sender: bool,
         validate_receiver: bool,
     ) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subtoken_enabled(netuid)?;
         if validate_sender {
             ensure!(
@@ -172,7 +172,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
 
     #[cfg(feature = "runtime-benchmarks")]
     fn set_up_netuid_for_benchmark(netuid: NetUid) {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             Self::init_new_network(netuid, 100);
         }
         SubtokenEnabled::<T>::insert(netuid, true);

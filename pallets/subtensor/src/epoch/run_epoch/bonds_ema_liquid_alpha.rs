@@ -313,7 +313,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Zero a hotkey column in `Bonds` when bonds-reset is enabled for the subnet.
-    pub fn do_reset_bonds(
+    pub fn reset_bonds_column_for_hotkey(
         netuid_index: NetUidStorageIndex,
         account_id: &T::AccountId,
     ) -> Result<(), DispatchError> {
@@ -348,7 +348,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Preflight: `Keys` for `netuid` must not contain duplicate hotkeys.
-    pub fn is_epoch_input_state_consistent(netuid: NetUid) -> bool {
+    pub fn epoch_keys_have_unique_hotkeys(netuid: NetUid) -> bool {
         // Check if Keys map has duplicate hotkeys or uids
         let mut hotkey_set: BTreeSet<T::AccountId> = BTreeSet::new();
         // `iter_prefix` over a double map yields (uid, value) for the given first key.

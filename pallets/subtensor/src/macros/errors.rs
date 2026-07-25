@@ -296,7 +296,7 @@ mod errors {
         NoExistingLock,
         /// Coldkey already has an active nonzero lock on that subnet; cannot create another.
         ActiveLockExists,
-        /// Hotkey is a reserved subnet system account (`is_subnet_account_id`); use a user key.
+        /// Hotkey is a reserved subnet system account (`netuid_for_subnet_account`); use a user key.
         CannotUseSystemAccount,
         /// Unlock requested more alpha than is currently locked.
         UnlockAmountTooHigh,

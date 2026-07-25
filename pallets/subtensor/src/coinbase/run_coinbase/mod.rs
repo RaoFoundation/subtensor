@@ -6,7 +6,7 @@
 //! 2. [`Pallet::get_subnet_block_emissions`] / [`Pallet::emit_to_subnets`] — split TAO by
 //!    price shares, inject pool liquidity (`tao_in`/`alpha_in`), swap excess TAO, and
 //!    accumulate pending alpha (server / validator / root / owner cut).
-//! 3. [`Pallet::drain_pending`] — on each subnet's epoch slot (tempo / trigger / defer),
+//! 3. [`Pallet::drain_pending_subnet_emissions`] — on each subnet's epoch slot (tempo / trigger / defer),
 //!    take pending alpha and advance `LastEpochBlock`.
 //! 4. [`Pallet::distribute_emissions_to_subnets`] — run consensus epoch and pay incentives
 //!    / dividends / root claimables.
@@ -15,7 +15,7 @@
 //!
 //! | Module | Owns |
 //! |--------|------|
-//! | [`emission_injection`] | `inject_and_maybe_swap`, `get_subnet_terms`, `emit_to_subnets` |
+//! | [`emission_injection`] | `inject_pool_liquidity_and_swap_excess`, `compute_subnet_emission_terms`, `emit_to_subnets` |
 //! | [`drain_pending_emissions`] | epoch scheduling + pending drain |
 //! | [`dividend_distribution`] | incentive/dividend split and stake payout |
 
@@ -79,7 +79,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 5. Drain pending emissions.
-        let emissions_to_distribute = Self::drain_pending(&subnets, current_block);
+        let emissions_to_distribute = Self::drain_pending_subnet_emissions(&subnets, current_block);
 
         // --- 6. Distribute the emissions to the subnets.
         Self::distribute_emissions_to_subnets(&emissions_to_distribute);

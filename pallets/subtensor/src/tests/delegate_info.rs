@@ -27,7 +27,7 @@ fn test_return_per_1000_tao() {
     let emissions_per_day = U64F64::from_num(1000.0 * 1e9);
 
     let return_per_1000 =
-        SubtensorModule::return_per_1000_tao_test(take, total_stake, emissions_per_day);
+        SubtensorModule::delegator_return_per_1000_tao_test(take, total_stake, emissions_per_day);
 
     // We expect 82 TAO per day with 10% of total_stake
     let expected_return_per_1000 = U64F64::from_num(82.0);

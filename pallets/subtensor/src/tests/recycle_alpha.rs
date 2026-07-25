@@ -30,7 +30,7 @@ fn test_recycle_success() {
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         let stake = 200_000;
@@ -86,7 +86,7 @@ fn test_recycle_two_stakers() {
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         let stake = 200_000;
@@ -156,7 +156,7 @@ fn test_recycle_staker_is_nominator() {
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         let stake = 200_000;
@@ -229,7 +229,7 @@ fn test_burn_success() {
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         let stake = 200_000;
@@ -285,7 +285,7 @@ fn test_burn_staker_is_nominator() {
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         let stake = 200_000;
@@ -355,7 +355,7 @@ fn test_burn_two_stakers() {
         let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &hotkey);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         let stake = 200_000;
@@ -565,7 +565,7 @@ fn test_recycle_precision() {
 
         Balances::make_free_balance_be(&coldkey, 1_000_000_000.into());
         // sanity check
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         increase_stake_on_coldkey_hotkey_account(&coldkey, &hotkey, stake.into(), netuid);
@@ -611,7 +611,7 @@ fn test_burn_precision() {
 
         Balances::make_free_balance_be(&coldkey, 1_000_000_000.into());
         // sanity check
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // add stake to coldkey-hotkey pair so we can recycle it
         increase_stake_on_coldkey_hotkey_account(&coldkey, &hotkey, stake.into(), netuid);

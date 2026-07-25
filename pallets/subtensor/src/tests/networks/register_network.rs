@@ -46,7 +46,7 @@ fn test_registration_ok() {
         ));
 
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
-        assert!(!SubtensorModule::if_subnet_exist(netuid));
+        assert!(!SubtensorModule::subnet_exists(netuid));
     })
 }
 
@@ -101,7 +101,7 @@ fn register_network_fails_before_prune_keeps_existing() {
             Error::<Test>::CannotAffordLockCost
         );
 
-        assert!(SubtensorModule::if_subnet_exist(net));
+        assert!(SubtensorModule::subnet_exists(net));
         assert_eq!(TotalNetworks::<Test>::get(), 1);
     });
 }
@@ -119,7 +119,7 @@ fn test_register_subnet_low_lock_cost() {
         let subnet_owner_coldkey = U256::from(1);
         let subnet_owner_hotkey = U256::from(2);
         let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // Ensure that both Subnet TAO and Subnet Alpha In equal to (actual) lock_cost
         assert_eq!(SubnetTAO::<Test>::get(netuid), lock_cost);
@@ -146,7 +146,7 @@ fn test_register_subnet_high_lock_cost() {
         let subnet_owner_coldkey = U256::from(1);
         let subnet_owner_hotkey = U256::from(2);
         let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
 
         // Ensure that both Subnet TAO and Subnet Alpha In equal to 100 TAO
         assert_eq!(SubnetTAO::<Test>::get(netuid), lock_cost);
@@ -203,7 +203,7 @@ fn register_network_seeds_first_subnet_from_fallback_price_one_and_keeps_lock_in
             None,
         ));
 
-        assert!(SubtensorModule::if_subnet_exist(new_netuid));
+        assert!(SubtensorModule::subnet_exists(new_netuid));
         assert_eq!(TotalNetworks::<Test>::get(), 1);
         assert_eq!(SubnetOwner::<Test>::get(new_netuid), new_cold);
         assert_eq!(SubnetOwnerHotkey::<Test>::get(new_netuid), new_hot);
@@ -295,7 +295,7 @@ fn register_network_seeds_new_subnet_from_even_median_snapshot() {
             <Test as pallet::Config>::SwapInterface::current_alpha_price(new_netuid.into());
         let post_registration_median = SubtensorModule::get_median_subnet_alpha_price();
 
-        assert!(SubtensorModule::if_subnet_exist(new_netuid));
+        assert!(SubtensorModule::subnet_exists(new_netuid));
         assert_eq!(SubnetOwner::<Test>::get(new_netuid), new_cold);
         assert_eq!(SubnetOwnerHotkey::<Test>::get(new_netuid), new_hot);
         assert_eq!(
@@ -357,7 +357,7 @@ fn register_network_fails_without_balance_and_does_not_write_owner_alpha_state()
             Error::<Test>::CannotAffordLockCost
         );
 
-        assert!(!SubtensorModule::if_subnet_exist(would_be_netuid));
+        assert!(!SubtensorModule::subnet_exists(would_be_netuid));
         assert_eq!(TotalNetworks::<Test>::get(), 0);
         assert_eq!(
             SubnetAlphaIn::<Test>::get(would_be_netuid),
@@ -439,7 +439,7 @@ fn register_network_non_associated_hotkey_does_not_withdraw_or_write_owner_alpha
         assert_eq!(SubnetOwner::<Test>::get(existing_netuid), original_cold);
 
         // No new subnet / owner-alpha state was written.
-        assert!(!SubtensorModule::if_subnet_exist(would_be_netuid));
+        assert!(!SubtensorModule::subnet_exists(would_be_netuid));
         assert_eq!(TotalNetworks::<Test>::get(), 1);
         assert_eq!(
             SubnetAlphaOut::<Test>::get(would_be_netuid),

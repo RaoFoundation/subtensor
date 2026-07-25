@@ -8,7 +8,7 @@
 //! # Frozen names
 //!
 //! `#[method(name = "…")]` strings are Tier C — never rename. Rust trait method names
-//! on [`SubtensorCustomApi`] match those strings for searchability; keep them aligned.
+//! on [`SubtensorCustomRpcApi`] match those strings for searchability; keep them aligned.
 //!
 //! # Related crate
 //!
@@ -38,7 +38,7 @@ pub use subtensor_custom_rpc_runtime_api::{
 /// Most getters return SCALE-encoded pallet `rpc_info` structs as `Vec<u8>` for
 /// substrate-facing clients; decode with the matching type from `pallet_subtensor::rpc_info`.
 #[rpc(client, server)]
-pub trait SubtensorCustomApi<BlockHash> {
+pub trait SubtensorCustomRpcApi<BlockHash> {
     /// All delegates (`DelegateInfo`), SCALE-encoded.
     #[method(name = "delegateInfo_getDelegates")]
     fn get_delegates(&self, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
@@ -171,13 +171,13 @@ pub trait SubtensorCustomApi<BlockHash> {
 }
 
 /// Node-side RPC handler that forwards to Subtensor custom runtime APIs.
-pub struct SubtensorCustom<C, P> {
+pub struct SubtensorCustomRpc<C, P> {
     /// Shared reference to the client.
     client: Arc<C>,
     _marker: std::marker::PhantomData<P>,
 }
 
-impl<C, P> SubtensorCustom<C, P> {
+impl<C, P> SubtensorCustomRpc<C, P> {
     /// Creates a new Subtensor custom RPC handler around `client`.
     pub fn new(client: Arc<C>) -> Self {
         Self {
@@ -187,7 +187,7 @@ impl<C, P> SubtensorCustom<C, P> {
     }
 }
 
-impl<C, Block> SubtensorCustom<C, Block>
+impl<C, Block> SubtensorCustomRpc<C, Block>
 where
     Block: BlockT,
     C: HeaderBackend<Block>,
@@ -238,7 +238,7 @@ impl From<SubtensorRpcError> for i32 {
     }
 }
 
-impl<C, Block> SubtensorCustomApiServer<<Block as BlockT>::Hash> for SubtensorCustom<C, Block>
+impl<C, Block> SubtensorCustomRpcApiServer<<Block as BlockT>::Hash> for SubtensorCustomRpc<C, Block>
 where
     Block: BlockT,
     C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,

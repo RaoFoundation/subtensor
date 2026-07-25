@@ -59,7 +59,7 @@ impl<T: Config> Pallet<T> {
     ///
     pub fn contains_invalid_root_uids(netuids: &[NetUid]) -> bool {
         for netuid in netuids {
-            if !Self::if_subnet_exist(*netuid) {
+            if !Self::subnet_exists(*netuid) {
                 log::debug!("contains_invalid_root_uids: netuid {netuid:?} does not exist");
                 return true;
             }
@@ -83,7 +83,7 @@ impl<T: Config> Pallet<T> {
         // --- 0. Get the unique identifier (UID) for the root network.
         let current_block_number: u64 = Self::get_current_block_as_u64();
         ensure!(
-            Self::if_subnet_exist(NetUid::ROOT),
+            Self::subnet_exists(NetUid::ROOT),
             Error::<T>::RootNetworkDoesNotExist
         );
 

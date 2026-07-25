@@ -15,7 +15,7 @@ fn weightinfo_plug_helper_accepts_captured_attrs_and_custom_allow() {
     let batch_attr = r#"
         #[pallet::call_index(0)]
         #[pallet::weight({
-            let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+            let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
             let dispatch_weight = dispatch_weight
                 .saturating_add(T::WeightInfo::batch(calls.len() as u32));
             (dispatch_weight, DispatchClass::Normal, pays)
@@ -73,7 +73,7 @@ fn source_fallback_accepts_valid_complex_weight_attrs() {
         impl<T: Config> Pallet<T> {
             #[pallet::call_index(0)]
             #[pallet::weight({
-                let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+                let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
                 let dispatch_weight = dispatch_weight
                     .saturating_add(T::WeightInfo::batch(calls.len() as u32));
                 (dispatch_weight, DispatchClass::Normal, pays)
@@ -143,7 +143,7 @@ fn dispatchable_weight_attr_is_found_for_complex_weight_blocks() {
         impl<T: Config> Pallet<T> {
             #[pallet::call_index(0)]
             #[pallet::weight({
-                let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+                let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
                 let dispatch_weight = dispatch_weight
                     .saturating_add(T::WeightInfo::batch(calls.len() as u32));
                 (dispatch_weight, DispatchClass::Normal, pays)

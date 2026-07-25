@@ -27,7 +27,7 @@ fn test_swap_owner() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
         Owner::<Test>::insert(old_hotkey, coldkey);
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -53,7 +53,7 @@ fn test_swap_owned_hotkeys() {
 
         OwnedHotkeys::<Test>::insert(coldkey, vec![old_hotkey]);
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -80,7 +80,7 @@ fn test_swap_delegates() {
 
         Delegates::<Test>::insert(old_hotkey, PerU16::from_parts(100));
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -112,7 +112,7 @@ fn test_do_swap_hotkey_err_not_owner() {
 
         // Attempt the swap with a non-owner coldkey
         assert_err!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(not_owner_coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -140,7 +140,7 @@ fn test_swap_owner_old_hotkey_not_exist() {
 
         // Perform the swap
         assert_err!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -175,7 +175,7 @@ fn test_swap_owner_new_hotkey_owned_by_another_coldkey() {
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_err!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -211,7 +211,7 @@ fn test_swap_owner_new_hotkey_already_exists() {
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_err!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -244,7 +244,7 @@ fn test_swap_hotkey_is_sn_owner_hotkey() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,

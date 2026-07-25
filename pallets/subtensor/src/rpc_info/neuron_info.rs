@@ -74,7 +74,7 @@ pub struct NeuronInfoLite<AccountId: TypeInfo + Encode + Decode> {
 impl<T: Config> Pallet<T> {
     /// All neurons on `netuid`, or empty if the subnet does not exist.
     pub fn get_neurons(netuid: NetUid) -> Vec<NeuronInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return Vec::new();
         }
 
@@ -169,7 +169,7 @@ impl<T: Config> Pallet<T> {
 
     /// One full neuron, or `None` if the subnet or uid is missing.
     pub fn get_neuron(netuid: NetUid, uid: u16) -> Option<NeuronInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -232,7 +232,7 @@ impl<T: Config> Pallet<T> {
 
     /// Lite neurons for every uid on `netuid`, or empty if the subnet does not exist.
     pub fn get_neurons_lite(netuid: NetUid) -> Vec<NeuronInfoLite<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return Vec::new();
         }
 
@@ -251,7 +251,7 @@ impl<T: Config> Pallet<T> {
 
     /// One lite neuron, or `None` if the subnet or uid is missing.
     pub fn get_neuron_lite(netuid: NetUid, uid: u16) -> Option<NeuronInfoLite<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 

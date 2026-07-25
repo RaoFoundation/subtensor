@@ -1,6 +1,6 @@
 //! Subnet emission eligibility and TAO share allocation across emit-eligible subnets.
 //!
-//! [`Pallet::get_subnets_to_emit_to`] filters candidates; [`Pallet::get_shares`] (price EMA,
+//! [`Pallet::get_subnets_to_emit_to`] filters candidates; [`Pallet::subnet_emission_shares`] (price EMA,
 //! miner-burn weighted) feeds [`Pallet::get_subnet_block_emissions`]. Flow-based shares
 //! ([`Pallet::emission_shares_from_tao_flow`]) remain available but unused while net-flow
 //! emission is off the hot path.
@@ -47,7 +47,7 @@ impl<T: Config> Pallet<T> {
     ) -> BTreeMap<NetUid, U96F32> {
         // Disabled subnets get zero TAO-side emission, redistributed to enabled subnets.
         // They stay in the map so the normal alpha_out path still runs.
-        let shares = Self::get_shares(subnets_to_emit_to);
+        let shares = Self::subnet_emission_shares(subnets_to_emit_to);
         log::debug!("Subnet emission shares = {shares:?}");
 
         let zero = U64F64::saturating_from_num(0.0);
@@ -270,7 +270,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Emission shares from user/protocol TAO-flow EMAs (net-flow mode). Currently unused
-    /// on the hot path while price-EMA shares are selected in [`Pallet::get_shares`].
+    /// on the hot path while price-EMA shares are selected in [`Pallet::subnet_emission_shares`].
     #[allow(dead_code)]
     fn emission_shares_from_tao_flow(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
         let net_flow_enabled = NetTaoFlowEnabled::<T>::get();
@@ -368,7 +368,7 @@ impl<T: Config> Pallet<T> {
     /// Price-EMA emission shares, reweighted by `(1 - MinerBurned)` and renormalized.
     ///
     /// Emit-disabled subnets are zeroed later in [`Pallet::get_subnet_block_emissions`].
-    pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
+    pub(crate) fn subnet_emission_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
         let price_shares = Self::emission_shares_from_price_ema(subnets_to_emit_to);
 
         // Weight each subnet's price share by (1 - miner_burned), then

@@ -14,7 +14,7 @@ impl<T: Config> Pallet<T> {
     /// Spend minted TAO credit into each subnet account: swap `excess_tao` for protocol
     /// alpha, then materialize `tao_in`/`alpha_in` into price-active pool reserves via the
     /// swap pallet's balancer reservoir.
-    pub fn inject_and_maybe_swap(
+    pub fn inject_pool_liquidity_and_swap_excess(
         subnets_to_emit_to: &[NetUid],
         tao_in: &BTreeMap<NetUid, U96F32>,
         alpha_in: &BTreeMap<NetUid, U96F32>,
@@ -155,7 +155,7 @@ impl<T: Config> Pallet<T> {
 
     /// Split each subnet's TAO emission into `(tao_in, alpha_in, alpha_out, excess_tao)`
     /// using spot price and the root-proportion injection cap (dTAO whitepaper).
-    pub fn get_subnet_terms(
+    pub fn compute_subnet_emission_terms(
         subnet_emissions: &BTreeMap<NetUid, U96F32>,
     ) -> (
         BTreeMap<NetUid, U96F32>,
@@ -221,7 +221,7 @@ impl<T: Config> Pallet<T> {
     ) {
         // --- 1. Get subnet terms (tao_in, alpha_in, and alpha_out)
         // and excess_tao amounts.
-        let (tao_in, alpha_in, alpha_out, excess_amount) = Self::get_subnet_terms(subnet_emissions);
+        let (tao_in, alpha_in, alpha_out, excess_amount) = Self::compute_subnet_emission_terms(subnet_emissions);
 
         log::debug!("tao_in: {tao_in:?}");
         log::debug!("alpha_in: {alpha_in:?}");
@@ -229,7 +229,7 @@ impl<T: Config> Pallet<T> {
         log::debug!("excess_amount: {excess_amount:?}");
 
         // --- 2. Inject TAO and ALPHA to pool and swap with excess TAO.
-        Self::inject_and_maybe_swap(
+        Self::inject_pool_liquidity_and_swap_excess(
             subnets_to_emit_to,
             &tao_in,
             &alpha_in,

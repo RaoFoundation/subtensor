@@ -1140,7 +1140,7 @@ fn test_update_registration_prices_for_networks_many_half_lives_over_thousands_o
 
         // Root subnet: only root gets RegistrationsThisInterval reset here.
         let root = NetUid::from(0);
-        if !SubtensorModule::if_subnet_exist(root) {
+        if !SubtensorModule::subnet_exists(root) {
             SubtensorModule::init_new_network(root, 2);
         }
 

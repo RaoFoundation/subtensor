@@ -2994,7 +2994,7 @@ pub mod pallet {
             if netuid.is_root() {
                 return false;
             }
-            if !Self::if_subnet_exist(netuid) {
+            if !Self::subnet_exists(netuid) {
                 return false;
             }
             if !Self::get_network_registration_allowed(netuid) {
@@ -3078,7 +3078,7 @@ impl<T: Config + pallet_balances::Config<Balance = TaoBalance>>
 {
     #![deny(clippy::expect_used)]
     fn exists(netuid: NetUid) -> bool {
-        Self::if_subnet_exist(netuid)
+        Self::subnet_exists(netuid)
     }
 
     fn mechanism(netuid: NetUid) -> u16 {

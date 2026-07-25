@@ -26,7 +26,7 @@ fn test_hotkey_swap_records_lineage_on_subnet_only() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -56,7 +56,7 @@ fn test_hotkey_swap_lineage_chain_and_tip() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -66,7 +66,7 @@ fn test_hotkey_swap_lineage_chain_and_tip() {
 
         // Cooldown is strict `<`: need interval + 1 after the recorded swap block.
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h1,
             &h2,
@@ -94,7 +94,7 @@ fn test_hotkey_swap_all_subnets_records_lineage_on_each() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -143,7 +143,7 @@ fn test_all_subnets_swap_records_lineage_for_residual_collateral() {
         ));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -200,7 +200,7 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_noop!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &h0,
                 &h1,
@@ -210,7 +210,7 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
             Error::<Test>::KeepStakeBlockedByCollateral
         );
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -229,7 +229,7 @@ fn test_bonded_hotkey_swap_migrates_collateral_keep_stake_blocked() {
         SubtensorModule::set_validator_permit_for_uid(netuid, uid, true);
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
         assert_noop!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &h1,
                 &h2,
@@ -293,7 +293,7 @@ fn test_bonded_hotkey_swap_renames_index_at_cap() {
         );
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -356,7 +356,7 @@ fn test_unindexed_collateral_at_full_cap_rolls_back_hotkey_swap() {
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_noop!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &h0,
                 &h1,
@@ -388,7 +388,7 @@ fn test_hotkey_lineage_reverse_swap_does_not_cycle() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -398,7 +398,7 @@ fn test_hotkey_lineage_reverse_swap_does_not_cycle() {
         assert_eq!(HotkeySuccessor::<Test>::get(netuid, h0), Some(h1));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h1,
             &h0,
@@ -427,7 +427,7 @@ fn test_reregister_clears_stale_successor_for_tip() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,
@@ -444,7 +444,7 @@ fn test_reregister_clears_stale_successor_for_tip() {
         assert!(SubtensorModule::same_hotkey_lineage(netuid, &h0, &h1));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h2,
@@ -468,7 +468,7 @@ fn test_dissolve_clears_hotkey_lineage_maps() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &h0,
             &h1,

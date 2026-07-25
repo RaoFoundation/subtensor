@@ -32,7 +32,7 @@ fn test_coinbase_inject_and_maybe_swap_does_not_skew_reserves() {
 
         // Run the inject and maybe swap
         let credit = SubtensorModule::mint_tao((123 + 789100).into());
-        SubtensorModule::inject_and_maybe_swap(&[netuid0], &tao_in, &alpha_in, &excess_tao, credit);
+        SubtensorModule::inject_pool_liquidity_and_swap_excess(&[netuid0], &tao_in, &alpha_in, &excess_tao, credit);
 
         let tao_in_after = SubnetTAO::<Test>::get(netuid0);
         let alpha_in_after = SubnetAlphaIn::<Test>::get(netuid0);
@@ -70,7 +70,7 @@ fn test_coinbase_failed_tao_materialization_does_not_activate_current_tao() {
         let excess_tao = BTreeMap::new();
         let credit = SubtensorModule::mint_tao(TaoBalance::ZERO);
 
-        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+        SubtensorModule::inject_pool_liquidity_and_swap_excess(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
 
         assert_eq!(
             SubnetTAO::<Test>::get(netuid),
@@ -156,7 +156,7 @@ fn test_coinbase_inject_and_maybe_swap_reverts_excess_tao_deposit_on_swap_failur
         let excess_tao = BTreeMap::from([(netuid, U96F32::saturating_from_num(tao_to_swap))]);
         let credit = SubtensorModule::mint_tao(tao_to_swap);
 
-        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+        SubtensorModule::inject_pool_liquidity_and_swap_excess(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
 
         assert_eq!(Balances::free_balance(subnet_account), chain_before);
         assert_eq!(SubnetTAO::<Test>::get(netuid), subnet_tao_before);

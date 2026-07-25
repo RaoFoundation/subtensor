@@ -36,7 +36,7 @@ fn test_swap_hotkey_swap_rate_limits() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -68,7 +68,7 @@ fn test_swap_owner_failed_interval_not_passed() {
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
         Owner::<Test>::insert(old_hotkey, coldkey);
         assert_err!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -92,7 +92,7 @@ fn test_swap_owner_check_swap_block_set() {
         Owner::<Test>::insert(old_hotkey, coldkey);
         let new_block_number = System::block_number() + HotkeySwapOnSubnetInterval::get();
         System::set_block_number(new_block_number);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -118,7 +118,7 @@ fn test_swap_owner_check_swap_record_clean_up() {
         Owner::<Test>::insert(old_hotkey, coldkey);
         let new_block_number = System::block_number() + HotkeySwapOnSubnetInterval::get();
         System::set_block_number(new_block_number);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,

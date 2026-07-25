@@ -13,7 +13,7 @@
 //! | [`coldkey_lineage`] | Global [`ColdkeyRoot`] / [`ColdkeySuccessor`] continuity maps |
 //! | [`hotkey_lineage`] | Per-netuid [`HotkeyRoot`] / [`HotkeySuccessor`] + swap cooldown stamp |
 //!
-//! Extrinsics call [`Pallet::do_swap_coldkey`] / [`Pallet::do_swap_hotkey`]; lineage
+//! Extrinsics call [`Pallet::perform_coldkey_swap`] / [`Pallet::perform_hotkey_swap`]; lineage
 //! helpers are the O(1) identity surface for bans/indexers after a successful swap.
 
 use super::*;

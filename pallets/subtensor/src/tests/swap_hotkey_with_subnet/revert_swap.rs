@@ -58,7 +58,7 @@ fn test_revert_hotkey_swap_stake_is_not_lost() {
 
         step_block(20);
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &hk1,
             &hk2,
@@ -83,7 +83,7 @@ fn test_revert_hotkey_swap_stake_is_not_lost() {
         assert_eq!(hk1_stake_before_revert, stake2.into());
 
         // Revert: hk2 -> hk1
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &hk2,
             &hk1,
@@ -132,7 +132,7 @@ fn test_revert_hotkey_swap() {
         step_block(20);
 
         // Perform the first swap (only on netuid)
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -146,7 +146,7 @@ fn test_revert_hotkey_swap() {
 
         step_block(20);
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &new_hotkey,
             &old_hotkey,
@@ -184,7 +184,7 @@ fn test_revert_hotkey_swap_parent_hotkey_childkey_maps() {
         assert_eq!(existing_pending_child_keys.0, vec![(u64::MAX, child_other)]);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk1,
             &hk2,
@@ -206,7 +206,7 @@ fn test_revert_hotkey_swap_parent_hotkey_childkey_maps() {
 
         // Revert: hk2 -> hk1
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk2,
             &hk1,
@@ -259,7 +259,7 @@ fn test_revert_hotkey_swap_uids_and_keys() {
         Keys::<Test>::insert(netuid, uid, hk1);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk1,
             &hk2,
@@ -273,7 +273,7 @@ fn test_revert_hotkey_swap_uids_and_keys() {
 
         // Revert: hk2 -> hk1
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk2,
             &hk1,
@@ -324,7 +324,7 @@ fn test_revert_hotkey_swap_auto_stake_destination() {
         AutoStakeDestination::<Test>::insert(staker2, netuid, hk1);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk1,
             &hk2,
@@ -352,7 +352,7 @@ fn test_revert_hotkey_swap_auto_stake_destination() {
 
         // Revert: hk2 -> hk1
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk2,
             &hk1,
@@ -402,7 +402,7 @@ fn test_revert_hotkey_swap_subnet_owner() {
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), hk1);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk1,
             &hk2,
@@ -418,7 +418,7 @@ fn test_revert_hotkey_swap_subnet_owner() {
 
         // Revert: hk2 -> hk1
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk2,
             &hk1,
@@ -458,7 +458,7 @@ fn test_revert_hotkey_swap_dividends() {
         AlphaDividendsPerSubnet::<Test>::insert(netuid, hk1, AlphaBalance::from(amount));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk1,
             &hk2,
@@ -511,7 +511,7 @@ fn test_revert_hotkey_swap_dividends() {
 
         // Revert: hk2 -> hk1
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &hk2,
             &hk1,
@@ -683,7 +683,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
         assert!(!RootClaimable::<Test>::get(hk2).contains_key(&netuid));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &hk1,
             &hk2,
@@ -706,7 +706,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
 
         // Revert: hk2 -> hk1
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &hk2,
             &hk1,
@@ -853,7 +853,7 @@ fn test_revert_hotkey_swap_with_revert_stake_the_same() {
             "hk1 should have stake before swap on sn_2"
         );
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &hk1,
             &new_hotkey,
@@ -926,7 +926,7 @@ fn test_revert_hotkey_swap_with_revert_stake_the_same() {
         assert!(new_hotkey_stake_before_revert_ck_3 > stake_ck3.into());
 
         // Reverting back: hk2 -> hk1
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &new_hotkey,
             &hk1,

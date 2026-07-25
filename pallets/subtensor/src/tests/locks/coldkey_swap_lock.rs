@@ -33,7 +33,7 @@ fn test_coldkey_swap_swaps_lock() {
         ));
 
         // Perform coldkey swap
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey));
 
         // Lock removed on old coldkey
         assert!(
@@ -71,7 +71,7 @@ fn test_coldkey_swap_lock_blocks_unstake() {
         ));
 
         // Swap coldkey
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey));
 
         step_block(1);
 

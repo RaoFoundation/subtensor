@@ -328,17 +328,17 @@ fn test_math_vecdiv() {
     let x: Vec<I32F32> = vec_to_fixed(&[]);
     let y: Vec<I32F32> = vec_to_fixed(&[]);
     let result: Vec<I32F32> = vec_to_fixed(&[]);
-    assert_eq!(result, vecdiv(&x, &y));
+    assert_eq!(result, elementwise_safe_div(&x, &y));
 
     let x: Vec<I32F32> = vec_to_fixed(&[0., 1., 0., 1.]);
     let y: Vec<I32F32> = vec_to_fixed(&[0., 1., 1., 0.]);
     let result: Vec<I32F32> = vec_to_fixed(&[0., 1., 0., 0.]);
-    assert_eq!(result, vecdiv(&x, &y));
+    assert_eq!(result, elementwise_safe_div(&x, &y));
 
     let x: Vec<I32F32> = vec_to_fixed(&[1., 1., 10.]);
     let y: Vec<I32F32> = vec_to_fixed(&[2., 3., 2.]);
     let result: Vec<I32F32> = vec![fixed(1.) / fixed(2.), fixed(1.) / fixed(3.), fixed(5.)];
-    assert_eq!(result, vecdiv(&x, &y));
+    assert_eq!(result, elementwise_safe_div(&x, &y));
 }
 
 #[test]

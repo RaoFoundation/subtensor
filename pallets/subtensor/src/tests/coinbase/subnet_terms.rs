@@ -103,7 +103,7 @@ fn test_coinbase_subnet_terms_with_alpha_in_gt_alpha_emission() {
         let injection_cap: U96F32 = root_prop.saturating_mul(alpha_emission);
 
         let (tao_in, alpha_in, alpha_out, excess_tao) =
-            SubtensorModule::get_subnet_terms(&subnet_emissions);
+            SubtensorModule::compute_subnet_emission_terms(&subnet_emissions);
 
         // Check our condition is met: the raw alpha_in exceeds the cap, so it binds.
         assert!(tao_emission / price_to_set_fixed > injection_cap);
@@ -171,7 +171,7 @@ fn test_coinbase_subnet_terms_with_alpha_in_lte_alpha_emission() {
         let injection_cap: U96F32 = root_prop.saturating_mul(alpha_emission);
 
         let (tao_in, alpha_in, alpha_out, excess_tao) =
-            SubtensorModule::get_subnet_terms(&subnet_emissions);
+            SubtensorModule::compute_subnet_emission_terms(&subnet_emissions);
 
         // Check our condition is met: raw alpha_in stays under the cap.
         assert!(tao_emission / price <= injection_cap);
@@ -231,7 +231,7 @@ fn test_get_subnet_terms_alpha_emissions_cap() {
         assert!(emissions1 < injection_cap);
 
         let subnet_emissions1 = BTreeMap::from([(netuid, emissions1)]);
-        let (_, alpha_in, _, _) = SubtensorModule::get_subnet_terms(&subnet_emissions1);
+        let (_, alpha_in, _, _) = SubtensorModule::compute_subnet_emission_terms(&subnet_emissions1);
 
         assert_eq!(alpha_in.get(&netuid).copied().unwrap(), emissions1);
 
@@ -240,7 +240,7 @@ fn test_get_subnet_terms_alpha_emissions_cap() {
         assert!(emissions2 > injection_cap);
 
         let subnet_emissions2 = BTreeMap::from([(netuid, emissions2)]);
-        let (_, alpha_in, _, _) = SubtensorModule::get_subnet_terms(&subnet_emissions2);
+        let (_, alpha_in, _, _) = SubtensorModule::compute_subnet_emission_terms(&subnet_emissions2);
 
         assert_eq!(alpha_in.get(&netuid).copied().unwrap(), injection_cap);
     });

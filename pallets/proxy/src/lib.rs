@@ -254,7 +254,7 @@ pub mod pallet {
             let def = Self::find_proxy(&real, &who, force_proxy_type)?;
             ensure!(def.delay.is_zero(), Error::<T>::Unannounced);
 
-            Self::do_proxy(def, real, *call);
+            Self::dispatch_filtered_proxy_call(def, real, *call);
 
             Ok(())
         }
@@ -575,7 +575,7 @@ pub mod pallet {
             })
             .map_err(|_| Error::<T>::Unannounced)?;
 
-            Self::do_proxy(def, real, *call);
+            Self::dispatch_filtered_proxy_call(def, real, *call);
 
             Ok(())
         }

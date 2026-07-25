@@ -1,7 +1,7 @@
 //! Hotkey identity swap: rename a hotkey SS58 on one subnet or across all subnets.
 //!
 //! Entry points:
-//! - [`Pallet::do_swap_hotkey`] — signed path (fee, cooldown, ownership checks)
+//! - [`Pallet::perform_hotkey_swap`] — signed path (fee, cooldown, ownership checks)
 //! - [`Pallet::perform_hotkey_swap_on_all_subnets`] / [`Pallet::perform_hotkey_swap_on_one_subnet`]
 //!   — mutation cores used by the signed path and by tests/migrations
 //!
@@ -35,7 +35,7 @@ impl<T: Config> Pallet<T> {
     /// Stake-moving and all-subnet paths use the generated `swap_hotkey` benchmark.
     /// The single-subnet `keep_stake` path keeps a lighter fixed weight (no stake
     /// prefix scan) with lineage DB ops accounted in.
-    pub fn swap_hotkey_v2_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
+    pub fn hotkey_swap_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
         if netuid.is_none() || !keep_stake {
             <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
         } else {
@@ -81,7 +81,7 @@ impl<T: Config> Pallet<T> {
     /// [`Error::HotKeyAlreadyRegisteredInSubNet`], [`Error::NewHotKeyNotCleanForRootSwap`],
     /// [`Error::KeepStakeBlockedByCollateral`], [`Error::NotEnoughBalanceToPaySwapHotKey`],
     /// and [`Error::HotKeySwapOnSubnetIntervalNotPassed`].
-    pub fn do_swap_hotkey(
+    pub fn perform_hotkey_swap(
         origin: OriginFor<T>,
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -92,7 +92,7 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
 
         if let Some(netuid) = netuid {
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         }
 
         // 2. Ensure the coldkey owns the old hotkey
@@ -337,7 +337,7 @@ impl<T: Config> Pallet<T> {
     /// Builds a stake snapshot when `keep_stake` is false, then delegates to
     /// [`Self::perform_prepared_hotkey_swap_on_all_subnets`]. Accrues DB weight into
     /// `weight`. Does not charge the swap fee or enforce per-subnet cooldown — callers
-    /// ([`Self::do_swap_hotkey`]) handle those.
+    /// ([`Self::perform_hotkey_swap`]) handle those.
     pub fn perform_hotkey_swap_on_all_subnets(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -491,7 +491,7 @@ impl<T: Config> Pallet<T> {
 
         // Check that new hotkey is a non-system hotkey
         ensure!(
-            Self::is_subnet_account_id(new_hotkey).is_none(),
+            Self::netuid_for_subnet_account(new_hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
 

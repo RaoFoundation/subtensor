@@ -837,7 +837,7 @@ mod dispatches {
             new_hotkey: T::AccountId,
             netuid: Option<NetUid>,
         ) -> DispatchResultWithPostInfo {
-            Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, false)
+            Self::perform_hotkey_swap(origin, &hotkey, &new_hotkey, netuid, false)
         }
 
         /// Swaps `hotkey` → `new_hotkey` on one subnet or all; coldkey origin.
@@ -854,7 +854,7 @@ mod dispatches {
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
-            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
+            crate::Pallet::<T>::hotkey_swap_dispatch_weight(netuid, *keep_stake),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -865,7 +865,7 @@ mod dispatches {
             netuid: Option<NetUid>,
             keep_stake: bool,
         ) -> DispatchResultWithPostInfo {
-            Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, keep_stake)
+            Self::perform_hotkey_swap(origin, &hotkey, &new_hotkey, netuid, keep_stake)
         }
 
         /// Root-only immediate coldkey swap (`old_coldkey` → `new_coldkey`) without announcement; optionally charges `swap_cost` TAO.
@@ -882,9 +882,9 @@ mod dispatches {
             ensure_root(origin)?;
 
             if !swap_cost.is_zero() {
-                Self::charge_swap_cost(&old_coldkey, swap_cost)?;
+                Self::charge_coldkey_swap_cost(&old_coldkey, swap_cost)?;
             }
-            Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
+            Self::perform_coldkey_swap(&old_coldkey, &new_coldkey)?;
 
             // We also clear any announcement or dispute for security reasons
             ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
@@ -1665,7 +1665,7 @@ mod dispatches {
             symbol: Vec<u8>,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
             Self::ensure_symbol_exists(&symbol)?;
             Self::ensure_symbol_available(&symbol)?;
@@ -1730,7 +1730,7 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
             ensure!(
                 Uids::<T>::contains_key(netuid, &hotkey),
                 Error::<T>::HotKeyNotRegisteredInSubNet
@@ -1895,7 +1895,7 @@ mod dispatches {
             new_value: u64,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
             ensure!(
                 new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),
@@ -1937,7 +1937,7 @@ mod dispatches {
             } else {
                 // Only charge the swap cost on the first announcement
                 let swap_cost = Self::get_key_swap_cost();
-                Self::charge_swap_cost(&who, swap_cost)?;
+                Self::charge_coldkey_swap_cost(&who, swap_cost)?;
             }
 
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
@@ -1978,7 +1978,7 @@ mod dispatches {
             let now = <frame_system::Pallet<T>>::block_number();
             ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
 
-            Self::do_swap_coldkey(&who, &new_coldkey)?;
+            Self::perform_coldkey_swap(&who, &new_coldkey)?;
 
             Ok(())
         }

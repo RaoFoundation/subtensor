@@ -70,7 +70,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
     /// Root's share of a subnet's stake-weighted mass:
     /// `tao_weight / (tao_weight + alpha_issuance)` where `tao_weight = root_tao * TAO_WEIGHT`.
     ///
-    /// Caps alpha injection into older pools (see [`Pallet::get_subnet_terms`]).
+    /// Caps alpha injection into older pools (see [`Pallet::compute_subnet_emission_terms`]).
     pub fn root_proportion(netuid: NetUid) -> U96F32 {
         let alpha_issuance = U96F32::from_num(Self::get_alpha_issuance(netuid));
         let root_tao: U96F32 = U96F32::from_num(Self::get_subnet_tao(NetUid::ROOT));

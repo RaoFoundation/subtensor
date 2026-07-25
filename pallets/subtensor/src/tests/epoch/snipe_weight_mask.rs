@@ -149,7 +149,7 @@ fn test_epoch_no_mask_when_commit_reveal_disabled() {
         for _ in 0..3 {
             SubtensorModule::epoch(netuid, 1.into());
             assert!(
-                !SubtensorModule::get_weights_sparse(netuid.into())[0].is_empty(),
+                !SubtensorModule::unnormalized_weights_sparse(netuid.into())[0].is_empty(),
                 "row visible when CR disabled"
             );
             run_to_block(System::block_number() + tempo as u64 + 1);

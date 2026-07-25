@@ -20,7 +20,7 @@ fn dissolve_no_stakers_no_alpha_no_emission() {
 
         // Balance should be unchanged (whatever the network-lock bookkeeping left there)
         assert_eq!(after, before);
-        assert!(!SubtensorModule::if_subnet_exist(net));
+        assert!(!SubtensorModule::subnet_exists(net));
     });
 }
 

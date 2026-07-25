@@ -121,7 +121,7 @@ impl pallet_commitments::Config for Test {
     type CanCommit = TestCanCommit;
     type FieldDeposit = ConstTao<0>;
     type InitialDeposit = ConstTao<0>;
-    type TempoInterface = MockTempoInterface;
+    type SubtensorTempoBridge = MockTempoInterface;
     type OnMetadataCommitment = ();
 }
 

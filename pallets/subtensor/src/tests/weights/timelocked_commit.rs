@@ -183,7 +183,7 @@ fn test_reveal_crv3_commits_success() {
         // Step epochs to run the epoch via the blockstep
         step_epochs(3, netuid);
 
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid1 as usize).cloned().unwrap_or_default();
 
         assert!(
@@ -305,7 +305,7 @@ fn test_reveal_crv3_commits_cannot_reveal_after_reveal_epoch() {
         step_epochs(3, netuid);
 
         // Verify that weights are not set
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse
             .get(neuron_uid1 as usize)
             .cloned()
@@ -340,7 +340,7 @@ fn test_reveal_crv3_commits_cannot_reveal_after_reveal_epoch() {
         assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
 
         // Verify that the weights for the neuron have not been set
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse
             .get(neuron_uid1 as usize)
             .cloned()

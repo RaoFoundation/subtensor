@@ -36,7 +36,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Extract parent `netuid` from a mechanism storage index (`index % GLOBAL_MAX_SUBNET_COUNT`).
-    pub fn get_netuid(netuid_index: NetUidStorageIndex) -> NetUid {
+    pub fn netuid_from_mechanism_storage_index(netuid_index: NetUidStorageIndex) -> NetUid {
         if let Some(netuid) = u16::from(netuid_index).checked_rem(GLOBAL_MAX_SUBNET_COUNT) {
             NetUid::from(netuid)
         } else {
@@ -55,7 +55,7 @@ impl<T: Config> Pallet<T> {
 
             // Make sure the base subnet exists
             ensure!(
-                Self::if_subnet_exist(netuid),
+                Self::subnet_exists(netuid),
                 Error::<T>::MechanismDoesNotExist
             );
 
@@ -83,7 +83,7 @@ impl<T: Config> Pallet<T> {
     pub fn ensure_mechanism_exists(netuid: NetUid, sub_id: MechId) -> DispatchResult {
         // Make sure the base subnet exists
         ensure!(
-            Self::if_subnet_exist(netuid),
+            Self::subnet_exists(netuid),
             Error::<T>::MechanismDoesNotExist
         );
 
@@ -114,7 +114,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_mechanism_count(netuid: NetUid, mechanism_count: MechId) -> DispatchResult {
         // Make sure the subnet exists
         ensure!(
-            Self::if_subnet_exist(netuid),
+            Self::subnet_exists(netuid),
             Error::<T>::MechanismDoesNotExist
         );
 
@@ -202,7 +202,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_emission_split(netuid: NetUid, maybe_split: Option<Vec<u16>>) -> DispatchResult {
         // Make sure the subnet exists
         ensure!(
-            Self::if_subnet_exist(netuid),
+            Self::subnet_exists(netuid),
             Error::<T>::MechanismDoesNotExist
         );
 

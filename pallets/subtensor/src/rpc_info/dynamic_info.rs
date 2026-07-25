@@ -43,7 +43,7 @@ pub struct DynamicInfo<AccountId: TypeInfo + Encode + Decode> {
 impl<T: Config> Pallet<T> {
     /// [`DynamicInfo`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_dynamic_info(netuid: NetUid) -> Option<DynamicInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
         let last_step: u64 = LastMechansimStepBlock::<T>::get(netuid);

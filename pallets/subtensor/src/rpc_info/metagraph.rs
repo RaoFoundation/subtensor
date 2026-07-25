@@ -670,7 +670,7 @@ impl SelectiveMetagraphIndex {
 impl<T: Config> Pallet<T> {
     /// Full [`Metagraph`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_metagraph(netuid: NetUid) -> Option<Metagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -903,7 +903,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();
@@ -921,7 +921,7 @@ impl<T: Config> Pallet<T> {
         mecid: MechId,
         metagraph_indexes: Vec<u16>,
     ) -> Option<SelectiveMetagraph<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             None
         } else {
             let mut result = SelectiveMetagraph::default();

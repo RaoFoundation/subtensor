@@ -298,7 +298,7 @@ fn test_hotkey_swap_moves_lock_and_conviction_to_new_hotkey() {
             &coldkey,
             (SubtensorModule::get_key_swap_cost() + 1000.into()).into(),
         );
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,

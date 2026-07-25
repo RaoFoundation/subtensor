@@ -853,7 +853,7 @@ fn test_yuma_3_bonds_reset() {
                     if epoch == 20 {
                         let hotkey = SubtensorModule::get_hotkey_for_net_and_uid(netuid, 3)
                             .expect("Hotkey not found");
-                        let _ = SubtensorModule::do_reset_bonds(netuid.into(), &hotkey);
+                        let _ = SubtensorModule::reset_bonds_column_for_hotkey(netuid.into(), &hotkey);
                     }
                 }
                 21 => {

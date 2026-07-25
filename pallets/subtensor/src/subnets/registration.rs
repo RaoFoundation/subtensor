@@ -57,7 +57,7 @@ impl<T: Config> Pallet<T> {
             !netuid.is_root(),
             Error::<T>::RegistrationNotPermittedOnRootSubnet
         );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // 3) registrations allowed
         ensure!(
@@ -167,7 +167,7 @@ impl<T: Config> Pallet<T> {
             !netuid.is_root(),
             Error::<T>::RegistrationNotPermittedOnRootSubnet
         );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Enforce caller limit before entering the shared registration path.
         let registration_cost: TaoBalance = Self::get_burn(netuid);

@@ -199,7 +199,7 @@ fn test_coinbase_disabled_subnet_emission_redistributes_tao_to_enabled_subnets()
         );
 
         let (_tao_in, alpha_in, alpha_out, excess_tao) =
-            SubtensorModule::get_subnet_terms(&subnet_emissions);
+            SubtensorModule::compute_subnet_emission_terms(&subnet_emissions);
         assert_eq!(alpha_in[&netuid2], U96F32::from_num(0.0));
         assert_eq!(excess_tao[&netuid2], U96F32::from_num(0.0));
         assert!(alpha_out[&netuid2] > U96F32::from_num(0.0));

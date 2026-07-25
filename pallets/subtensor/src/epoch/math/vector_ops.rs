@@ -171,10 +171,10 @@ pub fn inplace_row_normalize_64(x: &mut [Vec<I64F64>]) {
 }
 
 /// Returns x / y for input vectors x and y, if y == 0 return 0.
-pub fn vecdiv(x: &[I32F32], y: &[I32F32]) -> Vec<I32F32> {
+pub fn elementwise_safe_div(x: &[I32F32], y: &[I32F32]) -> Vec<I32F32> {
     if x.len() != y.len() {
         log::error!(
-            "math error: vecdiv input lengths are not equal: {:?} != {:?}",
+            "math error: elementwise_safe_div input lengths are not equal: {:?} != {:?}",
             x.len(),
             y.len()
         );

@@ -28,7 +28,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_dissolve_network(netuid: NetUid) -> dispatch::DispatchResult {
         // --- The network exists?
         ensure!(
-            Self::if_subnet_exist(netuid) && netuid != NetUid::ROOT,
+            Self::subnet_exists(netuid) && netuid != NetUid::ROOT,
             Error::<T>::SubnetNotExists
         );
 

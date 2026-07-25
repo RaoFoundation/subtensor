@@ -395,7 +395,7 @@ impl crate::Config for Test {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
@@ -436,7 +436,7 @@ impl pallet_commitments::Config for Test {
     type MaxFields = TestMaxFields;
     type InitialDeposit = ConstTao<0>;
     type FieldDeposit = ConstTao<0>;
-    type TempoInterface = MockTempoInterface;
+    type SubtensorTempoBridge = MockTempoInterface;
 }
 
 pub struct OriginPrivilegeCmp;
@@ -447,8 +447,8 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
-pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,

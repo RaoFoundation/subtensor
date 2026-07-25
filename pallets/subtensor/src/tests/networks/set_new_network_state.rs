@@ -25,7 +25,7 @@ fn set_new_network_state_registers_subnet_with_expected_state() {
             None,
         ));
 
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
         assert_eq!(SubnetOwner::<Test>::get(netuid), cold);
         assert_eq!(SubnetMechanism::<Test>::get(netuid), 1);
         assert_eq!(SubnetLocked::<Test>::get(netuid), lock_amount);
@@ -218,7 +218,7 @@ fn set_new_network_state_fund_locked_releases_balance_lock() {
                 .all(|l| l.id != identifier),
             "registration lock must be released after processing"
         );
-        assert!(SubtensorModule::if_subnet_exist(netuid));
+        assert!(SubtensorModule::subnet_exists(netuid));
         assert_eq!(SubnetLocked::<Test>::get(netuid), lock_amount);
     });
 }

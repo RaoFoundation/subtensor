@@ -10,7 +10,7 @@
 
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
-    CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
+    CheckServingEndpoints, CheckWeights, Config, Error, guards::subtensor_call_if,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
@@ -116,19 +116,19 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         CheckColdkeySwap::<T>::check(who, call)?;
 
-        if let Some(call) = applicable_call(call, CheckWeights::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckWeights::<T>::applies_to) {
             CheckWeights::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckRateLimits::<T>::applies_to) {
             CheckRateLimits::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckDelegateTake::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckDelegateTake::<T>::applies_to) {
             CheckDelegateTake::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckServingEndpoints::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckServingEndpoints::<T>::applies_to) {
             CheckServingEndpoints::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckEvmKeyAssociation::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckEvmKeyAssociation::<T>::applies_to) {
             CheckEvmKeyAssociation::<T>::check(who, call)?;
         }
 

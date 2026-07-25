@@ -159,7 +159,7 @@ impl<T: Config> Pallet<T> {
         // =============
 
         // Access network weights row unnormalized.
-        let mut weights: Vec<Vec<(u16, I32F32)>> = Self::get_weights_sparse(netuid_index);
+        let mut weights: Vec<Vec<(u16, I32F32)>> = Self::unnormalized_weights_sparse(netuid_index);
         log::trace!("Weights: {:?}", &weights);
 
         // Mask weights that are not from permitted validators.

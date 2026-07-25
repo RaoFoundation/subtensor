@@ -481,7 +481,7 @@ impl<T: Config> Pallet<T> {
             //
             // GHSA-2026-010 (a *stale residual* watermark on new_hotkey inflating this sum
             // in the hotkey-swap path) is prevented upstream by the root-swap cleanliness
-            // gate in `do_swap_hotkey`, which now also requires RootClaimed to be empty on
+            // gate in `perform_hotkey_swap`, which now also requires RootClaimed to be empty on
             // new_hotkey (see `test_do_swap_hotkey_err_new_hotkey_not_clean_for_root`). With
             // that gate the destination is always clean (new == 0) in the swap path, so the
             // sum cannot be inflated there.

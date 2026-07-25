@@ -98,7 +98,7 @@ pub fn sudo_set_subnet_emission_enabled(
     ensure_root(origin)?;
 
     ensure!(
-        pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+        pallet_subtensor::Pallet::<T>::subnet_exists(netuid),
         Error::<T>::SubnetDoesNotExist
     );
     ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);

@@ -14,7 +14,7 @@ impl<T: Config> Pallet<T> {
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
         // Ensure that the subnet exists.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Ensure that the subnet is enabled.
         Self::ensure_subtoken_enabled(netuid)?;
@@ -92,7 +92,7 @@ impl<T: Config> Pallet<T> {
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
         // Ensure that the subnet exists.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Ensure that the subnet is enabled.
         // Self::ensure_subtoken_enabled(netuid)?;
@@ -200,12 +200,12 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that both subnets exist.
         ensure!(
-            Self::if_subnet_exist(origin_netuid),
+            Self::subnet_exists(origin_netuid),
             Error::<T>::SubnetNotExists
         );
         if origin_netuid != destination_netuid {
             ensure!(
-                Self::if_subnet_exist(destination_netuid),
+                Self::subnet_exists(destination_netuid),
                 Error::<T>::SubnetNotExists
             );
         }

@@ -1,6 +1,6 @@
 //! Coldkey identity swap: migrate economic ownership from one coldkey SS58 to another.
 //!
-//! Entry point: [`Pallet::do_swap_coldkey`]. Runs inside a storage transaction so a
+//! Entry point: [`Pallet::perform_coldkey_swap`]. Runs inside a storage transaction so a
 //! late failure (e.g. collateral index) rolls back stake, ownership, locks, and
 //! identity writes together. After success, [`Pallet::record_coldkey_swap_lineage`]
 //! records global root/successor continuity.
@@ -21,7 +21,7 @@ impl<T: Config> Pallet<T> {
     /// [`Event::ColdkeySwapped`] on success.
     ///
     /// Rejects when `new_coldkey` already has staking associations or is a hotkey.
-    pub fn do_swap_coldkey(
+    pub fn perform_coldkey_swap(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
@@ -83,7 +83,7 @@ impl<T: Config> Pallet<T> {
     /// Recycle `swap_cost` TAO from `coldkey` as the coldkey-swap fee.
     ///
     /// Maps insufficient free balance to [`Error::NotEnoughBalanceToPaySwapColdKey`].
-    pub fn charge_swap_cost(coldkey: &T::AccountId, swap_cost: TaoBalance) -> DispatchResult {
+    pub fn charge_coldkey_swap_cost(coldkey: &T::AccountId, swap_cost: TaoBalance) -> DispatchResult {
         Self::recycle_tao(coldkey, swap_cost)
             .map_err(|_| Error::<T>::NotEnoughBalanceToPaySwapColdKey)?;
         Ok(())

@@ -30,7 +30,7 @@ fn test_subnet_account_id_no_panics() {
             SubtensorModule::init_new_network(netuid, 10);
 
             let account_id = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-            let roudtrip_netuid = SubtensorModule::is_subnet_account_id(&account_id);
+            let roudtrip_netuid = SubtensorModule::netuid_for_subnet_account(&account_id);
             assert_eq!(netuid, roudtrip_netuid.unwrap());
         }
     });
@@ -46,7 +46,7 @@ fn test_subnet_account_id_no_panics_quick() {
             SubtensorModule::init_new_network(netuid, 10);
 
             let account_id = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-            let roudtrip_netuid = SubtensorModule::is_subnet_account_id(&account_id);
+            let roudtrip_netuid = SubtensorModule::netuid_for_subnet_account(&account_id);
             assert_eq!(netuid, roudtrip_netuid.unwrap());
         }
     });

@@ -188,7 +188,7 @@ pub type SubnetHyperparamsV3 = Vec<HyperparamEntry>;
 impl<T: Config> Pallet<T> {
     /// Legacy [`SubnetInfo`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_info(netuid: NetUid) -> Option<SubnetInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -258,7 +258,7 @@ impl<T: Config> Pallet<T> {
 
     /// [`SubnetInfov2`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_info_v2(netuid: NetUid) -> Option<SubnetInfov2<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -331,7 +331,7 @@ impl<T: Config> Pallet<T> {
 
     /// [`SubnetHyperparams`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_hyperparams(netuid: NetUid) -> Option<SubnetHyperparams> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -395,7 +395,7 @@ impl<T: Config> Pallet<T> {
 
     /// [`SubnetHyperparamsV2`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_hyperparams_v2(netuid: NetUid) -> Option<SubnetHyperparamsV2> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -486,7 +486,7 @@ impl<T: Config> Pallet<T> {
     /// below — no struct edit and no V4 required, provided the value's type
     /// already has a [`HyperparamValue`] variant.
     pub fn get_subnet_hyperparams_v3(netuid: NetUid) -> Option<SubnetHyperparamsV3> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 

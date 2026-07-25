@@ -21,7 +21,7 @@ impl<T: Config> Pallet<T> {
                 deferred.insert(netuid);
                 continue;
             }
-            if Self::is_epoch_input_state_consistent(netuid) {
+            if Self::epoch_keys_have_unique_hotkeys(netuid) {
                 epochs_run_this_block = epochs_run_this_block.saturating_add(1);
             }
         }
@@ -33,7 +33,7 @@ impl<T: Config> Pallet<T> {
     /// schedule (`LastEpochBlock`, `SubnetEpochIndex`, clear `PendingEpochAt`).
     ///
     /// Deferred or inconsistent-input subnets keep accumulating pending emissions.
-    pub fn drain_pending(
+    pub fn drain_pending_subnet_emissions(
         subnets: &[NetUid],
         current_block: u64,
     ) -> BTreeMap<NetUid, (AlphaBalance, AlphaBalance, AlphaBalance, AlphaBalance)> {
@@ -74,7 +74,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            if Self::is_epoch_input_state_consistent(netuid) {
+            if Self::epoch_keys_have_unique_hotkeys(netuid) {
                 // Reset blocks-since counter; LastMechansimStepBlock is written
                 // post-distribute (see the caller), so bonds masking can read the
                 // previous successful run.

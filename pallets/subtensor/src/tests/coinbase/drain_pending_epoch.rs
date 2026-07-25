@@ -20,7 +20,7 @@ fn test_coinbase_drain_pending_increments_blockssincelaststep() {
         let blocks_since_last_step_before = BlocksSinceLastStep::<Test>::get(netuid0);
 
         // Check that blockssincelaststep is incremented
-        SubtensorModule::drain_pending(&[netuid0], 1);
+        SubtensorModule::drain_pending_subnet_emissions(&[netuid0], 1);
 
         let blocks_since_last_step_after = BlocksSinceLastStep::<Test>::get(netuid0);
         assert!(blocks_since_last_step_after > blocks_since_last_step_before);
@@ -41,7 +41,7 @@ fn test_coinbase_drain_pending_caps_blockssincelaststep_when_epoch_is_deferred()
         SubtensorModule::set_max_epochs_per_block(0);
 
         for block in 1..=10 {
-            SubtensorModule::drain_pending(&[netuid], block);
+            SubtensorModule::drain_pending_subnet_emissions(&[netuid], block);
         }
 
         assert_eq!(
@@ -63,10 +63,10 @@ fn test_coinbase_drain_pending_caps_blockssincelaststep_for_inconsistent_epoch()
         let duplicate_hotkey = U256::from(99);
         Keys::<Test>::insert(netuid, 0, duplicate_hotkey);
         Keys::<Test>::insert(netuid, 1, duplicate_hotkey);
-        assert!(!SubtensorModule::is_epoch_input_state_consistent(netuid));
+        assert!(!SubtensorModule::epoch_keys_have_unique_hotkeys(netuid));
 
         for block in 1..=10 {
-            SubtensorModule::drain_pending(&[netuid], block);
+            SubtensorModule::drain_pending_subnet_emissions(&[netuid], block);
         }
 
         assert_eq!(
@@ -106,7 +106,7 @@ fn test_coinbase_drain_pending_resets_blockssincelaststep() {
         LastMechansimStepBlock::<Test>::insert(netuid0, 12345); // garbage value
 
         // Check that blockssincelaststep is reset to 0 on tempo
-        SubtensorModule::drain_pending(&[netuid0], block_number);
+        SubtensorModule::drain_pending_subnet_emissions(&[netuid0], block_number);
 
         let blocks_since_last_step_after = BlocksSinceLastStep::<Test>::get(netuid0);
         assert_eq!(blocks_since_last_step_after, 0);
@@ -134,7 +134,7 @@ fn test_coinbase_drain_pending_gets_counters_and_resets_them() {
         PendingRootAlphaDivs::<Test>::insert(netuid0, pending_root);
         PendingOwnerCut::<Test>::insert(netuid0, pending_owner_cut);
 
-        let emissions_to_distribute = SubtensorModule::drain_pending(&[netuid0], block_number);
+        let emissions_to_distribute = SubtensorModule::drain_pending_subnet_emissions(&[netuid0], block_number);
         assert_eq!(emissions_to_distribute.len(), 1);
         assert_eq!(
             emissions_to_distribute[&netuid0],

@@ -13,7 +13,7 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         amount: AlphaBalance,
     ) -> dispatch::DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         ensure!(!amount.is_zero(), Error::<T>::AmountTooLow);
         ensure!(
             Self::hotkey_account_exists(hotkey),

@@ -234,7 +234,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Dispatch `call` as `real` under `def.proxy_type` filters (privilege escalation guards included).
-    pub(crate) fn do_proxy(
+    pub(crate) fn dispatch_filtered_proxy_call(
         def: ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>,
         real: T::AccountId,
         call: <T as Config>::RuntimeCall,

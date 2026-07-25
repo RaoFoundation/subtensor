@@ -19,7 +19,7 @@ impl<T: Config> Pallet<T> {
         destination_hotkey: &T::AccountId,
         netuid: NetUid,
     ) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             Self::hotkey_account_exists(destination_hotkey),
             Error::<T>::HotKeyAccountNotExists

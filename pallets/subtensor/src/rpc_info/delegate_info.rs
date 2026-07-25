@@ -61,7 +61,7 @@ impl<T: Config> Pallet<T> {
     }
 
     #[cfg(test)]
-    pub fn return_per_1000_tao_test(
+    pub fn delegator_return_per_1000_tao_test(
         take: Compact<PerU16>,
         total_stake: U64F64,
         emissions_per_day: U64F64,
@@ -214,7 +214,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Owning coldkey for `hotkey` when [`Owner`] has an entry.
-    pub fn maybe_coldkey_for_hotkey(hotkey: &T::AccountId) -> Option<T::AccountId> {
+    pub fn owning_coldkey_for_hotkey_if_set(hotkey: &T::AccountId) -> Option<T::AccountId> {
         Owner::<T>::try_get(hotkey).ok()
     }
 }

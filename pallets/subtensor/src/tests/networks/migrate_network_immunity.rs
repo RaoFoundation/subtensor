@@ -66,7 +66,7 @@ fn test_migrate_network_immunity_period() {
 //             coldkey_account_id
 //         ));
 
-//         assert!(SubtensorModule::if_subnet_exist(netuid));
+//         assert!(SubtensorModule::subnet_exists(netuid));
 
 //         assert_ok!(SubtensorModule::schedule_dissolve_network(
 //             <<Test as Config>::RuntimeOrigin>::signed(coldkey_account_id),
@@ -86,7 +86,7 @@ fn test_migrate_network_immunity_period() {
 //         );
 
 //         run_to_block(execution_block);
-//         assert!(!SubtensorModule::if_subnet_exist(netuid));
+//         assert!(!SubtensorModule::subnet_exists(netuid));
 //     })
 // }
 
@@ -119,7 +119,7 @@ fn test_migrate_network_immunity_period() {
 //             coldkey_account_id
 //         ));
 
-//         assert!(SubtensorModule::if_subnet_exist(netuid));
+//         assert!(SubtensorModule::subnet_exists(netuid));
 
 //         assert_ok!(SubtensorModule::schedule_dissolve_network(
 //             <<Test as Config>::RuntimeOrigin>::signed(non_network_owner_account_id),
@@ -140,7 +140,7 @@ fn test_migrate_network_immunity_period() {
 
 //         run_to_block(execution_block);
 //         // network exists since the caller is no the network owner
-//         assert!(SubtensorModule::if_subnet_exist(netuid));
+//         assert!(SubtensorModule::subnet_exists(netuid));
 //     })
 // }
 
@@ -173,7 +173,7 @@ fn test_migrate_network_immunity_period() {
 //             coldkey_account_id
 //         ));
 
-//         assert!(SubtensorModule::if_subnet_exist(netuid));
+//         assert!(SubtensorModule::subnet_exists(netuid));
 
 //         // the account is not network owner when schedule the call
 //         assert_ok!(SubtensorModule::schedule_dissolve_network(
@@ -198,7 +198,7 @@ fn test_migrate_network_immunity_period() {
 
 //         run_to_block(execution_block);
 //         // network exists since the caller is no the network owner
-//         assert!(!SubtensorModule::if_subnet_exist(netuid));
+//         assert!(!SubtensorModule::subnet_exists(netuid));
 //     })
 // }
 
@@ -234,7 +234,7 @@ fn test_migrate_network_immunity_period() {
 //             coldkey_account_id
 //         ));
 
-//         assert!(SubtensorModule::if_subnet_exist(netuid));
+//         assert!(SubtensorModule::subnet_exists(netuid));
 
 //         // the account is not network owner when schedule the call
 //         assert_ok!(SubtensorModule::schedule_swap_coldkey(
@@ -274,7 +274,7 @@ fn test_migrate_network_immunity_period() {
 
 //         run_to_block(execution_block);
 //         // network exists since the caller is no the network owner
-//         assert!(!SubtensorModule::if_subnet_exist(netuid));
+//         assert!(!SubtensorModule::subnet_exists(netuid));
 //     })
 // }
 

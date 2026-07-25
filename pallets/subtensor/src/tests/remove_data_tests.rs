@@ -148,7 +148,7 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
         );
 
         // Verify the subnet no longer exists
-        assert!(!SubtensorModule::if_subnet_exist(netuid));
+        assert!(!SubtensorModule::subnet_exists(netuid));
     });
 }
 
@@ -407,7 +407,7 @@ fn test_remove_data_for_dissolved_networks_via_on_idle() {
         );
 
         // Verify the subnet no longer exists
-        assert!(!SubtensorModule::if_subnet_exist(netuid));
+        assert!(!SubtensorModule::subnet_exists(netuid));
 
         // Verify data has been cleaned up
         assert_eq!(SubtensorModule::get_subnet_owner(netuid), U256::from(0));
@@ -823,7 +823,7 @@ fn test_clean_up_hotkey_swap_records() {
         ));
 
         // Call the function and get the returned weight
-        let returned_weight = SubtensorModule::clean_up_hotkey_swap_records(block_number.into());
+        let returned_weight = SubtensorModule::purge_expired_hotkey_swap_on_netuid_records(block_number.into());
 
         // After the function call, for netuid_1:
         //   - The old record (coldkey_old, swap_block_old) should be removed because swap_block_old + interval < block_number

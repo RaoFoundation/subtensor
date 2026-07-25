@@ -78,7 +78,7 @@ fn test_swap_hotkey_root_claims_unchanged_if_not_root() {
         assert!(RootClaimed::<Test>::get((netuid, &neuron_hotkey, &staker_coldkey,)) > 0u128);
 
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &neuron_hotkey,
             &new_hotkey,
@@ -163,7 +163,7 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
         assert!(claimed > 0u128);
 
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &neuron_hotkey,
             &neuron_hotkey_new,
@@ -252,7 +252,7 @@ fn test_swap_hotkey_root_claims_changed_if_all_subnets() {
         assert!(claimed > 0u128);
 
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &neuron_hotkey,
             &neuron_hotkey_new,

@@ -45,7 +45,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NonAssociatedColdKey
         );
 
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Ensure the take value is valid
         ensure!(

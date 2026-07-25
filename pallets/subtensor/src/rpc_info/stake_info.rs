@@ -185,7 +185,7 @@ impl<T: Config> Pallet<T> {
                         .map(|coldkey| (coldkey, BTreeMap::new()))
                         .collect();
                 }
-                requested.retain(|n| Self::if_subnet_exist(*n));
+                requested.retain(|n| Self::subnet_exists(*n));
                 requested
             }
         };

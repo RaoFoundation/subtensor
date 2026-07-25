@@ -36,7 +36,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// Root bypasses rate checks. Prefer renaming to `ensure_subnet_owner_or_root_with_limits`
     /// (see `refactor/rename-proposals.md`).
-    pub fn ensure_sn_owner_or_root_with_limits(
+    pub fn ensure_subnet_owner_or_root_with_limits(
         origin: OriginFor<T>,
         netuid: NetUid,
         limits: &[crate::utils::rate_limiting::TransactionType],
@@ -96,7 +96,7 @@ impl<T: Config> Pallet<T> {
     /// If `maybe_owner` is `Some`, stamp `txs` last-block markers on `netuid` at the current block.
     ///
     /// Prefer renaming to `record_owner_rate_limits` (see `refactor/rename-proposals.md`).
-    pub fn record_owner_rl(
+    pub fn record_owner_rate_limits(
         maybe_owner: Option<<T as frame_system::Config>::AccountId>,
         netuid: NetUid,
         txs: &[TransactionType],

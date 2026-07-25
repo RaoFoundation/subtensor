@@ -48,7 +48,7 @@ fn registered_subnet_counter_survives_dissolve_and_bumps_on_reregistration() {
         // value they observed at approval time.
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
         run_block_idle();
-        assert!(!SubtensorModule::if_subnet_exist(netuid));
+        assert!(!SubtensorModule::subnet_exists(netuid));
         assert_eq!(
             SubtensorModule::get_registered_subnet_counter(netuid),
             1,

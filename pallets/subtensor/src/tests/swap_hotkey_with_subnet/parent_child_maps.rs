@@ -32,7 +32,7 @@ fn test_swap_child_keys() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -109,7 +109,7 @@ fn test_swap_parent_keys() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -155,7 +155,7 @@ fn test_swap_multiple_subnets() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -164,7 +164,7 @@ fn test_swap_multiple_subnets() {
         ),);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey_2,
@@ -214,7 +214,7 @@ fn test_swap_complex_parent_child_structure() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -279,7 +279,7 @@ fn test_swap_parent_hotkey_childkey_maps() {
         // Swap
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &parent_old,
             &parent_new,
@@ -337,7 +337,7 @@ fn test_swap_child_hotkey_childkey_maps() {
         // Swap
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &child_old,
             &child_new,
@@ -381,7 +381,7 @@ fn test_swap_hotkey_auto_parent_delegation_transferred_on_root() {
         assert!(!AutoParentDelegationEnabled::<Test>::get(old_hotkey));
 
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -417,7 +417,7 @@ fn test_swap_hotkey_auto_parent_delegation_transferred_on_all_subnets() {
         AutoParentDelegationEnabled::<Test>::insert(old_hotkey, false);
 
         step_block(20);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -449,7 +449,7 @@ fn test_swap_hotkey_auto_parent_delegation_not_transferred_on_non_root() {
         AutoParentDelegationEnabled::<Test>::insert(old_hotkey, false);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(owner_coldkey),
             &old_hotkey,
             &new_hotkey,

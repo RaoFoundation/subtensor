@@ -56,7 +56,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Check that the network we are trying to create the child on exists.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Check that the coldkey owns the hotkey.
         ensure!(

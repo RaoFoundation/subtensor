@@ -654,8 +654,8 @@ impl ProxyInterface<AccountId> for LeaseBeneficiaryProxy {
 }
 
 /// Forwards subnet commitment purge into `pallet_commitments` on network dissolve.
-pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
@@ -746,7 +746,7 @@ pub struct RegisteredHotkeyCanCommit;
 impl CanCommit<AccountId> for RegisteredHotkeyCanCommit {
     #[cfg(not(feature = "runtime-benchmarks"))]
     fn can_commit(netuid: NetUid, address: &AccountId) -> bool {
-        SubtensorModule::if_subnet_exist(netuid)
+        SubtensorModule::subnet_exists(netuid)
             && SubtensorModule::is_hotkey_registered_on_network(netuid, address)
     }
 
@@ -765,7 +765,7 @@ impl OnMetadataCommitment<AccountId> for ResetBondsOnCommit {
         let mechanism_count = SubtensorModule::get_current_mechanism_count(netuid);
         for mecid in 0..<u8 as From<MechId>>::from(mechanism_count) {
             let netuid_index = SubtensorModule::get_mechanism_storage_index(netuid, mecid.into());
-            let _ = SubtensorModule::do_reset_bonds(netuid_index, address);
+            let _ = SubtensorModule::reset_bonds_column_for_hotkey(netuid_index, address);
         }
     }
 
@@ -791,12 +791,12 @@ impl pallet_commitments::Config for Runtime {
     type MaxFields = MaxCommitFields;
     type InitialDeposit = CommitmentInitialDeposit;
     type FieldDeposit = CommitmentFieldDeposit;
-    type TempoInterface = TempoInterface;
+    type SubtensorTempoBridge = SubtensorTempoBridge;
 }
 
 /// Maps `(netuid, block)` to the subnet epoch index via Subtensor tempo.
-pub struct TempoInterface;
-impl pallet_commitments::GetTempoInterface for TempoInterface {
+pub struct SubtensorTempoBridge;
+impl pallet_commitments::GetTempoInterface for SubtensorTempoBridge {
     fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64 {
         SubtensorModule::get_epoch_index(netuid, cur_block)
     }
@@ -970,7 +970,7 @@ impl pallet_subtensor::Config for Runtime {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = SubnetCommitmentsLookup;
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = BlockAuthorFromAura<Aura>;
@@ -1028,8 +1028,8 @@ impl pallet_admin_utils::AuraInterface<AuraId, ConstU32<32>> for AuraAuthorityIn
 }
 
 /// Admin-utils bridge: schedules Grandpa authority set changes.
-pub struct GrandpaInterfaceImpl;
-impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
+pub struct GrandpaAuthorityInterface;
+impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaAuthorityInterface {
     fn schedule_change(
         next_authorities: Vec<(pallet_grandpa::AuthorityId, u64)>,
         in_blocks: BlockNumber,
@@ -1043,7 +1043,7 @@ impl pallet_admin_utils::Config for Runtime {
     type AuthorityId = AuraId;
     type MaxAuthorities = ConstU32<32>;
     type Aura = AuraAuthorityInterface;
-    type Grandpa = GrandpaInterfaceImpl;
+    type Grandpa = GrandpaAuthorityInterface;
     type Balance = Balance;
     type WeightInfo = pallet_admin_utils::weights::SubstrateWeight<Runtime>;
 }

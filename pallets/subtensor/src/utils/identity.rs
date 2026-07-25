@@ -86,7 +86,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the call is signed and get the signer's (coldkey) account
         let coldkey = ensure_signed(origin)?;
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Ensure that the coldkey owns the subnet
         ensure!(

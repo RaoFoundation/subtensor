@@ -28,7 +28,7 @@ impl<T: Config> Pallet<T> {
         );
 
         // Subnet must exist.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Get the subnet owner hotkey.
         let subnet_owner_hotkey =

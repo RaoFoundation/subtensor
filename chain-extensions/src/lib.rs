@@ -629,7 +629,7 @@ where
 
                 let state = SubnetRegistrationState {
                     netuid,
-                    exists: pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                    exists: pallet_subtensor::Pallet::<T>::subnet_exists(netuid),
                     registered_subnet_counter:
                         pallet_subtensor::Pallet::<T>::get_registered_subnet_counter(netuid),
                 };

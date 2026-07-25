@@ -109,7 +109,7 @@ fn ensure_owner_or_root_with_limits_checks_rl_and_freeze() {
         assert_eq!(OwnerHyperparamRateLimit::<Test>::get(), 2);
 
         // Outside freeze window initially; should pass and return Some(owner)
-        let res = crate::Pallet::<Test>::ensure_sn_owner_or_root_with_limits(
+        let res = crate::Pallet::<Test>::ensure_subnet_owner_or_root_with_limits(
             <<Test as Config>::RuntimeOrigin>::signed(owner),
             netuid,
             &[Hyperparameter::Kappa.into()],
@@ -123,7 +123,7 @@ fn ensure_owner_or_root_with_limits_checks_rl_and_freeze() {
         TransactionType::from(Hyperparameter::Kappa)
             .set_last_block_on_subnet::<Test>(&owner, netuid, now);
         assert_noop!(
-            crate::Pallet::<Test>::ensure_sn_owner_or_root_with_limits(
+            crate::Pallet::<Test>::ensure_subnet_owner_or_root_with_limits(
                 <<Test as Config>::RuntimeOrigin>::signed(owner),
                 netuid,
                 &[Hyperparameter::Kappa.into()],
@@ -135,7 +135,7 @@ fn ensure_owner_or_root_with_limits_checks_rl_and_freeze() {
         run_to_block(now + 3);
         TransactionType::from(Hyperparameter::Kappa)
             .set_last_block_on_subnet::<Test>(&owner, netuid, 0);
-        assert_ok!(crate::Pallet::<Test>::ensure_sn_owner_or_root_with_limits(
+        assert_ok!(crate::Pallet::<Test>::ensure_subnet_owner_or_root_with_limits(
             <<Test as Config>::RuntimeOrigin>::signed(owner),
             netuid,
             &[Hyperparameter::Kappa.into()]
@@ -157,7 +157,7 @@ fn ensure_owner_or_root_with_limits_checks_rl_and_freeze() {
             }
             run_to_block(cur + 1);
         }
-        assert_ok!(crate::Pallet::<Test>::ensure_sn_owner_or_root_with_limits(
+        assert_ok!(crate::Pallet::<Test>::ensure_subnet_owner_or_root_with_limits(
             <<Test as Config>::RuntimeOrigin>::signed(owner),
             netuid,
             &[Hyperparameter::Kappa.into()]

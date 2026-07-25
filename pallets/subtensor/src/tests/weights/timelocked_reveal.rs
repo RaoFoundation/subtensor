@@ -180,7 +180,7 @@ fn test_reveal_crv3_commits_multiple_commits_some_fail_some_succeed() {
         // Verify that weights are set for hotkey1
         let neuron_uid1 = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey1)
             .expect("Failed to get neuron UID for hotkey1") as usize;
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights1 = weights_sparse.get(neuron_uid1).cloned().unwrap_or_default();
         assert!(
             !weights1.is_empty(),
@@ -275,7 +275,7 @@ fn test_reveal_crv3_commits_do_set_weights_failure() {
         // Verify that weights are not set due to `do_set_weights` failure
         let neuron_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey)
             .expect("Failed to get neuron UID for hotkey") as usize;
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid).cloned().unwrap_or_default();
         assert!(
             weights.is_empty(),
@@ -353,7 +353,7 @@ fn test_reveal_crv3_commits_payload_decoding_failure() {
         // Verify that weights are not set
         let neuron_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey)
             .expect("Failed to get neuron UID for hotkey") as usize;
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid).cloned().unwrap_or_default();
         assert!(
             weights.is_empty(),
@@ -435,7 +435,7 @@ fn test_reveal_crv3_commits_signature_deserialization_failure() {
         // Verify that weights are not set
         let neuron_uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey)
             .expect("Failed to get neuron UID for hotkey") as usize;
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid).cloned().unwrap_or_default();
         assert!(
             weights.is_empty(),
@@ -500,7 +500,7 @@ fn test_reveal_crv3_commits_with_empty_commit_queue() {
 
         step_epochs(2, netuid);
 
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         assert!(
             weights_sparse.is_empty(),
             "Weights should be empty as there were no commits to reveal"
@@ -587,7 +587,7 @@ fn test_reveal_crv3_commits_with_incorrect_identity_message() {
 
         // Verify that weights are not set due to decryption failure
         let neuron_uid = neuron_uid as usize;
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid).cloned().unwrap_or_default();
         assert!(
             weights.is_empty(),
@@ -811,7 +811,7 @@ fn test_reveal_crv3_commits_multiple_valid_commits_all_processed() {
         step_epochs(2, netuid);
 
         // ───── assertions ───────────────────────────────────────────────────
-        let w_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let w_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         for hk in hotkeys {
             let uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hk).unwrap() as usize;
             assert!(
@@ -926,7 +926,7 @@ fn test_reveal_crv3_commits_max_neurons() {
         step_epochs(2, netuid);
 
         // ───── verify weights ───────────────────────────────────────────────
-        let w_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let w_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         for hk in &committing_hotkeys {
             let uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, hk).unwrap() as usize;
             assert!(

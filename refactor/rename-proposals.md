@@ -22,7 +22,7 @@ Format:
   - pallets/proxy/src/lib.rs
   - pallets/subtensor/src/guards/check_coldkey_swap.rs (comment only)
 - proposed by: w1-proxy
-- status: pending
+- status: done (w3)
 
 ## weight_and_dispatch_class -> batch_calls_weight_and_pays
 - reason: Private batch weight helper; name should include domain word `batch` and clarify it returns `(Weight, Pays)` not a dispatch class. Hits outside w1-utility are string fixtures in the linting crate.
@@ -32,7 +32,7 @@ pallets/utility/src/lib.rs
 support/linting/src/require_extrinsic_benchmarks/tests.rs
 ```
 - proposed by: w1-utility
-- status: pending
+- status: done (w3)
 - note (w1-support): fixture path updated after splitting `require_extrinsic_benchmarks.rs` → `require_extrinsic_benchmarks/`
 
 ## staking.rs / subnet.rs file splits (precompile path fingerprint)
@@ -45,7 +45,7 @@ scripts/extract_metadata_fingerprint.py
 refactor/metadata-baseline.txt
 ```
 - proposed by: w1-precompiles-b
-- status: pending
+- status: done (w3) — fingerprint made path-agnostic; baseline refreshed. Optional file splits deferred (time).
 
 ## CommitmentsI -> CommitmentsPurgeBridge
 - reason: runtime adapter that forwards `purge_netuid` into pallet_commitments; `CommitmentsI` is an opaque abbreviation. Same name is re-declared in several test mocks.
@@ -58,7 +58,7 @@ precompiles/src/mock.rs
 pallets/transaction-fee/src/tests/mock.rs
 ```
 - proposed by: w1-runtime
-- status: pending
+- status: done (w3)
 
 ## GrandpaInterfaceImpl -> GrandpaAuthorityInterface
 - reason: mirror the clearer `AuraAuthorityInterface` naming for the admin-utils Grandpa bridge.
@@ -68,7 +68,7 @@ runtime/src/lib.rs
 pallets/admin-utils/src/tests/mock.rs
 ```
 - proposed by: w1-runtime
-- status: pending
+- status: done (w3)
 
 ## TempoInterface -> SubtensorTempoBridge
 - reason: runtime/commitments tempo lookup via Subtensor epoch index; name collides with trait-shaped helpers in pallet mocks.
@@ -80,7 +80,7 @@ pallets/commitments/src/mock.rs
 pallets/commitments/src/lib.rs
 ```
 - proposed by: w1-runtime
-- status: pending
+- status: done (w3) — Config associated type + runtime/mock wiring; `MockTempoInterface` / `GetTempoInterface` kept.
 
 ## applicable_call -> subtensor_call_if
 - reason: shared guard helper that yields a Subtensor `Call` when a predicate matches; name should include the domain word `subtensor` and read as a filter, not a boolean check. Used from both guards and the transaction extension.
@@ -95,7 +95,7 @@ pallets/subtensor/src/guards/check_weights.rs
 pallets/subtensor/src/extensions/subtensor.rs
 ```
 - proposed by: w2-src-guards
-- status: pending
+- status: done (w3)
 
 ## guards::CallOf -> GuardsRuntimeCallOf
 - reason: short `CallOf` alias collides in search with `pallet::CallOf`, extensions' local `CallOf`, and transaction-fee's `CallOf`; guards-specific name would disambiguate. Only the `pub(crate)` alias in `guards/mod.rs` (and its guard call sites) — not the pallet-module or other crates' aliases.
@@ -111,6 +111,8 @@ pallets/subtensor/src/guards/check_weights.rs
 ```
 - note: `rg -w CallOf` also hits unrelated same-named aliases in `lib.rs` (pallet module), `extensions/subtensor.rs`, and `transaction-fee`; do not rename those under this proposal.
 - proposed by: w2-src-guards
+- status: done (w3)
+
 ## ensure_sn_owner_or_root_with_limits -> ensure_subnet_owner_or_root_with_limits
 - reason: `sn` abbreviation is opaque next to sibling `ensure_subnet_owner_or_root`; spell out `subnet`.
 - hits:
@@ -120,7 +122,7 @@ pallets/admin-utils/src/lib.rs
 pallets/subtensor/src/tests/ensure.rs
 ```
 - proposed by: w2-src-utils
-- status: pending
+- status: done (w3)
 
 ## record_owner_rl -> record_owner_rate_limits
 - reason: `rl` abbreviation hides that this stamps [`TransactionType`] last-block markers after owner admin calls.
@@ -130,7 +132,7 @@ pallets/subtensor/src/utils/misc/origin_and_admin.rs
 pallets/admin-utils/src/lib.rs
 ```
 - proposed by: w2-src-utils
-- status: pending
+- status: done (w3)
 
 ## uid_lookup -> associated_uids_for_evm_key
 - reason: name does not say EVM reverse-index lookup; collides with the `UidLookup` precompile module name in search results.
@@ -144,7 +146,7 @@ precompiles/src/uid_lookup.rs
 precompiles/src/lib.rs
 ```
 - proposed by: w2-src-utils
-- status: pending
+- status: deferred (w3) — would rename / collide with precompile module `uid_lookup`; skip per wave-3 instructions.
 
 ## get_shares -> subnet_emission_shares
 - reason: `get_shares` is opaque at search time; name should say these are per-subnet TAO emission weights (price-EMA + miner-burn). Used from coinbase and tests.
@@ -154,7 +156,7 @@ pallets/subtensor/src/coinbase/subnet_emissions.rs
 pallets/subtensor/src/tests/subnet_emissions.rs
 ```
 - proposed by: w2-src-coinbase
-- status: pending
+- status: done (w3)
 
 ## inject_and_maybe_swap -> inject_pool_liquidity_and_swap_excess
 - reason: clarifies that this materializes tao_in/alpha_in into the pool and swaps excess_tao for protocol alpha; "maybe" hides the always-attempted swap path when excess > 0.
@@ -164,7 +166,7 @@ pallets/subtensor/src/coinbase/run_coinbase/emission_injection.rs
 pallets/subtensor/src/tests/coinbase.rs
 ```
 - proposed by: w2-src-coinbase
-- status: pending
+- status: done (w3)
 
 ## get_subnet_terms -> compute_subnet_emission_terms
 - reason: "terms" alone is ambiguous; this splits block TAO emission into tao_in/alpha_in/alpha_out/excess_tao per the dTAO injection cap.
@@ -174,7 +176,7 @@ pallets/subtensor/src/coinbase/run_coinbase/emission_injection.rs
 pallets/subtensor/src/tests/coinbase.rs
 ```
 - proposed by: w2-src-coinbase
-- status: pending
+- status: done (w3)
 
 ## drain_pending -> drain_pending_subnet_emissions
 - reason: `drain_pending` does not say what is drained; this takes pending server/validator/root/owner alpha on epoch fire.
@@ -185,7 +187,7 @@ pallets/subtensor/src/coinbase/run_coinbase/mod.rs
 pallets/subtensor/src/tests/coinbase.rs
 ```
 - proposed by: w2-src-coinbase
-- status: pending
+- status: done (w3)
 
 ## get_network_root_sell_flag -> should_accumulate_root_alpha_dividends
 - reason: boolean name should read as a predicate; "root sell" is jargon for whether root alpha divs are accumulated vs recycled when total EMA price ≤ 1.
@@ -197,7 +199,7 @@ pallets/subtensor/src/tests/coinbase.rs
 pallets/subtensor/src/tests/claim_root.rs
 ```
 - proposed by: w2-src-coinbase
-- status: pending
+- status: done (w3)
 
 ## fixed -> i32f32_from_f32
 - reason: bare `fixed` collides with countless unrelated hits; this helper is specifically `f32` → epoch `I32F32`.
@@ -208,7 +210,7 @@ pallets/subtensor/src/tests/epoch/
 pallets/subtensor/src/tests/math.rs
 ```
 - proposed by: w2-src-epoch
-- status: pending
+- status: deferred (w3) — mechanical `\bfixed\b` has too many false positives (fixed-point prose, other crates); needs call-site-aware rename.
 
 ## vecdiv -> elementwise_safe_div
 - reason: opaque abbreviation; performs element-wise `safe_div` of two `I32F32` vectors (0 divisor → 0).
@@ -218,7 +220,7 @@ pallets/subtensor/src/epoch/math/vector_ops.rs
 pallets/subtensor/src/tests/math.rs
 ```
 - proposed by: w2-src-epoch
-- status: pending
+- status: done (w3)
 
 ## is_epoch_input_state_consistent -> epoch_keys_have_unique_hotkeys
 - reason: name does not say what is checked (duplicate hotkeys in `Keys`); used from coinbase preflight and tests.
@@ -230,7 +232,7 @@ pallets/subtensor/src/tests/epoch/
 pallets/subtensor/src/tests/coinbase.rs
 ```
 - proposed by: w2-src-epoch
-- status: pending
+- status: done (w3)
 
 ## do_reset_bonds -> reset_bonds_column_for_hotkey
 - reason: `do_` prefix mimics dispatchables; this clears one hotkey column in `Bonds` when bonds-reset is enabled. Hits runtime + tests.
@@ -241,7 +243,7 @@ runtime/src/lib.rs
 pallets/subtensor/src/tests/epoch/
 ```
 - proposed by: w2-src-epoch
-- status: pending
+- status: done (w3)
 
 ## get_weights_sparse -> unnormalized_weights_sparse
 - reason: parallel to in-shard `unnormalized_bonds_sparse`; clarifies storage weights are not row-normalized. Hits tests outside shard.
@@ -253,6 +255,8 @@ pallets/subtensor/src/tests/mechanism.rs
 pallets/subtensor/src/tests/weights.rs
 ```
 - proposed by: w2-src-epoch
+- status: done (w3)
+
 ## if_subnet_exist -> subnet_exists
 - reason: `if_` prefix reads as a statement; boolean helpers elsewhere use `is_`/`*_exists`. Hits span many shards (dispatches, staking, rpc_info, runtime, admin-utils).
 - hits:
@@ -273,7 +277,7 @@ pallets/subtensor/src/tests/*.rs
 pallets/subtensor/src/migrations/*.rs
 ```
 - proposed by: w2-src-subnets
-- status: pending
+- status: done (w3)
 
 ## get_netuid -> netuid_from_mechanism_storage_index
 - reason: bare `get_netuid` hides that the argument is a packed mechanism [`NetUidStorageIndex`], not a raw netuid lookup.
@@ -283,7 +287,7 @@ pallets/subtensor/src/subnets/mechanism.rs
 pallets/subtensor/src/utils/misc/consensus_params.rs
 ```
 - proposed by: w2-src-subnets
-- status: pending
+- status: done (w3)
 
 ## set_element_at -> set_vec_element_at
 - reason: generic helper used when clearing/replacing neuron vectors; name should say it mutates a slice/vec slot.
@@ -293,7 +297,7 @@ pallets/subtensor/src/subnets/uids.rs
 pallets/subtensor/src/tests/uids.rs
 ```
 - proposed by: w2-src-subnets
-- status: pending
+- status: done (w3)
 
 ## is_uid_exist_on_network -> uid_exists_on_network
 - reason: grammar (`is_uid_exist`); weights module (same directory but outside this shard's file list) also calls it.
@@ -303,7 +307,7 @@ pallets/subtensor/src/subnets/uids.rs
 pallets/subtensor/src/subnets/weights.rs
 ```
 - proposed by: w2-src-subnets
-- status: pending
+- status: done (w3)
 
 ## is_subnet_account_id -> netuid_for_subnet_account
 - reason: returns `Option<NetUid>`, not a bool; name should not start with `is_`.
@@ -318,6 +322,8 @@ runtime/tests/account_conversion.rs
 pallets/subtensor/src/tests/subnet.rs
 ```
 - proposed by: w2-src-subnets
+- status: done (w3)
+
 ## do_swap_coldkey -> perform_coldkey_swap
 - reason: `do_` prefix is opaque next to the `swap_coldkey` extrinsic; name should say it performs the coldkey identity migration body (not a dispatchable).
 - hits:
@@ -331,7 +337,7 @@ pallets/subtensor/src/tests/claim_root.rs
 pallets/subtensor/src/tests/locks.rs
 ```
 - proposed by: w2-src-swap
-- status: pending
+- status: done (w3)
 
 ## do_swap_hotkey -> perform_hotkey_swap
 - reason: same as coldkey — extrinsic body helper; `do_swap_hotkey` collides with extrinsic search and does not say "identity rename".
@@ -347,7 +353,7 @@ pallets/subtensor/src/tests/hotkey_lineage.rs
 pallets/subtensor/src/tests/locks.rs
 ```
 - proposed by: w2-src-swap
-- status: pending
+- status: done (w3)
 
 ## charge_swap_cost -> charge_coldkey_swap_cost
 - reason: helper only recycles the coldkey-swap fee; name should include `coldkey` so it does not read as a generic/hotkey fee charger.
@@ -357,7 +363,7 @@ pallets/subtensor/src/swap/swap_coldkey.rs
 pallets/subtensor/src/macros/dispatches.rs
 ```
 - proposed by: w2-src-swap
-- status: pending
+- status: done (w3)
 
 ## swap_hotkey_v2_dispatch_weight -> hotkey_swap_dispatch_weight
 - reason: `v2` is a call-site version tag, not what the helper computes; name should lead with `hotkey_swap` and say it returns pre-dispatch `Weight`.
@@ -367,6 +373,8 @@ pallets/subtensor/src/swap/swap_hotkey.rs
 pallets/subtensor/src/macros/dispatches.rs
 ```
 - proposed by: w2-src-swap
+- status: done (w3)
+
 ## return_per_1000_tao_test -> delegator_return_per_1000_tao_test
 - reason: test wrapper for private `delegator_return_per_1000_tao`; keep the domain word `delegator` so it greps with the production helper (renamed in-shard).
 - hits:
@@ -375,7 +383,7 @@ pallets/subtensor/src/rpc_info/delegate_info.rs
 pallets/subtensor/src/tests/delegate_info.rs
 ```
 - proposed by: w2-src-rpc_info
-- status: pending
+- status: done (w3)
 
 ## maybe_coldkey_for_hotkey -> owning_coldkey_for_hotkey_if_set
 - reason: name does not say this is an `Owner` lookup returning `Option`; used from transaction-payment fee path.
@@ -385,7 +393,7 @@ pallets/subtensor/src/rpc_info/delegate_info.rs
 runtime/src/transaction_payment_wrapper.rs
 ```
 - proposed by: w2-src-rpc_info
-- status: pending
+- status: done (w3)
 
 ## extensions/subtensor.rs module -> extensions/transaction_extension.rs
 - reason: module name `subtensor` under `extensions` is redundant with the crate path and hides that the file owns [`SubtensorTransactionExtension`]. Rename would change the rustdoc/SDK path `pallet_subtensor::extensions::subtensor::…`.
@@ -396,8 +404,9 @@ pallets/subtensor/src/extensions/subtensor.rs
 sdk/python/tests/fixtures/shape_corpus/corpus.json
 ```
 - proposed by: w2-src-extensions
-- status: pending
+- status: deferred (w3) — touches SDK golden fixtures / rustdoc path; risky for this wave.
 - note: `SubtensorTransactionExtension` type name and `IDENTIFIER` string stay frozen (extrinsic format / runtime wiring in `runtime/src/lib.rs`, `node/src/benchmarking.rs`, tests).
+
 ## SubtensorCustom -> SubtensorCustomRpc
 - reason: handler type name does not say it is the JSON-RPC adapter; `Custom` alone is opaque next to runtime-api crates named `subtensor-custom-rpc*`.
 - hits:
@@ -406,7 +415,7 @@ pallets/subtensor/rpc/src/lib.rs
 node/src/rpc.rs
 ```
 - proposed by: w2-rpc
-- status: pending
+- status: done (w3)
 
 ## SubtensorCustomApi -> SubtensorCustomRpcApi
 - reason: jsonrpsee RPC trait; align with `SubtensorCustomRpc` and make `rg SubtensorCustomRpc` find trait + handler + generated `*Server`. Hits `SubtensorCustomApiServer` in node wiring.
@@ -416,6 +425,8 @@ pallets/subtensor/rpc/src/lib.rs
 node/src/rpc.rs
 ```
 - proposed by: w2-rpc
+- status: done (w3) — also renamed generated `SubtensorCustomApiServer` → `SubtensorCustomRpcApiServer`.
+
 ## clean_up_hotkey_swap_records -> purge_expired_hotkey_swap_on_netuid_records
 - reason: `pub(crate)` hook helper that removes stale `LastHotkeySwapOnNetuid` rows for the block's netuid slot; name should lead with purge/expired and the storage concept so it greps with the map.
 - hits:
@@ -424,4 +435,4 @@ pallets/subtensor/src/macros/hooks.rs
 pallets/subtensor/src/tests/remove_data_tests.rs
 ```
 - proposed by: w2-docs-macros-other
-- status: pending
+- status: done (w3)

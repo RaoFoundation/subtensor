@@ -24,7 +24,7 @@ fn dissolve_defers_cleanup_until_on_idle() {
         assert_ok!(SubtensorModule::do_dissolve_network(net));
 
         // Network is no longer considered "existing" but data is not cleaned yet.
-        assert!(!SubtensorModule::if_subnet_exist(net));
+        assert!(!SubtensorModule::subnet_exists(net));
         assert!(DissolveCleanupQueue::<Test>::get().contains(&net));
         assert!(SubnetOwner::<Test>::contains_key(net));
         assert!(NetworkRegisteredAt::<Test>::contains_key(net));
@@ -50,7 +50,7 @@ fn get_subnet_account_id_some_while_dissolved_cleanup_pending() {
         let hot = U256::from(44_002);
         let net = add_dynamic_network(&hot, &cold);
         assert_ok!(SubtensorModule::do_dissolve_network(net));
-        assert!(!SubtensorModule::if_subnet_exist(net));
+        assert!(!SubtensorModule::subnet_exists(net));
         assert!(DissolveCleanupQueue::<Test>::get().contains(&net));
         assert!(
             SubtensorModule::get_subnet_account_id(net).is_some(),
@@ -139,8 +139,8 @@ fn dissolve_two_networks_fifo_cleanup_drains_queue() {
             run_block_idle();
         }
 
-        assert!(!SubtensorModule::if_subnet_exist(n1));
-        assert!(!SubtensorModule::if_subnet_exist(n2));
+        assert!(!SubtensorModule::subnet_exists(n1));
+        assert!(!SubtensorModule::subnet_exists(n2));
         assert!(
             CurrentDissolveCleanupStatus::<Test>::get().is_none(),
             "no stale phase after queue drain"

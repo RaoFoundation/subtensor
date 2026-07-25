@@ -39,7 +39,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// Mid-dissolve subnets are removed from this map immediately by
     /// [`Self::do_dissolve_network`] even while cleanup is still queued.
-    pub fn if_subnet_exist(netuid: NetUid) -> bool {
+    pub fn subnet_exists(netuid: NetUid) -> bool {
         NetworksAdded::<T>::get(netuid)
     }
 
@@ -151,7 +151,7 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that hotkey is not a special account
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            Self::netuid_for_subnet_account(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
 
@@ -525,7 +525,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `DispatchResult`: A result indicating the success or failure of the operation.
     pub fn do_start_call(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subnet_owner(origin, netuid)?;
         ensure!(
             FirstEmissionBlockNumber::<T>::get(netuid).is_none(),
@@ -590,7 +590,7 @@ impl<T: Config> Pallet<T> {
         Self::ensure_subnet_owner_or_root(origin, netuid)?;
 
         // Ensure that the subnet exists.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Rate limit: 1 call per week
         ensure!(
@@ -634,7 +634,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Inverse of [`Self::get_subnet_account_id`]: decode netuid from a pallet sub-account.
-    pub fn is_subnet_account_id(account: &T::AccountId) -> Option<NetUid> {
+    pub fn netuid_for_subnet_account(account: &T::AccountId) -> Option<NetUid> {
         let pallet_id = T::SubtensorPalletId::get();
 
         match PalletId::try_from_sub_account::<NetUid>(account) {

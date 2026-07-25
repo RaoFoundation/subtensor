@@ -4,7 +4,7 @@
     clippy::indexing_slicing,
     clippy::unwrap_used
 )]
-//! Epoch input consistency (`is_epoch_input_state_consistent`) and LastUpdate size mismatch.
+//! Epoch input consistency (`epoch_keys_have_unique_hotkeys`) and LastUpdate size mismatch.
 
 use frame_support::assert_ok;
 use sp_core::U256;
@@ -75,7 +75,7 @@ fn test_last_update_size_mismatch() {
 fn empty_ok() {
     new_test_ext(1).execute_with(|| {
         let netuid: NetUid = 155.into();
-        assert!(Pallet::<Test>::is_epoch_input_state_consistent(netuid));
+        assert!(Pallet::<Test>::epoch_keys_have_unique_hotkeys(netuid));
     });
 }
 
@@ -89,7 +89,7 @@ fn unique_hotkeys_and_uids_ok() {
         Keys::<Test>::insert(netuid, 1u16, U256::from(2u64));
         Keys::<Test>::insert(netuid, 2u16, U256::from(3u64));
 
-        assert!(Pallet::<Test>::is_epoch_input_state_consistent(netuid));
+        assert!(Pallet::<Test>::epoch_keys_have_unique_hotkeys(netuid));
     });
 }
 
@@ -103,7 +103,7 @@ fn duplicate_hotkey_within_same_netuid_fails() {
         Keys::<Test>::insert(netuid, 0u16, hk);
         Keys::<Test>::insert(netuid, 1u16, U256::from(42u64)); // duplicate hotkey
 
-        assert!(!Pallet::<Test>::is_epoch_input_state_consistent(netuid));
+        assert!(!Pallet::<Test>::epoch_keys_have_unique_hotkeys(netuid));
     });
 }
 
@@ -118,7 +118,7 @@ fn same_hotkey_across_different_netuids_is_ok() {
         Keys::<Test>::insert(net_a, 0u16, hk);
         Keys::<Test>::insert(net_b, 0u16, hk);
 
-        assert!(Pallet::<Test>::is_epoch_input_state_consistent(net_a));
-        assert!(Pallet::<Test>::is_epoch_input_state_consistent(net_b));
+        assert!(Pallet::<Test>::epoch_keys_have_unique_hotkeys(net_a));
+        assert!(Pallet::<Test>::epoch_keys_have_unique_hotkeys(net_b));
     });
 }

@@ -187,7 +187,7 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
             epsilon = 1e-9
         );
 
-        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        let shares = SubtensorModule::subnet_emission_shares(&[n1, n2]);
         let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
         let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
 
@@ -218,7 +218,7 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
 //         SubnetEmaTaoFlow::<Test>::insert(n3, (block_num, i64f64(6_000.0)));
 
 //         let subnets = vec![n1, n2, n3];
-//         let shares = SubtensorModule::get_shares(&subnets);
+//         let shares = SubtensorModule::subnet_emission_shares(&subnets);
 
 //         // Sum ≈ 1
 //         let sum: f64 = shares.values().map(|v| v.to_num::<f64>()).sum();
@@ -264,7 +264,7 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
 //         SubnetEmaTaoFlow::<Test>::insert(n2, (block_num, i64f64(2e-9)));
 
 //         let subnets = vec![n1, n2];
-//         let shares = SubtensorModule::get_shares(&subnets);
+//         let shares = SubtensorModule::subnet_emission_shares(&subnets);
 
 //         let sum: f64 = shares.values().map(|v| v.to_num::<f64>()).sum();
 //         assert_abs_diff_eq!(sum, 1.0_f64, epsilon = 1e-8);
@@ -306,7 +306,7 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
 //         SubnetEmaTaoFlow::<Test>::insert(n2, (block_num, i64f64(1.8e12)));
 
 //         let subnets = vec![n1, n2];
-//         let shares = SubtensorModule::get_shares(&subnets);
+//         let shares = SubtensorModule::subnet_emission_shares(&subnets);
 
 //         let sum: f64 = shares.values().map(|v| v.to_num::<f64>()).sum();
 //         assert_abs_diff_eq!(sum, 1.0_f64, epsilon = 1e-9);
@@ -365,7 +365,7 @@ fn seed_price_and_flow(n1: NetUid, n2: NetUid, price1: f64, price2: f64, flow1: 
 //         SubnetEmaTaoFlow::<Test>::insert(n1, (now, i64f64(-100.0)));
 //         SubnetEmaTaoFlow::<Test>::insert(n2, (now, i64f64(500.0)));
 
-//         let shares = SubtensorModule::get_shares(&[n1, n2]);
+//         let shares = SubtensorModule::subnet_emission_shares(&[n1, n2]);
 //         let s1 = shares.get(&n1).unwrap().to_num::<f64>();
 //         let s2 = shares.get(&n2).unwrap().to_num::<f64>();
 
@@ -405,7 +405,7 @@ fn seed_price_and_flow(n1: NetUid, n2: NetUid, price1: f64, price2: f64, flow1: 
 //         SubnetEmaTaoFlow::<Test>::insert(n1, (now, i64f64(-100.0)));
 //         SubnetEmaTaoFlow::<Test>::insert(n2, (now, i64f64(-200.0)));
 
-//         let shares = SubtensorModule::get_shares(&[n1, n2]);
+//         let shares = SubtensorModule::subnet_emission_shares(&[n1, n2]);
 //         let s1 = shares.get(&n1).unwrap().to_num::<f64>();
 //         let s2 = shares.get(&n2).unwrap().to_num::<f64>();
 
@@ -441,7 +441,7 @@ fn seed_price_and_flow(n1: NetUid, n2: NetUid, price1: f64, price2: f64, flow1: 
 //         SubnetEmaTaoFlow::<Test>::insert(n1, (now, i64f64(1000.0)));
 //         SubnetEmaTaoFlow::<Test>::insert(n2, (now, i64f64(2000.0)));
 
-//         let shares = SubtensorModule::get_shares(&[n1, n2]);
+//         let shares = SubtensorModule::subnet_emission_shares(&[n1, n2]);
 //         let s1 = shares.get(&n1).unwrap().to_num::<f64>();
 //         let s2 = shares.get(&n2).unwrap().to_num::<f64>();
 
@@ -480,7 +480,7 @@ fn seed_price_and_flow(n1: NetUid, n2: NetUid, price1: f64, price2: f64, flow1: 
 //                 SubnetEmaTaoFlow::<Test>::insert(n1, (now, i64f64(flow1)));
 //                 SubnetEmaTaoFlow::<Test>::insert(n2, (now, i64f64(flow2)));
 
-//                 let shares = SubtensorModule::get_shares(&[n1, n2]);
+//                 let shares = SubtensorModule::subnet_emission_shares(&[n1, n2]);
 //                 let s1 = shares.get(&n1).unwrap().to_num::<f64>();
 //                 let s2 = shares.get(&n2).unwrap().to_num::<f64>();
 
@@ -523,7 +523,7 @@ fn seed_price_and_flow(n1: NetUid, n2: NetUid, price1: f64, price2: f64, flow1: 
 //         SubnetEmaTaoFlow::<Test>::insert(n2, (now, i64f64(-300.0)));
 //         SubnetEmaTaoFlow::<Test>::insert(n3, (now, i64f64(-400.0)));
 
-//         let shares = SubtensorModule::get_shares(&[n1, n2, n3]);
+//         let shares = SubtensorModule::subnet_emission_shares(&[n1, n2, n3]);
 //         let s1 = shares.get(&n1).unwrap().to_num::<f64>();
 //         let s2 = shares.get(&n2).unwrap().to_num::<f64>();
 //         let s3 = shares.get(&n3).unwrap().to_num::<f64>();

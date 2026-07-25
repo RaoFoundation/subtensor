@@ -132,7 +132,7 @@ fn test_reveal_crv3_commits_hotkey_check() {
         // Step epochs to run the epoch via the blockstep
         step_epochs(3, netuid);
 
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid1 as usize).cloned().unwrap_or_default();
 
         assert!(
@@ -249,7 +249,7 @@ fn test_reveal_crv3_commits_hotkey_check() {
         // Step epochs to run the epoch via the blockstep
         step_epochs(3, netuid);
 
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let weights = weights_sparse.get(neuron_uid1 as usize).cloned().unwrap_or_default();
 
         assert!(
@@ -392,7 +392,7 @@ fn test_reveal_crv3_commits_retry_on_missing_pulse() {
 
         step_block(1); // automatic reveal runs here
 
-        let weights = SubtensorModule::get_weights_sparse(netuid.into())
+        let weights = SubtensorModule::unnormalized_weights_sparse(netuid.into())
             .get(uid as usize)
             .cloned()
             .unwrap_or_default();
@@ -528,7 +528,7 @@ fn test_reveal_crv3_commits_legacy_payload_success() {
         // ─────────────────────────────────────
         // 5 ▸ assertions
         // ─────────────────────────────────────
-        let weights_sparse = SubtensorModule::get_weights_sparse(netuid.into());
+        let weights_sparse = SubtensorModule::unnormalized_weights_sparse(netuid.into());
         let w1 = weights_sparse
             .get(uid1 as usize)
             .cloned()

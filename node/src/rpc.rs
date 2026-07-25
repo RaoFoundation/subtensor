@@ -126,7 +126,7 @@ where
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_manual_seal::rpc::{ManualSeal, ManualSealApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
-    use subtensor_custom_rpc::{SubtensorCustom, SubtensorCustomApiServer};
+    use subtensor_custom_rpc::{SubtensorCustomRpc, SubtensorCustomRpcApiServer};
 
     let mut module = RpcModule::new(());
     let FullDeps {
@@ -137,7 +137,7 @@ where
     } = deps;
 
     // Custom RPC methods for Paratensor
-    module.merge(SubtensorCustom::new(client.clone()).into_rpc())?;
+    module.merge(SubtensorCustomRpc::new(client.clone()).into_rpc())?;
 
     // Swap RPC
     module.merge(Swap::new(client.clone()).into_rpc())?;

@@ -126,7 +126,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         // Only allow to register non-system hotkeys
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            Self::netuid_for_subnet_account(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
 
@@ -153,7 +153,7 @@ impl<T: Config> Pallet<T> {
     pub fn set_hotkey_owner(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
         // Only allow to register non-system hotkeys
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            Self::netuid_for_subnet_account(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
         Owner::<T>::insert(hotkey, coldkey);

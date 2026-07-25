@@ -203,7 +203,7 @@ pub mod pallet {
         /// Caps at `batched_calls_limit`. Weight is base + sum of actual inner weights.
         #[pallet::call_index(0)]
         #[pallet::weight({
-			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
 			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch(calls.len() as u32));
 			(dispatch_weight, DispatchClass::Normal, pays)
 		})]
@@ -301,7 +301,7 @@ pub mod pallet {
         /// Caps at `batched_calls_limit`.
         #[pallet::call_index(2)]
         #[pallet::weight({
-			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
 			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch_all(calls.len() as u32));
 			(dispatch_weight, DispatchClass::Normal, pays)
 		})]
@@ -390,7 +390,7 @@ pub mod pallet {
         /// [`Event::BatchCompleted`] or [`Event::BatchCompletedWithErrors`].
         #[pallet::call_index(4)]
         #[pallet::weight({
-			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
 			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::force_batch(calls.len() as u32));
 			(dispatch_weight, DispatchClass::Normal, pays)
 		})]
@@ -568,7 +568,7 @@ pub mod pallet {
         /// Sum inner `call_weight`s and OR their `Pays` flags for batch weight annotations.
         ///
         /// Outer dispatch class is chosen separately (always `Normal` for this pallet's batches).
-        fn weight_and_dispatch_class(calls: &[<T as Config>::RuntimeCall]) -> (Weight, Pays) {
+        fn batch_calls_weight_and_pays(calls: &[<T as Config>::RuntimeCall]) -> (Weight, Pays) {
             let mut total_weight = Weight::zero();
             let mut pays = Pays::No;
 

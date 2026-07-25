@@ -1,4 +1,4 @@
-use super::{CallOf, RuntimeCallOriginOf, applicable_call};
+use super::{GuardsRuntimeCallOf, RuntimeCallOriginOf, subtensor_call_if};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, WeightCommits};
 use frame_support::{
@@ -247,29 +247,29 @@ impl<T: Config> CheckWeights<T> {
     }
 }
 
-impl<T> DispatchExtension<CallOf<T>> for CheckWeights<T>
+impl<T> DispatchExtension<GuardsRuntimeCallOf<T>> for CheckWeights<T>
 where
     T: Config,
-    CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
+    GuardsRuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
     RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
-    fn weight(call: &CallOf<T>) -> Weight {
-        applicable_call(call, Self::applies_to)
+    fn weight(call: &GuardsRuntimeCallOf<T>) -> Weight {
+        subtensor_call_if(call, Self::applies_to)
             .map(|_| <T as Config>::WeightInfo::check_weights_extension())
             .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
         origin: &RuntimeCallOriginOf<T>,
-        call: &CallOf<T>,
+        call: &GuardsRuntimeCallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {
             return Ok(());
         };
 
-        let Some(call) = applicable_call(call, Self::applies_to) else {
+        let Some(call) = subtensor_call_if(call, Self::applies_to) else {
             return Ok(());
         };
 

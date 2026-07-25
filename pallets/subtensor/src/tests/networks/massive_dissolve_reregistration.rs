@@ -271,7 +271,7 @@ fn massive_dissolve_refund_and_reregistration_flow_is_lossless_and_cleans_state(
                 "alpha ledger not fully cleared for net {net:?}"
             );
             assert!(
-                !SubtensorModule::if_subnet_exist(net),
+                !SubtensorModule::subnet_exists(net),
                 "subnet {net:?} still exists"
             );
             assert!(

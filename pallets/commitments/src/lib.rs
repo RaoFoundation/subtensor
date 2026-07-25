@@ -85,7 +85,7 @@ pub mod pallet {
         type FieldDeposit: Get<BalanceOf<Self>>;
 
         /// Supplies subnet epoch indices for the [`UsedSpaceOf`] rate-limit window.
-        type TempoInterface: GetTempoInterface;
+        type SubtensorTempoBridge: GetTempoInterface;
     }
 
     /// Resolves a subnet's current epoch index for commitment rate-limit windows.
@@ -269,7 +269,7 @@ pub mod pallet {
 
             let mut usage = UsedSpaceOf::<T>::get(netuid, &who).unwrap_or_default();
             let cur_block_u64 = cur_block.saturated_into::<u64>();
-            let current_epoch = T::TempoInterface::get_epoch_index(netuid, cur_block_u64);
+            let current_epoch = T::SubtensorTempoBridge::get_epoch_index(netuid, cur_block_u64);
 
             if usage.last_epoch != current_epoch {
                 usage.last_epoch = current_epoch;

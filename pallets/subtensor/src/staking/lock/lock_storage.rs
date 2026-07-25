@@ -190,7 +190,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         enabled: bool,
     ) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         let now = Self::get_current_block_as_u64();
         let current_enabled = Self::is_perpetual_lock(coldkey, netuid);

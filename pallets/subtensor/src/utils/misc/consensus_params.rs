@@ -43,7 +43,7 @@ impl<T: Config> Pallet<T> {
     /// Fetch LastUpdate for `netuid` and ensure its length is at least `get_subnetwork_n(netuid)`,
     /// padding with zeros if needed. Returns the (possibly padded) vector.
     pub fn get_last_update(netuid_index: NetUidStorageIndex) -> Vec<u64> {
-        let netuid = Self::get_netuid(netuid_index);
+        let netuid = Self::netuid_from_mechanism_storage_index(netuid_index);
         let target_len = Self::get_subnetwork_n(netuid) as usize;
         let mut v = LastUpdate::<T>::get(netuid_index);
         if v.len() < target_len {

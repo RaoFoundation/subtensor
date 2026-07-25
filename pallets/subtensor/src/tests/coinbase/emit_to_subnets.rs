@@ -40,7 +40,7 @@ fn test_coinbase_emit_to_subnets_with_no_root_sell() {
         );
         let price: U96F32 = U96F32::saturating_from_num(Swap::current_alpha_price(netuid0));
         let (tao_in, alpha_in, alpha_out, excess_tao) =
-            SubtensorModule::get_subnet_terms(&subnet_emissions);
+            SubtensorModule::compute_subnet_emission_terms(&subnet_emissions);
         // Based on the price, we should have NO excess TAO
         assert!(tao_emission / price <= alpha_emission);
 
@@ -132,7 +132,7 @@ fn test_coinbase_emit_to_subnets_with_root_sell() {
         );
         let price: U96F32 = U96F32::saturating_from_num(Swap::current_alpha_price(netuid0));
         let (tao_in, alpha_in, alpha_out, excess_tao) =
-            SubtensorModule::get_subnet_terms(&subnet_emissions);
+            SubtensorModule::compute_subnet_emission_terms(&subnet_emissions);
         // Based on the price, we should have NO excess TAO
         assert!(tao_emission / price <= alpha_emission);
 

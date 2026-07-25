@@ -63,7 +63,7 @@ impl<T: Config> Pallet<T> {
 
     /// [`SubnetState`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_state(netuid: NetUid) -> Option<SubnetState<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
         let n: u16 = Self::get_subnetwork_n(netuid);

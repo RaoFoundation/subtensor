@@ -223,7 +223,7 @@ where
         }
 
         let signer = origin.as_system_origin_signer()?;
-        pallet_subtensor::Pallet::<T>::maybe_coldkey_for_hotkey(signer)
+        pallet_subtensor::Pallet::<T>::owning_coldkey_for_hotkey_if_set(signer)
     }
 }
 

@@ -19,7 +19,7 @@ mod hooks {
         /// * `block_number` — current block; selects which netuid slot is cleaned via
         ///   `HotkeySwapOnSubnetInterval` residue.
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
-            let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
+            let hotkey_swap_clean_up_weight = Self::purge_expired_hotkey_swap_on_netuid_records(block_number);
 
             let block_step_result = Self::block_step();
             match block_step_result {
@@ -221,7 +221,7 @@ mod hooks {
         ///
         /// Each block only touches netuids where `netuid % HotkeySwapOnSubnetInterval` equals
         /// `block_number % HotkeySwapOnSubnetInterval`, spreading cleanup across the interval.
-        pub(crate) fn clean_up_hotkey_swap_records(block_number: BlockNumberFor<T>) -> Weight {
+        pub(crate) fn purge_expired_hotkey_swap_on_netuid_records(block_number: BlockNumberFor<T>) -> Weight {
             let mut weight = Weight::from_parts(0, 0);
             let hotkey_swap_on_subnet_interval = T::HotkeySwapOnSubnetInterval::get();
             let block_number: u64 = TryInto::try_into(block_number)

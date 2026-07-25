@@ -55,7 +55,7 @@ fn test_swap_total_hotkey_stake() {
 
         // Swap hotkey
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -91,7 +91,7 @@ fn test_swap_staking_hotkeys() {
         Alpha::<Test>::insert((old_hotkey, coldkey, netuid), U64F64::from_num(100));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -142,7 +142,7 @@ fn test_swap_hotkey_with_multiple_coldkeys() {
         let stake2_before = SubtensorModule::get_total_stake_for_coldkey(&coldkey2);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey1),
             &old_hotkey,
             &new_hotkey,
@@ -191,7 +191,7 @@ fn test_swap_hotkey_with_multiple_subnets() {
         IsNetworkMember::<Test>::insert(old_hotkey, netuid2, true);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -200,7 +200,7 @@ fn test_swap_hotkey_with_multiple_subnets() {
         ));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey_2,
@@ -253,7 +253,7 @@ fn test_swap_staking_hotkeys_multiple_coldkeys() {
         ));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey1),
             &old_hotkey,
             &new_hotkey,
@@ -291,7 +291,7 @@ fn test_swap_hotkey_with_no_stake() {
         Owner::<Test>::insert(old_hotkey, coldkey);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -364,7 +364,7 @@ fn test_swap_hotkey_with_multiple_coldkeys_and_subnets() {
         assert!(!total_hk_stake.is_zero());
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey1),
             &old_hotkey,
             &new_hotkey,
@@ -373,7 +373,7 @@ fn test_swap_hotkey_with_multiple_coldkeys_and_subnets() {
         ));
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey1),
             &old_hotkey,
             &new_hotkey_2,
@@ -486,7 +486,7 @@ fn test_swap_stake_success() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -576,7 +576,7 @@ fn test_swap_stake_v2_success() {
 
         // Perform the swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -648,7 +648,7 @@ fn test_swap_hotkey_error_cases() {
         let swap_cost = SubtensorModule::get_key_swap_cost();
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_err!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -664,7 +664,7 @@ fn test_swap_hotkey_error_cases() {
         // Test new hotkey same as old
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_noop!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &old_hotkey,
@@ -678,7 +678,7 @@ fn test_swap_hotkey_error_cases() {
         IsNetworkMember::<Test>::insert(new_hotkey, netuid, true);
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
         assert_noop!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -691,7 +691,7 @@ fn test_swap_hotkey_error_cases() {
 
         // Test non-associated coldkey
         assert_noop!(
-            SubtensorModule::do_swap_hotkey(
+            SubtensorModule::perform_hotkey_swap(
                 RuntimeOrigin::signed(wrong_coldkey),
                 &old_hotkey,
                 &new_hotkey,
@@ -703,7 +703,7 @@ fn test_swap_hotkey_error_cases() {
 
         // Run the successful swap
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -763,7 +763,7 @@ fn test_hotkey_swap_keep_stake() {
                 netuid,
             );
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             <<Test as Config>::RuntimeOrigin>::signed(coldkey),
             &old_hotkey,
             &new_hotkey,
@@ -946,7 +946,7 @@ fn test_swap_hotkey_with_existing_stake() {
         assert!(!total_hk2_stake.is_zero());
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get());
 
-        assert_ok!(SubtensorModule::do_swap_hotkey(
+        assert_ok!(SubtensorModule::perform_hotkey_swap(
             RuntimeOrigin::signed(coldkey),
             &old_hotkey,
             &new_hotkey,

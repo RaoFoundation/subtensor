@@ -323,7 +323,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         // ------------------------------------------------------------------
         // Final subnet removal confirmation
         // ------------------------------------------------------------------
-        assert!(!SubtensorModule::if_subnet_exist(net));
+        assert!(!SubtensorModule::subnet_exists(net));
     });
 }
 

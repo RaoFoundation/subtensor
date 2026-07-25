@@ -324,7 +324,7 @@ impl pallet_subtensor::Config for Test {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
     type SubtensorPalletId = SubtensorPalletId;
@@ -459,8 +459,8 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
-pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl pallet_subtensor::CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,

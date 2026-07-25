@@ -78,7 +78,7 @@ pub fn set_coldkey_auto_stake_hotkey(
     hotkey: T::AccountId,
 ) -> DispatchResult {
     let coldkey = ensure_signed(origin)?;
-    ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+    ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
     ensure!(
         Uids::<T>::contains_key(netuid, &hotkey),
         Error::<T>::HotKeyNotRegisteredInSubNet
@@ -115,6 +115,6 @@ pub fn set_coldkey_auto_stake_hotkey(
 }
 ```
 
-Delegates to [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L39).
+Delegates to [`subnet_exists`](/code/pallets/subtensor/src/subnets/subnet.rs#L39).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

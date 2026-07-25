@@ -47,16 +47,16 @@ fn test_replace_neuron() {
 
         // set non-default values
         Emission::<Test>::mutate(netuid, |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, 5.into())
+            SubtensorModule::set_vec_element_at(v, neuron_uid as usize, 5.into())
         });
         Consensus::<Test>::mutate(netuid, |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
+            SubtensorModule::set_vec_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
         Incentive::<Test>::mutate(NetUidStorageIndex::from(netuid), |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
+            SubtensorModule::set_vec_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
         Dividends::<Test>::mutate(netuid, |v| {
-            SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
+            SubtensorModule::set_vec_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
         Bonds::<Test>::insert(NetUidStorageIndex::from(netuid), neuron_uid, vec![(0, 1)]);
 
