@@ -204,7 +204,7 @@ pallets/subtensor/src/tests/claim_root.rs
 - hits:
 ```
 pallets/subtensor/src/epoch/math/fixed_conversions.rs
-pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/epoch/
 pallets/subtensor/src/tests/math.rs
 ```
 - proposed by: w2-src-epoch
@@ -226,7 +226,7 @@ pallets/subtensor/src/tests/math.rs
 ```
 pallets/subtensor/src/epoch/run_epoch/bonds_ema_liquid_alpha.rs
 pallets/subtensor/src/coinbase/run_coinbase.rs
-pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/epoch/
 pallets/subtensor/src/tests/coinbase.rs
 ```
 - proposed by: w2-src-epoch
@@ -238,7 +238,7 @@ pallets/subtensor/src/tests/coinbase.rs
 ```
 pallets/subtensor/src/epoch/run_epoch/bonds_ema_liquid_alpha.rs
 runtime/src/lib.rs
-pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/epoch/
 ```
 - proposed by: w2-src-epoch
 - status: pending
@@ -248,7 +248,7 @@ pallets/subtensor/src/tests/epoch.rs
 - hits:
 ```
 pallets/subtensor/src/epoch/run_epoch/weights_bonds_loaders.rs
-pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/epoch/
 pallets/subtensor/src/tests/mechanism.rs
 pallets/subtensor/src/tests/weights.rs
 ```

@@ -1005,10 +1005,23 @@
       "id": "w2-test-epoch",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
+      "status": "done",
       "notes": "Split ~3973-line test file into concept-named modules under tests/epoch/",
       "files": [
-        "pallets/subtensor/src/tests/epoch.rs"
+        "pallets/subtensor/src/tests/epoch/mod.rs",
+        "pallets/subtensor/src/tests/epoch/helpers.rs",
+        "pallets/subtensor/src/tests/epoch/graph_epochs.rs",
+        "pallets/subtensor/src/tests/epoch/bonds.rs",
+        "pallets/subtensor/src/tests/epoch/liquid_alpha.rs",
+        "pallets/subtensor/src/tests/epoch/active_stake.rs",
+        "pallets/subtensor/src/tests/epoch/weight_activity.rs",
+        "pallets/subtensor/src/tests/epoch/validator_permits.rs",
+        "pallets/subtensor/src/tests/epoch/epoch_timing.rs",
+        "pallets/subtensor/src/tests/epoch/self_weight.rs",
+        "pallets/subtensor/src/tests/epoch/epoch_outputs.rs",
+        "pallets/subtensor/src/tests/epoch/yuma_3.rs",
+        "pallets/subtensor/src/tests/epoch/snipe_weight_mask.rs",
+        "pallets/subtensor/src/tests/epoch/epoch_input_state.rs"
       ]
     },
     {
