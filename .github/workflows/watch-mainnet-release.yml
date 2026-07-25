@@ -350,7 +350,9 @@ jobs:
       needs.check.result == 'success' &&
       needs.check.outputs.docker_needed == 'true' &&
       (needs.release.result == 'success' || needs.release.result == 'skipped')
-    runs-on: [self-hosted, fireactions-turbo-8]
+    # This job only checks out the helper and polls GitHub; keep build runners
+    # available for the child image workflows that do the CPU-heavy work.
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
       actions: write

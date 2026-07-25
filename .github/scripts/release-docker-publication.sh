@@ -130,7 +130,9 @@ fi
 
 max_attempts="${PUBLICATION_MAX_ATTEMPTS:-3}"
 discovery_polls="${PUBLICATION_DISCOVERY_POLLS:-24}"
-completion_polls="${PUBLICATION_COMPLETION_POLLS:-720}"
+# Leave headroom for the caller's 180-minute job timeout so this helper can
+# report a useful terminal error instead of being killed mid-poll.
+completion_polls="${PUBLICATION_COMPLETION_POLLS:-660}"
 poll_interval="${PUBLICATION_POLL_INTERVAL_SECONDS:-15}"
 
 [[ "$max_attempts" =~ ^[1-9][0-9]*$ ]] \
