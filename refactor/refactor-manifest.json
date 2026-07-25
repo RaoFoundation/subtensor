@@ -871,10 +871,20 @@
       "id": "w2-test-staking",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
-      "notes": "Split ~6006-line test file into concept-named modules under tests/staking/",
+      "status": "done",
+      "notes": "Split ~6006-line test file into concept-named modules under tests/staking/ mirroring staking/",
       "files": [
-        "pallets/subtensor/src/tests/staking.rs"
+        "pallets/subtensor/src/tests/staking/mod.rs",
+        "pallets/subtensor/src/tests/staking/add_stake.rs",
+        "pallets/subtensor/src/tests/staking/add_stake_limit.rs",
+        "pallets/subtensor/src/tests/staking/remove_stake.rs",
+        "pallets/subtensor/src/tests/staking/remove_stake_limit.rs",
+        "pallets/subtensor/src/tests/staking/unstake.rs",
+        "pallets/subtensor/src/tests/staking/move_stake.rs",
+        "pallets/subtensor/src/tests/staking/delegate_take.rs",
+        "pallets/subtensor/src/tests/staking/helpers.rs",
+        "pallets/subtensor/src/tests/staking/stake_utils.rs",
+        "pallets/subtensor/src/tests/staking/sharepool.rs"
       ]
     },
     {
