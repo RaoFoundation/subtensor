@@ -56,9 +56,9 @@ pub mod deprecated {
     pub type UnlockRate<T: Config> = StorageValue<Pallet<T>, u64, ValueQuery>;
 }
 
-/// This migration removes the conviction v1 maps that were deprecated before they were
-/// deployed on mainnet. They existed briefly on testnet and contain some values that need
-/// to be cleaned before deploying conviction v2.
+/// Removes conviction v1 maps that were deprecated before conviction v2 shipped (`HotkeyLock`/`Lock`/`MaturityRate`/`UnlockRate` cleanup).
+///
+/// Idempotency key (frozen): `migrate_remove_deprecated_conviction_maps`.
 pub fn migrate_remove_deprecated_conviction_maps<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_deprecated_conviction_maps".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

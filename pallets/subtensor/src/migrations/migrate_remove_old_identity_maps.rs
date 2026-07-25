@@ -3,6 +3,10 @@ use crate::HasMigrationRun;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 
+/// Clears superseded identity maps `Identities`, `SubnetIdentities`, and `SubnetIdentitiesV2`
+/// after the V3 identity layout took over.
+///
+/// Idempotency key (frozen): `migrate_remove_old_identity_maps`.
 pub fn migrate_remove_old_identity_maps<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_old_identity_maps".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

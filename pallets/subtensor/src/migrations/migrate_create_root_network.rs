@@ -19,26 +19,10 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrates the storage to create the root network
+/// Creates the root subnet (`NetUid::ROOT`) with bootstrap hyperparameters if it is not already present.
 ///
-/// This function performs the following steps:
-/// 1. Checks if the root network already exists
-/// 2. If not, creates the root network with default settings
-/// 3. Removes all existing senate members
-///
-/// # Arguments
-///
-/// * `T` - The Config trait of the pallet
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation
-///
-/// # Example
-///
-/// ```ignore
-/// let weight = migrate_create_root_network::<Runtime>();
-/// ```
+/// Sets max uids/validators to 64, tempo 100, registration open, and target registrations to 1 per interval.
+/// No-op when `NetworksAdded(ROOT)` is already true. Does not use [`HasMigrationRun`].
 pub fn migrate_create_root_network<T: Config>() -> Weight {
     // Initialize weight counter
     let mut weight = T::DbWeight::get().reads(1);

@@ -1,6 +1,9 @@
 use crate::{Config, Event, HasMigrationRun, NetworkImmunityPeriod, Pallet, Weight};
 use scale_info::prelude::string::String;
 
+/// Sets the global `NetworkImmunityPeriod` hyperparameter to the cutover value used at migration time.
+///
+/// Idempotency key (frozen): `migrate_network_immunity_period`.
 pub fn migrate_network_immunity_period<T: Config>() -> Weight {
     use frame_support::traits::Get;
 

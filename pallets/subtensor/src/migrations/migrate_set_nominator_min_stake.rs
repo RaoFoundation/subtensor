@@ -2,6 +2,9 @@ use super::*;
 use alloc::string::String;
 use frame_support::{traits::Get, weights::Weight};
 
+/// Sets nominator min required stake to `10_000_000` rao via `set_nominator_min_required_stake`.
+///
+/// Idempotency key (frozen): `migrate_set_nominator_min_stake`.
 pub fn migrate_set_nominator_min_stake<T: Config>() -> Weight {
     let migration_name = b"migrate_set_nominator_min_stake".to_vec();
 

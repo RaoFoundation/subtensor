@@ -6,6 +6,9 @@ use subtensor_runtime_common::NetUid;
 
 use super::*;
 
+/// Sets min PoW registration difficulty to 10_000_000 for all subnets.
+///
+/// Idempotency key (frozen): `migrate_set_min_difficulty`.
 pub fn migrate_set_min_difficulty<T: Config>() -> Weight {
     let migration_name = b"migrate_set_min_difficulty".to_vec();
 

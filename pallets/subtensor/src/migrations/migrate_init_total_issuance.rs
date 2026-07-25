@@ -14,7 +14,9 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// This on-going migration is disabled as part of imbalances work.
+/// Ongoing total-issuance sync migration — **disabled** (imbalances work); returns zero-weight no-op.
+///
+/// Previously recomputed `TotalStake` / `TotalIssuance` from subnet TAO + balances; left as a stub so call sites stay stable.
 pub(crate) fn migrate_init_total_issuance<T: Config>() -> Weight {
     // let subnets_len = crate::NetworksAdded::<T>::iter().count() as u64;
 
@@ -58,7 +60,9 @@ pub(crate) fn migrate_init_total_issuance<T: Config>() -> Weight {
     T::DbWeight::get().reads(0)
 }
 
-/// This on-going migration is disabled as part of imbalances work.
+/// One-shot total-issuance initialization from account balances + stake (imbalances-era bootstrap).
+///
+/// Idempotency key (frozen): `migrate_init_total_issuance_once`.
 pub(crate) fn migrate_init_total_issuance_once<T: Config>() -> Weight {
     let migration_name = b"migrate_init_total_issuance_once".to_vec();
     let weight = T::DbWeight::get().reads(1);

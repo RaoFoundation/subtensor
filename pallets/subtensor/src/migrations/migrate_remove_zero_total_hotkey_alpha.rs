@@ -3,6 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Prunes zero-valued `TotalHotkeyAlpha` entries that waste storage without affecting balances.
+///
+/// Idempotency key (frozen): `migrate_remove_zero_total_hotkey_alpha`.
 pub fn migrate_remove_zero_total_hotkey_alpha<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_zero_total_hotkey_alpha".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

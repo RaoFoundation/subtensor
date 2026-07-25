@@ -2,6 +2,11 @@ use super::*;
 use frame_support::traits::fungible::Inspect;
 use frame_support::weights::Weight;
 
+/// Resets `TotalIssuance` to the Balances pallet's authoritative `total_issuance` when either
+/// frozen key has not yet run: `migrate_fix_total_issuance_evm_fees` or
+/// `migrate_fix_total_issuance_after_dust_collection`.
+///
+/// Both keys perform the same reset; the dual names allow re-applying after distinct incidents.
 pub fn migrate_fix_total_issuance_evm_fees<T: Config>() -> Weight {
     let migration_names: [&[u8]; 2] = [
         // Fix testnet TotalIssuance after the earlier EVM fees issue caused the

@@ -7,6 +7,8 @@ use frame_support::weights::Weight;
 use sp_io::hashing::twox_128;
 use sp_io::storage::{clear, get};
 
+/// Entry point that migrates obsolete last-block rate-limit storage values into the current maps
+/// (`NetworkLastRegistered`, `LastTxBlock`, childkey/delegate-take variants).
 pub fn migrate_obsolete_rate_limiting_last_blocks_storage<T: Config>() -> Weight {
     migrate_network_last_registered::<T>()
         .saturating_add(migrate_last_tx_block::<T>())
@@ -14,6 +16,9 @@ pub fn migrate_obsolete_rate_limiting_last_blocks_storage<T: Config>() -> Weight
         .saturating_add(migrate_last_tx_block_delegate_take::<T>())
 }
 
+/// Migrates `NetworkLastRegistered` last-block values into the current rate-limit storage shape.
+///
+/// Idempotency key (frozen): `migrate_network_last_registered`.
 pub fn migrate_network_last_registered<T: Config>() -> Weight {
     let migration_name = b"migrate_network_last_registered".to_vec();
     let pallet_name = "SubtensorModule";
@@ -25,6 +30,9 @@ pub fn migrate_network_last_registered<T: Config>() -> Weight {
 }
 
 #[allow(deprecated)]
+/// Migrates per-account `LastTxBlock` rate-limit timestamps into the current storage shape.
+///
+/// Idempotency key (frozen): `migrate_last_tx_block`.
 pub fn migrate_last_tx_block<T: Config>() -> Weight {
     let migration_name = b"migrate_last_tx_block".to_vec();
 
@@ -38,6 +46,9 @@ pub fn migrate_last_tx_block<T: Config>() -> Weight {
 }
 
 #[allow(deprecated)]
+/// Migrates `LastTxBlockChildkeyTake` rate-limit timestamps into the current storage shape.
+///
+/// Idempotency key (frozen): `migrate_last_tx_block_childkey_take`.
 pub fn migrate_last_tx_block_childkey_take<T: Config>() -> Weight {
     let migration_name = b"migrate_last_tx_block_childkey_take".to_vec();
 
@@ -51,6 +62,9 @@ pub fn migrate_last_tx_block_childkey_take<T: Config>() -> Weight {
 }
 
 #[allow(deprecated)]
+/// Migrates `LastTxBlockDelegateTake` rate-limit timestamps into the current storage shape.
+///
+/// Idempotency key (frozen): `migrate_last_tx_block_delegate_take`.
 pub fn migrate_last_tx_block_delegate_take<T: Config>() -> Weight {
     let migration_name = b"migrate_last_tx_block_delegate_take".to_vec();
 

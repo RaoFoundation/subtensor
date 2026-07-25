@@ -6,6 +6,9 @@ use crate::{Config, HasMigrationRun, LastRateLimitedBlock, RateLimitKey};
 
 const MIGRATION_NAME: &[u8] = b"migrate_remove_add_stake_burn_rate_limit";
 
+/// Removes obsolete `LastRateLimitedBlock` entries keyed for the retired add-stake-burn rate limit.
+///
+/// Idempotency key (frozen): `migrate_remove_add_stake_burn_rate_limit`.
 pub fn migrate_remove_add_stake_burn_rate_limit<T: Config>() -> Weight {
     let mut weight = T::DbWeight::get().reads(1);
 

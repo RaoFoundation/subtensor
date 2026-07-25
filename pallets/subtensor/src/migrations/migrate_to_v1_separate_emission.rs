@@ -23,21 +23,9 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrates the LoadedEmission storage to a new format
+/// Migrates legacy `LoadedEmission` into the separated emission storage format (storage version bump era).
 ///
-/// # Arguments
-///
-/// * `T` - The runtime configuration trait
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation
-///
-/// # Example
-///
-/// ```ignore
-/// let weight = migrate_to_v1_separate_emission::<Runtime>();
-/// ```
+/// Does not use [`HasMigrationRun`]; gated by pallet storage version in the body.
 pub fn migrate_to_v1_separate_emission<T: Config>() -> Weight {
     use deprecated_loaded_emission_format as old;
 

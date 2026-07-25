@@ -4,6 +4,9 @@ use log;
 use scale_info::prelude::string::String;
 use sp_std::collections::btree_map::BTreeMap;
 
+/// Ensures every coldkey with non-zero `Alpha` stake lists the corresponding hotkey in `StakingHotkeys`.
+///
+/// Idempotency key (frozen): `migrate_fix_staking_hot_keys`.
 pub fn migrate_fix_staking_hot_keys<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_staking_hot_keys".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

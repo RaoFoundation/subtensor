@@ -3,6 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Resets per-subnet `Kappa` to the pallet default for every existing netuid.
+///
+/// Idempotency key (frozen): `kappa_map_to_default`.
 pub fn migrate_kappa_map_to_default<T: Config>() -> Weight {
     let mig_name: Vec<u8> = b"kappa_map_to_default".to_vec();
     let mig_name_str = String::from_utf8_lossy(&mig_name);

@@ -3,6 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Caps each subnet's `BondsMovingAverage` at 975_000 when the stored value exceeds that ceiling.
+///
+/// Idempotency key (frozen): `migrate_reset_bonds_moving_average`.
 pub fn migrate_reset_bonds_moving_average<T: Config>() -> Weight {
     let migration_name = b"migrate_reset_bonds_moving_average".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

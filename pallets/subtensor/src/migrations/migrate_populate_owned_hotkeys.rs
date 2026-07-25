@@ -19,7 +19,10 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrate the OwnedHotkeys map to the new storage format
+/// Rebuilds `OwnedHotkeys` from the `Owner` map when `OwnedHotkeys` is empty.
+///
+/// Gated by emptiness of `OwnedHotkeys` (not [`HasMigrationRun`]); the log label
+/// `Populate OwnedHotkeys map` is for logging only.
 pub fn migrate_populate_owned<T: Config>() -> Weight {
     // Setup migration weight
     let mut weight = T::DbWeight::get().reads(1);

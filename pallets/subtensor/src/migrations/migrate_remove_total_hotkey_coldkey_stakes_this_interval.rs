@@ -3,6 +3,10 @@ use crate::HasMigrationRun;
 use frame_support::{traits::Get, weights::Weight};
 use sp_io::{KillStorageResult, hashing::twox_128, storage::clear_prefix};
 
+/// Clears obsolete `TotalHotkeyColdkeyStakesThisInterval` storage under `SubtensorModule`.
+///
+/// Idempotency key (frozen): `migrate_remove_total_hotkey_coldkey_stakes_this_interval`.
+/// Marks complete only when `clear_prefix` reports `AllRemoved`.
 pub fn migrate_remove_total_hotkey_coldkey_stakes_this_interval<T: Config>() -> Weight {
     let migration_name = "migrate_remove_total_hotkey_coldkey_stakes_this_interval";
     let migration_name_bytes = migration_name.as_bytes().to_vec();

@@ -2,20 +2,10 @@ use super::*;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 
-/// Backfill [`ColdkeyCollateralHotkeys`] from existing [`MinerCollateral`] rows.
+/// Backfills [`ColdkeyCollateralHotkeys`] from existing [`MinerCollateral`] rows so coldkeys can look up
+/// their collateralized hotkeys without scanning the collateral map.
 ///
-/// Collateral rows may exist before this index shipped (testnets / early
-/// deploys). Without a backfill, lazy indexing can fill the 32-entry cap while
-/// a legacy unindexed row remains, so a later hotkey swap fails after mutating
-/// storage. This migration indexes every standing row up to
-/// [`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`] per `(netuid, coldkey)`.
-///
-/// Over-cap coldkeys keep their aggregate and MinerCollateral rows; only the
-/// index stops growing. Coldkey swaps for those coldkeys fail closed with
-/// [`Error::ColdkeyCollateralIncomplete`] until enough indexed positions drain.
-/// That branch is unreachable for any realistic mainnet state at first deploy
-/// (collateral ships with this index), but keeps the maps consistent under the
-/// pallet's bound.
+/// Idempotency key (frozen): `migrate_coldkey_collateral_hotkeys`.
 pub fn migrate_coldkey_collateral_hotkeys<T: Config>() -> Weight {
     let migration_name = b"migrate_coldkey_collateral_hotkeys".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

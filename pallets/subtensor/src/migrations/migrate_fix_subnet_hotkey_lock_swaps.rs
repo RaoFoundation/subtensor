@@ -237,10 +237,10 @@ fn add_to_aggregate<T: Config>(
     }
 }
 
-/// Fixes lock state left behind by subnet-scoped hotkey swaps.
+/// Repairs conviction / hotkey lock state left inconsistent after subnet-scoped hotkey swaps
+/// (`HotkeyLock`, `OwnerLock`, decaying variants, and `LockingColdkeys`).
 ///
-/// If a destination lock already exists for the same coldkey, the old lock is
-/// discarded instead of merged.
+/// Idempotency key (frozen): `migrate_fix_subnet_hotkey_lock_swaps`.
 pub fn migrate_fix_subnet_hotkey_lock_swaps<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_subnet_hotkey_lock_swaps".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

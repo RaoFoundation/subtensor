@@ -6,6 +6,10 @@ use subtensor_runtime_common::{AlphaBalance, NetUid};
 
 use super::*;
 
+/// Dynamic-TAO / RAO cutover migration: initializes subnet mechanism, pool, lock, and related RAO-era fields.
+/// The stake-to-root rewrite body is intentionally commented (already applied on live chains) and kept for reference.
+///
+/// Idempotency key (frozen): `migrate_rao`.
 pub fn migrate_rao<T: Config>() -> Weight {
     let migration_name = b"migrate_rao".to_vec();
 

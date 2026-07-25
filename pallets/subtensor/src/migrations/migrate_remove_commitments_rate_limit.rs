@@ -4,6 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_io::{KillStorageResult, hashing::twox_128, storage::clear_prefix};
 
+/// Clears the obsolete commitments `RateLimit` storage prefix under `SubtensorModule`.
+///
+/// Idempotency key (frozen): `migrate_remove_commitments_rate_limit`.
 pub fn migrate_remove_commitments_rate_limit<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_commitments_rate_limit".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

@@ -4,6 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 
 use super::*;
 
+/// Clears all `SubnetEmaTaoFlow` entries so EMA tao-flow state restarts empty after the feature cutover.
+///
+/// Idempotency key (frozen): `migrate_init_tao_flow`.
 pub fn migrate_init_tao_flow<T: Config>() -> Weight {
     let migration_name = b"migrate_init_tao_flow".to_vec();
 

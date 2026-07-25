@@ -4,6 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_std::collections::btree_set::BTreeSet;
 
+/// Drops `Axons`, `NeuronCertificates`, and `Prometheus` rows whose hotkey is not a current subnet member.
+///
+/// Idempotency key (frozen): `migrate_remove_neuron_axon_cert_prom`.
 pub fn migrate_remove_unknown_neuron_axon_cert_prom<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_neuron_axon_cert_prom".to_vec();
     let mut weight: Weight = T::DbWeight::get().reads(1);

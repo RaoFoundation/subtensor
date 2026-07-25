@@ -3,8 +3,9 @@ use alloc::string::String;
 use frame_support::IterableStorageMap;
 use frame_support::{traits::Get, weights::Weight};
 
-/// Migrates the subnet symbols to their correct values because some shift is present
-/// after subnet 81.
+/// Rewrites `TokenSymbol` for each subnet to the canonical symbol table after a historical shift bug.
+///
+/// Idempotency key (frozen): `migrate_subnet_symbols`.
 pub fn migrate_subnet_symbols<T: Config>() -> Weight {
     let migration_name = b"migrate_subnet_symbols".to_vec();
 

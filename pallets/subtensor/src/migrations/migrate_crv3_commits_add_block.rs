@@ -4,9 +4,9 @@ use log;
 use scale_info::prelude::string::String;
 use sp_std::collections::vec_deque::VecDeque;
 
-/// --------------- Migration ------------------------------------------
-/// Upgrades every entry to the new 4-tuple layout by inserting
-/// `commit_block = first_block_of_epoch(netuid, epoch)`.
+/// Upgrades CRV3 weight-commit queue entries to include the commit block number (`CRV3WeightCommitsV2`).
+///
+/// Idempotency key (frozen): `crv3_commits_add_block_v1`.
 pub fn migrate_crv3_commits_add_block<T: Config>() -> Weight {
     let mig_name: Vec<u8> = b"crv3_commits_add_block_v1".to_vec();
     let mut total_weight = T::DbWeight::get().reads(1);

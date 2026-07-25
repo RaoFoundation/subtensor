@@ -2,13 +2,10 @@ use super::*;
 use frame_support::weights::Weight;
 use scale_info::prelude::string::String;
 
-/// Clears conviction v2 lock state that only exists on testnet before this
-/// conviction design is deployed more broadly.
+/// Clears conviction v2 lock state that only exists on testnet before a conviction feature cutover
+/// (`HotkeyLock`, `OwnerLock`, `Lock`, and decaying variants).
 ///
-/// `devnet-ready` had `Lock`, `HotkeyLock`, `DecayingHotkeyLock`, `OwnerLock`,
-/// and `DecayingLock`, but did not have `DecayingOwnerLock`. `OwnerLock` also
-/// used the old owner-coldkey aggregate semantics. Clear these prefixes without
-/// decoding values so old or incompatible aggregate bytes are removed safely.
+/// Idempotency key (frozen): `migrate_reset_tnet_conviction_locks`.
 pub fn migrate_reset_tnet_conviction_locks<T: Config>() -> Weight {
     let migration_name = b"migrate_reset_tnet_conviction_locks".to_vec();
     let mut weight = T::DbWeight::get().reads(1);
