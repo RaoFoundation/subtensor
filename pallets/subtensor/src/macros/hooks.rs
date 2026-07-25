@@ -1,20 +1,23 @@
 #![allow(clippy::crate_in_macro_def)]
 use frame_support::pallet_macros::pallet_section;
 
-/// A [`pallet_section`] that defines the events for a pallet.
-/// This can later be imported into the pallet using [`import_section`].
+/// [`pallet_section`] defining FRAME hooks for the subtensor pallet (imported via [`import_section`]).
+///
+/// Owns `on_initialize` (block step), `on_runtime_upgrade` (migration chain), `on_idle`, and
+/// try-runtime state checks. Migration **name strings** are frozen for idempotency (Tier D).
 #[pallet_section]
 mod hooks {
-    // ================
-    // ==== Hooks =====
-    // ================
+    /// Block and runtime-upgrade hooks for SubtensorModule.
+    ///
+    /// `on_initialize` always charges `WeightInfo::block_step` plus hotkey-swap cleanup weight,
+    /// even when `block_step` returns an error (logged, not reverted).
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        // ---- Called on the initialization of this pallet. (the order of on_finalize calls is determined in the runtime)
-        //
-        // # Args:
-        // 	* 'n': (BlockNumberFor<T>):
-        // 		- The number of the block we are initializing.
+        /// Runs each block: purge stale subnet hotkey-swap records, then `block_step` (epochs / coinbase).
+        ///
+        /// # Args
+        /// * `block_number` — current block; selects which netuid slot is cleaned via
+        ///   `HotkeySwapOnSubnetInterval` residue.
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
@@ -35,6 +38,10 @@ mod hooks {
             }
         }
 
+        /// Chains historical storage migrations; each call is expected to be idempotent via its own guards.
+        ///
+        /// Order is load-bearing for chains that have not yet run older steps. Do not rename migration
+        /// identifiers that are recorded in `HasMigrationRun` / similar.
         fn on_runtime_upgrade() -> frame_support::weights::Weight {
             // --- Migrate storage
             let mut weight = frame_support::weights::Weight::from_parts(0, 0);
@@ -187,6 +194,7 @@ mod hooks {
             weight
         }
 
+        /// Try-runtime invariant checks; stake total check is currently disabled (see PR #1166).
         #[cfg(feature = "try-runtime")]
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
             // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
@@ -194,6 +202,9 @@ mod hooks {
             Ok(())
         }
 
+        /// Idle-time cleanup: dissolve leftover subnet data, then drain the network registration queue.
+        ///
+        /// Stops when the remaining weight budget would be exceeded.
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {
             let mut weight = Self::remove_data_for_dissolved_networks(limit);
 
@@ -206,8 +217,10 @@ mod hooks {
     }
 
     impl<T: Config> Pallet<T> {
-        // This function is to clean up the old hotkey swap records
-        // It just clean up for one subnet at a time, according to the block number
+        /// Removes expired `LastHotkeySwapOnNetuid` rows for the netuid slot matching this block.
+        ///
+        /// Each block only touches netuids where `netuid % HotkeySwapOnSubnetInterval` equals
+        /// `block_number % HotkeySwapOnSubnetInterval`, spreading cleanup across the interval.
         pub(crate) fn clean_up_hotkey_swap_records(block_number: BlockNumberFor<T>) -> Weight {
             let mut weight = Weight::from_parts(0, 0);
             let hotkey_swap_on_subnet_interval = T::HotkeySwapOnSubnetInterval::get();

@@ -1,12 +1,15 @@
 use frame_support::pallet_macros::pallet_section;
 
-/// A [`pallet_section`] that defines the errors for a pallet.
-/// This can later be imported into the pallet using [`import_section`].
+/// [`pallet_section`] defining genesis build for the subtensor pallet (imported via [`import_section`]).
+///
+/// Seeds root (`NetUid::ROOT`) and a bootstrap dynamic subnet (netuid 1) used by local/dev chains.
+/// Production vs fast-runtime owner keys are selected via `prod_or_fast!`.
 #[pallet_section]
 mod genesis {
     use sp_core::crypto::Pair;
     use sp_core::sr25519::Pair as Sr25519Pair;
 
+    /// Applies [`GenesisConfig`] at chain start: issuance, optional `start_call` delay, root network, and netuid-1 pool.
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
@@ -23,19 +26,20 @@ mod genesis {
             let alice_hk_account = T::AccountId::decode(&mut &alice_hk_bytes[..])
                 .expect("Alice hotkey account should decode");
 
+            // Prod: `DefaultSubnetOwner`; fast/dev: Alice coldkey + `//Alice_hk` hotkey.
             let subnet_root_owner = prod_or_fast!(DefaultSubnetOwner::<T>::get(), alice_account);
             let subnet_root_owner_hotkey =
                 prod_or_fast!(DefaultSubnetOwner::<T>::get(), alice_hk_account);
 
-            // Set initial total issuance from balances
+            // Align SubtensorModule issuance with the balances-pallet genesis figure (rao).
             TotalIssuance::<T>::put(self.balances_issuance);
 
-            // Set start call delay if provided in genesis config
+            // Optional override for blocks before `start_call` may enable emissions.
             if let Some(delay) = self.start_call_delay {
                 StartCallDelay::<T>::put(delay);
             }
 
-            // Set the root network as added.
+            // --- Root network (netuid 0): senate-sized, open registration, no weight floor. ---
             NetworksAdded::<T>::insert(NetUid::ROOT, true);
 
             // Increment the number of total networks.
@@ -74,6 +78,7 @@ mod genesis {
                 Pallet::<T>::get_symbol_for_subnet(NetUid::ROOT),
             );
 
+            // --- Bootstrap subnet netuid 1: dynamic mechanism, seeded AMM reserves, uid 0 = DefaultAccount. ---
             let netuid = NetUid::from(1);
             let hotkey = DefaultAccount::<T>::get();
             SubnetMechanism::<T>::insert(netuid, 1); // Make dynamic.
