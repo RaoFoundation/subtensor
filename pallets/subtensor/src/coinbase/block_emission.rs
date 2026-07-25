@@ -1,42 +1,36 @@
+//! Block TAO emission schedule (logarithmic decay toward the hard supply cap).
+
 use super::*;
-// use frame_support::traits::{Currency as BalancesCurrency, Get, Imbalance};
-use crate::coinbase::tao::CreditOf;
-use frame_support::traits::{Get, Imbalance};
+use crate::coinbase::tao::TaoCreditOf;
+use frame_support::traits::Imbalance;
 use safe_math::*;
 use substrate_fixed::{transcendental::log2, types::I96F32};
 
 impl<T: Config> Pallet<T> {
-    /// Calculates the block emission based on the total issuance and mints corresponding
-    /// amount of TAO.
+    /// Mint this block's TAO emission as a currency credit (or zero credit if none).
     ///
-    /// This function computes the block emission by applying a logarithmic function
-    /// to the total issuance of the network. The formula used takes into account
-    /// the current total issuance and adjusts the emission rate accordingly to ensure
-    /// a smooth issuance curve. The emission rate decreases as the total issuance increases,
-    /// following a logarithmic decay.
-    ///
-    /// # Returns
-    /// * `Result<u64, &'static str>`: The calculated block emission rate or error.
-    ///
-    pub fn get_block_emission() -> CreditOf<T> {
+    /// Uses [`Pallet::calculate_block_emission`] then [`Pallet::mint_tao`]. The credit is
+    /// later spent by [`Pallet::run_coinbase`].
+    pub fn get_block_emission() -> TaoCreditOf<T> {
         let maybe_tao_to_mint = Self::calculate_block_emission();
         if let Ok(tao_to_mint) = maybe_tao_to_mint
             && !tao_to_mint.is_zero()
         {
             return Self::mint_tao(tao_to_mint.into());
         }
-        CreditOf::<T>::zero()
+        TaoCreditOf::<T>::zero()
     }
 
-    /// Calculates the block emission based on the total issuance only, no minting happens.
+    /// Block emission in TAO for the current total issuance — no minting.
     pub fn calculate_block_emission() -> Result<TaoBalance, &'static str> {
-        // Convert the total issuance to a fixed-point number for calculation.
         Self::get_block_emission_for_issuance(Self::get_total_issuance().into()).map(Into::into)
     }
 
-    /// Returns the block emission for an issuance value.
+    /// Block emission (rao) for a hypothetical `issuance` under the log₂ residual schedule.
+    ///
+    /// Returns `0` when issuance is at or above [`TotalSupply`]. The curve floors the log
+    /// residual so emission steps down in powers of two relative to [`DefaultBlockEmission`].
     pub fn get_block_emission_for_issuance(issuance: u64) -> Result<u64, &'static str> {
-        // Convert issuance to a float for calculations below.
         let total_issuance: I96F32 = I96F32::saturating_from_num(issuance);
         // Check to prevent division by zero when the total supply is reached
         // and creating an issuance greater than the total supply.

@@ -1,3 +1,8 @@
+//! Owner/root dispatch helpers for tempo, activity cutoff, and manual epoch trigger.
+//!
+//! These implement the bodies behind admin-utils / owner extrinsics (`do_set_tempo`,
+//! `do_set_activity_cutoff_factor`, `do_trigger_epoch`).
+
 use super::*;
 use crate::Error;
 use frame_support::pallet_prelude::DispatchResult;
