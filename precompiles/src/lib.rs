@@ -1,3 +1,14 @@
+//! # Subtensor EVM precompiles
+//!
+//! Frontier `PrecompileSet` for the Subtensor runtime: standard Ethereum/Frontier
+//! precompiles (ECRecover, Modexp, …) plus Bittensor-specific contracts at fixed
+//! `H160` addresses derived from each type's `INDEX` via
+//! [`precompile_h160_from_index`].
+//!
+//! Admin can disable individual Subtensor precompiles through
+//! `pallet_admin_utils::PrecompileEnable` (see [`extensions::PrecompileExt::try_execute`]).
+//! **Never change** `INDEX` values or `#[precompile::public("…")]` Solidity selectors —
+//! they are a frozen EVM ABI surface.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -64,6 +75,7 @@ mod voting_power;
 #[cfg(test)]
 mod mock;
 
+/// Runtime precompile set: routes `code_address` to Ethereum, Frontier, or Subtensor handlers.
 pub struct Precompiles<R>(PhantomData<R>);
 
 impl<R> Default for Precompiles<R>
@@ -135,40 +147,42 @@ where
     <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
+    /// Constructs an empty marker set (routing is address-based, not stateful).
     pub fn new() -> Self {
         Self(Default::default())
     }
 
+    /// All `H160` addresses this set treats as precompiles (Ethereum + Frontier + Subtensor).
     pub fn used_addresses() -> [H160; 28] {
         [
-            hash(1),
-            hash(2),
-            hash(3),
-            hash(4),
-            hash(5),
-            hash(6),
-            hash(7),
-            hash(8),
-            hash(9),
-            hash(1024),
-            hash(1025),
-            hash(Ed25519Verify::<R::AccountId>::INDEX),
-            hash(Sr25519Verify::<R::AccountId>::INDEX),
-            hash(BalanceTransferPrecompile::<R>::INDEX),
-            hash(StakingPrecompile::<R>::INDEX),
-            hash(SubnetPrecompile::<R>::INDEX),
-            hash(MetagraphPrecompile::<R>::INDEX),
-            hash(NeuronPrecompile::<R>::INDEX),
-            hash(StakingPrecompileV2::<R>::INDEX),
-            hash(StorageQueryPrecompile::<R>::INDEX),
-            hash(UidLookupPrecompile::<R>::INDEX),
-            hash(AlphaPrecompile::<R>::INDEX),
-            hash(CrowdloanPrecompile::<R>::INDEX),
-            hash(LeasingPrecompile::<R>::INDEX),
-            hash(VotingPowerPrecompile::<R>::INDEX),
-            hash(ProxyPrecompile::<R>::INDEX),
-            hash(AddressMappingPrecompile::<R>::INDEX),
-            hash(BalancePrecompile::<R>::INDEX),
+            precompile_h160_from_index(1),
+            precompile_h160_from_index(2),
+            precompile_h160_from_index(3),
+            precompile_h160_from_index(4),
+            precompile_h160_from_index(5),
+            precompile_h160_from_index(6),
+            precompile_h160_from_index(7),
+            precompile_h160_from_index(8),
+            precompile_h160_from_index(9),
+            precompile_h160_from_index(1024),
+            precompile_h160_from_index(1025),
+            precompile_h160_from_index(Ed25519Verify::<R::AccountId>::INDEX),
+            precompile_h160_from_index(Sr25519Verify::<R::AccountId>::INDEX),
+            precompile_h160_from_index(BalanceTransferPrecompile::<R>::INDEX),
+            precompile_h160_from_index(StakingPrecompile::<R>::INDEX),
+            precompile_h160_from_index(SubnetPrecompile::<R>::INDEX),
+            precompile_h160_from_index(MetagraphPrecompile::<R>::INDEX),
+            precompile_h160_from_index(NeuronPrecompile::<R>::INDEX),
+            precompile_h160_from_index(StakingPrecompileV2::<R>::INDEX),
+            precompile_h160_from_index(StorageQueryPrecompile::<R>::INDEX),
+            precompile_h160_from_index(UidLookupPrecompile::<R>::INDEX),
+            precompile_h160_from_index(AlphaPrecompile::<R>::INDEX),
+            precompile_h160_from_index(CrowdloanPrecompile::<R>::INDEX),
+            precompile_h160_from_index(LeasingPrecompile::<R>::INDEX),
+            precompile_h160_from_index(VotingPowerPrecompile::<R>::INDEX),
+            precompile_h160_from_index(ProxyPrecompile::<R>::INDEX),
+            precompile_h160_from_index(AddressMappingPrecompile::<R>::INDEX),
+            precompile_h160_from_index(BalancePrecompile::<R>::INDEX),
         ]
     }
 }
@@ -210,74 +224,74 @@ where
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
         match handle.code_address() {
             // Ethereum precompiles :
-            a if a == hash(1) => Some(ECRecover::execute(handle)),
-            a if a == hash(2) => Some(Sha256::execute(handle)),
-            a if a == hash(3) => Some(Ripemd160::execute(handle)),
-            a if a == hash(4) => Some(Identity::execute(handle)),
-            a if a == hash(5) => Some(Modexp::execute(handle)),
-            a if a == hash(6) => Some(Dispatch::<R>::execute(handle)),
-            a if a == hash(7) => Some(Bn128Mul::execute(handle)),
-            a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
-            a if a == hash(9) => Some(Bn128Add::execute(handle)),
+            a if a == precompile_h160_from_index(1) => Some(ECRecover::execute(handle)),
+            a if a == precompile_h160_from_index(2) => Some(Sha256::execute(handle)),
+            a if a == precompile_h160_from_index(3) => Some(Ripemd160::execute(handle)),
+            a if a == precompile_h160_from_index(4) => Some(Identity::execute(handle)),
+            a if a == precompile_h160_from_index(5) => Some(Modexp::execute(handle)),
+            a if a == precompile_h160_from_index(6) => Some(Dispatch::<R>::execute(handle)),
+            a if a == precompile_h160_from_index(7) => Some(Bn128Mul::execute(handle)),
+            a if a == precompile_h160_from_index(8) => Some(Bn128Pairing::execute(handle)),
+            a if a == precompile_h160_from_index(9) => Some(Bn128Add::execute(handle)),
             // Non-Frontier specific nor Ethereum precompiles :
-            a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
-            a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
-            a if a == hash(Ed25519Verify::<R::AccountId>::INDEX) => {
+            a if a == precompile_h160_from_index(1024) => Some(Sha3FIPS256::execute(handle)),
+            a if a == precompile_h160_from_index(1025) => Some(ECRecoverPublicKey::execute(handle)),
+            a if a == precompile_h160_from_index(Ed25519Verify::<R::AccountId>::INDEX) => {
                 Some(Ed25519Verify::<R::AccountId>::execute(handle))
             }
-            a if a == hash(Sr25519Verify::<R::AccountId>::INDEX) => {
+            a if a == precompile_h160_from_index(Sr25519Verify::<R::AccountId>::INDEX) => {
                 Some(Sr25519Verify::<R::AccountId>::execute(handle))
             }
             // Subtensor specific precompiles :
-            a if a == hash(BalanceTransferPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(BalanceTransferPrecompile::<R>::INDEX) => {
                 BalanceTransferPrecompile::<R>::try_execute::<R>(
                     handle,
                     PrecompileEnum::BalanceTransfer,
                 )
             }
-            a if a == hash(StakingPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(StakingPrecompile::<R>::INDEX) => {
                 StakingPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Staking)
             }
-            a if a == hash(StakingPrecompileV2::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(StakingPrecompileV2::<R>::INDEX) => {
                 StakingPrecompileV2::<R>::try_execute::<R>(handle, PrecompileEnum::Staking)
             }
-            a if a == hash(SubnetPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(SubnetPrecompile::<R>::INDEX) => {
                 SubnetPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Subnet)
             }
-            a if a == hash(MetagraphPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(MetagraphPrecompile::<R>::INDEX) => {
                 MetagraphPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Metagraph)
             }
-            a if a == hash(NeuronPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(NeuronPrecompile::<R>::INDEX) => {
                 NeuronPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Neuron)
             }
-            a if a == hash(UidLookupPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(UidLookupPrecompile::<R>::INDEX) => {
                 UidLookupPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::UidLookup)
             }
-            a if a == hash(StorageQueryPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(StorageQueryPrecompile::<R>::INDEX) => {
                 Some(StorageQueryPrecompile::<R>::execute(handle))
             }
-            a if a == hash(AlphaPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(AlphaPrecompile::<R>::INDEX) => {
                 AlphaPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Alpha)
             }
-            a if a == hash(CrowdloanPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(CrowdloanPrecompile::<R>::INDEX) => {
                 CrowdloanPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Crowdloan)
             }
-            a if a == hash(LeasingPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(LeasingPrecompile::<R>::INDEX) => {
                 LeasingPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Leasing)
             }
-            a if a == hash(VotingPowerPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(VotingPowerPrecompile::<R>::INDEX) => {
                 VotingPowerPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::VotingPower)
             }
-            a if a == hash(ProxyPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(ProxyPrecompile::<R>::INDEX) => {
                 ProxyPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::Proxy)
             }
-            a if a == hash(AddressMappingPrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(AddressMappingPrecompile::<R>::INDEX) => {
                 AddressMappingPrecompile::<R>::try_execute::<R>(
                     handle,
                     PrecompileEnum::AddressMapping,
                 )
             }
-            a if a == hash(BalancePrecompile::<R>::INDEX) => {
+            a if a == precompile_h160_from_index(BalancePrecompile::<R>::INDEX) => {
                 BalancePrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::AccountBalance)
             }
             _ => None,
@@ -292,15 +306,14 @@ where
     }
 }
 
-fn hash(a: u64) -> H160 {
-    H160::from_low_u64_be(a)
+/// Maps a precompile `INDEX` (or Ethereum 1–9 / Frontier 1024–1025 id) to its `H160` address.
+fn precompile_h160_from_index(index: u64) -> H160 {
+    H160::from_low_u64_be(index)
 }
 
-/*
- *
- * This is used to parse a slice from bytes with PrecompileFailure as Error
- *
- */
+/// Slices `data[from..to]` for signature precompiles, mapping OOB to `InvalidRange`.
+///
+/// Used by [`Ed25519Verify`] and `Sr25519Verify` (linear-cost raw input layout).
 fn parse_slice(data: &[u8], from: usize, to: usize) -> Result<&[u8], PrecompileFailure> {
     let maybe_slice = data.get(from..to);
     if let Some(slice) = maybe_slice {

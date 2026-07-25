@@ -1,3 +1,9 @@
+//! Metagraph (per-uid neuron metrics) view precompile (`INDEX` 2050).
+//!
+//! Exposes stake, consensus scores, emission, axon endpoint, and hotkey/coldkey
+//! for a `(netuid, uid)`. `getRank` / `getTrust` are frozen ABI stubs that always
+//! return 0 (metrics no longer computed on-chain).
+
 use alloc::string::String;
 use core::marker::PhantomData;
 
@@ -10,6 +16,7 @@ use subtensor_runtime_common::{NetUid, Token};
 use crate::PrecompileExt;
 use crate::PrecompileHandleExt;
 
+/// EVM surface for per-`(netuid, uid)` metagraph fields from `pallet_subtensor`.
 pub struct MetagraphPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for MetagraphPrecompile<R>
@@ -26,6 +33,7 @@ where
     R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
     R::AccountId: ByteArray,
 {
+    /// Number of registered uids on `netuid` (`SubnetworkN`).
     #[precompile::public("getUidCount(uint16)")]
     #[precompile::view]
     fn get_uid_count(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
@@ -35,6 +43,7 @@ where
         )))
     }
 
+    /// Total hotkey stake for the neuron at `(netuid, uid)`.
     #[precompile::public("getStake(uint16,uint16)")]
     #[precompile::view]
     fn get_stake(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<u64> {
@@ -48,20 +57,21 @@ where
         Ok(pallet_subtensor::Pallet::<R>::get_total_stake_for_hotkey(&hotkey).to_u64())
     }
 
-    /// Deprecated: Rank is no longer computed. Always returns 0.
+    /// Deprecated ABI stub: rank is no longer computed on-chain; always returns 0.
     #[precompile::public("getRank(uint16,uint16)")]
     #[precompile::view]
     fn get_rank(_: &mut impl PrecompileHandle, _netuid: u16, _uid: u16) -> EvmResult<u16> {
         Ok(0)
     }
 
-    /// Deprecated: Trust is no longer computed. Always returns 0.
+    /// Deprecated ABI stub: trust is no longer computed on-chain; always returns 0.
     #[precompile::public("getTrust(uint16,uint16)")]
     #[precompile::view]
     fn get_trust(_: &mut impl PrecompileHandle, _netuid: u16, _uid: u16) -> EvmResult<u16> {
         Ok(0)
     }
 
+    /// Consensus score for `(netuid, uid)`.
     #[precompile::public("getConsensus(uint16,uint16)")]
     #[precompile::view]
     fn get_consensus(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<u16> {
@@ -72,6 +82,7 @@ where
         ))
     }
 
+    /// Incentive score for `(netuid, uid)`.
     #[precompile::public("getIncentive(uint16,uint16)")]
     #[precompile::view]
     fn get_incentive(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<u16> {
@@ -82,6 +93,7 @@ where
         ))
     }
 
+    /// Dividend score for `(netuid, uid)`.
     #[precompile::public("getDividends(uint16,uint16)")]
     #[precompile::view]
     fn get_dividends(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<u16> {
@@ -92,6 +104,7 @@ where
         ))
     }
 
+    /// Emission for `(netuid, uid)`.
     #[precompile::public("getEmission(uint16,uint16)")]
     #[precompile::view]
     fn get_emission(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<u64> {
@@ -99,6 +112,7 @@ where
         Ok(pallet_subtensor::Pallet::<R>::get_emission_for_uid(netuid.into(), uid).into())
     }
 
+    /// Validator trust for `(netuid, uid)`.
     #[precompile::public("getVtrust(uint16,uint16)")]
     #[precompile::view]
     fn get_vtrust(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<u16> {
@@ -109,6 +123,7 @@ where
         ))
     }
 
+    /// Whether `(netuid, uid)` holds a validator permit.
     #[precompile::public("getValidatorStatus(uint16,uint16)")]
     #[precompile::view]
     fn get_validator_status(
@@ -123,6 +138,7 @@ where
         ))
     }
 
+    /// Block of last weights update for `(netuid, uid)`.
     #[precompile::public("getLastUpdate(uint16,uint16)")]
     #[precompile::view]
     fn get_last_update(
@@ -137,6 +153,7 @@ where
         ))
     }
 
+    /// Whether `(netuid, uid)` is marked active.
     #[precompile::public("getIsActive(uint16,uint16)")]
     #[precompile::view]
     fn get_is_active(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<bool> {
@@ -147,9 +164,14 @@ where
         ))
     }
 
+    /// Axon endpoint info for the hotkey at `(netuid, uid)`.
     #[precompile::public("getAxon(uint16,uint16)")]
     #[precompile::view]
-    fn get_axon(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<AxonInfo> {
+    fn get_axon(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uid: u16,
+    ) -> EvmResult<MetagraphAxonInfo> {
         // Keys + Axons reads
         handle.record_db_reads::<R>(2)?;
         let hotkey = pallet_subtensor::Pallet::<R>::get_hotkey_for_net_and_uid(netuid.into(), uid)
@@ -160,6 +182,7 @@ where
         Ok(pallet_subtensor::Pallet::<R>::get_axon_info(netuid.into(), &hotkey).into())
     }
 
+    /// Hotkey account id for `(netuid, uid)` as `bytes32`.
     #[precompile::public("getHotkey(uint16,uint16)")]
     #[precompile::view]
     fn get_hotkey(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<H256> {
@@ -171,6 +194,7 @@ where
             })
     }
 
+    /// Coldkey owner of the hotkey at `(netuid, uid)` as `bytes32`.
     #[precompile::public("getColdkey(uint16,uint16)")]
     #[precompile::view]
     fn get_coldkey(handle: &mut impl PrecompileHandle, netuid: u16, uid: u16) -> EvmResult<H256> {
@@ -186,8 +210,9 @@ where
     }
 }
 
+/// Solidity-encoded axon endpoint returned by `getAxon` (ABI field order frozen).
 #[derive(Codec)]
-struct AxonInfo {
+struct MetagraphAxonInfo {
     block: u64,
     version: u32,
     ip: u128,
@@ -196,7 +221,7 @@ struct AxonInfo {
     protocol: u8,
 }
 
-impl From<SubtensorModuleAxonInfo> for AxonInfo {
+impl From<SubtensorModuleAxonInfo> for MetagraphAxonInfo {
     fn from(value: SubtensorModuleAxonInfo) -> Self {
         Self {
             block: value.block,

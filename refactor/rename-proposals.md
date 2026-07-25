@@ -33,3 +33,14 @@ support/linting/src/require_extrinsic_benchmarks.rs
 ```
 - proposed by: w1-utility
 - status: pending
+
+## parse_slice -> precompile_input_slice
+- reason: private helper that bounds-checks raw precompile calldata slices for ed25519/sr25519 verify; name `parse_slice` is too generic for grep
+- hits:
+```
+precompiles/src/lib.rs
+precompiles/src/ed25519.rs
+precompiles/src/sr25519.rs
+```
+- proposed by: w1-precompiles-a
+- status: pending

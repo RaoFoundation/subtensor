@@ -1,3 +1,9 @@
+//! Crowdloan pallet bridge precompile (`INDEX` 2057).
+//!
+//! Views and mutates `pallet_crowdloan` from EVM: create/contribute/withdraw/
+//! finalize/refund/dissolve and term updates. Mutations dispatch as the mapped
+//! EVM caller; `create` sets `target_address` from an EVM address.
+
 use alloc::string::String;
 use core::marker::PhantomData;
 
@@ -15,6 +21,7 @@ use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, UniqueSaturatedInto
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// EVM bridge to `pallet_crowdloan` views and extrinsics.
 pub struct CrowdloanPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for CrowdloanPrecompile<R>
@@ -72,12 +79,13 @@ where
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
+    /// Crowdloan record for `crowdloan_id`, or error if missing.
     #[precompile::public("getCrowdloan(uint32)")]
     #[precompile::view]
     fn get_crowdloan(
         handle: &mut impl PrecompileHandle,
         crowdloan_id: u32,
-    ) -> EvmResult<CrowdloanInfo> {
+    ) -> EvmResult<EvmCrowdloanInfo> {
         handle.record_db_reads::<R>(1)?;
         let crowdloan = pallet_crowdloan::Crowdloans::<R>::get(crowdloan_id).ok_or(
             PrecompileFailure::Error {
@@ -85,7 +93,7 @@ where
             },
         )?;
 
-        Ok(CrowdloanInfo {
+        Ok(EvmCrowdloanInfo {
             creator: H256::from_slice(crowdloan.creator.as_slice()),
             deposit: u64::from(crowdloan.deposit),
             min_contribution: u64::from(crowdloan.min_contribution),
@@ -103,6 +111,7 @@ where
         })
     }
 
+    /// Contribution of `coldkey` to `crowdloan_id`, or error if missing.
     #[precompile::public("getContribution(uint32,bytes32)")]
     #[precompile::view]
     fn get_contribution(
@@ -121,6 +130,7 @@ where
         Ok(u64::from(contribution))
     }
 
+    /// Creates a crowdloan with EVM `target_address` (no embedded call).
     #[precompile::public("create(uint64,uint64,uint64,uint32,address)")]
     #[precompile::payable]
     fn create(
@@ -145,6 +155,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(who))
     }
 
+    /// Contributes `amount` from the EVM caller to `crowdloan_id`.
     #[precompile::public("contribute(uint32,uint64)")]
     #[precompile::payable]
     fn contribute(
@@ -161,6 +172,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Withdraws the caller's contribution before finalization.
     #[precompile::public("withdraw(uint32)")]
     #[precompile::payable]
     fn withdraw(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
@@ -170,6 +182,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Finalizes a capped/ended crowdloan (creator or permitted caller).
     #[precompile::public("finalize(uint32)")]
     #[precompile::payable]
     fn finalize(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
@@ -179,6 +192,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Refunds contributors of a failed/non-finalized crowdloan.
     #[precompile::public("refund(uint32)")]
     #[precompile::payable]
     fn refund(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
@@ -188,6 +202,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Dissolves an empty crowdloan after refunds.
     #[precompile::public("dissolve(uint32)")]
     #[precompile::payable]
     fn dissolve(handle: &mut impl PrecompileHandle, crowdloan_id: u32) -> EvmResult<()> {
@@ -197,6 +212,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Updates minimum contribution for an open crowdloan.
     #[precompile::public("updateMinContribution(uint32,uint64)")]
     #[precompile::payable]
     fn update_min_contribution(
@@ -213,6 +229,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Updates the end block for an open crowdloan.
     #[precompile::public("updateEnd(uint32,uint32)")]
     #[precompile::payable]
     fn update_end(
@@ -229,6 +246,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Updates the raise cap for an open crowdloan.
     #[precompile::public("updateCap(uint32,uint64)")]
     #[precompile::payable]
     fn update_cap(
@@ -246,8 +264,9 @@ where
     }
 }
 
+/// Solidity-encoded crowdloan snapshot for `getCrowdloan` (ABI field order frozen).
 #[derive(Codec)]
-struct CrowdloanInfo {
+struct EvmCrowdloanInfo {
     creator: H256,
     deposit: u64,
     min_contribution: u64,
@@ -281,7 +300,7 @@ mod tests {
     const END: u32 = 50;
     const ACCOUNT_BALANCE: u64 = 1_000;
 
-    fn get_crowdloan(caller: H160, crowdloan_id: u32, expected: CrowdloanInfo) {
+    fn get_crowdloan(caller: H160, crowdloan_id: u32, expected: EvmCrowdloanInfo) {
         let precompile_addr = addr_from_index(CrowdloanPrecompile::<Runtime>::INDEX);
 
         precompiles::<CrowdloanPrecompile<Runtime>>()
@@ -294,11 +313,11 @@ mod tests {
             .execute_returns_raw(encode_return_value(expected));
     }
 
-    fn expected_crowdloan_info(crowdloan_id: u32) -> CrowdloanInfo {
+    fn expected_crowdloan_info(crowdloan_id: u32) -> EvmCrowdloanInfo {
         let crowdloan = pallet_crowdloan::Crowdloans::<Runtime>::get(crowdloan_id)
             .expect("crowdloan should exist");
 
-        CrowdloanInfo {
+        EvmCrowdloanInfo {
             creator: H256::from_slice(crowdloan.creator.as_slice()),
             deposit: u64::from(crowdloan.deposit),
             min_contribution: u64::from(crowdloan.min_contribution),

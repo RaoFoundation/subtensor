@@ -1,3 +1,10 @@
+//! Alpha / subnet AMM view + swap-simulation precompile (`INDEX` 2056).
+//!
+//! Reads pool reserves, prices, emissions, and global weights from
+//! `pallet_subtensor` / `pallet_subtensor_swap`. Spot and moving prices are
+//! scaled by `1e9` then converted to EVM balance units. `simSwap*` methods are
+//! view-only (no state mutation).
+
 use core::marker::PhantomData;
 
 use crate::PrecompileExt;
@@ -11,6 +18,7 @@ use sp_core::U256;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
+/// EVM surface for subnet alpha pool prices, reserves, emissions, and swap sims.
 pub struct AlphaPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for AlphaPrecompile<R>
@@ -32,6 +40,7 @@ where
         + pallet_subtensor_swap::Config
         + pallet_evm::Config,
 {
+    /// Spot alpha/TAO price for `netuid`, scaled by 1e9 and converted to EVM balance units.
     #[precompile::public("getAlphaPrice(uint16)")]
     #[precompile::view]
     fn get_alpha_price(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
@@ -48,6 +57,7 @@ where
         Ok(price_eth)
     }
 
+    /// EMA moving alpha price for `netuid`, scaled by 1e9 and converted to EVM balance units.
     #[precompile::public("getMovingAlphaPrice(uint16)")]
     #[precompile::view]
     fn get_moving_alpha_price(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
@@ -64,6 +74,7 @@ where
         Ok(price_eth)
     }
 
+    /// TAO reserve in the subnet AMM pool (`SubnetTAO`).
     #[precompile::public("getTaoInPool(uint16)")]
     #[precompile::view]
     fn get_tao_in_pool(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
@@ -71,6 +82,7 @@ where
         Ok(pallet_subtensor::SubnetTAO::<R>::get(NetUid::from(netuid)).to_u64())
     }
 
+    /// Alpha reserve held in the subnet AMM pool (`SubnetAlphaIn`).
     #[precompile::public("getAlphaInPool(uint16)")]
     #[precompile::view]
     fn get_alpha_in_pool(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
@@ -78,6 +90,7 @@ where
         Ok(pallet_subtensor::SubnetAlphaIn::<R>::get(NetUid::from(netuid)).into())
     }
 
+    /// Alpha outstanding outside the pool (`SubnetAlphaOut`).
     #[precompile::public("getAlphaOutPool(uint16)")]
     #[precompile::view]
     fn get_alpha_out_pool(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
@@ -85,6 +98,7 @@ where
         Ok(pallet_subtensor::SubnetAlphaOut::<R>::get(NetUid::from(netuid)).into())
     }
 
+    /// Total alpha issuance for `netuid` (in + out pool).
     #[precompile::public("getAlphaIssuance(uint16)")]
     #[precompile::view]
     fn get_alpha_issuance(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
@@ -93,6 +107,7 @@ where
         Ok(pallet_subtensor::Pallet::<R>::get_alpha_issuance(netuid.into()).into())
     }
 
+    /// Global TAO weight used in stake/price calculations.
     #[precompile::public("getTaoWeight()")]
     #[precompile::view]
     fn get_tao_weight(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
@@ -101,6 +116,7 @@ where
         Ok(U256::from(tao_weight))
     }
 
+    /// Global coldkey swap burn parameter (`CKBurn`).
     #[precompile::public("getCKBurn()")]
     #[precompile::view]
     fn get_ck_burn(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
@@ -109,6 +125,7 @@ where
         Ok(U256::from(ck_burn))
     }
 
+    /// View-only simulation: TAO in → alpha out for `netuid` (does not mutate pool state).
     #[precompile::public("simSwapTaoForAlpha(uint16,uint64)")]
     #[precompile::view]
     fn sim_swap_tao_for_alpha(
@@ -128,6 +145,7 @@ where
         Ok(U256::from(swap_result.amount_paid_out.to_u64()))
     }
 
+    /// View-only simulation: alpha in → TAO out for `netuid` (does not mutate pool state).
     #[precompile::public("simSwapAlphaForTao(uint16,uint64)")]
     #[precompile::view]
     fn sim_swap_alpha_for_tao(
@@ -147,6 +165,7 @@ where
         Ok(U256::from(swap_result.amount_paid_out.to_u64()))
     }
 
+    /// Subnet mechanism enum value (`SubnetMechanism`) for `netuid`.
     #[precompile::public("getSubnetMechanism(uint16)")]
     #[precompile::view]
     fn get_subnet_mechanism(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u16> {
@@ -156,12 +175,14 @@ where
         )))
     }
 
+    /// Root subnet netuid constant (`NetUid::ROOT`).
     #[precompile::public("getRootNetuid()")]
     #[precompile::view]
     fn get_root_netuid(_handle: &mut impl PrecompileHandle) -> EvmResult<u16> {
         Ok(NetUid::ROOT.into())
     }
 
+    /// EMA price halving period in blocks for `netuid`.
     #[precompile::public("getEMAPriceHalvingBlocks(uint16)")]
     #[precompile::view]
     fn get_ema_price_halving_blocks(
@@ -174,6 +195,7 @@ where
         ))
     }
 
+    /// Cumulative subnet swap volume for `netuid`.
     #[precompile::public("getSubnetVolume(uint16)")]
     #[precompile::view]
     fn get_subnet_volume(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
@@ -183,6 +205,7 @@ where
         )))
     }
 
+    /// Last tempo TAO-in emission for `netuid`.
     #[precompile::public("getTaoInEmission(uint16)")]
     #[precompile::view]
     fn get_tao_in_emission(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
@@ -192,6 +215,7 @@ where
         ))
     }
 
+    /// Last tempo alpha-in emission for `netuid`.
     #[precompile::public("getAlphaInEmission(uint16)")]
     #[precompile::view]
     fn get_alpha_in_emission(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
@@ -201,6 +225,7 @@ where
         ))
     }
 
+    /// Last tempo alpha-out emission for `netuid`.
     #[precompile::public("getAlphaOutEmission(uint16)")]
     #[precompile::view]
     fn get_alpha_out_emission(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
@@ -210,6 +235,7 @@ where
         ))
     }
 
+    /// Sum of current alpha prices over non-root subnets where price < 1 (scaled to EVM units).
     #[precompile::public("getSumAlphaPrice()")]
     #[precompile::view]
     fn get_sum_alpha_price(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
