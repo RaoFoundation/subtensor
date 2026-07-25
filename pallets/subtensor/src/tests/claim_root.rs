@@ -7,13 +7,13 @@ use crate::{
     DefaultMinRootClaimAmount, DissolveCleanupQueue, Error, MAX_NUM_ROOT_CLAIMS,
     MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumRootClaim, NumStakingColdkeys,
     PendingRootAlphaDivs, RootClaimable, RootClaimableThreshold, RootClaimed, StakingColdkeys,
-    StakingColdkeysByIndex, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice,
-    SubnetProtocolFlow, SubnetRootSellTao, SubnetTAO, SubnetTaoFlow, SubnetVolume, SubtokenEnabled,
-    Tempo, TotalStake, pallet,
+    StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism,
+    SubnetMovingPrice, SubnetProtocolFlow, SubnetRootSellTao, SubnetTAO, SubnetTaoFlow,
+    SubnetVolume, SubtokenEnabled, Tempo, TotalStake, pallet,
 };
 use crate::{RootClaimType, RootClaimTypeEnum};
 use approx::assert_abs_diff_eq;
-use frame_support::dispatch::RawOrigin;
+use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::{Currency, Get};
 use frame_support::{assert_err, assert_noop, assert_ok};
@@ -1665,6 +1665,45 @@ fn test_claim_root_subnet_limits() {
                 BTreeSet::from_iter((0u16..=10u16).into_iter().map(NetUid::from))
             ),
             Error::<Test>::InvalidSubnetNumber
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_declared_weight_covers_stored_hotkey_fanout() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1003);
+        let netuid = NetUid::from(1);
+        let hotkeys = [U256::from(1004), U256::from(1005)];
+
+        StakingHotkeys::<Test>::insert(coldkey, hotkeys.to_vec());
+        for hotkey in hotkeys {
+            RootClaimable::<Test>::insert(hotkey, BTreeMap::from([(netuid, I96F32::from(0))]));
+        }
+        DissolveCleanupQueue::<Test>::put(vec![netuid]);
+
+        let subnets = BTreeSet::from([netuid]);
+        let call = RuntimeCall::SubtensorModule(crate::Call::claim_root {
+            subnets: subnets.clone(),
+        });
+        let declared_weight = call.get_dispatch_info().call_weight;
+        let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
+            .expect("claim succeeds")
+            .actual_weight
+            .expect("claim reports actual weight");
+
+        assert!(
+            actual_weight.all_lte(declared_weight),
+            "actual weight {actual_weight:?} exceeds declared weight {declared_weight:?}"
+        );
+
+        let max_extrinsic = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .expect("normal extrinsics have a configured maximum");
+        assert!(
+            declared_weight.all_lte(max_extrinsic),
+            "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
         );
     });
 }

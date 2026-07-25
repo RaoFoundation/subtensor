@@ -6,7 +6,7 @@ use frame_support::pallet_macros::pallet_section;
 #[pallet_section]
 mod dispatches {
     use frame_support::pallet_prelude::DispatchResultWithPostInfo;
-    use frame_support::traits::schedule::v3::Anon as ScheduleAnon;
+    use frame_support::traits::{Get, schedule::v3::Anon as ScheduleAnon};
     use frame_system::pallet_prelude::BlockNumberFor;
     use sp_core::ecdsa::Signature;
     use sp_runtime::{Percent, Saturating, traits::Hash};
@@ -1888,7 +1888,13 @@ mod dispatches {
         /// * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims.
         ///
         #[pallet::call_index(121)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
+        // The work scales with the caller's storage-backed, unbounded hotkey list.
+        // Reserve a large admissible weight up front; the call refunds unused weight below.
+        #[pallet::weight(
+            <T as frame_system::Config>::BlockWeights::get()
+                .max_block
+                .saturating_div(2)
+        )]
         pub fn claim_root(
             origin: OriginFor<T>,
             subnets: BTreeSet<NetUid>,
