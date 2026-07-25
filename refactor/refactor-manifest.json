@@ -891,10 +891,30 @@
       "id": "w2-test-migration",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
-      "notes": "Split ~5167-line test file into concept-named modules under tests/migration/",
+      "status": "done",
+      "notes": "Split ~5167-line migration tests into concept modules under tests/migration/",
       "files": [
-        "pallets/subtensor/src/tests/migration.rs"
+        "pallets/subtensor/src/tests/migration/mod.rs",
+        "pallets/subtensor/src/tests/migration/prelude.rs",
+        "pallets/subtensor/src/tests/migration/helpers.rs",
+        "pallets/subtensor/src/tests/migration/associated_evm_address_index.rs",
+        "pallets/subtensor/src/tests/migration/auto_stake_destination.rs",
+        "pallets/subtensor/src/tests/migration/commit_reveal.rs",
+        "pallets/subtensor/src/tests/migration/conviction_and_tempo.rs",
+        "pallets/subtensor/src/tests/migration/fix_bad_hk_swap_genesis.rs",
+        "pallets/subtensor/src/tests/migration/fix_bad_hk_swap_mainnet.rs",
+        "pallets/subtensor/src/tests/migration/fix_root_claimed.rs",
+        "pallets/subtensor/src/tests/migration/fix_staking_and_root_tao.rs",
+        "pallets/subtensor/src/tests/migration/fix_subnet_hotkey_lock_swaps.rs",
+        "pallets/subtensor/src/tests/migration/network_modality_and_locks.rs",
+        "pallets/subtensor/src/tests/migration/populate_locking_coldkeys.rs",
+        "pallets/subtensor/src/tests/migration/rate_limit_keys.rs",
+        "pallets/subtensor/src/tests/migration/remove_unused_storage.rs",
+        "pallets/subtensor/src/tests/migration/reset_unactive_sn.rs",
+        "pallets/subtensor/src/tests/migration/subnet_balances_and_issuance.rs",
+        "pallets/subtensor/src/tests/migration/subnet_volume_emission_flags.rs",
+        "pallets/subtensor/src/tests/migration/swap_cleanup.rs",
+        "pallets/subtensor/src/tests/migration/transfer_and_delete_subnets.rs"
       ]
     },
     {
