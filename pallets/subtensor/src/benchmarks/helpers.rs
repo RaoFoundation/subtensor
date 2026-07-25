@@ -1,12 +1,21 @@
+//! Shared setup helpers for Subtensor pallet runtime benchmarks.
+//!
+//! These `pub(super)` functions seed storage (AMM reserves, neurons, stake locks,
+//! EVM keys) so individual `#[benchmark]` cases measure extrinsic work rather
+//! than registration or mint costs. Helper names are intentionally distinct from
+//! extrinsic / WeightInfo method names — those stay frozen to match dispatchables.
+
 use super::*;
 
-pub(super) fn seed_swap_reserves<T: Config>(netuid: NetUid) {
+/// Seed default TAO/alpha pool reserves used by most stake and registration benchmarks.
+pub(super) fn seed_default_subnet_amm_reserves<T: Config>(netuid: NetUid) {
     let tao_reserve = TaoBalance::from(150_000_000_000_u64);
     let alpha_in = AlphaBalance::from(100_000_000_000_u64);
-    set_reserves::<T>(netuid, tao_reserve, alpha_in);
+    set_subnet_amm_reserves::<T>(netuid, tao_reserve, alpha_in);
 }
 
-pub(super) fn set_reserves<T: Config>(
+/// Write `SubnetTAO` / `SubnetAlphaIn` for `netuid` (benchmark AMM liquidity only).
+pub(super) fn set_subnet_amm_reserves<T: Config>(
     netuid: NetUid,
     tao_reserve: TaoBalance,
     alpha_in: AlphaBalance,
@@ -15,11 +24,13 @@ pub(super) fn set_reserves<T: Config>(
     SubnetAlphaIn::<T>::insert(netuid, alpha_in);
 }
 
+/// Fixed burn amount used when benchmarks need a cheap, deterministic registration fee.
 pub(super) fn benchmark_registration_burn() -> TaoBalance {
     TaoBalance::from(1_000_000)
 }
 
-pub(super) fn add_balance_to_coldkey_account<T: Config>(coldkey: &T::AccountId, tao: TaoBalance) {
+/// Mint `tao` and credit it to `coldkey` via the pallet spend path (benchmark funding).
+pub(super) fn credit_benchmark_coldkey_tao<T: Config>(coldkey: &T::AccountId, tao: TaoBalance) {
     let credit = Subtensor::<T>::mint_tao(tao);
     let _ = Subtensor::<T>::spend_tao(coldkey, credit, tao).unwrap();
 }
@@ -51,9 +62,7 @@ pub(super) fn seed_miner_collateral_position<T: Config>(
     });
 }
 
-/// This helper funds an account with:
-/// - 2x burn fee
-/// - 100x DefaultMinStake
+/// Fund `who` with 2× subnet burn plus 100× `DefaultMinStake` for burned registration.
 pub(super) fn fund_for_registration<T: Config>(netuid: NetUid, who: &T::AccountId) {
     let burn = Subtensor::<T>::get_burn(netuid);
     let min_stake = DefaultMinStake::<T>::get();
@@ -62,15 +71,17 @@ pub(super) fn fund_for_registration<T: Config>(netuid: NetUid, who: &T::AccountI
         .saturating_mul(2.into())
         .saturating_add(min_stake.saturating_mul(100.into()));
 
-    add_balance_to_coldkey_account::<T>(who, deposit.into());
+    credit_benchmark_coldkey_tao::<T>(who, deposit.into());
 }
 
+/// Build a dense `(uid, u16::MAX)` weight/bond row covering `0..uid_count`.
 pub(super) fn dense_benchmark_weights(uid_count: u16) -> Vec<(u16, u16)> {
     (0..uid_count)
         .map(|uid| (uid, u16::MAX))
         .collect::<Vec<_>>()
 }
 
+/// Create coldkey/hotkey accounts, append a neuron, and optionally stake `stake` alpha.
 pub(super) fn seed_benchmark_neuron<T: Config>(
     netuid: NetUid,
     hotkey_label: &'static str,
@@ -92,6 +103,7 @@ pub(super) fn seed_benchmark_neuron<T: Config>(
     (hotkey, coldkey)
 }
 
+/// Fill a subnet to `DefaultMaxAllowedUids` with dense weights/bonds for registration worst-case.
 pub(super) fn setup_full_subnet_registration_benchmark<T: Config>(
     netuid: NetUid,
     hotkey_label: &'static str,
@@ -110,7 +122,7 @@ pub(super) fn setup_full_subnet_registration_benchmark<T: Config>(
     Subtensor::<T>::set_max_registrations_per_block(netuid, uid_count);
     Subtensor::<T>::set_target_registrations_per_interval(netuid, uid_count);
     Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-    seed_swap_reserves::<T>(netuid);
+    seed_default_subnet_amm_reserves::<T>(netuid);
 
     let netuid_index = NetUidStorageIndex::from(netuid);
     let dense_weights = dense_benchmark_weights(uid_count);
@@ -131,6 +143,7 @@ pub(super) fn setup_full_subnet_registration_benchmark<T: Config>(
     assert_eq!(Subtensor::<T>::get_subnetwork_n(netuid), uid_count);
 }
 
+/// Populate root with max allowed validators and dense weights/bonds for `root_register`.
 pub(super) fn setup_full_root_registration_benchmark<T: Config>() {
     Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
     SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
@@ -175,8 +188,8 @@ pub(super) fn setup_full_root_registration_benchmark<T: Config>() {
     );
 }
 
-/// Add a zero lock to a random hotkey just so that the lock records exist
-pub(super) fn add_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
+/// Insert empty `Lock` / `HotkeyLock` rows so stake paths touch lock-index bookkeeping.
+pub(super) fn seed_zero_alpha_stake_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
     let hotkey: T::AccountId = account("RandomHotkey", 0, 999);
     Lock::<T>::insert(
         (coldkey, netuid, hotkey.clone()),
@@ -197,6 +210,7 @@ pub(super) fn add_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
     );
 }
 
+/// Force `frame_system` block number for benchmarks that depend on tempo / epoch timing.
 pub(super) fn set_benchmark_block_number<T: Config>(block_number: u64) {
     let block_number: BlockNumberFor<T> = match block_number.try_into() {
         Ok(block_number) => block_number,
@@ -252,7 +266,7 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
     PendingEpochAt::<T>::insert(NetUid::ROOT, 0);
     SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
     SubnetEmissionEnabled::<T>::insert(NetUid::ROOT, true);
-    set_reserves::<T>(
+    set_subnet_amm_reserves::<T>(
         NetUid::ROOT,
         TaoBalance::from(SUBNET_TAO_RESERVE),
         AlphaBalance::from(SUBNET_ALPHA_RESERVE),
@@ -303,7 +317,7 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
         Subtensor::<T>::set_max_registrations_per_block(netuid, MAINNET_NEURONS_PER_SUBNET);
         Subtensor::<T>::set_target_registrations_per_interval(netuid, MAINNET_NEURONS_PER_SUBNET);
         Subtensor::<T>::set_burn(netuid, benchmark_registration_burn());
-        set_reserves::<T>(
+        set_subnet_amm_reserves::<T>(
             netuid,
             TaoBalance::from(SUBNET_TAO_RESERVE),
             AlphaBalance::from(SUBNET_ALPHA_RESERVE),
@@ -381,16 +395,24 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
     }
 }
 
-pub(super) fn runtime_call<T: Config>(call: Call<T>) -> <T as frame_system::Config>::RuntimeCall {
+/// Lift a pallet `Call<T>` into the runtime `RuntimeCall` enum for extension benchmarks.
+pub(super) fn into_runtime_call_from_subtensor<T: Config>(
+    call: Call<T>,
+) -> <T as frame_system::Config>::RuntimeCall {
     <T as Config>::RuntimeCall::from(call).into()
 }
 
-pub(super) fn setup_extension_neuron<T: Config>(netuid: NetUid, hotkey: &T::AccountId) {
+/// Init a subnet and append `hotkey` so transaction-extension benchmarks have a live neuron.
+pub(super) fn setup_neuron_for_tx_extension_benchmark<T: Config>(
+    netuid: NetUid,
+    hotkey: &T::AccountId,
+) {
     Subtensor::<T>::init_new_network(netuid, 0);
     Subtensor::<T>::set_max_allowed_uids(netuid, GLOBAL_MAX_SUBNET_COUNT);
     Subtensor::<T>::append_neuron(netuid, hotkey, 0);
 }
 
+/// Deterministic secp256k1 secret used by EVM-association benchmarks.
 pub(super) fn benchmark_evm_secret_key() -> libsecp256k1::SecretKey {
     let seed = [42u8; 32];
 
@@ -400,7 +422,8 @@ pub(super) fn benchmark_evm_secret_key() -> libsecp256k1::SecretKey {
     }
 }
 
-pub(super) fn evm_key_from_secret_key(secret_key: &libsecp256k1::SecretKey) -> H160 {
+/// Derive the H160 address from a secp256k1 secret (keccak of the uncompressed pubkey).
+pub(super) fn benchmark_evm_address_from_secret_key(secret_key: &libsecp256k1::SecretKey) -> H160 {
     let public_key = libsecp256k1::PublicKey::from_secret_key(secret_key);
     let uncompressed = public_key.serialize();
 
@@ -419,6 +442,7 @@ pub(super) fn evm_key_from_secret_key(secret_key: &libsecp256k1::SecretKey) -> H
     H160::from_slice(evm_key_bytes)
 }
 
+/// ECDSA signature over EIP-191(hotkey ‖ keccak(block_number)) for `associate_evm_key`.
 pub(super) fn signature_for_associate_evm_key<T: Config>(
     hotkey: &T::AccountId,
     block_number: u64,
@@ -452,6 +476,7 @@ pub(super) fn signature_for_associate_evm_key<T: Config>(
     ecdsa::Signature::from_raw(signature)
 }
 
+/// Register up to `uid_count` neurons (capped at 4096) with validator permits for weight benchmarks.
 pub(super) fn setup_worst_case_registered_subnet<T: Config>(
     label: &'static str,
     netuid: NetUid,
@@ -472,7 +497,7 @@ pub(super) fn setup_worst_case_registered_subnet<T: Config>(
     Subtensor::<T>::set_difficulty(netuid, 1);
     Subtensor::<T>::set_weights_set_rate_limit(netuid, 0);
     Subtensor::<T>::set_stake_threshold(0);
-    set_reserves::<T>(
+    set_subnet_amm_reserves::<T>(
         netuid,
         TaoBalance::from(1_000_000_000_000_u64),
         AlphaBalance::from(1_000_000_000_000_000_u64),
@@ -510,6 +535,7 @@ pub(super) fn setup_worst_case_registered_subnet<T: Config>(
     )
 }
 
+/// Worst-case registered subnet plus commit-reveal salt for mechanism weight benchmarks.
 pub(super) fn setup_mechanism_weight_benchmark<T: Config>(
     _mecid: subtensor_runtime_common::MechId,
     uid_count: u32,
