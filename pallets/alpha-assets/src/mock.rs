@@ -1,3 +1,5 @@
+//! Test runtime wiring for `pallet-alpha-assets`.
+
 #![allow(clippy::arithmetic_side_effects, clippy::expect_used)]
 
 use frame_support::derive_impl;
@@ -45,6 +47,7 @@ impl system::Config for Test {
 
 impl crate::pallet::Config for Test {}
 
+/// Fresh externalities with default `frame_system` genesis for unit tests.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     let storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
