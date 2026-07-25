@@ -1,3 +1,5 @@
+//! Delegate (validator hotkey) RPC views: take, nominators, registrations, returns.
+
 use super::*;
 use frame_support::IterableStorageMap;
 use frame_support::pallet_prelude::{Decode, Encode};
@@ -9,21 +11,36 @@ use codec::Compact;
 use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 
-#[freeze_struct("bfb7d342e9ede512")]
+/// RPC view of a delegate hotkey: take, nominators, registrations, and estimated returns.
+///
+/// `return_per_1000` / `total_daily_return` are estimates from current emission × epochs/day,
+/// not settled payouts. Amounts are in rao (1e9 rao = 1 TAO) unless noted.
+#[freeze_struct("4545e1c058fbd2fe")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct DelegateInfo<AccountId: TypeInfo + Encode + Decode> {
+    /// Delegate hotkey.
     pub delegate_ss58: AccountId,
+    /// Validator take as [`PerU16`].
     pub take: Compact<PerU16>,
-    pub nominators: Vec<(AccountId, Vec<(Compact<NetUid>, Compact<u64>)>)>, // map of nominator_ss58 to netuid and stake amount
+    /// Nominators: coldkey → list of `(netuid, alpha stake)` pairs.
+    pub nominators: Vec<(AccountId, Vec<(Compact<NetUid>, Compact<u64>)>)>,
+    /// Coldkey that owns this hotkey.
     pub owner_ss58: AccountId,
-    pub registrations: Vec<Compact<NetUid>>, // Vec of netuid this delegate is registered on
-    pub validator_permits: Vec<Compact<NetUid>>, // Vec of netuid this delegate has validator permit on
-    pub return_per_1000: Compact<u64>, // Delegators current daily return per 1000 TAO staked minus take fee
-    pub total_daily_return: Compact<u64>, // Delegators current daily return
+    /// Subnets where this hotkey is registered.
+    pub registrations: Vec<Compact<NetUid>>,
+    /// Subnets where this hotkey currently holds a validator permit.
+    pub validator_permits: Vec<Compact<NetUid>>,
+    /// Estimated daily return per 1000 TAO staked, after take (rao).
+    pub return_per_1000: Compact<u64>,
+    /// Estimated total daily emission attributed to this delegate (rao, before take split).
+    pub total_daily_return: Compact<u64>,
 }
 
 impl<T: Config> Pallet<T> {
-    fn return_per_1000_tao(
+    /// Estimated daily return (rao) per 1000 TAO of root stake after deducting `take`.
+    ///
+    /// Uses `emissions_per_day` as the pre-take emission total. Returns 0 when `total_stake` is 0.
+    fn delegator_return_per_1000_tao(
         take: Compact<PerU16>,
         total_stake: U64F64,
         emissions_per_day: U64F64,
@@ -49,10 +66,14 @@ impl<T: Config> Pallet<T> {
         total_stake: U64F64,
         emissions_per_day: U64F64,
     ) -> U64F64 {
-        Self::return_per_1000_tao(take, total_stake, emissions_per_day)
+        Self::delegator_return_per_1000_tao(take, total_stake, emissions_per_day)
     }
 
-    fn get_delegate_by_existing_account(
+    /// Build [`DelegateInfo`] for a hotkey already present in [`Delegates`].
+    ///
+    /// When `skip_nominators` is true, `nominators` is left empty (used by
+    /// [`Self::get_delegated`] to avoid rebuilding the full nominator map per row).
+    fn build_delegate_info_for_hotkey(
         delegate: AccountIdOf<T>,
         skip_nominators: bool,
     ) -> DelegateInfo<T::AccountId> {
@@ -118,7 +139,7 @@ impl<T: Config> Pallet<T> {
         .into();
 
         let return_per_1000: U64F64 =
-            Self::return_per_1000_tao(take, total_stake, emissions_per_day);
+            Self::delegator_return_per_1000_tao(take, total_stake, emissions_per_day);
 
         DelegateInfo {
             delegate_ss58: delegate.clone(),
@@ -132,30 +153,31 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// [`DelegateInfo`] for one hotkey, or `None` if it is not in [`Delegates`].
     pub fn get_delegate(delegate: T::AccountId) -> Option<DelegateInfo<T::AccountId>> {
         // Check delegate exists
         if !<Delegates<T>>::contains_key(delegate.clone()) {
             return None;
         }
 
-        let delegate_info = Self::get_delegate_by_existing_account(delegate.clone(), false);
+        let delegate_info = Self::build_delegate_info_for_hotkey(delegate.clone(), false);
         Some(delegate_info)
     }
 
-    /// get all delegates info from storage
-    ///
+    /// All delegates currently in [`Delegates`], each with a full nominator list.
     pub fn get_delegates() -> Vec<DelegateInfo<T::AccountId>> {
         let mut delegates = Vec::<DelegateInfo<T::AccountId>>::new();
         for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, PerU16>>::iter_keys() {
-            let delegate_info = Self::get_delegate_by_existing_account(delegate.clone(), false);
+            let delegate_info = Self::build_delegate_info_for_hotkey(delegate.clone(), false);
             delegates.push(delegate_info);
         }
 
         delegates
     }
 
-    /// get all delegate info and staked token amount for a given delegatee account
+    /// Delegates that `delegatee` (coldkey) has stake on, with `(netuid, alpha)` per position.
     ///
+    /// Nominator lists inside each [`DelegateInfo`] are omitted (`skip_nominators`).
     pub fn get_delegated(
         delegatee: T::AccountId,
     ) -> Vec<(
@@ -169,7 +191,7 @@ impl<T: Config> Pallet<T> {
         for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, PerU16>>::iter_keys() {
             // Staked to this delegate, so add to list
             for (netuid, _) in Self::alpha_iter_prefix((&delegate, &delegatee)) {
-                let delegate_info = Self::get_delegate_by_existing_account(delegate.clone(), true);
+                let delegate_info = Self::build_delegate_info_for_hotkey(delegate.clone(), true);
                 delegates.push((
                     delegate_info,
                     (
@@ -186,11 +208,12 @@ impl<T: Config> Pallet<T> {
         delegates
     }
 
-    // Helper function to get the coldkey associated with a hotkey
+    /// Owning coldkey for `hotkey` via [`Owner`] (default account if unset).
     pub fn get_coldkey_for_hotkey(hotkey: &T::AccountId) -> T::AccountId {
         Owner::<T>::get(hotkey)
     }
 
+    /// Owning coldkey for `hotkey` when [`Owner`] has an entry.
     pub fn maybe_coldkey_for_hotkey(hotkey: &T::AccountId) -> Option<T::AccountId> {
         Owner::<T>::try_get(hotkey).ok()
     }

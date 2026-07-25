@@ -1,3 +1,8 @@
+//! Full and selective metagraph RPC views (`Metagraph`, `SelectiveMetagraph`).
+//!
+//! Field indices for selective queries are defined by [`SelectiveMetagraphIndex`] and must
+//! stay aligned with client index constants (append-only).
+
 use super::*;
 extern crate alloc;
 use crate::epoch::math::*;
@@ -11,7 +16,11 @@ use substrate_fixed::types::I96F32;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("93460b9b3cbf6d4e")]
+/// Full metagraph RPC DTO: subnet hyperparams plus per-uid consensus/stake/collateral vectors.
+///
+/// `subnet_emission` is deprecated (always 0). `pruning_score`, `trust`, and `rank` are empty.
+/// `tao_dividends_per_hotkey` values are always zero (root TAO dividends removed).
+#[freeze_struct("98bcc63bc4564059")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Subnet index
@@ -34,17 +43,17 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     blocks_since_last_step: Compact<u64>, // blocks since last epoch.
 
     // Subnet emission terms
-    subnet_emission: Compact<u64>,    // subnet emission via stao
-    alpha_in: Compact<AlphaBalance>,  // amount of alpha in reserve
-    alpha_out: Compact<AlphaBalance>, // amount of alpha outstanding
-    tao_in: Compact<TaoBalance>,      // amount of tao injected per block
+    subnet_emission: Compact<u64>,             // deprecated; always 0
+    alpha_in: Compact<AlphaBalance>,           // amount of alpha in reserve
+    alpha_out: Compact<AlphaBalance>,          // amount of alpha outstanding
+    tao_in: Compact<TaoBalance>,               // amount of tao in the pool
     alpha_out_emission: Compact<AlphaBalance>, // amount injected in alpha reserves per block
-    alpha_in_emission: Compact<AlphaBalance>, // amount injected outstanding per block
-    tao_in_emission: Compact<TaoBalance>, // amount of tao injected per block
+    alpha_in_emission: Compact<AlphaBalance>,  // amount injected outstanding per block
+    tao_in_emission: Compact<TaoBalance>,      // amount of tao injected per block
     pending_alpha_emission: Compact<AlphaBalance>, // pending alpha to be distributed
-    pending_root_emission: Compact<TaoBalance>, // pending tao for root divs to be distributed
-    subnet_volume: Compact<u128>,     // volume of the subnet in TAO
-    moving_price: I96F32,             // subnet moving price.
+    pending_root_emission: Compact<TaoBalance>, // root TAO dividends removed; always 0
+    subnet_volume: Compact<u128>,              // volume of the subnet in TAO
+    moving_price: I96F32,                      // subnet moving price.
 
     // Hparams for epoch
     rho: Compact<u16>,   // subnet rho param
@@ -91,24 +100,24 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     coldkeys: Vec<AccountId>,                   // coldkey per UID
     identities: Vec<Option<ChainIdentityOfV2>>, // coldkeys identities
     axons: Vec<AxonInfo>,                       // UID axons
-    active: Vec<bool>,                          // Avtive per UID
+    active: Vec<bool>,                          // active per UID
     validator_permit: Vec<bool>,                // Val permit per UID
-    pruning_score: Vec<Compact<u16>>,           // Pruning per UID
+    pruning_score: Vec<Compact<u16>>,           // deprecated; empty
     last_update: Vec<Compact<u64>>,             // Last update per UID
     emission: Vec<Compact<AlphaBalance>>,       // Emission per UID
     dividends: Vec<Compact<PerU16>>,            // Dividends per UID
     incentives: Vec<Compact<PerU16>>,           // Mining incentives per UID
     consensus: Vec<Compact<PerU16>>,            // Consensus per UID
-    trust: Vec<Compact<PerU16>>,                // Trust per UID
-    rank: Vec<Compact<u16>>,                    // Rank per UID
+    trust: Vec<Compact<PerU16>>,                // deprecated; empty
+    rank: Vec<Compact<u16>>,                    // deprecated; empty
     block_at_registration: Vec<Compact<u64>>,   // Reg block per UID
     alpha_stake: Vec<Compact<AlphaBalance>>,    // Alpha staked per UID
     tao_stake: Vec<Compact<TaoBalance>>,        // TAO staked per UID
     total_stake: Vec<Compact<TaoBalance>>,      // Total stake per UID
 
     // Dividend break down.
-    tao_dividends_per_hotkey: Vec<(AccountId, Compact<TaoBalance>)>, // List of dividend payouts in tao via root.
-    alpha_dividends_per_hotkey: Vec<(AccountId, Compact<AlphaBalance>)>, // List of dividend payout in alpha via subnet.
+    tao_dividends_per_hotkey: Vec<(AccountId, Compact<TaoBalance>)>, // always zero amounts
+    alpha_dividends_per_hotkey: Vec<(AccountId, Compact<AlphaBalance>)>, // alpha dividends per hotkey
 
     // Miner collateral (per UID; zero when the hotkey has no collateral entry).
     collateral_locked: Vec<Compact<AlphaBalance>>, // Locked collateral per UID
@@ -116,7 +125,11 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     collateral_earned: Vec<Compact<AlphaBalance>>, // Lifetime emission earned per UID (since collateral existed)
 }
 
-#[freeze_struct("bb7420226d39c0eb")]
+/// Sparse metagraph: each field is `None` unless requested by [`SelectiveMetagraphIndex`].
+///
+/// Clients pass a list of field indices; [`Self::merge_selective_metagraph_field`] overlays
+/// each requested field onto a default instance.
+#[freeze_struct("201e5d736d38f056")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     // Subnet index
@@ -147,9 +160,9 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     alpha_in_emission: Option<Compact<AlphaBalance>>,  // amount injected outstanding per block
     tao_in_emission: Option<Compact<TaoBalance>>,      // amount of tao injected per block
     pending_alpha_emission: Option<Compact<AlphaBalance>>, // pending alpha to be distributed
-    pending_root_emission: Option<Compact<TaoBalance>>, // panding tao for root divs to be distributed
-    subnet_volume: Option<Compact<u128>>,               // volume of the subnet in TAO
-    moving_price: Option<I96F32>,                       // subnet moving price.
+    pending_root_emission: Option<Compact<TaoBalance>>, // root TAO dividends removed; always 0
+    subnet_volume: Option<Compact<u128>>,              // volume of the subnet in TAO
+    moving_price: Option<I96F32>,                      // subnet moving price.
 
     // Hparams for epoch
     rho: Option<Compact<u16>>,   // subnet rho param
@@ -196,29 +209,29 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     coldkeys: Option<Vec<AccountId>>, // coldkey per UID
     identities: Option<Vec<Option<ChainIdentityOfV2>>>, // coldkeys identities
     axons: Option<Vec<AxonInfo>>,     // UID axons.
-    active: Option<Vec<bool>>,        // Avtive per UID
+    active: Option<Vec<bool>>,        // active per UID
     validator_permit: Option<Vec<bool>>, // Val permit per UID
-    pruning_score: Option<Vec<Compact<u16>>>, // Pruning per UID
+    pruning_score: Option<Vec<Compact<u16>>>, // deprecated; empty when requested
     last_update: Option<Vec<Compact<u64>>>, // Last update per UID
     emission: Option<Vec<Compact<AlphaBalance>>>, // Emission per UID
     dividends: Option<Vec<Compact<PerU16>>>, // Dividends per UID
     incentives: Option<Vec<Compact<PerU16>>>, // Mining incentives per UID
     consensus: Option<Vec<Compact<PerU16>>>, // Consensus per UID
-    trust: Option<Vec<Compact<PerU16>>>, // Trust per UID
-    rank: Option<Vec<Compact<u16>>>,  // Rank per UID
+    trust: Option<Vec<Compact<PerU16>>>, // deprecated; empty when requested
+    rank: Option<Vec<Compact<u16>>>,  // deprecated; empty when requested
     block_at_registration: Option<Vec<Compact<u64>>>, // Reg block per UID
     alpha_stake: Option<Vec<Compact<AlphaBalance>>>, // Alpha staked per UID
     tao_stake: Option<Vec<Compact<TaoBalance>>>, // TAO staked per UID
     total_stake: Option<Vec<Compact<TaoBalance>>>, // Total stake per UID
 
     // Dividend break down.
-    tao_dividends_per_hotkey: Option<Vec<(AccountId, Compact<TaoBalance>)>>, // List of dividend payouts in tao via root
-    alpha_dividends_per_hotkey: Option<Vec<(AccountId, Compact<AlphaBalance>)>>, // List of dividend payout in alpha via subnet
+    tao_dividends_per_hotkey: Option<Vec<(AccountId, Compact<TaoBalance>)>>, // always zero amounts
+    alpha_dividends_per_hotkey: Option<Vec<(AccountId, Compact<AlphaBalance>)>>, // alpha dividends per hotkey
 
     // validators
-    validators: Option<Vec<Compact<u16>>>, // List of validators
+    validators: Option<Vec<Compact<u16>>>, // validator uids above stake threshold
     // commitments
-    commitments: Option<Vec<(AccountId, Vec<Compact<u8>>)>>, // List of commitments
+    commitments: Option<Vec<(AccountId, Vec<Compact<u8>>)>>, // hotkey commitments
 
     // Miner collateral (per UID; zero when the hotkey has no collateral entry).
     collateral_locked: Option<Vec<Compact<AlphaBalance>>>, // Locked collateral per UID
@@ -230,8 +243,9 @@ impl<AccountId> SelectiveMetagraph<AccountId>
 where
     AccountId: TypeInfo + Encode + Decode + Clone,
 {
-    pub fn merge_value(&mut self, other: &Self, metagraph_index: usize) {
-        match SelectiveMetagraphIndex::from_index(metagraph_index) {
+    /// Overlay the field selected by `metagraph_index` from `other` onto `self`.
+    pub fn merge_selective_metagraph_field(&mut self, other: &Self, metagraph_index: usize) {
+        match SelectiveMetagraphIndex::from_field_index(metagraph_index) {
             Some(SelectiveMetagraphIndex::Netuid) => self.netuid = other.netuid,
             Some(SelectiveMetagraphIndex::Name) => self.name = other.name.clone(),
             Some(SelectiveMetagraphIndex::Symbol) => self.symbol = other.symbol.clone(),
@@ -485,6 +499,9 @@ where
     }
 }
 
+/// Field index for [`SelectiveMetagraph`] RPCs (0 = `netuid` … 76 = `collateral_earned`).
+///
+/// Indices are append-only wire constants shared with clients; do not reorder variants.
 pub enum SelectiveMetagraphIndex {
     Netuid,
     Name,
@@ -566,7 +583,8 @@ pub enum SelectiveMetagraphIndex {
 }
 
 impl SelectiveMetagraphIndex {
-    fn from_index(index: usize) -> Option<Self> {
+    /// Map a client field index to a variant; unknown indices yield `None`.
+    fn from_field_index(index: usize) -> Option<Self> {
         match index {
             0 => Some(SelectiveMetagraphIndex::Netuid),
             1 => Some(SelectiveMetagraphIndex::Name),
@@ -650,6 +668,7 @@ impl SelectiveMetagraphIndex {
     }
 }
 impl<T: Config> Pallet<T> {
+    /// Full [`Metagraph`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_metagraph(netuid: NetUid) -> Option<Metagraph<T::AccountId>> {
         if !Self::if_subnet_exist(netuid) {
             return None;
@@ -690,7 +709,7 @@ impl<T: Config> Pallet<T> {
 
         let subnet_volume = SubnetVolume::<T>::get(netuid);
         let (collateral_locked, collateral_min, collateral_earned) =
-            Self::collateral_vectors(netuid);
+            Self::miner_collateral_vectors_for_netuid(netuid);
         Some(Metagraph {
             // Subnet index
             netuid: netuid.into(), // subnet index.
@@ -826,6 +845,7 @@ impl<T: Config> Pallet<T> {
             collateral_earned,
         })
     }
+    /// [`Metagraph`] for every subnet netuid, in [`Self::get_all_subnet_netuids`] order.
     pub fn get_all_metagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
         let netuids = Self::get_all_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
@@ -835,6 +855,9 @@ impl<T: Config> Pallet<T> {
         metagraphs
     }
 
+    /// [`Metagraph`] for a mechanism: subnet view with mechanism-scoped last_update/incentives.
+    ///
+    /// Encodes the mechanism storage index into `netuid` for clients that key by that index.
     pub fn get_mechagraph(netuid: NetUid, mecid: MechId) -> Option<Metagraph<T::AccountId>> {
         if Self::ensure_mechanism_exists(netuid, mecid).is_err() {
             return None;
@@ -862,6 +885,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// All mechanism metagraphs across subnets (nested `netuid` × `mecid` expansion).
     pub fn get_all_mechagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
         let netuids = Self::get_all_subnet_netuids();
         let mut metagraphs = Vec::<Option<Metagraph<T::AccountId>>>::new();
@@ -874,6 +898,7 @@ impl<T: Config> Pallet<T> {
         metagraphs
     }
 
+    /// Sparse [`SelectiveMetagraph`] containing only fields listed in `metagraph_indexes`.
     pub fn get_selective_metagraph(
         netuid: NetUid,
         metagraph_indexes: Vec<u16>,
@@ -883,13 +908,14 @@ impl<T: Config> Pallet<T> {
         } else {
             let mut result = SelectiveMetagraph::default();
             for index in metagraph_indexes.iter() {
-                let value = Self::get_single_selective_metagraph(netuid, *index);
-                result.merge_value(&value, *index as usize);
+                let value = Self::selective_metagraph_field_for_netuid(netuid, *index);
+                result.merge_selective_metagraph_field(&value, *index as usize);
             }
             Some(result)
         }
     }
 
+    /// Selective metagraph for a mechanism; always sets `netuid` even if not requested.
     pub fn get_selective_mechagraph(
         netuid: NetUid,
         mecid: MechId,
@@ -901,8 +927,8 @@ impl<T: Config> Pallet<T> {
             let mut result = SelectiveMetagraph::default();
 
             for index in metagraph_indexes.iter() {
-                let value = Self::get_single_selective_mechagraph(netuid, mecid, *index);
-                result.merge_value(&value, *index as usize);
+                let value = Self::selective_metagraph_field_for_mechanism(netuid, mecid, *index);
+                result.merge_selective_metagraph_field(&value, *index as usize);
             }
             // always include netuid even the metagraph_indexes doesn't contain it
             result.netuid = netuid.into();
@@ -911,11 +937,12 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    fn get_single_selective_metagraph(
+    /// Single-field [`SelectiveMetagraph`] for `metagraph_index` on `netuid`.
+    fn selective_metagraph_field_for_netuid(
         netuid: NetUid,
         metagraph_index: u16,
     ) -> SelectiveMetagraph<T::AccountId> {
-        match SelectiveMetagraphIndex::from_index(metagraph_index as usize) {
+        match SelectiveMetagraphIndex::from_field_index(metagraph_index as usize) {
             // Name and symbol
             Some(SelectiveMetagraphIndex::Netuid) => SelectiveMetagraph {
                 netuid: netuid.into(),
@@ -1454,10 +1481,14 @@ impl<T: Config> Pallet<T> {
                     ..Default::default()
                 }
             }
-            Some(SelectiveMetagraphIndex::Validators) => Self::get_validators(netuid),
-            Some(SelectiveMetagraphIndex::Commitments) => Self::get_commitments(netuid),
+            Some(SelectiveMetagraphIndex::Validators) => {
+                Self::validator_uids_above_stake_threshold(netuid)
+            }
+            Some(SelectiveMetagraphIndex::Commitments) => {
+                Self::hotkey_commitments_for_selective_metagraph(netuid)
+            }
             Some(SelectiveMetagraphIndex::CollateralLocked) => {
-                let (locked, _, _) = Self::collateral_vectors(netuid);
+                let (locked, _, _) = Self::miner_collateral_vectors_for_netuid(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     collateral_locked: Some(locked),
@@ -1465,7 +1496,7 @@ impl<T: Config> Pallet<T> {
                 }
             }
             Some(SelectiveMetagraphIndex::CollateralMin) => {
-                let (_, min, _) = Self::collateral_vectors(netuid);
+                let (_, min, _) = Self::miner_collateral_vectors_for_netuid(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     collateral_min: Some(min),
@@ -1473,7 +1504,7 @@ impl<T: Config> Pallet<T> {
                 }
             }
             Some(SelectiveMetagraphIndex::CollateralEarned) => {
-                let (_, _, earned) = Self::collateral_vectors(netuid);
+                let (_, _, earned) = Self::miner_collateral_vectors_for_netuid(netuid);
                 SelectiveMetagraph {
                     netuid: netuid.into(),
                     collateral_earned: Some(earned),
@@ -1490,7 +1521,7 @@ impl<T: Config> Pallet<T> {
 
     /// Per-UID miner-collateral vectors: (locked, floor, lifetime earned).
     /// Zero entries for hotkeys without a collateral entry.
-    fn collateral_vectors(
+    fn miner_collateral_vectors_for_netuid(
         netuid: NetUid,
     ) -> (
         Vec<Compact<AlphaBalance>>,
@@ -1515,7 +1546,8 @@ impl<T: Config> Pallet<T> {
         (locked_vec, min_vec, earned_vec)
     }
 
-    fn get_single_selective_mechagraph(
+    /// Single-field selective view for a mechanism (overrides incentives/last_update storage index).
+    fn selective_metagraph_field_for_mechanism(
         netuid: NetUid,
         mecid: MechId,
         metagraph_index: u16,
@@ -1523,7 +1555,7 @@ impl<T: Config> Pallet<T> {
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
         // Default to netuid, replace as needed for mecid
-        match SelectiveMetagraphIndex::from_index(metagraph_index as usize) {
+        match SelectiveMetagraphIndex::from_field_index(metagraph_index as usize) {
             Some(SelectiveMetagraphIndex::Incentives) => SelectiveMetagraph {
                 netuid: netuid.into(),
                 incentives: Some(
@@ -1547,7 +1579,7 @@ impl<T: Config> Pallet<T> {
             },
 
             _ => {
-                let mut meta = Self::get_single_selective_metagraph(netuid, metagraph_index);
+                let mut meta = Self::selective_metagraph_field_for_netuid(netuid, metagraph_index);
                 // Replace netuid with index
                 meta.netuid = NetUid::from(u16::from(netuid_index)).into();
                 meta
@@ -1555,7 +1587,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    fn get_validators(netuid: NetUid) -> SelectiveMetagraph<T::AccountId> {
+    /// Validator uids with permit and stake above [`Self::get_stake_threshold`], sorted by stake.
+    fn validator_uids_above_stake_threshold(netuid: NetUid) -> SelectiveMetagraph<T::AccountId> {
         let stake_threshold = Self::get_stake_threshold();
         let hotkeys: Vec<(u16, T::AccountId)> =
             <Keys<T> as IterableStorageDoubleMap<NetUid, u16, T::AccountId>>::iter_prefix(netuid)
@@ -1594,7 +1627,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    fn get_commitments(netuid: NetUid) -> SelectiveMetagraph<T::AccountId> {
+    /// Hotkey commitments from the commitments pallet, packed for selective metagraph index 73.
+    fn hotkey_commitments_for_selective_metagraph(
+        netuid: NetUid,
+    ) -> SelectiveMetagraph<T::AccountId> {
         let commitments = <T as Config>::GetCommitments::get_commitments(netuid);
         let commitments: Vec<(T::AccountId, Vec<Compact<u8>>)> = commitments
             .iter()
@@ -1708,11 +1744,11 @@ fn test_selective_metagraph() {
     };
 
     // test merge function
-    metagraph.merge_value(&metagraph_name, wrong_index);
+    metagraph.merge_selective_metagraph_field(&metagraph_name, wrong_index);
     assert!(metagraph.name.is_none());
 
     let name_index: usize = 1;
-    metagraph.merge_value(&metagraph_name, name_index);
+    metagraph.merge_selective_metagraph_field(&metagraph_name, name_index);
     assert!(metagraph.name.is_some());
 
     let alph_low_index: usize = 50;
@@ -1722,6 +1758,6 @@ fn test_selective_metagraph() {
         ..Default::default()
     };
     assert!(metagraph.alpha_low.is_none());
-    metagraph.merge_value(&metagraph_alpha_low, alph_low_index);
+    metagraph.merge_selective_metagraph_field(&metagraph_alpha_low, alph_low_index);
     assert!(metagraph.alpha_low.is_some());
 }
