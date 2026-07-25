@@ -1,3 +1,4 @@
+//! Recycle or burn alpha back into subnet reserves / protocol sinks.
 use super::*;
 use crate::{Error, system::ensure_signed};
 use frame_support::storage::{TransactionOutcome, with_transaction};

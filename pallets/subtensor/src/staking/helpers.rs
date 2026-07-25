@@ -1,3 +1,4 @@
+//! Stake totals, hotkey ownership, delegate flags, and nomination dust cleanup.
 use alloc::collections::BTreeMap;
 use safe_math::*;
 use share_pool::SafeFloat;
@@ -9,32 +10,27 @@ use subtensor_swap_interface::{Order, SwapHandler};
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    // Returns true if the passed hotkey allow delegative staking.
-    //
+    /// True if this hotkey is registered as a delegate (accepts nominator stake).
     pub fn hotkey_is_delegate(hotkey: &T::AccountId) -> bool {
         Delegates::<T>::contains_key(hotkey)
     }
 
-    // Sets the hotkey as a delegate with take.
-    //
+    /// Mark `hotkey` as a delegate with the given take (parts-per-`u16::MAX`).
     pub fn delegate_hotkey(hotkey: &T::AccountId, take: u16) {
         Delegates::<T>::insert(hotkey, PerU16::from_parts(take));
     }
 
-    // Returns the total amount of stake in the staking table.
-    //
+    /// Network-wide total stake in TAO (`TotalStake` storage).
     pub fn get_total_stake() -> TaoBalance {
         TotalStake::<T>::get()
     }
 
-    // Increases the total amount of stake by the passed amount.
-    //
+    /// Increase [`TotalStake`] by `increment` (saturating).
     pub fn increase_total_stake(increment: TaoBalance) {
         TotalStake::<T>::put(Self::get_total_stake().saturating_add(increment));
     }
 
-    // Decreases the total amount of stake by the passed amount.
-    //
+    /// Decrease [`TotalStake`] by `decrement` (saturating).
     pub fn decrease_total_stake(decrement: TaoBalance) {
         TotalStake::<T>::put(Self::get_total_stake().saturating_sub(decrement));
     }

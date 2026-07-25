@@ -1,3 +1,4 @@
+//! Associate a hotkey with a coldkey when the hotkey account does not yet exist.
 use super::*;
 
 impl<T: Config> Pallet<T> {
