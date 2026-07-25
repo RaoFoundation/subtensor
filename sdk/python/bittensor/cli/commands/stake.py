@@ -49,7 +49,7 @@ _, _, _REMOVE_STAKE_BODY = RemoveStake.describe().partition("\n")
 _REMOVE_STAKE_HELP = (
     "Unstake alpha from one or more hotkeys back to the coldkey.\n\n"
     f"{_REMOVE_STAKE_BODY.strip()}\n\n"
-    "Use `--hotkey` for one position, `--hotkeys` for a comma-separated "
+    "Use `--hotkey` for one position, `--include-hotkeys` for a comma-separated "
     "selection, or `--all-hotkeys` with optional exclusions. Multiple "
     f"removals execute atomically.\n\nDocs: {tx_docs_url(RemoveStake.op)}"
 )
@@ -103,9 +103,8 @@ def remove_stake(
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
-    hotkeys: Optional[str] = typer.Option(
+    include_hotkeys: Optional[str] = typer.Option(
         None,
-        "--hotkeys",
         "--include-hotkeys",
         "-in",
         help="Comma-separated hotkeys to unstake from; each accepts an ss58 address, "
@@ -151,12 +150,14 @@ def remove_stake(
     selected_modes = sum(
         (
             hotkey_ss58 is not None,
-            bool(_hotkey_refs(hotkeys)),
+            bool(_hotkey_refs(include_hotkeys)),
             all_hotkeys,
         )
     )
     if selected_modes > 1:
-        app_ctx.output.error("choose only one of `--hotkey`, `--hotkeys`, or `--all-hotkeys`")
+        app_ctx.output.error(
+            "choose only one of `--hotkey`, `--include-hotkeys`, or `--all-hotkeys`"
+        )
         raise typer.Exit(2)
     if exclude_hotkeys and not all_hotkeys:
         app_ctx.output.error("`--exclude-hotkeys` requires `--all-hotkeys`")
@@ -189,8 +190,8 @@ def remove_stake(
         selected = _all_staked_hotkeys(app_ctx, owner, netuid)
         excluded = set(_resolve_hotkeys(app_ctx, _hotkey_refs(exclude_hotkeys)))
         selected = [hotkey for hotkey in selected if hotkey not in excluded]
-    elif hotkeys:
-        selected = _resolve_hotkeys(app_ctx, _hotkey_refs(hotkeys))
+    elif include_hotkeys:
+        selected = _resolve_hotkeys(app_ctx, _hotkey_refs(include_hotkeys))
     else:
         if (
             hotkey_ss58 is None

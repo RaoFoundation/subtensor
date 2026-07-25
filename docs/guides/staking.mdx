@@ -65,7 +65,7 @@ to every selected hotkey, and the removals execute atomically:
 
 ```bash
 btcli stake remove \
-  --hotkeys validator-a,validator-b \
+  --include-hotkeys validator-a,validator-b \
   --netuid 1 \
   --amount-alpha all \
   --rate-tolerance 0.1 \
@@ -73,8 +73,7 @@ btcli stake remove \
 ```
 
 Use `--all-hotkeys` to select every non-zero position on the subnet, optionally
-with `--exclude-hotkeys validator-c,validator-d`. `--include-hotkeys` remains
-an alias of `--hotkeys` for pre-v11 scripts.
+with `--exclude-hotkeys validator-c,validator-d`.
 
 For different netuids, amounts, or slippage settings per position, use the
 structured [`remove-stakes`](/docs/tx/remove-stakes) intent:
@@ -88,8 +87,8 @@ intent = bt.RemoveStakes(positions=[
 await client.execute(intent, wallet)
 ```
 
-This replaces the SDK's pre-v11 `unstake_multiple` helper. Unlike the legacy
-helper's sequence of independent transactions, the new operation is
+This replaces the SDK's pre-v11 `unstake_multiple` helper. Unlike its
+sequence of independent transactions, the new operation is
 all-or-nothing. Positions on the same netuid share one subnet pool and execute
 in list order, so earlier removals can move the price seen by later ones.
 

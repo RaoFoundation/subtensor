@@ -110,7 +110,6 @@ class TestOffline:
         result = invoke("stake", "remove", "--help")
         assert result.exit_code == 0
         assert "--hotkey" in result.output
-        assert "--hotkeys" in result.output
         assert "-in" in result.output
         assert "--all-hotkeys" in result.output
         assert "--exclude-hotkeys" in result.output
@@ -232,8 +231,8 @@ class TestTransactions:
             "amount_unstaked": 1_250_000_000,
         }
 
-    @pytest.mark.parametrize("selector_flag", ["--hotkeys", "--include-hotkeys", "-in"])
-    def test_stake_remove_resolves_multiple_hotkey_aliases_and_submits_atomic_batch(
+    @pytest.mark.parametrize("selector_flag", ["--include-hotkeys", "-in"])
+    def test_stake_remove_resolves_multiple_hotkeys_and_submits_atomic_batch(
         self, fake: FakeSubstrate, selector_flag: str
     ):
         saved = invoke("--json", "addresses", "add", "validator-two", BOB)
@@ -330,7 +329,7 @@ class TestTransactions:
             "remove",
             "--hotkey",
             BOB,
-            "--hotkeys",
+            "--include-hotkeys",
             BOB_HOT,
             "--netuid",
             "1",
