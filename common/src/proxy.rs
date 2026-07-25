@@ -1,14 +1,20 @@
+//! Proxy-type identifiers and client-facing call-filter metadata for pallet-proxy.
+//!
+//! Runtime filtering in `runtime/src/proxy_filters` remains the source of truth.
+//! Types here are the on-chain / RPC view of the same allowlists (`ProxyType`,
+//! [`CallInfo`], [`ProxyFilterInfo`]).
+
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::traits::{Contains, GetCallIndex, GetCallName, PalletInfoAccess};
 use scale_info::TypeInfo;
 use sp_runtime::Vec;
 use subtensor_macros::freeze_struct;
 
-/// Shared proxy filter model exposed by the runtime API.
+/// Stable proxy-type identifiers used on-chain and by RPC clients.
 ///
-/// Runtime filtering remains the source of truth. This metadata is the client-facing
-/// allowlist view of the same rules.
-/// Stable proxy type identifiers used on-chain and by RPC clients.
+/// Variant order and the explicit `u8` mapping below are part of the wire /
+/// announcement surface — do not reorder variants or renumber discriminants.
+/// Deprecated variants ([`ProxyType::is_deprecated`]) always deny calls.
 #[derive(
     Copy,
     Clone,
@@ -24,23 +30,41 @@ use subtensor_macros::freeze_struct;
     TypeInfo,
 )]
 pub enum ProxyType {
+    /// Unrestricted proxy: all runtime calls allowed.
     Any,
+    /// Subnet-owner call set.
     Owner,
+    /// Non-critical / low-risk call set.
     NonCritical,
+    /// Calls that do not move free TAO or stake.
     NonTransfer,
+    /// Deprecated senate governance proxy (always denies).
     Senate,
-    NonFungible, // Nothing involving moving TAO
+    /// Calls that do not move fungible TAO (NFTs / non-value paths).
+    NonFungible,
+    /// Deprecated triumvirate governance proxy (always denies).
     Triumvirate,
+    /// Deprecated governance proxy (always denies).
     Governance,
+    /// Staking / unstaking / swap stake call set.
     Staking,
+    /// Neuron / subnet registration call set.
     Registration,
+    /// Free-balance and stake transfer call set.
     Transfer,
+    /// Transfers bounded by [`crate::SMALL_TRANSFER_LIMIT`] / [`crate::SMALL_ALPHA_TRANSFER_LIMIT`].
     SmallTransfer,
-    RootWeights, // Deprecated
+    /// Deprecated root-weights proxy (always denies).
+    RootWeights,
+    /// Child-hotkey relationship call set.
     ChildKeys,
+    /// Sudo `set_code` only (high privilege).
     SudoUncheckedSetCode,
+    /// Hotkey swap call set.
     SwapHotkey,
+    /// Subnet lease beneficiary call set.
     SubnetLeaseBeneficiary,
+    /// Root-claim call set.
     RootClaim,
 }
 
@@ -98,6 +122,7 @@ impl From<ProxyType> for u8 {
 }
 
 impl ProxyType {
+    /// Whether this proxy type is retired and always filters to deny.
     pub fn is_deprecated(&self) -> bool {
         matches!(
             self,
@@ -112,7 +137,7 @@ impl Default for ProxyType {
     }
 }
 
-/// Extra constraint attached to an allowed call.
+/// Extra constraint attached to an allowed call in filter metadata.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
 pub enum CallConstraint {
     /// The named numeric parameter must be lower than `limit`.
@@ -125,7 +150,7 @@ pub enum CallConstraint {
     },
 }
 
-/// Runtime call identity exposed in proxy filter metadata.
+/// Runtime call identity exposed in proxy filter metadata (pallet + call + optional constraint).
 #[freeze_struct("85f86877d3d9b870")]
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
 pub struct CallInfo {
@@ -141,6 +166,9 @@ pub struct CallInfo {
     pub constraint: Option<CallConstraint>,
 }
 
+/// Builds a [`CallInfo`] for pallet `P` call named `name` (no constraint).
+///
+/// Panics if `name` is not a call on `P` — intended for const/filter-group construction.
 pub fn call_info_by_name<P: PalletInfoAccess, C: GetCallName + GetCallIndex>(
     name: &str,
 ) -> CallInfo {
@@ -168,6 +196,7 @@ pub fn call_info_by_name<P: PalletInfoAccess, C: GetCallName + GetCallIndex>(
 /// Implementations should be generated from the same rules as the executable
 /// filter so clients and runtime behavior cannot drift.
 pub trait CallFilterMetadata {
+    /// Flat list of allowed calls (and constraints) for this filter group.
     fn call_infos() -> Vec<CallInfo>;
 }
 
@@ -191,7 +220,7 @@ impl CallFilterMetadata for Tuple {
     }
 }
 
-/// Public metadata model for a proxy filter.
+/// Public metadata model for a proxy filter allowlist shape.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
 pub enum FilterMode {
     /// All runtime calls are allowed.
@@ -200,20 +229,28 @@ pub enum FilterMode {
     Allow(Vec<CallInfo>),
 }
 
-/// Runtime API response for one proxy type.
-#[freeze_struct("288413f4da5ab4ee")]
+/// Runtime API response describing one [`ProxyType`]'s filter.
+#[freeze_struct("13eab55e0c9576a8")]
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
 pub struct ProxyFilterInfo {
+    /// [`ProxyType`] as its stable `u8` discriminant.
     pub proxy_type: u8,
+    /// Human-readable proxy type name (UTF-8 bytes).
     pub name: Vec<u8>,
+    /// Whether the proxy type is deprecated and always denies.
     pub deprecated: bool,
+    /// Allow-all vs allow-list filter mode.
     pub filter_mode: FilterMode,
 }
 
-#[freeze_struct("b0cce66ed9b2451b")]
+/// Compact name/index/deprecated triple for listing proxy types over RPC.
+#[freeze_struct("d8933caab5cdc1e")]
 #[derive(Clone, PartialEq, Eq, Encode, Decode, Debug, TypeInfo)]
 pub struct ProxyTypeInfo {
+    /// Human-readable proxy type name (UTF-8 bytes).
     pub name: Vec<u8>,
+    /// Stable `u8` discriminant matching [`ProxyType`].
     pub index: u8,
+    /// Whether the proxy type is deprecated.
     pub deprecated: bool,
 }

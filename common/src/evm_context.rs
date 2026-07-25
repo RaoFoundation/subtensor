@@ -1,3 +1,8 @@
+//! Thread-local flag marking dispatch that originated from an EVM precompile.
+//!
+//! Precompiles wrap `dispatch` in [`with_evm_context`] so fee / origin logic can distinguish
+//! EVM-driven calls from native extrinsics via [`is_in_evm`].
+
 environmental::environmental!(IN_EVM: bool);
 
 /// Returns `true` if the current dispatch originated from an EVM precompile.
