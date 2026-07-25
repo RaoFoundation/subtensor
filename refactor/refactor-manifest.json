@@ -557,7 +557,10 @@
       "notes": "pallet-subtensor src/subnets",
       "files": [
         "pallets/subtensor/src/subnets/collateral.rs",
-        "pallets/subtensor/src/subnets/dissolution.rs",
+        "pallets/subtensor/src/subnets/dissolution/mod.rs",
+        "pallets/subtensor/src/subnets/dissolution/cleanup_status.rs",
+        "pallets/subtensor/src/subnets/dissolution/phased_cleanup.rs",
+        "pallets/subtensor/src/subnets/dissolution/purge_network_storage.rs",
         "pallets/subtensor/src/subnets/leasing.rs",
         "pallets/subtensor/src/subnets/mechanism.rs",
         "pallets/subtensor/src/subnets/mod.rs",
