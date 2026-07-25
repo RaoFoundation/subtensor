@@ -1,9 +1,16 @@
 //! # Crowdloan Pallet
 //!
-//! A pallet allowing users to create generic crowdloans and contribute to them,
-//! then finalize them through exactly one configured route: transfer the raised
-//! funds to a target address or dispatch an extrinsic, making it reusable for any
-//! crowdloan type.
+//! Generic crowdloan raise-and-finalize flow used by Bittensor (e.g. subnet leasing).
+//!
+//! Lifecycle:
+//! 1. [`Pallet::create`] — creator posts a deposit and configures **exactly one**
+//!    finalization route (`call` **xor** `target_address`).
+//! 2. [`Pallet::contribute`] / [`Pallet::withdraw`] — raise funds until `cap` or `end`.
+//! 3. Success path: [`Pallet::finalize`] (requires `raised == cap`).
+//! 4. Failure path: [`Pallet::refund`] (batched) then [`Pallet::dissolve`].
+//!
+//! During call-based finalization, [`CurrentCrowdloanId`] is briefly set so the
+//! dispatched call can read which crowdloan is being finalized.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -33,6 +40,7 @@ use weights::WeightInfo;
 pub use pallet::*;
 use subtensor_macros::freeze_struct;
 
+/// Incrementing identifier for a crowdloan; keys [`Crowdloans`] and related maps.
 pub type CrowdloanId = u32;
 
 mod benchmarking;
@@ -41,44 +49,48 @@ mod mock;
 mod tests;
 pub mod weights;
 
+/// Alias for the pallet's configured currency type.
 pub type CurrencyOf<T> = <T as Config>::Currency;
 
+/// Balance type of [`CurrencyOf`], in rao (TAO smallest unit) for this runtime.
 pub type BalanceOf<T> =
     <CurrencyOf<T> as fungible::Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
-// Define a maximum length for the migration key
+/// Max length of a `HasMigrationRun` key (`BoundedVec<u8, …>`).
 type MigrationKeyMaxLen = ConstU32<128>;
 
+/// Preimage-bounded runtime call stored on a crowdloan for call-based finalization.
 pub type BoundedCallOf<T> =
     Bounded<<T as Config>::RuntimeCall, <T as frame_system::Config>::Hashing>;
 
-/// A struct containing the information about a crowdloan.
-#[freeze_struct("5db9538284491545")]
+/// On-chain record for one crowdloan (cap, timing, finalization route, raised total).
+///
+/// Invariant: exactly one of `call` or `target_address` is `Some` for a valid
+/// creatable/finalizable crowdloan; both or neither yields [`Error::InvalidFinalizationConfig`].
+#[freeze_struct("8a6ddd055c5a5c0b")]
 #[derive(Encode, Decode, Eq, PartialEq, Ord, PartialOrd, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct CrowdloanInfo<AccountId, Balance, BlockNumber, Call> {
-    /// The creator of the crowdloan.
+    /// Coldkey / account that created the crowdloan and may finalize, refund, or dissolve it.
     pub creator: AccountId,
-    /// The initial deposit of the crowdloan from the creator.
+    /// Creator's locked deposit (rao); counted in `raised` and not withdrawable until dissolve.
     pub deposit: Balance,
-    /// Minimum contribution to the crowdloan.
+    /// Per-contribution floor (rao); also bounded by [`Config::AbsoluteMinimumContribution`].
     pub min_contribution: Balance,
-    /// The end block of the crowdloan.
+    /// First block at which contributions are rejected (`now < end` required to contribute).
     pub end: BlockNumber,
-    /// The cap to raise.
+    /// Maximum `raised` (rao); finalization requires `raised == cap`.
     pub cap: Balance,
-    /// The account holding the funds for this crowdloan. Derived on chain but put here for ease of use.
+    /// Pallet-derived account holding contributed TAO for this crowdloan id.
     pub funds_account: AccountId,
-    /// The amount raised so far.
+    /// Total TAO held toward the cap (includes creator deposit), in rao.
     pub raised: Balance,
-    /// The optional target address to transfer the raised funds to, if not
-    /// provided, it means the funds will be transferred from on chain logic
-    /// inside the provided call to dispatch.
+    /// If set (and `call` is `None`), finalize transfers `raised` here.
     pub target_address: Option<AccountId>,
-    /// The optional call to dispatch when the crowdloan is finalized.
+    /// If set (and `target_address` is `None`), finalize dispatches this preimage-bounded call.
     pub call: Option<Call>,
-    /// Whether the crowdloan has been finalized.
+    /// Set true when [`Pallet::finalize`] succeeds; blocks further withdraw/refund/dissolve.
     pub finalized: bool,
-    /// The number of contributors to the crowdloan.
+    /// Distinct contributors with a nonzero [`Contributions`] entry (includes creator).
     pub contributors_count: u32,
 }
 
@@ -97,10 +109,10 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    /// Configuration trait.
+    /// Runtime configuration for the crowdloan pallet.
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        /// The overarching call type.
+        /// Runtime call type; must be dispatchable and subtype-checkable for nested crowdloan calls.
         type RuntimeCall: Parameter
             + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin>
             + GetDispatchInfo
@@ -108,55 +120,55 @@ pub mod pallet {
             + IsSubType<Call<Self>>
             + IsType<<Self as frame_system::Config>::RuntimeCall>;
 
-        /// The currency mechanism.
+        /// Fungible used for deposits and contributions (TAO / rao in production).
         type Currency: fungible::Balanced<Self::AccountId, Balance = TaoBalance>
             + fungible::Mutate<Self::AccountId>;
 
-        /// The weight information for the pallet.
+        /// Extrinsic weight benchmarks for this pallet.
         type WeightInfo: WeightInfo;
 
-        /// The preimage provider which will be used to store the call to dispatch.
+        /// Stores / peeks the optional finalize `call` preimage.
         type Preimages: QueryPreimage<H = Self::Hashing> + StorePreimage;
 
-        /// The pallet id that will be used to derive crowdloan account ids.
+        /// Seed for deriving per-crowdloan [`CrowdloanInfo::funds_account`] sub-accounts.
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
-        /// The minimum deposit required to create a crowdloan.
+        /// Floor on creator deposit at [`Pallet::create`] (rao).
         #[pallet::constant]
         type MinimumDeposit: Get<BalanceOf<Self>>;
 
-        /// The absolute minimum contribution required to contribute to a crowdloan.
+        /// Global floor on `min_contribution` at create and update (rao).
         #[pallet::constant]
         type AbsoluteMinimumContribution: Get<BalanceOf<Self>>;
 
-        /// The minimum block duration for a crowdloan.
+        /// Minimum `end - now` block span allowed for a crowdloan window.
         #[pallet::constant]
         type MinimumBlockDuration: Get<BlockNumberFor<Self>>;
 
-        /// The maximum block duration for a crowdloan.
+        /// Maximum `end - now` block span allowed for a crowdloan window.
         #[pallet::constant]
         type MaximumBlockDuration: Get<BlockNumberFor<Self>>;
 
-        /// The maximum number of contributors that can be refunded in a single refund.
+        /// Max non-creator contributors refunded per [`Pallet::refund`] extrinsic.
         #[pallet::constant]
         type RefundContributorsLimit: Get<u32>;
 
-        // The maximum number of contributors that can contribute to a crowdloan.
+        /// Hard cap on [`CrowdloanInfo::contributors_count`] (includes creator).
         #[pallet::constant]
         type MaxContributors: Get<u32>;
     }
 
-    /// A map of crowdloan ids to their information.
+    /// Crowdloan id → [`CrowdloanInfo`] for every live (not yet dissolved) crowdloan.
     #[pallet::storage]
     pub type Crowdloans<T: Config> =
         StorageMap<_, Twox64Concat, CrowdloanId, CrowdloanInfoOf<T>, OptionQuery>;
 
-    /// The next incrementing crowdloan id.
+    /// Next unused [`CrowdloanId`]; starts at 0 and increments on each successful create.
     #[pallet::storage]
     pub type NextCrowdloanId<T> = StorageValue<_, CrowdloanId, ValueQuery, ConstU32<0>>;
 
-    /// A map of crowdloan ids to their contributors and their contributions.
+    /// Per-(crowdloan id, contributor) cumulative contribution balance in rao.
     #[pallet::storage]
     pub type Contributions<T: Config> = StorageDoubleMap<
         _,
@@ -168,17 +180,20 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// A map of crowdloan ids to their optional maximum cumulative contribution per contributor.
+    /// Optional per-contributor cumulative contribution ceiling (rao) for a crowdloan.
+    ///
+    /// Absent means no per-account max beyond the crowdloan `cap`.
     #[pallet::storage]
     pub type MaxContributions<T: Config> =
         StorageMap<_, Twox64Concat, CrowdloanId, BalanceOf<T>, OptionQuery>;
 
-    /// The current crowdloan id that will be set during the finalize call, making it
-    /// temporarily accessible to the dispatched call.
+    /// Crowdloan id being finalized while a call-route finalize dispatches; otherwise `None`.
+    ///
+    /// Nested crowdloan extrinsics see [`Error::AlreadyFinalizing`] while this is set.
     #[pallet::storage]
     pub type CurrentCrowdloanId<T: Config> = StorageValue<_, CrowdloanId, OptionQuery>;
 
-    /// Storage for the migration run status.
+    /// Idempotency flags for named storage migrations (`true` once that migration has run).
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
         StorageMap<_, Identity, BoundedVec<u8, MigrationKeyMaxLen>, bool, ValueQuery>;
@@ -186,49 +201,49 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A crowdloan was created.
+        /// Emitted after [`Pallet::create`] stores a new crowdloan and takes the deposit.
         Created {
             crowdloan_id: CrowdloanId,
             creator: T::AccountId,
             end: BlockNumberFor<T>,
             cap: BalanceOf<T>,
         },
-        /// A contribution was made to an active crowdloan.
+        /// Emitted after a successful [`Pallet::contribute`] (accepted amount may be clipped to room).
         Contributed {
             crowdloan_id: CrowdloanId,
             contributor: T::AccountId,
             amount: BalanceOf<T>,
         },
-        /// A contribution was withdrawn from a failed crowdloan.
+        /// Emitted after [`Pallet::withdraw`] returns contribution TAO to the contributor.
         Withdrew {
             crowdloan_id: CrowdloanId,
             contributor: T::AccountId,
             amount: BalanceOf<T>,
         },
-        /// A refund was partially processed for a failed crowdloan.
+        /// [`Pallet::refund`] hit [`Config::RefundContributorsLimit`] before clearing all non-creators.
         PartiallyRefunded { crowdloan_id: CrowdloanId },
-        /// A refund was fully processed for a failed crowdloan.
+        /// [`Pallet::refund`] returned every non-creator contribution in this call.
         AllRefunded { crowdloan_id: CrowdloanId },
-        /// A crowdloan was finalized, funds were transferred and the call was dispatched.
+        /// Cap reached and finalization route (transfer or call dispatch) completed.
         Finalized { crowdloan_id: CrowdloanId },
-        /// A crowdloan was dissolved.
+        /// Crowdloan storage, contributions, and funds account provider ref cleared after dissolve.
         Dissolved { crowdloan_id: CrowdloanId },
-        /// The minimum contribution was updated.
+        /// Creator changed `CrowdloanInfo::min_contribution` via [`Pallet::update_min_contribution`].
         MinContributionUpdated {
             crowdloan_id: CrowdloanId,
             new_min_contribution: BalanceOf<T>,
         },
-        /// The end was updated.
+        /// Creator changed `CrowdloanInfo::end` via [`Pallet::update_end`].
         EndUpdated {
             crowdloan_id: CrowdloanId,
             new_end: BlockNumberFor<T>,
         },
-        /// The cap was updated.
+        /// Creator changed `CrowdloanInfo::cap` via [`Pallet::update_cap`].
         CapUpdated {
             crowdloan_id: CrowdloanId,
             new_cap: BalanceOf<T>,
         },
-        /// The maximum contribution was updated.
+        /// Creator set or cleared [`MaxContributions`] via [`Pallet::set_max_contribution`].
         MaxContributionUpdated {
             crowdloan_id: CrowdloanId,
             new_max_contribution: Option<BalanceOf<T>>,
@@ -237,59 +252,59 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        /// The crowdloan initial deposit is too low.
+        /// Creator deposit below [`Config::MinimumDeposit`].
         DepositTooLow,
-        /// The crowdloan cap is too low.
+        /// Cap not strictly above deposit (create) or below current `raised` (update).
         CapTooLow,
-        /// The minimum contribution is too low.
+        /// `min_contribution` below [`Config::AbsoluteMinimumContribution`].
         MinimumContributionTooLow,
-        /// The crowdloan cannot end in the past.
+        /// Proposed `end` is not strictly after the current block.
         CannotEndInPast,
-        /// The crowdloan block duration is too short.
+        /// `end - now` shorter than [`Config::MinimumBlockDuration`].
         BlockDurationTooShort,
-        /// The block duration is too long.
+        /// `end - now` longer than [`Config::MaximumBlockDuration`].
         BlockDurationTooLong,
-        /// The account does not have enough balance to pay for the initial deposit/contribution.
+        /// Signer lacks free balance for the deposit or contribution transfer.
         InsufficientBalance,
-        /// An overflow occurred.
+        /// Checked arithmetic overflow (ids, raised totals, or contributor counts).
         Overflow,
-        /// The crowdloan id is invalid.
+        /// No [`Crowdloans`] entry for the given id.
         InvalidCrowdloanId,
-        /// The crowdloan cap has been fully raised.
+        /// Contributions rejected because `raised` already equals `cap`.
         CapRaised,
-        /// The contribution period has ended.
+        /// Contributions rejected because `now >= end`.
         ContributionPeriodEnded,
-        /// The contribution is too low.
+        /// Requested contribution below the crowdloan's `min_contribution`.
         ContributionTooLow,
-        /// The origin of this call is invalid.
+        /// Signed origin is not the crowdloan creator where creator-only is required.
         InvalidOrigin,
-        /// The crowdloan has already been finalized.
+        /// Operation blocked because `CrowdloanInfo::finalized` is already true.
         AlreadyFinalized,
-        /// A crowdloan finalization is already in progress.
+        /// Nested finalize attempted while [`CurrentCrowdloanId`] is set.
         AlreadyFinalizing,
-        /// The crowdloan contribution period has not ended yet.
+        /// Reserved for contribution-period gating (not currently returned by extrinsics).
         ContributionPeriodNotEnded,
-        /// The contributor has no contribution for this crowdloan.
+        /// Contributor has no [`Contributions`] row (or creator missing deposit row on dissolve).
         NoContribution,
-        /// The crowdloan cap has not been raised.
+        /// Finalize requires `raised == cap`.
         CapNotRaised,
-        /// An underflow occurred.
+        /// Checked arithmetic underflow.
         Underflow,
-        /// Call to dispatch was not found in the preimage storage.
+        /// Finalize call preimage missing from [`Config::Preimages`].
         CallUnavailable,
-        /// The crowdloan is not ready to be dissolved, it still has contributions.
+        /// Dissolve requires `raised` equal only to the creator's remaining contribution.
         NotReadyToDissolve,
-        /// The deposit cannot be withdrawn from the crowdloan.
+        /// Creator tried to withdraw when only the locked deposit remains.
         DepositCannotBeWithdrawn,
-        /// The maximum number of contributors has been reached.
+        /// New contributor would exceed [`Config::MaxContributors`].
         MaxContributorsReached,
-        /// Exactly one of call or target address must be provided.
+        /// Create/finalize config is not exactly one of `call` or `target_address`.
         InvalidFinalizationConfig,
-        /// The contributor has already reached the maximum contribution.
+        /// Contributor already at [`MaxContributions`] for this crowdloan.
         MaxContributionReached,
-        /// The maximum contribution is too low.
+        /// New max contribution below `min_contribution` or creator's current contribution.
         MaximumContributionTooLow,
-        /// The minimum contribution is too high.
+        /// New min contribution above the configured [`MaxContributions`] ceiling.
         MinimumContributionTooHigh,
     }
 
@@ -366,7 +381,7 @@ pub mod pallet {
                 Error::<T>::InvalidFinalizationConfig
             );
 
-            Self::ensure_valid_end(now, end)?;
+            Self::ensure_crowdloan_end_in_window(now, end)?;
 
             // Ensure the creator has enough balance to pay the initial deposit
             ensure!(
@@ -379,7 +394,7 @@ pub mod pallet {
             NextCrowdloanId::<T>::put(next_crowdloan_id);
 
             // Derive the funds account and keep track of it
-            let funds_account = Self::funds_account(crowdloan_id);
+            let funds_account = Self::crowdloan_funds_account(crowdloan_id);
             frame_system::Pallet::<T>::inc_providers(&funds_account);
 
             // If the call is provided, bound it and store it in the preimage storage
@@ -445,7 +460,7 @@ pub mod pallet {
             let contributor = ensure_signed(origin)?;
             let now = frame_system::Pallet::<T>::block_number();
 
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
 
             // Ensure crowdloan has not ended and has not raised cap
             ensure!(now < crowdloan.end, Error::<T>::ContributionPeriodEnded);
@@ -551,7 +566,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
 
             // Ensure contributor has balance left in the crowdloan account
@@ -614,7 +629,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
 
             // Ensure the origin is the creator of the crowdloan and the crowdloan has raised the cap
             // and is not finalized.
@@ -691,7 +706,7 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
 
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
 
             // Ensure the crowdloan is not finalized
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
@@ -766,7 +781,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let crowdloan = Self::require_crowdloan(crowdloan_id)?;
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
 
             // Only the creator can dissolve the crowdloan
@@ -823,7 +838,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
 
             // Only the creator can update the min contribution.
@@ -868,13 +883,13 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
             let now = frame_system::Pallet::<T>::block_number();
 
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
 
             // Only the creator can update the min contribution.
             ensure!(who == crowdloan.creator, Error::<T>::InvalidOrigin);
 
-            Self::ensure_valid_end(now, new_end)?;
+            Self::ensure_crowdloan_end_in_window(now, new_end)?;
 
             crowdloan.end = new_end;
             Crowdloans::<T>::insert(crowdloan_id, &crowdloan);
@@ -903,7 +918,7 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
 
             // The cap can only be updated if the crowdloan has not been finalized.
-            let mut crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let mut crowdloan = Self::require_crowdloan(crowdloan_id)?;
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
 
             // Only the creator can update the cap.
@@ -939,7 +954,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            let crowdloan = Self::ensure_crowdloan_exists(crowdloan_id)?;
+            let crowdloan = Self::require_crowdloan(crowdloan_id)?;
             ensure!(!crowdloan.finalized, Error::<T>::AlreadyFinalized);
 
             // Only the creator can update the max contribution.
@@ -969,17 +984,22 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-    fn funds_account(id: CrowdloanId) -> T::AccountId {
-        T::PalletId::get().into_sub_account_truncating(id)
+    /// Derive the custodial account that holds TAO for `crowdloan_id` from [`Config::PalletId`].
+    pub(crate) fn crowdloan_funds_account(crowdloan_id: CrowdloanId) -> T::AccountId {
+        T::PalletId::get().into_sub_account_truncating(crowdloan_id)
     }
 
-    fn ensure_crowdloan_exists(crowdloan_id: CrowdloanId) -> Result<CrowdloanInfoOf<T>, Error<T>> {
+    /// Load [`Crowdloans`] entry or [`Error::InvalidCrowdloanId`].
+    fn require_crowdloan(crowdloan_id: CrowdloanId) -> Result<CrowdloanInfoOf<T>, Error<T>> {
         Crowdloans::<T>::get(crowdloan_id).ok_or(Error::<T>::InvalidCrowdloanId)
     }
 
-    // Ensure the provided end block is after the current block and the duration is
-    // between the minimum and maximum block duration
-    fn ensure_valid_end(now: BlockNumberFor<T>, end: BlockNumberFor<T>) -> Result<(), Error<T>> {
+    /// Reject `end` in the past or outside [`Config::MinimumBlockDuration`] /
+    /// [`Config::MaximumBlockDuration`] relative to `now`.
+    fn ensure_crowdloan_end_in_window(
+        now: BlockNumberFor<T>,
+        end: BlockNumberFor<T>,
+    ) -> Result<(), Error<T>> {
         ensure!(now < end, Error::<T>::CannotEndInPast);
         let block_duration = end.checked_sub(&now).ok_or(Error::<T>::Underflow)?;
         ensure!(

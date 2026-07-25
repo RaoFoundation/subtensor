@@ -1,4 +1,8 @@
-//! Benchmarks for Crowdloan Pallet
+//! Runtime benchmarks for crowdloan extrinsics (`create`, `contribute`, `withdraw`, …).
+//!
+//! Setup helpers seed a funded crowdloan via storage so weight functions exercise
+//! realistic contribution / refund / finalize paths without depending on prior extrinsics
+//! beyond what each benchmark needs.
 #![cfg(feature = "runtime-benchmarks")]
 #![allow(
     clippy::arithmetic_side_effects,
@@ -59,7 +63,7 @@ mod benchmarks {
 
         // ensure the crowdloan is stored correctly
         let crowdloan_id = 0;
-        let funds_account = Pallet::<T>::funds_account(crowdloan_id);
+        let funds_account = Pallet::<T>::crowdloan_funds_account(crowdloan_id);
         assert_eq!(
             Crowdloans::<T>::get(crowdloan_id),
             Some(CrowdloanInfo {
@@ -143,7 +147,7 @@ mod benchmarks {
         assert!(Crowdloans::<T>::get(crowdloan_id).is_some_and(|c| c.raised == deposit + amount));
         // ensure the contribution is present in the crowdloan account
         assert_eq!(
-            CurrencyOf::<T>::balance(&Pallet::<T>::funds_account(crowdloan_id)),
+            CurrencyOf::<T>::balance(&Pallet::<T>::crowdloan_funds_account(crowdloan_id)),
             deposit + amount
         );
         // ensure the event is emitted
@@ -202,7 +206,7 @@ mod benchmarks {
         assert_eq!(CurrencyOf::<T>::balance(&contributor), amount);
         // ensure the crowdloan account has been deducted the contribution
         assert_eq!(
-            CurrencyOf::<T>::balance(&Pallet::<T>::funds_account(crowdloan_id)),
+            CurrencyOf::<T>::balance(&Pallet::<T>::crowdloan_funds_account(crowdloan_id)),
             deposit
         );
         // ensure the crowdloan raised amount is updated correctly
@@ -334,7 +338,7 @@ mod benchmarks {
         }
         // ensure the crowdloan account has been deducted the contributions
         assert_eq!(
-            CurrencyOf::<T>::balance(&Pallet::<T>::funds_account(crowdloan_id)),
+            CurrencyOf::<T>::balance(&Pallet::<T>::crowdloan_funds_account(crowdloan_id)),
             deposit
         );
         // ensure the raised amount is updated correctly
