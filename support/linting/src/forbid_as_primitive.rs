@@ -1,6 +1,9 @@
+//! Ban panic-prone `as_u32` / `as_u64` / `as_u128` / `as_usize` conversions; prefer `try_into()`.
+
 use super::*;
 use syn::{ExprMethodCall, File, Ident, visit::Visit};
 
+/// Lint: reject `as_u32`/`as_u64`/`as_u128`/`as_usize` method calls that can panic on overflow.
 pub struct ForbidAsPrimitiveConversion;
 
 impl Lint for ForbidAsPrimitiveConversion {
@@ -24,7 +27,7 @@ struct AsPrimitiveVisitor {
 
 impl<'ast> Visit<'ast> for AsPrimitiveVisitor {
     fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
-        if is_as_primitive(&node.method) {
+        if is_banned_as_primitive_method(&node.method) {
             self.errors.push(syn::Error::new(
                 node.method.span(),
                 "Using 'as_*()' methods is banned to avoid accidental panics. Use `try_into()` instead.",
@@ -35,7 +38,8 @@ impl<'ast> Visit<'ast> for AsPrimitiveVisitor {
     }
 }
 
-fn is_as_primitive(ident: &Ident) -> bool {
+/// True for the panic-prone `as_u{32,64,128}` / `as_usize` conversion methods this lint bans.
+fn is_banned_as_primitive_method(ident: &Ident) -> bool {
     matches!(
         ident.to_string().as_str(),
         "as_u32" | "as_u64" | "as_u128" | "as_usize"

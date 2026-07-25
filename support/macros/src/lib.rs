@@ -1,3 +1,9 @@
+//! Subtensor proc-macros: [`freeze_struct`] (SCALE layout hash) and [`call_filter_group`].
+//!
+//! `freeze_struct` blanks doc *text* before hashing but keeps doc attributes — see
+//! `refactor/FREEZE_STRUCT.md`. Adding/removing docs on a frozen struct changes the hash;
+//! editing existing doc text does not.
+
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::ToTokens;
@@ -7,8 +13,10 @@ mod call_filter_group;
 mod visitor;
 use visitor::*;
 
-/// Freezes the layout of a struct to the current hash of its fields, ensuring that future
-/// changes require updating the hash.
+/// Freezes the SCALE layout of a struct to a hex hash of its (doc-cleaned) token stream.
+///
+/// Future field/type/order changes — or adding/removing doc attributes — require updating the
+/// hash. Changing only the text inside an existing `///` does not.
 ///
 /// ```
 /// use subtensor_macros::freeze_struct;
@@ -40,6 +48,7 @@ pub fn call_filter_group(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Compare the attribute hash to [`generate_hash`] of the struct after [`CleanDocComments`].
 fn freeze_struct_impl(
     attr: impl Into<TokenStream2>,
     tokens: impl Into<TokenStream2>,

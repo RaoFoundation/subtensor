@@ -1,6 +1,12 @@
+//! Doc-stripping visitor and stable hasher used by `#[freeze_struct("…")]`.
+
 use ahash::RandomState;
 use syn::{parse_quote, visit_mut::VisitMut};
 
+/// Rewrites `#[doc = "…"]` to `#[doc = ""]` and strips the freeze_struct hash argument.
+///
+/// Attribute *presence* is preserved so adding/removing docs still changes the hash; only the
+/// doc string contents are blanked.
 pub struct CleanDocComments;
 
 impl CleanDocComments {
@@ -21,6 +27,7 @@ impl VisitMut for CleanDocComments {
     }
 }
 
+/// Stable `ahash` of a syn item using fixed seeds (must stay constant for freeze_struct hashes).
 pub fn generate_hash<T: Into<syn::Item> + Clone>(item: &T) -> u64 {
     let item = item.clone();
 

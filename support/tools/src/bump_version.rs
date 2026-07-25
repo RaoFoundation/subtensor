@@ -1,3 +1,8 @@
+//! CLI: set `package.version` across the Subtensor crates listed in [`TOML_PATHS`].
+//!
+//! Usage: `bump-version <semver>` from the workspace root. Updates each path's `Cargo.toml`
+//! in place (macros, pallets, runtime, node).
+
 use clap::Parser;
 use semver::Version;
 use std::{
@@ -7,6 +12,7 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item, Value};
 
+/// Workspace-relative crate dirs whose `Cargo.toml` `package.version` is bumped together.
 const TOML_PATHS: [&str; 8] = [
     "support/macros",
     "pallets/commitments",

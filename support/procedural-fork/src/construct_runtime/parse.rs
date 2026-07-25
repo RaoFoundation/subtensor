@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Parse `construct_runtime!` input into [`RuntimeDeclaration`] / [`Pallet`] (exported for lints).
+
 use frame_support_procedural_tools::syn_ext as ext;
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
