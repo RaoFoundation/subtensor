@@ -1053,10 +1053,17 @@
       "id": "w2-test-swap_hotkey_with_subnet",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
+      "status": "done",
       "notes": "Split ~3251-line test file into concept-named modules under tests/swap_hotkey_with_subnet/",
       "files": [
-        "pallets/subtensor/src/tests/swap_hotkey_with_subnet.rs"
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/mod.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/owner_identity.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/membership_serve.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/stake_transfer.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/parent_child_maps.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/rate_limits.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/revert_swap.rs",
+        "pallets/subtensor/src/tests/swap_hotkey_with_subnet/root_claims.rs"
       ]
     },
     {
