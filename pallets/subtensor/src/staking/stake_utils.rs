@@ -1221,6 +1221,25 @@ impl<T: Config> Pallet<T> {
         // stripping the bonded position.
         Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha_unstaked)?;
 
+        // Root (netuid 0) hold window. Root stake is 1:1 TAO with no AMM slippage, so
+        // without a hold a "just-in-time" staker could stake right before an epoch
+        // boundary, capture a full tempo's root dividend pro-rata to instantaneous stake,
+        // then unstake immediately — diluting committed stakers at near-zero cost. Require
+        // the stake to have aged `RootStakeUnlockInterval` blocks since its last add/remove
+        // before it can be withdrawn. `0` (default) disables the hold. Only user unstake
+        // paths run this validator; protocol-internal moves/dissolution bypass it.
+        if netuid.is_root() {
+            let interval = RootStakeUnlockInterval::<T>::get();
+            if interval > 0 {
+                let last = LastColdkeyHotkeyStakeBlock::<T>::get(coldkey, hotkey).unwrap_or(0);
+                let now = Self::get_current_block_as_u64();
+                ensure!(
+                    now.saturating_sub(last) >= interval,
+                    Error::<T>::RootStakeLocked
+                );
+            }
+        }
+
         Ok(())
     }
 

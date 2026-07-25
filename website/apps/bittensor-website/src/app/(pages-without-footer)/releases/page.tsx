@@ -27,10 +27,9 @@ const releases: Release[] = [
     date: 'July 2026',
     title: 'Root Reborn',
     summary:
-      'Root dividends become beta baskets: every root validator runs an escrowed index fund ' +
-      'of subnet alpha, curated by its root weights, and stakers redeem fund shares with one ' +
-      'parameterless claim — plus new betaBasket runtime APIs, btcli commands, and a full ' +
-      'migration of legacy claimable state.',
+      'Nearly half of all TAO sits on root. This release turns its dividend stream into ' +
+      'validator-curated beta baskets — live network numbers, how the fund works, btcli ' +
+      'commands, breaking changes, and the migration of legacy claimable state.',
     href: '/releases/v438-upgrade',
   },
   {

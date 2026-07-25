@@ -346,5 +346,9 @@ mod errors {
         /// is zero / points at a nonexistent subnet), so a direct basket deposit cannot
         /// be routed.
         BasketHasNoWeights,
+        /// Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window
+        /// (measured from the last stake add/remove) and cannot be unstaked yet. Prevents
+        /// epoch-boundary just-in-time dividend sniping.
+        RootStakeLocked,
     }
 }

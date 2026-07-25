@@ -146,19 +146,22 @@ fee, no slippage, no MEV exposure — you move TAO in and out at face value.
 See [how money moves](/docs/concepts/money) for the swap mechanics that root
 stake skips.
 
-Check what you're owed and redeem it — one parameterless transaction covers
-every validator you root-stake to, paying out in TAO staked back to root:
+`btcli` shows root positions in **beta (β)**: staked β is principal on
+netuid 0, accrued β is fund yield. List your positions, then redeem accrued
+β — one parameterless claim covers every validator you root-stake to,
+paying out in TAO staked back to root (unstaking past your staked β also
+merges accrued β automatically):
 
 ```bash
-btcli stake owed                  # pending TAO, itemized per validator
-btcli stake claim -w my_coldkey   # redeem via claim-root
+btcli root list                    # staked β + accrued β, per validator
+btcli tx claim-root -w my_coldkey  # redeem via claim-root
 ```
 
 Per-validator payouts below the claim threshold (default 500,000 rao) are
-skipped and keep accruing — there is no deadline. See the
-[root dividends guide](/docs/guides/root-dividends) for the full basket
-model, the validator-side curation commands, and migration notes from the
-retired per-subnet claim system.
+skipped and keep accruing — there is no deadline. See
+[Root Reborn](/docs/guides/root-reborn) for the full basket model, the
+validator-side curation commands, and migration notes from the retired
+per-subnet claim system.
 
 ## Child hotkeys
 

@@ -1,0 +1,91 @@
+{
+  "fetchedAt": "2026-07-24T16:38:43.946152Z",
+  "network": "finney",
+  "block": 8692916,
+  "dataSource": {
+    "subnets": "taomarketcap.com",
+    "chain": "finney",
+    "tmcEndpoint": "https://api.taomarketcap.com/public/v1/subnets/",
+    "tmcRevenueEndpoint": "https://api.taomarketcap.com/internal/v1/general/protocol-revenue-chart/?span=ALL",
+    "tmcTaoPriceEndpoint": "https://api.taomarketcap.com/internal/v1/market/candle-data/?span=1D"
+  },
+  "totalIssuanceTao": 11158336.9,
+  "rootStakeTao": 5437066.3,
+  "totalStakeTao": 7446311.4,
+  "taoUsd": 188.7,
+  "rootShareOfIssuance": 0.4873,
+  "rootShareOfStake": 0.7302,
+  "liveSubnets": 77,
+  "registeredSubnets": 128,
+  "taoInSubnetPools": 2007394.0,
+  "emaPriceSum": 1.3001,
+  "rootDividendGateOpen": true,
+  "alphaMarketCapTao": 3549136.0,
+  "minersTaoPerDay": 2192.0,
+  "taoPerDayIntoPools": 1321.0,
+  "rootDividendsTaoPerDay": 983.0,
+  "rootDividendsLastDayTao": 939.0,
+  "rootDividendsPctOfEmission": 0.2608,
+  "rootRevenueAsOfDay": "2026-07-23",
+  "cumulativeRootRevenueTao": 825409.0,
+  "rootRevenueSinceDay": "2025-02-13",
+  "rootYieldApr": 0.066,
+  "topRootDividendSubnets": [
+    {
+      "netuid": 107,
+      "name": "Minos",
+      "shareOfRootDividends": 0.0881,
+      "price": 0.046553,
+      "poolTao": 14359.0
+    },
+    {
+      "netuid": 64,
+      "name": "Chutes",
+      "shareOfRootDividends": 0.0585,
+      "price": 0.082279,
+      "poolTao": 213910.0
+    },
+    {
+      "netuid": 97,
+      "name": "Albedo",
+      "shareOfRootDividends": 0.0562,
+      "price": 0.025677,
+      "poolTao": 9838.0
+    },
+    {
+      "netuid": 120,
+      "name": "Affine",
+      "shareOfRootDividends": 0.0534,
+      "price": 0.053388,
+      "poolTao": 77810.0
+    },
+    {
+      "netuid": 51,
+      "name": "lium.io",
+      "shareOfRootDividends": 0.0454,
+      "price": 0.06097,
+      "poolTao": 127174.0
+    },
+    {
+      "netuid": 4,
+      "name": "Targon",
+      "shareOfRootDividends": 0.0396,
+      "price": 0.055785,
+      "poolTao": 134567.0
+    },
+    {
+      "netuid": 99,
+      "name": "Thirty Spokes",
+      "shareOfRootDividends": 0.0378,
+      "price": 0.009663,
+      "poolTao": 1026.0
+    },
+    {
+      "netuid": 15,
+      "name": "ORO",
+      "shareOfRootDividends": 0.0374,
+      "price": 0.020094,
+      "poolTao": 9140.0
+    }
+  ]
+}

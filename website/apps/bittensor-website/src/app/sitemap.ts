@@ -12,8 +12,10 @@ const staticRoutes = [
   '/explore',
   '/intro',
   '/releases',
+  '/releases/root-reborn',
   '/releases/v431-upgrade',
   '/releases/v436-upgrade',
+  '/releases/v438-upgrade',
   '/wallet',
   '/whitepaper',
 ];

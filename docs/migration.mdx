@@ -288,7 +288,7 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | `get_crowdloans()` / `get_crowdloan_by_id` / `get_crowdloan_contributions` | `client.leasing.crowdloans()` / `crowdloan(...)` / `crowdloan_contributors(...)` |
 | `get_mev_shield_next_key()` | `client.chain.mev_shield_next_key()` |
 | `get_root_claim_type(ss58)` | removed (retired on chain in v438; claims are always TAO to root stake) |
-| other `get_root_claim*` reads | `client.staking.root_basket_owed(coldkey_ss58=...)` and the other [beta basket reads](/docs/guides/root-dividends) |
+| other `get_root_claim*` reads | `client.staking.root_basket_owed(coldkey_ss58=...)` and the other [beta basket reads](/docs/guides/root-reborn) |
 | `get_liquidity_list(...)` | removed (feature retired on chain) |
 
 ## The metagraph
@@ -368,7 +368,7 @@ a limit price).
 | `set_children(wallet, netuid, hotkey_ss58, children)` | `bt.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
 | `set_subnet_identity(...)` | `bt.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
 | identity via extrinsics | `bt.SetIdentity(name=..., url=..., ...)` |
-| `claim_root(wallet, netuids)` | `bt.ClaimRoot()` — parameterless since v438 (fund-level, [beta baskets](/docs/guides/root-dividends)) |
+| `claim_root(wallet, netuids)` | `bt.ClaimRoot()` — parameterless since v438 (fund-level, [beta baskets](/docs/guides/root-reborn)) |
 | `set_root_claim_type(wallet, type)` | removed (retired on chain in v438; claims are always TAO to root stake) |
 | `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`bt.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
 | `proxy(wallet, real_ss58, type, call)` | `client.execute(intent, wallet, proxy_for=real_ss58)` |
@@ -677,7 +677,7 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
 | `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
 | `stake auto` / `set-auto` | same names |
-| `stake set-claim` / `process-claim` | `stake claim` (parameterless since v438; `set-claim` removed — see [root dividends](/docs/guides/root-dividends)) |
+| `stake set-claim` / `process-claim` | `btcli tx claim-root` (parameterless since v438; `set-claim` removed — see [Root Reborn](/docs/guides/root-reborn)) |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |
 | `sudo set --param NAME --value V` | `sudo set --name NAME --value V` / `tx set-hyperparameter` |
 | `sudo get` / `subnets hyperparameters` | `sudo get` / `subnets hyperparameters NETUID` / `query subnet-hyperparameters` |

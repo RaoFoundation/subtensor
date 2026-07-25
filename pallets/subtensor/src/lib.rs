@@ -2661,6 +2661,15 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Minimum number of blocks root (netuid 0) stake must be held before it can be
+    /// unstaked, keyed off `LastColdkeyHotkeyStakeBlock`. `0` disables the hold (default),
+    /// preserving legacy behaviour. When set >= one tempo it neutralises epoch-boundary
+    /// "just-in-time" dividend sniping: root stake is 1:1 TAO with no AMM slippage, so
+    /// without this friction a sniper can stake right before a boundary, capture a full
+    /// tempo's root dividend pro-rata to instantaneous stake, and unstake immediately.
+    #[pallet::storage]
+    pub type RootStakeUnlockInterval<T> = StorageValue<_, u64, ValueQuery>;
+
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
     /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is
     /// consulted: a claim below `RootClaimableThreshold[ROOT]` TAO is skipped as dust. Other

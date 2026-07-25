@@ -2873,32 +2873,67 @@ fn test_migrate_kappa_map_to_default() {
 #[test]
 fn test_migrate_clear_root_basket_weights() {
     new_test_ext(1).execute_with(|| {
-        const MIG_NAME: &[u8] = b"clear_root_basket_weights";
+        const MIG_NAME: &[u8] = b"seed_balanced_root_basket_weights";
         let root = NetUidStorageIndex::ROOT;
-        let subnet = NetUidStorageIndex::from(NetUid::from(1u16));
+        let subnet_idx = NetUidStorageIndex::from(NetUid::from(1u16));
 
-        Weights::<Test>::insert(root, 0u16, vec![(1u16, u16::MAX), (2u16, 32768)]);
-        Weights::<Test>::insert(root, 3u16, vec![(0u16, u16::MAX)]);
-        Weights::<Test>::insert(subnet, 0u16, vec![(1u16, 1000)]);
+        // Two live non-root subnets. Migration seeds 1/n over that set (excludes root).
+        let hotkey_a = U256::from(1);
+        let hotkey_b = U256::from(2);
+        let netuid_a = add_dynamic_network(&hotkey_a, &U256::from(10));
+        let netuid_b = add_dynamic_network(&hotkey_b, &U256::from(11));
+        assert!(!netuid_a.is_root() && !netuid_b.is_root());
 
-        assert_eq!(Weights::<Test>::iter_prefix(root).count(), 2);
-        assert_eq!(Weights::<Test>::iter_prefix(subnet).count(), 1);
+        // Root uid map entries the migration iterates (bypass root_register).
+        let uid_a = 0u16;
+        let uid_b = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hotkey_a, uid_a);
+        Keys::<Test>::insert(NetUid::ROOT, uid_a, hotkey_a);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey_b, uid_b);
+        Keys::<Test>::insert(NetUid::ROOT, uid_b, hotkey_b);
+
+        // Legacy uneven root vectors — must be wiped.
+        Weights::<Test>::insert(root, uid_a, vec![(1u16, u16::MAX), (2u16, 32768)]);
+        Weights::<Test>::insert(root, uid_b, vec![(0u16, u16::MAX)]);
+        // Non-root subnet weights must be left alone.
+        Weights::<Test>::insert(subnet_idx, 0u16, vec![(1u16, 1000)]);
+
         assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
         let w = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
         assert!(!w.is_zero());
-
         assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
-        assert_eq!(Weights::<Test>::iter_prefix(root).count(), 0);
-        assert_eq!(Weights::<Test>::get(root, 0u16), vec![]);
+
+        let expected: Vec<(u16, u16)> = {
+            let mut dests: Vec<u16> = SubtensorModule::get_all_subnet_netuids()
+                .into_iter()
+                .filter(|n| !n.is_root())
+                .map(u16::from)
+                .collect();
+            dests.sort_unstable();
+            dests.into_iter().map(|n| (n, u16::MAX)).collect()
+        };
+        assert!(
+            expected.contains(&(u16::from(netuid_a), u16::MAX))
+                && expected.contains(&(u16::from(netuid_b), u16::MAX)),
+            "seed must include the live subnets"
+        );
+        assert_eq!(Weights::<Test>::get(root, uid_a), expected);
+        assert_eq!(Weights::<Test>::get(root, uid_b), expected);
+        assert!(
+            !expected.iter().any(|(n, _)| *n == 0),
+            "balanced seed must exclude netuid 0"
+        );
         assert_eq!(
-            Weights::<Test>::get(subnet, 0u16),
+            Weights::<Test>::get(subnet_idx, 0u16),
             vec![(1u16, 1000)],
             "subnet weights must be untouched"
         );
 
+        // Idempotent.
+        let before = Weights::<Test>::get(root, uid_a);
         let w2 = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
-        assert_eq!(Weights::<Test>::iter_prefix(root).count(), 0);
+        assert_eq!(Weights::<Test>::get(root, uid_a), before);
         assert!(w2.ref_time() <= w.ref_time());
     });
 }

@@ -124,6 +124,7 @@ for _sub_app, _aliases in (
     (config.app, ("c", "conf")),
     (weights.app, ("wt", "weight")),
     (crowd.app, ("cr", "crowdloan")),
+    (addresses.app, ("addr",)),
 ):
     for _alias in _aliases:
         app.add_typer(_sub_app, name=_alias, hidden=True)
@@ -494,7 +495,7 @@ def main() -> None:
     argv = sys.argv[1:]
     if (
         len(argv) >= 3
-        and argv[0] == "addresses"
+        and argv[0] in ("addresses", "addr")
         and argv[1] not in ("add", "save", "list", "show", "remove")
         and not argv[1].startswith("-")
         and not argv[2].startswith("-")

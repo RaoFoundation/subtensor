@@ -187,8 +187,8 @@ mod hooks {
                 // Seed the unified beta-basket fund from legacy per-subnet claim state (v2:
                 // fresh key so chains that ran the superseded per-slot v1 seed still convert).
                 .saturating_add(migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2::<T>())
-                // Drop any stored root basket weight vectors so every validator uses the
-                // runtime default (100% root / TAO in the fund) until they set weights again.
+                // Drop legacy root weight vectors and reseed every root validator with a
+                // balanced 1/n basket over every live non-root subnet.
                 .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>());
             weight
         }

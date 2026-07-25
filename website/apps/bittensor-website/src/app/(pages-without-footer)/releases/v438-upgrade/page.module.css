@@ -1,14 +1,5 @@
 @import url(../../shared.module.css);
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 .paper_title {
   font-size: 20px;
 }
@@ -50,10 +41,6 @@
   font-family: 'FiraCode';
   font-size: 12px;
   font-weight: 200;
-  /* Viewport-based width: with white-space pre, width 100% would let the
-     longest code line dictate the section's min-content width and force the
-     whole page to overflow horizontally on narrow screens. The page
-     container is max-width 960px with 32px side padding. */
   width: calc(100vw - 64px);
   max-width: 896px;
   margin: 0;
@@ -72,8 +59,6 @@
   margin-top: 8px;
 }
 
-/* The SVG scales with the viewport, so at phone widths the 10px labels
-   become ~5px. CSS font-size beats the SVG presentation attribute. */
 @media (max-width: 640px) {
   .graph text {
     font-size: 16px;
@@ -108,25 +93,37 @@
   text-align: left;
 }
 
-.connect_links {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 24px;
-  margin-top: 24px;
-  flex-wrap: wrap;
-}
-
-.connect_link {
-  display: inline-flex;
-  text-decoration: none;
-}
-
-.connect_label {
+.metrics_table td:last-child,
+.metrics_table th:last-child {
+  text-align: right;
   font-family: 'FiraCode';
-  font-weight: 400;
   font-size: 12px;
-  line-height: 18px;
-  color: rgb(41, 41, 41);
+}
+
+.headline_number {
+  font-family: 'FiraCode';
+  font-size: 34px;
+  font-weight: 400;
+  text-align: center;
+  margin: 8px 0 0;
+  letter-spacing: 0.02em;
+}
+
+.headline_label {
+  font-family: 'FiraCode';
+  font-size: 11px;
+  font-weight: 200;
   text-transform: uppercase;
+  text-align: center;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+
+.data_note {
+  font-family: 'FiraCode';
+  font-size: 10px;
+  font-weight: 200;
+  text-transform: uppercase;
+  opacity: 0.55;
+  text-align: center !important;
 }
