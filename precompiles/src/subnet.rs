@@ -1,3 +1,9 @@
+//! Subnet precompile: register networks and get/set owner hyperparameters from EVM.
+//!
+//! Dispatchable methods run as the EVM caller's mapped Substrate account (subnet
+//! owner for setters). View methods read `pallet_subtensor` storage directly.
+//! INDEX and Solidity selectors are frozen — do not renumber or rename them.
+
 use core::marker::PhantomData;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
@@ -13,6 +19,7 @@ use subtensor_runtime_common::{NetUid, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// EVM surface for subnet registration and owner hyperparameter get/set (INDEX 2051).
 pub struct SubnetPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for SubnetPrecompile<R>
@@ -67,6 +74,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
+    /// Register a new subnet with `hotkey` as owner hotkey and no identity metadata.
     #[precompile::public("registerNetwork(bytes32)")]
     #[precompile::payable]
     fn register_network(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<()> {
@@ -161,6 +169,7 @@ where
         )
     }
 
+    /// Block number when `netuid` was registered (`NetworkRegisteredAt`).
     #[precompile::public("getNetworkRegistrationBlock(uint16)")]
     #[precompile::view]
     fn get_network_registration_block(
@@ -867,6 +876,7 @@ where
         )
     }
 
+    /// Owner toggle for alpha/stake transfers on the subnet.
     #[precompile::public("toggleTransfers(uint16,bool)")]
     #[precompile::payable]
     fn toggle_transfers(
@@ -885,6 +895,7 @@ where
         )
     }
 
+    /// Whether `netuid` is currently in the dissolve cleanup queue.
     #[precompile::public("isSubnetDissolving(uint16)")]
     #[precompile::view]
     fn is_subnet_dissolving(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<bool> {
@@ -977,10 +988,7 @@ mod tests {
             let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
             let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
 
-            add_balance_to_coldkey_account(
-                &caller_account,
-                1_000_000_000_000_u64.into(),
-            );
+            add_balance_to_coldkey_account(&caller_account, 1_000_000_000_000_u64.into());
 
             let total_before = pallet_subtensor::TotalNetworks::<Runtime>::get();
             let netuid = pallet_subtensor::Pallet::<Runtime>::get_next_netuid();
@@ -1008,7 +1016,10 @@ mod tests {
 
             let total_after = pallet_subtensor::TotalNetworks::<Runtime>::get();
             assert_eq!(total_after, total_before + 1);
-            assert_eq!(pallet_subtensor::SubnetOwner::<Runtime>::get(netuid), caller_account);
+            assert_eq!(
+                pallet_subtensor::SubnetOwner::<Runtime>::get(netuid),
+                caller_account
+            );
             assert!(pallet_subtensor::SubnetIdentitiesV3::<Runtime>::contains_key(netuid));
         });
     }

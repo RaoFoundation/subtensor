@@ -1,3 +1,8 @@
+//! Neuron precompile: weights, registration, and axon/prometheus serve from EVM.
+//!
+//! Each method dispatches a `pallet_subtensor` call as the EVM caller coldkey.
+//! INDEX and Solidity selectors are frozen.
+
 use core::marker::PhantomData;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};

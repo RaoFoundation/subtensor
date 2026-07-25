@@ -1,3 +1,10 @@
+//! Sr25519 signature verification precompile (INDEX 1027).
+//!
+//! Input layout (after the 4-byte Solidity selector when routed via the set):
+//! `msg[32] || pubkey[32] || signature[64]`. Returns a 32-byte word with `1` in
+//! the last byte on success and `0` otherwise. Gas uses the Ed25519 base cost
+//! (no EIP for sr25519). INDEX is frozen.
+
 extern crate alloc;
 
 use alloc::vec::Vec;
@@ -9,6 +16,7 @@ use fp_evm::{ExitError, ExitSucceed, LinearCostPrecompile, PrecompileFailure};
 
 use crate::{PrecompileExt, parse_slice};
 
+/// Linear-cost precompile that verifies an sr25519 signature over a 32-byte message.
 pub struct Sr25519Verify<A>(PhantomData<A>);
 
 impl<A> PrecompileExt<A> for Sr25519Verify<A>

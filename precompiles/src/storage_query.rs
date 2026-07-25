@@ -1,3 +1,10 @@
+//! Raw Substrate storage read precompile with an allow-listed pallet-prefix set.
+//!
+//! Calldata must begin with one of the Twox128 pallet prefixes in
+//! [`AUTHORIZED_STORAGE_PREFIXES`]; other keys revert with `Invalid key`.
+//! Returns the raw SCALE value bytes, or empty output when the key is absent.
+//! INDEX is frozen.
+
 use core::marker::PhantomData;
 
 use fp_evm::{ExitError, PrecompileFailure};
@@ -62,6 +69,7 @@ const AUTHORIZED_PREFIXES: [[u8; 16]; 10] = [
 
 use crate::PrecompileExt;
 
+/// EVM precompile that reads allow-listed FRAME storage keys by raw key bytes (INDEX 2055).
 pub struct StorageQueryPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for StorageQueryPrecompile<R>
