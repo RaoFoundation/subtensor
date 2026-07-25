@@ -33,3 +33,15 @@ support/linting/src/require_extrinsic_benchmarks.rs
 ```
 - proposed by: w1-utility
 - status: pending
+
+## staking.rs / subnet.rs file splits (precompile path fingerprint)
+- reason: `extract_metadata_fingerprint.py` records precompile INDEX/selectors with source file paths. Splitting `staking.rs` → `staking/mod.rs` (+ `legacy_v1.rs`) or `subnet.rs` → `subnet/mod.rs` changes the fingerprint even when INDEX values and Solidity selectors are unchanged. Wave-3 (or a coordinated baseline refresh) should either (a) make precompile fingerprint paths module-name based / path-agnostic, or (b) re-split these files and rewrite `refactor/metadata-baseline.txt` in the same commit. Both files remain >1000 lines after this shard's docs/renames.
+- hits:
+```
+precompiles/src/staking.rs
+precompiles/src/subnet.rs
+scripts/extract_metadata_fingerprint.py
+refactor/metadata-baseline.txt
+```
+- proposed by: w1-precompiles-b
+- status: pending

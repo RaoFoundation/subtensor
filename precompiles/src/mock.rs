@@ -2,6 +2,12 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::arithmetic_side_effects)]
 
+//! Shared test runtime and helpers for precompile unit tests.
+//!
+//! Builds a minimal `construct_runtime!` with Subtensor, EVM, proxy, swap, and
+//! related pallets, plus helpers to fund accounts, map H160 to AccountId, and
+//! execute a single-precompile set.
+
 use core::{marker::PhantomData, num::NonZeroU64};
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
@@ -556,6 +562,7 @@ impl pallet_subtensor_proxy::Config for Runtime {
     type BlockNumberProvider = System;
 }
 
+/// [`PrecompileSet`] that routes only to one precompile at `H160::from_low_u64_be(P::INDEX)`.
 pub(crate) struct SinglePrecompileSet<P>(PhantomData<P>);
 
 impl<P> Default for SinglePrecompileSet<P> {
@@ -580,6 +587,7 @@ where
     }
 }
 
+/// Construct a [`SinglePrecompileSet`] for precompile type `P`.
 pub(crate) fn precompiles<P>() -> SinglePrecompileSet<P>
 where
     P: pallet_evm::Precompile + PrecompileExt<AccountId>,
@@ -587,6 +595,7 @@ where
     SinglePrecompileSet::default()
 }
 
+/// Genesis externalities with block number set to 1.
 pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
     let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
         .build_storage()
@@ -596,6 +605,7 @@ pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
     ext
 }
 
+/// Execute `input` against `precompiles` with the given caller and apparent value.
 pub(crate) fn execute_precompile<PSet: PrecompileSet>(
     precompiles: &PSet,
     precompile_address: H160,
@@ -615,14 +625,17 @@ pub(crate) fn execute_precompile<PSet: PrecompileSet>(
     precompiles.execute(&mut handle)
 }
 
+/// Map a precompile INDEX (or test id) to the low-64-be H160 address used in tests.
 pub(crate) fn addr_from_index(index: u64) -> H160 {
     H160::from_low_u64_be(index)
 }
 
+/// HashedAddressMapping of an H160 into the mock runtime AccountId.
 pub(crate) fn mapped_account(address: H160) -> AccountId {
     <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(address)
 }
 
+/// Mint `amount` RAO of TAO to `account` via the subtensor pallet.
 pub(crate) fn fund_account(account: &AccountId, amount: u64) {
     let amount = TaoBalance::from(amount);
     let credit = pallet_subtensor::Pallet::<Runtime>::mint_tao(amount);
@@ -649,6 +662,7 @@ pub(crate) fn assert_static_call<PSet: PrecompileSet>(
         .execute_returns_raw(abi_word(expected));
 }
 
+/// First four bytes of keccak256(`signature`) as the Solidity function selector.
 pub(crate) fn selector_u32(signature: &str) -> u32 {
     let hash = sp_io::hashing::keccak_256(signature.as_bytes());
     u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]])

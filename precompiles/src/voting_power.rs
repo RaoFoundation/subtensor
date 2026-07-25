@@ -1,3 +1,8 @@
+//! Voting-power precompile: EMA stake used for on-chain governance queries.
+//!
+//! Reads `VotingPower*` storage items from `pallet_subtensor`. INDEX and
+//! Solidity selectors are frozen.
+
 use core::marker::PhantomData;
 
 use fp_evm::PrecompileHandle;

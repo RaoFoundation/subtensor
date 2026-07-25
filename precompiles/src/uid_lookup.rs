@@ -1,3 +1,8 @@
+//! UID lookup precompile: map an associated EVM address to subnet UIDs.
+//!
+//! Wraps [`pallet_subtensor::Pallet::uid_lookup`]. INDEX and the Solidity
+//! selector are frozen.
+
 use core::marker::PhantomData;
 
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
@@ -8,6 +13,7 @@ use sp_std::vec::Vec;
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// View precompile returning `(uid, block)` pairs for an EVM address on a subnet (INDEX 2054).
 pub struct UidLookupPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for UidLookupPrecompile<R>
@@ -36,6 +42,7 @@ where
         + Dispatchable<PostInfo = PostDispatchInfo>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
+    /// Return up to `limit` `(uid, associated_block)` pairs for `evm_address` on `netuid`.
     #[precompile::public("uidLookup(uint16,address,uint16)")]
     #[precompile::view]
     fn uid_lookup(
