@@ -1,8 +1,11 @@
 #![allow(clippy::crate_in_macro_def)]
 
 use frame_support::pallet_macros::pallet_section;
-/// A [`pallet_section`] that defines the errors for a pallet.
-/// This can later be imported into the pallet using [`import_section`].
+
+/// [`pallet_section`] defining [`Config`] for the subtensor pallet (imported via [`import_section`]).
+///
+/// Associated type **names** are wired through the runtime; prefer definition-site docs over renames.
+/// `#[pallet::constant]` items seed genesis / defaults (often mirrored by storage).
 #[pallet_section]
 mod config {
 
@@ -14,7 +17,10 @@ mod config {
     use subtensor_runtime_common::AuthorshipInfo;
     use subtensor_swap_interface::{SwapEngine, SwapHandler};
 
-    /// Configure the pallet by specifying the parameters and types on which it depends.
+    /// Runtime dependencies for SubtensorModule: currency, swap, commitments, scheduling, and genesis constants.
+    ///
+    /// Implemented by the node runtime; associated types and constants below are the wiring surface
+    /// agents should search when tracing a Config bound or an `Initial*` default.
     #[pallet::config]
     pub trait Config:
         frame_system::Config
@@ -22,24 +28,24 @@ mod config {
         + pallet_crowdloan::Config
         + pallet_scheduler::Config
     {
-        /// call type
+        /// Runtime call type that can encode SubtensorModule calls (used by scheduler / proxy paths).
         type RuntimeCall: Parameter
             + Dispatchable<RuntimeOrigin = OriginFor<Self>>
             + From<Call<Self>>
             + IsType<<Self as frame_system::Config>::RuntimeCall>
             + From<frame_system::Call<Self>>;
 
-        /// A sudo-able call.
+        /// Call type that may be dispatched without origin filters (sudo / privileged schedules).
         type SudoRuntimeCall: Parameter
             + UnfilteredDispatchable<RuntimeOrigin = OriginFor<Self>>
             + GetDispatchInfo;
 
-        ///  Currency type that will be used to place deposits on neurons
+        /// Fungible TAO currency used for neuron deposits, locks, and transfers (`TaoBalance` units = rao).
         type Currency: fungible::Balanced<Self::AccountId, Balance = TaoBalance>
             + fungible::Mutate<Self::AccountId>
             + LockableCurrency<Self::AccountId, Balance = TaoBalance>;
 
-        /// The scheduler type used for scheduling delayed calls.
+        /// Anonymous scheduler used for delayed dissolve / coldkey-swap style call dispatch.
         type Scheduler: ScheduleAnon<
                 BlockNumberFor<Self>,
                 LocalCallOf<Self>,
@@ -47,247 +53,245 @@ mod config {
                 Hasher = Self::Hashing,
             >;
 
-        /// the preimage to store the call data.
+        /// Preimage store for scheduled call payloads (hash lookup + store).
         type Preimages: QueryPreimage<H = Self::Hashing> + StorePreimage;
 
-        /// Implementor of `SwapHandler` interface from `subtensor_swap_interface`
+        /// TAO↔alpha AMM: implements `SwapHandler` plus both directional `SwapEngine` adapters.
         type SwapInterface: SwapHandler
             + SwapEngine<GetAlphaForTao<Self>>
             + SwapEngine<GetTaoForAlpha<Self>>;
 
-        /// Interface to allow interacting with the proxy pallet.
+        /// Proxy pallet bridge for filtered proxy-call dispatch into subtensor.
         type ProxyInterface: crate::ProxyInterface<Self::AccountId>;
 
-        /// Interface to get commitments.
+        /// Read path for on-chain commitments (weights / mechanism commit-reveal).
         type GetCommitments: GetCommitments<Self::AccountId>;
 
-        ///  Interface to clean commitments on network dissolution.
+        /// Purge commitments when a subnet is dissolved.
         type CommitmentsInterface: CommitmentsInterface;
 
-        /// Interface to mint, burn, and recycle subnet alpha.
+        /// Mint, burn, and recycle subnet alpha via the alpha-assets pallet.
         type AlphaAssets: AlphaAssetsInterface;
 
-        /// Rate limit for associating an EVM key.
+        /// Minimum blocks between EVM key associations for the same coldkey.
         type EvmKeyAssociateRateLimit: Get<u64>;
 
-        /// Provider of current block author
+        /// Current block author account (used for authorship-gated rewards / accounting).
         type AuthorshipProvider: AuthorshipInfo<Self::AccountId>;
 
-        /// Weight information for extrinsics in this pallet.
+        /// Extrinsic weight implementations; method names must match call names (Tier D).
         type WeightInfo: crate::weights::WeightInfo;
 
         // Initial Value Constants
 
-        /// Initial currency issuance.
+        /// Genesis default for total TAO issuance seed, in rao.
         #[pallet::constant]
         type InitialIssuance: Get<TaoBalance>;
-        /// Initial min allowed weights setting.
+        /// Genesis default for per-subnet minimum non-zero weight count.
         #[pallet::constant]
         type InitialMinAllowedWeights: Get<u16>;
-        /// Initial Emission Ratio.
+        /// Genesis default emission-share parameter (u16 fixed-point used by early emission math).
         #[pallet::constant]
         type InitialEmissionValue: Get<u16>;
-        /// Tempo for each network.
+        /// Genesis default tempo (blocks per epoch) for new subnets.
         #[pallet::constant]
         type InitialTempo: Get<u16>;
-        /// Initial Difficulty.
+        /// Genesis default PoW registration difficulty.
         #[pallet::constant]
         type InitialDifficulty: Get<u64>;
-        /// Initial Max Difficulty.
+        /// Genesis default upper bound for adaptive PoW difficulty.
         #[pallet::constant]
         type InitialMaxDifficulty: Get<u64>;
-        /// Initial Min Difficulty.
+        /// Genesis default lower bound for adaptive PoW difficulty.
         #[pallet::constant]
         type InitialMinDifficulty: Get<u64>;
-        /// Initial RAO Recycled.
+        /// Genesis default RAO recycled into the network on registration, in rao.
         #[pallet::constant]
         type InitialRAORecycledForRegistration: Get<TaoBalance>;
-        /// Initial Burn.
+        /// Genesis default registration burn cost, in rao.
         #[pallet::constant]
         type InitialBurn: Get<TaoBalance>;
-        /// Initial Max Burn.
+        /// Genesis default upper bound for adaptive registration burn, in rao.
         #[pallet::constant]
         type InitialMaxBurn: Get<TaoBalance>;
-        /// Initial Min Burn.
+        /// Genesis default lower bound for adaptive registration burn, in rao.
         #[pallet::constant]
         type InitialMinBurn: Get<TaoBalance>;
-        /// Initial minimum stake.
+        /// Genesis default minimum stake required for weight-setting eligibility, in rao.
         #[pallet::constant]
         type InitialMinStake: Get<TaoBalance>;
-        /// Initial minimum stake transfer amount.
+        /// Genesis default minimum stake transfer / move amount, in rao.
         #[pallet::constant]
         type InitialMinTransfer: Get<TaoBalance>;
-        /// Min  burn upper bound.
+        /// Hard upper bound owners may set for min burn, in rao.
         #[pallet::constant]
         type MinBurnUpperBound: Get<TaoBalance>;
-        /// Max burn lower bound.
+        /// Hard lower bound owners may set for max burn, in rao.
         #[pallet::constant]
         type MaxBurnLowerBound: Get<TaoBalance>;
-        /// Lower bound for owner-set tempo.
+        /// Hard lower bound for owner-set tempo (blocks per epoch).
         #[pallet::constant]
         type MinTempo: Get<u16>;
-        /// Upper bound for owner-set tempo.
+        /// Hard upper bound for owner-set tempo (blocks per epoch).
         #[pallet::constant]
         type MaxTempo: Get<u16>;
-        /// Lower bound for the activity-cutoff factor (per-mille).
+        /// Hard lower bound for activity-cutoff factor, in per-mille (‰).
         #[pallet::constant]
         type MinActivityCutoffFactorMilli: Get<u32>;
-        /// Upper bound for the activity-cutoff factor (per-mille).
+        /// Hard upper bound for activity-cutoff factor, in per-mille (‰).
         #[pallet::constant]
         type MaxActivityCutoffFactorMilli: Get<u32>;
-        /// Initial adjustment interval.
+        /// Genesis default difficulty/burn adjustment interval, in blocks.
         #[pallet::constant]
         type InitialAdjustmentInterval: Get<u16>;
-        /// Initial bonds moving average.
+        /// Genesis default bonds EMA moving-average parameter.
         #[pallet::constant]
         type InitialBondsMovingAverage: Get<u64>;
-        /// Initial bonds penalty.
+        /// Genesis default bonds penalty applied during consensus.
         #[pallet::constant]
         type InitialBondsPenalty: Get<u16>;
-        /// Initial bonds reset.
+        /// Genesis default for whether bonds reset each epoch.
         #[pallet::constant]
         type InitialBondsResetOn: Get<bool>;
-        /// Initial target registrations per interval.
+        /// Genesis default target registrations per adjustment interval.
         #[pallet::constant]
         type InitialTargetRegistrationsPerInterval: Get<u16>;
-        /// Rho constant.
+        /// Genesis default Yuma consensus `rho` constant.
         #[pallet::constant]
         type InitialRho: Get<u16>;
-        /// AlphaSigmoidSteepness constant.
+        /// Genesis default steepness for the alpha sigmoid in consensus.
         #[pallet::constant]
         type InitialAlphaSigmoidSteepness: Get<i16>;
-        /// Kappa constant.
+        /// Genesis default Yuma consensus `kappa` constant.
         #[pallet::constant]
         type InitialKappa: Get<u16>;
-        /// Initial minimum allowed network UIDs
+        /// Genesis default minimum allowed UIDs on a subnet.
         #[pallet::constant]
         type InitialMinAllowedUids: Get<u16>;
-        /// Initial maximum allowed network UIDs
+        /// Genesis default maximum allowed UIDs on a subnet.
         #[pallet::constant]
         type InitialMaxAllowedUids: Get<u16>;
-        /// Initial validator context pruning length.
+        /// Genesis default validator context pruning length (blocks / epochs retained).
         #[pallet::constant]
         type InitialValidatorPruneLen: Get<u64>;
-        /// Initial scaling law power.
+        /// Genesis default scaling-law power for emission distribution.
         #[pallet::constant]
         type InitialScalingLawPower: Get<u16>;
-        /// Immunity Period Constant.
+        /// Genesis default neuron immunity period, in blocks.
         #[pallet::constant]
         type InitialImmunityPeriod: Get<u16>;
-        /// Activity constant.
+        /// Genesis default activity cutoff, in blocks (pruning inactivity window).
         #[pallet::constant]
         type InitialActivityCutoff: Get<u16>;
-        /// Initial max registrations per block.
+        /// Genesis default per-block registration cap per subnet.
         #[pallet::constant]
         type InitialMaxRegistrationsPerBlock: Get<u16>;
-        /// Initial pruning score for each neuron.
+        /// Genesis default pruning score assigned to new neurons.
         #[pallet::constant]
         type InitialPruningScore: Get<u16>;
-        /// Initial maximum allowed validators per network.
+        /// Genesis default maximum validators allowed per subnet.
         #[pallet::constant]
         type InitialMaxAllowedValidators: Get<u16>;
-        /// Initial default delegation take.
+        /// Genesis default (max) validator delegate take as u16 (`PerU16` scale).
         #[pallet::constant]
         type InitialDefaultDelegateTake: Get<u16>;
-        /// Initial minimum delegation take.
+        /// Genesis default minimum validator delegate take as u16 (`PerU16` scale).
         #[pallet::constant]
         type InitialMinDelegateTake: Get<u16>;
-        /// Initial default childkey take.
+        /// Genesis default (max) childkey take as u16 (`PerU16` scale).
         #[pallet::constant]
         type InitialDefaultChildKeyTake: Get<u16>;
-        /// Initial minimum childkey take.
+        /// Genesis default minimum childkey take as u16 (`PerU16` scale).
         #[pallet::constant]
         type InitialMinChildKeyTake: Get<u16>;
-        /// Initial maximum childkey take.
+        /// Genesis default maximum childkey take as u16 (`PerU16` scale).
         #[pallet::constant]
         type InitialMaxChildKeyTake: Get<u16>;
-        /// Initial weights version key.
+        /// Genesis default weights version key required for `set_weights`.
         #[pallet::constant]
         type InitialWeightsVersionKey: Get<u64>;
-        /// Initial serving rate limit.
+        /// Genesis default axon/prometheus serving rate limit, in blocks.
         #[pallet::constant]
         type InitialServingRateLimit: Get<u64>;
-        /// Initial transaction rate limit.
+        /// Genesis default general transaction rate limit, in blocks.
         #[pallet::constant]
         type InitialTxRateLimit: Get<u64>;
-        /// Initial delegate take transaction rate limit.
+        /// Genesis default rate limit for delegate-take updates, in blocks.
         #[pallet::constant]
         type InitialTxDelegateTakeRateLimit: Get<u64>;
-        /// Initial childkey take transaction rate limit.
+        /// Genesis default rate limit for childkey-take updates, in blocks.
         #[pallet::constant]
         type InitialTxChildKeyTakeRateLimit: Get<u64>;
-        /// Initial adjustment alpha on burn and pow.
+        /// Genesis default adjustment alpha for burn and PoW difficulty EMA.
         #[pallet::constant]
         type InitialAdjustmentAlpha: Get<u64>;
-        /// Initial network immunity period
+        /// Genesis default immunity period for newly registered subnets, in blocks.
         #[pallet::constant]
         type InitialNetworkImmunityPeriod: Get<u64>;
-        /// Initial network minimum burn cost
+        /// Genesis default floor for subnet registration lock cost, in rao.
         #[pallet::constant]
         type InitialNetworkMinLockCost: Get<TaoBalance>;
-        /// Initial network subnet cut.
+        /// Genesis default subnet-owner emission cut as u16 (`PerU16` scale).
         #[pallet::constant]
         type InitialSubnetOwnerCut: Get<u16>;
-        /// Initial lock reduction interval.
+        /// Genesis default interval over which subnet lock cost decays, in blocks.
         #[pallet::constant]
         type InitialNetworkLockReductionInterval: Get<u64>;
-        /// Initial network creation rate limit
+        /// Genesis default rate limit between subnet creations, in blocks.
         #[pallet::constant]
         type InitialNetworkRateLimit: Get<u64>;
-        /// Cost of swapping a hotkey.
+        /// Fee charged for a global hotkey swap, in rao.
         #[pallet::constant]
         type KeySwapCost: Get<TaoBalance>;
-        /// The upper bound for the alpha parameter. Used for Liquid Alpha.
+        /// Upper bound for Liquid Alpha parameter (u16 scale).
         #[pallet::constant]
         type AlphaHigh: Get<u16>;
-        /// The lower bound for the alpha parameter. Used for Liquid Alpha.
+        /// Lower bound for Liquid Alpha parameter (u16 scale).
         #[pallet::constant]
         type AlphaLow: Get<u16>;
-        /// A flag to indicate if Liquid Alpha is enabled.
+        /// Genesis default for whether Liquid Alpha consensus is enabled.
         #[pallet::constant]
         type LiquidAlphaOn: Get<bool>;
-        /// A flag to indicate if Yuma3 is enabled.
+        /// Genesis default for whether Yuma3 consensus is enabled.
         #[pallet::constant]
         type Yuma3On: Get<bool>;
-        /// Coldkey swap announcement delay.
+        /// Delay after announcing a coldkey swap before it may execute, in blocks.
         #[pallet::constant]
         type InitialColdkeySwapAnnouncementDelay: Get<BlockNumberFor<Self>>;
-        /// Coldkey swap reannouncement delay.
+        /// Minimum delay before re-announcing a coldkey swap, in blocks.
         #[pallet::constant]
         type InitialColdkeySwapReannouncementDelay: Get<BlockNumberFor<Self>>;
-        /// Dissolve network schedule duration
+        /// Scheduled delay before a dissolve-network call runs, in blocks.
         #[pallet::constant]
         type InitialDissolveNetworkScheduleDuration: Get<BlockNumberFor<Self>>;
-        /// Initial TAO weight.
+        /// Genesis default TAO weight used in root / dual-token emission math (u64 fixed-point).
         #[pallet::constant]
         type InitialTaoWeight: Get<u64>;
-        /// Initial EMA price halving period
+        /// Genesis default EMA price halving period, in blocks.
         #[pallet::constant]
         type InitialEmaPriceHalvingPeriod: Get<u64>;
-        /// Delay after which a new subnet can dispatch start call extrinsic.
+        /// Delay after subnet creation before `start_call` may enable emissions, in blocks.
         #[pallet::constant]
         type InitialStartCallDelay: Get<u64>;
-        /// Cost of swapping a hotkey in a subnet.
+        /// Fee charged for a subnet-scoped hotkey swap, in rao.
         #[pallet::constant]
         type KeySwapOnSubnetCost: Get<TaoBalance>;
-        /// Block number for a coldkey swap the hotkey in specific subnet.
+        /// Interval (blocks) governing subnet-scoped hotkey-swap rate limits / cleanup slots.
         #[pallet::constant]
         type HotkeySwapOnSubnetInterval: Get<u64>;
-        /// Number of blocks between dividends distribution.
+        /// Blocks between lease dividend distribution runs.
         #[pallet::constant]
         type LeaseDividendsDistributionInterval: Get<BlockNumberFor<Self>>;
-        /// Maximum percentage of immune UIDs.
+        /// Maximum share of UIDs that may be immune from pruning on a subnet.
         #[pallet::constant]
         type MaxImmuneUidsPercentage: Get<Percent>;
-        /// Pallet account ID
+        /// Pallet account id used as the SubtensorModule sovereign account.
         #[pallet::constant]
         type SubtensorPalletId: Get<PalletId>;
-        /// Burn account ID
+        /// Pallet id of the burn sink account for recycled / burned TAO.
         #[pallet::constant]
         type BurnAccountId: Get<PalletId>;
-        /// Initial default per-block cap on number of subnet epochs that may
-        /// execute in a single `block_step`; the rest are deferred 1 block forward via
-        /// `PendingEpochAt`.
+        /// Cap on subnet epochs executed in one `block_step`; overflow deferred via `PendingEpochAt`.
         #[pallet::constant]
         type InitialMaxEpochsPerBlock: Get<u8>;
     }

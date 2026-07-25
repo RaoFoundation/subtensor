@@ -386,3 +386,13 @@ runtime/src/transaction_payment_wrapper.rs
 ```
 - proposed by: w2-src-rpc_info
 - status: pending
+
+## clean_up_hotkey_swap_records -> purge_expired_hotkey_swap_on_netuid_records
+- reason: `pub(crate)` hook helper that removes stale `LastHotkeySwapOnNetuid` rows for the block's netuid slot; name should lead with purge/expired and the storage concept so it greps with the map.
+- hits:
+```
+pallets/subtensor/src/macros/hooks.rs
+pallets/subtensor/src/tests/remove_data_tests.rs
+```
+- proposed by: w2-docs-macros-other
+- status: pending
