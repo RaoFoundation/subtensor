@@ -1,3 +1,12 @@
+//! # Commitments pallet
+//!
+//! Stores per-(`netuid`, account) metadata commitments, optionally timelock-encrypted via
+//! drand (TLE). Plain and hash fields are written by [`Call::set_commitment`];
+//! [`Pallet::reveal_timelocked_commitments`] (from `on_initialize`) decrypts matured
+//! `Data::TimelockEncrypted` fields into [`RevealedCommitments`].
+//!
+//! Rate limiting uses a per-epoch byte budget ([`UsedSpaceOf`] / [`MaxSpace`]) keyed by
+//! subnet tempo via [`GetTempoInterface`].
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod benchmarking;
@@ -48,90 +57,93 @@ pub mod pallet {
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
-    // Configure the pallet by specifying the parameters and types on which it depends.
+    /// Runtime configuration for commitment deposits, rate limits, and cross-pallet hooks.
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_drand::Config {
-        ///Currency type that will be used to reserve deposits for commitments
+        /// Currency used to reserve/unreserve commitment deposits.
         type Currency: ReservableCurrency<Self::AccountId> + Send + Sync;
 
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: WeightInfo;
 
-        /// Interface to access-limit metadata commitments
+        /// Who may call [`Call::set_commitment`] on a given netuid.
         type CanCommit: CanCommit<Self::AccountId>;
 
-        /// Interface to trigger other pallets when metadata is committed
+        /// Notified when a commitment includes [`Data::ResetBondsFlag`].
         type OnMetadataCommitment: OnMetadataCommitment<Self::AccountId>;
 
-        /// The maximum number of additional fields that can be added to a commitment
+        /// Max number of [`Data`] fields allowed in one [`CommitmentInfo`].
         #[pallet::constant]
         type MaxFields: Get<u32> + TypeInfo + 'static;
 
-        /// The amount held on deposit for a registered identity
+        /// Base deposit reserved for any non-empty commitment registration.
         #[pallet::constant]
         type InitialDeposit: Get<BalanceOf<Self>>;
 
-        /// The amount held on deposit per additional field for a registered identity.
+        /// Extra deposit reserved per additional field beyond the base.
         #[pallet::constant]
         type FieldDeposit: Get<BalanceOf<Self>>;
 
-        /// Used to retrieve the given subnet's tempo
+        /// Supplies subnet epoch indices for the [`UsedSpaceOf`] rate-limit window.
         type TempoInterface: GetTempoInterface;
     }
 
-    /// Used to retrieve the given subnet's tempo
+    /// Resolves a subnet's current epoch index for commitment rate-limit windows.
     pub trait GetTempoInterface {
-        /// Used to retreive the epoch index for the given subnet.
+        /// Returns the epoch index for `netuid` at `cur_block` (used to reset [`UsedSpaceOf`]).
         fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64;
     }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A commitment was set
+        /// A non-timelocked commitment was written via [`Call::set_commitment`].
         Commitment {
-            /// The netuid of the commitment
+            /// Subnet the commitment belongs to.
             netuid: NetUid,
-            /// The account
+            /// Account that set the commitment.
             who: T::AccountId,
         },
-        /// A timelock-encrypted commitment was set
+        /// A commitment containing at least one [`Data::TimelockEncrypted`] field was set.
         TimelockCommitment {
-            /// The netuid of the commitment
+            /// Subnet the commitment belongs to.
             netuid: NetUid,
-            /// The account
+            /// Account that set the commitment.
             who: T::AccountId,
-            /// The drand round to reveal
+            /// Drand round at/after which auto-reveal may decrypt the ciphertext.
             reveal_round: u64,
         },
-        /// A timelock-encrypted commitment was auto-revealed
+        /// A timelock-encrypted field was decrypted and appended to [`RevealedCommitments`].
         CommitmentRevealed {
-            /// The netuid of the commitment
+            /// Subnet of the revealed commitment.
             netuid: NetUid,
-            /// The account
+            /// Account whose ciphertext was revealed.
             who: T::AccountId,
         },
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Account passed too many additional fields to their commitment
+        /// `info.fields` length exceeds [`Config::MaxFields`].
         TooManyFieldsInCommitmentInfo,
-        /// Account is not allowed to make commitments to the chain
+        /// [`CanCommit::can_commit`] rejected this account for the target netuid.
         AccountNotAllowedCommit,
-        /// Space Limit Exceeded for the current interval
+        /// Epoch byte budget ([`UsedSpaceOf`] vs [`MaxSpace`]) would be exceeded.
         SpaceLimitExceeded,
-        /// Indicates that unreserve returned a leftover, which is unexpected.
+        /// Currency unreserve returned a leftover balance; deposit accounting is inconsistent.
         UnexpectedUnreserveLeftover,
     }
 
-    /// Tracks all CommitmentOf that have at least one timelocked field.
+    /// Index of `(netuid, who)` pairs whose [`CommitmentOf`] still has a timelocked field.
+    ///
+    /// Scanned each block by [`Pallet::reveal_timelocked_commitments`]; entries are removed when
+    /// no `TimelockEncrypted` fields remain (or the commitment is gone).
     #[pallet::storage]
     #[pallet::getter(fn timelocked_index)]
     pub type TimelockedIndex<T: Config> =
         StorageValue<_, BTreeSet<(NetUid, T::AccountId)>, ValueQuery>;
 
-    /// Identity data by account
+    /// Current commitment registration for `(netuid, who)`, including reserved deposit.
     #[pallet::storage]
     #[pallet::getter(fn commitment_of)]
     pub(super) type CommitmentOf<T: Config> = StorageDoubleMap<
@@ -144,6 +156,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Block number of the most recent successful [`Call::set_commitment`] for `(netuid, who)`.
     #[pallet::storage]
     #[pallet::getter(fn last_commitment)]
     pub(super) type LastCommitment<T: Config> = StorageDoubleMap<
@@ -156,6 +169,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Block when a `ResetBondsFlag` field last triggered [`OnMetadataCommitment`].
     #[pallet::storage]
     #[pallet::getter(fn last_bonds_reset)]
     pub(super) type LastBondsReset<T: Config> = StorageDoubleMap<
@@ -168,6 +182,10 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Decrypted timelock payloads for `(netuid, who)` as `(plaintext_bytes, reveal_block)`.
+    ///
+    /// Capped at the 10 most recent reveals (oldest dropped). Populated by the reveal hook, not
+    /// by extrinsics.
     #[pallet::storage]
     #[pallet::getter(fn revealed_commitments)]
     pub(super) type RevealedCommitments<T: Config> = StorageDoubleMap<
@@ -180,8 +198,9 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Maps (netuid, who) -> usage (how many “bytes” they've committed)
-    /// in the RateLimit window
+    /// Per-(netuid, who) rate-limit usage for the current tempo epoch ([`UsageTracker`]).
+    ///
+    /// Resets when [`GetTempoInterface::get_epoch_index`] advances; compared against [`MaxSpace`].
     #[pallet::storage]
     #[pallet::getter(fn used_space_of)]
     pub type UsedSpaceOf<T: Config> = StorageDoubleMap<
@@ -195,11 +214,12 @@ pub mod pallet {
     >;
 
     #[pallet::type_value]
-    /// The default Maximum Space
+    /// Default [`MaxSpace`] (bytes per user per tempo epoch) when unset.
     pub fn DefaultMaxSpace() -> u32 {
         3100
     }
 
+    /// Maximum rate-limit “space” (bytes) a user may consume per netuid per tempo epoch.
     #[pallet::storage]
     #[pallet::getter(fn max_space_per_user_per_rate_limit)]
     pub type MaxSpace<T> = StorageValue<_, u32, ValueQuery, DefaultMaxSpace>;
@@ -208,7 +228,12 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #![deny(clippy::expect_used)]
 
-        /// Set the commitment for a given netuid
+        /// Replace the caller's commitment on `netuid`, reserving deposit and updating rate-limit usage.
+        ///
+        /// Emits [`Event::TimelockCommitment`] if any field is timelock-encrypted (and indexes the
+        /// account in [`TimelockedIndex`]); otherwise emits [`Event::Commitment`]. A
+        /// [`Data::ResetBondsFlag`] field records [`LastBondsReset`] and invokes
+        /// [`OnMetadataCommitment`]. Empty commitments still count at least 100 rate-limit bytes.
         #[pallet::call_index(0)]
         #[pallet::weight((
             <T as pallet::Config>::WeightInfo::set_commitment(),
@@ -329,7 +354,7 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Sudo-set MaxSpace
+        /// Root-only update of the per-user per-epoch commitment space budget ([`MaxSpace`]).
         #[pallet::call_index(2)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::set_max_space())]
         pub fn set_max_space(origin: OriginFor<T>, new_limit: u32) -> DispatchResult {
@@ -354,8 +379,11 @@ pub mod pallet {
     }
 }
 
-// Interfaces to interact with other pallets
+/// Gate for whether `who` may call [`Call::set_commitment`] on `netuid`.
+///
+/// Runtime typically wires this to subnet registration / validator checks; `()` denies all.
 pub trait CanCommit<AccountId> {
+    /// Returns true if `who` is allowed to write a commitment on `netuid`.
     fn can_commit(netuid: NetUid, who: &AccountId) -> bool;
 }
 
@@ -365,7 +393,9 @@ impl<A> CanCommit<A> for () {
     }
 }
 
+/// Hook invoked when a commitment includes [`Data::ResetBondsFlag`] (bonds-reset signal).
 pub trait OnMetadataCommitment<AccountId> {
+    /// Called once per `set_commitment` that contains a bonds-reset flag for `(netuid, account)`.
     fn on_metadata_commitment(netuid: NetUid, account: &AccountId);
 }
 
@@ -373,12 +403,12 @@ impl<A> OnMetadataCommitment<A> for () {
     fn on_metadata_commitment(_: NetUid, _: &A) {}
 }
 
-/************************************************************
-    CallType definition
-************************************************************/
+/// Transaction-extension / fee path classification for commitment extrinsics.
 #[derive(Debug, PartialEq, Default)]
 pub enum CallType {
+    /// [`Call::set_commitment`] was dispatched.
     SetCommitment,
+    /// Any other call type.
     #[default]
     Other,
 }
@@ -386,6 +416,11 @@ pub enum CallType {
 use frame_support::{dispatch::DispatchResult, pallet_prelude::TypeInfo};
 
 impl<T: Config> Pallet<T> {
+    /// Decrypt matured [`Data::TimelockEncrypted`] fields using drand pulses; append plaintexts to
+    /// [`RevealedCommitments`] and prune exhausted commitments from [`TimelockedIndex`].
+    ///
+    /// Skips rewrite of [`CommitmentOf`] when no pulse is available yet for the reveal round.
+    /// Returns accumulated DB weight for the scan (does not abort the block on decrypt failures).
     pub fn reveal_timelocked_commitments() -> Result<Weight, sp_runtime::DispatchError> {
         let mut total_weight = Weight::from_parts(0, 0);
 
@@ -571,6 +606,8 @@ impl<T: Config> Pallet<T> {
 
         Ok(total_weight)
     }
+
+    /// SCALE-encodes every [`CommitmentOf`] entry on `netuid` as `(account, registration_bytes)`.
     pub fn get_commitments(netuid: NetUid) -> Vec<(T::AccountId, Vec<u8>)> {
         let commitments: Vec<(T::AccountId, Vec<u8>)> =
             <CommitmentOf<T> as IterableStorageDoubleMap<
@@ -586,6 +623,9 @@ impl<T: Config> Pallet<T> {
         commitments
     }
 
+    /// Clears all per-netuid commitment maps for `netuid` and drops matching [`TimelockedIndex`] rows.
+    ///
+    /// Returns `false` if the weight meter cannot finish (maps may be partially cleared).
     pub fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         let write_weight = T::DbWeight::get().writes(1);
 
@@ -617,7 +657,9 @@ impl<T: Config> Pallet<T> {
     }
 }
 
+/// Runtime API-facing adapter for listing SCALE-encoded commitments on a netuid.
 pub trait GetCommitments<AccountId> {
+    /// See [`Pallet::get_commitments`].
     fn get_commitments(netuid: NetUid) -> Vec<(AccountId, Vec<u8>)>;
 }
 
