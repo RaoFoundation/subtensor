@@ -67,6 +67,12 @@ pub const MAX_NUM_ROOT_CLAIMS: u64 = 50;
 
 pub const MAX_SUBNET_CLAIMS: usize = 5;
 
+/// Maximum hotkeys that a manual root claim may process for one coldkey.
+///
+/// The resulting worst-case claim weight, including production transaction
+/// extensions, fits within the normal-extrinsic limit.
+pub const MAX_ROOT_CLAIM_HOTKEYS: usize = 256;
+
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
