@@ -993,10 +993,25 @@
       "id": "w2-test-networks",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
+      "status": "done",
       "notes": "Split ~3863-line test file into concept-named modules under tests/networks/",
       "files": [
-        "pallets/subtensor/src/tests/networks.rs"
+        "pallets/subtensor/src/tests/networks/mod.rs",
+        "pallets/subtensor/src/tests/networks/prelude.rs",
+        "pallets/subtensor/src/tests/networks/helpers.rs",
+        "pallets/subtensor/src/tests/networks/dissolve_refunds.rs",
+        "pallets/subtensor/src/tests/networks/dissolve_storage_cleanup.rs",
+        "pallets/subtensor/src/tests/networks/dissolve_async_cleanup.rs",
+        "pallets/subtensor/src/tests/networks/destroy_alpha_stakes.rs",
+        "pallets/subtensor/src/tests/networks/prune_network.rs",
+        "pallets/subtensor/src/tests/networks/register_network.rs",
+        "pallets/subtensor/src/tests/networks/median_subnet_alpha_price.rs",
+        "pallets/subtensor/src/tests/networks/registered_subnet_counter.rs",
+        "pallets/subtensor/src/tests/networks/migrate_network_immunity.rs",
+        "pallets/subtensor/src/tests/networks/set_new_network_state.rs",
+        "pallets/subtensor/src/tests/networks/network_registration_queue.rs",
+        "pallets/subtensor/src/tests/networks/massive_dissolve_reregistration.rs",
+        "pallets/subtensor/src/tests/networks/tempo_rate_limit.rs"
       ]
     },
     {
