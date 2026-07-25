@@ -941,10 +941,17 @@
       "id": "w2-test-math",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
+      "status": "done",
       "notes": "Split ~2601-line test file into concept-named modules under tests/math/",
       "files": [
-        "pallets/subtensor/src/tests/math.rs"
+        "pallets/subtensor/src/tests/math/mod.rs",
+        "pallets/subtensor/src/tests/math/helpers.rs",
+        "pallets/subtensor/src/tests/math/fixed_conversions.rs",
+        "pallets/subtensor/src/tests/math/vector_ops.rs",
+        "pallets/subtensor/src/tests/math/matrix_normalize_mask.rs",
+        "pallets/subtensor/src/tests/math/matmul_clip.rs",
+        "pallets/subtensor/src/tests/math/weighted_median.rs",
+        "pallets/subtensor/src/tests/math/ema_interpolate.rs"
       ]
     },
     {
