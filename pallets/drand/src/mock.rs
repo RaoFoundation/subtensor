@@ -1,3 +1,5 @@
+//! Minimal runtime + keystore fixture for `pallet-drand` unit tests.
+
 use crate as pallet_drand_bridge;
 use crate::verifier::*;
 use crate::*;
@@ -87,7 +89,7 @@ impl pallet_drand_bridge::Config for Test {
     type WeightInfo = ();
 }
 
-// Build genesis storage according to the mock runtime.
+/// Genesis storage plus an in-memory keystore with Alice's `drnd` sr25519 key.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()

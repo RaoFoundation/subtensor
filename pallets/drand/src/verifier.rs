@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-//! A collection of verifiers
-//!
-//!
+//! BLS verifiers for drand beacon pulses ([`QuicknetVerifier`], [`UnsafeSkipVerifier`]).
 
 use crate::{
     bls12_381,
@@ -32,35 +30,33 @@ use tle::curves::drand::TinyBLS381;
 use w3f_bls::engine::EngineBLS;
 
 const USAGE: ark_scale::Usage = ark_scale::WIRE;
+/// Arkworks type SCALE wrapper used when decoding beacon keys / signatures from storage.
 pub type ArkScale<T> = ark_scale::ArkScale<T, USAGE>;
 
-/// construct a message (e.g. signed by drand)
-fn message(current_round: RoundNumber, prev_sig: &[u8]) -> Vec<u8> {
+/// SHA-256 of the round number alone (empty previous signature) — Quicknet unchained message.
+pub fn hash_unchained_round_message(current_round: RoundNumber) -> Vec<u8> {
     let mut hasher = Sha256::default();
-    hasher.update(prev_sig);
+    hasher.update([]);
     hasher.update(current_round.to_be_bytes());
     hasher.finalize().to_vec()
 }
 
-/// something to verify beacon pulses
+/// Verifies that a [`Pulse`] is a valid signature under a [`BeaconConfiguration`].
 pub trait Verifier {
-    /// verify the given pulse using beacon_config
+    /// Return `Ok(true)` if `pulse` verifies under `beacon_config`, `Ok(false)` if not,
+    /// or `Err` on decode / hash-to-curve failures.
     fn verify(beacon_config: BeaconConfiguration, pulse: Pulse) -> Result<bool, String>;
 }
 
-/// A verifier to check values received from quicknet. It outputs true if valid, false otherwise
+/// Verifier for [Quicknet](https://drand.love/blog/quicknet-is-live-on-the-league-of-entropy-mainnet).
 ///
-/// [Quicknet](https://drand.love/blog/quicknet-is-live-on-the-league-of-entropy-mainnet) operates in an unchained mode,
-/// so messages contain only the round number. in addition, public keys are in G2 and signatures are
-/// in G1
+/// Quicknet is unchained: the signed message is only the round number. Public keys are in G2
+/// and signatures in G1. A pulse is valid when the pairing equality holds:
 ///
-/// Values are valid if the pairing equality holds:
-///   $e(sig, g_2) == e(msg_on_curve, pk)$
-/// where $sig \in \mathbb{G}_1$ is the signature
-///       $g_2 \in \mathbb{G}_2$ is a generator
-///       $msg_on_curve \in \mathbb{G}_1$ is a hash of the message that drand signed
-/// (hash(round_number))       $pk \in \mathbb{G}_2$ is the public key, read from the input public
-/// parameters
+/// `$e(sig, g_2) == e(msg_on_curve, pk)$`
+///
+/// where `$sig \in G_1$`, `$g_2$` is a G2 generator, `$msg_on_curve$` is hash-to-curve of the
+/// round message, and `$pk \in G_2$` comes from [`BeaconConfiguration::public_key`].
 pub struct QuicknetVerifier;
 
 impl Verifier for QuicknetVerifier {
@@ -75,7 +71,7 @@ impl Verifier for QuicknetVerifier {
             .map_err(|e| format!("Failed to decode signature: {e}"))?;
 
         // m = sha256({} || {round})
-        let message = message(pulse.round, &[]);
+        let message = hash_unchained_round_message(pulse.round);
         let hasher = <TinyBLS381 as EngineBLS>::hash_to_curve_map();
         // H(m) \in G1
         let message_hash = hasher
@@ -101,7 +97,7 @@ impl Verifier for QuicknetVerifier {
     }
 }
 
-/// The unsafe skip verifier is just a pass-through verification, always returns true
+/// Test / benchmark verifier that accepts every pulse without a pairing check.
 pub struct UnsafeSkipVerifier;
 impl Verifier for UnsafeSkipVerifier {
     fn verify(_beacon_config: BeaconConfiguration, _pulse: Pulse) -> Result<bool, String> {
