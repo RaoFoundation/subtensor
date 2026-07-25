@@ -1,4 +1,9 @@
+//! Tests for subnet lifecycle helpers ([`crate::subnets::subnet`], symbols).
+//!
+//! Covers `do_start_call`, symbol allocation, and emission-start gating.
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use super::mock::*;
 use crate::subnets::symbols::{DEFAULT_SYMBOL, SYMBOLS};
 use crate::*;

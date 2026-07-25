@@ -1087,7 +1087,7 @@
       "id": "w2-test-remainder",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "done",
       "notes": "Wire mod.rs after giant splits land; improve smaller test modules",
       "files": [
         "pallets/subtensor/src/tests/mod.rs",

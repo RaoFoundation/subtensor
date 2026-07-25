@@ -1,3 +1,7 @@
+//! Tests for coldkey-swap lineage recording ([`crate::swap::coldkey_lineage`]).
+//!
+//! Verifies tip/chain updates, reverse-swap non-cycles, and rollback on failed swap.
+
 #![allow(clippy::unwrap_used)]
 
 use frame_support::{assert_noop, assert_ok};

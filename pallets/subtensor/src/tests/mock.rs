@@ -1,3 +1,16 @@
+//! Default test runtime and fixtures for `pallet-subtensor` unit tests.
+//!
+//! ## Search anchors
+//!
+//! | Helper | Owns |
+//! |--------|------|
+//! | [`new_test_ext`] / [`test_ext_with_balances`] | Externalities bootstrap |
+//! | [`add_network`] / [`add_dynamic_network`] | Subnet setup |
+//! | [`register_ok_neuron`] / [`setup_neuron_with_stake`] | Neuron + stake fixtures |
+//! | [`step_block`] / [`run_to_block`] / [`step_epochs`] | Block / tempo advancement |
+//! | [`setup_reserves`] / [`swap_tao_to_alpha`] | AMM reserve / swap helpers |
+//! | [`mock_set_children`] | Parent/child key fixtures |
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,

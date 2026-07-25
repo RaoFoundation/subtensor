@@ -1,3 +1,7 @@
+//! Tests for multi-mechanism subnet state ([`crate::subnets::mechanism`]).
+//!
+//! Covers mechanism count, per-mech weights/bonds, and emission routing.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,

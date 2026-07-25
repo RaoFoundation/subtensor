@@ -1,3 +1,7 @@
+//! Synthetic consensus / map-consensus stress tests for Yuma-style epochs.
+//!
+//! Builds large random weight graphs and checks stake-weighted consensus invariants.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,

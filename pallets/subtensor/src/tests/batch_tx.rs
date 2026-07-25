@@ -1,3 +1,7 @@
+//! Tests for `pallet_subtensor_utility` batch calls against the subtensor runtime.
+//!
+//! Ensures nested batches are rejected while flat batches of allowed calls succeed.
+
 use super::mock::*;
 use frame_support::{
     assert_ok,

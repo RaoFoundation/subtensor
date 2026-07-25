@@ -1,5 +1,10 @@
+//! Tests for tempo / trigger-epoch / activity-cutoff ([`crate::coinbase::tempo_control`]).
+//!
+//! Also freezes deprecated `set_tempo` call indices for metadata compatibility.
+
 #![allow(clippy::expect_used)]
 #![allow(deprecated)]
+
 use codec::Encode;
 use frame_support::{
     assert_noop, assert_ok,

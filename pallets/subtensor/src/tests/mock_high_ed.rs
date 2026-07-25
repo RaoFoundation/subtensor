@@ -1,3 +1,8 @@
+//! Alternate test runtime with a high existential deposit.
+//!
+//! Used by [`crate::tests::tao`] for TAO issuance / dust / ED-sensitive paths.
+//! Prefer [`crate::tests::mock`] for ordinary pallet tests.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,

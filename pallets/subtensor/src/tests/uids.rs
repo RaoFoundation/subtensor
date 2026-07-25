@@ -1,3 +1,7 @@
+//! Tests for neuron uid maps ([`crate::subnets::uids`]).
+//!
+//! Covers `replace_neuron`, uid↔hotkey indexes, and prune interactions.
+
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::mock::*;

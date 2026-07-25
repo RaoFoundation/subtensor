@@ -1,3 +1,7 @@
+//! Tests for [`crate::Pallet::blocks_until_next_auto_epoch`].
+//!
+//! Covers tempo=0, wrap-around, boundaries, and multi-netuid alignment.
+
 use subtensor_runtime_common::NetUid;
 
 use super::mock::*;
