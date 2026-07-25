@@ -593,7 +593,7 @@ fn test_exp_quote_fuzzy() {
         );
 
         // Assert that we aren't giving out more than reserve y
-        assert!(dy <= y, "dy = {},\ny =  {}", dy, y,);            
+        assert!(dy <= y, "dy = {},\ny =  {}", dy, y,);
 
         // Print progress
         let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
@@ -607,7 +607,7 @@ fn test_exp_quote_fuzzy() {
 
 #[test]
 fn test_calculate_quote_delta_in() {
-    let num = 250_000_000_000_u128; // w1 = 0.75 
+    let num = 250_000_000_000_u128; // w1 = 0.75
     let w_quote = Perquintill::from_rational(num, 1_000_000_000_000_u128);
     let bal = Balancer::new(w_quote).unwrap();
 
@@ -626,7 +626,7 @@ fn test_calculate_quote_delta_in() {
 
 #[test]
 fn test_calculate_base_delta_in() {
-    let num = 250_000_000_000_u128; // w2 = 0.25 
+    let num = 250_000_000_000_u128; // w2 = 0.25
     let w_quote = Perquintill::from_rational(num, 1_000_000_000_000_u128);
     let bal = Balancer::new(w_quote).unwrap();
 
@@ -645,7 +645,7 @@ fn test_calculate_base_delta_in() {
 
 #[test]
 fn test_calculate_quote_delta_in_impossible() {
-    let num = 250_000_000_000_u128; // w1 = 0.75 
+    let num = 250_000_000_000_u128; // w1 = 0.75
     let w_quote = Perquintill::from_rational(num, 1_000_000_000_000_u128);
     let bal = Balancer::new(w_quote).unwrap();
 
@@ -662,7 +662,7 @@ fn test_calculate_quote_delta_in_impossible() {
 
 #[test]
 fn test_calculate_base_delta_in_impossible() {
-    let num = 250_000_000_000_u128; // w2 = 0.25 
+    let num = 250_000_000_000_u128; // w2 = 0.25
     let w_quote = Perquintill::from_rational(num, 1_000_000_000_000_u128);
     let bal = Balancer::new(w_quote).unwrap();
 
@@ -924,7 +924,7 @@ fn test_exp_scaled() {
 // cargo test --package pallet-subtensor-swap --lib -- pallet::balancer::tests::test_base_needed_for_quote --exact --nocapture
 #[test]
 fn test_base_needed_for_quote() {
-    let num = 250_000_000_000_u128; // w1 = 0.75 
+    let num = 250_000_000_000_u128; // w1 = 0.75
     let w_quote = Perquintill::from_rational(num, 1_000_000_000_000_u128);
     let bal = Balancer::new(w_quote).unwrap();
 
