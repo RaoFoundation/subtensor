@@ -521,9 +521,21 @@
       "status": "pending",
       "notes": "pallet-subtensor src/epoch",
       "files": [
-        "pallets/subtensor/src/epoch/math.rs",
+        "pallets/subtensor/src/epoch/math/ema_interpolate.rs",
+        "pallets/subtensor/src/epoch/math/fixed_conversions.rs",
+        "pallets/subtensor/src/epoch/math/matmul_clip.rs",
+        "pallets/subtensor/src/epoch/math/matrix_normalize_mask.rs",
+        "pallets/subtensor/src/epoch/math/mod.rs",
+        "pallets/subtensor/src/epoch/math/vector_ops.rs",
+        "pallets/subtensor/src/epoch/math/weighted_median.rs",
         "pallets/subtensor/src/epoch/mod.rs",
-        "pallets/subtensor/src/epoch/run_epoch.rs"
+        "pallets/subtensor/src/epoch/run_epoch/bonds_ema_liquid_alpha.rs",
+        "pallets/subtensor/src/epoch/run_epoch/epoch_dense.rs",
+        "pallets/subtensor/src/epoch/run_epoch/epoch_mechanism.rs",
+        "pallets/subtensor/src/epoch/run_epoch/epoch_terms.rs",
+        "pallets/subtensor/src/epoch/run_epoch/mod.rs",
+        "pallets/subtensor/src/epoch/run_epoch/persist_epoch_terms.rs",
+        "pallets/subtensor/src/epoch/run_epoch/weights_bonds_loaders.rs"
       ]
     },
     {
