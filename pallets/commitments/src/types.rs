@@ -58,7 +58,9 @@ pub enum Data {
     ShaThree256([u8; 32]),
     /// A timelock-encrypted commitment with a reveal round.
     TimelockEncrypted {
+        /// TLE ciphertext bytes (max [`MAX_TIMELOCK_COMMITMENT_SIZE_BYTES`]).
         encrypted: BoundedVec<u8, ConstU32<MAX_TIMELOCK_COMMITMENT_SIZE_BYTES>>,
+        /// Drand Quicknet round at/after which the ciphertext may be decrypted on-chain.
         reveal_round: u64,
     },
     /// Flag to trigger bonds reset for subnet
@@ -68,15 +70,20 @@ pub enum Data {
 }
 
 impl Data {
+    /// Returns true when this is the empty [`Data::None`] variant.
     pub fn is_none(&self) -> bool {
         self == &Data::None
     }
 
-    /// Check if this is a timelock-encrypted commitment.
+    /// Returns true when this field is a [`Data::TimelockEncrypted`] ciphertext.
     pub fn is_timelock_encrypted(&self) -> bool {
         matches!(self, Data::TimelockEncrypted { .. })
     }
 
+    /// Bytes counted against the per-epoch [`crate::UsedSpaceOf`] budget for this field.
+    ///
+    /// Hash variants count as 32; `ResetBondsFlag` and `None` count as 0; raw/timelock count
+    /// their payload length (not SCALE overhead).
     pub fn len_for_rate_limit(&self) -> u64 {
         match self {
             Data::None => 0,
@@ -362,7 +369,8 @@ impl Default for Data {
     }
 }
 
-#[freeze_struct("5ca4adbb4d2a2b20")]
+/// Payload of a commitment extrinsic: bounded list of [`Data`] fields.
+#[freeze_struct("13181415752e92ef")]
 #[derive(
     CloneNoBound,
     Encode,
@@ -378,37 +386,42 @@ impl Default for Data {
 #[derive(frame_support::DefaultNoBound)]
 #[scale_info(skip_type_params(FieldLimit))]
 pub struct CommitmentInfo<FieldLimit: Get<u32>> {
+    /// Ordered fields (raw blobs, hashes, timelock ciphertext, or bonds-reset flag).
     pub fields: BoundedVec<Data, FieldLimit>,
 }
 
-/// Maximum size of the serialized timelock commitment in bytes
+/// Max SCALE size (bytes) allowed inside a [`Data::TimelockEncrypted`] ciphertext.
 pub const MAX_TIMELOCK_COMMITMENT_SIZE_BYTES: u32 = 1024;
+/// Max payload size (bytes) for the [`Data::BigRaw`] variant.
 pub const MAX_BIGRAW_COMMITMENT_SIZE_BYTES: u32 = 512;
 
-/// Contains the decrypted data of a revealed commitment.
-#[freeze_struct("bf575857b57f9bef")]
+/// Historical record of a revealed (decrypted) commitment and its deposit/block metadata.
+#[freeze_struct("e1fd4df85cac545e")]
 #[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo, Debug)]
 pub struct RevealedData<Balance, MaxFields: Get<u32>, BlockNumber> {
+    /// Commitment fields as they existed at reveal time.
     pub info: CommitmentInfo<MaxFields>,
+    /// Block number when the reveal occurred.
     pub revealed_block: BlockNumber,
+    /// Deposit that was associated with the commitment.
     pub deposit: Balance,
 }
 
-/// Tracks how much “space” each (netuid, who) has used within the current RateLimit block-window.
+/// Per-(netuid, who) rate-limit counters for the current tempo epoch window.
 #[freeze_struct("1f23fb50f96326e4")]
 #[derive(Encode, Decode, Default, Clone, PartialEq, Eq, TypeInfo)]
 pub struct UsageTracker {
-    /// Last epoch block
+    /// Epoch index from [`crate::GetTempoInterface`] when `used_space` was last accumulated.
     pub last_epoch: u64,
-    /// Space used
+    /// Bytes consumed in `last_epoch` toward [`crate::MaxSpace`].
     pub used_space: u64,
 }
 
-/// Information concerning the identity of the controller of an account.
+/// On-chain commitment registration stored in [`crate::CommitmentOf`].
 ///
-/// NOTE: This is stored separately primarily to facilitate the addition of extra fields in a
-/// backwards compatible way through a specialized `Decode` impl.
-#[freeze_struct("632f12850e51c420")]
+/// Stored separately (with a specialized `Decode`) so extra fields can be appended in a
+/// backwards-compatible way via trailing zeros.
+#[freeze_struct("6585afd993baff29")]
 #[derive(
     CloneNoBound, Encode, Eq, MaxEncodedLen, PartialEqNoBound, RuntimeDebugNoBound, TypeInfo,
 )]
@@ -419,12 +432,13 @@ pub struct Registration<
     MaxFields: Get<u32>,
     BlockNumber: Codec + Clone + Ord + Eq + AtLeast32BitUnsigned + MaxEncodedLen + Debug,
 > {
-    /// Amount held on deposit for this information.
+    /// Amount held on deposit for this commitment.
     pub deposit: Balance,
 
+    /// Block at which this registration was last written by `set_commitment`.
     pub block: BlockNumber,
 
-    /// Information on the identity.
+    /// Current commitment payload.
     pub info: CommitmentInfo<MaxFields>,
 }
 

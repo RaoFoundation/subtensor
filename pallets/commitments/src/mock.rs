@@ -1,3 +1,4 @@
+//! Test runtime wiring for the commitments pallet (System, Balances, Drand, Commitments).
 #![allow(clippy::expect_used)]
 use crate as pallet_commitments;
 use frame_support::{
@@ -12,7 +13,7 @@ use sp_runtime::{
     testing::Header,
     traits::{BlakeTwo256, ConstU16, IdentityLookup},
 };
-use subtensor_runtime_common::{ConstTao, TaoBalance};
+use subtensor_runtime_common::{ConstTao, NetUid, TaoBalance};
 
 pub type Block = sp_runtime::generic::Block<Header, UncheckedExtrinsic>;
 pub type UncheckedExtrinsic =
@@ -73,6 +74,7 @@ impl pallet_balances::Config for Test {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Test [`crate::Config::MaxFields`] — allows up to 16 commitment fields.
 pub struct TestMaxFields;
 impl Get<u32> for TestMaxFields {
     fn get() -> u32 {
@@ -88,6 +90,7 @@ impl TypeInfo for TestMaxFields {
     }
 }
 
+/// Test [`crate::CanCommit`] that permits every account on every netuid.
 pub struct TestCanCommit;
 impl pallet_commitments::CanCommit<u64> for TestCanCommit {
     fn can_commit(_netuid: NetUid, _who: &u64) -> bool {
@@ -95,6 +98,7 @@ impl pallet_commitments::CanCommit<u64> for TestCanCommit {
     }
 }
 
+/// Zero-weight stub implementing [`crate::WeightInfo`] for unit tests.
 pub struct TestWeightInfo;
 impl pallet_commitments::WeightInfo for TestWeightInfo {
     fn set_commitment() -> Weight {
@@ -121,10 +125,12 @@ impl pallet_commitments::Config for Test {
     type OnMetadataCommitment = ();
 }
 
+/// Fixed-tempo (360) epoch indexer mirroring subtensor's netuid-offset epoch formula.
 pub struct MockTempoInterface;
 impl pallet_commitments::GetTempoInterface for MockTempoInterface {
     fn get_epoch_index(netuid: NetUid, cur_block: u64) -> u64 {
-        let tempo = 360; // TODO: configure SubtensorModule in this mock
+        // Deliberately does not pull SubtensorModule: unit tests only need a stable epoch clock.
+        let tempo = 360;
         let tempo_plus_one: u64 = tempo.saturating_add(1);
         let netuid_plus_one: u64 = (u16::from(netuid) as u64).saturating_add(1);
         let block_with_offset: u64 = cur_block.saturating_add(netuid_plus_one);
@@ -193,6 +199,7 @@ where
     }
 }
 
+/// Fresh test externalities with genesis defaults and block number set to 1.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     let t = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
