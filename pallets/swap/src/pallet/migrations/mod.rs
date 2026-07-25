@@ -1,3 +1,5 @@
+//! Storage migrations for `pallet-subtensor-swap`.
+
 use super::*;
 use frame_support::pallet_prelude::Weight;
 use sp_io::KillStorageResult;
@@ -7,7 +9,8 @@ use sp_std::vec::Vec;
 
 pub mod migrate_swapv3_to_balancer;
 
-pub(crate) fn remove_prefix<T: Config>(module: &str, old_map: &str, weight: &mut Weight) {
+/// Clear all keys under `Twox128(module) ++ Twox128(old_map)` and charge write weight.
+pub(crate) fn clear_twox_map_prefix<T: Config>(module: &str, old_map: &str, weight: &mut Weight) {
     let mut prefix = Vec::new();
     prefix.extend_from_slice(&twox_128(module.as_bytes()));
     prefix.extend_from_slice(&twox_128(old_map.as_bytes()));
