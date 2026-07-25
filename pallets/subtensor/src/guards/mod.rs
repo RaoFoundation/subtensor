@@ -1,3 +1,24 @@
+//! Pre-dispatch guards for Subtensor extrinsics (`DispatchExtension` + shared helpers).
+//!
+//! These types run at every `call.dispatch(origin)` site (including nested proxy
+//! dispatches), rejecting invalid signed calls before the pallet extrinsic body.
+//! The signed-tx path also reuses the same `check` / `applies_to` helpers from
+//! [`crate::extensions::SubtensorTransactionExtension`].
+//!
+//! ## Search anchors
+//!
+//! | Guard | Blocks / validates |
+//! |-------|--------------------|
+//! | [`CheckColdkeySwap`] | Non-swap calls while a coldkey swap is announced/disputed |
+//! | [`CheckWeights`] | Weight batch shape, min stake, commit/reveal readiness |
+//! | [`CheckRateLimits`] | Weight-set and `register_network` rate limits |
+//! | [`CheckDelegateTake`] | Delegate take bounds + coldkey ownership |
+//! | [`CheckServingEndpoints`] | Axon / prometheus serve preconditions |
+//! | [`CheckEvmKeyAssociation`] | EVM-key association registration + cooldown |
+//!
+//! [`applicable_call`] returns the inner [`Call`] when a guard's `applies_to`
+//! predicate matches — used by weight accounting and by the transaction extension.
+
 mod check_coldkey_swap;
 mod check_delegate_take;
 mod check_evm_key_association;
@@ -16,9 +37,16 @@ pub use check_rate_limits::*;
 pub use check_serving_endpoints::*;
 pub use check_weights::*;
 
+/// Runtime-wide call type (`frame_system::Config::RuntimeCall`) used by guard extensions.
 pub(crate) type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-pub(crate) type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 
+/// Origin type carried by [`CallOf`] dispatches (signed / root / none).
+pub(crate) type RuntimeCallOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
+
+/// If `call` is a Subtensor [`Call`] and `applies_to` returns true, yield that call.
+///
+/// Returns `None` for non-Subtensor calls or Subtensor calls outside the guard's
+/// scope (so the guard charges zero weight and skips `pre_dispatch` work).
 pub(crate) fn applicable_call<T>(
     call: &CallOf<T>,
     applies_to: impl FnOnce(&Call<T>) -> bool,

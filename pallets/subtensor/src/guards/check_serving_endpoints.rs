@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf, applicable_call};
+use super::{CallOf, RuntimeCallOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -9,13 +9,15 @@ use frame_support::{
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
 
-/// Dispatch extension for axon/prometheus endpoint validation.
+/// Dispatch extension for axon / prometheus endpoint validation.
 ///
-/// Signed serving calls are checked before dispatch; unrelated calls and
-/// non-signed origins pass through.
+/// Signed `serve_axon`, `serve_axon_tls`, and `serve_prometheus` calls are
+/// validated (registration, IP/port, serve rate limit) before dispatch;
+/// unrelated calls and non-signed origins pass through.
 pub struct CheckServingEndpoints<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckServingEndpoints<T> {
+    /// Whether this guard should charge weight / run for `call`.
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(
             call,
@@ -23,6 +25,7 @@ impl<T: Config> CheckServingEndpoints<T> {
         )
     }
 
+    /// Run [`Pallet::validate_serve_axon`] / [`Pallet::validate_serve_prometheus`] for `call`.
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::serve_axon {
@@ -75,7 +78,7 @@ impl<T> DispatchExtension<CallOf<T>> for CheckServingEndpoints<T>
 where
     T: Config,
     CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
@@ -86,7 +89,7 @@ where
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
         call: &CallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {

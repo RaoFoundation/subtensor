@@ -81,3 +81,34 @@ pallets/commitments/src/lib.rs
 ```
 - proposed by: w1-runtime
 - status: pending
+
+## applicable_call -> subtensor_call_if
+- reason: shared guard helper that yields a Subtensor `Call` when a predicate matches; name should include the domain word `subtensor` and read as a filter, not a boolean check. Used from both guards and the transaction extension.
+- hits:
+```
+pallets/subtensor/src/guards/mod.rs
+pallets/subtensor/src/guards/check_delegate_take.rs
+pallets/subtensor/src/guards/check_evm_key_association.rs
+pallets/subtensor/src/guards/check_rate_limits.rs
+pallets/subtensor/src/guards/check_serving_endpoints.rs
+pallets/subtensor/src/guards/check_weights.rs
+pallets/subtensor/src/extensions/subtensor.rs
+```
+- proposed by: w2-src-guards
+- status: pending
+
+## guards::CallOf -> GuardsRuntimeCallOf
+- reason: short `CallOf` alias collides in search with `pallet::CallOf`, extensions' local `CallOf`, and transaction-fee's `CallOf`; guards-specific name would disambiguate. Only the `pub(crate)` alias in `guards/mod.rs` (and its guard call sites) — not the pallet-module or other crates' aliases.
+- hits:
+```
+pallets/subtensor/src/guards/mod.rs
+pallets/subtensor/src/guards/check_coldkey_swap.rs
+pallets/subtensor/src/guards/check_delegate_take.rs
+pallets/subtensor/src/guards/check_evm_key_association.rs
+pallets/subtensor/src/guards/check_rate_limits.rs
+pallets/subtensor/src/guards/check_serving_endpoints.rs
+pallets/subtensor/src/guards/check_weights.rs
+```
+- note: `rg -w CallOf` also hits unrelated same-named aliases in `lib.rs` (pallet module), `extensions/subtensor.rs`, and `transaction-fee`; do not rename those under this proposal.
+- proposed by: w2-src-guards
+- status: pending

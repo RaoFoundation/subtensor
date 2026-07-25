@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf, applicable_call};
+use super::{CallOf, RuntimeCallOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, TransactionType};
 use frame_support::{
@@ -12,11 +12,15 @@ use subtensor_runtime_common::{NetUid, NetUidStorageIndex};
 
 /// Dispatch extension for rate-limit checks that are safe to reject before dispatch.
 ///
-/// Signed weight and network-registration calls are checked before dispatch;
-/// unrelated calls and non-signed origins pass through.
+/// Covers weight commit/set (when commit-reveal is off for set paths) and
+/// `register_network`. Unrelated calls and non-signed origins pass through.
+///
+/// Deliberately does **not** rate-limit `set_weights` / `set_mechanism_weights`
+/// when commit-reveal is enabled — those paths are gated elsewhere.
 pub struct CheckRateLimits<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckRateLimits<T> {
+    /// Whether this guard should charge weight / run for `call`.
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(
             call,
@@ -28,7 +32,11 @@ impl<T: Config> CheckRateLimits<T> {
         )
     }
 
-    fn check_weights_rate_limit(
+    /// Per-uid weight rate limit keyed by [`NetUidStorageIndex`].
+    ///
+    /// If `who` is not registered on `netuid`, this returns `Ok` so the extrinsic
+    /// can surface the registration error instead of a rate-limit error.
+    fn ensure_uid_weights_rate_limit(
         who: &T::AccountId,
         netuid: NetUid,
         netuid_index: NetUidStorageIndex,
@@ -46,24 +54,27 @@ impl<T: Config> CheckRateLimits<T> {
         }
     }
 
+    /// Apply the rate-limit rules for a Subtensor weight / network-registration call.
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
-            Call::commit_weights { netuid, .. } => Self::check_weights_rate_limit(
+            Call::commit_weights { netuid, .. } => Self::ensure_uid_weights_rate_limit(
                 who,
                 *netuid,
                 NetUidStorageIndex::from(*netuid),
                 Error::<T>::CommittingWeightsTooFast,
             ),
-            Call::commit_mechanism_weights { netuid, mecid, .. } => Self::check_weights_rate_limit(
-                who,
-                *netuid,
-                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
-                Error::<T>::CommittingWeightsTooFast,
-            ),
+            Call::commit_mechanism_weights { netuid, mecid, .. } => {
+                Self::ensure_uid_weights_rate_limit(
+                    who,
+                    *netuid,
+                    Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                    Error::<T>::CommittingWeightsTooFast,
+                )
+            }
             Call::set_weights { netuid, .. }
                 if !Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) =>
             {
-                Self::check_weights_rate_limit(
+                Self::ensure_uid_weights_rate_limit(
                     who,
                     *netuid,
                     NetUidStorageIndex::from(*netuid),
@@ -73,7 +84,7 @@ impl<T: Config> CheckRateLimits<T> {
             Call::set_mechanism_weights { netuid, mecid, .. }
                 if !Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) =>
             {
-                Self::check_weights_rate_limit(
+                Self::ensure_uid_weights_rate_limit(
                     who,
                     *netuid,
                     Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
@@ -94,7 +105,7 @@ impl<T> DispatchExtension<CallOf<T>> for CheckRateLimits<T>
 where
     T: Config,
     CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
@@ -105,7 +116,7 @@ where
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
         call: &CallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {
