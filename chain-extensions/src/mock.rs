@@ -1,3 +1,8 @@
+//! Test runtime wiring `SubtensorChainExtension` into `pallet-contracts` for unit tests.
+//!
+//! Constructs a minimal `Test` runtime with Subtensor, Swap, Proxy, and Contracts so
+//! [`crate::SubtensorChainExtension`] can be exercised via [`crate::tests`] mocks.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
@@ -651,8 +656,8 @@ pub fn init_logs_for_tests() {
     let _ = TEST_LOGS_INIT.set(());
 }
 
+/// Build genesis storage and set the current block number for a test.
 #[allow(dead_code)]
-// Build genesis storage according to the mock runtime.
 pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
     init_logs_for_tests();
     let t = frame_system::GenesisConfig::<Test>::default()
@@ -663,6 +668,7 @@ pub fn new_test_ext(block_number: BlockNumber) -> sp_io::TestExternalities {
     ext
 }
 
+/// Register `hotkey` on `netuid` via burned registration, topping up coldkey balance as needed.
 #[allow(dead_code)]
 pub fn register_ok_neuron(
     netuid: NetUid,
@@ -744,6 +750,7 @@ pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     let _ = SubtensorModule::burn_tao(coldkey, tao);
 }
 
+/// Register a new dynamic subnet owned by `coldkey`/`hotkey` and enable subtoken trading.
 #[allow(dead_code)]
 pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     let netuid = SubtensorModule::get_next_netuid();
@@ -761,6 +768,7 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     netuid
 }
 
+/// Seed AMM reserves for `netuid` (TAO in / alpha in) used by stake and swap paths.
 #[allow(dead_code)]
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     SubnetTAO::<Test>::set(netuid, tao);
