@@ -9,7 +9,7 @@ name: Watch Mainnet Release
 # failed or partial upload:
 #   1. GitHub release v<spec_version>, with the srtool wasm + digest and
 #      multisig call data from the release train attached as assets
-#   2. Docker images via explicit dispatch of docker.yml and
+#   2. Docker images via observed, retryable dispatches of docker.yml and
 #      docker-localnet.yml (a release created with the default GITHUB_TOKEN
 #      does not emit `release: published`, so their `on: release` triggers
 #      never fire for releases cut by this workflow)
@@ -45,6 +45,7 @@ jobs:
       actions: read # list/download the release-train artifact
     outputs:
       release_needed: ${{ steps.compare.outputs.release_needed }}
+      docker_needed: ${{ steps.compare.outputs.docker_needed }}
       python_needed: ${{ steps.compare.outputs.python_needed }}
       spec_version: ${{ steps.compare.outputs.spec_version }}
       release_tag: ${{ steps.compare.outputs.release_tag }}
@@ -91,6 +92,7 @@ jobs:
           if [ "$chain_spec" -gt "$local_spec" ]; then
             echo "Main does not contain the on-chain runtime yet; refusing to publish."
             echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "docker_needed=false" >> "$GITHUB_OUTPUT"
             echo "python_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -113,6 +115,7 @@ jobs:
             echo "Historical release $release_tag is complete; Python was handled manually."
             echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
             echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "docker_needed=false" >> "$GITHUB_OUTPUT"
             echo "python_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -211,7 +214,18 @@ jobs:
             fi
           fi
 
+          docker_needed=true
+          if .github/scripts/release-docker-publication.sh \
+              status docker.yml "$release_tag" "$release_sha" &&
+            .github/scripts/release-docker-publication.sh \
+              status docker-localnet.yml "$release_tag" "$release_sha"; then
+            docker_needed=false
+          else
+            echo "One or more release Docker images still need publication."
+          fi
+
           echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
+          echo "docker_needed=$docker_needed" >> "$GITHUB_OUTPUT"
           echo "python_needed=$python_needed" >> "$GITHUB_OUTPUT"
 
   release:
@@ -329,24 +343,45 @@ jobs:
             --latest
 
   publish-docker:
-    name: Dispatch Docker image publishing
+    name: Publish ${{ matrix.name }} Docker image
     needs: [check, release]
-    if: needs.check.outputs.release_needed == 'true'
+    if: >-
+      always() &&
+      needs.check.result == 'success' &&
+      needs.check.outputs.docker_needed == 'true' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
     runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 180
     permissions:
       actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: node
+            workflow: docker.yml
+            input_name: tag
+          - name: localnet
+            workflow: docker-localnet.yml
+            input_name: branch-or-tag
     steps:
-      # Dispatch at the release tag so both workflows check out and tag the
-      # exact released sha, even if main has moved on.
-      - name: Dispatch docker workflows at the release tag
+      - uses: actions/checkout@v4
+
+      # Dispatch at the immutable release tag, then follow the child run to a
+      # terminal conclusion. A startup failure is retried; a real build failure
+      # remains terminal and visible on this watcher run.
+      - name: Ensure release image is published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="v${{ needs.check.outputs.spec_version }}"
-          gh workflow run docker.yml \
-            --repo "$GITHUB_REPOSITORY" --ref "$tag" -f tag="$tag"
-          gh workflow run docker-localnet.yml \
-            --repo "$GITHUB_REPOSITORY" --ref "$tag" -f branch-or-tag="$tag"
+          .github/scripts/release-docker-publication.sh ensure \
+            "${{ matrix.workflow }}" \
+            "$tag" \
+            "${{ matrix.input_name }}" \
+            "$tag" \
+            "${{ needs.check.outputs.sha }}"
 
   # Full platform matrix (manylinux x86_64/aarch64, macOS arm64/x86_64,
   # sdist) at the released commit; the SDK's committed .dev0 is stamped stable.

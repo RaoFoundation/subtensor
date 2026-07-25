@@ -9,6 +9,9 @@ on:
       - ".github/scripts/test-resolve-localnet-image.sh"
       - ".github/scripts/publish-localnet-manifest.sh"
       - ".github/scripts/test-publish-localnet-manifest.sh"
+      - ".github/scripts/release-docker-publication.sh"
+      - ".github/scripts/test-release-docker-publication.sh"
+      - ".github/workflows/watch-mainnet-release.yml"
 
 concurrency:
   group: check-localnet-publication-${{ github.ref }}
@@ -28,3 +31,6 @@ jobs:
 
       - name: Test immutable manifest publication
         run: ./.github/scripts/test-publish-localnet-manifest.sh
+
+      - name: Test release publication retries
+        run: ./.github/scripts/test-release-docker-publication.sh
