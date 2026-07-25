@@ -694,7 +694,7 @@
       "id": "w2-src-benchmarks",
       "wave": 2,
       "task": "discoverability",
-      "status": "pending",
+      "status": "done",
       "notes": "pallet-subtensor src/benchmarks",
       "files": [
         "pallets/subtensor/src/benchmarks/benchmarks.rs",
