@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
 from dataclasses import MISSING, asdict, dataclass, field, fields
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
 from ..balance import Balance
 from ..result import BittensorError
@@ -33,7 +32,6 @@ Signer = Literal["coldkey", "hotkey"]
 # cases the SDK elevates in docs and (for root) wraps with Sudo.sudo at
 # execute time. Finer roles belong in each intent's docstring / field help.
 Origin = Literal["signed", "subnet_owner", "root"]
-IntentT = TypeVar("IntentT", bound="Intent")
 
 # Field annotations are strings here (PEP 563 / `from __future__ import annotations`),
 # so this maps by annotation name.
@@ -280,7 +278,7 @@ class Intent(ABC):
         return {"op": self.op, **{k: _encode(v) for k, v in asdict(self).items()}}
 
     @classmethod
-    def from_args(cls: type[IntentT], args: Mapping[str, Any]) -> IntentT:
+    def from_args(cls, args: dict[str, Any]) -> "Intent":
         allowed = {f.name for f in fields(cls)}
         unknown = set(args) - allowed - {"op"}
         if unknown:

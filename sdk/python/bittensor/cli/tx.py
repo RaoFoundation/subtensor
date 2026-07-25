@@ -75,8 +75,6 @@ def _coerce(field_annotation: str, value: Any) -> Any:
         return json.loads(value) if isinstance(value, str) else value
     if not _is_list(field_annotation):
         return value
-    if isinstance(value, list):
-        return value
     text = str(value).strip()
     if text.startswith("["):
         return json.loads(text)
@@ -154,21 +152,17 @@ def _placeholder(annotation: str) -> Optional[str]:
     if _is_dict(annotation):
         return "JSON"
     if _is_list(annotation):
-        return (
-            "comma-separated" if base in {f"list[{scalar}]" for scalar in _SCALAR_TYPES} else "JSON"
-        )
+        return "comma-separated"
     return None
 
 
 def _list_note(annotation: str) -> Optional[str]:
     """Input-shape cue for typed list options (e.g. ``list[int]`` netuids).
 
-    Structured lists (e.g. stake-position objects) and bare ``list`` fields
-    (pairs like set_children) document their own JSON shape in field help, so
-    they carry no misleading comma-separated cue.
+    Bare ``list`` fields (pairs like set_children) document their own JSON
+    shape in the field help, so they carry no generic note.
     """
-    base = _base_annotation(annotation)
-    if base in {f"list[{scalar}]" for scalar in _SCALAR_TYPES}:
+    if _base_annotation(annotation).startswith("list["):
         return "Comma-separated values (e.g. 1,2) or a JSON list."
     return None
 
@@ -298,17 +292,14 @@ def _make_command(intent_cls: type[Intent]):
                         f"invalid value for `--{f.name.replace('_', '-')}`: {error}"
                     )
                     raise typer.Exit(2)
-        try:
-            args = {
-                f.name: _coerce(str(f.type), kwargs[f.name])
-                for f in specs
-                if kwargs.get(f.name) is not None
-            }
-            intent = intent_cls.from_args(args)
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
-            app_ctx.output.error(f"invalid arguments for `{intent_cls.op}`: {error}")
-            raise typer.Exit(2)
-        app_ctx.submit(intent, proxy_for=proxy_for, force_proxy_type=force_proxy_type)
+        args = {
+            f.name: _coerce(str(f.type), kwargs[f.name])
+            for f in specs
+            if kwargs.get(f.name) is not None
+        }
+        app_ctx.submit(
+            intent_cls.from_args(args), proxy_for=proxy_for, force_proxy_type=force_proxy_type
+        )
 
     # Synthesize the signature Typer introspects: ctx first, then one keyword
     # option per intent field, typed and defaulted from the dataclass.

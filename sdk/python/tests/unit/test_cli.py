@@ -12,6 +12,7 @@ import contextlib
 import json
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 import bittensor.cli.context as cli_context
@@ -99,7 +100,6 @@ class TestOffline:
         assert result.exit_code == 0
         for op in (
             "add-stake",
-            "remove-stakes",
             "transfer",
             "set-weights",
             "create-crowdloan",
@@ -109,28 +109,16 @@ class TestOffline:
     def test_stake_remove_help_keeps_one_command_for_single_and_multiple(self):
         result = invoke("stake", "remove", "--help")
         assert result.exit_code == 0
-        assert "--hotkey" in result.output
-        assert "-in" in result.output
-        assert "--all-hotkeys" in result.output
-        assert "--exclude-hotkeys" in result.output
-        assert "--positions" not in result.output
+        help_text = Text.from_ansi(result.output).plain
+        assert "--hotkey" in help_text
+        assert "-in" in help_text
+        assert "--all-hotkeys" in help_text
+        assert "--exclude-hotkeys" in help_text
+        assert "--positions" not in help_text
 
         group = invoke("stake", "--help")
         assert group.exit_code == 0
         assert "remove-many" not in group.output
-
-    def test_structured_tx_input_reports_a_clean_usage_error(self):
-        result = invoke(
-            "--json",
-            "--yes",
-            "tx",
-            "remove-stakes",
-            "--positions",
-            "validator-a,validator-b",
-        )
-        assert result.exit_code == 2
-        assert "invalid arguments for `remove_stakes`" in result.output
-        assert "Traceback" not in result.output
 
     def test_query_group_help(self):
         result = invoke("query", "--help")
@@ -203,7 +191,7 @@ class TestTransactions:
         assert (call.module, call.function) == ("Balances", "transfer_keep_alive")
         assert call.params["value"] == 1_500_000_000
 
-    @pytest.mark.parametrize("amount_flag", ["--amount-alpha", "--amount"])
+    @pytest.mark.parametrize("amount_flag", ["--amount-alpha", "--amount", "-a"])
     def test_stake_remove_singular_keeps_the_existing_call_shape(
         self, fake: FakeSubstrate, amount_flag: str
     ):
@@ -320,6 +308,58 @@ class TestTransactions:
         call = fake.last_call
         assert (call.module, call.function) == ("Utility", "batch_all")
         assert [child.params["hotkey"] for child in call.params["calls"]] == [BOB, ALICE_HOT]
+
+    def test_stake_remove_without_netuid_uses_every_matching_position(
+        self, fake: FakeSubstrate, wallet_dir: str
+    ):
+        coldkey = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed_runtime(
+            "StakeInfoRuntimeApi",
+            "get_stake_info_for_coldkey",
+            [
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 1_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 2,
+                    "stake": 2_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 2,
+                    "stake": 3_000_000_000,
+                    "is_registered": True,
+                },
+            ],
+        )
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "remove",
+            "--include-hotkeys",
+            f"{BOB},{BOB_HOT}",
+            "--amount",
+            "0.5",
+            "--no-slippage-protection",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        assert [
+            (child.params["hotkey"], child.params["netuid"]) for child in call.params["calls"]
+        ] == [(BOB, 1), (BOB, 2), (BOB_HOT, 2)]
 
     def test_stake_remove_rejects_conflicting_selection_flags(self, fake: FakeSubstrate):
         result = invoke(

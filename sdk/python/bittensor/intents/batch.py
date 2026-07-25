@@ -72,6 +72,15 @@ class Batch(Intent):
         # One extrinsic has one signer: the batch takes on its children's
         # (instance attribute shadowing the ClassVar default).
         self.signer = signers.pop()
+        # Execution safety follows the strictest child. In particular, a
+        # batch of stake swaps must not silently lose the children's default
+        # MEV shielding just because Utility.batch_all is the outer call.
+        self.mev_shield_default = any(  # ty: ignore[invalid-attribute-access]
+            child.mev_shield_default for child in children
+        )
+        self.mev_shield_required = any(  # ty: ignore[invalid-attribute-access]
+            child.mev_shield_required for child in children
+        )
         self.intents = [child.to_dict() for child in children]
         self._children = children
 

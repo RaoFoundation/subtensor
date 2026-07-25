@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
@@ -13,7 +12,6 @@ from ..settings import RAO_PER_TAO
 from ..signing import public_view
 from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
 from .base import Intent
-from .batch import Batch
 from .registry import register
 
 # Default slippage-protection tolerance: the pool price may move at most this
@@ -244,117 +242,6 @@ class RemoveStake(Intent):
         if self.amount_alpha == ALL:
             return ["removes the entire stake from this hotkey on this subnet"]
         return []
-
-
-@register
-@dataclass
-class RemoveStakes(Intent):
-    """Atomically unstake multiple hotkey/subnet positions for one coldkey.
-
-    Each position names its hotkey, subnet, alpha amount (or ``all``), and
-    optional slippage settings. All positions are composed into one
-    ``Utility.batch_all`` extrinsic: either every removal succeeds or the
-    entire batch is rolled back. This replaces the pre-v11
-    ``unstake_multiple`` helper and restores the CLI's multi-hotkey selection,
-    with explicit per-position currency and price protection.
-
-    Python callers pass ordinary `RemoveStake` intents. The named-tool/JSON
-    boundary accepts the equivalent dictionaries and normalizes them before
-    construction. Positions on the same subnet share one pool and execute in
-    list order, so earlier removals can move the price seen by later ones. A
-    hotkey/subnet pair may appear only once.
-    """
-
-    op = "remove_stakes"
-    signer = "coldkey"
-    wraps = (("Utility", "batch_all"),)
-    mev_shield_default = True
-
-    positions: list[RemoveStake] = field(
-        metadata={
-            "help": "JSON array of stake positions. Each object requires "
-            "hotkey_ss58, netuid, and amount_alpha (a number or `all`), and may "
-            "set slippage_protection and rate_tolerance."
-        }
-    )
-
-    def __post_init__(self):
-        if not self.positions:
-            raise ValueError("remove_stakes requires at least one position")
-
-        seen: set[tuple[str, int]] = set()
-        for index, entry in enumerate(self.positions):
-            if not isinstance(entry, RemoveStake):
-                raise TypeError(
-                    "remove_stakes positions must be RemoveStake intents; "
-                    f"position {index} is {type(entry).__name__}"
-                )
-
-            key = (entry.hotkey_ss58, entry.netuid)
-            if key in seen:
-                raise ValueError(
-                    "remove_stakes contains the same hotkey/subnet position twice: "
-                    f"{entry.hotkey_ss58} on netuid {entry.netuid}"
-                )
-            seen.add(key)
-
-        self._batch = Batch(intents=self.positions)
-
-    @classmethod
-    def from_args(cls, args: Mapping[str, Any]) -> "RemoveStakes":
-        unknown = set(args) - {"op", "positions"}
-        if unknown:
-            raise ValueError(f"Unknown arguments for {cls.op}: {sorted(unknown)}")
-        entries = args.get("positions")
-        if not isinstance(entries, list):
-            raise ValueError("remove_stakes requires `positions` as a JSON list")
-
-        positions: list[RemoveStake] = []
-        for index, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                raise TypeError(
-                    "remove_stakes JSON positions must be objects; "
-                    f"position {index} is {type(entry).__name__}"
-                )
-            if not all(isinstance(key, str) for key in entry):
-                raise TypeError(f"remove_stakes position {index} has a non-string field name")
-            position_args = {str(key): value for key, value in entry.items()}
-            try:
-                positions.append(RemoveStake.from_args(position_args))
-            except (TypeError, ValueError) as error:
-                raise ValueError(f"invalid remove_stakes position {index}: {error}") from error
-        return cls(positions=positions)
-
-    @classmethod
-    def json_schema(cls) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "positions": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": RemoveStake.json_schema(),
-                    "description": cls.field_help("positions"),
-                }
-            },
-            "required": ["positions"],
-            "additionalProperties": False,
-        }
-
-    async def build(self, substrate, wallet: Any):
-        return await self._batch.build(substrate, wallet)
-
-    def summary(self) -> str:
-        return f"atomically unstake {len(self.positions)} stake positions"
-
-    async def effects(self, substrate, signer_address: str) -> list[str]:
-        return await self._batch.effects(substrate, signer_address)
-
-    async def warnings(self, substrate, signer_address: str) -> list[str]:
-        return await self._batch.warnings(substrate, signer_address)
-
-    def touches_netuids(self) -> list[int]:
-        return self._batch.touches_netuids()
 
 
 @register

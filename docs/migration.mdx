@@ -348,7 +348,7 @@ a limit price).
 | `unstake(..., safe_unstaking=True)` | `bt.RemoveStakeLimit(...)` |
 | `unstake_all(wallet, netuid, hotkey_ss58)` | `bt.UnstakeAll(hotkey_ss58=...)` / `bt.UnstakeAllAlpha(...)` |
 | `add_stake_multiple` | `bt.Batch(intents=[bt.AddStake(...), ...])` |
-| `unstake_multiple` | `bt.RemoveStakes(positions=[bt.RemoveStake(...), ...])` (atomic) |
+| `unstake_multiple` | `bt.Batch(intents=[bt.RemoveStake(...), ...])` (atomic) |
 | `move_stake(...)` | `bt.MoveStake(origin_hotkey_ss58, origin_netuid, dest_hotkey_ss58, dest_netuid, amount_alpha)` |
 | `swap_stake(...)` | `bt.SwapStake(hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
 | `transfer_stake(...)` | `bt.TransferStake(dest_coldkey_ss58, hotkey_ss58, origin_netuid, dest_netuid, amount_alpha)` |
@@ -671,7 +671,7 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `wallet history` | `wallet history` (works again, mainnet indexer) |
 | `stake add --amount` | `stake add` / `tx add-stake --amount-tao` |
 | `stake remove --amount` | `stake remove` / `tx remove-stake --amount-alpha` (accepts `all`) |
-| `stake remove --include-hotkeys` / `--all-hotkeys` | same flags (now atomic) |
+| `stake remove --include-hotkeys` / `--all-hotkeys` | same flags and cross-subnet default (now atomic) |
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
 | `stake list` / `move` / `transfer` / `swap` | same names |
 | `stake auto` / `set-auto` / `set-claim` / `process-claim` | same names |

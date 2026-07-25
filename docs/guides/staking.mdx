@@ -59,27 +59,28 @@ await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha=
 `"all"` resolves to the full position at build time — only the remove-stake
 variants accept it.
 
-To exit several hotkeys on one subnet, keep using `stake remove` and select
-them with the ordinary staking flags. The amount and slippage settings apply
-to every selected hotkey, and the removals execute atomically:
+To exit several positions, keep using `stake remove` and select hotkeys with
+the ordinary staking flags. The amount and slippage settings apply to every
+selected position, and the removals execute atomically:
 
 ```bash
 btcli stake remove \
   --include-hotkeys validator-a,validator-b \
-  --netuid 1 \
   --amount-alpha all \
   --rate-tolerance 0.1 \
   --dry-run
 ```
 
-Use `--all-hotkeys` to select every non-zero position on the subnet, optionally
-with `--exclude-hotkeys validator-c,validator-d`.
+Omitting `--netuid` selects matching positions on every subnet. Pass
+`--netuid 1` to restrict the batch to one subnet. Use `--all-hotkeys` to select
+every non-zero position, optionally with
+`--exclude-hotkeys validator-c,validator-d`.
 
-For different netuids, amounts, or slippage settings per position, use the
-structured [`remove-stakes`](/docs/tx/remove-stakes) intent:
+For different amounts or slippage settings per position, compose ordinary
+`RemoveStake` intents with the canonical [`Batch`](/docs/tx/batch) intent:
 
 ```python
-intent = bt.RemoveStakes(positions=[
+intent = bt.Batch(intents=[
     bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha="all"),
     bt.RemoveStake(hotkey_ss58="5G...", netuid=2, amount_alpha=25,
                    rate_tolerance=0.1),
@@ -87,10 +88,10 @@ intent = bt.RemoveStakes(positions=[
 await client.execute(intent, wallet)
 ```
 
-This replaces the SDK's pre-v11 `unstake_multiple` helper. Unlike its
-sequence of independent transactions, the new operation is
-all-or-nothing. Positions on the same netuid share one subnet pool and execute
-in list order, so earlier removals can move the price seen by later ones.
+This replaces the SDK's pre-v11 `unstake_multiple` helper. Unlike the old
+sequence of independent transactions, `Batch` is all-or-nothing. Positions on
+the same netuid share one subnet pool and execute in list order, so earlier
+removals can move the price seen by later ones.
 
 To bound the execution price instead of accepting whatever the pool gives, use
 [`add-stake-limit`](/docs/tx/add-stake-limit) /

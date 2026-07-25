@@ -10,9 +10,9 @@ import typer
 from ... import config as cfg
 from ...balance import Balance
 from ...intents import (
+    Batch,
     ClaimRoot,
     RemoveStake,
-    RemoveStakes,
     SetAutoStake,
     SetChildkeyTake,
     SetChildren,
@@ -33,7 +33,7 @@ from ..helpers import (
     netuid_groups,
     split_dust,
 )
-from ..prompt import fill_missing, interactive
+from ..prompt import PromptSpec, fill_missing, interactive
 from ..stake_picker import stake_source_spec
 from ..tx import _parse_money, _resolve_proxy_options, intent_command
 
@@ -47,11 +47,12 @@ PANEL_DELEGATION = "Delegation"
 _NETUID_HELP = "Numeric identifier of the subnet the command operates on."
 _, _, _REMOVE_STAKE_BODY = RemoveStake.describe().partition("\n")
 _REMOVE_STAKE_HELP = (
-    "Unstake alpha from one or more hotkeys back to the coldkey.\n\n"
+    "Unstake one or more alpha positions back to the coldkey.\n\n"
     f"{_REMOVE_STAKE_BODY.strip()}\n\n"
     "Use `--hotkey` for one position, `--include-hotkeys` for a comma-separated "
-    "selection, or `--all-hotkeys` with optional exclusions. Multiple "
-    f"removals execute atomically.\n\nDocs: {tx_docs_url(RemoveStake.op)}"
+    "selection, or `--all-hotkeys` with optional exclusions. Omit `--netuid` "
+    "to unstake matching positions on every subnet. Multiple removals execute "
+    f"atomically.\n\nDocs: {tx_docs_url(RemoveStake.op)}"
 )
 
 # The btcli-familiar verbs, mounted here as aliases of the generated intent
@@ -75,29 +76,64 @@ def _resolve_hotkeys(app_ctx: AppContext, refs: list[str]) -> list[str]:
     return list(dict.fromkeys(address for address in resolved if address is not None))
 
 
-def _all_staked_hotkeys(app_ctx: AppContext, owner: str, netuid: int) -> list[str]:
+def _staked_positions(app_ctx: AppContext, owner: str) -> list[StakePosition]:
     positions = app_ctx.run(lambda client: client.read("stake_for_coldkey", coldkey_ss58=owner))
-    return list(
-        dict.fromkeys(
-            position.hotkey
-            for position in positions
-            if position.netuid == netuid and position.stake.rao > 0
-        )
-    )
+    return [position for position in positions if position.stake.rao > 0]
+
+
+def _selection_owner(app_ctx: AppContext, proxy_for: Optional[str]) -> str:
+    """Coldkey whose live stake is used by the multi-position selectors."""
+    if proxy_for not in (None, "self"):
+        owner = app_ctx.resolve_address("proxy_for", proxy_for)
+    elif app_ctx.uses_external_signer():
+        signer_ref = app_ctx.signer_address or cfg.get("signer_address")
+        if signer_ref:
+            owner = app_ctx.resolve_address("coldkey_ss58", str(signer_ref))
+        elif app_ctx.uses_ledger_signer():
+            owner = app_ctx.ledger_signer().ss58_address
+        elif app_ctx.uses_vault_signer():
+            owner = app_ctx.vault_signer().ss58_address
+        else:
+            app_ctx.output.error(
+                "cannot discover stake positions before selecting the extension account",
+                help="pass --signer-address, --proxy-for, or --netuid with explicit hotkeys",
+            )
+            raise typer.Exit(2)
+    else:
+        owner = app_ctx.resolve_address("coldkey_ss58", None)
+    if owner is None:
+        app_ctx.output.error("could not resolve the coldkey whose stake should be removed")
+        raise typer.Exit(2)
+    return owner
+
+
+def _position_pairs(positions: list[StakePosition], hotkeys: list[str]) -> list[tuple[str, int]]:
+    """Match selected hotkeys to their non-zero live positions, preserving selector order."""
+    return [
+        (hotkey, position.netuid)
+        for hotkey in hotkeys
+        for position in positions
+        if position.hotkey == hotkey
+    ]
 
 
 @app.command("remove", rich_help_panel=PANEL_MOVE, help=_REMOVE_STAKE_HELP)
 @with_tx_globals
 def remove_stake(
     ctx: typer.Context,
-    netuid: int = typer.Option(..., "--netuid", help=RemoveStake.field_help("netuid")),
-    amount_alpha: str = typer.Option(
-        ...,
+    netuid: Optional[int] = typer.Option(
+        None,
+        "--netuid",
+        help="Restrict unstaking to this subnet. Omit it to use every matching staked position.",
+    ),
+    amount_alpha: Optional[str] = typer.Option(
+        None,
         "--amount-alpha",
         "--amount",
+        "-a",
         help=(
             f"{RemoveStake.field_help('amount_alpha')} Amount in the subnet's alpha. "
-            "The same amount is removed from every selected hotkey."
+            "The same amount is removed from every selected position."
         ),
     ),
     hotkey_ss58: Optional[str] = typer.Option(
@@ -113,7 +149,10 @@ def remove_stake(
     all_hotkeys: bool = typer.Option(
         False,
         "--all-hotkeys",
-        help="Unstake from every non-zero position owned by the coldkey on this subnet.",
+        help=(
+            "Unstake from every non-zero position owned by the coldkey, restricted "
+            "to --netuid when provided."
+        ),
     ),
     exclude_hotkeys: Optional[str] = typer.Option(
         None,
@@ -147,10 +186,12 @@ def remove_stake(
 ):
     """Adapt the single-position intent to the familiar multi-selector CLI."""
     app_ctx: AppContext = ctx_of(ctx)
+    included_hotkeys = _hotkey_refs(include_hotkeys)
+    excluded_hotkeys = _hotkey_refs(exclude_hotkeys)
     selected_modes = sum(
         (
             hotkey_ss58 is not None,
-            bool(_hotkey_refs(include_hotkeys)),
+            bool(included_hotkeys),
             all_hotkeys,
         )
     )
@@ -159,63 +200,97 @@ def remove_stake(
             "choose only one of `--hotkey`, `--include-hotkeys`, or `--all-hotkeys`"
         )
         raise typer.Exit(2)
-    if exclude_hotkeys and not all_hotkeys:
+    if excluded_hotkeys and not all_hotkeys:
         app_ctx.output.error("`--exclude-hotkeys` requires `--all-hotkeys`")
         raise typer.Exit(2)
 
+    selection_proxy_for = proxy_for
+    if selection_proxy_for is None:
+        configured_proxy = cfg.get("proxy_for")
+        selection_proxy_for = str(configured_proxy) if configured_proxy else None
+    if (
+        selected_modes == 0
+        and not app_ctx.assume_yes
+        and not app_ctx.uses_external_signer()
+        and interactive(app_ctx)
+    ):
+        values = {
+            "hotkey_ss58": None,
+            "netuid": netuid,
+            "proxy_for": selection_proxy_for,
+        }
+        fill_missing(
+            app_ctx,
+            [stake_source_spec("hotkey_ss58", "netuid")],
+            values,
+        )
+        hotkey_ss58 = values["hotkey_ss58"]
+        netuid = values["netuid"]
+
+    amount_values = {"amount_alpha": amount_alpha}
+    if amount_alpha is None:
+        fill_missing(
+            app_ctx,
+            [
+                PromptSpec(
+                    field="amount_alpha",
+                    flag="--amount-alpha",
+                    help=RemoveStake.field_help("amount_alpha"),
+                    parse=lambda _app_ctx, raw: _parse_money(raw, True),
+                    placeholder="number or all",
+                )
+            ],
+            amount_values,
+        )
+        amount_alpha = amount_values["amount_alpha"]
+
+    assert amount_alpha is not None
     try:
         amount = _parse_money(amount_alpha, True)
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount-alpha`: {error}")
         raise typer.Exit(2)
 
-    raw_proxy_for = proxy_for
     resolved_proxy_for, resolved_proxy_type = _resolve_proxy_options(
         app_ctx, proxy_for, force_proxy_type
     )
-    selection_proxy_for = raw_proxy_for
-    if selection_proxy_for is None:
-        configured_proxy = cfg.get("proxy_for")
-        selection_proxy_for = str(configured_proxy) if configured_proxy else None
-    if all_hotkeys:
-        selection_proxy, _ = _resolve_proxy_options(app_ctx, selection_proxy_for, None)
-        owner = (
-            selection_proxy
-            if selection_proxy not in (None, "self")
-            else app_ctx.resolve_address("coldkey_ss58", None)
-        )
-        if owner is None:
-            app_ctx.output.error("could not resolve the coldkey whose stake should be removed")
-            raise typer.Exit(2)
-        selected = _all_staked_hotkeys(app_ctx, owner, netuid)
-        excluded = set(_resolve_hotkeys(app_ctx, _hotkey_refs(exclude_hotkeys)))
-        selected = [hotkey for hotkey in selected if hotkey not in excluded]
-    elif include_hotkeys:
-        selected = _resolve_hotkeys(app_ctx, _hotkey_refs(include_hotkeys))
-    else:
-        if (
-            hotkey_ss58 is None
-            and not app_ctx.assume_yes
-            and not app_ctx.uses_extension_signer()
-            and interactive(app_ctx)
-        ):
-            values = {
-                "hotkey_ss58": None,
-                "netuid": netuid,
-                "proxy_for": selection_proxy_for,
-            }
-            fill_missing(
-                app_ctx,
-                [stake_source_spec("hotkey_ss58", "netuid")],
-                values,
-            )
-            hotkey_ss58 = values["hotkey_ss58"]
-        resolved = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-        selected = [resolved] if resolved is not None else []
 
-    if not selected:
+    live_positions: Optional[list[StakePosition]] = None
+    if all_hotkeys or netuid is None:
+        owner = _selection_owner(app_ctx, selection_proxy_for)
+        live_positions = _staked_positions(app_ctx, owner)
+
+    selected_pairs: list[tuple[str, int]]
+    if all_hotkeys:
+        assert live_positions is not None
+        excluded = set(_resolve_hotkeys(app_ctx, excluded_hotkeys))
+        selected_pairs = [
+            (position.hotkey, position.netuid)
+            for position in live_positions
+            if position.hotkey not in excluded and (netuid is None or position.netuid == netuid)
+        ]
+    elif included_hotkeys:
+        selected = _resolve_hotkeys(app_ctx, included_hotkeys)
+        if netuid is None:
+            assert live_positions is not None
+            selected_pairs = _position_pairs(live_positions, selected)
+        else:
+            selected_pairs = [(hotkey, netuid) for hotkey in selected]
+    else:
+        resolved = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+        if resolved is None:
+            selected_pairs = []
+        elif netuid is None and live_positions is not None:
+            selected_pairs = _position_pairs(live_positions, [resolved])
+        else:
+            assert netuid is not None
+            selected_pairs = [(resolved, netuid)]
+
+    selected_pairs = list(dict.fromkeys(selected_pairs))
+    if not selected_pairs:
+        where = f" on netuid {netuid}" if netuid is not None else ""
         app_ctx.output.error(
-            f"no selected hotkeys have stake on netuid {netuid}",
+            f"no selected hotkeys have stake{where}",
             help="`btcli stake list` shows every position",
         )
         raise typer.Exit(1)
@@ -223,14 +298,14 @@ def remove_stake(
     removals = [
         RemoveStake(
             hotkey_ss58=hotkey,
-            netuid=netuid,
+            netuid=position_netuid,
             amount_alpha=amount,
             slippage_protection=slippage_protection,
             rate_tolerance=rate_tolerance,
         )
-        for hotkey in selected
+        for hotkey, position_netuid in selected_pairs
     ]
-    intent = removals[0] if len(removals) == 1 else RemoveStakes(positions=removals)
+    intent = removals[0] if len(removals) == 1 else Batch(intents=removals)
     app_ctx.submit(
         intent,
         proxy_for=resolved_proxy_for,
