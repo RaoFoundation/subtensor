@@ -199,3 +199,58 @@ pallets/subtensor/src/tests/claim_root.rs
 - proposed by: w2-src-coinbase
 - status: pending
 
+## fixed -> i32f32_from_f32
+- reason: bare `fixed` collides with countless unrelated hits; this helper is specifically `f32` → epoch `I32F32`.
+- hits:
+```
+pallets/subtensor/src/epoch/math/fixed_conversions.rs
+pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/math.rs
+```
+- proposed by: w2-src-epoch
+- status: pending
+
+## vecdiv -> elementwise_safe_div
+- reason: opaque abbreviation; performs element-wise `safe_div` of two `I32F32` vectors (0 divisor → 0).
+- hits:
+```
+pallets/subtensor/src/epoch/math/vector_ops.rs
+pallets/subtensor/src/tests/math.rs
+```
+- proposed by: w2-src-epoch
+- status: pending
+
+## is_epoch_input_state_consistent -> epoch_keys_have_unique_hotkeys
+- reason: name does not say what is checked (duplicate hotkeys in `Keys`); used from coinbase preflight and tests.
+- hits:
+```
+pallets/subtensor/src/epoch/run_epoch/bonds_ema_liquid_alpha.rs
+pallets/subtensor/src/coinbase/run_coinbase.rs
+pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/coinbase.rs
+```
+- proposed by: w2-src-epoch
+- status: pending
+
+## do_reset_bonds -> reset_bonds_column_for_hotkey
+- reason: `do_` prefix mimics dispatchables; this clears one hotkey column in `Bonds` when bonds-reset is enabled. Hits runtime + tests.
+- hits:
+```
+pallets/subtensor/src/epoch/run_epoch/bonds_ema_liquid_alpha.rs
+runtime/src/lib.rs
+pallets/subtensor/src/tests/epoch.rs
+```
+- proposed by: w2-src-epoch
+- status: pending
+
+## get_weights_sparse -> unnormalized_weights_sparse
+- reason: parallel to in-shard `unnormalized_bonds_sparse`; clarifies storage weights are not row-normalized. Hits tests outside shard.
+- hits:
+```
+pallets/subtensor/src/epoch/run_epoch/weights_bonds_loaders.rs
+pallets/subtensor/src/tests/epoch.rs
+pallets/subtensor/src/tests/mechanism.rs
+pallets/subtensor/src/tests/weights.rs
+```
+- proposed by: w2-src-epoch
+- status: pending
