@@ -386,3 +386,15 @@ runtime/src/transaction_payment_wrapper.rs
 ```
 - proposed by: w2-src-rpc_info
 - status: pending
+
+## extensions/subtensor.rs module -> extensions/transaction_extension.rs
+- reason: module name `subtensor` under `extensions` is redundant with the crate path and hides that the file owns [`SubtensorTransactionExtension`]. Rename would change the rustdoc/SDK path `pallet_subtensor::extensions::subtensor::…`.
+- hits:
+```
+pallets/subtensor/src/extensions/mod.rs
+pallets/subtensor/src/extensions/subtensor.rs
+sdk/python/tests/fixtures/shape_corpus/corpus.json
+```
+- proposed by: w2-src-extensions
+- status: pending
+- note: `SubtensorTransactionExtension` type name and `IDENTIFIER` string stay frozen (extrinsic format / runtime wiring in `runtime/src/lib.rs`, `node/src/benchmarking.rs`, tests).
