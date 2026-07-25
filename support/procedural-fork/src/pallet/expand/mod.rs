@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Codegen for each `#[pallet::*]` part (call, storage, event, error, hooks, …).
+
 mod call;
 mod composite;
 mod config;

@@ -1,9 +1,14 @@
+//! Require every pallet in `construct_runtime!` to declare an explicit index (`= N`).
+//!
+//! Implicit indices shift when pallets are inserted and break storage keys / metadata.
+
 use super::*;
 use proc_macro2::TokenStream as TokenStream2;
 use procedural_fork::exports::construct_runtime::parse::RuntimeDeclaration;
 use quote::ToTokens;
 use syn::{File, visit::Visit};
 
+/// Lint: every pallet entry in `construct_runtime!` must set an explicit `= index`.
 pub struct RequireExplicitPalletIndex;
 
 impl Lint for RequireExplicitPalletIndex {

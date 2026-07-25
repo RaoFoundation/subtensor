@@ -1,6 +1,9 @@
+//! Shared lint trait and `#[allow(unknown_lints)]` opt-out helper for workspace custom lints.
+
 use proc_macro2::TokenTree;
 use syn::{Attribute, File, Meta, MetaList, Path};
 
+/// Aggregate of lint failures for one source file (`Ok(())` means clean).
 pub type Result = core::result::Result<(), Vec<syn::Error>>;
 
 /// A trait that defines custom lints that can be run within our workspace.
@@ -13,8 +16,9 @@ pub trait Lint: Send + Sync {
     fn lint(source: &File) -> Result;
 }
 
-pub fn is_allowed(attibutes: &[Attribute]) -> bool {
-    attibutes.iter().any(|attribute| {
+/// Returns `true` when `#[allow(unknown_lints)]` is present (opt-out used by custom lints).
+pub fn is_allowed(attributes: &[Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
         let Attribute {
             meta:
                 Meta::List(MetaList {

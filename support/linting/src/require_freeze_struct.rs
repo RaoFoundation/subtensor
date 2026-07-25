@@ -1,14 +1,19 @@
+//! Require `#[freeze_struct("…")]` on every struct that derives `Encode` and/or `Decode`.
+//!
+//! Layout hashes catch accidental SCALE field reorder/type changes that corrupt storage.
+
 use super::*;
 use syn::{
     Attribute, File, ItemStruct, Meta, MetaList, Path, Token, parse_quote, punctuated::Punctuated,
     visit::Visit,
 };
 
+/// Lint: structs deriving `Encode`/`Decode` must also carry `#[freeze_struct("hash")]`.
 pub struct RequireFreezeStruct;
 
 impl Lint for RequireFreezeStruct {
     fn lint(source: &File) -> Result {
-        let mut visitor = EncodeDecodeVisitor::default();
+        let mut visitor = FreezeStructEncodeDecodeVisitor::default();
 
         visitor.visit_file(source);
 
@@ -21,14 +26,14 @@ impl Lint for RequireFreezeStruct {
 }
 
 #[derive(Default)]
-struct EncodeDecodeVisitor {
+struct FreezeStructEncodeDecodeVisitor {
     errors: Vec<syn::Error>,
 }
 
-impl<'ast> Visit<'ast> for EncodeDecodeVisitor {
+impl<'ast> Visit<'ast> for FreezeStructEncodeDecodeVisitor {
     fn visit_item_struct(&mut self, node: &'ast ItemStruct) {
         let has_encode_decode = node.attrs.iter().any(is_derive_encode_or_decode);
-        let has_freeze_struct = node.attrs.iter().any(is_freeze_struct);
+        let has_freeze_struct = node.attrs.iter().any(attr_is_freeze_struct);
 
         if has_encode_decode && !has_freeze_struct {
             self.errors.push(syn::Error::new(
@@ -41,7 +46,8 @@ impl<'ast> Visit<'ast> for EncodeDecodeVisitor {
     }
 }
 
-fn is_freeze_struct(attr: &Attribute) -> bool {
+/// True when the attribute is `#[freeze_struct("…")]` with a non-empty hash argument.
+fn attr_is_freeze_struct(attr: &Attribute) -> bool {
     if let Meta::List(meta_list) = &attr.meta {
         let Some(seg) = meta_list.path.segments.last() else {
             return false;
@@ -73,7 +79,7 @@ mod tests {
 
     fn lint_struct(input: &str) -> Result {
         let item_struct: ItemStruct = syn::parse_str(input).expect("should only use on a struct");
-        let mut visitor = EncodeDecodeVisitor::default();
+        let mut visitor = FreezeStructEncodeDecodeVisitor::default();
         visitor.visit_item_struct(&item_struct);
         if !visitor.errors.is_empty() {
             return Err(visitor.errors);

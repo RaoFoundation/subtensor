@@ -1,3 +1,9 @@
+//! Custom workspace lints for Subtensor (run from repo-root `build.rs`).
+//!
+//! Each lint implements [`Lint`] and is invoked over parsed Rust sources. Lint type names
+//! (`ForbidAsPrimitiveConversion`, `RequireFreezeStruct`, …) are referenced by string from
+//! `build.rs` — rename them only with a matching update there.
+
 pub mod lint;
 pub use lint::*;
 

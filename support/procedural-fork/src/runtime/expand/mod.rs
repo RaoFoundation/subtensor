@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Expand `#[frame_support::runtime]` into pallet wiring and derived runtime enums.
+
 use super::parse::runtime_types::RuntimeType;
 use crate::{
     construct_runtime::{

@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+//! Expand `construct_runtime!` into outer enums, metadata, origins, and related runtime glue.
+
 mod call;
 pub mod composite_helper;
 mod config;
