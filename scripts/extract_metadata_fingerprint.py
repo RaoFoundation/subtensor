@@ -238,17 +238,21 @@ def collect_construct_runtime() -> list[str]:
 
 
 def collect_precompiles() -> list[str]:
+    """Collect precompile INDEX values and Solidity selectors without source paths.
+
+    Paths are omitted so `foo.rs` → `foo/mod.rs` file splits do not change the
+    fingerprint when INDEX / `#[precompile::public]` selectors are unchanged.
+    """
     items: list[str] = []
     pre_root = ROOT / "precompiles/src"
     if not pre_root.exists():
         return items
     for path in sorted(pre_root.rglob("*.rs")):
         text = strip_line_docs(read(path))
-        rel = path.relative_to(ROOT).as_posix()
         for a, b in PRECOMPILE_INDEX_RE.findall(text):
-            items.append(f"precompile_index\t{rel}\t{a or b}")
+            items.append(f"precompile_index\t{a or b}")
         for sig in SOLIDITY_PUBLIC_RE.findall(text):
-            items.append(f"precompile_selector\t{rel}\t{sig}")
+            items.append(f"precompile_selector\t{sig}")
     return sorted(items)
 
 
