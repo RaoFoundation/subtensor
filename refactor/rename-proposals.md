@@ -33,3 +33,17 @@ support/linting/src/require_extrinsic_benchmarks.rs
 ```
 - proposed by: w1-utility
 - status: pending
+
+## maybe_initialize_palswap -> maybe_initialize_swap_balancer
+- reason: public helper that lazily creates per-netuid `SwapBalancer` / `PalSwapInitialized`; "palswap" is an internal nickname that does not match glossary/search terms (`balancer`, `swap`). Hits outside w1-swap in subtensor coinbase tests.
+- hits:
+```
+pallets/swap/src/pallet/impls.rs
+pallets/swap/src/pallet/migrations/migrate_swapv3_to_balancer.rs
+pallets/swap/src/pallet/tests/swap_initialization.rs
+pallets/swap/src/pallet/tests/clear_protocol_liquidity.rs
+pallets/swap/src/pallet/tests/swap_execution.rs
+pallets/subtensor/src/tests/coinbase.rs
+```
+- proposed by: w1-swap
+- status: pending

@@ -1,4 +1,7 @@
-//! RPC interface for the Swap pallet
+//! JSON-RPC surface for TAO↔alpha price quotes and simulated swaps.
+//!
+//! Method name strings (`swap_currentAlphaPrice`, …) are frozen wire IDs — do not rename.
+//! Handlers forward to [`SwapRuntimeApi`]; `sim_swap_*` returns SCALE-encoded [`SimSwapResult`].
 
 use codec::Encode;
 use std::sync::Arc;
@@ -13,14 +16,20 @@ use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
-pub use pallet_subtensor_swap_runtime_api::{SubnetPrice, SwapRuntimeApi};
+pub use pallet_subtensor_swap_runtime_api::{SimSwapResult, SubnetPrice, SwapRuntimeApi};
 
+/// Client/server RPC trait for the swap pallet.
+///
+/// `#[method(name = "…")]` strings are part of the public node API.
 #[rpc(client, server)]
 pub trait SwapRpcApi<BlockHash> {
+    /// Alpha price for `netuid` at `at` (or best block), scaled by `1e9`.
     #[method(name = "swap_currentAlphaPrice")]
     fn current_alpha_price(&self, netuid: NetUid, at: Option<BlockHash>) -> RpcResult<u64>;
+    /// Alpha prices for all dynamic subnets at `at` (or best block).
     #[method(name = "swap_currentAlphaPriceAll")]
     fn current_alpha_price_all(&self, at: Option<BlockHash>) -> RpcResult<Vec<SubnetPrice>>;
+    /// Dry-run TAO→alpha swap; returns SCALE-encoded [`SimSwapResult`] bytes.
     #[method(name = "swap_simSwapTaoForAlpha")]
     fn sim_swap_tao_for_alpha(
         &self,
@@ -28,6 +37,7 @@ pub trait SwapRpcApi<BlockHash> {
         tao: TaoBalance,
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
+    /// Dry-run alpha→TAO swap; returns SCALE-encoded [`SimSwapResult`] bytes.
     #[method(name = "swap_simSwapAlphaForTao")]
     fn sim_swap_alpha_for_tao(
         &self,

@@ -1,3 +1,5 @@
+//! Test runtime and mocked TAO/alpha reserves for `pallet-subtensor-swap` unit tests.
+
 #![allow(clippy::unwrap_used)]
 
 use core::num::NonZeroU64;

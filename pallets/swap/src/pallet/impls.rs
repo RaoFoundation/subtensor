@@ -1,3 +1,5 @@
+//! Pallet impls: price, swap execution, protocol liquidity, and [`SwapHandler`] wiring.
+
 use frame_support::storage::{TransactionOutcome, transactional};
 use frame_support::{
     ensure,
@@ -19,6 +21,9 @@ use super::swap_step::{BasicSwapStep, MAX_SWAP_INPUT_RESERVE_MULTIPLIER, SwapSte
 use crate::{pallet::Balancer, pallet::balancer::BalancerError};
 
 impl<T: Config> Pallet<T> {
+    /// Current alpha price for `netuid` from balancer weights × reserves (`mechanism == 1`).
+    ///
+    /// Static / unknown mechanisms return `1`; zero alpha reserve returns `0`.
     pub fn current_price(netuid: NetUid) -> U64F64 {
         match T::SubnetInfo::mechanism(netuid.into()) {
             1 => {
@@ -35,7 +40,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // initializes pal-swap (balancer) for a subnet if needed
+    /// Lazily initialize [`SwapBalancer`] / [`PalSwapInitialized`] for `netuid` if unset.
+    ///
+    /// With `Some(price)`, derives quote weight from reserves + price; with `None`, uses 0.5/0.5.
+    /// Fails with [`Error::ReservesOutOfBalance`] when price-init is impossible (e.g. empty pool).
     pub fn maybe_initialize_palswap(
         netuid: NetUid,
         maybe_price: Option<U64F64>,
@@ -166,6 +174,7 @@ impl<T: Config> Pallet<T> {
         (TaoBalance::ZERO, AlphaBalance::ZERO)
     }
 
+    /// Try cloning `balancer` and applying a price-preserving weight update; `None` if out of range.
     fn try_update_balancer(
         balancer: &Balancer,
         tao_reserve: TaoBalance,
@@ -251,6 +260,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Reject swaps whose post-fee input exceeds `MAX_SWAP_INPUT_RESERVE_MULTIPLIER` × input reserve.
     fn ensure_swap_input_within_reserve_limit<Order>(
         netuid: NetUid,
         amount: Order::PaidIn,
@@ -268,6 +278,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Core swap path: reserve checks, lazy init, limit-price check, then [`BasicSwapStep::execute`].
     fn swap_inner<Order>(
         netuid: NetUid,
         order: Order,
@@ -346,10 +357,12 @@ impl<T: Config> Pallet<T> {
         T::ProtocolId::get().into_account_truncating()
     }
 
+    /// Minimum allowable alpha price used as a default sell-side limit (raw token units).
     pub(crate) fn min_price_inner<C: Token>() -> C {
         u64::from(1_000_u64).into()
     }
 
+    /// Maximum allowable alpha price used as a default buy-side limit (raw token units).
     pub(crate) fn max_price_inner<C: Token>() -> C {
         u64::from(1_000_000_000_000_000_u64).into()
     }
