@@ -104,4 +104,23 @@ jobs:
           set -euo pipefail
           actual=$(docker image inspect subtensor-ci:amd64 --format '{{.Architecture}}')
           test "$actual" = amd64
+          expected_cmd='["--base-path","/data","--chain","/home/subtensor/chainspecs/raw_spec_testfinney.json"]'
+          grep -Fqx "CMD $expected_cmd" Dockerfile
+          grep -Fqx "CMD $expected_cmd" Dockerfile.prebuilt
+          actual_cmd=$(docker image inspect subtensor-ci:amd64 --format '{{json .Config.Cmd}}')
+          test "$actual_cmd" = "$expected_cmd"
           docker run --rm --platform linux/amd64 subtensor-ci:amd64 --help > /dev/null
+
+          generated_spec=$(mktemp)
+          docker run --rm --platform linux/amd64 \
+            --entrypoint node-subtensor \
+            subtensor-ci:amd64 \
+            build-spec --raw \
+            --chain /home/subtensor/chainspecs/raw_spec_testfinney.json \
+            > "$generated_spec"
+          jq -e \
+            '.id == "bittensor" and .protocolId == "bittensor-testnet"' \
+            "$generated_spec" > /dev/null
+          cmp \
+            <(jq -cS '.genesis' "$generated_spec") \
+            <(jq -cS '.genesis' chainspecs/raw_spec_testfinney.json)

@@ -75,7 +75,7 @@ EXPOSE 30333 9933 9944
 # in the script
 USER root
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--base-path", "/data"]
+CMD ["--base-path","/data","--chain","/home/subtensor/chainspecs/raw_spec_testfinney.json"]
 
 ###############################################################################
 # ---------- 4. Local build stage --------------------------------------------

@@ -76,7 +76,9 @@ of pulling, uncomment the `build:` block in the compose file — it builds the
 
 The container starts as root only to fix ownership of the data directory,
 then drops to the unprivileged `subtensor` user (UID 10001) via `gosu` — see
-`scripts/docker_entrypoint.sh`.
+`scripts/docker_entrypoint.sh`. The production image's default command selects
+its bundled `chainspecs/raw_spec_testfinney.json`. If you override the container
+command, pass `--chain` explicitly.
 
 ## Run from source
 
