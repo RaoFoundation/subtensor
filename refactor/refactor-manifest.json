@@ -851,10 +851,20 @@
       "id": "w2-test-weights",
       "wave": 2,
       "task": "split-and-name",
-      "status": "pending",
+      "status": "done",
       "notes": "Split ~6248-line test file into concept-named modules under tests/weights/",
       "files": [
-        "pallets/subtensor/src/tests/weights.rs"
+        "pallets/subtensor/src/tests/weights/mod.rs",
+        "pallets/subtensor/src/tests/weights/helpers.rs",
+        "pallets/subtensor/src/tests/weights/set_weights.rs",
+        "pallets/subtensor/src/tests/weights/weight_checks.rs",
+        "pallets/subtensor/src/tests/weights/commit_reveal.rs",
+        "pallets/subtensor/src/tests/weights/commit_reveal_timing.rs",
+        "pallets/subtensor/src/tests/weights/batch_reveal.rs",
+        "pallets/subtensor/src/tests/weights/timelocked_commit.rs",
+        "pallets/subtensor/src/tests/weights/timelocked_reveal.rs",
+        "pallets/subtensor/src/tests/weights/timelocked_reveal_hotkey.rs",
+        "pallets/subtensor/src/tests/weights/owner_permit.rs"
       ]
     },
     {
